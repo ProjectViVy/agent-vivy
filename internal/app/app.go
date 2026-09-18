@@ -251,28 +251,32 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 
-	bundlePath := func(name string) string {
-		return filepath.Join(cfg.Providers.BundleDir, name+".yaml")
-	}
-	deepseekBundle, err := provider.LoadBundle(bundlePath("deepseek"))
+	// Provider metadata is part of the binary: there is no bundle directory,
+	// no working-directory dependency, and nothing a running instance can be
+	// pointed at (PROV-P1, decision D3). The embedded data is reconciled
+	// against the sealed adapter set before anything can use it (D15).
+	vendors, err := provider.LoadEmbedded()
 	if err != nil {
 		_ = backend.Close()
-		return nil, fmt.Errorf("app: load deepseek bundle: %w", err)
+		return nil, fmt.Errorf("app: load embedded provider data: %w", err)
 	}
-	openaiBundle, err := provider.LoadBundle(bundlePath("openai"))
-	if err != nil {
+	if err := provider.ReconcileAdapters(vendors, provider.AdapterFamilies()); err != nil {
 		_ = backend.Close()
-		return nil, fmt.Errorf("app: load openai bundle: %w", err)
+		return nil, fmt.Errorf("app: provider data does not match the sealed adapter set: %w", err)
 	}
-	anthropicBundle, err := provider.LoadBundle(bundlePath("anthropic"))
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
-	}
-	catalog := provider.NewCatalog(deepseekBundle, openaiBundle, anthropicBundle)
+	catalog := provider.NewCatalog(vendors...)
 	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
+	}
+	// The Settings/TUI pre-baked catalog carries exactly the vendors the
+	// compiled Generation can execute, so this migration changes no payload
+	// byte. PROV-P4 serves the whole embedded catalog here instead.
+	executableVendors := make([]provider.Vendor, 0, len(compiledProfiles))
+	for _, profile := range compiledProfiles {
+		if vendor, ok := catalog.Vendor(profile.ID); ok {
+			executableVendors = append(executableVendors, vendor)
+		}
 	}
 	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
 		compiledProfiles,
@@ -823,10 +827,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if exeErr != nil {
 		executable = ""
 	}
-	bundleDir := cfg.Providers.BundleDir
-	if abs, err := filepath.Abs(bundleDir); err == nil {
-		bundleDir = abs
-	}
 	evalRunner := eval.NewRunner(eval.Runner{
 		Studio:     studioSvc,
 		Executable: executable,
@@ -835,7 +835,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			ProductionSQLite:    cfg.Storage.SQLite.Path,
 			ProductionWorkspace: cfg.Runtime.WorkspaceRoot,
 			ProductionListen:    cfg.Server.Addr,
-			BundleDir:           bundleDir,
 		},
 	})
 	fileVersions, _ := backend.(storage.ModifiedFileStore)
@@ -865,7 +864,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		SealedGeneration: presentation.SealedGeneration,
 		ConfigProvider:   configProvider,
 		ConfigModel:      configModel,
-		ProviderBundles:  []provider.Bundle{deepseekBundle, openaiBundle, anthropicBundle},
+		ProviderVendors:  executableVendors,
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
 			return modelHost.Statuses(current.Provider, current.Ready)

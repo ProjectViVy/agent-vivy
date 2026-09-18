@@ -53,7 +53,6 @@ storage:
     path: "tmp/vivy.db"
 providers:
   active: deepseek
-  bundle_dir: fixtures/provider
   deepseek:
     env_key: DEEPSEEK_API_KEY
     default_model: deepseek-flash
@@ -541,8 +540,10 @@ func TestDockerPackagingContracts(t *testing.T) {
 	if !strings.Contains(df, "VIVY_ADDR=0.0.0.0:8787") {
 		t.Fatal("image must listen on 0.0.0.0:8787")
 	}
-	if !strings.Contains(df, "fixtures/provider") {
-		t.Fatal("image must include provider fixtures")
+	// Provider metadata is embedded in the binary since PROV-P1: the image must
+	// not carry a provider fixture directory.
+	if strings.Contains(df, "fixtures/provider") {
+		t.Fatal("provider data is embedded; the image must not copy fixtures")
 	}
 }
 

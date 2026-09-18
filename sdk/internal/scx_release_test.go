@@ -68,7 +68,6 @@ ui:
 	candidate := pack("candidate", "scx")
 	probe, err := eval.Launch(ctx, eval.LaunchRequest{
 		Executable: candidate.Binary, EvalRoot: filepath.Join(root, "candidate-eval"), Timeout: 60 * time.Second,
-		Isolation: eval.Isolation{BundleDir: filepath.Join("..", "..", "fixtures", "provider")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +171,6 @@ ui:
 	}
 	nextLaunch, err := eval.Launch(ctx, eval.LaunchRequest{
 		Executable: filepath.Join(daily, "vivy.exe"), EvalRoot: filepath.Join(root, "rollback-eval"), Timeout: 60 * time.Second,
-		Isolation: eval.Isolation{BundleDir: filepath.Join("..", "..", "fixtures", "provider")},
 	})
 	if err != nil || nextLaunch.Verdict != domain.EvalMixed {
 		t.Fatalf("restored Generation did not boot on next launch: verdict=%s error=%v", nextLaunch.Verdict, err)

@@ -112,9 +112,12 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
-	// ProviderBundles is the redacted pre-baked model catalog loaded by the
-	// composition root. It stays separate from editable registry entries.
-	ProviderBundles []provider.Bundle
+	// ProviderVendors is the redacted pre-baked model catalog loaded by the
+	// composition root: the embedded vendors the compiled Generation can
+	// execute. It stays separate from editable registry entries. PROV-P4
+	// replaces this with the full embedded catalog as the single data source
+	// for the UI.
+	ProviderVendors []provider.Vendor
 	// ProviderProfileStatuses projects the compiled Generation's ModelHost
 	// state without Secret references or executable factories. Nil preserves
 	// compatibility for control-plane compositions without a ModelHost.
@@ -4460,15 +4463,19 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	for _, e := range s.Providers {
 		entries = append(entries, toProviderEntryResult(e))
 	}
-	bundles := make([]providerEntryResult, 0, len(h.deps.ProviderBundles))
-	for _, bundle := range h.deps.ProviderBundles {
-		models := append([]string(nil), bundle.Models...)
+	bundles := make([]providerEntryResult, 0, len(h.deps.ProviderVendors))
+	for _, vendor := range h.deps.ProviderVendors {
+		endpoint, ok := vendor.DefaultEndpoint()
+		if !ok {
+			continue
+		}
+		models := endpoint.ModelIDs()
 		if models == nil {
 			models = []string{}
 		}
 		bundles = append(bundles, providerEntryResult{
-			ID: "bundle:" + bundle.Name, DisplayName: bundle.DisplayName,
-			Bundle: bundle.Name, DefaultModel: bundle.DefaultModel, Models: models,
+			ID: "bundle:" + vendor.Name, DisplayName: vendor.DisplayName,
+			Bundle: vendor.Name, DefaultModel: endpoint.DefaultModel, Models: models,
 		})
 	}
 	activeProvider, activeModel, activeBaseURL := s.Provider, s.DefaultModel, s.BaseURL
@@ -4602,11 +4609,15 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 				}
 			}
 			if params.BaseURL == "" {
-				for _, bundle := range h.deps.ProviderBundles {
-					if bundle.Name != params.Provider {
+				for _, vendor := range h.deps.ProviderVendors {
+					if vendor.Name != params.Provider {
 						continue
 					}
-					for _, modelID := range bundle.Models {
+					endpoint, ok := vendor.DefaultEndpoint()
+					if !ok {
+						continue
+					}
+					for _, modelID := range endpoint.ModelIDs() {
 						if modelID == params.Model {
 							allowed = true
 							break

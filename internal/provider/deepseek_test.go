@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
@@ -17,44 +15,8 @@ import (
 	"agent-vivy/sdk/port/providerprofile"
 )
 
-func TestLoadBundleDeepSeekFixture(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "deepseek.yaml"))
-	if err != nil {
-		t.Fatalf("load deepseek bundle: %v", err)
-	}
-	if b.Name != "deepseek" || b.APIType != "openai" {
-		t.Fatalf("name/api_type = %s/%s, want deepseek/openai", b.Name, b.APIType)
-	}
-	if b.EnvKey != "DEEPSEEK_API_KEY" {
-		t.Fatalf("env_key = %q, want DEEPSEEK_API_KEY", b.EnvKey)
-	}
-	if b.DefaultModel != "deepseek-flash" || b.DefaultAPIBase != "https://api.deepseek.com" {
-		t.Fatalf("defaults = %q/%q, want deepseek-flash/https://api.deepseek.com", b.DefaultModel, b.DefaultAPIBase)
-	}
-	if b.Backend != BackendEinoOpenAI {
-		t.Fatalf("backend = %q, want %s", b.Backend, BackendEinoOpenAI)
-	}
-	if len(b.Models) != 6 {
-		t.Fatalf("models = %d entries, want 6", len(b.Models))
-	}
-	assertProvenance(t, b, "deepseek")
-}
-
-func newDeepSeekTestBundle(baseURL string) Bundle {
-	return Bundle{
-		Name: "deepseek", APIType: "openai", EnvKey: "DEEPSEEK_API_KEY",
-		DisplayName: "DeepSeek", DefaultModel: "deepseek-flash", DefaultAPIBase: baseURL,
-		Backend: BackendEinoOpenAI, Models: []string{"deepseek-flash", "deepseek-chat"},
-		Provenance: Provenance{Source: "test", Entry: "deepseek", DerivedAt: "2026-09-16"},
-	}
-}
-
 func TestDeepSeekRefKeyMissing(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "deepseek.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	ref, err := NewCatalog(b).For("deepseek")
+	ref, err := NewCatalog(testDeepSeekVendor("https://api.deepseek.com")).For("deepseek")
 	if err != nil {
 		t.Fatalf("catalog deepseek: %v", err)
 	}
@@ -68,16 +30,12 @@ func TestDeepSeekRefKeyMissing(t *testing.T) {
 	}
 }
 
-// TestDeepSeekModelInfoMetadata pins the D9 reference metadata for the
+// TestDeepSeekModelInfoMetadata pins the reference metadata shape for the
 // default provider: deepseek-flash carries the published V4.1-Flash numbers
 // and thinking support; deepseek-chat stays a non-thinking row; unknown ids
 // remain all-zero (unknown, never free).
 func TestDeepSeekModelInfoMetadata(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "deepseek.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	ref, err := NewCatalog(b).For("deepseek")
+	ref, err := NewCatalog(testDeepSeekVendor("https://api.deepseek.com")).For("deepseek")
 	if err != nil {
 		t.Fatalf("catalog deepseek: %v", err)
 	}
@@ -115,11 +73,12 @@ func TestDeepSeekModelInfoMetadata(t *testing.T) {
 // every thinking mode: "auto" and "on" send the documented canonical request
 // (thinking enabled + reasoning_effort high), "off" disables thinking, and
 // the raw model id always crosses the wire verbatim. Non-thinking models and
-// non-deepseek OpenAI-compatible bundles never receive the fields.
+// other OpenAI-compatible vendors never receive the fields, because the
+// deepseek-thinking capability is declared per endpoint.
 func TestDeepSeekThinkingRequest(t *testing.T) {
 	cases := []struct {
 		name             string
-		bundle           Bundle
+		vendor           Vendor
 		model            string
 		mode             domain.ThinkingMode
 		wantModel        string
@@ -143,7 +102,7 @@ func TestDeepSeekThinkingRequest(t *testing.T) {
 			wantModel: "deepseek-chat", wantThinkingType: "", wantEffort: "",
 		},
 		{
-			name: "openai gateway requests stay untouched", bundle: newOpenAITestBundle(""), model: "gpt-4o", mode: domain.ThinkingModeOn,
+			name: "openai gateway requests stay untouched", vendor: testOpenAIVendor(""), model: "gpt-4o", mode: domain.ThinkingModeOn,
 			wantModel: "gpt-4o", wantThinkingType: "", wantEffort: "",
 		},
 	}
@@ -166,15 +125,15 @@ func TestDeepSeekThinkingRequest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			bundle := tc.bundle
-			if bundle.Name == "" {
-				bundle = newDeepSeekTestBundle(server.URL)
+			vendor := tc.vendor
+			if vendor.Name == "" {
+				vendor = testDeepSeekVendor(server.URL)
 			}
-			profile := ProfileFromBundle(bundle)
+			profile := testProfile(t, vendor)
 			profile.EndpointClass = providerprofile.EndpointGateway
 			host := routedHost(t, profile)
-			cm := NewResolvingChatModel(host, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-				Provider: bundle.Name, Model: tc.model, BaseURL: server.URL,
+			cm := NewResolvingChatModel(host, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+				Provider: vendor.Name, Model: tc.model, BaseURL: server.URL,
 				APIKey: "secret", Ready: true,
 			}})
 			ctx := domain.WithThinkingMode(context.Background(), tc.mode)
@@ -198,18 +157,5 @@ func TestDeepSeekThinkingRequest(t *testing.T) {
 				t.Fatalf("outbound path = %q, want /chat/completions", outboundPath)
 			}
 		})
-	}
-}
-
-// TestDeepSeekBaseURLPath asserts the configured base URL is exactly the
-// documented DeepSeek host with no /v1 segment; the resolved request path is
-// asserted independently by TestDeepSeekThinkingRequest.
-func TestDeepSeekBaseURLPath(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "deepseek.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	if !strings.HasSuffix(b.DefaultAPIBase, "api.deepseek.com") || strings.Contains(b.DefaultAPIBase, "/v1") {
-		t.Fatalf("default_api_base = %q, want https://api.deepseek.com (no /v1)", b.DefaultAPIBase)
 	}
 }

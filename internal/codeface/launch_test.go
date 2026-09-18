@@ -28,7 +28,6 @@ func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 	cfg.Storage.DataDir = shared
 	cfg.Storage.SQLite.Path = filepath.Join(shared, "web.db")
 	cfg.Runtime.SkillsRoot = filepath.Join(shared, "skills")
-	cfg.Providers.BundleDir = filepath.Join("..", "..", "fixtures", "provider")
 
 	first, err := Prepare(cfg, project)
 	if err != nil {
@@ -67,7 +66,6 @@ func TestCodeLaunchSettingsLocaleUsesSharedPath(t *testing.T) {
 	cfg.Storage.DataDir = shared
 	cfg.Storage.SQLite.Path = filepath.Join(shared, "web.db")
 	cfg.Runtime.SkillsRoot = filepath.Join(shared, "skills")
-	cfg.Providers.BundleDir = filepath.Join("..", "..", "fixtures", "provider")
 	prepared, err := Prepare(cfg, t.TempDir())
 	if err != nil {
 		t.Fatal(err)

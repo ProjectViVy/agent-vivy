@@ -252,6 +252,73 @@ Because `PROV-P3` changes the meaning of stored values, the safe landing order i
 `P1 → P2 → P3 → P4 → P5` on one branch, landed as one merge. Splitting the merge
 across a release boundary requires the alias read path to ship first.
 
+---
+
+## 7. As-built record (`PROV-P1`)
+
+This section supersedes the corresponding rows of §1.2–§1.7 and §4 where they
+disagree. It was written while landing the phase, from the actual diff.
+
+### 7.1 Sites the plan inventory missed
+
+Each of these broke the build or the tests during the phase and is now fixed.
+
+| Site | Why the inventory missed it |
+|---|---|
+| `internal/studiocore/service.go:76-81` (`opt.Isolation.BundleDir` default pointing at `<worktree>/fixtures/provider`) | §1.3 covers `internal/eval` but not its Studio caller. |
+| `internal/studiocore/service_test.go:161-167` + the local `fixtureBundle` helper (`:440`) | same gap on the test side. |
+| `internal/app/app.go` eval runner construction | §1.3 lists the `Isolation` struct but not the composition root that fills it. |
+| `internal/eval/runner_test.go:123-128` | §1.7 lists `isolator_test.go` only. |
+| `internal/app/{tokenstats_smoke,realsmoke,rpc_route,shutdown,facehost}_test.go` | §1.7 names the group but the phase file list omitted it. `facehost_test.go` additionally copied all four fixture files into a temp `bundles/` directory per test; that whole helper is gone. |
+| `sdk/internal/removal_conformance_test.go:34`, `sdk/internal/scx_release_test.go:71,175` | `sdk/` is inside the main Go module and consumes `eval.Isolation` directly. |
+| `internal/codeface/launch_test.go:31,70` | sets `cfg.Providers.BundleDir` for the shared-settings tests. |
+| `internal/config/config_test.go:544` | asserted the Dockerfile **must** contain `fixtures/provider`; the assertion is now inverted (the image must not copy fixtures). |
+| `ui/e2e/global-setup.ts:16-24` | writes the Playwright child config; it emitted `bundle_dir`, which strict config parsing would now reject. |
+| `docs/TODO.md` `DEEPSEEK-REASONING-CONTENT` relevant-paths cell | live backlog row pointing at `fixtures/provider/deepseek.yaml`. |
+
+`internal/provider/secret_audit_test.go` was listed in §1.7 but needed no change:
+it never references a bundle or a fixture path.
+
+Historical records were deliberately not rewritten: `docs/logs/**`,
+`docs/research/**`, `docs/COMPLETE.MD` and the older `docs/plans/**` describe what
+shipped at their date.
+
+### 7.2 Inventory corrections
+
+| Item | Plan | As built | Evidence |
+|---|---|---|---|
+| Vendor count | 46 (47 − `custom`) | **45** (47 − `custom` − `cherryin`) | `cherryin` declares `models: []` and no `default_model` in both derived sources, so it cannot form a valid endpoint; it stays reachable as a user-defined custom provider. Ledger `D13` amended. |
+| Endpoint count | not stated | 47 | `LoadEmbedded` assertion. |
+| Model entries | not stated | 168 | `LoadEmbedded` assertion. |
+| Identifier rules (§3.4 rules 1–2, `DESIGN.md`) | `^[a-z][a-z0-9_-]*$`, `^[A-Z][A-Z0-9_]*$` | `^[a-z0-9][a-z0-9_-]*$`, `^[A-Z0-9][A-Z0-9_]*$` | The upstream registry contains the vendor `302ai` and the credential name `302AI_API_KEY`. Rejecting them would have meant rewriting real identifiers. `internal/config`'s `ValidEnvKey` and `internal/app/settings`' `auth_env` pattern were relaxed to the identical rule, because the credential module validates a Profile's `SecretRefs` with `ValidEnvKey`. |
+| `Catalog.EndpointForVendor` | scheduled in `PROV-P3` | introduced in P1 | `thinkingOptions` must resolve the endpoint (adapter + capabilities) rather than switch on a vendor name; an undeclared `base_url` (a user proxy) falls back to the vendor's default endpoint, preserving pre-P1 behaviour. |
+| `Deps.ProviderBundles []provider.Bundle` | renamed by `PROV-P4` | renamed to `ProviderVendors []provider.Vendor` in P1 | The type it carried no longer exists. P1 fills it with exactly the compiled Generation's vendors, so the `settings/providers` payload is byte-identical; `PROV-P4` widens it to the whole embedded catalog. |
+| `ProfileFromBundle(Bundle)` | deleted, replaced by an endpoint→Profile projection | `ProfileFromEndpoint(Vendor, Endpoint)` | The projection needs both layers: the endpoint supplies adapter/models/caching, the vendor supplies id/`env_key`. |
+| RPC `bundles` array consumers | `PROV-P4` spec claims "consumed by nobody" | **consumed** by `sdk/tui/live/rpc.go:102-153` | `sdk` is in the same module; P1 keeps the payload shape, and `PROV-P4` must update the TUI in the same change. |
+
+### 7.3 New files (the write point, ledger `D1`/`D2`)
+
+| File | Contents |
+|---|---|
+| `internal/provider/adapters.go` | the three sealed adapter names, families, the `deepseek-thinking` capability and its legality per adapter |
+| `internal/provider/vendor.go` | `Vendor` / `Endpoint` / `Model` / `Provenance`, the strict parser and all validation rules |
+| `internal/provider/embed.go` | `//go:embed data/*.yaml`, `EmbeddedDataFiles`, `LoadEmbedded` |
+| `internal/provider/reconcile.go` | the bidirectional embedded-data ↔ sealed-adapter gate (ledger `D15`) |
+| `internal/provider/data/vendors.yaml` | the 45-vendor catalog |
+| `internal/provider/data/provider.schema.json` | the data contract, beside the data |
+| `internal/provider/data/README.md` | how to edit the catalog and what the gate enforces |
+| `internal/provider/{vendor,reconcile,catalog}_test.go`, `testvendors_test.go` | failure-first data/gate tests and in-memory test vendors |
+
+### 7.4 Conformance digest
+
+`internal/sourcehash` hashes every file under `internal/`, so the embedded data
+and the rewritten adapter files moved the `internal` digest
+`911e594c…` → `087b41ac…`. The five `internal`-rooted entries in
+`sdk/internal/assembly/conformance_results.json` were updated in the same
+commit (§5). Compute it after the last edit to any file under `internal/`,
+because a later `gofmt` or comment change moves it again — `PROV-P2`..`PROV-P5`
+must refresh it once more each.
+
 Generation rollback (the Assembly-level rollback described in
 `docs/plans/plugin-platform/PLG-P9-release-conformance.md`) is unaffected: it
 selects a prior Generation, and each Generation carries its own sealed adapter

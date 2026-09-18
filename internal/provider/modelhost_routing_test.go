@@ -28,9 +28,9 @@ func routedHost(t *testing.T, profiles ...providerprofile.Profile) *modelhost.Ho
 }
 
 func TestEveryModelCallUsesModelHost(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	model := NewResolvingChatModel(nil, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+	vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+	model := NewResolvingChatModel(nil, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if !errors.Is(err, modelhost.ErrHostRequired) {
@@ -39,9 +39,9 @@ func TestEveryModelCallUsesModelHost(t *testing.T) {
 }
 
 func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	model := NewResolvingChatModel(routedHost(t), NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", Ready: false,
+	vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+	model := NewResolvingChatModel(routedHost(t), NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", Ready: false,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if !errors.Is(err, modelhost.ErrProfileNotFound) {
@@ -50,12 +50,12 @@ func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
 }
 
 func TestModelHostRejectsProfileAdapterMismatch(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	profile := ProfileFromBundle(bundle)
+	vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+	profile := testProfile(t, vendor)
 	profile.AdapterFamily = AdapterFamilyAnthropic
 	host := routedHost(t, profile)
-	model := NewResolvingChatModel(host, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+	model := NewResolvingChatModel(host, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if !errors.Is(err, ErrAdapterFamilyMismatch) {
@@ -75,13 +75,13 @@ func TestModelHostPreservesOpenAIGatewayRawModelID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	bundle := newOpenAITestBundle(server.URL)
-	profile := ProfileFromBundle(bundle)
+	vendor := testOpenAIVendor(server.URL)
+	profile := testProfile(t, vendor)
 	profile.EndpointClass = providerprofile.EndpointGateway
 	profile.ModelIDs = []string{"anthropic/claude-sonnet-4"}
 	host := routedHost(t, profile)
-	model := NewResolvingChatModel(host, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "anthropic/claude-sonnet-4", BaseURL: server.URL,
+	model := NewResolvingChatModel(host, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "anthropic/claude-sonnet-4", BaseURL: server.URL,
 		APIKey: "secret", Ready: true,
 	}})
 	if _, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err != nil {
@@ -89,14 +89,5 @@ func TestModelHostPreservesOpenAIGatewayRawModelID(t *testing.T) {
 	}
 	if outbound.Model != "anthropic/claude-sonnet-4" {
 		t.Fatalf("outbound model = %q, want exact raw gateway ID", outbound.Model)
-	}
-}
-
-func newOpenAITestBundle(baseURL string) Bundle {
-	return Bundle{
-		Name: "openai", APIType: "openai", EnvKey: "OPENAI_API_KEY",
-		DisplayName: "OpenAI", DefaultModel: "gpt-4o", DefaultAPIBase: baseURL,
-		Backend: BackendEinoOpenAI, Models: []string{"gpt-4o"},
-		Provenance: Provenance{Source: "test", Entry: "openai", DerivedAt: "2026-09-10"},
 	}
 }

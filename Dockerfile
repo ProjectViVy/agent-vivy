@@ -36,7 +36,6 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/vivy /app/vivy
 COPY docker/ /app/docker/
-COPY fixtures/provider /app/fixtures/provider
 ENV VIVY_CONFIG=/app/docker/config.yaml \
     VIVY_ADDR=0.0.0.0:8787 \
     TZ=Asia/Shanghai

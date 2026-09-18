@@ -96,7 +96,7 @@ shows a decision is wrong, stop and amend this ledger first.
 | **D10** | The schema keeps 8 fields; 10 zero-consumer fields and the redundant `backend` are deleted. |
 | **D11** | Model metadata slots exist in phase 1 with values left empty; `context_window: 0` means unknown and preserves the existing `128000` fallback. |
 | **D12** | The DeepSeek reasoning request shape is an endpoint capability (`deepseek-thinking`), not a fourth adapter. |
-| **D13** | The vendor catalog is derived once from the Diva registry (47 entries, `custom` dropped → 46), gateway prefixes stripped, and the repository then stands alone; `ui/agent-diva-source/` is deleted. |
+| **D13** | The vendor catalog is derived once from the Diva registry (47 entries; `custom` dropped because it is not a vendor, `cherryin` dropped because it declares no models and no default model → **45**), gateway prefixes stripped, and the repository then stands alone; `ui/agent-diva-source/` is deleted. Amended in `PROV-P1` with the as-built count (`MIGRATION.md` §7.2). |
 | **D14** | The frontend holds zero provider data; the catalog arrives over RPC; a first-paint loading state is accepted. |
 | **D15** | A startup consistency gate compares the embedded data against the sealed adapter set bidirectionally and fails closed. |
 | **D16** | `env_key` becoming a data field makes "which environment variables the model module may read" data-driven. Because the data is embedded and reviewed in-repo, its trust level equals code; if it ever becomes user-editable, the boundary must be re-evaluated. |
@@ -110,13 +110,14 @@ shows a decision is wrong, stop and amend this ledger first.
 
 | Phase | Deliverable | State | Depends on |
 |---|---|---|---|
-| PROV-P1 | Provider data source and embedding | `UNSCHEDULED` | — |
-| PROV-P2 | Adapter table and sealed adapter set | `UNSCHEDULED` | P1 |
-| PROV-P3 | Configuration, credentials, and selection | `UNSCHEDULED` | P1, P2 |
-| PROV-P4 | Catalog RPC and zero-data UI | `UNSCHEDULED` | P1–P3 |
-| PROV-P5 | Conformance, evidence, and closeout | `UNSCHEDULED` | P1–P4 |
+| PROV-P1 | Provider data source and embedding | `DONE` | — |
+| PROV-P2 | Adapter table and sealed adapter set | `SCHEDULED` | P1 |
+| PROV-P3 | Configuration, credentials, and selection | `SCHEDULED` | P1, P2 |
+| PROV-P4 | Catalog RPC and zero-data UI | `SCHEDULED` | P1–P3 |
+| PROV-P5 | Conformance, evidence, and closeout | `SCHEDULED` | P1–P4 |
 
-Only a human changes a phase to scheduled.
+The owner scheduled the whole sequence on 2026-09-18: all five phases run in
+order on one branch, `feat/provider-registry`.
 
 ## Critical path
 

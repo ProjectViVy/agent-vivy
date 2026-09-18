@@ -65,8 +65,9 @@ const legacyProviderMock = "mock"
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
 // envKeyPattern constrains auth_env to an environment variable NAME.
-// Anything else (a literal token) fails validation (D-010).
-var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+// Anything else (a literal token) fails validation (D-010). A leading digit
+// is legal, matching config.ValidEnvKey and the provider data validator.
+var envKeyPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_]*$`)
 
 // channelNamePattern constrains a channels overlay name to the same
 // plugin-name slug config.yaml requires for its channels.<name> keys.

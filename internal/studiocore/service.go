@@ -79,13 +79,6 @@ func NewService(ctx context.Context, opt Options) (*Service, error) {
 	if opt.Isolation.ProductionWorkspace == "" {
 		opt.Isolation.ProductionWorkspace = filepath.Join(opt.Worktree, "data", "workspaces")
 	}
-	if opt.Isolation.BundleDir == "" {
-		bundle := filepath.Join(opt.Worktree, "fixtures", "provider")
-		if abs, err := filepath.Abs(bundle); err == nil {
-			bundle = abs
-		}
-		opt.Isolation.BundleDir = bundle
-	}
 	if opt.Timeout <= 0 {
 		opt.Timeout = 45 * time.Second
 	}

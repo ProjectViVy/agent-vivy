@@ -101,8 +101,10 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *cr
 		modelID = chosen.model
 	}
 	if catalog != nil {
-		if b, ok := catalog.Bundle(chosen.name); ok && modelID == "" {
-			modelID = b.DefaultModel
+		if vendor, ok := catalog.Vendor(chosen.name); ok && modelID == "" {
+			if endpoint, ok := vendor.DefaultEndpoint(); ok {
+				modelID = endpoint.DefaultModel
+			}
 		}
 	}
 	return ResolvedModel{

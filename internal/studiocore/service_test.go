@@ -162,9 +162,6 @@ func TestEvalSpawnsCandidateItself(t *testing.T) {
 	exe := buildVivy(t)
 	svc, worktree := newTestService(t)
 	ctx := context.Background()
-	// The candidate config needs a real provider fixture bundle; the fake
-	// worktree has none, so point at the repo's fixtures.
-	svc.opt.Isolation.BundleDir = fixtureBundle(t)
 
 	gen := domain.Generation{
 		ID: "gen_cand", ArtifactSHA256: "cand", SourceRef: "file:" + exe,
@@ -438,13 +435,4 @@ func buildVivy(t *testing.T) string {
 		t.Fatalf("build vivy: %v\n%s", err, out)
 	}
 	return exe
-}
-
-func fixtureBundle(t *testing.T) string {
-	t.Helper()
-	path, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "provider"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

@@ -9,7 +9,7 @@ OpenAI-compatible-gateway acceptance report is preserved verbatim in
 
 | Field | Value |
 |---|---|
-| Bundle | `deepseek` (`fixtures/provider/deepseek.yaml`) |
+| Vendor entry | `deepseek` in `internal/provider/data/vendors.yaml` |
 | `active` | `deepseek` |
 | Credential env | `DEEPSEEK_API_KEY` |
 | Default model | `deepseek-flash` |

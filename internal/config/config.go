@@ -32,8 +32,11 @@ import (
 )
 
 // envKeyPattern constrains env_key to an environment variable NAME.
-// Anything else (a literal key value) fails validation.
-var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+// Anything else (a literal key value) fails validation. A leading digit is
+// legal: real provider catalogs declare names like `302AI_API_KEY`, and
+// os.Getenv reads any name without '=' or NUL. The provider data validator
+// uses the same rule (internal/provider/vendor.go).
+var envKeyPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_]*$`)
 
 // ValidEnvKey reports whether name is a well-formed environment variable
 // name usable as an env_key declaration (config fields and the opaque
@@ -215,11 +218,10 @@ type Providers struct {
 	// Active selects a Provider Profile compiled into this Generation. The
 	// default Generation carries "deepseek" (default), "openai", and
 	// "anthropic" (D-018, D-023; default switched to deepseek 2026-09-16).
-	Active string `yaml:"active"`
-	// BundleDir holds the T1 adapter metadata paired with compiled Profiles
-	// (deepseek.yaml, openai.yaml, anthropic.yaml; A2 fixtures). It cannot
-	// add a Profile.
-	BundleDir string   `yaml:"bundle_dir"`
+	//
+	// Provider metadata (base URL, models, env_key names, adapter family) is
+	// embedded in the binary and never read from disk (PROV-P1, decision D3).
+	Active    string   `yaml:"active"`
 	DeepSeek  Provider `yaml:"deepseek"`
 	OpenAI    Provider `yaml:"openai"`
 	Anthropic Provider `yaml:"anthropic"`
@@ -604,7 +606,6 @@ func Default() Config {
 		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: filepath.Join(root, "vivy.db")}},
 		Providers: Providers{
 			Active:    "deepseek",
-			BundleDir: "fixtures/provider",
 			DeepSeek:  Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
@@ -724,9 +725,6 @@ func (c *Config) Validate() error {
 	case "deepseek", "openai", "anthropic":
 	default:
 		return fmt.Errorf("providers.active %q unsupported; V0 ships deepseek, openai and anthropic", c.Providers.Active)
-	}
-	if c.Providers.BundleDir == "" {
-		return errors.New("providers.bundle_dir must not be empty")
 	}
 	for name, p := range map[string]Provider{
 		"deepseek": c.Providers.DeepSeek, "openai": c.Providers.OpenAI, "anthropic": c.Providers.Anthropic,

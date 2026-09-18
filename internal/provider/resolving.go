@@ -117,37 +117,39 @@ type resolvingChatModelWithTools struct {
 }
 
 // thinkingOptions translates the run's thinking preference (domain context)
-// into a provider-native per-call option. Only "on" injects anything on the
-// Anthropic path: for models without an explicit request the provider default
-// applies. The option is gated on D9 model metadata so models that reject the
-// thinking parameter never receive it (unknown models keep the conservative
-// off). The DeepSeek bundle is the one OpenAI-backend bundle with a native
-// knob: "auto" and "on" send the documented canonical request (thinking
-// enabled + reasoning_effort high), "off" disables thinking; models whose D9
-// metadata lacks SupportsThinking never receive either field.
+// into a provider-native per-call option. The endpoint's adapter and
+// capabilities and the model's metadata decide the request shape, so no
+// vendor name appears here (PROV-P2 finishes the job by deriving the whole
+// decision from the adapter table):
+//
+//   - anthropic-messages: thinking mode "on" on a model whose metadata
+//     declares thinking support sends the extended-thinking budget; every
+//     other case sends nothing, leaving the provider default in force.
+//   - openai-completions on an endpoint declaring the deepseek-thinking
+//     capability: "auto" and "on" send the documented canonical request
+//     (thinking enabled + reasoning_effort high) and "off" disables thinking.
+//   - openai-completions anywhere else: send nothing.
+//
+// A model whose metadata is unknown keeps the conservative off.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
 	mode := domain.ThinkingModeFromContext(ctx)
 	live := m.src.Live()
-	bundle, ok := m.catalog.Bundle(live.Provider)
-	if !ok {
+	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.BaseURL)
+	if err != nil {
 		return nil
 	}
-	switch bundle.Backend {
-	case BackendEinoClaude:
+	info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
+	if err != nil || !info.SupportsThinking {
+		return nil
+	}
+	switch endpoint.Adapter {
+	case AdapterAnthropicMessages:
 		if mode != domain.ThinkingModeOn {
 			return nil
 		}
-		info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
-		if err != nil || !info.SupportsThinking {
-			return nil
-		}
 		return []model.Option{einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens})}
-	case BackendEinoOpenAI:
-		if bundle.Name != "deepseek" {
-			return nil
-		}
-		info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
-		if err != nil || !info.SupportsThinking {
+	case AdapterOpenAICompletions:
+		if !endpoint.HasCapability(CapabilityDeepSeekThinking) {
 			return nil
 		}
 		if mode == domain.ThinkingModeOff {

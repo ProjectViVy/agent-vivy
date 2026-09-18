@@ -13,8 +13,11 @@ Landed:
   is the single contract that runtime, the JSON-RPC control plane, and the UI
   speak; the vocabulary mirrors
   `internal/domain` EventTypes (B3).
-- `providers.bundle.schema.json` — the provider YAML bundle shape
-  (D-022..D-025), with the mandatory `provenance` field (task A2, done).
-  Instances live in `../fixtures/provider/` (`openai.yaml`, `anthropic.yaml`).
+- Provider data schema — **moved in PROV-P1** to
+  `../internal/provider/data/provider.schema.json`, beside the data it
+  describes. The data itself (`internal/provider/data/vendors.yaml`) is
+  embedded in the binary, so there is no `fixtures/provider/` directory and no
+  `providers.bundle_dir` setting. Secrets are `env_key` names there too
+  (D-010, D-022..D-025).
 
 Nothing in here may reference Eino or reference-project types (D-007).

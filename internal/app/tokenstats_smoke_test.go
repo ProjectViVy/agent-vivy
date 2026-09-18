@@ -27,7 +27,7 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "usage.db")}},
 		Providers: config.Providers{
-			Active: "deepseek", BundleDir: filepath.Join("..", "..", "fixtures", "provider"),
+			Active:    "deepseek",
 			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
 			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},

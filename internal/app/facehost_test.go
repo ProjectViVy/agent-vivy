@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -28,30 +27,15 @@ import (
 // model side is a local DeepSeek-shaped server (OpenAI chat.completions
 // wire protocol); the frozen ENV session points the composed resolver at it.
 
-// The kernel composition unconditionally loads every provider bundle from
-// BundleDir, so the temp dir needs all fixtures even though only the
-// deepseek side is exercised.
+// The kernel composition serves provider metadata from the binary, so a test
+// config needs no bundle directory and no copied fixtures.
 func newDeepSeekTestConfig(t *testing.T) config.Config {
 	t.Helper()
-	bundleDir := filepath.Join(t.TempDir(), "bundles")
-	if err := os.MkdirAll(bundleDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"deepseek", "openai", "anthropic"} {
-		raw, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "provider", name+".yaml"))
-		if err != nil {
-			t.Fatalf("read %s fixture bundle: %v", name, err)
-		}
-		if err := os.WriteFile(filepath.Join(bundleDir, name+".yaml"), raw, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	return config.Config{
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "facehost.db")}},
 		Providers: config.Providers{
 			Active:    "deepseek",
-			BundleDir: bundleDir,
 			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
 			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
