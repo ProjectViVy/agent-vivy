@@ -52,8 +52,11 @@ storage:
   sqlite:
     path: "tmp/vivy.db"
 providers:
-  active: anthropic
+  active: deepseek
   bundle_dir: fixtures/provider
+  deepseek:
+    env_key: DEEPSEEK_API_KEY
+    default_model: deepseek-flash
   openai:
     env_key: OPENAI_API_KEY
     default_model: gpt-4o-mini
@@ -86,7 +89,7 @@ func TestLoadValid(t *testing.T) {
 	if len(cfg.Server.AllowedOrigins) != 1 || cfg.Server.AllowedOrigins[0] != "http://127.0.0.1:3015" {
 		t.Errorf("allowed origins = %#v", cfg.Server.AllowedOrigins)
 	}
-	if cfg.Providers.Active != "anthropic" {
+	if cfg.Providers.Active != "deepseek" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
 	if !cfg.TUI.Debug {
@@ -389,7 +392,7 @@ func TestInvalidValuesRejected(t *testing.T) {
 		"bad storage backend": strings.Replace(validDoc,
 			"backend: sqlite", "backend: mariadb", 1),
 		"bad active provider": strings.Replace(validDoc,
-			"active: anthropic", "active: deepseek", 1),
+			"active: deepseek", "active: stepfun", 1),
 		"bad expiration": strings.Replace(validDoc,
 			"expiration: 2m", "expiration: soon", 1),
 		"removed mock config": strings.Replace(validDoc,

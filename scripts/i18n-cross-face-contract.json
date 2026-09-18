@@ -1211,6 +1211,7 @@
       "settingsModel.baseUrl",
       "settingsModel.bundle",
       "settingsModel.bundleAnthropic",
+      "settingsModel.bundleDeepseek",
       "settingsModel.bundleOpenai",
       "settingsModel.cancel",
       "settingsModel.currentBadge",

@@ -18,6 +18,12 @@ var defaultProviderOptionsSchema = json.RawMessage(`{"type":"object","additional
 func ProviderProfiles() []providerprofile.Provider {
 	return []providerprofile.Provider{
 		providerProfile{profile: providerprofile.Profile{
+			ID: "deepseek", AdapterFamily: "openai-compatible",
+			ModelIDs:      []string{"deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-coder", "deepseek-reasoner"},
+			EndpointClass: providerprofile.EndpointNative,
+			SecretRefs:    []string{"DEEPSEEK_API_KEY"}, OptionsSchema: defaultProviderOptionsSchema,
+		}},
+		providerProfile{profile: providerprofile.Profile{
 			ID: "openai", AdapterFamily: "openai-compatible",
 			ModelIDs:      []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "o1-preview", "o1-mini", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-5-chat"},
 			EndpointClass: providerprofile.EndpointNative,

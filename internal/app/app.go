@@ -254,6 +254,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	bundlePath := func(name string) string {
 		return filepath.Join(cfg.Providers.BundleDir, name+".yaml")
 	}
+	deepseekBundle, err := provider.LoadBundle(bundlePath("deepseek"))
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: load deepseek bundle: %w", err)
+	}
 	openaiBundle, err := provider.LoadBundle(bundlePath("openai"))
 	if err != nil {
 		_ = backend.Close()
@@ -264,7 +269,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
 	}
-	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
+	catalog := provider.NewCatalog(deepseekBundle, openaiBundle, anthropicBundle)
 	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
@@ -272,6 +277,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
 		compiledProfiles,
 		cfg.Channels,
+		cfg.Providers.DeepSeek.EnvKey,
 		cfg.Providers.OpenAI.EnvKey,
 		cfg.Providers.Anthropic.EnvKey,
 	))
@@ -859,7 +865,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		SealedGeneration: presentation.SealedGeneration,
 		ConfigProvider:   configProvider,
 		ConfigModel:      configModel,
-		ProviderBundles:  []provider.Bundle{openaiBundle, anthropicBundle},
+		ProviderBundles:  []provider.Bundle{deepseekBundle, openaiBundle, anthropicBundle},
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
 			return modelHost.Statuses(current.Provider, current.Ready)
@@ -1225,6 +1231,8 @@ func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Setting
 	}
 	keyEnv := ""
 	switch s.Provider {
+	case settings.ProviderDeepSeek:
+		keyEnv = cfg.Providers.DeepSeek.EnvKey
 	case settings.ProviderOpenAI:
 		keyEnv = cfg.Providers.OpenAI.EnvKey
 	case settings.ProviderAnthropic:
@@ -1263,6 +1271,10 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 	if s.Provider != "" {
 		cfg.Providers.Active = s.Provider
 		switch s.Provider {
+		case settings.ProviderDeepSeek:
+			if s.DefaultModel != "" {
+				cfg.Providers.DeepSeek.DefaultModel = s.DefaultModel
+			}
 		case settings.ProviderOpenAI:
 			if s.DefaultModel != "" {
 				cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
@@ -1514,6 +1526,8 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
+	case "deepseek":
+		return cfg.Providers.DeepSeek.DefaultModel
 	case "anthropic":
 		return cfg.Providers.Anthropic.DefaultModel
 	default:

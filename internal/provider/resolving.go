@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
+	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -116,25 +117,48 @@ type resolvingChatModelWithTools struct {
 }
 
 // thinkingOptions translates the run's thinking preference (domain context)
-// into a provider-native per-call option. Only "on" injects anything: for
-// models without an explicit request the provider default applies. The
-// Anthropic path is the one wired knob this generation; the option is
-// gated on D9 model metadata so models that reject the thinking parameter
-// never receive it (unknown models keep the conservative off).
+// into a provider-native per-call option. Only "on" injects anything on the
+// Anthropic path: for models without an explicit request the provider default
+// applies. The option is gated on D9 model metadata so models that reject the
+// thinking parameter never receive it (unknown models keep the conservative
+// off). The DeepSeek bundle is the one OpenAI-backend bundle with a native
+// knob: "auto" and "on" send the documented canonical request (thinking
+// enabled + reasoning_effort high), "off" disables thinking; models whose D9
+// metadata lacks SupportsThinking never receive either field.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
-	if domain.ThinkingModeFromContext(ctx) != domain.ThinkingModeOn {
-		return nil
-	}
+	mode := domain.ThinkingModeFromContext(ctx)
 	live := m.src.Live()
 	bundle, ok := m.catalog.Bundle(live.Provider)
-	if !ok || bundle.Backend != BackendEinoClaude {
+	if !ok {
 		return nil
 	}
-	info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
-	if err != nil || !info.SupportsThinking {
-		return nil
+	switch bundle.Backend {
+	case BackendEinoClaude:
+		if mode != domain.ThinkingModeOn {
+			return nil
+		}
+		info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
+		if err != nil || !info.SupportsThinking {
+			return nil
+		}
+		return []model.Option{einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens})}
+	case BackendEinoOpenAI:
+		if bundle.Name != "deepseek" {
+			return nil
+		}
+		info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
+		if err != nil || !info.SupportsThinking {
+			return nil
+		}
+		if mode == domain.ThinkingModeOff {
+			return []model.Option{einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": "disabled"}})}
+		}
+		return []model.Option{
+			einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": "enabled"}}),
+			einoopenai.WithReasoningEffort(einoopenai.ReasoningEffortLevelHigh),
+		}
 	}
-	return []model.Option{einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens})}
+	return nil
 }
 
 func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {

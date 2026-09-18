@@ -213,11 +213,14 @@ type Postgres struct {
 
 type Providers struct {
 	// Active selects a Provider Profile compiled into this Generation. The
-	// default Generation carries "openai" and "anthropic" (D-018, D-023).
+	// default Generation carries "deepseek" (default), "openai", and
+	// "anthropic" (D-018, D-023; default switched to deepseek 2026-09-16).
 	Active string `yaml:"active"`
 	// BundleDir holds the T1 adapter metadata paired with compiled Profiles
-	// (openai.yaml, anthropic.yaml; A2 fixtures). It cannot add a Profile.
+	// (deepseek.yaml, openai.yaml, anthropic.yaml; A2 fixtures). It cannot
+	// add a Profile.
 	BundleDir string   `yaml:"bundle_dir"`
+	DeepSeek  Provider `yaml:"deepseek"`
 	OpenAI    Provider `yaml:"openai"`
 	Anthropic Provider `yaml:"anthropic"`
 }
@@ -600,8 +603,9 @@ func Default() Config {
 		Server:  Server{Addr: "127.0.0.1:8787"},
 		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: filepath.Join(root, "vivy.db")}},
 		Providers: Providers{
-			Active:    "openai",
+			Active:    "deepseek",
 			BundleDir: "fixtures/provider",
+			DeepSeek:  Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
@@ -717,15 +721,15 @@ func (c *Config) Validate() error {
 	}
 
 	switch c.Providers.Active {
-	case "openai", "anthropic":
+	case "deepseek", "openai", "anthropic":
 	default:
-		return fmt.Errorf("providers.active %q unsupported; V0 ships openai and anthropic only", c.Providers.Active)
+		return fmt.Errorf("providers.active %q unsupported; V0 ships deepseek, openai and anthropic", c.Providers.Active)
 	}
 	if c.Providers.BundleDir == "" {
 		return errors.New("providers.bundle_dir must not be empty")
 	}
 	for name, p := range map[string]Provider{
-		"openai": c.Providers.OpenAI, "anthropic": c.Providers.Anthropic,
+		"deepseek": c.Providers.DeepSeek, "openai": c.Providers.OpenAI, "anthropic": c.Providers.Anthropic,
 	} {
 		if !envKeyPattern.MatchString(p.EnvKey) {
 			return fmt.Errorf("providers.%s.env_key %q is not an environment variable name; "+

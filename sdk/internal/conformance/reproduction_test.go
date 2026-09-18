@@ -43,8 +43,20 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The "internal" suites all share one canonical content identity. Derive it
+	// from the live tree rather than storing a second copy of the constant
+	// inside releaseSuiteCases: internal/sourcehash hashes every file under
+	// internal/ (excluding generated/assembly/zz_default.go), so a hand-kept
+	// duplicate silently goes stale on any edit there and fails with a
+	// confusing digest mismatch. The checked-in artifact is still byte-compared
+	// below, so the digest remains verified evidence; it is simply computed
+	// instead of restated.
+	internalDigest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "internal"), "")
+	if err != nil {
+		t.Fatalf("hash internal source tree: %v", err)
+	}
 	actual := make([]providerconformance.ConformanceResult, 0)
-	for _, suite := range releaseSuiteCases() {
+	for _, suite := range releaseSuiteCases(internalDigest) {
 		suite := suite
 		t.Run(suite.Port+"/"+suite.ProviderID, func(t *testing.T) {
 			definition, ok := port.PublicCatalog().Lookup(module.PortRef{Port: suite.Port})
@@ -422,14 +434,16 @@ func releaseHostCommand(portID string) releaseTestCommand {
 	}
 }
 
-func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "838dda657478460ce8c8302d8b33dcf68ab656b5674a761e49e8214c77f4cf55"
+// releaseSuiteCases builds the independent expected table. internalDigest is
+// the canonical identity of the "internal" source root, computed by the caller
+// from the live tree (see the test above) so the table cannot drift from it.
+func releaseSuiteCases(internalDigest string) []releaseSuiteCase {
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
 	cases := []releaseSuiteCase{
-		{"std/tool@v1", "vivy/protected-tools", "internal", internalSHA, "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses", goTest("./internal/app", "^TestToolEnvelopeConformanceAcrossAllSourceClasses$")},
-		{"std/tool-world@v1", "vivy/mcp-host", "internal", internalSHA, "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost", goTest("./internal/mcphost", "^TestMCPToolBridgeEntersSoleToolHost$")},
+		{"std/tool@v1", "vivy/protected-tools", "internal", internalDigest, "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses", goTest("./internal/app", "^TestToolEnvelopeConformanceAcrossAllSourceClasses$")},
+		{"std/tool-world@v1", "vivy/mcp-host", "internal", internalDigest, "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost", goTest("./internal/mcphost", "^TestMCPToolBridgeEntersSoleToolHost$")},
 		{"std/tool-world@v1", "vivy/hello-fs", "plugins/hello-fs", "40439b91831bda45ff7fe7fab1ccfbb5a89c8a613d37bedb6878e35e8fdab41e", "plugins/hello-fs/plugin_test.go#TestHelloStatReadsThroughEnv", goTest("./plugins/hello-fs", "^TestHelloStatReadsThroughEnv$")},
 		{"std/tool-world@v1", "vivy/lsp", "plugins/lsp", "96dac7da535dbbc1557b3ec83c5b4c46c1449b38e9d9e957a4cd22fa583991d3", "plugins/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd", nested("plugins/lsp")},
 		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "249983bd553e0805a22e6f72594ff7e1498b057bb176c4c29f50c4c07196a921", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
@@ -439,10 +453,10 @@ func releaseSuiteCases() []releaseSuiteCase {
 		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "c3b73462f1e9fa55abd1d544a31efe0014676d76cc677278505dafa54f34b7d0", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "96e0104bbac52765a4d826d8324b7f81695ce3aef6b9a5d755e69b4507178251", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
-		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalSHA, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
-		{"std/context-source@v1", "vivy/context-source", "internal", internalSHA, "internal/contexthost/conformance_test.go#TestContextSourceConformance", goTest("./internal/contexthost", "^TestContextSourceConformance$")},
+		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalDigest, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
+		{"std/context-source@v1", "vivy/context-source", "internal", internalDigest, "internal/contexthost/conformance_test.go#TestContextSourceConformance", goTest("./internal/contexthost", "^TestContextSourceConformance$")},
 		{"std/context-source@v1", "scx/reference-fixtures", "plugins/scx-reference", "3abef450f9dd9ccd7735e0a2d2db13421db53d4b0297bd9f50c1af3ce127d665", "internal/contexthost/scx_conformance_test.go#TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/contexthost", Run: "^TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable$"})},
-		{"std/skill-source@v1", "vivy/skill-source", "internal", internalSHA, "internal/skillhost/conformance_test.go#TestSkillSourceConformance", goTest("./internal/skillhost", "^TestSkillSourceConformance$")},
+		{"std/skill-source@v1", "vivy/skill-source", "internal", internalDigest, "internal/skillhost/conformance_test.go#TestSkillSourceConformance", goTest("./internal/skillhost", "^TestSkillSourceConformance$")},
 		{"std/middleware/pre-tool@v1", "vivy/governance-reference", "plugins/governance", "384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
 		{"std/observer/run@v1", "vivy/governance-reference", "plugins/governance", "384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
 		{"std/observer/run@v1", "scx/reference-fixtures", "plugins/scx-reference", "3abef450f9dd9ccd7735e0a2d2db13421db53d4b0297bd9f50c1af3ce127d665", "internal/observerhost/scx_conformance_test.go#TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/observerhost", Run: "^TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect$"})},

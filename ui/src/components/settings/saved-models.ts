@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { matchMergedProviderEntry, type ProviderEntry } from './custom-providers';
+import { isProviderRegistryBundle, matchMergedProviderEntry, type ProviderEntry } from './custom-providers';
 
 /**
  * 「已选模型」快捷切换列表（Agent-Diva savedModels 移植）。
@@ -17,21 +17,20 @@ export const SAVED_MODELS_KEY = 'vivy.ui.savedModels';
 const SAVED_MODELS_CHANGED_EVENT = 'vivy.ui.savedModels.changed';
 
 export type SavedModelEntry = {
-  /** Vivy 运行束名（保存到 settings.provider 的值，如 openai/anthropic） */
+  /** Vivy 运行束名（保存到 settings.provider 的值，如 deepseek/openai/anthropic） */
   provider: string;
-  /** OpenAI 兼容网关地址；空使用运行束默认地址 */
+  /** OpenAI 兼容网关地址；空使用运行束内置地址 */
   baseUrl: string;
   /** 原始模型 id（不携带网关前缀） */
   model: string;
 };
 
-/** 逐条校验：坏数据（缺字段/非字符串/空白）整条丢弃。 */
+/** 逐条校验：坏数据（缺字段/非字符串/空白/未知运行束）整条丢弃。 */
 function isValidEntry(value: unknown): value is SavedModelEntry {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
-    (entry.provider === 'openai' || entry.provider === 'anthropic') &&
-    entry.provider.trim().length > 0 &&
+    isProviderRegistryBundle(entry.provider) &&
     typeof entry.baseUrl === 'string' &&
     typeof entry.model === 'string' &&
     entry.model.trim().length > 0

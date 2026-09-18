@@ -29,12 +29,21 @@ describe('provider catalog data', () => {
     }
   });
 
-  it('运行束名只取后端接受的 openai/anthropic', () => {
+  it('运行束名只取后端接受的 deepseek/openai/anthropic；DeepSeek 是一等运行束', () => {
     for (const entry of PROVIDER_CATALOG) {
-      expect(['openai', 'anthropic']).toContain(entry.bundle);
+      expect(['deepseek', 'openai', 'anthropic']).toContain(entry.bundle);
     }
+    expect(findProvider('openai')?.bundle).toBe('openai');
     expect(findProvider('anthropic')?.bundle).toBe('anthropic');
-    expect(findProvider('deepseek')?.bundle).toBe('openai');
+    // DeepSeek 自带内置地址：baseUrl 为空（不写 /v1，运行时自己拼路径）。
+    expect(findProvider('deepseek')?.bundle).toBe('deepseek');
+    expect(findProvider('deepseek')?.baseUrl).toBe('');
+    expect(findProvider('deepseek')?.defaultModel).toBe('deepseek-flash');
+    expect(findProvider('deepseek')?.models[0]).toBe('deepseek-flash');
+    expect(findProvider('deepseek')?.models).toEqual([
+      'deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash',
+      'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner',
+    ]);
   });
 
   it('默认模型是原始 id：剥离网关前缀，custom 无推荐', () => {
@@ -85,19 +94,23 @@ describe('provider fold logic（Agent-Diva 折叠移植）', () => {
 
 describe('matchProviderEntry', () => {
   it('按 bundle + base_url 精确反查厂商条目', () => {
-    expect(matchProviderEntry('openai', 'https://api.deepseek.com/v1')?.name).toBe('deepseek');
     expect(matchProviderEntry('openai', 'https://api.openai.com/v1')?.name).toBe('openai');
+    expect(matchProviderEntry('openai', 'https://api.302.ai/v1')?.name).toBe('302ai');
     expect(matchProviderEntry('anthropic', 'https://api.anthropic.com')?.name).toBe('anthropic');
+    // DeepSeek 已是一等运行束：不再作为 openai 网关条目出现，旧的 /v1 地址不命中。
+    expect(matchProviderEntry('openai', 'https://api.deepseek.com/v1')).toBeUndefined();
+    expect(matchProviderEntry('deepseek', 'https://api.deepseek.com/v1')).toBeUndefined();
   });
 
   it('base_url 为空时回落到与运行束同名的规范条目', () => {
     expect(matchProviderEntry('openai', '')?.name).toBe('openai');
+    expect(matchProviderEntry('deepseek', '')).toMatchObject({ name: 'deepseek', bundle: 'deepseek', baseUrl: '' });
   });
 
   it('未知组合返回 undefined（自定义网关/未知束名走手工输入路径）', () => {
     expect(matchProviderEntry('openai', 'https://my-gateway.example.com/v1')).toBeUndefined();
     expect(matchProviderEntry('', '')).toBeUndefined();
-    expect(matchProviderEntry('deepseek', '')).toBeUndefined();
+    expect(matchProviderEntry('unknown-bundle', '')).toBeUndefined();
   });
 });
 

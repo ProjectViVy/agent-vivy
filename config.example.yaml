@@ -29,13 +29,19 @@ storage:
     dsn_env: VIVY_POSTGRES_DSN
 
 providers:
-  # Pre-baked bundle to activate. V0 ships exactly two bundles:
-  # openai (OpenAI-compatible) and anthropic (D-018, D-023).
-  active: openai
+  # Pre-baked bundle to activate. Ships three bundles: deepseek (the default;
+  # OpenAI-compatible direct provider), openai (OpenAI-compatible) and
+  # anthropic (D-018, D-023). DeepSeek became the default on 2026-09-16.
+  active: deepseek
   # Directory holding the pre-baked bundle YAML files (A2 fixtures).
   bundle_dir: fixtures/provider
-  openai:
+  # DeepSeek's base URL carries no /v1 suffix: the endpoint resolves to
+  # https://api.deepseek.com/chat/completions exactly as documented.
+  deepseek:
     # Secret is read from this environment variable, never persisted.
+    env_key: DEEPSEEK_API_KEY
+    default_model: deepseek-flash
+  openai:
     env_key: OPENAI_API_KEY
     default_model: gpt-4o-mini
   anthropic:
@@ -63,7 +69,7 @@ runtime:
   # Optional cheaper model (same active provider, same key) for utility
   # generations such as session auto-titles; failures fall back to the main
   # model. Leave empty to always use the main model.
-  # small_model: gpt-4o-mini
+  # small_model: deepseek-v4-flash
   # Default: <user data root>/workspace (under the OS user home). One
   # private sandbox directory per background run lives under this root.
   # Launch-directory AGENTS.md (walk-up to the git root) is injected

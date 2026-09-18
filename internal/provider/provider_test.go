@@ -284,6 +284,7 @@ func blockingResolvingModel(t *testing.T) (model.ToolCallingChatModel, func()) {
 
 func TestMain(m *testing.M) {
 	// Provider tests must never touch a real key from the environment.
+	os.Unsetenv("DEEPSEEK_API_KEY")
 	os.Unsetenv("OPENAI_API_KEY")
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	os.Exit(m.Run())

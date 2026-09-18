@@ -13,6 +13,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	os.Unsetenv("DEEPSEEK_API_KEY")
 	os.Unsetenv("OPENAI_API_KEY")
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	os.Exit(m.Run())
@@ -20,6 +21,10 @@ func TestMain(m *testing.M) {
 
 func testCatalog(t *testing.T) *provider.Catalog {
 	t.Helper()
+	deepseek, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "deepseek.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	openai, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "openai.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -28,11 +33,15 @@ func testCatalog(t *testing.T) *provider.Catalog {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return provider.NewCatalog(openai, anthropic)
+	return provider.NewCatalog(deepseek, openai, anthropic)
 }
 
 func testModelHost(t *testing.T) *modelhost.Host {
 	t.Helper()
+	deepseek, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "deepseek.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	openai, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "openai.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +51,7 @@ func testModelHost(t *testing.T) *modelhost.Host {
 		t.Fatal(err)
 	}
 	host, err := modelhost.New([]providerprofile.Profile{
-		provider.ProfileFromBundle(openai), provider.ProfileFromBundle(anthropic),
+		provider.ProfileFromBundle(deepseek), provider.ProfileFromBundle(openai), provider.ProfileFromBundle(anthropic),
 	}, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
@@ -99,7 +108,7 @@ func TestResolverFrozenEnvOverridesSettings(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("OPENAI_API_KEY", "sk-env")
+	t.Setenv("DEEPSEEK_API_KEY", "sk-env")
 	t.Setenv("VIVY_API_BASE", "https://env.example.com/v1")
 	t.Setenv("VIVY_MODEL", "env-model")
 	r := newModelResolver(config.Default(), path, testCatalog(t), testModelHost(t))
@@ -120,7 +129,7 @@ func TestResolverInvalidateDropsCache(t *testing.T) {
 		t.Fatal("expected empty")
 	}
 	if _, err := settings.Save(path, settings.Settings{
-		Provider: settings.ProviderOpenAI, DefaultModel: "gpt-4o-mini", ApiKey: "sk-later",
+		Provider: settings.ProviderDeepSeek, DefaultModel: "deepseek-flash", ApiKey: "sk-later",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +168,7 @@ func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) 
 	dir := t.TempDir()
 	path := settings.Path(dir)
 	if _, err := settings.Save(path, settings.Settings{
-		Provider: settings.ProviderOpenAI, DefaultModel: "gpt-4o", ApiKey: "secret",
+		Provider: settings.ProviderDeepSeek, DefaultModel: "deepseek-flash", ApiKey: "secret",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +176,7 @@ func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) 
 	resolver := newModelResolver(config.Default(), path, testCatalog(t), host)
 	current := resolver.Current()
 	statuses := host.Statuses(current.Provider, current.Ready)
-	if len(statuses) != 2 || statuses[1].ID != "openai" || statuses[1].State != modelhost.ProfileReady {
+	if len(statuses) != 3 || statuses[1].ID != "deepseek" || statuses[1].State != modelhost.ProfileReady {
 		t.Fatalf("resolver Profile statuses = %#v", statuses)
 	}
 	if statuses[1].AdapterFamily != provider.AdapterFamilyOpenAICompatible || statuses[1].EndpointClass == "" {

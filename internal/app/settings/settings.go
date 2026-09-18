@@ -49,6 +49,7 @@ const FileName = "settings.yaml"
 
 // Stable Provider Profile IDs compiled into the default Generation.
 const (
+	ProviderDeepSeek  = "deepseek"
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
 )
@@ -459,9 +460,9 @@ func (s Settings) Validate() error {
 	switch s.Provider {
 	case "":
 		// empty => config default; allowed
-	case ProviderOpenAI, ProviderAnthropic:
+	case ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic:
 	default:
-		return fmt.Errorf("settings: provider %q unsupported; want openai or anthropic", s.Provider)
+		return fmt.Errorf("settings: provider %q unsupported; want deepseek, openai or anthropic", s.Provider)
 	}
 	if s.Provider == "" && s.DefaultModel != "" {
 		return errors.New("settings: default_model requires a provider to be set")
@@ -746,9 +747,9 @@ func validateProviderEntries(entries []ProviderEntry) error {
 			return fmt.Errorf("settings: providers[%d].display_name must not be empty", i)
 		}
 		switch e.Bundle {
-		case ProviderOpenAI, ProviderAnthropic:
+		case ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic:
 		default:
-			return fmt.Errorf("settings: providers[%d].bundle %q unsupported; want openai or anthropic", i, e.Bundle)
+			return fmt.Errorf("settings: providers[%d].bundle %q unsupported; want deepseek, openai or anthropic", i, e.Bundle)
 		}
 		if !apiBasePattern.MatchString(e.BaseURL) {
 			return fmt.Errorf("settings: providers[%d].base_url %q must be an http(s) absolute URL", i, e.BaseURL)

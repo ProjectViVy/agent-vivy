@@ -27,8 +27,9 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "usage.db")}},
 		Providers: config.Providers{
-			Active: "openai", BundleDir: filepath.Join("..", "..", "fixtures", "provider"),
-			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o"},
+			Active: "deepseek", BundleDir: filepath.Join("..", "..", "fixtures", "provider"),
+			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
+			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: config.Runtime{StreamBuffer: 256, MaxEventPayloadBytes: 65536},
@@ -63,7 +64,7 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("seed run %s: %v", runID, err)
 		}
-		started, err := json.Marshal(map[string]string{"provider": "openai", "model": model})
+		started, err := json.Marshal(map[string]string{"provider": "deepseek", "model": model})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,9 +75,9 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 			t.Fatalf("seed journal %s: %v", runID, err)
 		}
 	}
-	// gpt-4o is priced (2.5 USD/M in, 10 USD/M out): 1.0M prompt + 0.1M
-	// completion = 3.5 USD.
-	seedRun("run-priced", "sess-priced", "gpt-4o",
+	// deepseek-flash is priced (0.30 USD/M in, 1.20 USD/M out, peak
+	// reference rates): 1.0M prompt + 0.1M completion = 0.42 USD.
+	seedRun("run-priced", "sess-priced", "deepseek-flash",
 		`{"prompt_tokens":1000000,"completion_tokens":100000,"total_tokens":1100000}`)
 	// custom-model has no reference pricing: tokens count, cost stays unknown.
 	seedRun("run-unpriced", "sess-unpriced", "custom-model",
@@ -136,8 +137,8 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 			known  bool
 		}{m.TotalTokens, m.CostUSD, m.CostKnown}
 	}
-	if got := byModel["gpt-4o"]; got.tokens != 1100000 || got.cost != 3.5 || !got.known {
-		t.Fatalf("gpt-4o share = %+v, want tokens 1100000 cost 3.5 known", got)
+	if got := byModel["deepseek-flash"]; got.tokens != 1100000 || got.cost != 0.42 || !got.known {
+		t.Fatalf("deepseek-flash share = %+v, want tokens 1100000 cost 0.42 known", got)
 	}
 	if got := byModel["custom-model"]; got.tokens != 60 || got.known {
 		t.Fatalf("custom-model share = %+v, want tokens 60 with cost unknown", got)
@@ -152,8 +153,8 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 			known bool
 		}{s.CostUSD, s.CostKnown}
 	}
-	if got := bySession["sess-priced"]; got.cost != 3.5 || !got.known {
-		t.Fatalf("sess-priced = %+v, want cost 3.5 known", got)
+	if got := bySession["sess-priced"]; got.cost != 0.42 || !got.known {
+		t.Fatalf("sess-priced = %+v, want cost 0.42 known", got)
 	}
 	if got := bySession["sess-unpriced"]; got.cost != 0 || got.known {
 		t.Fatalf("sess-unpriced = %+v, want cost unknown, never 0-known", got)

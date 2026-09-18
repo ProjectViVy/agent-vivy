@@ -4790,14 +4790,14 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
 		}
 	default:
-		if params.Bundle != settings.ProviderOpenAI {
+		if params.Bundle != settings.ProviderOpenAI && params.Bundle != settings.ProviderDeepSeek {
 			return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 		}
 		baseURL := strings.TrimSpace(params.BaseURL)
 		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 			return nil, &Error{Code: InvalidParams, Message: "model refresh requires an http(s) base_url"}
 		}
-		existing, ok := s.FindProvider(settings.ProviderOpenAI, baseURL)
+		existing, ok := s.FindProvider(params.Bundle, baseURL)
 		if ok {
 			entry = existing
 		} else {
@@ -4812,13 +4812,13 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			entry = settings.ProviderEntry{
 				ID:           "custom-" + providerIDNonce(),
 				DisplayName:  displayName,
-				Bundle:       settings.ProviderOpenAI,
+				Bundle:       params.Bundle,
 				BaseURL:      baseURL,
 				DefaultModel: strings.TrimSpace(params.DefaultModel),
 			}
 		}
 	}
-	if entry.Bundle != settings.ProviderOpenAI {
+	if entry.Bundle != settings.ProviderOpenAI && entry.Bundle != settings.ProviderDeepSeek {
 		return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 	}
 

@@ -22,7 +22,7 @@ function hydrateLocale(locale: 'en' | 'zh'): void {
 
 function settings(locale: 'en' | 'zh', workspaceLocale: '' | 'en' | 'zh' = locale): Awaited<ReturnType<typeof api.getSettings>> {
   return {
-    provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0,
+    provider: 'deepseek', default_model: 'deepseek-flash', base_url: '', execute_max_timeout_seconds: 0,
     read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30,
     locale, generation_locale: 'en', workspace_locale: workspaceLocale, locale_read_only: false,
   };
@@ -42,7 +42,7 @@ describe('Vivy store integrity', () => {
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
-    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'en', generation_locale: 'en', workspace_locale: '', locale_read_only: false });
+    api.getSettings.mockResolvedValue({ provider: 'deepseek', default_model: 'deepseek-flash', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'en', generation_locale: 'en', workspace_locale: '', locale_read_only: false });
     api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
     api.listTodos.mockResolvedValue({ todos: [] });
@@ -58,7 +58,7 @@ describe('Vivy store integrity', () => {
 
   it('hydrates the effective locale from settings during initialization', async () => {
     hydrateLocale('en');
-    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    api.getSettings.mockResolvedValue({ provider: 'deepseek', default_model: 'deepseek-flash', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
     api.listSessions.mockResolvedValue({ sessions: [{ id: 's1', title: 'One', created_at: 1 }] });
     api.listMessages.mockResolvedValue({ messages: [] });
 
@@ -173,7 +173,7 @@ describe('Vivy store integrity', () => {
     hydrateLocale('zh');
 
     const older = useVivyStore.getState().saveLocale('zh');
-    const newer = useVivyStore.getState().saveSettings({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '' });
+    const newer = useVivyStore.getState().saveSettings({ provider: 'deepseek', default_model: 'deepseek-flash', base_url: '' });
     settingsSave.resolve(settings('en', 'en'));
     await newer;
     localeSave.resolve({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
@@ -312,7 +312,7 @@ describe('Vivy store integrity', () => {
       type: 'run.failed',
       created_at: 2,
       payload_version: 1,
-      payload: { cause_category: 'provider_error', message: 'provider openai: API key missing' },
+      payload: { cause_category: 'provider_error', message: 'provider deepseek: API key missing' },
     });
     expect(useVivyStore.getState().currentRun?.status).toBe('failed');
     expect(useVivyStore.getState().runError).toBe('Unable to connect! Check your provider configuration!');

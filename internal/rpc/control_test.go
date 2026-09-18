@@ -933,8 +933,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 		DefaultPermissionPreset:        domain.PermissionPresetSmart,
@@ -954,7 +954,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, rpcErr := callControl(t, roHandler, "settings/update", map[string]any{
-		"provider": "openai",
+		"provider": "deepseek",
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected conflict when settings path is empty, got %v", rpcErr)
 	}
@@ -968,8 +968,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ReadOnly {
 		t.Fatal("settings should be writable when path is configured")
 	}
-	if get.ConfigProvider != "openai" {
-		t.Fatalf("config_provider = %q, want openai", get.ConfigProvider)
+	if get.ConfigProvider != "deepseek" {
+		t.Fatalf("config_provider = %q, want deepseek", get.ConfigProvider)
 	}
 
 	// Invalid update is rejected (bad provider).
@@ -981,8 +981,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 
 	// Valid update persists and is reflected on the next get.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":      "openai",
-		"default_model": "gpt-4o",
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
 		"base_url":      "https://gw.example.com/v1",
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -992,7 +992,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	get = result.(settingsResult)
-	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
+	if get.Provider != "deepseek" || get.DefaultModel != "deepseek-flash" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
 	if get.APIKeySet {
@@ -1027,8 +1027,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// Update with an api_key overlay: the flag is set but the value is
 	// never echoed back (settingsResult has no key field; JSON must too).
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":      "openai",
-		"default_model": "gpt-4o",
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
 		"base_url":      "https://gw.example.com/v1",
 		"api_key":       "sk-test-overlay",
 	}); rpcErr != nil {
@@ -1052,7 +1052,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 
 	// Update without api_key keeps the overlay; select does not clear keys.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider": "openai",
+		"provider": "deepseek",
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -1069,8 +1069,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// fallbacks; an out-of-bounds value is rejected without clobbering the
 	// saved document.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":                    "openai",
-		"default_model":               "gpt-4o",
+		"provider":                    "deepseek",
+		"default_model":               "deepseek-flash",
 		"base_url":                    "https://gw.example.com/v1",
 		"execute_max_timeout_seconds": 300,
 	}); rpcErr != nil {
@@ -1084,7 +1084,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ExecuteMaxTimeoutSeconds != 300 {
 		t.Fatalf("execute_max_timeout_seconds not persisted: %+v", get)
 	}
-	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "openai" || get.ConfigModel != "gpt-4o-mini" {
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "deepseek" || get.ConfigModel != "deepseek-flash" {
 		t.Fatalf("update echo must include config fallbacks: %+v", get)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
@@ -1105,13 +1105,13 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// next get echoes it back alongside the config default. An unsupported
 	// provider is rejected (validation) without overwriting the saved one.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "openai",
+		"provider":       "deepseek",
 		"network_search": map[string]any{"provider": "searxng"},
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "openai",
+		"provider":       "deepseek",
 		"network_search": map[string]any{"provider": "yandex"},
 	}); rpcErr == nil {
 		t.Fatal("expected unsupported network_search provider to be rejected")
@@ -1160,7 +1160,7 @@ func TestSettingsGetExposesBackendAuthoritativeLocale(t *testing.T) {
 	if wire.Locale != "zh" || wire.GenerationLocale != "en" || wire.WorkspaceLocale != "zh" || wire.ReadOnly {
 		t.Fatalf("settings/get locale wire = %s", raw)
 	}
-	result, rpcErr = callControl(t, env.handler, "settings/update", map[string]any{"provider": "openai"})
+	result, rpcErr = callControl(t, env.handler, "settings/update", map[string]any{"provider": "deepseek"})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -1263,8 +1263,8 @@ func TestSettingsLocaleUpdatesOnlyLocaleAndAllowsFrozenProvider(t *testing.T) {
 	channelEnabled := true
 	allowedSenders := []string{"alice"}
 	initial := settings.Settings{
-		Provider:     settings.ProviderOpenAI,
-		DefaultModel: "gpt-4o",
+		Provider:     settings.ProviderDeepSeek,
+		DefaultModel: "deepseek-flash",
 		Providers: []settings.ProviderEntry{{
 			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: settings.ProviderOpenAI,
 			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
@@ -1979,8 +1979,8 @@ func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 	}
@@ -2042,7 +2042,7 @@ func TestProviderRegistryRPC(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	view := result.(providersResult)
-	if len(view.Entries) != 0 || view.ConfigProvider != "openai" || view.ReadOnly {
+	if len(view.Entries) != 0 || view.ConfigProvider != "deepseek" || view.ReadOnly {
 		t.Fatalf("empty registry view = %+v", view)
 	}
 
@@ -2146,14 +2146,14 @@ func TestProviderRegistryRPC(t *testing.T) {
 func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
 	profiles := func() []modelhost.ProfileStatus {
 		return []modelhost.ProfileStatus{
-			{ID: "openai", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"gpt-4o"}, State: modelhost.ProfileReady},
+			{ID: "deepseek", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"deepseek-flash"}, State: modelhost.ProfileReady},
 			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileDeferredIndefinite},
 		}
 	}
 	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
 		deps.ProviderProfileStatuses = profiles
 		deps.ProviderBundles = []provider.Bundle{
-			{Name: "openai", Models: []string{"gpt-4o"}},
+			{Name: "deepseek", Models: []string{"deepseek-flash"}},
 			{Name: "future", Models: []string{"future-1"}},
 		}
 	})
@@ -3121,8 +3121,8 @@ func TestContextCompactionRPC(t *testing.T) {
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigCompaction:               runtime.CompactionPolicy{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12},
 		ConfigExecuteMaxTimeoutSeconds: 30,
