@@ -124,7 +124,7 @@ func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
 	cfg := config.Config{
 		Storage: config.Storage{DataDir: privateRoot, Backend: "sqlite"},
 		Providers: config.Providers{
-			Active:    settings.ProviderOpenAI,
+			Active:    settings.ProviderDeepSeek,
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "old-model"},
 		},
 	}
@@ -148,8 +148,8 @@ func TestProviderConfigBaselineSurvivesSettingsOverlay(t *testing.T) {
 	cfg := config.Config{
 		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
 		Providers: config.Providers{
-			Active:    settings.ProviderOpenAI,
-			OpenAI:    config.Provider{DefaultModel: "gpt-config"},
+			Active:    settings.ProviderDeepSeek,
+			DeepSeek:  config.Provider{DefaultModel: "deepseek-config"},
 			Anthropic: config.Provider{DefaultModel: "claude-config"},
 		},
 	}
@@ -160,7 +160,7 @@ func TestProviderConfigBaselineSurvivesSettingsOverlay(t *testing.T) {
 	providerName, modelID := providerConfigBaseline(cfg)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
-	if providerName != settings.ProviderOpenAI || modelID != "gpt-config" {
+	if providerName != settings.ProviderDeepSeek || modelID != "deepseek-config" {
 		t.Fatalf("captured baseline = %q/%q", providerName, modelID)
 	}
 	if applied.Providers.Active != settings.ProviderAnthropic || applied.Providers.Anthropic.DefaultModel != "claude-overlay" {
@@ -172,15 +172,15 @@ func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
 		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{Active: "openai", OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_SELECTION"}},
+		Providers: config.Providers{DeepSeek: config.Provider{EnvKey: "VIVY_TEST_API_KEY_SELECTION"}},
 	}
-	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderOpenAI}); err != nil {
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderDeepSeek}); err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
-	if applied.Providers.Active != "openai" {
-		t.Fatalf("active = %q, want openai", applied.Providers.Active)
+	if applied.Providers.Active != "deepseek" {
+		t.Fatalf("active = %q, want deepseek", applied.Providers.Active)
 	}
 }
 

@@ -32,9 +32,9 @@ func TestBuildTokenSnapshotEmpty(t *testing.T) {
 
 func TestBuildTokenSnapshotAggregation(t *testing.T) {
 	rows := []storage.UsageRow{
-		{SessionID: "s1", SessionTitle: "Chat A", CreatedAt: 1000, PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, ReasoningTokens: 3, Model: "deepseek-chat", Provider: "openai"},
-		{SessionID: "s1", SessionTitle: "Chat A", CreatedAt: 2000, PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30, ReasoningTokens: 7, Model: "deepseek-chat", Provider: "openai"},
-		{SessionID: "s2", SessionTitle: "Chat B", CreatedAt: 3000, PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8, ReasoningTokens: 0, Model: "gpt-4o", Provider: "openai"},
+		{SessionID: "s1", SessionTitle: "Chat A", CreatedAt: 1000, PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, ReasoningTokens: 3, Model: "deepseek-flash", Provider: "deepseek"},
+		{SessionID: "s1", SessionTitle: "Chat A", CreatedAt: 2000, PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30, ReasoningTokens: 7, Model: "deepseek-flash", Provider: "deepseek"},
+		{SessionID: "s2", SessionTitle: "Chat B", CreatedAt: 3000, PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8, ReasoningTokens: 0, Model: "deepseek-chat", Provider: "deepseek"},
 	}
 	snap := buildTokenSnapshot(context.Background(), rows, "1d", 0, 50, nil)
 
@@ -54,23 +54,23 @@ func TestBuildTokenSnapshotAggregation(t *testing.T) {
 		t.Fatalf("request_count = %d, want 3", snap.Total.RequestCount)
 	}
 
-	// Models: deepseek-chat=45, gpt-4o=8
+	// Models: deepseek-flash=45, deepseek-chat=8
 	if len(snap.Models) != 2 {
 		t.Fatalf("models count = %d, want 2", len(snap.Models))
 	}
-	if snap.Models[0].Model != "deepseek-chat" || snap.Models[0].TotalTokens != 45 {
-		t.Fatalf("first model = %+v, want deepseek-chat/45", snap.Models[0])
+	if snap.Models[0].Model != "deepseek-flash" || snap.Models[0].TotalTokens != 45 {
+		t.Fatalf("first model = %+v, want deepseek-flash/45", snap.Models[0])
 	}
-	if snap.Models[1].Model != "gpt-4o" || snap.Models[1].TotalTokens != 8 {
-		t.Fatalf("second model = %+v, want gpt-4o/8", snap.Models[1])
+	if snap.Models[1].Model != "deepseek-chat" || snap.Models[1].TotalTokens != 8 {
+		t.Fatalf("second model = %+v, want deepseek-chat/8", snap.Models[1])
 	}
 
-	// Providers: all openai
+	// Providers: all deepseek
 	if len(snap.Providers) != 1 {
 		t.Fatalf("providers count = %d, want 1", len(snap.Providers))
 	}
-	if snap.Providers[0].Key != "openai" || snap.Providers[0].RequestCount != 3 {
-		t.Fatalf("provider = %+v, want openai/3", snap.Providers[0])
+	if snap.Providers[0].Key != "deepseek" || snap.Providers[0].RequestCount != 3 {
+		t.Fatalf("provider = %+v, want deepseek/3", snap.Providers[0])
 	}
 
 	// Sessions: s1=45 tokens, s2=8 tokens → sorted desc
@@ -80,8 +80,8 @@ func TestBuildTokenSnapshotAggregation(t *testing.T) {
 	if snap.Sessions[0].ID != "s1" || snap.Sessions[0].TotalTokens != 45 {
 		t.Fatalf("first session = %+v, want s1/45", snap.Sessions[0])
 	}
-	if snap.Sessions[0].Model != "deepseek-chat" {
-		t.Fatalf("first session primary model = %q, want deepseek-chat", snap.Sessions[0].Model)
+	if snap.Sessions[0].Model != "deepseek-flash" {
+		t.Fatalf("first session primary model = %q, want deepseek-flash", snap.Sessions[0].Model)
 	}
 	if snap.Sessions[1].ID != "s2" || snap.Sessions[1].TotalTokens != 8 {
 		t.Fatalf("second session = %+v, want s2/8", snap.Sessions[1])
@@ -142,15 +142,17 @@ func TestBuildTokenSnapshotMissingRunStarted(t *testing.T) {
 func TestBuildTokenSnapshotCost(t *testing.T) {
 	ctx := context.Background()
 	meta := func(_ context.Context, provider, model string) domain.ModelInfo {
-		if model == "gpt-4o" {
+		if model == "priced-model" {
+			// Synthetic prices (arithmetic coverage only; real DeepSeek
+			// reference prices are pinned in internal/provider metadata tests).
 			return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 2.5, CachedInputPerMTokens: 1.25, OutputPerMTokens: 10.0}
 		}
 		return domain.ModelInfo{}
 	}
 	rows := []storage.UsageRow{
-		{SessionID: "s1", SessionTitle: "priced", Model: "gpt-4o", Provider: "openai",
+		{SessionID: "s1", SessionTitle: "priced", Model: "priced-model", Provider: "deepseek",
 			PromptTokens: 1_000_000, CompletionTokens: 100_000, TotalTokens: 1_100_000, CachedTokens: 400_000},
-		{SessionID: "s2", SessionTitle: "unpriced", Model: "custom-model", Provider: "openai",
+		{SessionID: "s2", SessionTitle: "unpriced", Model: "custom-model", Provider: "deepseek",
 			PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000},
 	}
 	snap := buildTokenSnapshot(ctx, rows, "1m", 0, 50, meta)
@@ -169,8 +171,8 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	for _, m := range snap.Models {
 		byModel[m.Model] = m
 	}
-	if m := byModel["gpt-4o"]; !m.CostKnown || m.CostUSD != 3.0 {
-		t.Fatalf("gpt-4o share = %+v, want cost 3.0 known", m)
+	if m := byModel["priced-model"]; !m.CostKnown || m.CostUSD != 3.0 {
+		t.Fatalf("priced-model share = %+v, want cost 3.0 known", m)
 	}
 	if m := byModel["custom-model"]; m.CostKnown || m.CostUSD != 0 {
 		t.Fatalf("custom-model share = %+v, want unpriced (not free)", m)

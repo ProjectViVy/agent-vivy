@@ -237,8 +237,11 @@ double for a real provider (FR-3).
 
 ### 4.2 Provider catalog and YAML bundles (D-018, D-022..D-025)
 
-- V0 ships **exactly two** provider bundles: `openai` (OpenAI-compatible) and
-  `anthropic`. Diva's other 21 provider entries are **not** carried (D-023).
+- V0 ships provider bundles for `deepseek` (the default since 2026-09-16),
+  `openai` (OpenAI-compatible) and `anthropic`. Diva's other provider entries
+  are **not** carried (D-023), apart from `deepseek`, which entered through the
+  D-019 product-decision path; see the revision note in
+  `docs/research/prd-agent-vivy-v0.md` (v0.6).
 - Bundle schema adapts Diva's `providers.yaml` field vocabulary (D-024):
   `name, api_type, keywords, env_key, display_name, default_model,
   gateway_prefix, skip_prefixes, env_extras, is_gateway, is_local,

@@ -315,7 +315,8 @@ export const updateSettings = (params: SettingsUpdate) => {
 export interface ProviderEntry {
   id: string;
   display_name: string;
-  bundle: 'openai' | 'anthropic';
+  /** 运行束名；后端接受 deepseek（默认）/openai/anthropic。 */
+  bundle: 'openai' | 'anthropic' | 'deepseek';
   base_url: string;
   default_model: string;
   models: string[];
@@ -335,7 +336,8 @@ export interface ProviderProfileStatus {
 export interface ProviderEntryInput {
   id?: string;
   display_name: string;
-  bundle: 'openai' | 'anthropic';
+  /** 运行束名；后端接受 deepseek（默认）/openai/anthropic。 */
+  bundle: 'openai' | 'anthropic' | 'deepseek';
   base_url: string;
   default_model: string;
   models: string[];
@@ -362,7 +364,8 @@ export const deleteProvider = (id: string) => request<{ deleted: boolean; id: st
 /** settings/providers/refresh 载荷：按 id 或 (bundle, base_url) 定位条目；目录厂商无注册表行时克隆成自定义条目以持久化。密钥不参与请求（后端按注册表解析）。 */
 export interface ProviderRefreshInput {
   id?: string;
-  bundle?: 'openai';
+  /** 仅 OpenAI 兼容运行束支持上游 GET /models；与后端 control.go 门控一致。 */
+  bundle?: 'openai' | 'deepseek';
   base_url?: string;
   display_name?: string;
   default_model?: string;

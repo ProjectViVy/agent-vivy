@@ -27,6 +27,7 @@ services:
       TZ: Asia/Shanghai
       VIVY_CONFIG: /app/docker/config.postgres.yaml
       VIVY_POSTGRES_DSN: postgres://vivy:vivy@postgres:5432/vivy?sslmode=disable
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 

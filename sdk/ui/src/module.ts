@@ -905,7 +905,7 @@ export interface FaceToolsCatalogView {
 export interface FaceProviderEntry {
   readonly id: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic";
+  readonly bundle: "openai" | "anthropic" | "deepseek";
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -915,7 +915,7 @@ export interface FaceProviderEntry {
 export interface FaceProviderEntryInput {
   readonly id?: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic";
+  readonly bundle: "openai" | "anthropic" | "deepseek";
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -935,7 +935,7 @@ export interface FaceProvidersView {
 
 export interface FaceProviderRefreshInput {
   readonly id?: string;
-  readonly bundle?: "openai";
+  readonly bundle?: "openai" | "deepseek";
   readonly base_url?: string;
   readonly display_name?: string;
   readonly default_model?: string;

@@ -20,7 +20,7 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]*$",
-      "description": "Stable bundle identifier, e.g. openai, anthropic."
+      "description": "Stable bundle identifier, e.g. deepseek, openai, anthropic."
     },
     "api_type": {
       "type": "string",

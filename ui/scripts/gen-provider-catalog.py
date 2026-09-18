@@ -9,13 +9,18 @@ Run from the repository root or the ui/ directory:
 Porting rules (Agent-Diva -> Vivy):
 - api_type 'anthropic' maps to the vivy runtime bundle 'anthropic'; everything
   else (diva api_type 'openai') maps to bundle 'openai'.
+- A diva entry whose name is a first-class Vivy runtime bundle (NATIVE_BUNDLES,
+  currently 'deepseek') keeps its own bundle name and emits baseUrl '' so the
+  runtime bundle's built-in address is used instead of a gateway override.
+  The built-in address carries no '/v1' suffix (the runtime appends the path).
 - default_model keeps its raw model id only: the leading `<name>/` or
   `<gateway_prefix>/` gateway prefix is stripped (Vivy sends raw model ids).
 - The diva 'custom' entry keeps no recommended model (its 'custom/default'
   placeholder is not a real model id).
 - Data bug fixed on import: aionly's default_api_base carries a stray
   full-width colon prefix in the yaml; it is normalized here.
-- Only runtime bundles supported by Vivy (openai/anthropic) are emitted.
+- Only runtime bundles supported by Vivy (deepseek/openai/anthropic) are
+  emitted.
 """
 
 from pathlib import Path
@@ -24,6 +29,11 @@ import yaml
 UI_ROOT = Path(__file__).resolve().parents[1]
 YAML_PATH = UI_ROOT / "agent-diva-source" / "agent-diva-providers" / "src" / "providers.yaml"
 OUT_PATH = UI_ROOT / "src" / "components" / "settings" / "provider-catalog.ts"
+
+# Diva entries that are first-class Vivy runtime bundles: the vendor name is the
+# bundle name and the address comes from the runtime bundle, so the generated
+# entry carries baseUrl '' (never a '/v1' gateway suffix).
+NATIVE_BUNDLES = frozenset({"deepseek"})
 
 # Agent-Diva ProvidersSettings.vue hiddenProviderNames, kept verbatim.
 FOLDED = [
@@ -58,10 +68,16 @@ def load_entries():
         else:
             models = item.get("models") or []
             default_model = models[0] if models else ""
+        if name in NATIVE_BUNDLES:
+            # First-class runtime bundle: own bundle name, built-in address.
+            bundle = name
+            base_url = ""
+        else:
+            bundle = "anthropic" if item.get("api_type") == "anthropic" else "openai"
         entries.append({
             "name": name,
             "displayName": item["display_name"],
-            "bundle": "anthropic" if item.get("api_type") == "anthropic" else "openai",
+            "bundle": bundle,
             "baseUrl": base_url,
             "defaultModel": default_model,
             "models": list(item.get("models") or []),
@@ -95,12 +111,16 @@ HEADER = """\
 // array by hand. Source of truth: Agent-Diva provider registry
 // (ui/agent-diva-source/agent-diva-providers/src/providers.yaml).
 //
-// Agent-Diva 的供应商目录移植：目录条目按厂商展示，但 Vivy 后端 settings 只
-// 接受 openai/anthropic 两个运行束名，厂商差异通过 base_url 网关表达。
+// Agent-Diva 的供应商目录移植：目录条目按厂商展示。Vivy 后端 settings 接受
+// deepseek/openai/anthropic 三个运行束名：DeepSeek 是一等运行束（自带内置地址，
+// baseUrl 为空），其余厂商差异通过 base_url 网关表达。
 // 选择条目时映射为 (bundle, baseUrl, defaultModel) 三元组，模型 id 始终为
 // 原始 id（不携带网关前缀）。
 
-export type ProviderRuntimeBundle = 'openai' | 'anthropic';
+import type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
+export type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
+
+export type ProviderRuntimeBundle = 'openai' | 'anthropic' | 'deepseek';
 
 export type ProviderCatalogEntry = {
   /** Agent-Diva 供应商 id（如 'deepseek'），仅用于目录展示与检索 */
@@ -108,13 +128,52 @@ export type ProviderCatalogEntry = {
   displayName: string;
   /** Vivy 运行时模型束名（settings.provider 的合法取值） */
   bundle: ProviderRuntimeBundle;
-  /** OpenAI 兼容网关地址；空表示使用运行束默认地址 */
+  /** OpenAI 兼容网关地址；空表示使用运行束内置地址（如 DeepSeek 一等运行束） */
   baseUrl: string;
   /** 推荐默认模型（原始模型 id）；空表示目录未给出推荐 */
   defaultModel: string;
   /** 静态模型列表（原始模型 id） */
   models: string[];
 };
+
+export type ProjectedProviderCatalogEntry = ProviderCatalogEntry & {
+  capabilityState?: ProviderCapabilityState;
+  executable: boolean;
+};
+
+const EXECUTABLE_STATES: ReadonlySet<ProviderCapabilityState> = new Set([
+  'COMPILED', 'UNCONFIGURED', 'READY',
+]);
+
+export function isProviderExecutable(
+  bundle: string,
+  profiles: readonly ProviderProfileStatus[] | undefined,
+): boolean {
+  if (!profiles?.length) return true;
+  const profile = profiles.find((candidate) => candidate.id === bundle);
+  return !!profile && EXECUTABLE_STATES.has(profile.state);
+}
+
+/** Overlay a vendor row with the capability of its compiled runtime bundle. */
+export function projectProviderEntry(
+  entry: ProviderCatalogEntry,
+  profiles: readonly ProviderProfileStatus[],
+): ProjectedProviderCatalogEntry {
+  const profile = profiles.find((candidate) => candidate.id === entry.bundle);
+  // Preserve compatibility while an older backend has no Profile status
+  // field; current Generations always provide the authoritative list.
+  return {
+    ...entry,
+    capabilityState: profile?.state,
+    executable: isProviderExecutable(entry.bundle, profiles),
+  };
+}
+
+/** Build the settings selection only for an executable Profile. */
+export function providerSelection(entry: ProjectedProviderCatalogEntry, model: string) {
+  if (!entry.executable) return undefined;
+  return { provider: entry.bundle, base_url: entry.baseUrl, default_model: model };
+}
 
 export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 """

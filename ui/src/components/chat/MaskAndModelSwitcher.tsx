@@ -24,8 +24,9 @@ import { maskOptions, setActiveMaskId, useActiveMask, type MaskOption } from '@/
 import { useTranslation } from '@/i18n';
 
 function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], t: ReturnType<typeof useTranslation>['t']): string {
-  // 目录/注册表命中时显示厂商名（如 provider=openai + DeepSeek 网关 → “DeepSeek”；
-  // 自定义网关 → 注册的显示名，未注册 → baseUrl 主机名）。
+  // 目录/注册表命中时显示厂商名（如 provider=deepseek + 空 baseUrl → 一等运行束
+  // “DeepSeek”；provider=openai + DeepSeek 网关 → “DeepSeek”；自定义网关 →
+  // 注册的显示名，未注册 → baseUrl 主机名）。
   return savedModelVendorLabel({ provider, baseUrl, model: '' }, providers) || t('maskSwitcher.defaultProvider');
 }
 

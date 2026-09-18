@@ -41,7 +41,7 @@ var gatewayActionProvider = controlaction.ProviderFunc{
 func TestGatewayControlActionUsesConnectionBoundSession(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "gateway-action-test-key")
+	t.Setenv("DEEPSEEK_API_KEY", "gateway-action-test-key")
 
 	assembly := genassembly.BuildDefault()
 	assembly.ActionSets = []controlaction.ProviderSet{{
@@ -53,7 +53,7 @@ func TestGatewayControlActionUsesConnectionBoundSession(t *testing.T) {
 	assembly.Manifest.Modules = append(assembly.Manifest.Modules, "fixture/actions")
 	assembly.Manifest.Actions = []string{"fixture.action"}
 
-	a, err := NewWithAssembly(context.Background(), newAnthropicTestConfig(t), assembly)
+	a, err := NewWithAssembly(context.Background(), newDeepSeekTestConfig(t), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}

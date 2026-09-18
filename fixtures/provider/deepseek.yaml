@@ -1,0 +1,46 @@
+# Vivy provider bundle: deepseek (OpenAI-compatible, direct provider, default).
+# Conforms to schemas/providers.bundle.schema.json.
+# Re-derived from the Diva providers catalog; NOT a verbatim copy (D-025).
+# Contains shape + defaults only. The API key is read from the environment
+# variable named by env_key at request time and is never persisted (D-010).
+
+name: deepseek
+api_type: openai
+keywords:
+  - deepseek
+env_key: DEEPSEEK_API_KEY
+display_name: DeepSeek
+default_model: deepseek-flash
+gateway_prefix: ""
+skip_prefixes: []
+env_extras: []
+is_gateway: false
+is_local: false
+detect_by_key_prefix: ""
+detect_by_base_keyword: ""
+default_api_base: https://api.deepseek.com
+strip_model_prefix: false
+supports_prompt_caching: false
+models:
+  - deepseek-flash
+  - deepseek-v4-pro
+  - deepseek-v4-flash
+  - deepseek-chat
+  - deepseek-coder
+  - deepseek-reasoner
+model_overrides: []
+backend: eino-ext/openai
+
+provenance:
+  source: agent-diva/agent-diva-providers/src/providers.yaml
+  entry: deepseek
+  derived_at: "2026-09-16"
+  note: >-
+    Re-derived into the Vivy bundle schema with a backend field. default_model
+    normalized to deepseek-flash (DeepSeek V4.1-Flash) and default_api_base
+    normalized to https://api.deepseek.com per the DeepSeek API docs; the
+    endpoint then resolves to /chat/completions exactly as documented.
+    deepseek-flash added ahead of the Diva entry; deepseek-v4-flash retained
+    as a documented alias of V4.1-Flash. Reference pricing (peak, USD per 1M
+    tokens): deepseek-flash 0.30 in / 1.20 out; deepseek-v4-pro 1.32 in /
+    3.96 out; context 1M for both.

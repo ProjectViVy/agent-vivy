@@ -1,9 +1,10 @@
 package app
 
 // M4 real-provider smoke suite. Env-gated: it runs only when
-// VIVY_REAL_SMOKE=1 and OPENAI_API_KEY are both set. The suite drives the
-// composed app over its local JSON-RPC/WebSocket control plane and asserts
-// the durable acceptance anchors AS-1, AS-5 and AS-7.
+// VIVY_REAL_SMOKE=1 and DEEPSEEK_API_KEY are both set. DeepSeek is the sole
+// authoritative real test provider. The suite drives the composed app over
+// its local JSON-RPC/WebSocket control plane and asserts the durable
+// acceptance anchors AS-1, AS-5 and AS-7.
 
 import (
 	"context"
@@ -51,14 +52,14 @@ type smokeEvent struct {
 
 func TestRealProviderSmoke(t *testing.T) {
 	if os.Getenv("VIVY_REAL_SMOKE") != "1" {
-		t.Skip("set VIVY_REAL_SMOKE=1 (and OPENAI_API_KEY) to run the real provider smoke")
+		t.Skip("set VIVY_REAL_SMOKE=1 (and DEEPSEEK_API_KEY) to run the real provider smoke")
 	}
-	if _, keySet := os.LookupEnv("OPENAI_API_KEY"); !keySet {
-		t.Skip("OPENAI_API_KEY is not set; the real provider smoke needs a live key")
+	if _, keySet := os.LookupEnv("DEEPSEEK_API_KEY"); !keySet {
+		t.Skip("DEEPSEEK_API_KEY is not set; the real provider smoke needs a live DeepSeek key")
 	}
 	modelID := os.Getenv("VIVY_REAL_MODEL")
 	if modelID == "" {
-		modelID = "step-3.7-flash"
+		modelID = "deepseek-flash"
 	}
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
@@ -68,8 +69,9 @@ func TestRealProviderSmoke(t *testing.T) {
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "smoke.db")}},
 		Providers: config.Providers{
-			Active: "openai", BundleDir: filepath.Join("..", "..", "fixtures", "provider"),
-			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: modelID},
+			Active: "deepseek", BundleDir: filepath.Join("..", "..", "fixtures", "provider"),
+			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: modelID},
+			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: config.Runtime{StreamBuffer: 256, MaxEventPayloadBytes: 65536},

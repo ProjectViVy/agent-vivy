@@ -58,13 +58,14 @@ func TestPrepareOmitsProductionPathsAndSecrets(t *testing.T) {
 }
 
 func TestChildEnvStripsProviderSecrets(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test-deepseek")
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test-anthropic")
 	t.Setenv("VIVY_ADDR", "127.0.0.1:1")
 	t.Setenv("VIVY_POSTGRES_DSN", "postgres://vivy:secret@postgres:5432/vivy")
 	env := ChildEnv(filepath.Join(t.TempDir(), "config.yaml"))
 	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "sk-test-openai") || strings.Contains(joined, "sk-test-anthropic") {
+	if strings.Contains(joined, "sk-test-deepseek") || strings.Contains(joined, "sk-test-openai") || strings.Contains(joined, "sk-test-anthropic") {
 		t.Fatalf("child env leaked provider secret: %s", joined)
 	}
 	if strings.Contains(joined, "VIVY_ADDR=") {

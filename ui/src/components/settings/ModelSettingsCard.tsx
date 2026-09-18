@@ -31,6 +31,7 @@ import {
   providerEntryByEndpoint,
   searchMergedProviders,
   splitMergedByFold,
+  supportsModelRefresh,
   type CustomProviderInput,
   type MergedProviderEntry,
   type ProviderEntry,
@@ -151,6 +152,9 @@ function CustomProviderDialog({
 }) {
   const { t } = useTranslation();
   const [displayName, setDisplayName] = useState('');
+  // 新增自定义条目的默认运行束保持 'openai'：自定义条目本质是第三方网关，
+  // OpenAI 兼容族是厂商中立口径；应用级默认运行束（后端 active=deepseek）
+  // 由运行配置与欢迎向导承载，不在这里改写。
   const [bundle, setBundle] = useState<ProviderRegistryBundle>('openai');
   const [baseUrl, setBaseUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
@@ -249,6 +253,7 @@ function CustomProviderDialog({
               <SelectContent>
                 <SelectItem value="openai">{t('settingsModel.bundleOpenai')}</SelectItem>
                 <SelectItem value="anthropic">{t('settingsModel.bundleAnthropic')}</SelectItem>
+                <SelectItem value="deepseek">{t('settingsModel.bundleDeepseek')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -550,18 +555,20 @@ export function ModelSettingsCard() {
   /**
    * 「刷新」：从上游 GET /models 拉取模型列表并保存本地。已有注册表条目按
    * id 刷新（密钥保留）；目录供应商无注册表行时克隆为自定义条目以持久化。
-   * 仅 OpenAI 兼容端点支持；Anthropic 原生端点不实现该协议，按钮不显示。
+   * 仅 OpenAI 兼容端点支持（openai / deepseek 一等运行束）；Anthropic 原生
+   * 端点不实现该协议，按钮不显示。base_url 为空的原生目录条目同样不显示：
+   * 后端只接受 http(s) base_url，其模型列表由目录静态给出。
    */
   const refreshSelectedProvider = async () => {
     if (!selectedEntry || locked || refreshing) return;
-    if (selectedEntry.bundle !== 'openai') return;
+    if (!supportsModelRefresh(selectedEntry.bundle, selectedEntry.baseUrl)) return;
     setRefreshing(true);
     setRefreshNote(null);
     try {
       const saved = selectedEntry.custom && selectedEntry.registryId
         ? await refreshProvider({ id: selectedEntry.registryId })
         : await refreshProvider({
-            bundle: 'openai',
+            bundle: selectedEntry.bundle,
             base_url: selectedEntry.baseUrl,
             display_name: selectedEntry.displayName,
             default_model: selectedEntry.defaultModel,
@@ -752,7 +759,7 @@ export function ModelSettingsCard() {
                     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
                       <p className="text-xs font-medium text-muted-foreground">{t('settingsModel.modelsTitle', { provider: selectedEntry.displayName })}</p>
                       <div className="flex shrink-0 items-center gap-0.5">
-                        {selectedEntry.bundle === 'openai' ? (
+                        {supportsModelRefresh(selectedEntry.bundle, selectedEntry.baseUrl) ? (
                           <button
                             type="button"
                             onClick={() => void refreshSelectedProvider()}

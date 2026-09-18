@@ -114,7 +114,7 @@ try {
         }
     }
 
-    if (-not $env:VIVY_CONFIG -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
+    if (-not $env:VIVY_CONFIG -and -not $env:DEEPSEEK_API_KEY -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
         Write-Host "no provider API key; Vivy will start without a model; configure Settings -> Model"
     }
 

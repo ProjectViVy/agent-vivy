@@ -2,15 +2,16 @@
 // array by hand. Source of truth: Agent-Diva provider registry
 // (ui/agent-diva-source/agent-diva-providers/src/providers.yaml).
 //
-// Agent-Diva 的供应商目录移植：目录条目按厂商展示，但 Vivy 后端 settings 只
-// 接受 openai/anthropic 两个运行束名，厂商差异通过 base_url 网关表达。
+// Agent-Diva 的供应商目录移植：目录条目按厂商展示。Vivy 后端 settings 接受
+// deepseek/openai/anthropic 三个运行束名：DeepSeek 是一等运行束（自带内置地址，
+// baseUrl 为空），其余厂商差异通过 base_url 网关表达。
 // 选择条目时映射为 (bundle, baseUrl, defaultModel) 三元组，模型 id 始终为
 // 原始 id（不携带网关前缀）。
 
 import type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
 export type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
 
-export type ProviderRuntimeBundle = 'openai' | 'anthropic';
+export type ProviderRuntimeBundle = 'openai' | 'anthropic' | 'deepseek';
 
 export type ProviderCatalogEntry = {
   /** Agent-Diva 供应商 id（如 'deepseek'），仅用于目录展示与检索 */
@@ -18,7 +19,7 @@ export type ProviderCatalogEntry = {
   displayName: string;
   /** Vivy 运行时模型束名（settings.provider 的合法取值） */
   bundle: ProviderRuntimeBundle;
-  /** OpenAI 兼容网关地址；空表示使用运行束默认地址 */
+  /** OpenAI 兼容网关地址；空表示使用运行束内置地址（如 DeepSeek 一等运行束） */
   baseUrl: string;
   /** 推荐默认模型（原始模型 id）；空表示目录未给出推荐 */
   defaultModel: string;
@@ -115,7 +116,8 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
     'gpt-5-chat',
     'gpt-image-1',
   ] },
-  { name: 'deepseek', displayName: 'DeepSeek', bundle: 'openai', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-v4-pro', models: [
+  { name: 'deepseek', displayName: 'DeepSeek', bundle: 'deepseek', baseUrl: '', defaultModel: 'deepseek-flash', models: [
+    'deepseek-flash',
     'deepseek-v4-pro',
     'deepseek-v4-flash',
     'deepseek-chat',

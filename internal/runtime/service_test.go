@@ -93,7 +93,7 @@ func TestSetSessionWorkspaceSerializesWithFirstRunAllocation(t *testing.T) {
 }
 
 func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
-	svc := NewService(nil, "openai", "old-model", ServiceDeps{})
+	svc := NewService(nil, "deepseek", "old-model", ServiceDeps{})
 	persisted := false
 	if err := svc.ChangeModelWhenIdle("anthropic", "new-model", func() error {
 		persisted = true
@@ -109,7 +109,7 @@ func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
 	}
 
 	sentinel := errors.New("save failed")
-	if err := svc.ChangeModelWhenIdle("openai", "broken", func() error { return sentinel }); !errors.Is(err, sentinel) {
+	if err := svc.ChangeModelWhenIdle("deepseek", "broken", func() error { return sentinel }); !errors.Is(err, sentinel) {
 		t.Fatalf("persist failure = %v", err)
 	}
 	if providerName, modelID := svc.CurrentModel(); providerName != "anthropic" || modelID != "new-model" {
@@ -120,7 +120,7 @@ func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
 	svc.active["run-active"] = func() {}
 	svc.mu.Unlock()
 	called := false
-	if err := svc.ChangeModelWhenIdle("openai", "later", func() error { called = true; return nil }); !errors.Is(err, ErrModelChangeBusy) {
+	if err := svc.ChangeModelWhenIdle("deepseek", "later", func() error { called = true; return nil }); !errors.Is(err, ErrModelChangeBusy) {
 		t.Fatalf("active run model change = %v", err)
 	}
 	if called {
@@ -130,11 +130,11 @@ func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
 	delete(svc.active, "run-active")
 	svc.snapshots["child-active"] = domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Hash: "hash"}
 	svc.mu.Unlock()
-	if err := svc.ChangeModelWhenIdle("openai", "later", func() error { return nil }); !errors.Is(err, ErrModelChangeBusy) {
+	if err := svc.ChangeModelWhenIdle("deepseek", "later", func() error { return nil }); !errors.Is(err, ErrModelChangeBusy) {
 		t.Fatalf("child worker model change = %v", err)
 	}
 	svc.cleanupRunState("child-active")
-	if err := svc.ChangeModelWhenIdle("openai", "after-cleanup", func() error { return nil }); err != nil {
+	if err := svc.ChangeModelWhenIdle("deepseek", "after-cleanup", func() error { return nil }); err != nil {
 		t.Fatalf("cleanup left model selection permanently busy: %v", err)
 	}
 }
@@ -553,7 +553,7 @@ func TestServiceRunFailed(t *testing.T) {
 type keyMissingModel struct{}
 
 func (keyMissingModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
-	return nil, &provider.KeyMissingError{Provider: "openai"}
+	return nil, &provider.KeyMissingError{Provider: "deepseek"}
 }
 
 type unconfiguredModel struct{}

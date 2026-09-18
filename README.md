@@ -59,7 +59,8 @@ replica=1). `docker compose up --build` publishes **only**
 `127.0.0.1:8787:8787` and stores the Journal on the named volume
 `vivy-data` (`/data/vivy.db` in the container). Do not scale the service
 and do not bind `8787` on all host interfaces. Provider keys stay in the
-environment (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`). Open
+environment (`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`);
+DeepSeek is the default provider. Open
 `http://127.0.0.1:8787` after the container is healthy. The image does
 not ship `go` / `git` / `rg`; `execute` / `commandline` stay gated and
 unavailable until those binaries are present.
@@ -140,7 +141,7 @@ internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types
 internal/runtime/  Run service + Eino adapter (event mapping, interrupt)
-internal/provider/ openai-compatible / anthropic; YAML bundles
+internal/provider/ openai-compatible / anthropic / deepseek; YAML bundles
 internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor

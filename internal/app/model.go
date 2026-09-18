@@ -48,6 +48,7 @@ func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog,
 		credentials = supplied[0]
 	} else {
 		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": {
+			cfg.Providers.DeepSeek.EnvKey,
 			cfg.Providers.OpenAI.EnvKey, cfg.Providers.Anthropic.EnvKey,
 		}})
 	}
@@ -66,6 +67,7 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *cr
 	}
 	var hits []candidate
 	for _, c := range []candidate{
+		{name: settings.ProviderDeepSeek, envKey: cfg.Providers.DeepSeek.EnvKey, model: cfg.Providers.DeepSeek.DefaultModel},
 		{name: settings.ProviderOpenAI, envKey: cfg.Providers.OpenAI.EnvKey, model: cfg.Providers.OpenAI.DefaultModel},
 		{name: settings.ProviderAnthropic, envKey: cfg.Providers.Anthropic.EnvKey, model: cfg.Providers.Anthropic.DefaultModel},
 	} {
@@ -148,6 +150,8 @@ func (r *ModelResolver) currentLocked() ResolvedModel {
 	modelID := s.DefaultModel
 	if modelID == "" {
 		switch providerName {
+		case settings.ProviderDeepSeek:
+			modelID = r.cfg.Providers.DeepSeek.DefaultModel
 		case settings.ProviderAnthropic:
 			modelID = r.cfg.Providers.Anthropic.DefaultModel
 		default:

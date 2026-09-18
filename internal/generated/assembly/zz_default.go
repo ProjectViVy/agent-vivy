@@ -76,7 +76,7 @@ func BuildDefault() RuntimeAssembly {
 			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
 			Actions:          []string{},
 			ToolWorlds:       []string{"mcp"},
-			ProviderProfiles: []string{"openai", "anthropic"},
+			ProviderProfiles: []string{"deepseek", "openai", "anthropic"},
 			ContextSources:   []string{"vivy.project-context"},
 			SkillSources:     []string{"vivy.default-skills"},
 			Face:             "kernel-headless",

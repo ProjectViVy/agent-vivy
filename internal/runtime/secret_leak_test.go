@@ -22,7 +22,7 @@ import (
 const secretCanary = "sk-canary-e3-must-not-leak"
 
 func TestSecretsNeverReachStorage(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", secretCanary)
+	t.Setenv("DEEPSEEK_API_KEY", secretCanary)
 	t.Setenv("ANTHROPIC_API_KEY", secretCanary)
 	ctx := context.Background()
 

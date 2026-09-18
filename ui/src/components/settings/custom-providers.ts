@@ -31,8 +31,32 @@ export type CustomProvider = ProviderEntry;
 // Re-export the wire entry type so consumers import it from one place.
 export type { ProviderEntry } from '@/lib/api';
 
-/** 注册表 bundle 的 wire 取值。 */
-export type ProviderRegistryBundle = 'openai' | 'anthropic';
+/** 注册表 bundle 的 wire 取值（与后端 settings 接受的运行束集合一致）。 */
+export type ProviderRegistryBundle = 'openai' | 'anthropic' | 'deepseek';
+
+/** 注册表 / 快捷列表条目的运行束名合法性判定（单一口径，避免各处各写一份白名单）。 */
+export function isProviderRegistryBundle(value: unknown): value is ProviderRegistryBundle {
+  return value === 'openai' || value === 'anthropic' || value === 'deepseek';
+}
+
+/**
+ * 支持「刷新模型列表」（上游 GET /models）的运行束：OpenAI 兼容端点才有该协议，
+ * Anthropic 原生端点没有；与后端 internal/rpc/control.go 的门控 {openai, deepseek}
+ * 一致。DeepSeek 是一等运行束，走同一条 OpenAI 兼容路径。
+ */
+export type RefreshableProviderBundle = 'openai' | 'deepseek';
+
+/**
+ * 是否展示并允许「刷新模型列表」。除了运行束门控，还要求 base_url 为 http(s)：
+ * 原生运行束（如 deepseek）的目录条目 base_url 为空，表示走运行束内置地址，
+ * 后端会对非 http(s) 的 base_url 明确报错（"model refresh requires an http(s)
+ * base_url"），因此这类行不提供刷新按钮——它的模型列表由目录静态给出。
+ */
+export function supportsModelRefresh(bundle: string, baseUrl = ''): bundle is RefreshableProviderBundle {
+  if (bundle !== 'openai' && bundle !== 'deepseek') return false;
+  const base = baseUrl.trim();
+  return base.startsWith('http://') || base.startsWith('https://');
+}
 
 /** 新增/编辑输入：apiKey 为写-only（空=清除该条目密钥；不参与读侧）。 */
 export type CustomProviderInput = {
@@ -72,7 +96,7 @@ export function isValidCustomProvider(value: unknown): value is ProviderEntry {
   const entry = value as Record<string, unknown>;
   if (typeof entry.id !== 'string' || entry.id.trim().length === 0) return false;
   if (typeof entry.display_name !== 'string' || entry.display_name.trim().length === 0) return false;
-  if (entry.bundle !== 'openai' && entry.bundle !== 'anthropic') return false;
+  if (!isProviderRegistryBundle(entry.bundle)) return false;
   if (typeof entry.base_url !== 'string' || entry.base_url.trim().length === 0) return false;
   if (typeof entry.default_model !== 'string') return false;
   if (!Array.isArray(entry.models) || !entry.models.every((model) => typeof model === 'string')) return false;

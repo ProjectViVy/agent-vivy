@@ -98,15 +98,15 @@ func (server *liveMCPServer) handle(w http.ResponseWriter, request *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(envelope.ID), "result": result})
 }
 
-type anthropicInputServer struct {
+type deepseekInputServer struct {
 	http   *httptest.Server
 	mu     sync.Mutex
 	bodies []string
 }
 
-func newAnthropicInputServer(t *testing.T) *anthropicInputServer {
+func newDeepSeekInputServer(t *testing.T) *deepseekInputServer {
 	t.Helper()
-	server := &anthropicInputServer{}
+	server := &deepseekInputServer{}
 	server.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		raw, _ := io.ReadAll(request.Body)
 		server.mu.Lock()
@@ -114,20 +114,19 @@ func newAnthropicInputServer(t *testing.T) *anthropicInputServer {
 		server.mu.Unlock()
 		if strings.Contains(string(raw), `"stream":true`) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n")
-			_, _ = fmt.Fprint(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
-			_, _ = fmt.Fprint(w, "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\n")
-			_, _ = fmt.Fprint(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-live\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-live\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"id":"msg_live","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}`)
+		_, _ = fmt.Fprint(w, `{"id":"chatcmpl-live","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	}))
 	t.Cleanup(server.http.Close)
 	return server
 }
 
-func (server *anthropicInputServer) containsBody(want string) bool {
+func (server *deepseekInputServer) containsBody(want string) bool {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for _, body := range server.bodies {
@@ -138,7 +137,7 @@ func (server *anthropicInputServer) containsBody(want string) bool {
 	return false
 }
 
-func (server *anthropicInputServer) containsBodyAfter(want string, offset int) bool {
+func (server *deepseekInputServer) containsBodyAfter(want string, offset int) bool {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if offset < 0 {
@@ -155,20 +154,22 @@ func (server *anthropicInputServer) containsBodyAfter(want string, offset int) b
 	return false
 }
 
-func (server *anthropicInputServer) containsToolName(want string) bool {
+func (server *deepseekInputServer) containsToolName(want string) bool {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for _, body := range server.bodies {
 		var envelope struct {
 			Tools []struct {
-				Name string `json:"name"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
 			} `json:"tools"`
 		}
 		if json.Unmarshal([]byte(body), &envelope) != nil {
 			continue
 		}
 		for _, tool := range envelope.Tools {
-			if tool.Name == want {
+			if tool.Function.Name == want {
 				return true
 			}
 		}
@@ -176,7 +177,7 @@ func (server *anthropicInputServer) containsToolName(want string) bool {
 	return false
 }
 
-func (server *anthropicInputServer) containsToolNameAfter(want string, offset int) bool {
+func (server *deepseekInputServer) containsToolNameAfter(want string, offset int) bool {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if offset < 0 {
@@ -188,14 +189,16 @@ func (server *anthropicInputServer) containsToolNameAfter(want string, offset in
 	for _, body := range server.bodies[offset:] {
 		var envelope struct {
 			Tools []struct {
-				Name string `json:"name"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
 			} `json:"tools"`
 		}
 		if json.Unmarshal([]byte(body), &envelope) != nil {
 			continue
 		}
 		for _, tool := range envelope.Tools {
-			if tool.Name == want {
+			if tool.Function.Name == want {
 				return true
 			}
 		}
@@ -203,7 +206,7 @@ func (server *anthropicInputServer) containsToolNameAfter(want string, offset in
 	return false
 }
 
-func (server *anthropicInputServer) bodyCount() int {
+func (server *deepseekInputServer) bodyCount() int {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	return len(server.bodies)
@@ -212,12 +215,12 @@ func (server *anthropicInputServer) bodyCount() int {
 func TestProductionMCPResourceBridgeSettingsRebuildsModelInput(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "mcp-live-test-key")
+	t.Setenv("DEEPSEEK_API_KEY", "mcp-live-test-key")
 	mcpServer := newLiveMCPServer(t)
-	modelServer := newAnthropicInputServer(t)
+	modelServer := newDeepSeekInputServer(t)
 	t.Setenv("VIVY_API_BASE", modelServer.http.URL)
 
-	cfg := newAnthropicTestConfig(t)
+	cfg := newDeepSeekTestConfig(t)
 	cfg.Runtime.MCPServers = []config.MCPServer{{Name: "docs", Endpoint: mcpServer.http.URL}}
 	cfg.Runtime.MaxContextBytes = 16 << 10
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway(), WithSettingsPath(filepath.Join(t.TempDir(), "settings.yaml")))
@@ -257,13 +260,13 @@ func TestProductionMCPResourceBridgeSettingsRebuildsModelInput(t *testing.T) {
 func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "mcp-live-test-key")
+	t.Setenv("DEEPSEEK_API_KEY", "mcp-live-test-key")
 	oldMCP := newLiveMCPServer(t, "old")
 	newMCP := newLiveMCPServer(t, "new")
-	modelServer := newAnthropicInputServer(t)
+	modelServer := newDeepSeekInputServer(t)
 	t.Setenv("VIVY_API_BASE", modelServer.http.URL)
 
-	cfg := newAnthropicTestConfig(t)
+	cfg := newDeepSeekTestConfig(t)
 	cfg.Runtime.MCPServers = []config.MCPServer{{Name: "docs", Endpoint: oldMCP.http.URL}}
 	cfg.Tools.Enabled = []string{"mcp.docs.old"}
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway(), WithSettingsPath(filepath.Join(t.TempDir(), "settings.yaml")))
@@ -329,13 +332,13 @@ func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 func TestProductionMCPToolCatalogRefreshIsWholeDuringConcurrentRPC(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "mcp-live-test-key")
+	t.Setenv("DEEPSEEK_API_KEY", "mcp-live-test-key")
 	oldMCP := newLiveMCPServer(t, "old")
 	newMCP := newLiveMCPServer(t, "new")
-	modelServer := newAnthropicInputServer(t)
+	modelServer := newDeepSeekInputServer(t)
 	t.Setenv("VIVY_API_BASE", modelServer.http.URL)
 
-	cfg := newAnthropicTestConfig(t)
+	cfg := newDeepSeekTestConfig(t)
 	cfg.Runtime.MCPServers = []config.MCPServer{{Name: "docs", Endpoint: oldMCP.http.URL}}
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway(), WithSettingsPath(filepath.Join(t.TempDir(), "settings.yaml")))
 	if err != nil {

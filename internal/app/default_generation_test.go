@@ -31,11 +31,12 @@ type defaultGenerationInventory struct {
 }
 
 func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	a, err := New(context.Background(), newAnthropicTestConfig(t))
+	a, err := New(context.Background(), newDeepSeekTestConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestAppUsesGeneratedRuntimeAssembly(t *testing.T) {
 	assembly.ChannelGrants = map[string][]module.GrantBinding{}
 	assembly.Manifest.Channels = nil
 
-	a, err := NewWithAssembly(context.Background(), newAnthropicTestConfig(t), assembly)
+	a, err := NewWithAssembly(context.Background(), newDeepSeekTestConfig(t), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,8 +116,11 @@ func TestDefaultGenerationBaselineInventory(t *testing.T) {
 
 func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 	assembly := genassembly.BuildDefault()
-	if len(assembly.ProviderProfiles) != 2 {
-		t.Fatalf("generated Provider Profiles = %d, want 2", len(assembly.ProviderProfiles))
+	if len(assembly.ProviderProfiles) != 3 {
+		t.Fatalf("generated Provider Profiles = %d, want 3", len(assembly.ProviderProfiles))
+	}
+	if got := assembly.ProviderProfiles[0].Definition().ID; got != "deepseek" {
+		t.Fatalf("first Provider Profile = %q, want the deepseek default", got)
 	}
 	for index, provider := range assembly.ProviderProfiles {
 		if got, want := provider.Definition().ID, assembly.Manifest.ProviderProfiles[index]; got != want {

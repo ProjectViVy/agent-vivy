@@ -116,7 +116,7 @@ func TestSummarizationFinalizePreservesExactProjectFileMessage(t *testing.T) {
 // model.usage event so the hidden summary call is observable and accounted.
 func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	m := newEventMapper("run-1", 0)
-	m.setUsageRoutes("openai", "main-model", "summary-model")
+	m.setUsageRoutes("deepseek", "main-model", "summary-model")
 	action := &summarization.CustomizedAction{
 		Type: summarization.ActionTypeGenerateSummary,
 		GenerateSummary: &summarization.GenerateSummaryAction{
@@ -139,7 +139,7 @@ func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	if err := json.Unmarshal(events[0].Payload, &p); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if p.TotalTokens != 15 || p.PromptTokens != 10 || p.Source != "summary" || p.Provider != "openai" || p.Model != "summary-model" {
+	if p.TotalTokens != 15 || p.PromptTokens != 10 || p.Source != "summary" || p.Provider != "deepseek" || p.Model != "summary-model" {
 		t.Fatalf("usage = %+v, want 10/5/15", p)
 	}
 	action.GenerateSummary.Phase = summarization.GenerateSummaryPhaseFailover
@@ -147,7 +147,7 @@ func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	if err != nil || len(events) != 1 || json.Unmarshal(events[0].Payload, &p) != nil {
 		t.Fatalf("failover usage event = %+v, err=%v", events, err)
 	}
-	if p.Provider != "openai" || p.Model != "main-model" || p.Source != "summary" {
+	if p.Provider != "deepseek" || p.Model != "main-model" || p.Source != "summary" {
 		t.Fatalf("failover usage attribution = %+v", p)
 	}
 	// Unrelated customized actions are silent.
@@ -179,7 +179,7 @@ func TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 	seed := newEventMapper(runID, 0)
-	started := seed.build(domain.EventRunStarted, payloadRunStarted{Provider: "openai", Model: "main-model"})
+	started := seed.build(domain.EventRunStarted, payloadRunStarted{Provider: "deepseek", Model: "main-model"})
 	if _, err := backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}}); err != nil {
 		t.Fatalf("append run.started: %v", err)
 	}
@@ -220,10 +220,10 @@ func TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("usage rows = %d, want 2", len(rows))
 	}
-	if rows[0].Provider != "openai" || rows[0].Model != "summary-model" || rows[0].Source != "summary" {
+	if rows[0].Provider != "deepseek" || rows[0].Model != "summary-model" || rows[0].Source != "summary" {
 		t.Fatalf("primary resumed summary route = %+v", rows[0])
 	}
-	if rows[1].Provider != "openai" || rows[1].Model != "main-model" || rows[1].Source != "summary" {
+	if rows[1].Provider != "deepseek" || rows[1].Model != "main-model" || rows[1].Source != "summary" {
 		t.Fatalf("failover resumed summary route = %+v", rows[1])
 	}
 }

@@ -15,6 +15,7 @@ import {
   providerEntryById,
   searchMergedProviders,
   splitMergedByFold,
+  supportsModelRefresh,
   type ProviderEntry,
 } from './custom-providers';
 
@@ -62,7 +63,9 @@ describe('hasBaseUrlConflict', () => {
   });
 
   it('与静态目录同 (bundle, base_url) 冲突', () => {
-    expect(hasBaseUrlConflict([], { ...INPUT, displayName: '重复目录', baseUrl: 'https://api.deepseek.com/v1' })).toBe(true);
+    expect(hasBaseUrlConflict([], { ...INPUT, displayName: '重复目录', baseUrl: 'https://api.302.ai/v1' })).toBe(true);
+    // DeepSeek 一等运行束的端点同样被占用：bundle=deepseek + 空 baseUrl。
+    expect(hasBaseUrlConflict([], { ...INPUT, displayName: '重复运行束', bundle: 'deepseek', baseUrl: '' })).toBe(true);
   });
 
   it('不同 bundle 同 URL 不冲突', () => {
@@ -128,8 +131,9 @@ describe('合并视图（目录 + 注册表）', () => {
   });
 
   it('matchMergedProviderEntry：目录优先；注册表命中；base_url 空沿用束名回退；未知返回 undefined', () => {
-    const custom = { ...ENTRY, display_name: '自定义 DeepSeek', base_url: 'https://api.deepseek.com/v1' };
-    expect(matchMergedProviderEntry([custom], 'openai', 'https://api.deepseek.com/v1')).toMatchObject({ name: 'deepseek', custom: false });
+    const custom = { ...ENTRY, display_name: '自定义 OpenAI', base_url: 'https://api.openai.com/v1' };
+    expect(matchMergedProviderEntry([custom], 'openai', 'https://api.openai.com/v1')).toMatchObject({ name: 'openai', custom: false });
+    expect(matchMergedProviderEntry([ENTRY], 'deepseek', '')).toMatchObject({ name: 'deepseek', custom: false });
     expect(matchMergedProviderEntry([ENTRY], 'openai', 'https://my-gateway.example.com/v1')).toMatchObject({ displayName: '我的网关', custom: true });
     expect(matchMergedProviderEntry([ENTRY], 'openai', '')).toMatchObject({ name: 'openai' });
     expect(matchMergedProviderEntry([ENTRY], 'unknown-bundle', '')).toBeUndefined();
@@ -167,10 +171,10 @@ describe('目录厂商密钥落地条（catalog overlay）', () => {
   const overlay: ProviderEntry = {
     id: 'catalog-deepseek',
     display_name: 'DeepSeek',
-    bundle: 'openai',
-    base_url: 'https://api.deepseek.com/v1',
-    default_model: 'deepseek-chat',
-    models: ['deepseek-chat'],
+    bundle: 'deepseek',
+    base_url: '',
+    default_model: 'deepseek-flash',
+    models: ['deepseek-flash'],
     api_key_set: true,
   };
 
@@ -181,7 +185,7 @@ describe('目录厂商密钥落地条（catalog overlay）', () => {
   });
 
   it('allProviderEntries 隐藏落地条，但保留普通自定义条目（克隆）', () => {
-    const clone: ProviderEntry = { ...ENTRY, id: 'custom-clone', display_name: 'DeepSeek 备用', base_url: 'https://api.deepseek.com/v1' };
+    const clone: ProviderEntry = { ...ENTRY, id: 'custom-clone', display_name: 'DeepSeek 备用', bundle: 'deepseek', base_url: 'https://api.deepseek.com' };
     const entries = allProviderEntries([overlay, clone]);
     expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
     expect(entries.some((entry) => entry.custom && entry.registryId === clone.id)).toBe(true);
@@ -189,14 +193,29 @@ describe('目录厂商密钥落地条（catalog overlay）', () => {
   });
 
   it('providerEntryByEndpoint：按 (bundle, base_url) 命中（与后端 ActiveKey 同口径）', () => {
-    expect(providerEntryByEndpoint([overlay], 'openai', 'https://api.deepseek.com/v1')).toEqual(overlay);
-    expect(providerEntryByEndpoint([overlay], 'anthropic', 'https://api.deepseek.com/v1')).toBeUndefined();
-    expect(providerEntryByEndpoint([overlay], 'openai', 'https://api.openai.com/v1')).toBeUndefined();
+    expect(providerEntryByEndpoint([overlay], 'deepseek', '')).toEqual(overlay);
+    expect(providerEntryByEndpoint([overlay], 'anthropic', '')).toBeUndefined();
+    expect(providerEntryByEndpoint([overlay], 'deepseek', 'https://api.deepseek.com')).toBeUndefined();
   });
 
   it('customApiKeySetFor：目录端点命中注册表密钥覆盖返回 true；无覆盖/未配密钥返回 false', () => {
-    expect(customApiKeySetFor([overlay], 'openai', 'https://api.deepseek.com/v1')).toBe(true);
-    expect(customApiKeySetFor([{ ...overlay, api_key_set: false }], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
-    expect(customApiKeySetFor([], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
+    expect(customApiKeySetFor([overlay], 'deepseek', '')).toBe(true);
+    expect(customApiKeySetFor([{ ...overlay, api_key_set: false }], 'deepseek', '')).toBe(false);
+    expect(customApiKeySetFor([], 'deepseek', '')).toBe(false);
+  });
+
+  it('supportsModelRefresh：仅 OpenAI 兼容运行束且 base_url 为 http(s) 时才提供刷新', () => {
+    // OpenAI 兼容运行束 + 可寻址端点
+    expect(supportsModelRefresh('openai', 'https://gw.example.com/v1')).toBe(true);
+    expect(supportsModelRefresh('deepseek', 'https://api.deepseek.com')).toBe(true);
+    expect(supportsModelRefresh('deepseek', '  https://api.deepseek.com  ')).toBe(true);
+    // 原生运行束的目录条目 base_url 为空：后端只接受 http(s)，不提供刷新
+    expect(supportsModelRefresh('deepseek', '')).toBe(false);
+    expect(supportsModelRefresh('openai', '')).toBe(false);
+    // Anthropic 原生端点没有 GET /models 协议
+    expect(supportsModelRefresh('anthropic', 'https://api.anthropic.com')).toBe(false);
+    // 缺省 base_url 与显式空串同口径
+    expect(supportsModelRefresh('deepseek')).toBe(false);
+    expect(supportsModelRefresh('openai')).toBe(false);
   });
 });

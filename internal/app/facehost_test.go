@@ -25,19 +25,19 @@ import (
 
 // The gateway-less assembly (VIVY-FACE-PACK §7, F1) drives the same control
 // plane the web face reaches over WebSocket, but through a memory pipe. The
-// model side is a local Anthropic-shaped server; the frozen ENV session
-// points the composed resolver at it.
+// model side is a local DeepSeek-shaped server (OpenAI chat.completions
+// wire protocol); the frozen ENV session points the composed resolver at it.
 
-// The kernel composition unconditionally loads both provider bundles from
-// BundleDir, so the temp dir needs both fixtures even though only the
-// anthropic side is exercised.
-func newAnthropicTestConfig(t *testing.T) config.Config {
+// The kernel composition unconditionally loads every provider bundle from
+// BundleDir, so the temp dir needs all fixtures even though only the
+// deepseek side is exercised.
+func newDeepSeekTestConfig(t *testing.T) config.Config {
 	t.Helper()
 	bundleDir := filepath.Join(t.TempDir(), "bundles")
 	if err := os.MkdirAll(bundleDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"anthropic", "openai"} {
+	for _, name := range []string{"deepseek", "openai", "anthropic"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "provider", name+".yaml"))
 		if err != nil {
 			t.Fatalf("read %s fixture bundle: %v", name, err)
@@ -47,10 +47,16 @@ func newAnthropicTestConfig(t *testing.T) config.Config {
 		}
 	}
 	return config.Config{
-		Server:    config.Server{Addr: "127.0.0.1:0"},
-		Storage:   config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "facehost.db")}},
-		Providers: config.Providers{Active: "anthropic", BundleDir: bundleDir, Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"}},
-		Runtime:   config.Runtime{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, WorkspaceRoot: filepath.Join(t.TempDir(), "workspace")},
+		Server:  config.Server{Addr: "127.0.0.1:0"},
+		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "facehost.db")}},
+		Providers: config.Providers{
+			Active:    "deepseek",
+			BundleDir: bundleDir,
+			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
+			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
+			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
+		},
+		Runtime: config.Runtime{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, WorkspaceRoot: filepath.Join(t.TempDir(), "workspace")},
 		// write_note is non-readonly, so the ask approval policy holds the run
 		// for a human decision; the governance rule additionally pins the
 		// policy decision to prompt for determinism. The zero-valued
@@ -65,50 +71,47 @@ func newAnthropicTestConfig(t *testing.T) config.Config {
 	}
 }
 
-// scriptedAnthropicServer answers the first model call with a tool_use
-// block and a plain text answer afterwards. The engine streams, so
-// streaming requests get an Anthropic SSE transcript; a non-streaming
-// request (protocol-level tests) still gets plain JSON.
-func scriptedAnthropicServer(t *testing.T, toolText, finalText string) *httptest.Server {
+// scriptedDeepSeekServer answers the first model call with a tool call and
+// a plain text answer afterwards, speaking the DeepSeek/ OpenAI
+// chat.completions wire protocol. The engine streams, so streaming requests
+// get an SSE transcript; a non-streaming request still gets plain JSON.
+func scriptedDeepSeekServer(t *testing.T, toolText, finalText string) *httptest.Server {
 	t.Helper()
 	var calls atomic.Int64
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		streaming := strings.Contains(string(raw), `"stream":true`)
-		w.Header().Set("Content-Type", "text/event-stream")
+		if streaming {
+			w.Header().Set("Content-Type", "text/event-stream")
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+		}
 		flusher, _ := w.(http.Flusher)
-		writeEvent := func(event string, payload string) {
-			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+		writeChunk := func(payload string) {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 			if flusher != nil {
 				flusher.Flush()
 			}
 		}
-		messageStart := `{"type":"message_start","message":{"id":"msg_s","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
 		if calls.Add(1) == 1 {
 			if !streaming {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"id":"msg_tool","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_1","name":"` + tools.WriteNoteName + `","input":{"content":"` + toolText + `"}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}`))
+				_, _ = io.WriteString(w, `{"id":"chatcmpl-tool","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"`+tools.WriteNoteName+`","arguments":"{\"content\":\"`+toolText+`\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 				return
 			}
-			writeEvent("message_start", messageStart)
-			writeEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"`+tools.WriteNoteName+`","input":{}}}`)
-			writeEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"content\":\"`+toolText+`\"}"}}`)
-			writeEvent("content_block_stop", `{"type":"content_block_stop","index":0}`)
-			writeEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":1}}`)
-			writeEvent("message_stop", `{"type":"message_stop"}`)
+			writeChunk(`{"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"` + tools.WriteNoteName + `","arguments":""}}]},"finish_reason":null}]}`)
+			writeChunk(`{"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"content\":\"` + toolText + `\"}"}}]},"finish_reason":null}]}`)
+			writeChunk(`{"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 			return
 		}
 		if !streaming {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"msg_final","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"` + finalText + `"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}`))
+			_, _ = io.WriteString(w, `{"id":"chatcmpl-final","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"`+finalText+`"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 			return
 		}
-		writeEvent("message_start", messageStart)
-		writeEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
-		writeEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"`+finalText+`"}}`)
-		writeEvent("content_block_stop", `{"type":"content_block_stop","index":0}`)
-		writeEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}`)
-		writeEvent("message_stop", `{"type":"message_stop"}`)
+		writeChunk(`{"id":"chatcmpl-final","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`)
+		writeChunk(`{"id":"chatcmpl-final","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"` + finalText + `"},"finish_reason":null}]}`)
+		writeChunk(`{"id":"chatcmpl-final","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	}))
 }
 
@@ -116,12 +119,12 @@ func composeGatewayless(t *testing.T) (*App, *controlrpc.Peer) {
 	t.Helper()
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "facehost-test-key")
-	t.Setenv("VIVY_PROVIDER", "anthropic")
-	srv := scriptedAnthropicServer(t, "loopback note", "loopback done")
+	t.Setenv("DEEPSEEK_API_KEY", "facehost-test-key")
+	t.Setenv("VIVY_PROVIDER", "deepseek")
+	srv := scriptedDeepSeekServer(t, "loopback note", "loopback done")
 	t.Setenv("VIVY_API_BASE", srv.URL)
 
-	a, err := New(context.Background(), newAnthropicTestConfig(t), WithoutEars(), WithoutGateway())
+	a, err := New(context.Background(), newDeepSeekTestConfig(t), WithoutEars(), WithoutGateway())
 	if err != nil {
 		t.Fatalf("compose gateway-less: %v", err)
 	}
@@ -279,11 +282,11 @@ func TestLoopbackControlCompletesApprovedConversation(t *testing.T) {
 func TestRunFaceWithoutOrganFails(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "facehost-test-key")
-	t.Setenv("VIVY_PROVIDER", "anthropic")
+	t.Setenv("DEEPSEEK_API_KEY", "facehost-test-key")
+	t.Setenv("VIVY_PROVIDER", "deepseek")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	_, err := RunFace(ctx, newAnthropicTestConfig(t), nil, plugin.FaceOptions{
+	_, err := RunFace(ctx, newDeepSeekTestConfig(t), nil, plugin.FaceOptions{
 		Prompt: "x", Out: io.Discard, Err: io.Discard,
 	})
 	if err == nil || !strings.Contains(err.Error(), "no face organ") {
@@ -328,15 +331,15 @@ func (f *stubFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResu
 func TestRunFaceServesGatewaylessControlPlane(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	t.Setenv("ANTHROPIC_API_KEY", "facehost-test-key")
-	t.Setenv("VIVY_PROVIDER", "anthropic")
+	t.Setenv("DEEPSEEK_API_KEY", "facehost-test-key")
+	t.Setenv("VIVY_PROVIDER", "deepseek")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	var captured plugin.FaceEnv
 	ctor := func(opts plugin.FaceOptions) plugin.Face {
 		return &capturingFace{stubFace: stubFace{opts: opts, kind: "stub"}, captured: &captured}
 	}
-	result, err := RunFace(ctx, newAnthropicTestConfig(t), ctor, plugin.FaceOptions{
+	result, err := RunFace(ctx, newDeepSeekTestConfig(t), ctor, plugin.FaceOptions{
 		Prompt: "hello", Out: io.Discard, Err: io.Discard,
 	})
 	if err != nil {

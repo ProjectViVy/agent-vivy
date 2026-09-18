@@ -38,11 +38,20 @@ type openAIModelMeta struct {
 	inputPerMTok   float64
 	outputPerMTok  float64
 	supportsImages bool
+	// supportsThinking marks DeepSeek models that accept the "thinking"
+	// request field ({"type": "enabled"|"disabled"}) plus reasoning_effort.
+	supportsThinking bool
 }
 
 // knownOpenAIModels maps well-known model IDs to their reference metadata.
 // Unknown models fall back to the zero value (caller must use defaults).
 var knownOpenAIModels = map[string]openAIModelMeta{
+	"deepseek-flash":         {contextWindow: 1000000, inputPerMTok: 0.30, outputPerMTok: 1.20, supportsImages: true, supportsThinking: true},
+	"deepseek-v4-pro":        {contextWindow: 1000000, inputPerMTok: 1.32, outputPerMTok: 3.96, supportsThinking: true},
+	"deepseek-v4-flash":      {contextWindow: 1000000, inputPerMTok: 0.30, outputPerMTok: 1.20, supportsImages: true, supportsThinking: true},
+	"deepseek-chat":          {},
+	"deepseek-coder":         {},
+	"deepseek-reasoner":      {supportsThinking: true},
 	"gpt-4":                  {contextWindow: 8192, inputPerMTok: 30.0, outputPerMTok: 60.0},
 	"gpt-4-0613":             {contextWindow: 8192, inputPerMTok: 30.0, outputPerMTok: 60.0},
 	"gpt-4-32k":              {contextWindow: 32768, inputPerMTok: 30.0, outputPerMTok: 60.0},
@@ -97,6 +106,7 @@ func (r *openaiRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		InputPerMTokens:  meta.inputPerMTok,
 		OutputPerMTokens: meta.outputPerMTok,
 		SupportsImages:   meta.supportsImages,
+		SupportsThinking: meta.supportsThinking,
 	}
 	return info, nil
 }

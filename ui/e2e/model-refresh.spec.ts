@@ -81,10 +81,11 @@ test('model list refresh syncs upstream models and persists them locally', async
   await expect(page.getByRole('button', { name: 'my-local-model', exact: true })).toBeVisible();
   await expect(page.getByText('sk-e2e-secret')).toHaveCount(0);
 
-  // 收尾：把全局运行配置切回 openai / gpt-4o-mini（真实 UI 路径）。否则本测试
-  // 的临时 upstream 会留在全局 settings.base_url 上，污染后续 spec 的发送与
-  // 向导预填。aria-pressed 翻转代表 save RPC 已完成。
-  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
-  await page.getByRole('button', { name: 'gpt-4o-mini', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'gpt-4o-mini', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // 收尾：把全局运行配置切回 DeepSeek 默认（真实 UI 路径，provider=deepseek 且
+  // Base URL 留空 = 用运行束内置地址）。否则本测试的临时 upstream 会留在全局
+  // settings.base_url 上，污染后续 spec 的发送与向导预填。aria-pressed 翻转代表
+  // save RPC 已完成。
+  await page.getByRole('button', { name: 'DeepSeek', exact: true }).click();
+  await page.getByRole('button', { name: 'deepseek-flash', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'deepseek-flash', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

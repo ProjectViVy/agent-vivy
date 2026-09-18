@@ -63,8 +63,9 @@ describe('getSavedModels 读取与坏数据过滤', () => {
   it('缺字段/非字符串/空白条目整条丢弃，合法条目保留且顺序不变', () => {
     stubWindow({
       [SAVED_MODELS_KEY]: JSON.stringify([
-        { provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+        { provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' },
         { provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
+        { provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' }, // 第三方网关仍用带前缀的模型 id
         { provider: 'openai', model: 'gpt-4o' }, // 缺 baseUrl
         { provider: 42, baseUrl: 'https://x', model: 'm' }, // provider 非字符串
         { provider: '  ', baseUrl: 'https://x', model: 'm' }, // provider 空白
@@ -76,8 +77,9 @@ describe('getSavedModels 读取与坏数据过滤', () => {
       ]),
     });
     expect(getSavedModels()).toEqual([
-      { provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+      { provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' },
       { provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
+      { provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' },
       { provider: 'openai', baseUrl: '', model: 'gpt-4o-mini' },
     ]);
   });
@@ -162,12 +164,15 @@ describe('savedModelVendorLabel 厂商标签解析', () => {
   const NONE: ProviderEntry[] = [];
 
   it('目录命中返回厂商 displayName（base_url 精确匹配）', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }, NONE)).toBe('DeepSeek');
+    expect(savedModelVendorLabel({ provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' }, NONE)).toBe('DeepSeek');
     expect(savedModelVendorLabel({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' }, NONE)).toBe('Anthropic');
+    // 第三方网关条目不受影响：仍按 base_url 命中，模型 id 仍带厂商前缀。
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' }, NONE)).toBe('OpenRouter');
   });
 
   it('base_url 空且与运行束同名的目录条目也命中', () => {
     expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE)).toBe('OpenAI');
+    expect(savedModelVendorLabel({ provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' }, NONE)).toBe('DeepSeek');
   });
 
   it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {

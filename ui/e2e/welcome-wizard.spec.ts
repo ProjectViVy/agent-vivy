@@ -25,12 +25,12 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await page.getByRole('button', { name: '重新运行向导' }).click();
   await expect(dialog).toBeVisible();
 
-  // 模型步骤：预填来自真实配置默认值；没有凭证时仍允许先保存选择，
-  // 后续发送由运行时返回明确的供应商连接错误。
+  // 模型步骤：预填来自真实配置默认值（后端默认 active=deepseek）；没有凭证时仍
+  // 允许先保存选择，后续发送由运行时返回明确的供应商连接错误。
   await dialog.getByRole('button', { name: '下一步' }).click();
   await expect(dialog.getByRole('heading', { name: '配置模型' })).toBeVisible();
-  await expect(dialog.getByRole('textbox', { name: 'Provider' })).toHaveValue('openai');
-  await expect(dialog.getByRole('textbox', { name: '默认模型' })).toHaveValue('gpt-4o-mini');
+  await expect(dialog.getByRole('textbox', { name: 'Provider' })).toHaveValue('deepseek');
+  await expect(dialog.getByRole('textbox', { name: '默认模型' })).toHaveValue('deepseek-flash');
   await expect(dialog.getByText('API Key 只写入本机用户工作区，不会回传界面。下一条消息即走该供应商。')).toBeVisible();
 
   // 保留真实 provider 选择并保存，进入完成步骤
@@ -43,10 +43,10 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await expect(page).toHaveURL(/\/settings\?tab=model/);
   await expect(page.getByRole('tab', { name: '模型' })).toHaveAttribute('aria-selected', 'true');
   // 模型 tab 已重构为供应商注册表 UI（无 Provider 输入框）：断言卡片与当前
-  // 供应商行（可访问名 "OpenAI 当前"；顶栏切换按钮的 aria-label 也含 OpenAI，
+  // 供应商行（可访问名 "DeepSeek 当前"；顶栏切换按钮的 aria-label 也含 DeepSeek，
   // 需用整名匹配避开）
   await expect(page.getByText('已选模型', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'OpenAI 当前' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'DeepSeek 当前' })).toBeVisible();
 
   // 完成后再次刷新：向导保持关闭
   await page.reload();

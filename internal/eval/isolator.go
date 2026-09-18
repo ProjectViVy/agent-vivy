@@ -85,8 +85,9 @@ func Prepare(root string, iso Isolation) (Layout, error) {
 			"sqlite":  map[string]any{"path": layout.SQLitePath},
 		},
 		"providers": map[string]any{
-			"active":     "openai",
+			"active":     "deepseek",
 			"bundle_dir": bundleDir,
+			"deepseek":   map[string]any{"env_key": "DEEPSEEK_API_KEY", "default_model": "deepseek-flash"},
 			"openai":     map[string]any{"env_key": "OPENAI_API_KEY", "default_model": "gpt-4o-mini"},
 			"anthropic":  map[string]any{"env_key": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5"},
 		},
