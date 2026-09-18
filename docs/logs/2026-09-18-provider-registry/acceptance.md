@@ -144,6 +144,59 @@ program; each phase adds the checks it makes possible.
    consumes (`sdk/tui/live/rpc.go`), so a vendor added to the embedded data shows
    up in the terminal switcher and the browser without a frontend change.
 
-## Later phases
+## `PROV-P5` — the program closed, and the promise checked end to end
 
-- `PROV-P5`: `just ci` green and the board closed.
+1. **One command is the gate.**
+   ```text
+   just ci        # fmt-check, ui-ci, vet, test, headless-compile, plugin-ci
+   ```
+   Exit 0. `test` includes `sdk/internal` (~8.5 min) and
+   `sdk/internal/conformance`, which recomputes the `internal` source hash and
+   byte-compares the checked-in `conformance_results.json`, so this run is also
+   the digest's proof.
+
+2. **The whole promise in one experiment: data in, both faces out.**
+   This program's claim is that a vendor is data. The check is to add one that
+   no frontend code mentions, and watch both faces serve it — no rebuild of the
+   UI, no Go table, no generated file.
+   ```text
+   # append a vendor to internal/provider/data/vendors.yaml (provenance is
+   # required: source, entry, derived_at — D-025)
+   - name: p5-canary
+     display_name: P5 Canary
+     env_key: P5_CANARY_API_KEY
+     endpoints:
+       - adapter: openai-completions
+         base_url: https://p5-canary.invalid/v1
+         default_model: p5-canary-model
+         models:
+           - id: p5-canary-model
+             context_window: 8192
+     provenance:
+       source: p5-acceptance-check
+       entry: p5-canary
+       derived_at: "2026-09-18"
+   ```
+   Restart the control plane and reload `http://127.0.0.1:3015/settings?tab=model`
+   (the Vite bundle is untouched — the page is the one already running). Observed
+   on the final tree: the row count rises 94 → 96,
+   `provider-row-p5-canary-openai-completions` renders with the display name
+   `P5 Canary`, it is selectable, taking it sets `aria-pressed=true`, its model
+   id `p5-canary-model` appears as a model button, and the search box finds it.
+   Remove the block again and everything returns to 45 vendors / 94 rows — and
+   the `internal` digest returns to `5e386f84…`, which is why the digest is
+   trustworthy rather than a ritual.
+
+3. **A half-added vendor is rejected, not half-served.** The same experiment
+   without the `provenance` block fails startup:
+   ```text
+   composition failed: ... provenance must carry source, entry and derived_at (D-025)
+   ```
+   The process does not start; it never serves a catalog with a vendor the
+   runtime cannot describe. Data is a build input with a schema, not a place to
+   paste a URL.
+
+4. **Nothing is left running or left behind.** `just ci` green, the lane's
+   scratch (`.env` with the e2e locale, `data/`, the system-Chrome Playwright
+   config) is not committed, and the branch is the deliverable: no push, no
+   merge. `MIGRATION.md` §8.9 is the landing proposal for the owner's call.

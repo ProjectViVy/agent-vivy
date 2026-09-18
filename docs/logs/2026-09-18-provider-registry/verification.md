@@ -3,6 +3,22 @@
 Commands were run from the lane `.worktrees/provider-sot` (branch
 `feat/provider-registry`) on 2026-09-18, Go 1.26.4 / pnpm 10.33.0.
 
+## `PROV-P5`
+
+| Command | Result |
+|---|---|
+| `just ci` (once, on the final tree) | **exit 0** — `fmt-check`, `ui-ci`, `vet`, `test`, `headless-compile`, `plugin-ci` all passed. The long poles: `sdk/internal` 506.8s, `sdk/internal/conformance` 195.1s, `internal/rpc` 115.6s, `sdk/internal/assembly` 20.2s, `internal/studiocore` 16.9s, `sdk/tui/live` 1.4s, `internal/provider` 3.7s |
+| digest verification inside that run | `sdk/internal/conformance` byte-compares the checked-in `conformance_results.json` against the live tree, so `just ci` is also the proof that `5e386f84…` is the correct final value |
+| browser smoke re-run on the committed tree (`http://127.0.0.1:3015`) | 14/14 checks; `settings.yaml` ended at `provider: openai-completions`, `default_model: deepseek-chat`, `base_url: https://api.deepseek.com` |
+| zero-data greps | `rg "gen-provider-catalog|PROVIDER_CATALOG|agent-diva-source" ui/src ui/scripts ui/vitest.config.ts ui/package.json` → no hits; the only provider-shaped strings left under `ui/src` are the read-side alias table, the demo fixtures, and placeholder copy (`summary.md` deviations) |
+| canary experiment: add a vendor to the data only, restart the control plane, reload the untouched Vite bundle | 9/9 checks — row count 94 → 96, `provider-row-p5-canary-openai-completions` present with display name `P5 Canary`, selectable, `aria-pressed=true` after the click, its `p5-canary-model` offered as a model button, search finds it, no page errors |
+| canary without its `provenance` block (the fail-closed half) | startup aborts: `composition failed: ... provenance must carry source, entry and derived_at (D-025)` — no catalog is served |
+| revert the canary | tree clean, digest back to `5e386f84…` (bit-identical content → identical hash), and the 14-check smoke passes again at 94 rows / 45 vendors |
+
+Docs-only commits after this run (this log, the board row, the plan status table)
+do not re-enter the build: nothing under `internal/` changes, so the digest and
+the CI evidence stand.
+
 ## `PROV-P4`
 
 | Command | Result |
