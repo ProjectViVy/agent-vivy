@@ -1,0 +1,270 @@
+# Provider Registry — Migration Inventory
+
+**Status:** authored 2026-09-18. Documentation only; nothing here has been applied.
+
+## 0. How to use this document
+
+Line numbers were correct at `ff8a47d` (2026-09-18). **They are not a contract.**
+Before touching any file, re-derive the list:
+
+```powershell
+git grep -n '"deepseek"' -- 'internal/**/*.go'
+git grep -n 'DeepSeek\|ProviderDeepSeek' -- 'internal/**/*.go'
+git grep -n 'bundle\|Bundle' -- 'internal/**/*.go' 'ui/src/**/*.ts*'
+git grep -n 'fixtures' -- . ':!.worktrees'
+```
+
+Implement phases in order (`PROV-P1` → `PROV-P5`); each phase is one focused
+commit with its own iteration log.
+
+---
+
+## 1. `internal/` — Go production code
+
+### 1.1 Assembly and generated wiring
+
+| Location | Today | Change | Risk |
+|---|---|---|---|
+| `internal/generated/assembly/zz_default.go:79` | `ProviderProfiles: []string{"deepseek","openai","anthropic"}` | adapter identities (three families) — **regenerate, never hand-edit** | generated file; a hand edit breaks the compiler evidence chain |
+| `internal/modules/defaults/providers.go:19-38` | three vendor-named Profiles with `ModelIDs`/`SecretRefs` | three protocol-named adapter Profiles; `ModelIDs`/`SecretRefs` leave the Profile and come from data | the public Port projection is consumed by SDK evidence |
+| `internal/modules/defaults/providers_test.go:10-31` | asserts 3 profiles, ids `deepseek/openai/anthropic`, families, secret refs | assert 3 adapter families and their states | |
+| `internal/modules/defaults/catalog.go:50` | Port evidence record naming the three providers | evidence record naming the three adapters | |
+| `sdk/generation/manifest.go:105` | `ProviderProfiles []string` | unchanged field, new values (adapter families) | wire/manifest semantics change, not shape |
+| `sdk/internal/assembly/runtime_generate.go:116,298,408` | emits `ProviderProfiles` | unchanged mechanics | |
+| `sdk/internal/assembly/evidence.go:77-80` | anchors: `internal/modules/defaults/providers.go#ProviderProfiles`, `providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies`, `sdk/generation/manifest.go#ProviderProfiles` | keep anchors valid; if a symbol is renamed, update the anchors in the same commit | **stale evidence anchors fail conformance** |
+| `sdk/internal/removal_conformance_test.go:78` | expects symbol `{"vivy/provider-profiles","NewProviderProfiles","ProviderProfiles"}` | keep names or update the expectation | |
+| `sdk/internal/conformance/reproduction_test.go:456` | cites `TestDefaultProviderProfilesMatchExistingRuntimeFamilies` | keep the test name or update the citation | |
+
+Regeneration command (do not hand-edit the generated file):
+
+```powershell
+go run ./sdk/internal/cmd/generate-default --repo . --output internal/generated/assembly/zz_default.go
+```
+
+Also declared as `//go:generate` in `internal/generated/assembly/generate.go:3`.
+
+### 1.2 Adapter layer (`internal/provider`)
+
+| Location | Today | Change |
+|---|---|---|
+| `internal/provider/bundle.go` | `Bundle` struct with 17 fields; `LoadBundle(path)`; `ParseBundle([]byte)`; `validate()` | becomes the vendor/endpoint/model types; loading moves to the embedded FS; keep the strict-decode + joined-errors validation style |
+| `internal/provider/bundle.go:38-54` | 10 fields with zero consumers | delete (see `DESIGN.md` §3.2) |
+| `internal/provider/bundle.go:53` | `Backend string` | delete; `adapter` supersedes it |
+| `internal/provider/catalog.go:20-37` | `Catalog` indexed by bundle name | index by vendor and by adapter family |
+| `internal/provider/catalog.go:41-54` | `For(name)` switches on `Backend` | `Adapter(family)` over the sealed table |
+| `internal/provider/catalog.go:59-76` | `ForProfile(profile)` looks the bundle up **by `profile.ID`** (`catalog.go:60`) and cross-checks `AdapterFamily` | look up by `AdapterFamily`; the `ErrAdapterFamilyMismatch` check becomes structural rather than a cross-source comparison |
+| `internal/provider/catalog.go:82-88` | `ResolveModelInfo(ctx, providerName, modelID)` | key becomes the endpoint/model pair resolved from data |
+| `internal/provider/profile.go:19-33` | `ProfileFromBundle` projects YAML → Profile | projects an endpoint → Profile |
+| `internal/provider/openai.go:36-68` | `knownOpenAIModels`, including DeepSeek and OpenAI reasoning entries, with the dual-purpose `supportsThinking` flag (`openai.go:41-43`) | metadata moves into the data file; the flag splits into `supports_thinking` (model) and the `deepseek-thinking` capability (endpoint) |
+| `internal/provider/claude.go:78-103` | `knownAnthropicModels` | metadata moves into the data file |
+| `internal/provider/claude.go:17-24,60-65` | `claudeDefaultMaxTokens = 8192`, `claudeThinkingBudgetTokens = 4096`, `AutoCacheControl` gated on `SupportsPromptCaching` | keep the constants; the caching flag becomes an endpoint field |
+| `internal/provider/resolving.go:43-45,98-102` | `NewResolvingChatModel(host, catalog, src)`; `catalog.ForProfile(profile)` | resolve endpoint → adapter family |
+| `internal/provider/resolving.go:128-162` | `thinkingOptions`: `BackendEinoClaude` branch, and `if bundle.Name != "deepseek" { return nil }` (`:146`) | switch on the endpoint's `capabilities` + the model's `supports_thinking`; the hard-coded vendor name disappears |
+| `internal/provider/resolving.go:91-92` | cache key `provider\x00model\x00baseURL\x00sha256(key)` | key on the endpoint identity instead of the vendor name |
+| `internal/provider/ref.go:27-40` | `Ref` interface, `ModelSpec{ID,APIKey,BaseURL}` | unchanged |
+| `internal/provider/discover.go` | `ModelListClient.List` decodes only `data[].id` | optionally also read `context_length` when present (out of phase-1 scope; note it) |
+
+New files (phase `PROV-P1`/`PROV-P2`):
+
+```
+internal/provider/data/vendors.yaml
+internal/provider/data/provider.schema.json
+internal/provider/data/README.md
+internal/provider/embed.go              # //go:embed data/*.yaml
+```
+
+`//go:embed` cannot reference parent directories, which is why the data lives
+inside the package directory rather than at the repository root.
+
+### 1.3 Configuration
+
+| Location | Today | Change |
+|---|---|---|
+| `internal/config/config.go:214-226` | `Providers{Active, BundleDir, DeepSeek, OpenAI, Anthropic}` | `Providers{Active}` (vendor id) + optional endpoint override; `BundleDir` deleted |
+| `internal/config/config.go:605-611` | default `Active: "deepseek"`, `BundleDir: "fixtures/provider"`, three `{env_key, default_model}` blocks | default `Active: "deepseek"` only |
+| `internal/config/config.go:723-741` | validates `Active ∈ {deepseek,openai,anthropic}`, `BundleDir` non-empty, three env-key patterns, three non-empty default models | validates `Active` against the embedded vendor set |
+| `config.example.yaml:36-37`, `config.yaml:12-23` | `bundle_dir` + three provider blocks | `providers.active` only. Note: the root `config.yaml` is gitignored local walkthrough config, so it exists only in checkouts that created one; it is absent in a fresh worktree and its absence is not an error. |
+
+### 1.4 Application wiring
+
+| Location | Today | Change |
+|---|---|---|
+| `internal/app/app.go:254-256` | `bundlePath` closure joining `BundleDir` + `<name>.yaml` | delete |
+| `internal/app/app.go:257-272` | three `provider.LoadBundle` calls, then `provider.NewCatalog(...)` | `provider.LoadEmbedded()` + catalog construction |
+| `internal/app/app.go:273-276` | `compiledProfiles` from `runtimeAssembly.ProviderProfiles` | unchanged mechanics; profile identities become adapters |
+| `internal/app/app.go:277-283` | `credentialmodule.CompileScopes(..., cfg.Providers.DeepSeek.EnvKey, cfg.Providers.OpenAI.EnvKey, cfg.Providers.Anthropic.EnvKey)` | env-key set comes from the embedded vendor data |
+| `internal/app/app.go:288-295` | `modelmodule.Compose(compiledProfiles, Capabilities{two families: SUPPORTED})` | three families, one `DEFERRED-INDEFINITE` |
+| `internal/app/app.go:866-868` | `ConfigProvider`, `ProviderBundles` for the RPC deps | `ConfigProvider` = vendor id; `ProviderBundles` replaced by the catalog payload |
+| `internal/app/app.go:1226-1248` | `applySettingsEnv` hard-codes a 3-way switch to pick the env var name (`:1233-1240`) | look the env var up from the embedded vendor data by the active endpoint |
+| `internal/app/app.go:1271-1287` | settings overlay switch writing `cfg.Providers.<X>.DefaultModel` (`:1273-1286`) | overlay the resolved endpoint default; no per-vendor config block |
+| `internal/app/app.go:1527-1536` | `defaultModelFor` 3-way switch on `"deepseek"`/`"anthropic"` | look up the vendor's default endpoint in data |
+| `internal/app/model.go:45-60` | `newModelResolver` fallback `CompileScopes` with three config env keys | env keys from data |
+| `internal/app/model.go:62-116` | `freezeFromEnv` iterates three hard-coded candidates (`:69-73`) | iterate the embedded vendors |
+| `internal/app/model.go:135-170` | `currentLocked` switches on three provider names for the default model (`:152-159`) | resolve from the endpoint |
+| `internal/app/model.go:16-17` | `VIVY_MODEL`, `VIVY_PROVIDER` env overrides | keep; `VIVY_PROVIDER` now names a vendor |
+| `internal/app/settings/settings.go:52-54` | `ProviderDeepSeek/OpenAI/Anthropic` constants | vendor ids come from data; keep only the normalization aliases (see §3) |
+| `internal/app/settings/settings.go:228-246` | `ProviderEntry{ID, DisplayName, Bundle, BaseURL, DefaultModel, Models, ApiKey}` | `Bundle` → the adapter family field (`bundle` YAML key kept for compatibility, or renamed with a migration read) |
+| `internal/app/settings/settings.go:460-466` | `Settings.Validate` restricts `provider` to three names | validate against adapter families, applying the normalization map first |
+| `internal/app/settings/settings.go:749-753` | registry entry `bundle` restricted to three names | validate against adapter families |
+| `internal/app/settings/settings.go:765` | uniqueness key `bundle + "\x00" + base_url` | unchanged (adapter + base_url) |
+| `internal/app/settings/settings.go:793-798` | `ActiveKey` resolves the registry key by `(provider, baseURL)` | unchanged mechanics |
+
+### 1.5 Eval isolation
+
+| Location | Today | Change |
+|---|---|---|
+| `internal/eval/isolator.go:74-80` | `bundleDir` + `filepath.Abs` + fallback `"fixtures/provider"` | delete; the child inherits the embedded data from the same binary |
+| `internal/eval/isolator.go:87-93` | writes `providers.active` + `bundle_dir` + three blocks into the child config | writes `providers.active` only |
+
+### 1.6 RPC
+
+| Location | Today | Change |
+|---|---|---|
+| `internal/rpc/control.go:110-117` | `Deps.ConfigProvider`, `Deps.ProviderBundles []provider.Bundle` | vendor id + a catalog snapshot type |
+| `internal/rpc/control.go:3731-3750` | settings view `DefaultModel`, `ConfigProvider` | unchanged shape |
+| `internal/rpc/control.go:4424-4441` | `toProviderEntryResult` redacts the key to `api_key_set` | unchanged |
+| `internal/rpc/control.go:4443-4493` | `providersResult` with `entries`, `bundles`, `profiles`; `bundles` carries the three YAML model lists and is **not consumed by the UI** | becomes the catalog payload (vendors + endpoints + adapters + profile states) and is consumed |
+| `internal/rpc/control.go:4569-4619` | `settings/update` allowlist: config pair, or a registry entry for `(bundle, base_url)`, or the bundle's `models` when `base_url == ""` (`:4604-4615`) | same rules; sources become the embedded endpoint model lists |
+| `internal/rpc/control.go:4780-4825` | `/models` refresh gate hard-codes `bundle ∈ {ProviderOpenAI, ProviderDeepSeek}` (`:4793`, `:4821`) | gate on `adapter == openai-completions` |
+| `internal/rpc/control.go:4383-4400` | `providerProfileStatusResult` with `model_ids`, `state` | unchanged shape |
+
+### 1.7 Tests that will need updating
+
+Non-exhaustive but complete enough to plan the work; re-derive with the greps in §0.
+
+| File | Why it breaks |
+|---|---|
+| `internal/provider/provider_test.go` | `fixturesDir = "../../fixtures/provider"` (`:20`), `LoadBundle` assertions (`:22-56`), `NewCatalog(...).For(...)` (`:114-200`) |
+| `internal/provider/deepseek_test.go` | loads the DeepSeek fixture; asserts the thinking request body (`:114-203`) and base-URL path (`:204-215`) |
+| `internal/provider/claude_test.go:145` | `NewCatalog(newClaudeTestBundle(...))` |
+| `internal/provider/resolving_thinking_test.go:33,105` | builds catalogs from bundles |
+| `internal/provider/modelhost_routing_test.go:32-83` | `NewResolvingChatModel(nil, NewCatalog(bundle), …)` |
+| `internal/provider/secret_audit_test.go` | bundle-shaped fixtures |
+| `internal/provider/titler_test.go:115` | `NewCatalog()` |
+| `internal/app/model_test.go:24-54,151-155` | loads three fixtures, `ProfileFromBundle` |
+| `internal/app/default_generation_test.go:117-126` | asserts `ProviderProfiles[0].ID == "deepseek"` and manifest parity |
+| `internal/app/{tokenstats_smoke,realsmoke,rpc_route,shutdown,facehost,action_gateway,mcp_live_reload,settings_overlay}_test.go` | construct `config.Providers{Active, BundleDir, DeepSeek, …}` |
+| `internal/config/config_test.go:56,92,544` | `bundle_dir` fixture and default assertions |
+| `internal/modules/defaults/providers_test.go` | profile identities |
+| `internal/rpc/control_test.go:936-2156,2433,3124` | `ConfigProvider`, `ProviderBundles`, `provider_profiles` expectations |
+| `internal/eval/isolator_test.go` | child config shape |
+| `sdk/internal/conformance/reproduction_test.go` | `sourceSha256` for the `internal/` tree |
+
+---
+
+## 2. UI (`ui/`)
+
+| Location | Today | Change |
+|---|---|---|
+| `ui/src/components/settings/provider-catalog.ts:1-14` | AUTO-GENERATED header; `ProviderRuntimeBundle = 'openai' \| 'anthropic' \| 'deepseek'` | module keeps only the types/projection helpers; `ProviderRuntimeBundle` becomes the three adapter families |
+| `ui/src/components/settings/provider-catalog.ts:69-260` | the 47-entry `PROVIDER_CATALOG` data array | **delete**; the catalog arrives over RPC |
+| `ui/src/components/settings/provider-catalog.ts:35-45` | `EXECUTABLE_STATES`, `isProviderExecutable` | keep; now gates on adapter families |
+| `ui/src/components/settings/provider-catalog.ts:49-67` | `projectProviderEntry`, `providerSelection` | keep; `providerSelection` emits the adapter name as `provider` |
+| `ui/src/components/settings/custom-providers.ts:26,35-40,47,55-59` | `CUSTOM_PROVIDERS_KEY`, `isProviderRegistryBundle` (`'openai'\|'anthropic'\|'deepseek'`), `RefreshableProviderBundle` (`'openai'\|'deepseek'`), `supportsModelRefresh` | adapter-family vocabulary; refreshable = `openai-completions` |
+| `ui/src/components/settings/custom-providers.ts:129-247` | `toMerged`, `allProviderEntries`, `matchMergedProviderEntry`, `splitMergedByFold`, `catalogOverlayId` | keep the merge mechanics; the catalog argument becomes the RPC payload |
+| `ui/src/components/settings/ModelSettingsCard.tsx:344-347` | `allProviderEntries(providers, settings?.provider_profiles)` | consumes the RPC catalog; needs a loading state |
+| `ui/src/components/settings/ModelSettingsCard.tsx:562-582,762-775` | refresh action gated by `supportsModelRefresh(bundle, baseUrl)` | adapter-family gate |
+| `ui/src/components/settings/ModelSettingsCard.tsx:381-391,473-553` | `applyModelNow`, `commitPanelKey`, `confirmAddModel` | unchanged semantics; `entry.bundle` → adapter family |
+| `ui/src/components/settings/GenerationParamsCard.tsx:45` | filters by `isProviderExecutable(entry.provider, …)` | adapter vocabulary |
+| `ui/src/lib/api.ts:13-14` | `RPC_METHODS` incl. `settings/providers*` | plus the catalog-bearing settings RPC (reuse `settings/providers` if possible) |
+| `ui/src/lib/api.ts:115,327,349` | `provider_profiles`, `ProviderProfileStatus`, `bundles?` | `bundles` is declared but **never consumed**; becomes the catalog field and starts being consumed |
+| `ui/src/lib/api.ts:375` | `refreshProviderModels` | unchanged |
+| `ui/scripts/gen-provider-catalog.py` | generates the 47-entry TS array from a gitignored source | **delete** |
+| `ui/agent-diva-source/` | a whole vendored Rust repository, ignored by `ui/.gitignore:31` and untracked | **delete** |
+| `ui/src/components/settings/*.test.ts` | catalog/bundle vocabulary | update expectations |
+
+---
+
+## 3. `settings.yaml` migration
+
+`Settings.Provider` and `Providers[].Bundle` change meaning from "bundle name" to
+"adapter family". Three stored values must be normalized on read:
+
+| Stored | Normalized |
+|---|---|
+| `deepseek` | `openai-completions` |
+| `openai` | `openai-completions` |
+| `anthropic` | `anthropic-messages` |
+
+Rules:
+
+1. Normalization is applied wherever a stored value is validated or used
+   (`Settings.Validate`, `validateProviderEntries`, `ModelResolver.currentLocked`,
+   `control.go` allowlist, UI matching).
+2. The normalized value is written back on the next save, so documents converge
+   without a separate migration command.
+3. An unknown value after normalization keeps today's behaviour: validation error
+   on write, and an unusable-but-non-fatal selection on read.
+4. Registry entries keep the `bundle` YAML key name for now (renaming the key is
+   optional and would need its own read-compatibility path); only its vocabulary
+   changes.
+
+---
+
+## 4. Deletions
+
+| Delete | Evidence it is safe |
+|---|---|
+| `fixtures/README.md`, `fixtures/provider/{deepseek,openai,anthropic}.yaml` | `fixtures/` contains exactly these four files; the event/recovery fixtures it claims to hold live in `schemas/events/**` |
+| `providers.bundle_dir` (config field, defaults, validation, eval child config, `docker/config.yaml` inheritance, `config.example.yaml`, root `config.yaml`) | replaced by embedded data; grep confirms the field's only readers are the ones listed in §1.3/§1.5 |
+| `ui/scripts/gen-provider-catalog.py` | its only output is the TS data array being deleted |
+| `ui/agent-diva-source/` | gitignored (`ui/.gitignore:31`) and untracked; the 47 rules are copied into the repository before deletion |
+| `internal/provider/bundle.go`'s disk loader (`LoadBundle`) and the 10 dead fields + `backend` | zero consumers (verified by grep) |
+| `ProfileFromBundle` as a YAML→Profile projection | replaced by endpoint→Profile |
+| `Dockerfile:39` `COPY fixtures/provider /app/fixtures/provider` | no runtime file read remains; `WORKDIR /app` no longer matters for provider data |
+| `schemas/providers.bundle.schema.json` | superseded by `internal/provider/data/provider.schema.json` |
+| `schemas/README.md:18` reference to `../fixtures/provider/` | update |
+| root `README.md:151` 「fixtures/ provider / event / recovery fixtures」 | update |
+| `docs/dev/real-provider-smoke.md:12` 「Bundle | `deepseek` (`fixtures/provider/deepseek.yaml`)」 | update to the new data path |
+
+---
+
+## 5. Conformance artifact (`sourceSha256`)
+
+`internal/sourcehash/tree.go:27-52` hashes **every regular file under
+`internal/`**, excluding only `generated/assembly/zz_default.go`, and canonicalizes
+CRLF to LF. Adding `internal/provider/data/**` therefore changes the `internal`
+tree digest, and `sdk/internal/assembly/conformance_results.json` must be updated
+in the same commit.
+
+Current state of the manual step is tracked by `docs/TODO.md`
+`PROVIDER-PROFILE-DIGEST-PIN`; the reproduction test computes the digest from the
+live tree and fails with the wanted value, so the update is mechanical.
+
+**Warning:** untracked files under `internal/` are inside the hash. The root tree
+currently carries WF-1 lane WIP (`internal/workflow/`,
+`internal/domain/workflow_test_support.go`). Any code phase must run on a clean
+worktree, or those unrelated files get baked into the digest.
+
+---
+
+## 6. Rollback
+
+| Phase | Rollback |
+|---|---|
+| `PROV-P1` (data + embed) | revert the commit; the `fixtures/` directory and the disk loader return together, since the same commit deletes them |
+| `PROV-P2` (adapters + assembly) | regenerate `zz_default.go` from the reverted inputs; the generated file must never be reverted by hand alone |
+| `PROV-P3` (config + credentials) | revert code; already-normalized `settings.yaml` values remain valid because the normalization map is additive — a reverted binary sees adapter names it does not recognize, so the revert must also keep the three aliases readable |
+| `PROV-P4` (RPC + UI) | revert the backend and UI together; a split state leaves the UI without a catalog |
+| `PROV-P5` (evidence) | no runtime effect |
+
+Because `PROV-P3` changes the meaning of stored values, the safe landing order is
+`P1 → P2 → P3 → P4 → P5` on one branch, landed as one merge. Splitting the merge
+across a release boundary requires the alias read path to ship first.
+
+Generation rollback (the Assembly-level rollback described in
+`docs/plans/plugin-platform/PLG-P9-release-conformance.md`) is unaffected: it
+selects a prior Generation, and each Generation carries its own sealed adapter
+set.
+
+---
+
+## 7. Migration sequence summary
+
+```text
+PROV-P1  data + embed + strict validation + startup consistency gate; delete fixtures/ and bundle_dir
+PROV-P2  adapter table + sealed manifest + catalog-by-family + thinking capabilities; regenerate zz_default.go
+PROV-P3  config shrink + credential/env-key source + settings.yaml aliases
+PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script and ui/agent-diva-source
+PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci
+```
