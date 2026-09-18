@@ -288,3 +288,7 @@ we never read" (the borrowed schema) and "a workaround performed every time"
 7. **Schedule the concept review.** After the third delivery in one domain,
    force the question "how many things does this word mean now?" — the trigger
    this time was a human asking, and that is not a mechanism.
+
+These seven are distilled into `AGENTS.md` → "Single source of truth
+(mandatory)", which operationalizes the existing priority-1 rule and points back
+here as the worked example.

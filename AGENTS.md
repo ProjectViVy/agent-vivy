@@ -91,6 +91,35 @@ is added. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
 actual upstream package/API used. Reviewers must reject unexplained parallel
 implementations even when tests pass.
 
+## Single source of truth (mandatory)
+
+Priority 1 says "do not create a second source of truth". This is how that is
+checked, for any fact entering the run path (provider metadata, model ids,
+defaults, credentials, addresses, capabilities).
+
+- Every such fact has exactly one home, and it answers three questions: is it in
+  the artifact, is it in the evidence (source digest / conformance), and who
+  changes it. Two out of three is a defect, not a follow-up.
+- A second copy is a deletion task, not a synchronization task. Derive it or
+  delete it; a hand-edit kept in step by a checklist is already broken.
+- Displayed truth derives from capability truth: every row, model or option a
+  face renders is declared by the backend or explicitly marked deferred. A UI
+  list never stands in for what the runtime can construct.
+- Ownership is "is it in the artifact", not "is it in the repository": data that
+  ships beside the binary, is copied by a packer, or sits outside the digest has
+  no owner. Never put run-path data under a directory named `fixtures/` or
+  `samples/`; if the live path reads it, its name is part of the contract.
+- A ported schema or vendored tree is audited field by field ("do we have this
+  behaviour?") before use; record the source and the dropped fields.
+- Deleting a redundant copy is a deliverable, reviewed like code. If removing a
+  copy earns no credit, copies accumulate.
+- Stop and decide on any of these signals: two layers report different counts
+  for the same fact, a field nothing reads, a workaround performed every time.
+  After a third delivery in one domain, re-ask what that domain's core word
+  means.
+
+Worked example: `docs/logs/2026-09-18-provider-registry/notes.md`.
+
 ## Commit Rule for AI agents
 
 **important!** :AI tools may assist development, but must never appear as commit authors, committers, co-authors, PR authors, or repository contributors. All contributions must be attributed to the human contributor responsible for the change.
