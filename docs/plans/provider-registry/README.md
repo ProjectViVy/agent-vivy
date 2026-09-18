@@ -111,9 +111,9 @@ shows a decision is wrong, stop and amend this ledger first.
 | Phase | Deliverable | State | Depends on |
 |---|---|---|---|
 | PROV-P1 | Provider data source and embedding | `DONE` | — |
-| PROV-P2 | Adapter table and sealed adapter set | `SCHEDULED` | P1 |
-| PROV-P3 | Configuration, credentials, and selection | `SCHEDULED` | P1, P2 |
-| PROV-P4 | Catalog RPC and zero-data UI | `SCHEDULED` | P1–P3 |
+| PROV-P2 | Adapter table and sealed adapter set | `DONE` | P1 |
+| PROV-P3 | Configuration, credentials, and selection | `DONE` | P1, P2 |
+| PROV-P4 | Catalog RPC and zero-data UI | `DONE` | P1–P3 |
 | PROV-P5 | Conformance, evidence, and closeout | `SCHEDULED` | P1–P4 |
 
 The owner scheduled the whole sequence on 2026-09-18: all five phases run in

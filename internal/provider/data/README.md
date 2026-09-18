@@ -99,9 +99,11 @@ cannot silently change which protocols the build speaks.
 
 ## Provenance of the current content
 
-`vendors.yaml` was derived once from the Diva provider catalog
-(`ui/agent-diva-source/agent-diva-providers/src/providers.yaml`, 47 entries)
-on 2026-09-18 and the repository then stood alone (D13). The derivation:
+`vendors.yaml` was derived once from the Agent-Diva provider registry (47
+entries, an external checkout this repository no longer contains or depends on)
+on 2026-09-18 and the repository then stood alone (D13). `PROV-P4` deleted the
+generator script that produced the pre-migration UI catalog from the same
+source. The derivation:
 
 - dropped `custom` (a local-endpoint placeholder with an empty
   `default_model`) and `cherryin` (the source declares `models: []` and no

@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -2438,6 +2439,72 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	}
 }
 
+// PROV-P4: the catalog payload is the embedded data — every vendor with all of
+// its endpoint variants — so the frontend holds no provider data of its own.
+// The deferred protocol must be visible and marked non-executable, and no
+// credential name or value may cross the boundary.
+func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
+	vendors, err := provider.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ProviderVendors = provider.NewCatalog(vendors...).Vendors()
+	})
+	result, rpcErr := callControl(t, env.handler, "settings/providers", map[string]any{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+
+	seen := make(map[string]int, len(view.Catalog))
+	endpoints, deferred := 0, 0
+	for _, entry := range view.Catalog {
+		if entry.Vendor == "" || entry.DisplayName == "" || len(entry.Endpoints) == 0 {
+			t.Fatalf("catalog entry incomplete: %+v", entry)
+		}
+		seen[entry.Vendor]++
+		for _, endpoint := range entry.Endpoints {
+			endpoints++
+			if endpoint.Adapter == "" || endpoint.BaseURL == "" || endpoint.State == "" || endpoint.DefaultModel == "" {
+				t.Fatalf("catalog endpoint incomplete: %+v", endpoint)
+			}
+			if endpoint.Adapter == provider.AdapterOpenAIResponses {
+				deferred++
+				if endpoint.Executable || endpoint.State != string(modelhost.CapabilityDeferredIndefinite) {
+					t.Fatalf("the deferred adapter must be visible and not executable: %+v", endpoint)
+				}
+				continue
+			}
+			if !endpoint.Executable || endpoint.State != string(modelhost.CapabilitySupported) {
+				t.Fatalf("a supported adapter must be executable: %+v", endpoint)
+			}
+		}
+	}
+	if len(seen) != len(view.Catalog) {
+		t.Fatalf("a vendor appears more than once: %d entries, %d vendors", len(view.Catalog), len(seen))
+	}
+	if len(view.Catalog) != 45 || endpoints != 47 {
+		t.Fatalf("catalog = %d vendors / %d endpoints, want 45/47", len(view.Catalog), endpoints)
+	}
+	if deferred == 0 {
+		t.Fatal("the deferred openai-responses endpoint must appear in the catalog")
+	}
+
+	raw, err := json.Marshal(view.Catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("api_key")) || bytes.Contains(raw, []byte("env_key")) || bytes.Contains(raw, []byte("sk-")) {
+		t.Fatalf("the catalog must carry no credential field: %s", raw)
+	}
+	for _, vendor := range vendors {
+		if bytes.Contains(raw, []byte(vendor.EnvKey)) {
+			t.Fatalf("the catalog leaked the credential name %q", vendor.EnvKey)
+		}
+	}
+}
+
 func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
@@ -2475,8 +2542,13 @@ func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 	if view.ActiveProvider != "openai" || view.ActiveModel != "deepseek-reasoner" || view.ActiveBaseURL != "https://gateway.example.com/v1" {
 		t.Fatalf("selection response = %+v", view)
 	}
-	if len(view.Bundles) != 1 || len(view.Bundles[0].Models) != 2 {
-		t.Fatalf("pre-baked bundle catalog missing: %+v", view.Bundles)
+	if len(view.Catalog) != 1 || len(view.Catalog[0].Endpoints) != 1 {
+		t.Fatalf("embedded catalog missing: %+v", view.Catalog)
+	}
+	catalogEndpoint := view.Catalog[0].Endpoints[0]
+	if view.Catalog[0].Vendor != "openai" || catalogEndpoint.Adapter != provider.AdapterOpenAICompletions ||
+		!catalogEndpoint.Executable || len(catalogEndpoint.Models) != 2 {
+		t.Fatalf("catalog entry = %+v", view.Catalog[0])
 	}
 	loaded, err := settings.Load(settingsPath)
 	if err != nil {

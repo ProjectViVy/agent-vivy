@@ -902,10 +902,61 @@ export interface FaceToolsCatalogView {
   readonly overlay_written: boolean;
 }
 
+/**
+ * Sealed protocol adapter ids (PROV-P2). This is the write vocabulary for a
+ * provider selection: a client names the protocol, and the backend resolves the
+ * vendor, endpoint and credential from its embedded provider data.
+ */
+export type FaceProviderAdapter =
+  | "openai-completions"
+  | "openai-responses"
+  | "anthropic-messages";
+
+/**
+ * First-class bundle names a pre-migration settings document may still hold
+ * (MIGRATION.md §3). The backend normalizes them on read, so they stay part of
+ * the wire vocabulary for compatibility; new writes use FaceProviderAdapter.
+ */
+export type FaceLegacyProviderBundle = "openai" | "anthropic" | "deepseek";
+
+/** A provider selection as the wire carries it: an adapter id, or a legacy bundle name. */
+export type FaceProviderValue = FaceProviderAdapter | FaceLegacyProviderBundle;
+
+/** The sealed adapter's own capability state. */
+export type FaceProviderAdapterState = "SUPPORTED" | "DEFERRED-INDEFINITE";
+
+/**
+ * One endpoint variant of an embedded vendor: the (adapter, base_url) identity,
+ * its model list, and whether this Generation can construct it.
+ */
+export interface FaceProviderEndpoint {
+  readonly adapter: FaceProviderAdapter;
+  readonly base_url: string;
+  readonly default_model: string;
+  readonly models: string[];
+  /**
+   * False for an adapter this Generation seals but cannot construct
+   * (DEFERRED-INDEFINITE): visible, not selectable.
+   */
+  readonly executable: boolean;
+  readonly state: FaceProviderAdapterState;
+}
+
+/**
+ * One embedded vendor with all of its endpoint variants (PROV-P4). This is the
+ * frontend's only provider source: a Face implementation holds no vendor,
+ * endpoint, or model data of its own.
+ */
+export interface FaceProviderCatalogEntry {
+  readonly vendor: string;
+  readonly display_name: string;
+  readonly endpoints: FaceProviderEndpoint[];
+}
+
 export interface FaceProviderEntry {
   readonly id: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic" | "deepseek";
+  readonly bundle: FaceProviderValue;
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -915,7 +966,7 @@ export interface FaceProviderEntry {
 export interface FaceProviderEntryInput {
   readonly id?: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic" | "deepseek";
+  readonly bundle: FaceProviderValue;
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -924,6 +975,8 @@ export interface FaceProviderEntryInput {
 
 export interface FaceProvidersView {
   readonly entries: readonly FaceProviderEntry[];
+  /** The embedded catalog this Generation was built with. */
+  readonly catalog: readonly FaceProviderCatalogEntry[];
   readonly active_provider: string;
   readonly active_model: string;
   readonly active_base_url: string;
@@ -935,7 +988,7 @@ export interface FaceProvidersView {
 
 export interface FaceProviderRefreshInput {
   readonly id?: string;
-  readonly bundle?: "openai" | "deepseek";
+  readonly bundle?: FaceProviderValue;
   readonly base_url?: string;
   readonly display_name?: string;
   readonly default_model?: string;
@@ -1536,6 +1589,12 @@ export interface FaceStoreState {
   readonly settingsPhase: FacePhase;
   readonly settingsError: string | null;
   readonly providers: FaceProviderEntry[];
+  /**
+   * The embedded catalog this Generation was built with. Kept as a mutable
+   * array, like `providers`: the Face store state must stay mutually assignable
+   * with the implementation's own state type.
+   */
+  readonly catalog: FaceProviderCatalogEntry[];
   readonly providersPhase: FacePhase;
   readonly providersError: string | null;
   readonly species: FaceSpeciesInspect | null;

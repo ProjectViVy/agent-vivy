@@ -16,7 +16,11 @@ export function prepareE2eWorkdir(): void {
   const workspaceRoot = path.join(e2eWorkdir, 'workspace').replace(/\\/g, '/');
   fs.writeFileSync(e2eConfig, [
     'server:', `  addr: "${E2E_ADDR}"`, 'storage:', '  backend: sqlite', '  sqlite:', `    path: "${dbPath}"`,
-    'providers:', '  active: deepseek', '  deepseek:', '    env_key: DEEPSEEK_API_KEY', '    default_model: deepseek-flash',
+    // PROV-P3 removed the per-vendor config block (strict decoding rejects it):
+    // provider metadata is embedded data, and the credential comes from each
+    // vendor's own declared environment variable. `active` names the vendor
+    // whose declared endpoint the runtime falls back to.
+    'providers:', '  active: deepseek',
     'runtime:', `  workspace_root: "${workspaceRoot}"`, '  stream_buffer: 256', '  max_event_payload_bytes: 65536',
     'tools:', '  enabled:', '    - echo_info', '    - write_note', '    - ask_user', '  approval:', '    expiration: 5m', '',
   ].join('\n'), 'utf8');

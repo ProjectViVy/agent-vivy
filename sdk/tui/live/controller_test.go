@@ -55,7 +55,7 @@ func TestPackedFaceModelCatalogMatchesSharedContract(t *testing.T) {
 		"settings/providers": func(json.RawMessage) (any, error) {
 			return map[string]any{
 				"entries":         []map[string]any{{"display_name": "Custom", "bundle": "compatible", "base_url": "https://private.invalid/v1", "default_model": "model-a", "models": []string{"model-a", "model-b"}}},
-				"bundles":         []map[string]any{{"display_name": "OpenAI", "bundle": "openai", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}}},
+				"catalog":         []map[string]any{{"vendor": "openai", "display_name": "OpenAI", "endpoints": []map[string]any{{"adapter": "openai-completions", "base_url": "https://api.openai.com/v1", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}, "executable": true, "state": "SUPPORTED"}}}},
 				"active_provider": "compatible", "active_model": "model-a", "active_base_url": "https://private.invalid/v1",
 				"config_provider": "openai", "config_model": "gpt-default",
 			}, nil
@@ -68,7 +68,7 @@ func TestPackedFaceModelCatalogMatchesSharedContract(t *testing.T) {
 			}
 			return map[string]any{
 				"entries":         []map[string]any{{"display_name": "Custom", "bundle": "compatible", "base_url": "https://private.invalid/v1", "default_model": "model-a", "models": []string{"model-a", "model-b"}}},
-				"bundles":         []map[string]any{{"display_name": "OpenAI", "bundle": "openai", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}}},
+				"catalog":         []map[string]any{{"vendor": "openai", "display_name": "OpenAI", "endpoints": []map[string]any{{"adapter": "openai-completions", "base_url": "https://api.openai.com/v1", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}, "executable": true, "state": "SUPPORTED"}}}},
 				"active_provider": "compatible", "active_model": "model-b", "active_base_url": "https://private.invalid/v1",
 			}, nil
 		},
@@ -83,7 +83,11 @@ func TestPackedFaceModelCatalogMatchesSharedContract(t *testing.T) {
 	listed := mustMsg[surface.ModelsMsg](t, live.RefreshModels(3))
 	live.Handle(listed)
 	catalog := live.ModelCatalog()
-	if listed.Err != nil || len(catalog.Options) != 4 || !catalog.Options[0].Current {
+	// Five rows: the configured default, the catalog's openai endpoint (adapter
+	// openai-completions at its declared address, plus its two models; PROV-P4
+	// replaced the pre-migration bundle row that spelled the same vendor with an
+	// empty address), and the two registry models.
+	if listed.Err != nil || len(catalog.Options) != 5 || !catalog.Options[0].Current {
 		t.Fatalf("catalog = %+v err=%v", catalog, listed.Err)
 	}
 	var target surface.ModelOption

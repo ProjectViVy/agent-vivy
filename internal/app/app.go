@@ -281,17 +281,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	// The Settings/TUI pre-baked catalog still carries the vendors the
-	// pre-migration settings vocabulary could name, so this migration changes no
-	// payload byte. The compiled Profiles are keyed by adapter now, and PROV-P4
-	// serves the whole embedded catalog here instead, which is when this list
-	// dies with the payload it preserves.
-	executableVendors := make([]provider.Vendor, 0, 3)
-	for _, name := range settings.LegacyVendorNames() {
-		if vendor, ok := catalog.Vendor(name); ok {
-			executableVendors = append(executableVendors, vendor)
-		}
-	}
+	// The wire catalog is the embedded data itself: the frontend holds no
+	// provider data of its own (PROV-P4). Vendors the compiled Generation cannot
+	// execute stay in the payload with executable:false, so a deferred protocol
+	// is visible and not selectable rather than invisible.
+	catalogVendors := catalog.Vendors()
 	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
 		compiledProfiles,
 		cfg.Channels,
@@ -873,7 +867,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ConfigProvider:   configDefault.Vendor,
 		ConfigModel:      configDefault.Model,
 		ConfigAdapter:    configDefault.Adapter,
-		ProviderVendors:  executableVendors,
+		ProviderVendors:  catalogVendors,
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
 			// The ModelHost is keyed by the sealed adapter the live selection

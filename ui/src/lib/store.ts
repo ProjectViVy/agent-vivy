@@ -76,6 +76,16 @@ interface RuntimeState {
   settingsPhase: Phase;
   settingsError: string | null;
   providers: api.ProviderEntry[];
+  /**
+   * 后端 `settings/providers` 的目录快照（PROV-P4）：前端唯一的厂商/端点/模型
+   * 数据源，任何组件都不得自持目录数据。与 `providers` 同一次 RPC 写入。
+   */
+  catalog: api.ProviderCatalogEntry[];
+  /**
+   * provider 注册表相位：`idle` = 尚未请求（目录未装载），`loading` = RPC 在途，
+   * `ready` = 已应答（目录可用），`error` = 失败，`processing` = 写操作在途
+   * （目录仍为上一次的快照）。设置页据此在目录到达前渲染 loading。
+   */
   providersPhase: Phase;
   providersError: string | null;
   species: api.SpeciesInspect | null;
@@ -279,7 +289,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
-  providers: [], providersPhase: 'idle', providersError: null,
+  providers: [], catalog: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
 
   initialize: async () => {
@@ -334,6 +344,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
           backgroundRuns: background.runs,
           backgroundPhase: background.runs.length ? 'ready' : 'empty',
           providers: providers?.entries ?? [],
+          catalog: providers?.catalog ?? [],
           providersPhase: providers ? 'ready' : 'error',
           species: species ?? null,
         });
@@ -371,6 +382,10 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       todos: [],
       todosPhase: 'idle',
       todosError: null,
+      providers: [],
+      catalog: [],
+      providersPhase: 'idle',
+      providersError: null,
       currentRun: null,
       runEvents: [],
       streamingText: '',
@@ -632,7 +647,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     await get().loadSessions();
     return result.session_id;
   },
-  loadProviders: async () => { set({ providersPhase: 'loading', providersError: null }); try { const view = await api.listProviders(); set({ providers: view.entries, providersPhase: 'ready' }); } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); } },
+  // 目录与注册表来自同一次 settings/providers：两者一起写入，目录到达前
+  // providersPhase 停在 idle/loading，设置页据此渲染 loading。
+  loadProviders: async () => { set({ providersPhase: 'loading', providersError: null }); try { const view = await api.listProviders(); set({ providers: view.entries, catalog: view.catalog ?? [], providersPhase: 'ready' }); } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); } },
   saveProvider: async (input) => {
     set({ providersPhase: 'processing', providersError: null });
     try {

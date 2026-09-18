@@ -410,9 +410,10 @@ Profile is the default chain's adapter.
 now, so this list is what keeps the pre-baked Settings/TUI `providers` payload
 byte-identical for this phase. `PROV-P3` removes the per-vendor config blocks and
 `PROV-P4` serves the whole embedded catalog here; the list dies with them.
-`PROV-P3` did delete it as a hard-coded list — the payload now comes from
-`settings.LegacyVendorNames()`, which is derived from the normalization table and
-keeps the same three vendors in the same order (§8.7).
+`PROV-P3` did delete it as a hard-coded list — the payload then came from
+`settings.LegacyVendorNames()`, derived from the normalization table and keeping
+the same three vendors in the same order (§8.6). `PROV-P4` deleted that helper
+too: the payload is the embedded catalog (§8.8).
 
 ### 8.6 Configuration, credentials, and selection (PROV-P3 as built)
 
@@ -454,10 +455,88 @@ Two decisions worth recording:
 
 ### 8.7 Conformance digest
 
-The `internal` digest moved `087b41ac…` → `978e0d42…` (P2) → `13f4ee33…` (P3)
-and the five `internal`-rooted entries in
-`sdk/internal/assembly/conformance_results.json` were refreshed in the same
-commit each time. `PROV-P5` owns the final value.
+The `internal` digest moved `087b41ac…` → `978e0d42…` (P2) → `13f4ee33…` →
+`a0811ff1…` (P3) → `35ff06a2…` → `0d24ebe4…` → `5e386f84…` (P4) and the five
+`internal`-rooted entries in `sdk/internal/assembly/conformance_results.json`
+were refreshed in the same commit each time. `PROV-P5` owns the final value.
+The last move matters as a process note: `0d24ebe4…` was written before the
+final `internal/app/app.go` edit, so it was already stale when the phase's gates
+ran — exactly the manual step `PROVIDER-PROFILE-DIGEST-PIN` (TODO §0.1) tracks.
+The canonical value is always `HashSourceTree(<repo>/internal, "")`, which is
+what `sdk/internal/conformance/reproduction_test.go` computes; recompute it after
+the last edit under `internal/`, not before.
+
+### 8.8 The catalog on the wire, and a zero-data UI (`PROV-P4` as built)
+
+**The payload.** `settings/providers` returns `catalog`, and `bundles` is gone
+from the wire:
+
+```jsonc
+"catalog": [
+  { "vendor": "deepseek", "display_name": "DeepSeek",
+    "endpoints": [
+      { "adapter": "openai-completions", "base_url": "https://api.deepseek.com",
+        "default_model": "deepseek-flash", "models": ["deepseek-flash", "…"],
+        "executable": true, "state": "SUPPORTED" } ] } ]
+```
+
+`internal/rpc/control.go` builds it from `Deps.ProviderVendors` through
+`providerCatalogResult`, which reads `provider.Capabilities()` for `state` and
+sets `executable` to `state == modelhost.CapabilitySupported` — the same
+predicate `ModelHost.ResolveExecutable` applies, so "visible but not selectable"
+cannot drift from "cannot be constructed". The payload crosses the boundary with
+no credential field at all: no `env_key`, no `api_key`, no value.
+
+**The frontend's bundled catalog is deleted, not duplicated.** `app.Compose` now
+hands the *embedded* catalog to the control plane
+(`executableVendors := catalog.Vendors()`), so `settings.LegacyVendorNames` — the
+transitional three-vendor list that kept the P3 payload byte-identical — is
+deleted along with its test, and the vendors a client can offer are the data
+itself. The TUI (`sdk/tui/live/rpc.go`) reads `catalog` too: one option per
+executable endpoint, `provider` = the adapter and `base_url` = the declared
+address, which is exactly what `settings/model/select` stores; a deferred
+endpoint is skipped rather than offered and then rejected.
+
+**Data fidelity, checked against the source before the generator dies.** The
+embedded `internal/provider/data/vendors.yaml` was compared with the upstream
+Agent-Diva registry it was ported from (`ui/agent-diva-source/…/providers.yaml`,
+47 entries, read-only; the checkout is gitignored and absent from this lane):
+
+| Check | Result |
+|---|---|
+| Vendors | 45 = 47 − `custom` (not a vendor) − `cherryin` (no models, no default model). Both drops are the ones `MIGRATION.md` §7.2 and `internal/provider/vendor_test.go` already record; the plan's Task 4 text (46) is the pre-P1 count. |
+| Display names | identical for all 45. |
+| Model ids | no upstream id is dropped. Every addition is the vendor's own `default_model` (gateway prefix stripped) that upstream's `models` list omitted, plus `o3-mini`/`gpt-5`/`gpt-5-mini` on the hand-authored deferred Responses endpoint of `openai`, plus `vllm`'s default model (upstream lists none). |
+| Addresses | every vendor's upstream `default_api_base` is one of its endpoints. Two addresses were added or repaired by the port: `aionly` (upstream's value carries a UTF-8 BOM, the embedded one does not) and `deepseek`'s second endpoint `https://api.deepseek.com/anthropic` (DeepSeek speaks both protocols by design). |
+
+The generator script `ui/scripts/gen-provider-catalog.py` is deleted and the
+`AUTO-GENERATED` header is gone with the array it described.
+
+**The Face contract had to widen too.** `sdk/ui/src/module.ts` is the published
+`@vivy/ui-sdk` contract, and `ui/src/lib/ui-sdk-face-compat.test.ts` asserts it
+*exactly* in both directions, so the UI could not change without it. The
+provider types now name the real vocabulary: `FaceProviderAdapter` (the three
+sealed ids), `FaceLegacyProviderBundle`, `FaceProviderValue` for
+`FaceProviderEntry.bundle` / `FaceProviderEntryInput.bundle` /
+`FaceProviderRefreshInput.bundle` (whose pre-P3 `"openai" | "deepseek"`
+whitelist is gone, because the refresh rule is now "the endpoint's adapter is
+`openai-completions`"), plus `FaceProviderEndpoint` /
+`FaceProviderCatalogEntry` and `catalog` on `FaceProvidersView` and
+`FaceStoreState`. The package version stays `1.0.0`: it is a build pin
+(`sdk/ui/version.go`, `UI_BUILD_MANIFEST`), the change is additive for module
+authors, and no rule in `VIVY-FACE-PACK.md` versions the contract separately.
+
+Two implementation constraints are worth recording because they are not obvious
+from the type definitions. `ui/node_modules/@vivy/ui-sdk` is a hard-linked copy
+that pnpm materializes from `sdk/ui`, so an edit to `module.ts` is invisible to
+`tsc` until `pnpm install --frozen-lockfile` runs in `ui/` (`just ui-core` does
+that first, which is why CI sees it). And `FaceStoreState` must stay *mutually*
+assignable with the implementation's own store state, because zustand's
+`subscribe` is a property with call signatures rather than a method, so its
+listener parameter is checked contravariantly: `catalog` and
+`FaceProviderCatalogEntry.endpoints` are therefore mutable arrays, and
+`FaceProviderEndpoint.state` is the exact `ProviderAdapterState` union rather
+than `string`.
 
 ---
 
@@ -467,6 +546,6 @@ commit each time. `PROV-P5` owns the final value.
 PROV-P1  data + embed + strict validation + startup consistency gate; delete fixtures/ and bundle_dir
 PROV-P2  adapter table + sealed manifest + catalog-by-family + thinking capabilities; regenerate zz_default.go
 PROV-P3  config shrink + credential/env-key source + settings.yaml aliases + data-derived selection   [done]
-PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script and ui/agent-diva-source
+PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script and ui/agent-diva-source   [done]
 PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci
 ```

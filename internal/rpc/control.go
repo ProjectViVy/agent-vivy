@@ -116,11 +116,10 @@ type ControlDeps struct {
 	// (PROV-P3). The stored selection names an adapter, so this is what the
 	// "configuration default" pair is compared against on a write.
 	ConfigAdapter string
-	// ProviderVendors is the redacted pre-baked model catalog loaded by the
-	// composition root: the embedded vendors the compiled Generation can
-	// execute. It stays separate from editable registry entries. PROV-P4
-	// replaces this with the full embedded catalog as the single data source
-	// for the UI.
+	// ProviderVendors is the embedded vendor catalog the control plane
+	// projects onto the wire as `catalog`: the single source of provider data
+	// for the UI, which holds none of its own (PROV-P4). It stays separate
+	// from editable registry entries.
 	ProviderVendors []provider.Vendor
 	// ProviderProfileStatuses projects the compiled Generation's ModelHost
 	// state without Secret references or executable factories. Nil preserves
@@ -4447,11 +4446,63 @@ func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 	}
 }
 
-// providersResult is the full registry view: entries (redacted), the active
-// selection, and the config defaults the UI falls back to.
+// catalogEndpointResult is one endpoint variant: the (adapter, base_url) pair
+// that identifies it, its default model and model list, and whether this
+// Generation can execute it. No credential name or value crosses this boundary.
+type catalogEndpointResult struct {
+	Adapter      string   `json:"adapter"`
+	BaseURL      string   `json:"base_url"`
+	DefaultModel string   `json:"default_model"`
+	Models       []string `json:"models"`
+	// Executable is false for an adapter this Generation seals but cannot
+	// construct (DEFERRED-INDEFINITE): the UI shows it and disables it.
+	Executable bool `json:"executable"`
+	// State is the sealed adapter's capability state (PROV-P2).
+	State string `json:"state"`
+}
+
+// catalogEntryResult is one embedded vendor with all of its endpoint variants.
+type catalogEntryResult struct {
+	Vendor      string                  `json:"vendor"`
+	DisplayName string                  `json:"display_name"`
+	Endpoints   []catalogEndpointResult `json:"endpoints"`
+}
+
+// providerCatalogResult projects the embedded vendor data onto the wire. It is
+// the frontend's only provider source: the UI holds no vendor, endpoint, or
+// model data of its own (PROV-P4).
+func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
+	capabilities := provider.Capabilities()
+	catalog := make([]catalogEntryResult, 0, len(vendors))
+	for _, vendor := range vendors {
+		endpoints := make([]catalogEndpointResult, 0, len(vendor.Endpoints))
+		for _, endpoint := range vendor.Endpoints {
+			models := endpoint.ModelIDs()
+			if models == nil {
+				models = []string{}
+			}
+			state := capabilities[endpoint.Adapter]
+			endpoints = append(endpoints, catalogEndpointResult{
+				Adapter:      endpoint.Adapter,
+				BaseURL:      endpoint.BaseURL,
+				DefaultModel: endpoint.DefaultModel,
+				Models:       models,
+				Executable:   state == modelhost.CapabilitySupported,
+				State:        string(state),
+			})
+		}
+		catalog = append(catalog, catalogEntryResult{
+			Vendor: vendor.Name, DisplayName: vendor.DisplayName, Endpoints: endpoints,
+		})
+	}
+	return catalog
+}
+
+// providersResult is the full registry view: entries (redacted), the embedded
+// catalog, the active selection, and the config defaults the UI falls back to.
 type providersResult struct {
 	Entries        []providerEntryResult         `json:"entries"`
-	Bundles        []providerEntryResult         `json:"bundles"`
+	Catalog        []catalogEntryResult          `json:"catalog"`
 	Profiles       []providerProfileStatusResult `json:"profiles"`
 	ActiveProvider string                        `json:"active_provider"`
 	ActiveModel    string                        `json:"active_model"`
@@ -4467,21 +4518,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	for _, e := range s.Providers {
 		entries = append(entries, toProviderEntryResult(e))
 	}
-	bundles := make([]providerEntryResult, 0, len(h.deps.ProviderVendors))
-	for _, vendor := range h.deps.ProviderVendors {
-		endpoint, ok := vendor.DefaultEndpoint()
-		if !ok {
-			continue
-		}
-		models := endpoint.ModelIDs()
-		if models == nil {
-			models = []string{}
-		}
-		bundles = append(bundles, providerEntryResult{
-			ID: "bundle:" + vendor.Name, DisplayName: vendor.DisplayName,
-			Bundle: vendor.Name, DefaultModel: endpoint.DefaultModel, Models: models,
-		})
-	}
+	catalog := providerCatalogResult(h.deps.ProviderVendors)
 	activeProvider, activeModel, activeBaseURL := s.Provider, s.DefaultModel, s.BaseURL
 	if h.deps.Service != nil {
 		activeProvider, activeModel = h.deps.Service.CurrentModel()
@@ -4491,7 +4528,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	}
 	return providersResult{
 		Entries:        entries,
-		Bundles:        bundles,
+		Catalog:        catalog,
 		Profiles:       h.providerProfileStatuses(),
 		ActiveProvider: activeProvider,
 		ActiveModel:    activeModel,

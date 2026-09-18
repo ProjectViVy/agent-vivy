@@ -74,22 +74,23 @@ func TestProviderValueErrorNamesTheSealedAdapters(t *testing.T) {
 	}
 }
 
-// LegacyVendorNames is what the pre-baked Settings/TUI catalog offers until the
-// UI reads the embedded catalog itself (PROV-P4). Its order is the payload's.
-func TestLegacyVendorNamesKeepPayloadOrder(t *testing.T) {
-	got := LegacyVendorNames()
-	want := []string{ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic}
-	if len(got) != len(want) {
-		t.Fatalf("LegacyVendorNames() = %v, want %v", got, want)
+// The pre-migration vocabulary keeps its order, because the resolver reports
+// the vendor a legacy value named and the Settings card offers those vendors
+// until the catalog arrives (PROV-P4 replaced the pre-baked list with the
+// embedded catalog).
+func TestLegacyProviderAliasesKeepDeclarationOrder(t *testing.T) {
+	want := []legacyProviderAlias{
+		{Vendor: ProviderDeepSeek, Adapter: provider.AdapterOpenAICompletions},
+		{Vendor: ProviderOpenAI, Adapter: provider.AdapterOpenAICompletions},
+		{Vendor: ProviderAnthropic, Adapter: provider.AdapterAnthropicMessages},
+	}
+	if len(legacyProviderAliases) != len(want) {
+		t.Fatalf("legacyProviderAliases = %+v, want %+v", legacyProviderAliases, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("LegacyVendorNames() = %v, want %v", got, want)
+		if legacyProviderAliases[i] != want[i] {
+			t.Fatalf("legacyProviderAliases = %+v, want %+v", legacyProviderAliases, want)
 		}
-	}
-	got[0] = "mutated"
-	if LegacyVendorNames()[0] != ProviderDeepSeek {
-		t.Fatal("LegacyVendorNames must return a copy")
 	}
 }
 

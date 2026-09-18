@@ -43,7 +43,7 @@ describe('Vivy store integrity', () => {
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
     api.getSettings.mockResolvedValue({ provider: 'deepseek', default_model: 'deepseek-flash', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'en', generation_locale: 'en', workspace_locale: '', locale_read_only: false });
-    api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
+    api.listProviders.mockResolvedValue({ entries: [], catalog: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
     api.listTodos.mockResolvedValue({ todos: [] });
   });

@@ -3,6 +3,138 @@
 Commands were run from the lane `.worktrees/provider-sot` (branch
 `feat/provider-registry`) on 2026-09-18, Go 1.26.4 / pnpm 10.33.0.
 
+## `PROV-P4`
+
+| Command | Result |
+|---|---|
+| `go vet ./internal/... ./sdk/... ./cmd/...` | exit 0 |
+| `go test ./internal/rpc ./internal/app ./internal/provider ./internal/config ./internal/eval -count=1 -timeout 20m` | all `ok` (`rpc` 105.6s, `app` 73.5s, `provider` 0.25s, `config` 1.3s, `eval` 41.1s) |
+| `go test ./sdk/tui/live -count=1` | `ok` |
+| `just headless-compile` | exit 0 |
+| `just plugin-ci` | exit 0 |
+| digest refresh (`go run ./sdk/internal/cmd/source-hash <lane>/internal ""`) | `5e386f84…`, written to the five `internal`-rooted `sourceSha256` entries of `sdk/internal/assembly/conformance_results.json` (the value computed before the last `internal/app/app.go` edit, `0d24ebe4…`, was stale — see `MIGRATION.md` §8.7) |
+| `cd ui; pnpm typecheck` | exit 0 (38 files) |
+| `cd ui; pnpm test` | exit 0 — 38 files / 332 tests, including the new `ModelSettingsCard.test.tsx` (5 mounted cases) and the rewritten `provider-catalog` (11) / `custom-providers` (18) / `saved-models` (19) specs |
+| `cd ui; node ../scripts/check-i18n-completeness.js` | PASS — en=1409 / zh=1409 keys, 138 placeholders, runtime copy audit clean (two locale keys were dropped with the contract entries that described them) |
+| `cd ui; node ../scripts/check-i18n-cross-face.js` | PASS — 13 shared semantic units |
+| `cd ui; pnpm build` | exit 0 |
+| `cd ui; pnpm e2e` | not runnable as written here: Playwright 1.62.1 wants Chromium revision 1234, this workstation has neither it nor CDN access to fetch it. The suite was run with `playwright test --config playwright.system-chrome.config.ts` (a scratch config pointing `launchOptions.executablePath` at the system Chrome; never committed and deleted before the commit) with a lane-local `.env` (`VIVY_DEFAULT_LOCALE=zh`, gitignored): **14 passed, 10 failed, 2 skipped** — including both specs this phase changed (`model-refresh.spec.ts`, `welcome-wizard.spec.ts`). The 10 failures are outside this phase's file set (see below). |
+| browser smoke at `http://127.0.0.1:3015` | 14/14 checks, see below |
+
+Not run in this phase, with reasons:
+
+- `just ci` as a whole: scheduled once at `PROV-P5` per the program plan.
+- `just test` (the full Go sweep): the packages this phase changes were run
+  directly above; the full sweep costs ~13 minutes and `PROV-P5` runs it inside
+  `just ci`.
+
+### The four failures this phase produced, and what they changed
+
+1. **The face contract had to move with the UI.** `ui-sdk-face-compat` and
+   `ui-build-provenance` assert `sdk/ui/src/module.ts` and the store's state
+   *exactly*, in both directions, so the UI could not change without the
+   published contract. `FaceProviderEntry.bundle` was literally
+   `"openai" | "anthropic" | "deepseek"` and `FaceStoreState` had no `catalog`.
+   Two non-obvious constraints came out of fixing it: `ui/node_modules/@vivy/ui-sdk`
+   is a **hard-linked copy** that pnpm materializes from `sdk/ui`, so an edit to
+   `module.ts` is invisible to `tsc` until `pnpm install --frozen-lockfile` runs
+   in `ui/`; and `FaceStoreState` must stay *mutually* assignable with the
+   store's own state type, because zustand's `subscribe` is a property with call
+   signatures rather than a method, so its listener parameter is checked
+   contravariantly. `catalog` and `FaceProviderCatalogEntry.endpoints` are
+   therefore mutable arrays and `state` is the exact union, not `string`.
+2. **The e2e suite still wrote the config shape PROV-P3 removed.**
+   `ui/e2e/global-setup.ts` wrote `providers.deepseek.{env_key,default_model}`;
+   strict decoding rejects that field now, so the suite's own server could not
+   start. The e2e suite is not part of `just ci`, which is why P3's gate did not
+   catch it. The block is gone and the config default is now the catalog's
+   DeepSeek `default_model`, so the wizard's prefill assertion still reads
+   `deepseek-flash`.
+3. **The welcome wizard still hard-coded a provider.** `SUGGESTED_DEFAULTS =
+   {provider: 'deepseek', model: 'deepseek-flash', baseUrl: ''}` and a free-text
+   provider field were the last provider data in the UI, and the wizard wrote the
+   legacy bundle name back on every first run. The prefill now comes only from
+   the backend's settings document and the write normalizes to the sealed
+   adapter; the copy and its two locale strings say "protocol adapter".
+4. **Two locale keys became dead** (`settingsModel.bundleDeepseek`,
+   `settingsModel.moreProviders`) once the write side dropped DeepSeek bundles
+   and the fold was removed, and the dialog label `settingsModel.bundle`
+   ("Runtime bundle") no longer described its adapter values. All three are gone
+   from `scripts/i18n-cross-face-contract.json` and both locales; the label is
+   now `settingsModel.adapter`. The i18n gates stay green at 1409 keys each.
+
+### Real-path browser smoke (`http://127.0.0.1:3015`, split Vite + `go run ./cmd/vivy`)
+
+Unlike P1–P3, this phase has browser-observable changes, so the smoke drives a
+real browser (Playwright's Chromium against the Vite server on `:3015`, whose
+`/rpc` proxy talks to the control plane on `:8787`) and asserts the DOM rather
+than a screenshot. Scratch config and data directory under the OS temp dir
+(`server.addr: 127.0.0.1:8787`, `providers.active: deepseek`), a `settings.yaml`
+holding the pre-migration shape `provider: deepseek`.
+
+| Check | Observed |
+|---|---|
+| catalog rows render | 94 `provider-row-*` elements (47 rows × row + name) |
+| two DeepSeek protocol rows | `provider-row-deepseek-openai-completions` and `-anthropic-messages` both present, sharing the name `DeepSeek`, 70 buttons of which 9 name DeepSeek |
+| deferred endpoint | `provider-row-openai-openai-responses` present, `disabled`, carrying the `DEFERRED-INDEFINITE` badge |
+| selection round-trip | clicking the `deepseek-chat` model button left the row `aria-pressed=true`, and `settings.yaml` then read `provider: openai-completions`, `base_url: https://api.deepseek.com`, `default_model: deepseek-chat` |
+| rows come from the backend | searching the card for `cherryin` (a vendor the old frontend array carried and the data does not declare) returns 0 rows, while `302` returns 2 — so the list is the payload, not a bundled array |
+| D-010 | no `sk-` material, no uncaught page error, no failing request |
+
+The page rendered in English because a fresh scratch document carries no
+language preference; the app's copy follows its own setting, so the smoke
+matches the search box in either language.
+
+### The e2e suite: two environment preconditions, and why ten specs still fail
+
+The suite is not part of `just ci`, and it needed two setup steps that the
+repository does not record:
+
+1. **Locale.** the app's language comes from the *backend* developer locale
+   (`<launch root>/.env`, `VIVY_DEFAULT_LOCALE`), not from the browser context's
+   `locale`, because `ui/src/i18n/index.ts` only reads `vivy.language` from
+   localStorage and otherwise defaults to English. Without a lane-local `.env`
+   with `VIVY_DEFAULT_LOCALE=zh`, the first run scored 2 passed / 22 failed and
+   every failure was a Chinese label the page never rendered — the app was
+   correct, the environment was not.
+2. **Browser.** the pinned revision cannot be downloaded here, so the run used
+   the system Chrome through a scratch config.
+
+With both, 14 passed / 10 failed / 2 skipped, and the two specs this phase
+changed pass. The ten failures are `approvals-nav`, `chat-act`,
+`compaction-setting` (×2), `files-panel`, `lifecycle-readonly`,
+`mcp-settings:100`, `runtime`, `thinking-gate`, and `trajectory-panel`. They are
+**not** this phase's regressions, and the evidence is the change set itself:
+their failures are Playwright strict-mode ambiguity on `新建会话` (three matching
+buttons), a missing `聊天` link, an `en`-only `Compaction history` expectation in
+a `zh` run, and a `Generations` tab that no longer exists — assertions against
+`layout/` navigation and session controls, the compaction card, the MCP page and
+the lifecycle page, none of which this phase's diff touches (`git diff --stat`
+lists only `MaskAndModelSwitcher`, `WelcomeWizard`, `GenerationParamsCard`,
+`ModelSettingsCard`, the provider-catalog/custom-providers/saved-models modules,
+`lib/api.ts`, `lib/store.ts`, and the two locales). Suite drift is recorded on the
+board as `CI-E2E-NOT-IN-GATE` rather than fixed here.
+
+### Failure-first evidence
+
+- `TestProvidersCatalogServesEmbeddedData` walks the payload: 45 vendors, 47
+  endpoints, exactly one row per vendor, the deferred `openai-responses`
+  endpoint with `executable:false` and `state:DEFERRED-INDEFINITE`, and a
+  payload-wide audit that no `api_key`, `env_key`, `sk-` literal or credential
+  variable name can appear.
+- `TestSelectModelUsesCatalogAndPreservesUnrelatedSettings` selects a model
+  through the catalog and asserts the unrelated `network_search` preference and
+  the execute ceiling survive a `settings/update` that replaces the document.
+- `ModelSettingsCard.test.tsx` is the DOM-level red list: no rows while the
+  catalog is idle or loading, two DeepSeek rows distinguishable by their inline
+  adapter, the deferred row `disabled` with its badge next to an enabled sibling,
+  a catalog endpoint beating a same-endpoint registry clone, `catalog-*` overlay
+  rows never rendering, and a row+model click writing
+  `{provider, base_url, default_model}`.
+- `provider-catalog.test.ts` covers the read-side alias table, the
+  `(vendor, adapter)` row identity, `EXECUTABLE_STATES`, and the address-less
+  fallback that mirrors `NormalizeProviderSelection(...).LegacyVendor`.
+
 ## `PROV-P1`
 
 | Command | Result |
@@ -60,10 +192,51 @@ Not run in this phase, with reasons:
 | `go vet ./...` | exit 0 (vet named the test call sites: `EndpointForVendor`'s new arity, `config.Provider`, `Catalog.AdapterFamily`) |
 | `go test ./internal/config ./internal/provider ./internal/app/settings ./internal/app -count=1` | `ok` |
 | `go test ./internal/... -count=1` | every package `ok` (after the eval isolator stopped writing per-vendor blocks and the registry uniqueness key was normalized) |
-| `go test ./... -count=1` (`just test`, `-timeout 20m`) | see the job log below |
-| digest refresh (`go run ./sdk/internal/cmd/source-hash internal ""`) | `13f4ee33…`, written to the five `internal`-rooted entries of `sdk/internal/assembly/conformance_results.json` |
-| `go test ./sdk/internal/conformance/ -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` | see the job log below |
+| `go test ./... -count=1` (`just test`, `-timeout 20m`) | first run: one failure, `internal/provider`'s source-level secret audit (`TestSecretEnvReadsStayOutOfProvider`) flagged `os.Getenv` in the new **test** file; fixed (see below) and the second full run exited 0, including `sdk/internal` 780.2s and `sdk/internal/conformance` 209.9s |
+| digest refresh (`go run ./sdk/internal/cmd/source-hash internal ""`) | `13f4ee33…` after the first sweep, then `a0811ff1…` after the audit-test edit — both written to the five `internal`-rooted entries of `sdk/internal/assembly/conformance_results.json` |
+| `go test ./sdk/internal/conformance/ -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` | `ok` in the full sweep (`sdk/internal/conformance` 209.9s) with `a0811ff1…` checked in |
 | `just fmt-check` | exit 0 |
+| real-path smoke (below) | runs A, B, C as recorded |
+
+### The one failure, and what it changed
+
+`TestSecretEnvReadsStayOutOfProvider` (`internal/provider/secret_audit_test.go`) greps
+every `.go` file under `cmd/` and `internal/` for `os.Getenv("<secret-shaped
+name>")` and exempts only `internal/app/model.go`. The new
+`internal/app/provider_selection_test.go` reads `OPENAI_API_KEY` and
+`MINIMAX_API_KEY` to assert that `applySettingsEnv` wrote the key into the right
+variable, which the audit flagged.
+
+The fix keeps the audit's production guarantee and makes it stronger, rather
+than evading it: test files are exempt (a test must be able to arrange and
+observe the environment; the walk still covers every production source), and the
+pattern now also matches `os.LookupEnv` and `os.Setenv`, because PROV-P3 made
+`applySettingsEnv` write a **data-derived** variable name. The audit passes with
+the wider rule, which is the evidence that no production source outside
+`internal/app/model.go` reads or writes a literal secret-shaped name.
+
+### Real-path smoke (`go run ./cmd/vivy`, legacy and new-style documents)
+
+A scratch config and data directory under the OS temp dir (never in the repo),
+`server.addr: 127.0.0.1:3015`, `providers.active: deepseek`, and the browser's
+own transport: `GET /rpc/bootstrap`, then `initialize` and `settings/providers`
+over the `/rpc` WebSocket. No browser was driven: this session has no browser
+automation tool, and no browser-observable payload changes in P3 (the
+`settings/providers` response is byte-identical; `PROV-P4` rebuilds the UI).
+
+| Run | `settings.yaml` | Observed |
+|---|---|---|
+| A | legacy: `provider: deepseek`, `default_model: deepseek-flash`, no address | `active_provider=deepseek`, `active_model=deepseek-flash`, `active_base_url=''`, `config_provider=deepseek`, `config_model=deepseek-flash`, `profiles: anthropic-messages:COMPILED, openai-completions:UNCONFIGURED, openai-responses:DEFERRED-INDEFINITE`, `bundles=3` (deepseek/gpt-4o/claude) |
+| B | A plus `api_key: sk-legacy-overlay` | identical, except `openai-completions:READY` — the legacy value resolved to adapter `openai-completions` and the legacy overlay reached it |
+| C | new-style: `provider: openai-completions`, `base_url: https://api.minimaxi.com/v1`, one registry entry with `bundle: openai-completions` and a key | `active_provider=minimax`, `active_model=MiniMax-M2.1`, `active_base_url='https://api.minimaxi.com/v1'`, `openai-completions:READY`, `entries: custom-1/openai-completions@https://api.minimaxi.com/v1 key=True`, while `config_provider` stays `deepseek` |
+
+Run C is the phase's product claim on the real binary: a document that names no
+vendor resolves to the third-party vendor the address belongs to, with no
+per-vendor config block anywhere.
+
+Startup logged `settings overlay applied provider=deepseek model=deepseek-flash`
+(run A) and `provider=deepseek model=MiniMax-M2.1` (run C) — the first field is
+`config.providers.active`, the second is the resolved model.
 
 ### Failure-first evidence
 

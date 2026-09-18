@@ -311,12 +311,21 @@ export const updateSettings = (params: SettingsUpdate) => {
   return request<Settings>('settings/update', payload);
 };
 
+/** 密封协议适配器 id（后端 provider.AdapterFamilies()）：选择写侧的唯一词汇。 */
+export type ProviderAdapterId = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+
+/** 迁移前 settings.yaml 存过的一等运行束名（MIGRATION.md §3）；后端读取时归一为适配器。 */
+export type LegacyProviderBundle = 'openai' | 'anthropic' | 'deepseek';
+
+/** provider / bundle 字段的 wire 取值：适配器 id，或旧文档的运行束名（仅读侧兼容）。 */
+export type ProviderValue = ProviderAdapterId | LegacyProviderBundle;
+
 /** 注册表供应商（wire 形态）：密钥永不在线，只回 api_key_set。 */
 export interface ProviderEntry {
   id: string;
   display_name: string;
-  /** 运行束名；后端接受 deepseek（默认）/openai/anthropic。 */
-  bundle: 'openai' | 'anthropic' | 'deepseek';
+  /** 协议适配器 id；旧文档的运行束名由后端 NormalizeAdapter 归一后同样命中。 */
+  bundle: ProviderValue;
   base_url: string;
   default_model: string;
   models: string[];
@@ -324,6 +333,9 @@ export interface ProviderEntry {
 }
 
 export type ProviderCapabilityState = 'COMPILED' | 'UNCONFIGURED' | 'READY' | 'UNAVAILABLE' | 'DEFERRED-INDEFINITE';
+
+/** 适配器自身的能力状态（后端 modelhost.CapabilityState）。 */
+export type ProviderAdapterState = 'SUPPORTED' | 'DEFERRED-INDEFINITE';
 export interface ProviderProfileStatus {
   id: string;
   adapter_family: string;
@@ -336,17 +348,38 @@ export interface ProviderProfileStatus {
 export interface ProviderEntryInput {
   id?: string;
   display_name: string;
-  /** 运行束名；后端接受 deepseek（默认）/openai/anthropic。 */
-  bundle: 'openai' | 'anthropic' | 'deepseek';
+  /** 协议适配器 id；旧文档的运行束名仍被后端接受并归一。 */
+  bundle: ProviderValue;
   base_url: string;
   default_model: string;
   models: string[];
   api_key?: string;
 }
 
+/** settings/providers 的一个目录端点变体：一个 (adapter, base_url) 组合。 */
+export interface ProviderEndpoint {
+  /** 协议适配器 id。 */
+  adapter: ProviderAdapterId;
+  base_url: string;
+  default_model: string;
+  models: string[];
+  /** 本 Generation 能否构造该适配器；false（DEFERRED-INDEFINITE）= 可见但不可选。 */
+  executable: boolean;
+  /** 适配器能力状态。 */
+  state: ProviderAdapterState;
+}
+
+/** settings/providers 的一个目录厂商及其全部端点变体（如 DeepSeek 有两条）。 */
+export interface ProviderCatalogEntry {
+  vendor: string;
+  display_name: string;
+  endpoints: ProviderEndpoint[];
+}
+
 export interface ProvidersView {
   entries: ProviderEntry[];
-  bundles?: ProviderEntry[];
+  /** 后端权威目录：前端不持有任何厂商/端点/模型数据。 */
+  catalog: ProviderCatalogEntry[];
   profiles?: ProviderProfileStatus[];
   active_provider: string;
   active_model: string;
@@ -364,8 +397,8 @@ export const deleteProvider = (id: string) => request<{ deleted: boolean; id: st
 /** settings/providers/refresh 载荷：按 id 或 (bundle, base_url) 定位条目；目录厂商无注册表行时克隆成自定义条目以持久化。密钥不参与请求（后端按注册表解析）。 */
 export interface ProviderRefreshInput {
   id?: string;
-  /** 仅 OpenAI 兼容运行束支持上游 GET /models；与后端 control.go 门控一致。 */
-  bundle?: 'openai' | 'deepseek';
+  /** 仅 openai-completions 适配器支持上游 GET /models；与后端 settings.IsOpenAICompatibleSelection 门控一致。 */
+  bundle?: ProviderValue;
   base_url?: string;
   display_name?: string;
   default_model?: string;

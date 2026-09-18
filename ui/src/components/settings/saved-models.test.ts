@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderEntry } from './custom-providers';
+import type { ProviderCatalogEntry, ProviderEntry } from '@/lib/api';
 import {
   SAVED_MODELS_KEY,
   addSavedModel,
@@ -65,7 +65,7 @@ describe('getSavedModels 读取与坏数据过滤', () => {
       [SAVED_MODELS_KEY]: JSON.stringify([
         { provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' },
         { provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
-        { provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' }, // 第三方网关仍用带前缀的模型 id
+        { provider: 'openai', baseUrl: 'https://unlisted.example.com/v1', model: 'vendor/model' }, // 第三方网关仍用带前缀的模型 id
         { provider: 'openai', model: 'gpt-4o' }, // 缺 baseUrl
         { provider: 42, baseUrl: 'https://x', model: 'm' }, // provider 非字符串
         { provider: '  ', baseUrl: 'https://x', model: 'm' }, // provider 空白
@@ -79,7 +79,7 @@ describe('getSavedModels 读取与坏数据过滤', () => {
     expect(getSavedModels()).toEqual([
       { provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' },
       { provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
-      { provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' },
+      { provider: 'openai', baseUrl: 'https://unlisted.example.com/v1', model: 'vendor/model' },
       { provider: 'openai', baseUrl: '', model: 'gpt-4o-mini' },
     ]);
   });
@@ -162,34 +162,67 @@ describe('removeSavedModel 按三元组过滤', () => {
 
 describe('savedModelVendorLabel 厂商标签解析', () => {
   const NONE: ProviderEntry[] = [];
+  /** 合成目录：标签解析只读 store 目录快照 + 注册表，不再有前端静态表。 */
+  const CATALOG: ProviderCatalogEntry[] = [
+    {
+      vendor: 'deepseek',
+      display_name: 'DeepSeek',
+      endpoints: [
+        { adapter: 'openai-completions', base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
+        { adapter: 'anthropic-messages', base_url: 'https://api.deepseek.com/anthropic', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
+      ],
+    },
+    {
+      vendor: 'openai',
+      display_name: 'OpenAI',
+      endpoints: [
+        { adapter: 'openai-completions', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'], executable: true, state: 'SUPPORTED' },
+      ],
+    },
+    {
+      vendor: 'anthropic',
+      display_name: 'Anthropic',
+      endpoints: [
+        { adapter: 'anthropic-messages', base_url: 'https://api.anthropic.com', default_model: 'claude-sonnet-4-5', models: ['claude-sonnet-4-5'], executable: true, state: 'SUPPORTED' },
+      ],
+    },
+  ];
 
-  it('目录命中返回厂商 displayName（base_url 精确匹配）', () => {
-    expect(savedModelVendorLabel({ provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' }, NONE)).toBe('DeepSeek');
-    expect(savedModelVendorLabel({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' }, NONE)).toBe('Anthropic');
-    // 第三方网关条目不受影响：仍按 base_url 命中，模型 id 仍带厂商前缀。
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' }, NONE)).toBe('OpenRouter');
+  it('目录命中返回厂商 displayName（适配器 + base_url 精确匹配）', () => {
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }, NONE, CATALOG)).toBe('DeepSeek');
+    expect(savedModelVendorLabel({ provider: 'anthropic-messages', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' }, NONE, CATALOG)).toBe('Anthropic');
+    // 同一厂商的两种协议端点各归其行，显示名相同。
+    expect(savedModelVendorLabel({ provider: 'anthropic-messages', baseUrl: 'https://api.deepseek.com/anthropic', model: 'deepseek-flash' }, NONE, CATALOG)).toBe('DeepSeek');
   });
 
-  it('base_url 空且与运行束同名的目录条目也命中', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE)).toBe('OpenAI');
-    expect(savedModelVendorLabel({ provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' }, NONE)).toBe('DeepSeek');
+  it('旧文档的运行束名（provider=deepseek/openai/anthropic + 空地址）归一后仍命中目录', () => {
+    expect(savedModelVendorLabel({ provider: 'deepseek', baseUrl: '', model: 'deepseek-flash' }, NONE, CATALOG)).toBe('DeepSeek');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE, CATALOG)).toBe('OpenAI');
+    expect(savedModelVendorLabel({ provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' }, NONE, CATALOG)).toBe('Anthropic');
   });
 
   it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'custom-model' }, NONE)).toBe('my-gateway.example.com');
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'http://localhost:11435/v1', model: 'm' }, NONE)).toBe('localhost:11435');
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'https://unlisted.example.com/v1', model: 'custom-model' }, NONE, CATALOG)).toBe('unlisted.example.com');
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'http://localhost:11435/v1', model: 'm' }, NONE, CATALOG)).toBe('localhost:11435');
   });
 
   it('非法 URL 或空 Base URL 回退到原始 provider', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'not-a-url', model: 'm' }, NONE)).toBe('openai');
-    expect(savedModelVendorLabel({ provider: 'my-bundle', baseUrl: '', model: 'm' }, NONE)).toBe('my-bundle');
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'not-a-url', model: 'm' }, NONE, CATALOG)).toBe('openai-completions');
+    expect(savedModelVendorLabel({ provider: 'my-bundle', baseUrl: '', model: 'm' }, NONE, CATALOG)).toBe('my-bundle');
   });
 
-  it('注册表命中 → 注册的 display_name（单一权威来源）', () => {
+  it('注册表命中 → 注册的 display_name（目录未命中时兜底）', () => {
     const providers: ProviderEntry[] = [
-      { id: 'custom-x', display_name: '我家网关', bundle: 'openai', base_url: 'https://my-gateway.example.com/v1', default_model: 'm', models: ['m'], api_key_set: false },
+      { id: 'custom-x', display_name: '我家网关', bundle: 'openai', base_url: 'https://gw2.example.com/v1', default_model: 'm', models: ['m'], api_key_set: false },
     ];
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'm' }, providers)).toBe('我家网关');
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'https://gw2.example.com/v1', model: 'm' }, providers, CATALOG)).toBe('我家网关');
+  });
+
+  it('目录优先于同端点的注册表克隆', () => {
+    const providers: ProviderEntry[] = [
+      { id: 'custom-y', display_name: '目录克隆', bundle: 'openai-completions', base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['deepseek-flash'], api_key_set: true },
+    ];
+    expect(savedModelVendorLabel({ provider: 'openai-completions', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }, providers, CATALOG)).toBe('DeepSeek');
   });
 });
 
