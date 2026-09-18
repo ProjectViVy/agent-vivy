@@ -241,8 +241,9 @@ Not done by the program, and done since: the owner authorized landing on
 eight commits behind and this push also publishes those, and the digest caveat
 for a checkout that carries another lane's untracked files under `internal/`).
 CI on the pushed tip passed `ui ci` and `backend ci`; the `full UI browser smoke`
-job failed for a pre-existing configuration reason that also fails on the
-previous `main` tip (tracked as `CI-BROWSER-SMOKE-WEBSERVER`).
+job failed for a pre-existing timing reason in a job added by `082f0d9` on
+2026-09-15 (its own 30s budget must cover a cold `go build`), so `main`'s CI has
+been red since that job appeared — tracked as `CI-BROWSER-SMOKE-WEBSERVER`.
 
 ## Deviations worth knowing
 

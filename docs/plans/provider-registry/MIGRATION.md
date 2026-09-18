@@ -580,17 +580,19 @@ Two things the operator should know:
   inherent to publishing the branch, not a side effect of this landing.
 - CI on the pushed tip (run `35361729156`): `ui ci` passed (1m35s) and
   `backend ci` passed (19m46s, including the Go tests, the conformance suite and
-  the `internal` digest on the pushed tree). `full UI browser smoke` failed, and
-  the `just ci` aggregator job failed in 4s only because it is
-  `test "$BROWSER_RESULT" = "success"`. **The smoke failure is pre-existing and
-  not caused by this branch**: it fails with the identical
-  `Error: Timed out waiting 30000ms from config.webServer.` on the previous
-  `main` tip `fe60b18` (run `34944037203`, 2026-09-15, from PR #30). Mechanism:
-  the job starts the packed `.workspace/p9-full-ui/vivy.exe` on
-  `127.0.0.1:3015` and waits for `/healthz`, then runs Playwright, whose
-  `webServer` block (`ui/playwright.config.ts`) has `reuseExistingServer: false`
-  and therefore spawns a second `go run ./cmd/vivy` on the same occupied port
-  and times out. Tracked as `CI-BROWSER-SMOKE-WEBSERVER` in `docs/TODO.md` §0.1.
+  the `internal` digest on the pushed tree). `full UI browser smoke` failed with
+  `Error: Timed out waiting 30000ms from config.webServer.`, and the `just ci`
+  aggregator job failed in 4s only because it is
+  `test "$BROWSER_RESULT" = "success"`. **That failure is not from this branch**:
+  the job was added by `082f0d9` (PR #30, 2026-09-15) and `main`'s CI has been
+  red since — the same signature is on the previous `main` tip `fe60b18`
+  (run `34944037203`), while a PR-branch run on the same day passed
+  (`eb8fee3`). Cause: Playwright's own `webServer` starts the **default**
+  generation with `go run ./cmd/vivy` on `127.0.0.1:8799` under a 30s timeout,
+  and the spec also drives the packed full UI the job starts on `:3015`
+  (`VIVY_FULL_UI_URL`); 30s has to cover a cold `go build` of this repository on
+  a Windows runner, which it usually cannot. Tracked with the fix direction as
+  `CI-BROWSER-SMOKE-WEBSERVER` in `docs/TODO.md` §0.1.
 - The root checkout carries another lane's untracked files under `internal/`
   (`internal/workflow/`, `internal/domain/workflow_test_support.go`). They are
   outside this branch, but because `internal/sourcehash` hashes every file under
