@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"agent-vivy/sdk/port/providerprofile"
 )
 
 func TestCatalogForResolvesDefaultEndpoint(t *testing.T) {
@@ -40,39 +38,102 @@ func TestCatalogRefusesDeferredAdapter(t *testing.T) {
 	}
 }
 
-func TestCatalogForProfileResolvesExecutableProfile(t *testing.T) {
-	vendor := testOpenAIVendor("https://api.openai.com/v1")
-	profile := testProfile(t, vendor)
-	ref, err := NewCatalog(vendor).ForProfile(profile)
-	if err != nil {
-		t.Fatalf("ForProfile: %v", err)
-	}
-	if ref.Name() != "openai" {
-		t.Fatalf("ref name = %q", ref.Name())
-	}
-	if profile.ID != "openai" || profile.EndpointClass != providerprofile.EndpointNative {
-		t.Fatalf("unexpected profile projection: %+v", profile)
-	}
-	if len(profile.SecretRefs) != 1 || profile.SecretRefs[0] != "OPENAI_API_KEY" {
-		t.Fatalf("profile secret refs = %v", profile.SecretRefs)
+// A sealed family resolves to the build-owned adapter, independent of any
+// vendor: the address, the credential and the model id all come from the spec.
+func TestCatalogAdapterResolvesSealedFamily(t *testing.T) {
+	for _, family := range []string{AdapterOpenAICompletions, AdapterAnthropicMessages} {
+		ref, err := NewCatalog().Adapter(family)
+		if err != nil {
+			t.Fatalf("Adapter(%q): %v", family, err)
+		}
+		if ref.Name() != family {
+			t.Fatalf("adapter Ref name = %q, want the family %q", ref.Name(), family)
+		}
 	}
 }
 
-func TestCatalogForProfileRejectsVendorWithoutData(t *testing.T) {
-	profile := testProfile(t, testOpenAIVendor("https://api.openai.com/v1"))
-	profile.ID = "does-not-exist"
-	if _, err := NewCatalog().ForProfile(profile); err == nil {
-		t.Fatal("a Profile with no embedded vendor data must fail closed")
+// A deferred family is sealed but unimplemented, and a family that is not in
+// the table is unknown: the two failures are distinct and neither falls back to
+// a substitute.
+func TestCatalogAdapterRefusesDeferredAndUnknownFamilies(t *testing.T) {
+	_, err := NewCatalog().Adapter(AdapterOpenAIResponses)
+	if !errors.Is(err, ErrAdapterDeferred) {
+		t.Fatalf("Adapter(openai-responses) error = %v, want ErrAdapterDeferred", err)
+	}
+	if errors.Is(err, ErrAdapterUnknown) {
+		t.Fatal("a deferred family must not be reported as unknown")
+	}
+	if !strings.Contains(err.Error(), AdapterOpenAIResponses) {
+		t.Fatalf("error %q must name the deferred adapter", err)
+	}
+	_, err = NewCatalog().Adapter("nope")
+	if !errors.Is(err, ErrAdapterUnknown) {
+		t.Fatalf("Adapter(nope) error = %v, want ErrAdapterUnknown", err)
 	}
 }
 
-func TestCatalogForProfileRejectsUnknownAdapterFamily(t *testing.T) {
-	vendor := testOpenAIVendor("https://api.openai.com/v1")
-	profile := testProfile(t, vendor)
-	profile.AdapterFamily = "gemini"
-	_, err := NewCatalog(vendor).ForProfile(profile)
-	if !errors.Is(err, ErrAdapterFamilyMismatch) {
-		t.Fatalf("err = %v, want ErrAdapterFamilyMismatch", err)
+// Two vendors speaking the same family share one adapter but keep their own
+// identity: their own environment key and their own declared address. This is
+// the case the vendor-sealed design could not express — DeepSeek's
+// anthropic-messages endpoint needed a vendor of its own.
+func TestCatalogRefForEndpointCarriesVendorIdentity(t *testing.T) {
+	deepseek := testDeepSeekVendor("https://api.deepseek.com")
+	deepseek.Endpoints = append(deepseek.Endpoints, Endpoint{
+		Adapter: AdapterAnthropicMessages, BaseURL: "https://api.deepseek.com/anthropic",
+		DefaultModel: "deepseek-chat", Models: []Model{{ID: "deepseek-chat"}},
+	})
+	catalog := NewCatalog(deepseek, testClaudeVendor("https://api.anthropic.com"))
+
+	for _, test := range []struct {
+		vendor   string
+		baseURL  string
+		wantEnv  string
+		wantBase string
+	}{
+		{"deepseek", "https://api.deepseek.com", "DEEPSEEK_API_KEY", "https://api.deepseek.com"},
+		{"deepseek", "https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY", "https://api.deepseek.com/anthropic"},
+		{"anthropic", "", "ANTHROPIC_API_KEY", "https://api.anthropic.com"},
+	} {
+		endpoint, vendor, err := catalog.EndpointForVendor(test.vendor, test.baseURL)
+		if err != nil {
+			t.Fatalf("EndpointForVendor(%q, %q): %v", test.vendor, test.baseURL, err)
+		}
+		if endpoint.BaseURL != test.wantBase {
+			t.Fatalf("endpoint = %q, want %q", endpoint.BaseURL, test.wantBase)
+		}
+		if vendor.EnvKey != test.wantEnv {
+			t.Fatalf("vendor %q env key = %q, want %q", test.vendor, vendor.EnvKey, test.wantEnv)
+		}
+		ref, err := catalog.RefForEndpoint(test.vendor, endpoint)
+		if err != nil {
+			t.Fatalf("RefForEndpoint(%q, %q): %v", test.vendor, endpoint.BaseURL, err)
+		}
+		if ref.Name() != test.vendor {
+			t.Fatalf("ref name = %q, want the vendor %q", ref.Name(), test.vendor)
+		}
+		_, err = ref.Model(context.Background(), ModelSpec{})
+		var missing *KeyMissingError
+		if !errors.As(err, &missing) {
+			t.Fatalf("Model() without a key error = %v, want KeyMissingError", err)
+		}
+		if missing.EnvKey != test.wantEnv || missing.Provider != test.vendor {
+			t.Fatalf("KeyMissingError = %+v, want provider %q with env key %q", missing, test.vendor, test.wantEnv)
+		}
+		// The sealed adapter is the same for both vendors on one family.
+		adapter, err := catalog.Adapter(endpoint.Adapter)
+		if err != nil {
+			t.Fatalf("Adapter(%q): %v", endpoint.Adapter, err)
+		}
+		if adapter.Name() != endpoint.Adapter {
+			t.Fatalf("adapter name = %q, want %q", adapter.Name(), endpoint.Adapter)
+		}
+	}
+}
+
+func TestCatalogRefForEndpointRejectsUnknownVendor(t *testing.T) {
+	endpoint := testEndpoint(t, testOpenAIVendor("https://api.openai.com/v1"))
+	if _, err := NewCatalog().RefForEndpoint("does-not-exist", endpoint); err == nil {
+		t.Fatal("a vendor with no embedded data must fail closed")
 	}
 }
 

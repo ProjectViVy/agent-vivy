@@ -81,31 +81,38 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if live.Provider == "" {
 		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 	}
-	profile, err := m.host.ResolveExecutable(live.Provider)
+	endpoint, vendor, err := m.catalog.EndpointForVendor(live.Provider, live.BaseURL)
 	if err != nil {
 		return nil, err
 	}
+	// The compiled Generation seals adapters, not vendors, so both the
+	// capability gate and the availability mark are keyed by the adapter the
+	// selection's endpoint speaks. A deferred family fails here.
+	adapter := endpoint.Adapter
+	if _, err := m.host.ResolveExecutable(adapter); err != nil {
+		return nil, err
+	}
 	if !live.Ready {
-		return nil, &KeyMissingError{Provider: live.Provider}
+		return nil, &KeyMissingError{Provider: live.Provider, EnvKey: vendor.EnvKey}
 	}
 	secretHash := sha256.Sum256([]byte(live.APIKey))
-	key := fmt.Sprintf("%s\x00%s\x00%s\x00%x", live.Provider, live.Model, live.BaseURL, secretHash)
+	key := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%x", live.Provider, adapter, live.Model, live.BaseURL, secretHash)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cached != nil && m.cacheKey == key {
 		return m.cached, nil
 	}
-	ref, err := m.catalog.ForProfile(profile)
+	ref, err := m.catalog.RefForEndpoint(vendor.Name, endpoint)
 	if err != nil {
-		m.host.MarkUnavailable(live.Provider)
+		m.host.MarkUnavailable(adapter)
 		return nil, err
 	}
 	cm, err := ref.Model(ctx, ModelSpec{ID: live.Model, APIKey: live.APIKey, BaseURL: live.BaseURL})
 	if err != nil {
-		m.host.MarkUnavailable(live.Provider)
+		m.host.MarkUnavailable(adapter)
 		return nil, err
 	}
-	m.host.MarkAvailable(live.Provider)
+	m.host.MarkAvailable(adapter)
 	m.cached = cm
 	m.cacheKey = key
 	return cm, nil
@@ -116,51 +123,94 @@ type resolvingChatModelWithTools struct {
 	tools  []*schema.ToolInfo
 }
 
-// thinkingOptions translates the run's thinking preference (domain context)
-// into a provider-native per-call option. The endpoint's adapter and
-// capabilities and the model's metadata decide the request shape, so no
-// vendor name appears here (PROV-P2 finishes the job by deriving the whole
-// decision from the adapter table):
+// thinkingShape is the provider-neutral outcome of the thinking rule: what the
+// outbound request must carry, decided without any vendor identity. Keeping the
+// decision as data (rather than as options) is what makes it unit-testable, and
+// keeping it out of the request path means no call site can special-case a
+// vendor.
+type thinkingShape struct {
+	// claudeThinking sends the Anthropic extended-thinking budget.
+	claudeThinking bool
+	// deepSeekFlag is "enabled" or "disabled" for the DeepSeek thinking
+	// object, or "" to omit it.
+	deepSeekFlag string
+	// reasoningEffort is an OpenAI reasoning_effort level, or "" to omit it.
+	reasoningEffort string
+}
+
+// decideThinking is the whole rule:
 //
-//   - anthropic-messages: thinking mode "on" on a model whose metadata
-//     declares thinking support sends the extended-thinking budget; every
-//     other case sends nothing, leaving the provider default in force.
+//   - anthropic-messages with a thinking-capable model: "on" sends the
+//     extended-thinking budget, every other preference sends nothing and leaves
+//     the provider default in force.
 //   - openai-completions on an endpoint declaring the deepseek-thinking
 //     capability: "auto" and "on" send the documented canonical request
-//     (thinking enabled + reasoning_effort high) and "off" disables thinking.
-//   - openai-completions anywhere else: send nothing.
+//     (thinking enabled plus reasoning_effort high); "off" disables thinking.
+//   - openai-completions anywhere else: a thinking-capable model is a reasoning
+//     model, so "auto" and "on" send reasoning_effort high; "off" sends nothing.
 //
-// A model whose metadata is unknown keeps the conservative off.
+// A model whose metadata does not declare thinking support is left alone: the
+// conservative default is off, and an unknown model must never be sent a field
+// the upstream may reject.
+func decideThinking(adapter string, deepSeekThinking, supportsThinking bool, mode domain.ThinkingMode) thinkingShape {
+	if !supportsThinking {
+		return thinkingShape{}
+	}
+	switch adapter {
+	case AdapterAnthropicMessages:
+		if mode != domain.ThinkingModeOn {
+			return thinkingShape{}
+		}
+		return thinkingShape{claudeThinking: true}
+	case AdapterOpenAICompletions:
+		if !deepSeekThinking {
+			if mode == domain.ThinkingModeOff {
+				return thinkingShape{}
+			}
+			return thinkingShape{reasoningEffort: string(einoopenai.ReasoningEffortLevelHigh)}
+		}
+		if mode == domain.ThinkingModeOff {
+			return thinkingShape{deepSeekFlag: "disabled"}
+		}
+		return thinkingShape{deepSeekFlag: "enabled", reasoningEffort: string(einoopenai.ReasoningEffortLevelHigh)}
+	}
+	return thinkingShape{}
+}
+
+// options renders the shape as Eino per-call options.
+func (s thinkingShape) options() []model.Option {
+	var options []model.Option
+	if s.claudeThinking {
+		options = append(options, einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens}))
+	}
+	if s.deepSeekFlag != "" {
+		options = append(options, einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": s.deepSeekFlag}}))
+	}
+	if s.reasoningEffort != "" {
+		options = append(options, einoopenai.WithReasoningEffort(einoopenai.ReasoningEffortLevel(s.reasoningEffort)))
+	}
+	return options
+}
+
+// thinkingOptions translates the run's thinking preference (domain context)
+// into provider-native per-call options through the adapter, the endpoint's
+// declared capabilities and the model's declared metadata.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
-	mode := domain.ThinkingModeFromContext(ctx)
 	live := m.src.Live()
 	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.BaseURL)
 	if err != nil {
 		return nil
 	}
 	info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
-	if err != nil || !info.SupportsThinking {
+	if err != nil {
 		return nil
 	}
-	switch endpoint.Adapter {
-	case AdapterAnthropicMessages:
-		if mode != domain.ThinkingModeOn {
-			return nil
-		}
-		return []model.Option{einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens})}
-	case AdapterOpenAICompletions:
-		if !endpoint.HasCapability(CapabilityDeepSeekThinking) {
-			return nil
-		}
-		if mode == domain.ThinkingModeOff {
-			return []model.Option{einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": "disabled"}})}
-		}
-		return []model.Option{
-			einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": "enabled"}}),
-			einoopenai.WithReasoningEffort(einoopenai.ReasoningEffortLevelHigh),
-		}
-	}
-	return nil
+	return decideThinking(
+		endpoint.Adapter,
+		endpoint.HasCapability(CapabilityDeepSeekThinking),
+		info.SupportsThinking,
+		domain.ThinkingModeFromContext(ctx),
+	).options()
 }
 
 func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {

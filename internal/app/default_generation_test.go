@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	genassembly "agent-vivy/internal/generated/assembly"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
@@ -119,8 +120,14 @@ func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 	if len(assembly.ProviderProfiles) != 3 {
 		t.Fatalf("generated Provider Profiles = %d, want 3", len(assembly.ProviderProfiles))
 	}
-	if got := assembly.ProviderProfiles[0].Definition().ID; got != "deepseek" {
-		t.Fatalf("first Provider Profile = %q, want the deepseek default", got)
+	// The sealed unit is the protocol adapter, not the vendor, so the first
+	// compiled Profile is the OpenAI-compatible adapter DeepSeek's default
+	// endpoint speaks — the adapter order is the sealed table's order.
+	if got := assembly.ProviderProfiles[0].Definition().ID; got != provider.AdapterOpenAICompletions {
+		t.Fatalf("first Provider Profile = %q, want %q", got, provider.AdapterOpenAICompletions)
+	}
+	if got := assembly.ProviderProfiles[1].Definition().ID; got != provider.AdapterOpenAIResponses {
+		t.Fatalf("second Provider Profile = %q, want the deferred %q", got, provider.AdapterOpenAIResponses)
 	}
 	for index, provider := range assembly.ProviderProfiles {
 		if got, want := provider.Definition().ID, assembly.Manifest.ProviderProfiles[index]; got != want {

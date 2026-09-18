@@ -64,6 +64,13 @@ import (
 // HTTP shutdown and the storage close must all fit inside (E4).
 const shutdownGrace = 5 * time.Second
 
+// transitionalVendorNames are the vendors config.yaml still names explicitly,
+// and therefore the ones the pre-baked Settings/TUI catalog advertises. The
+// compiled Profiles are keyed by adapter, so this list is what keeps the
+// payload identical until PROV-P3 removes the per-vendor config blocks and
+// PROV-P4 serves the whole embedded catalog.
+var transitionalVendorNames = []string{"deepseek", "openai", "anthropic"}
+
 // App is the composed process.
 type App struct {
 	cfg    config.Config
@@ -269,12 +276,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	// The Settings/TUI pre-baked catalog carries exactly the vendors the
-	// compiled Generation can execute, so this migration changes no payload
-	// byte. PROV-P4 serves the whole embedded catalog here instead.
-	executableVendors := make([]provider.Vendor, 0, len(compiledProfiles))
-	for _, profile := range compiledProfiles {
-		if vendor, ok := catalog.Vendor(profile.ID); ok {
+	// The Settings/TUI pre-baked catalog still carries the vendors config.yaml
+	// names, so this migration changes no payload byte. The compiled Profiles
+	// are keyed by adapter now, and PROV-P4 serves the whole embedded catalog
+	// here instead, which is when this list dies.
+	executableVendors := make([]provider.Vendor, 0, len(transitionalVendorNames))
+	for _, name := range transitionalVendorNames {
+		if vendor, ok := catalog.Vendor(name); ok {
 			executableVendors = append(executableVendors, vendor)
 		}
 	}
@@ -289,10 +297,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
 	}
-	modelProvider, err := modelmodule.Compose(compiledProfiles, modelhost.Capabilities{
-		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
-		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
-	})
+	modelProvider, err := modelmodule.Compose(compiledProfiles, provider.Capabilities())
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
@@ -867,7 +872,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ProviderVendors:  executableVendors,
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
-			return modelHost.Statuses(current.Provider, current.Ready)
+			// The ModelHost is keyed by adapter; the stored selection is still
+			// vendor-keyed in this phase, so it is projected through the same
+			// endpoint lookup the resolver uses.
+			family := catalog.AdapterFamily(current.Provider, current.BaseURL)
+			return modelHost.Statuses(family, current.Ready)
 		},
 		RuntimeBaseURL:                 cur.BaseURL,
 		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,

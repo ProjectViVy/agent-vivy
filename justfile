@@ -25,7 +25,9 @@ build:
 # exclusions here.
 test:
     # The Windows runtime package exercises hundreds of SQLite-backed real paths
-    # and now legitimately exceeds Go's default 10-minute per-package timeout.
+    # and now legitimately exceeds Go's default 10-minute per-package timeout;
+    # the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
+    # exceeds it too. Both are well inside this bound.
     $pkgs = @(& "{{go}}" list ./... | Where-Object { $_ -ne "agent-vivy/internal/workflow" }); & "{{go}}" test -timeout 20m $pkgs
 
 vet:

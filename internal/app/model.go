@@ -127,7 +127,11 @@ func (r *ModelResolver) Current() ResolvedModel {
 	defer r.mu.Unlock()
 	current := r.currentLocked()
 	if current.Provider != "" && r.host != nil {
-		if _, err := r.host.ResolveExecutable(current.Provider); err != nil {
+		// The compiled Generation seals adapters while the selection is still
+		// vendor-keyed in this phase, so readiness is decided by the adapter
+		// the selection's endpoint speaks.
+		family := r.catalog.AdapterFamily(current.Provider, current.BaseURL)
+		if _, err := r.host.ResolveExecutable(family); err != nil {
 			current.Ready = false
 		}
 	}

@@ -93,16 +93,20 @@ func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
 func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *testing.T) {
 	t.Run("adapter failure becomes unavailable", func(t *testing.T) {
 		vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
-		profile := testProfile(t, vendor)
-		profile.AdapterFamily = AdapterFamilyAnthropic
-		host := routedHost(t, profile)
+		host := routedHost(t, testProfile(t, vendor))
+		// A selection that projects as ready but carries no credential is the
+		// post-readiness credential-disappearance case: the capability gate
+		// passes and the adapter refuses to construct, which must be recorded
+		// as UNAVAILABLE rather than as an unconfigured provider.
 		chatModel := NewResolvingChatModel(host, NewCatalog(vendor), staticSpec{live: LiveSpec{
-			Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+			Provider: vendor.Name, Model: "gpt-4o", Ready: true,
 		}})
-		if _, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); !errors.Is(err, ErrAdapterFamilyMismatch) {
-			t.Fatalf("adapter failure = %v, want ErrAdapterFamilyMismatch", err)
+		_, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+		var missing *KeyMissingError
+		if !errors.As(err, &missing) {
+			t.Fatalf("adapter failure = %v, want KeyMissingError", err)
 		}
-		if got := host.Statuses("openai", true)[0].State; got != modelhost.ProfileUnavailable {
+		if got := host.Statuses(AdapterOpenAICompletions, true)[0].State; got != modelhost.ProfileUnavailable {
 			t.Fatalf("status after adapter failure = %s, want UNAVAILABLE", got)
 		}
 	})

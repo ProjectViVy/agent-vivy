@@ -27,6 +27,10 @@ const claudeThinkingBudgetTokens = 4096
 // eino-ext Claude component (Anthropic Messages API). Construction happens at
 // Model() call time from the supplied ModelSpec; no network traffic happens
 // before the first Generate/Stream.
+//
+// A zero vendor means the sealed, vendor-neutral adapter returned by
+// Catalog.Adapter: there is no address, default model or environment key to
+// fall back to, so every one of them has to come from the ModelSpec.
 type claudeRef struct {
 	vendor   Vendor
 	endpoint Endpoint
@@ -36,7 +40,12 @@ func newClaudeRef(vendor Vendor, endpoint Endpoint) Ref {
 	return &claudeRef{vendor: vendor, endpoint: endpoint}
 }
 
-func (r *claudeRef) Name() string { return r.vendor.Name }
+func (r *claudeRef) Name() string {
+	if r.vendor.Name == "" {
+		return AdapterAnthropicMessages
+	}
+	return r.vendor.Name
+}
 
 func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
 	modelID := strings.TrimSpace(spec.ID)
@@ -48,7 +57,7 @@ func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 	// back to reading ANTHROPIC_API_KEY from the process environment,
 	// which violates D-010 (credentials travel with the spec only).
 	if key == "" {
-		return nil, &KeyMissingError{Provider: r.vendor.Name, EnvKey: r.vendor.EnvKey}
+		return nil, &KeyMissingError{Provider: r.Name(), EnvKey: r.vendor.EnvKey}
 	}
 	baseURL := strings.TrimSpace(spec.BaseURL)
 	if baseURL == "" {
@@ -69,7 +78,7 @@ func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 	}
 	cm, err := einoclaude.NewChatModel(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("provider %s: construct claude model %q: %w", r.vendor.Name, modelID, err)
+		return nil, fmt.Errorf("provider %s: construct claude model %q: %w", r.Name(), modelID, err)
 	}
 	return cm, nil
 }
@@ -84,7 +93,7 @@ func (r *claudeRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 	meta, _ := r.endpoint.Model(modelID)
 	return domain.ModelInfo{
 		ID:               modelID,
-		Provider:         r.vendor.Name,
+		Provider:         r.Name(),
 		ContextWindow:    meta.ContextWindow, // zero means unknown; callers use defaults
 		MaxOutputTokens:  0,                  // varies by model; ref default covers the protocol floor
 		InputPerMTokens:  meta.InputPerMTok,
