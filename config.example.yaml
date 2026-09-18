@@ -29,26 +29,19 @@ storage:
     dsn_env: VIVY_POSTGRES_DSN
 
 providers:
-  # Pre-baked provider to activate. Ships three: deepseek (the default;
-  # OpenAI-compatible direct provider), openai (OpenAI-compatible) and
-  # anthropic (D-018, D-023). DeepSeek became the default on 2026-09-16.
+  # The vendor whose declared endpoint the runtime falls back to when a
+  # settings selection names no address of its own. The embedded catalog
+  # carries every supported vendor; `deepseek` is the default.
   #
-  # Provider metadata (base URL, models, adapter family) is embedded in the
-  # binary since PROV-P1 and is never read from disk, so there is no bundle
-  # directory setting any more.
+  # Provider metadata (endpoints, protocols, models, credential variable names)
+  # is embedded in the binary since PROV-P1 and is never read from disk, so
+  # there is no bundle directory and no per-vendor block here any more
+  # (PROV-P3). A vendor's credential is read from its own environment variable,
+  # declared in the data, at request time (D-010).
   active: deepseek
   # DeepSeek's base URL carries no /v1 suffix: the endpoint resolves to
-  # https://api.deepseek.com/chat/completions exactly as documented.
-  deepseek:
-    # Secret is read from this environment variable, never persisted.
-    env_key: DEEPSEEK_API_KEY
-    default_model: deepseek-flash
-  openai:
-    env_key: OPENAI_API_KEY
-    default_model: gpt-4o-mini
-  anthropic:
-    env_key: ANTHROPIC_API_KEY
-    default_model: claude-sonnet-4-5
+  # https://api.deepseek.com/chat/completions exactly as documented, and its
+  # credential comes from DEEPSEEK_API_KEY.
 
 tui:
   # false keeps completed tool cards to a bounded preview. Set true only

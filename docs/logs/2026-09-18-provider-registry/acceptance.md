@@ -68,10 +68,42 @@ program; each phase adds the checks it makes possible.
    outside the sealed three fails the startup gate; a Profile naming an unsealed
    family fails to compile.
 
+## `PROV-P3` — configuration and credentials come from the data
+
+1. **`config.yaml` names one thing: the vendor to fall back to.**
+   ```text
+   rg -n "env_key|default_model" config.example.yaml     # no hits under providers
+   go test ./internal/config/ -run 'LoadValid|InvalidValuesRejected' -count=1 -v
+   ```
+   A document that still carries `deepseek:`/`openai:`/`anthropic:` fails to
+   start with a message naming the removed key; deleting those three blocks (and
+   keeping `active:`) is the whole migration.
+
+2. **An existing `settings.yaml` selects exactly what it selected before.**
+   ```text
+   go test ./internal/app/ -run 'LegacyDocumentKeepsItsVendorAndEndpoint' -count=1 -v
+   ```
+   `provider: deepseek` with no `base_url` resolves to vendor `deepseek`,
+   adapter `openai-completions`, endpoint `https://api.deepseek.com` and model
+   `deepseek-flash` — the same pair the pre-migration build used. In the browser
+   at `http://127.0.0.1:3015`, Settings still shows the same active provider and
+   model, and the `settings/providers` payload is unchanged.
+
+3. **Any vendor in the catalog works with no configuration block.**
+   ```text
+   MINIMAX_API_KEY=sk-... go test ./internal/app/ -run 'ThirdPartyVendor' -count=1 -v
+   ```
+   A MiniMax endpoint selected through the openai-compatible adapter is Ready
+   from `MINIMAX_API_KEY` alone. Paste that key into Settings instead and
+   `applySettingsEnv` writes it into `MINIMAX_API_KEY`, never into
+   `OPENAI_API_KEY`.
+
+4. **A vendor with no key is inactive, not probed.** Selecting a vendor whose
+   environment variable is unset leaves the model not-ready and issues no
+   network request during startup or status inspection.
+
 ## Later phases
 
-- `PROV-P3`: `config.yaml` holds `providers.active` and optional overrides only;
-  existing `settings.yaml` selections keep working through the alias map.
 - `PROV-P4`: the browser shows all 45 vendors at `http://127.0.0.1:3015` with no
   provider data in the UI bundle.
 - `PROV-P5`: `just ci` green and the board closed.

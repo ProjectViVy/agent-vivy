@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -112,6 +114,33 @@ func (v Vendor) Endpoint(adapter, baseURL string) (Endpoint, bool) {
 		}
 	}
 	return Endpoint{}, false
+}
+
+// EndpointForAdapter returns the vendor's endpoint speaking adapter, in
+// declared order: a vendor that speaks two protocols declares two endpoints,
+// and the first one for a protocol is that protocol's default endpoint.
+func (v Vendor) EndpointForAdapter(adapter string) (Endpoint, bool) {
+	for _, endpoint := range v.Endpoints {
+		if endpoint.Adapter == adapter {
+			return endpoint, true
+		}
+	}
+	return Endpoint{}, false
+}
+
+// VendorEnvKeys returns every embedded vendor's credential name, sorted and
+// de-duplicated. It is the data-derived credential allowlist: a third-party
+// vendor's environment variable works exactly like the first-party ones, and
+// the set widens only through a reviewed data edit (PROV-P3).
+func VendorEnvKeys(vendors []Vendor) []string {
+	keys := make([]string, 0, len(vendors))
+	for _, vendor := range vendors {
+		if vendor.EnvKey != "" {
+			keys = append(keys, vendor.EnvKey)
+		}
+	}
+	sort.Strings(keys)
+	return slices.Compact(keys)
 }
 
 // Provenance cites the Diva catalog entry a vendor was re-derived from

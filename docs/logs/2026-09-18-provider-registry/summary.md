@@ -91,6 +91,51 @@ Not done (later phases, in order):
   embedded catalog.
 - `PROV-P5` runs the single full `just ci` and closes the board.
 
+## Scope of this phase (`PROV-P3`)
+
+Delivered:
+
+- `config.Providers` is one field: `active`, naming the vendor whose declared
+  endpoint the runtime falls back to. The three per-vendor blocks, their
+  `env_key`/`default_model` validation and the `Provider` struct are gone, so
+  `config.example.yaml` is nine lines shorter. A document that still carries
+  `deepseek:`/`openai:`/`anthropic:` fails strict decoding with an error that
+  names the removed key and says why.
+- The stored selection names a **sealed adapter**, and the vendor, endpoint
+  variant, address and default model all come from the embedded data:
+  `resolveStoredSelection` prefers an explicit address an embedded endpoint
+  declares, then the vendor a pre-migration value named, then
+  `config.providers.active`. `Catalog.EndpointForVendor` gained the `adapter`
+  parameter; `Catalog.AdapterFamily` is gone and `Catalog.VendorForEndpoint`
+  replaces it for the address→vendor direction.
+- `internal/app/settings/provider_migration.go` holds the one normalization
+  table and its four consumers: `Settings.Validate`, `validateProviderEntries`,
+  `FindProvider`/`ActiveKey`, and the RPC allowlist. The registry uniqueness key
+  normalizes too, so one endpoint identity cannot be stored under two spellings.
+- Credentials are data-derived at both ends: the model resolver's allowlist is
+  `provider.VendorEnvKeys(catalog.Vendors())`, the composition root no longer
+  passes three config env keys into `credentialmodule.CompileScopes`, and
+  `applySettingsEnv` writes a key into the **resolved vendor's** variable. A
+  third-party vendor therefore works from its own environment variable with no
+  per-vendor configuration; `MINIMAX_API_KEY` plus a MiniMax endpoint is Ready
+  where it was impossible before.
+- `freezeFromEnv` iterates the embedded vendors, `VIVY_PROVIDER` names a vendor
+  (or an adapter), the configured vendor wins when several keys are set, and
+  `defaultModelFor`/`providerConfigBaseline`/the three-way switch in
+  `applySettingsEnv` are deleted, together with `app.transitionalVendorNames`
+  (the pre-baked catalog list is now `settings.LegacyVendorNames()`).
+- `ResolvedModel` and `LiveSpec` carry `Adapter` next to `Provider`, so the
+  ModelHost, the availability projection and the thinking rules key on the
+  sealed protocol while the vendor keeps ownership of the credential and the
+  display name.
+
+Not done (later phases, in order):
+
+- `PROV-P4` serves the whole embedded catalog over RPC (`Deps.ProviderVendors`
+  widens from the three pre-migration vendors), makes the UI zero-data, and
+  deletes `ui/scripts/gen-provider-catalog.py` and `ui/agent-diva-source/`.
+- `PROV-P5` runs the single full `just ci` and closes the board.
+
 ## Deviations worth knowing
 
 - Vendor and credential identifiers may now start with a digit, because the
@@ -105,3 +150,18 @@ Not done (later phases, in order):
   reason, so the Profile validator and `config.ValidEnvKey` agree.
 - P2 keeps the `settings/provider` payload byte-identical through
   `transitionalVendorNames`; the wire vocabulary changes in P3, not here.
+- P3 stores a selected value as the client sent it. A pre-migration client
+  writing `provider: openai` keeps that spelling, because the vendor name is the
+  only thing that identifies the credential owner of an *undeclared* gateway
+  address; rewriting it to the adapter would silently move the selection onto the
+  configured vendor. The new UI (P4) writes adapter values, so documents converge
+  as they are edited, and both spellings stay readable forever.
+- P3 keeps `Deps.ProviderVendors` at the three pre-migration vendors, now derived
+  from `settings.LegacyVendorNames()` instead of a hard-coded app list. Widening
+  it to the whole catalog is P4's `settings/providers` payload change
+  (`MIGRATION.md` §8.6).
+- `config.Validate` cannot check that `providers.active` exists in the embedded
+  data: `internal/config` must not import `internal/provider` (the Eino import
+  quarantine keeps that package out of a leaf config type). `Validate` checks the
+  shape and the app's startup gate checks membership, one line after the data is
+  loaded.

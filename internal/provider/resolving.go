@@ -24,8 +24,15 @@ var ErrModelNotConfigured = errors.New("model provider is not configured")
 // LiveSpec is the current provider selection without Eino types. App
 // implements this so the resolving ChatModel can stay inside this package
 // (D-007).
+//
+// Provider is the vendor whose credential and default address apply; Adapter
+// is the sealed protocol the stored selection names, which is what the
+// capability gate, the availability mark and the thinking rule key on. A
+// selection with no stored adapter (an empty Adapter) is resolved from the
+// endpoint's data instead.
 type LiveSpec struct {
 	Provider string
+	Adapter  string
 	Model    string
 	BaseURL  string
 	APIKey   string
@@ -81,13 +88,13 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if live.Provider == "" {
 		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 	}
-	endpoint, vendor, err := m.catalog.EndpointForVendor(live.Provider, live.BaseURL)
+	endpoint, vendor, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
 	if err != nil {
 		return nil, err
 	}
 	// The compiled Generation seals adapters, not vendors, so both the
 	// capability gate and the availability mark are keyed by the adapter the
-	// selection's endpoint speaks. A deferred family fails here.
+	// selection speaks. A deferred family fails here.
 	adapter := endpoint.Adapter
 	if _, err := m.host.ResolveExecutable(adapter); err != nil {
 		return nil, err
@@ -197,7 +204,7 @@ func (s thinkingShape) options() []model.Option {
 // declared capabilities and the model's declared metadata.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
 	live := m.src.Live()
-	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.BaseURL)
+	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
 	if err != nil {
 		return nil
 	}

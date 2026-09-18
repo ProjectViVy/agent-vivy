@@ -29,10 +29,7 @@ func TestAppShutdownBounded(t *testing.T) {
 			SQLite:  config.SQLite{Path: filepath.Join(t.TempDir(), "shutdown.db")},
 		},
 		Providers: config.Providers{
-			Active:    "deepseek",
-			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
-			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
-			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
+			Active: "deepseek",
 		},
 		Runtime: config.Runtime{StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools: config.Tools{

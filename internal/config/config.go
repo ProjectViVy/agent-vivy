@@ -48,6 +48,12 @@ func ValidEnvKey(name string) bool { return envKeyPattern.MatchString(name) }
 // running generation.
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// vendorNamePattern constrains providers.active to a vendor id. It mirrors the
+// provider data validator (internal/provider/vendor.go): a leading digit is
+// legal, because real catalogs declare vendors like `302ai`. Membership in the
+// embedded catalog is checked where that data is loaded, not here.
+var vendorNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
 // mcpNamespacePattern is intentionally stricter than generic config slugs.
 // The literal server name is embedded in model-visible MCP Tool IDs; unsafe
 // values must be rejected, never trimmed or rewritten into another identity.
@@ -214,25 +220,17 @@ type Postgres struct {
 	DSNEnv string `yaml:"dsn_env"`
 }
 
+// Providers names the vendor whose default endpoint the runtime uses when the
+// settings overlay names no address. Everything else about a provider — its
+// endpoints, protocols, models and credential variable — is embedded data
+// (PROV-P1/P2/P3, decisions D3/D15), so there is nothing to configure here and
+// no per-vendor block to keep in step with the catalog.
 type Providers struct {
-	// Active selects a Provider Profile compiled into this Generation. The
-	// default Generation carries "deepseek" (default), "openai", and
-	// "anthropic" (D-018, D-023; default switched to deepseek 2026-09-16).
-	//
-	// Provider metadata (base URL, models, env_key names, adapter family) is
-	// embedded in the binary and never read from disk (PROV-P1, decision D3).
-	Active    string   `yaml:"active"`
-	DeepSeek  Provider `yaml:"deepseek"`
-	OpenAI    Provider `yaml:"openai"`
-	Anthropic Provider `yaml:"anthropic"`
-}
-
-// Provider holds non-secret provider settings. The credential itself is
-// never part of config; EnvKey names the environment variable read at
-// request time (D-010).
-type Provider struct {
-	EnvKey       string `yaml:"env_key"`
-	DefaultModel string `yaml:"default_model"`
+	// Active selects the vendor whose default endpoint is used when a stored
+	// selection names no endpoint of its own. It must exist in the embedded
+	// vendor data; App validates that at startup, where the data is loaded
+	// (internal/config cannot depend on the provider registry).
+	Active string `yaml:"active"`
 }
 
 type Runtime struct {
@@ -605,10 +603,7 @@ func Default() Config {
 		Server:  Server{Addr: "127.0.0.1:8787"},
 		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: filepath.Join(root, "vivy.db")}},
 		Providers: Providers{
-			Active:    "deepseek",
-			DeepSeek:  Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
-			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
-			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
+			Active: "deepseek",
 		},
 		Runtime: Runtime{
 			StreamBuffer:             256,
@@ -685,6 +680,10 @@ func Load(path string) (Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
+		if removed := removedProviderBlock(err); removed != "" {
+			return Config{}, fmt.Errorf("parse config %s: %w; providers.%s was removed in PROV-P3 — "+
+				"provider metadata is embedded in the binary, so keep providers.active only", path, err, removed)
+		}
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	cfg.Tools.Enabled = NormalizeLegacyToolSearch(cfg.Tools.Enabled)
@@ -693,6 +692,19 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// removedProviderBlock reports the per-vendor block a pre-PROV-P3 document
+// still carries. Strict decoding already rejects it; this turns the raw yaml
+// field error into one actionable sentence naming the removed key.
+func removedProviderBlock(err error) string {
+	message := err.Error()
+	for _, key := range []string{"deepseek", "openai", "anthropic"} {
+		if strings.Contains(message, "field "+key+" not found") {
+			return key
+		}
+	}
+	return ""
 }
 
 // Validate checks every field the runtime depends on and the secret
@@ -721,21 +733,15 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("storage.backend %q unsupported; V0 supports sqlite and postgres", c.Storage.Backend)
 	}
 
-	switch c.Providers.Active {
-	case "deepseek", "openai", "anthropic":
-	default:
-		return fmt.Errorf("providers.active %q unsupported; V0 ships deepseek, openai and anthropic", c.Providers.Active)
+	// The vendor name the runtime falls back to. It must exist in the embedded
+	// vendor data; App checks that at startup, where the data is loaded, because
+	// internal/config cannot depend on the provider registry (PROV-P3).
+	if c.Providers.Active == "" {
+		return errors.New("providers.active must name an embedded vendor")
 	}
-	for name, p := range map[string]Provider{
-		"deepseek": c.Providers.DeepSeek, "openai": c.Providers.OpenAI, "anthropic": c.Providers.Anthropic,
-	} {
-		if !envKeyPattern.MatchString(p.EnvKey) {
-			return fmt.Errorf("providers.%s.env_key %q is not an environment variable name; "+
-				"secrets must never appear in config (D-010)", name, p.EnvKey)
-		}
-		if p.DefaultModel == "" {
-			return fmt.Errorf("providers.%s.default_model must not be empty", name)
-		}
+	if !vendorNamePattern.MatchString(c.Providers.Active) {
+		return fmt.Errorf("providers.active %q is not a vendor name; provider metadata is embedded, "+
+			"and a vendor's endpoints, protocols and credential variable are data (PROV-P3)", c.Providers.Active)
 	}
 
 	if c.Runtime.StreamBuffer <= 0 {

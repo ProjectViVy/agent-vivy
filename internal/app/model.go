@@ -18,10 +18,15 @@ const (
 )
 
 // ResolvedModel is the live provider selection for one process. Frozen is
-// true when a process environment variable named a bundle env_key, which
+// true when a process environment variable named a vendor env_key, which
 // makes the selection read-only for this process.
+//
+// Provider is the vendor the selection resolves to (the credential owner and
+// the default address); Adapter is the sealed protocol it speaks, which is what
+// the compiled Generation and the availability surface key on.
 type ResolvedModel struct {
 	Provider string
+	Adapter  string
 	Model    string
 	BaseURL  string
 	APIKey   string
@@ -47,10 +52,10 @@ func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog,
 	if len(supplied) > 0 {
 		credentials = supplied[0]
 	} else {
-		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": {
-			cfg.Providers.DeepSeek.EnvKey,
-			cfg.Providers.OpenAI.EnvKey, cfg.Providers.Anthropic.EnvKey,
-		}})
+		// The allowlist is the embedded vendors' credential names, so a
+		// third-party vendor's environment variable works with no per-vendor
+		// configuration block (PROV-P3).
+		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": modelCredentialAllowlist(catalog)})
 	}
 	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog, host: host, credentials: credentials}
 	if frozen, ok := freezeFromEnv(cfg, catalog, credentials); ok {
@@ -59,62 +64,83 @@ func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog,
 	return r
 }
 
-func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *credentialmodule.Resolver) (ResolvedModel, bool) {
-	type candidate struct {
-		name   string
-		envKey string
-		model  string
+// modelCredentialAllowlist is the environment names the model module may read,
+// derived from the embedded vendor data.
+func modelCredentialAllowlist(catalog *provider.Catalog) []string {
+	if catalog == nil {
+		return nil
 	}
-	var hits []candidate
-	for _, c := range []candidate{
-		{name: settings.ProviderDeepSeek, envKey: cfg.Providers.DeepSeek.EnvKey, model: cfg.Providers.DeepSeek.DefaultModel},
-		{name: settings.ProviderOpenAI, envKey: cfg.Providers.OpenAI.EnvKey, model: cfg.Providers.OpenAI.DefaultModel},
-		{name: settings.ProviderAnthropic, envKey: cfg.Providers.Anthropic.EnvKey, model: cfg.Providers.Anthropic.DefaultModel},
-	} {
-		if c.envKey == "" {
-			continue
-		}
-		if credentials != nil && credentials.IsSet("vivy/model", c.envKey) {
-			hits = append(hits, c)
+	return provider.VendorEnvKeys(catalog.Vendors())
+}
+
+// freezeFromEnv builds the read-only ENV session. Every embedded vendor is a
+// candidate now, so a third-party vendor freezes the session exactly like the
+// first-party ones; the configured vendor (config.providers.active) wins when
+// several are set, and VIVY_PROVIDER overrides it by vendor name or by adapter.
+func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *credentialmodule.Resolver) (ResolvedModel, bool) {
+	if catalog == nil || credentials == nil {
+		return ResolvedModel{}, false
+	}
+	var hits []provider.Vendor
+	for _, vendor := range catalog.Vendors() {
+		if credentials.IsSet("vivy/model", vendor.EnvKey) {
+			hits = append(hits, vendor)
 		}
 	}
 	if len(hits) == 0 {
 		return ResolvedModel{}, false
 	}
 	chosen := hits[0]
-	if override := strings.TrimSpace(os.Getenv(envProviderOverride)); override != "" {
-		for _, c := range hits {
-			if c.name == override {
-				chosen = c
+	if active := cfg.Providers.Active; active != "" {
+		for _, vendor := range hits {
+			if vendor.Name == active {
+				chosen = vendor
 				break
 			}
 		}
 	}
-	key, err := credentials.Resolve("vivy/model", chosen.envKey)
+	if override := strings.TrimSpace(os.Getenv(envProviderOverride)); override != "" {
+		if vendor, ok := matchFrozenVendor(hits, override); ok {
+			chosen = vendor
+		}
+	}
+	key, err := credentials.Resolve("vivy/model", chosen.EnvKey)
 	if err != nil {
 		return ResolvedModel{}, false
 	}
 	key = strings.TrimSpace(key)
 	base := strings.TrimSpace(os.Getenv(provider.APIBaseEnvVar))
 	modelID := strings.TrimSpace(os.Getenv(envModelOverride))
-	if modelID == "" {
-		modelID = chosen.model
-	}
-	if catalog != nil {
-		if vendor, ok := catalog.Vendor(chosen.name); ok && modelID == "" {
-			if endpoint, ok := vendor.DefaultEndpoint(); ok {
-				modelID = endpoint.DefaultModel
-			}
-		}
-	}
+	selection, _ := resolveVendorSelection(catalog, chosen.Name, "", base, modelID)
 	return ResolvedModel{
-		Provider: chosen.name,
-		Model:    modelID,
+		Provider: chosen.Name,
+		Adapter:  selection.Adapter,
+		Model:    selection.Model,
 		BaseURL:  base,
 		APIKey:   key,
 		Frozen:   true,
 		Ready:    key != "",
 	}, true
+}
+
+// matchFrozenVendor resolves a VIVY_PROVIDER override: a vendor name names
+// that vendor, and a sealed adapter names the first candidate that speaks it.
+func matchFrozenVendor(hits []provider.Vendor, override string) (provider.Vendor, bool) {
+	for _, vendor := range hits {
+		if vendor.Name == override {
+			return vendor, true
+		}
+	}
+	adapter := settings.NormalizeAdapter(override)
+	if adapter == "" {
+		return provider.Vendor{}, false
+	}
+	for _, vendor := range hits {
+		if _, ok := vendor.EndpointForAdapter(adapter); ok {
+			return vendor, true
+		}
+	}
+	return provider.Vendor{}, false
 }
 
 // Current returns the live selection. Frozen ENV sessions ignore the
@@ -127,11 +153,9 @@ func (r *ModelResolver) Current() ResolvedModel {
 	defer r.mu.Unlock()
 	current := r.currentLocked()
 	if current.Provider != "" && r.host != nil {
-		// The compiled Generation seals adapters while the selection is still
-		// vendor-keyed in this phase, so readiness is decided by the adapter
-		// the selection's endpoint speaks.
-		family := r.catalog.AdapterFamily(current.Provider, current.BaseURL)
-		if _, err := r.host.ResolveExecutable(family); err != nil {
+		// The compiled Generation seals adapters, so readiness is decided by
+		// the adapter the selection speaks.
+		if _, err := r.host.ResolveExecutable(current.Adapter); err != nil {
 			current.Ready = false
 		}
 	}
@@ -149,25 +173,17 @@ func (r *ModelResolver) currentLocked() ResolvedModel {
 	if err != nil || s.IsZero() {
 		return ResolvedModel{}
 	}
-	providerName := s.Provider
-	if providerName == "" {
+	if s.Provider == "" {
 		return ResolvedModel{}
 	}
-	modelID := s.DefaultModel
-	if modelID == "" {
-		switch providerName {
-		case settings.ProviderDeepSeek:
-			modelID = r.cfg.Providers.DeepSeek.DefaultModel
-		case settings.ProviderAnthropic:
-			modelID = r.cfg.Providers.Anthropic.DefaultModel
-		default:
-			modelID = r.cfg.Providers.OpenAI.DefaultModel
-		}
-	}
-	key := settings.ActiveKey(s, providerName, s.BaseURL)
+	// The stored vocabulary is the adapter; the vendor, endpoint variant and
+	// default model come from the embedded data (PROV-P3).
+	selection, _ := resolveStoredSelection(r.catalog, r.cfg, s)
+	key := resolveSettingsAPIKey(s, selection)
 	return ResolvedModel{
-		Provider: providerName,
-		Model:    modelID,
+		Provider: selection.Vendor,
+		Adapter:  selection.Adapter,
+		Model:    selection.Model,
 		BaseURL:  s.BaseURL,
 		APIKey:   key,
 		Frozen:   false,
@@ -195,6 +211,7 @@ func (r *ModelResolver) Live() provider.LiveSpec {
 	cur := r.Current()
 	return provider.LiveSpec{
 		Provider: cur.Provider,
+		Adapter:  cur.Adapter,
 		Model:    cur.Model,
 		BaseURL:  cur.BaseURL,
 		APIKey:   cur.APIKey,

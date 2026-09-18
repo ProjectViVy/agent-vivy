@@ -410,12 +410,54 @@ Profile is the default chain's adapter.
 now, so this list is what keeps the pre-baked Settings/TUI `providers` payload
 byte-identical for this phase. `PROV-P3` removes the per-vendor config blocks and
 `PROV-P4` serves the whole embedded catalog here; the list dies with them.
+`PROV-P3` did delete it as a hard-coded list — the payload now comes from
+`settings.LegacyVendorNames()`, which is derived from the normalization table and
+keeps the same three vendors in the same order (§8.7).
 
-### 8.6 Conformance digest
+### 8.6 Configuration, credentials, and selection (PROV-P3 as built)
 
-The `internal` digest moved `087b41ac…` → `978e0d42…` and the five
-`internal`-rooted entries in `sdk/internal/assembly/conformance_results.json`
-were refreshed in the same commit.
+Delivered in `refactor(provider): derive configuration and credentials from
+provider data`:
+
+| Item | As built |
+|---|---|
+| `config.Providers` | one field, `active`. `Provider`, the three blocks and their validation are deleted. `Default()` still yields `deepseek`. `validate` checks the shape; the app's startup gate checks membership in the loaded data (see below). |
+| Removed-key hint | `Load` turns the strict-decoding error into one sentence naming the removed block: `providers.deepseek was removed in PROV-P3 — provider metadata is embedded in the binary, so keep providers.active only`. |
+| `Catalog.EndpointForVendor` | three arguments now: `(vendor, adapter, baseURL)`. An empty adapter means "the vendor's default protocol"; a declared address wins; an address no endpoint declares keeps the vendor's endpoint for the requested adapter. |
+| `Catalog.AdapterFamily` | deleted. The adapter comes from the endpoint (`Endpoint.Adapter`) or the stored selection. `Catalog.VendorForEndpoint(adapter, baseURL)` is the reverse lookup the address→vendor rule needs. |
+| `ResolveModelInfo` | searches every endpoint of the vendor before falling back to the default endpoint, through the new pure `modelInfoFor(vendor, endpoint, modelID)`, so a deferred adapter resolves metadata without constructing anything. |
+| `provider.Vendor.EndpointForAdapter` | new: the first declared endpoint for one protocol. |
+| `provider.VendorEnvKeys` | new: the sorted, de-duplicated credential allowlist derived from the vendor data. |
+| `provider.LiveSpec` / `app.ResolvedModel` | gained `Adapter`. `Provider` remains the vendor, so `Service.SetModel`, `ModelInfo`, `ModelMeta` and the sidebar keep their meaning. |
+| `freezeFromEnv` | iterates the embedded vendors; the configured vendor wins when several keys are set; `VIVY_PROVIDER` names a vendor, or an adapter's first vendor. |
+| `applySettingsEnv` | takes the catalog and writes the key into the resolved **vendor's** variable. |
+| Deleted | `defaultModelFor`, `providerConfigBaseline`, the three-way switch in `applySettingsEnv`, `applySettingsOverlayAt`'s per-vendor `default_model` overlay, and `app.transitionalVendorNames`. |
+| `app.settings.LegacyVendorNames` | the pre-baked Settings/TUI vendor list, now derived from the normalization table, so the `settings/providers` payload stays byte-identical until `PROV-P4` widens it. |
+| `internal/app/settings/provider_migration.go` | the one normalization table plus `NormalizeProviderSelection`, `NormalizeAdapter`, `ValidProviderValue`, `ProviderValueError`, `LegacyVendorNames`, consumed by `Settings.Validate`, `validateProviderEntries`, `FindProvider`/`ActiveKey`, the registry uniqueness key, `IsOpenAICompatibleSelection`, the resolver and the RPC allowlist. |
+| `internal/eval/isolator.go` | its candidate config names `providers.active` only. |
+
+Two decisions worth recording:
+
+1. **A stored value is not rewritten on write.** `MIGRATION.md` §3 rule 2 says the
+   normalized value is written back on the next save. P3 stores what the client
+   sent instead, because for an **undeclared** gateway address the vendor name is
+   the only thing that identifies the credential owner: rewriting `provider:
+   openai` to `openai-completions` would move that selection onto
+   `config.providers.active`'s vendor. Both spellings stay readable, the new UI
+   (P4) writes adapter values, and documents therefore converge as they are
+   edited rather than by a rewrite no user asked for.
+2. **The membership check for `providers.active` lives in the app, not in
+   `config.Validate`.** `internal/config` must not import `internal/provider`
+   (it is a leaf config package; the Eino quarantine keeps the registry out of
+   it), so `Validate` checks the name's shape and `app.Compose` rejects a name the
+   loaded data does not declare, immediately after `LoadEmbedded`.
+
+### 8.7 Conformance digest
+
+The `internal` digest moved `087b41ac…` → `978e0d42…` (P2) → `13f4ee33…` (P3)
+and the five `internal`-rooted entries in
+`sdk/internal/assembly/conformance_results.json` were refreshed in the same
+commit each time. `PROV-P5` owns the final value.
 
 ---
 
@@ -424,7 +466,7 @@ were refreshed in the same commit.
 ```text
 PROV-P1  data + embed + strict validation + startup consistency gate; delete fixtures/ and bundle_dir
 PROV-P2  adapter table + sealed manifest + catalog-by-family + thinking capabilities; regenerate zz_default.go
-PROV-P3  config shrink + credential/env-key source + settings.yaml aliases
+PROV-P3  config shrink + credential/env-key source + settings.yaml aliases + data-derived selection   [done]
 PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script and ui/agent-diva-source
 PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci
 ```

@@ -52,6 +52,45 @@ Not run in this phase, with reasons:
    refresh it again whenever they touch a file under `internal/`; `PROV-P5`
    still owns the final value.
 
+## `PROV-P3`
+
+| Command | Result |
+|---|---|
+| `go build ./...` | exit 0 (after the config shrink, `internal/app` failed on the three deleted `cfg.Providers.*` reads and the two deleted helpers; both removed) |
+| `go vet ./...` | exit 0 (vet named the test call sites: `EndpointForVendor`'s new arity, `config.Provider`, `Catalog.AdapterFamily`) |
+| `go test ./internal/config ./internal/provider ./internal/app/settings ./internal/app -count=1` | `ok` |
+| `go test ./internal/... -count=1` | every package `ok` (after the eval isolator stopped writing per-vendor blocks and the registry uniqueness key was normalized) |
+| `go test ./... -count=1` (`just test`, `-timeout 20m`) | see the job log below |
+| digest refresh (`go run ./sdk/internal/cmd/source-hash internal ""`) | `13f4ee33…`, written to the five `internal`-rooted entries of `sdk/internal/assembly/conformance_results.json` |
+| `go test ./sdk/internal/conformance/ -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` | see the job log below |
+| `just fmt-check` | exit 0 |
+
+### Failure-first evidence
+
+- `TestResolveStoredSelectionChain` pins all five rungs of the resolution chain
+  (declared address, legacy vendor, adapter alone, legacy vendor with an
+  undeclared gateway, address no vendor declares), and
+  `TestResolverLegacyDocumentKeepsItsVendorAndEndpoint` is the phase's headline
+  case: `provider: deepseek` with no address still resolves to vendor `deepseek`,
+  adapter `openai-completions`, model `deepseek-flash`.
+- `TestResolverThirdPartyVendorNeedsNoConfigurationBlock` is the `MINIMAX_API_KEY`
+  RED: before P3 the key was outside the allowlist and there was no per-vendor
+  block to add it to, so a MiniMax selection could never be Ready. It now is, and
+  the same test asserts the unset-key case stays not-ready.
+- `TestApplySettingsEnvWritesTheVendorsOwnVariable` is the third-way-switch RED:
+  a MiniMax key selected through `openai-completions` used to be written into
+  `OPENAI_API_KEY`; the test asserts the vendor's own variable receives it and
+  `OPENAI_API_KEY` is byte-identical afterwards.
+- `TestProviderRegistryUniquenessIgnoresVocabularySpelling` is the normalization
+  RED at the registry boundary: `bundle: openai` and `bundle: openai-completions`
+  on one address are one endpoint identity and must collide.
+- `TestUnknownProviderValueIsRejectedNotInvented` and
+  `TestResolverIsNonFatalForAnUnusableStoredValue` are the two halves of rule 3
+  (rejected on write, non-fatal on read).
+- `TestCatalogVendorForEndpointIdentifiesTheVendor` covers the address→vendor
+  direction the resolution chain depends on, including the "user gateway" case
+  that must not match.
+
 ## `PROV-P2`
 
 | Command | Result |
