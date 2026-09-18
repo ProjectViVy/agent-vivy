@@ -1,0 +1,115 @@
+# Notes — why the old provider shape existed, and what it actually was
+
+Written 2026-09-18 at program closeout, after the analysis in the iteration
+summary turned out to be too generous to the original design. Everything below
+is cited against `ff8a47d` (the lane's base). This is discussion, not a contract.
+
+## The correction
+
+The summarizing claim "the fixtures were the runtime truth" is the wrong
+framing. The correct one is blunter: **the live provider source was a directory
+that the repository itself documents as test data.**
+
+`fixtures/README.md` said so in its first lines:
+
+> Deterministic fixtures for tests and offline development.
+> - `provider/` — provider bundle documents used by the real OpenAI-compatible
+>   and Anthropic routes.
+> ...
+> Fixtures must be real recorded data, never mocks standing in for domain
+> records in production paths (PRD §6.2).
+
+And the production path read them anyway:
+
+| Site | What it did |
+|---|---|
+| `internal/app/app.go:255-270` | at startup, `provider.LoadBundle(filepath.Join(cfg.Providers.BundleDir, name+".yaml"))` for `deepseek`, `openai`, `anthropic`, then `provider.NewCatalog(...)`; a missing file aborts composition ("app: load deepseek bundle") |
+| `internal/config/config.go:607`, `config.example.yaml:37` | default `bundle_dir: fixtures/provider` — a path relative to the process working directory |
+| `internal/rpc/control.go:4447` + `sdk/tui/live/rpc.go:112` | the same three bundles were serialized to both faces as `bundles` |
+| `Dockerfile:39` | `COPY fixtures/provider /app/fixtures/provider` — the container had to carry the data beside the binary |
+| `internal/studiocore/service.go:83` | the pack path defaulted `Isolation.BundleDir` to `filepath.Join(opt.Worktree, "fixtures", "provider")` — a copy taken from whichever worktree packed it |
+| `internal/eval/isolator.go:74-80` | eval children got `bundleDir` plus the same `"fixtures/provider"` fallback |
+| `internal/modules/defaults/providers.go:19-38` | a hand-written Go table restating the same three vendors' model ids and secret names for the compiled Profiles |
+
+There was **no `//go:embed` for provider data anywhere** at that commit (the only
+embed in `internal/` is `internal/runtime/marketplace_featured.yaml`).
+
+## Why this is worse than "four copies"
+
+Duplication is a maintenance cost. This was an ownership failure, and it shows
+up as three concrete defects that duplication alone does not produce:
+
+1. **The binary had no provider knowledge.** A bare `vivy.exe` could not start
+   without a sibling `fixtures/provider/` directory, because the default was a
+   worktree-relative path and there was no embedded or fallback source. The
+   product's model catalog was a *deployment asset*, shipped by hand (Docker
+   `COPY`) or copied at pack time — not part of the artifact's identity.
+2. **The evidence never covered it.** `fixtures/` sits outside `internal/`, so
+   the source digest and the provider-conformance evidence — the artifacts that
+   are supposed to say "this is what was verified" — hashed and attested a tree
+   that did not include provider data. Two installs packed from two worktrees
+   could carry different provider data under the same binary identity. That is
+   why `PROV-P1` moving the data into `internal/provider/data/**` mattered more
+   than its diff size suggests: it put the data inside the hash.
+3. **Everyone was hand-carrying it, and that was the tell.** The iteration logs
+   record the workaround as routine: `docs/logs/2026-08-26-list-dir-tool/
+   verification.md:41` ("CWD = temp dir (needed `fixtures/provider/*` copied
+   alongside)"), `docs/logs/2026-08-26-execute-timeout-ceiling/verification.md:24`
+   ("SQLite path and `bundle_dir` pointed into scratch / worktree"),
+   `docs/logs/2026-09-03-face-tui-1-f3/verification.md:3` ("read-only copies of
+   repository fixtures/provider"). A system whose smoke runs begin by copying
+   its own data next to the working directory has already lost track of who owns
+   that data.
+
+## The four descriptions, restated by role
+
+Not four attempts at a source of truth — four consumers each keeping a local
+note to itself:
+
+| Consumer | Its copy | Owned by |
+|---|---|---|
+| runtime | `fixtures/provider/{deepseek,openai,anthropic}.yaml` (borrowed from the test directory) | nobody |
+| compiler / Assembly | hand-written `defaults.ProviderProfiles()` | nobody |
+| operator | `config.providers.<vendor>.{env_key, default_model}` | nobody |
+| UI | generated `provider-catalog.ts`, produced by a Python script from a **gitignored** vendored tree (`ui/agent-diva-source/…/providers.yaml`) | nobody |
+
+The UI's 45-vendor list and the runtime's three-vendor catalog were therefore
+never the same data set at all. The setting page showed a catalog the runtime
+could not construct, while the runtime read a directory the UI never saw.
+
+## Root cause
+
+**The provider definition was never assigned an owner.** With no owner, each
+consumer cached what it needed where it was convenient, and the last place the
+runtime's copy landed was a directory named `fixtures/`. Nobody renamed it,
+hashed it, embedded it, or gated it, because from each local viewpoint it was
+someone else's file.
+
+So the failure mode is not "too many copies". It is: **no owner, and the
+accidental path wins.** The accidental path was a test fixture that a startup
+call site adopted, and it stayed named "fixtures" for the rest of its life.
+
+The owner's diagnosis in review ("DeepSeek is a provider that inherits the
+OpenAI and Anthropic interfaces, it is not a provider itself") attacked the same
+structure from the other end: once the sealed unit is the *protocol*, the
+vendor stops being an identity, and the copies lose their reason to exist.
+
+## Generalizable checks
+
+1. **A directory name is a contract.** Production data under `fixtures/` will be
+   read as production data and treated as sample data at the same time. If the
+   live path reads it, rename it in the same change or the mislabel becomes
+   permanent.
+2. **Ownership is "is it in the artifact", not "is it in the repository".**
+   A file that ships beside the binary, is copied by the packer, and is absent
+   from the source hash has no owner regardless of where it lives in git.
+3. **Evidence only covers what it hashes.** Placing data outside the digest
+   makes the evidence attest something it never looked at — the same class of
+   error as a hand-maintained constant, one level up.
+4. **A routine workaround is a design defect with a support cost.** "Copy the
+   fixtures next to the cwd first" should have been treated as the bug report it
+   was.
+5. **Fix it by deleting copies, not by synchronizing them.** The program's
+   answer was one embedded data file, a projection for the compiler, a
+   projection for the UI, and a deleted `fixtures/` — three of the four copies
+   stopped existing rather than being kept in step.
