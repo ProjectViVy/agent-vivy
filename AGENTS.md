@@ -302,7 +302,9 @@ Counterexample: finishing a feature with only chat history and no log.
 When a bug, gap, or deferred item is found and not fixed in the same
 iteration, add it to §0.1 (status, short title, why it waits, related paths).
 When it is done, move it to §10 Completion log and/or `docs/logs/` — do not
-silently delete it.
+silently delete it. When it is deliberately deferred, superseded, or declined,
+move the row to `docs/DEFER.MD` with its status and the record that would
+restart it; do not leave non-open rows on the open board.
 
 Closed tracks (V0, MA, ET, HITL P0, harness H0–H10, Studio ST-*) stay in the
 file as archive tables; do not pick new work from them.

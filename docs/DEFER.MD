@@ -1,0 +1,57 @@
+# AGENT-VIVY — Deferred, Superseded, and Declined Work
+
+> Board for work deliberately not scheduled, moved out of `docs/TODO.md`.
+> `docs/TODO.md` §0.1 remains the living open board; completed history is `docs/COMPLETE.MD`.
+> Original IDs are retained so historical references stay stable. A deferral is not a start order.
+> Moved on 2026-09-19.
+
+---
+
+## 1. Deferred
+
+Deliberately not scheduled. Each row keeps the reason it waits and the record that would restart it.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| CH-C8 | `vivy channel --name` child process in the same binary | DEFERRED | Memo Plan: `docs/plans/channel-epic/CH-C8.md`. Not a start order |
+| CH-C9 | A2A / NeuroLink capability proposal | DEFERRED | Memo Plan: `docs/plans/channel-epic/CH-C9.md`. Not a start order |
+| HITL-P1-7 | Generic edit + bulk approval | DEFERRED | Explicitly not P0 |
+| MEM-1 | Memory / BML / Laputa / AutoDream / Evolution / RAG | IMPLEMENTATION DEFERRED | SCX now records memory/RAG and laputa-garden integration direction in `docs/architecture/SCX-ARCHITECTURE-DESIGN.md`. This is not a live backend or an AutoDream/Evolution implementation; those broader capabilities remain deferred. |
+| P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; SR-4 was decided on 2026-09-02: keep QwenPaw externally obtained and recheck it against `qwenpaw-vendor-ruling.md` when the probe is proposed |
+| P2-4 | Long-term section map for V3 | DEFERRED | |
+| UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
+| SBX-OS | OS-level process sandbox (bwrap / Seatbelt / Windows ACL) | DEFERRED | EINO currently provides only workspace paths + command allowlist + HTTP policy, not a DSH process sandbox |
+| SBX-GLOB | Sandbox deny glob / editable auto_approve_tools | DEFERRED | The settings page exposes only presets and network policy; timeout remains in general settings |
+| SBX-LIVE | Hot-swappable permission preset for an in-progress run | DEFERRED | The current turn pins the session policy; it takes effect on the next `turn/start` |
+| ST-SUB-3 | Further split community plugins into nested submodules (optional) | DEFERRED | The initial tree is all in `vivy-studio`; split it after size/update policy stabilizes |
+| WF-3 | Workflow follow-ups: trigger Port + single invocation entry, conditional edges/branch routing, node error policies (retry/skip), resume-after-interruption, structured (non-string) node IO, visual editor UI module, workflow nesting, version migration beyond schema v1, checkpoint-store mapping | DEFERRED | Umbrella for `DETAILED-DESIGN.md` §14 open items; none block WF-1/WF-2. Split into own rows when a slice is scheduled. |
+
+## 2. Resolved-deferred
+
+Closed by a recorded decision rather than by implementation; the decision is the evidence.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| CH-C2-N2 | §8 slot cleanup: `run_id`/`task_id` on `InboundMessage`/`OutboundMessage` (written by Host) | RESOLVED-DEFERRED | 2026-08-30 (CH-C3): Delete/Reaction/HealthChecker/ListenHandler interfaces are present (v1 method set); the run_id/task_id slots are intentionally deferred because the pseudo-run design has no consumer, and SDK comments now describe the deferral. Add them only when C4/C8 actually needs them; do not rename existing fields |
+
+## 3. Superseded
+
+Replaced by a later breakdown. Kept as no-claim markers: do not claim these rows again.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| CH-A | ChannelHost + telegram + dingtalk (coarse-grained) | SUPERSEDED | Split into CH-C1..C6 on 2026-08-30; see `docs/COMPLETE.MD` §0.2. Do not claim this row again |
+| CH-B | feishu / qq / discord (coarse-grained) | SUPERSEDED | Split into CH-C7a/b/c on 2026-08-30; see `docs/COMPLETE.MD` §0.2. Do not claim this row again |
+
+## 4. Won't do
+
+Declined by an explicit owner decision. Do not reopen without a new decision.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| ACP-1 | ACP / remote control **implementation** | WONT-DO | 2026-08-31 User decision: ACP will not be implemented (research §8.7) |
+
+---
+
+> Nothing here is deleted. When a deferral is lifted, move the row back to
+> `docs/TODO.md` §0.1 with its new status and the new evidence.
