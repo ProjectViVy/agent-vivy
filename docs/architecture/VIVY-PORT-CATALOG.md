@@ -259,6 +259,26 @@ exact Recipe order.
 Provides an exclusive replacement for the Web Face root UI. A duplicate is an
 Assembly compile failure.
 
+Composition geometry follows the selected root. With a `std/ui-root@v1`
+Provider selected, that root owns the whole window and every selected
+`std/ui-extension@v1` route renders over it. Without one, the shell owns the
+frame: it renders its own chrome — sidebar, panels, composer — and nests the
+assembled Module route in its route slot, so claiming `/persona` adds a page
+beside the sidebar instead of replacing the application. A Module route is
+addressed by the Host router like any other path; the shell's slot only answers
+paths the core route tree does not own, so a core page is never shadowed by a
+same-path Module contribution.
+
+A navigation item may declare a `group`. The shell projects the items it
+receives for one group as a single ordered surface (today the VIVY sidebar
+group) rather than one global nav list, which is how a Module entry lands
+beside the Host's own entries without owning the group.
+
+Localized copy follows the same ownership rule: a Module's strings live in its
+sealed catalog under `plugin.<module-id>.*`, and any other key it looks up
+falls back to the Host dictionary, so shared shell copy (`common.*`) keeps one
+home instead of being copied into every Module.
+
 There is no UI Grant, approval prompt, component allow-list, CSS isolation, or
 per-DOM audit. Selection into the Generation gives a UI Module complete browser
 UI access by default, including browser APIs and client-visible state. It is T2

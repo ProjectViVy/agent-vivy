@@ -29,6 +29,12 @@ node_modules/
 /ui/dist/*
 !/ui/dist/.keep
 
+# Assembled UI projection: `ui/src/generated/assembly.ts` is the committed
+# build input for the default Generation, while the staged Module sources under
+# it are copies of plugins/*/ui/** that the SDK rewrites on every dev, test and
+# build. Copies are generated, never a second home for a Module's source.
+/ui/src/generated/ui/
+
 # Playwright e2e runtime outputs (generated workdir, reports, traces)
 /ui/.e2e-workdir/
 /.smoke-todo/

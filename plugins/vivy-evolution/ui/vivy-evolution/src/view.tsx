@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import type { SkillDocument, SkillDto, SkillHistoryEntry, SkillHistoryDocument, SkillRequest, SkillRequestStatus, CreateSkillRequestPayload, AutoDreamRunRecord, AutoDreamRunEvent, AutoDreamRunState } from '@/lib/types';
-import { useEvolution } from '@/hooks/useEvolution';
+import { useEvolution } from './useEvolution';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +27,8 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { MasterDetail } from '@/components/layout/MasterDetail';
-import { dateTimeLocale, useTranslation } from '@/i18n';
+import { dateTimeLocale } from '@/i18n';
+import { usePluginTranslation } from '@vivy/ui-sdk';
 import { Dna, GitBranch, History, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
 
 type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
@@ -85,7 +86,7 @@ interface SkillDetailPaneProps {
 }
 
 function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave, onToggleEnabled, onRemove, onPreviewHistory }: SkillDetailPaneProps) {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(doc.markdown);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -139,18 +140,18 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
           disabled={busy}
           onClick={() => void onToggleEnabled(doc.slug, !doc.enabled)}
         >
-          {doc.enabled ? t('evolution.skills.disable') : t('evolution.skills.enable')}
+          {doc.enabled ? t('plugin.vivy/evolution.skills.disable') : t('plugin.vivy/evolution.skills.enable')}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button size="sm" variant="destructive" disabled={busy || !doc.can_hard_delete}>
-              {t('evolution.skills.hardDelete')}
+              {t('plugin.vivy/evolution.skills.hardDelete')}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('evolution.skills.hardDeleteTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('evolution.skills.hardDeleteConfirm', { slug: doc.slug })}</AlertDialogDescription>
+              <AlertDialogTitle>{t('plugin.vivy/evolution.skills.hardDeleteTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('plugin.vivy/evolution.skills.hardDeleteConfirm', { slug: doc.slug })}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
@@ -175,12 +176,12 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
 
       <Button variant="ghost" size="sm" className="mt-4 gap-1" onClick={() => setHistoryOpen((open) => !open)}>
         <History className="h-4 w-4" />
-        {t('evolution.skills.history')}
+        {t('plugin.vivy/evolution.skills.history')}
       </Button>
       {historyOpen ? (
         <div className="mt-2 space-y-2">
           {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('evolution.skills.historyEmpty')}</p>
+            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.skills.historyEmpty')}</p>
           ) : (
             history.map((entry) => (
               <div key={entry.revision} className="rounded-lg border p-3">
@@ -193,7 +194,7 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
           {historyPreview ? (
             <div className="rounded-lg bg-muted p-4">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
-                {t('evolution.skills.historyPreview', { revision: historyPreview.revision })}
+                {t('plugin.vivy/evolution.skills.historyPreview', { revision: historyPreview.revision })}
               </p>
               <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{historyPreview.markdown}</pre>
             </div>
@@ -216,7 +217,7 @@ interface CreateRequestPanelProps {
 }
 
 function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestPanelProps) {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const [slug, setSlug] = useState('');
   const [title, setTitle] = useState('');
   const [reason, setReason] = useState('');
@@ -226,7 +227,7 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
 
   const submit = async () => {
     if (!slug.trim() || !title.trim() || !reason.trim()) {
-      setValidationError(t('evolution.requests.createRequired'));
+      setValidationError(t('plugin.vivy/evolution.requests.createRequired'));
       return;
     }
     setValidationError(null);
@@ -244,34 +245,34 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
   return (
     <Card className="mb-4">
       <CardHeader>
-        <CardTitle className="text-base">{t('evolution.requests.create')}</CardTitle>
+        <CardTitle className="text-base">{t('plugin.vivy/evolution.requests.create')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="evolution-create-slug">{t('evolution.requests.createSlug')}</Label>
+            <Label htmlFor="evolution-create-slug">{t('plugin.vivy/evolution.requests.createSlug')}</Label>
             <Input id="evolution-create-slug" value={slug} onChange={(event) => setSlug(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="evolution-create-title">{t('evolution.requests.createTitle')}</Label>
+            <Label htmlFor="evolution-create-title">{t('plugin.vivy/evolution.requests.createTitle')}</Label>
             <Input id="evolution-create-title" value={title} onChange={(event) => setTitle(event.target.value)} />
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="evolution-create-reason">{t('evolution.requests.createReason')}</Label>
+          <Label htmlFor="evolution-create-reason">{t('plugin.vivy/evolution.requests.createReason')}</Label>
           <Input id="evolution-create-reason" value={reason} onChange={(event) => setReason(event.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="evolution-create-attestation">{t('evolution.requests.createAttestation')}</Label>
+          <Label htmlFor="evolution-create-attestation">{t('plugin.vivy/evolution.requests.createAttestation')}</Label>
           <Input
             id="evolution-create-attestation"
             value={attestation}
-            placeholder={t('evolution.requests.createAttestationHint')}
+            placeholder={t('plugin.vivy/evolution.requests.createAttestationHint')}
             onChange={(event) => setAttestation(event.target.value)}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="evolution-create-markdown">{t('evolution.requests.createMarkdown')}</Label>
+          <Label htmlFor="evolution-create-markdown">{t('plugin.vivy/evolution.requests.createMarkdown')}</Label>
           <Textarea
             id="evolution-create-markdown"
             value={markdown}
@@ -285,7 +286,7 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
             {t('common.cancel')}
           </Button>
           <Button size="sm" disabled={busy} onClick={() => void submit()}>
-            {t('evolution.requests.createSubmit')}
+            {t('plugin.vivy/evolution.requests.createSubmit')}
           </Button>
         </div>
       </CardContent>
@@ -303,7 +304,7 @@ interface RequestDetailPaneProps {
 }
 
 function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetailPaneProps) {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const busy = isBusy(`accept:${request.id}`) || isBusy(`reject:${request.id}`);
 
   return (
@@ -327,8 +328,8 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('evolution.requests.rejectTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('evolution.requests.rejectConfirm', { title: request.title })}</AlertDialogDescription>
+              <AlertDialogTitle>{t('plugin.vivy/evolution.requests.rejectTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('plugin.vivy/evolution.requests.rejectConfirm', { title: request.title })}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
@@ -343,16 +344,16 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
 
       {request.status === 'stale' ? (
         <p className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {t('evolution.requests.staleNotice')}
+          {t('plugin.vivy/evolution.requests.staleNotice')}
         </p>
       ) : null}
       {request.status === 'accepted' || request.status === 'rejected' ? (
-        <p className="mb-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">{t('evolution.requests.handledNotice')}</p>
+        <p className="mb-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">{t('plugin.vivy/evolution.requests.handledNotice')}</p>
       ) : null}
 
       <div className="mb-5 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-        <p className="min-w-0 break-all font-mono">{t('evolution.requests.baseHash', { hash: request.base_hash })}</p>
-        <p>{t('evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString(dateTimeLocale()) })}</p>
+        <p className="min-w-0 break-all font-mono">{t('plugin.vivy/evolution.requests.baseHash', { hash: request.base_hash })}</p>
+        <p>{t('plugin.vivy/evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString(dateTimeLocale()) })}</p>
       </div>
 
       <div className="rounded-lg bg-muted p-4">
@@ -361,14 +362,14 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
 
       <Card className="mt-5">
         <CardHeader>
-          <CardTitle className="text-sm">{t('evolution.requests.evidence')}</CardTitle>
+          <CardTitle className="text-sm">{t('plugin.vivy/evolution.requests.evidence')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {request.attestation ? (
-            <p className="text-sm">{t('evolution.requests.attestation', { text: request.attestation })}</p>
+            <p className="text-sm">{t('plugin.vivy/evolution.requests.attestation', { text: request.attestation })}</p>
           ) : null}
           {request.evidence.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('evolution.requests.evidenceEmpty')}</p>
+            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.requests.evidenceEmpty')}</p>
           ) : (
             request.evidence.map((item, index) => (
               <pre key={index} className="overflow-auto rounded-lg border bg-muted p-3 font-mono text-xs">
@@ -391,12 +392,12 @@ interface RunDetailPaneProps {
 }
 
 function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const phaseLabel = run.orchestration
-    ? t(`evolution.autodream.phases.${run.orchestration.phase}`)
-    : t(`evolution.autodream.states.${run.state}`);
+    ? t(`plugin.vivy/evolution.autodream.phases.${run.orchestration.phase}`)
+    : t(`plugin.vivy/evolution.autodream.states.${run.state}`);
   const firstProposalId = run.proposal_ids[0] ?? null;
-  const noValue = t('evolution.autodream.noValue');
+  const noValue = t('plugin.vivy/evolution.autodream.noValue');
 
   return (
     <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
@@ -405,39 +406,39 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
           <h2 className="break-all font-mono text-lg font-semibold">{run.id}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{run.summary ?? 'AutoDream'}</p>
         </div>
-        <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`evolution.autodream.states.${run.state}`)}</Badge>
+        <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`plugin.vivy/evolution.autodream.states.${run.state}`)}</Badge>
       </div>
 
       <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-        <p className="text-muted-foreground">{t('evolution.autodream.trigger', { value: run.trigger })}</p>
-        <p className="text-muted-foreground">{t('evolution.autodream.phase', { value: phaseLabel })}</p>
-        <p className="text-muted-foreground">{t('evolution.autodream.startedAt', { time: formatDateTime(run.started_at, noValue) })}</p>
-        <p className="text-muted-foreground">{t('evolution.autodream.completedAt', { time: formatDateTime(run.completed_at, noValue) })}</p>
-        <p className="text-muted-foreground">{t('evolution.autodream.attempt', { count: run.orchestration?.attempt ?? 0 })}</p>
+        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.trigger', { value: run.trigger })}</p>
+        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.phase', { value: phaseLabel })}</p>
+        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.startedAt', { time: formatDateTime(run.started_at, noValue) })}</p>
+        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.completedAt', { time: formatDateTime(run.completed_at, noValue) })}</p>
+        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.attempt', { count: run.orchestration?.attempt ?? 0 })}</p>
         {run.error ? (
-          <p className="text-destructive">{t('evolution.autodream.failure', { reason: run.error })}</p>
+          <p className="text-destructive">{t('plugin.vivy/evolution.autodream.failure', { reason: run.error })}</p>
         ) : null}
       </div>
 
       {run.input_summary ? (
         <p className="mb-5 text-sm text-muted-foreground">
-          {t('evolution.autodream.inputs', { items: run.input_summary.total_items, bytes: run.input_summary.total_bytes })}
+          {t('plugin.vivy/evolution.autodream.inputs', { items: run.input_summary.total_items, bytes: run.input_summary.total_bytes })}
         </p>
       ) : null}
 
       {run.proposal_ids.length > 0 ? (
         <Button variant="outline" size="sm" className="mb-5" onClick={() => onOpenRequests(firstProposalId)}>
-          {t('evolution.autodream.openRequests')}
+          {t('plugin.vivy/evolution.autodream.openRequests')}
         </Button>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">{t('evolution.autodream.events')}</CardTitle>
+          <CardTitle className="text-sm">{t('plugin.vivy/evolution.autodream.events')}</CardTitle>
         </CardHeader>
         <CardContent>
           {events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('evolution.autodream.eventsEmpty')}</p>
+            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.autodream.eventsEmpty')}</p>
           ) : (
             <ol className="space-y-2">
               {events.map((event) => (
@@ -458,7 +459,7 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
 // ==================== 页面主体 ====================
 
 export function EvolutionView() {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const {
     skills,
     evolutionSkills,
@@ -498,7 +499,7 @@ export function EvolutionView() {
   const noData = evolutionSkills.length === 0 && requests.length === 0 && runs.length === 0;
 
   if (isLoading && noData) {
-    return <div className="p-6 text-sm text-muted-foreground">{t('evolution.loading')}</div>;
+    return <div className="p-6 text-sm text-muted-foreground">{t('plugin.vivy/evolution.loading')}</div>;
   }
 
   if (error && noData) {
@@ -506,7 +507,7 @@ export function EvolutionView() {
       <div className="flex h-full items-center justify-center p-6">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>{t('evolution.loadFailed')}</CardTitle>
+            <CardTitle>{t('plugin.vivy/evolution.loadFailed')}</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -528,15 +529,15 @@ export function EvolutionView() {
     <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 flex-col p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
-          <TabsTrigger value="skills">{t('evolution.tabs.skills')} ({evolutionSkills.length})</TabsTrigger>
-          <TabsTrigger value="requests">{t('evolution.tabs.requests')} ({pendingCount})</TabsTrigger>
-          <TabsTrigger value="autodream">{t('evolution.tabs.autodream')} ({runs.length})</TabsTrigger>
+          <TabsTrigger value="skills">{t('plugin.vivy/evolution.tabs.skills')} ({evolutionSkills.length})</TabsTrigger>
+          <TabsTrigger value="requests">{t('plugin.vivy/evolution.tabs.requests')} ({pendingCount})</TabsTrigger>
+          <TabsTrigger value="autodream">{t('plugin.vivy/evolution.tabs.autodream')} ({runs.length})</TabsTrigger>
         </TabsList>
         <div className="flex gap-2">
           {tab === 'requests' ? (
             <Button variant="outline" size="sm" onClick={() => setCreateOpen((open) => !open)}>
               <Plus className="mr-2 h-4 w-4" />
-              {t('evolution.requests.create')}
+              {t('plugin.vivy/evolution.requests.create')}
             </Button>
           ) : null}
           <Button variant="outline" size="sm" disabled={isLoading} onClick={() => void refresh()}>
@@ -553,7 +554,7 @@ export function EvolutionView() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <Dna className="mx-auto mb-3 h-10 w-10 opacity-50" />
-              {t('evolution.skills.empty')}
+              {t('plugin.vivy/evolution.skills.empty')}
             </CardContent>
           </Card>
         ) : (
@@ -598,7 +599,7 @@ export function EvolutionView() {
                   onPreviewHistory={previewHistory}
                 />
               ) : (
-                selectHintShell(<ShieldCheck className="h-full w-full" />, t('evolution.skills.selectHint'))
+                selectHintShell(<ShieldCheck className="h-full w-full" />, t('plugin.vivy/evolution.skills.selectHint'))
               )
             }
           />
@@ -626,7 +627,7 @@ export function EvolutionView() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <ShieldCheck className="mx-auto mb-3 h-10 w-10 opacity-50" />
-              {t('evolution.requests.empty')}
+              {t('plugin.vivy/evolution.requests.empty')}
             </CardContent>
           </Card>
         ) : (
@@ -659,7 +660,7 @@ export function EvolutionView() {
               selectedRequest ? (
                 <RequestDetailPane request={selectedRequest} isBusy={isBusy} onAccept={acceptRequest} onReject={rejectRequest} />
               ) : (
-                selectHintShell(<ShieldCheck className="h-full w-full" />, t('evolution.requests.selectHint'))
+                selectHintShell(<ShieldCheck className="h-full w-full" />, t('plugin.vivy/evolution.requests.selectHint'))
               )
             }
           />
@@ -671,7 +672,7 @@ export function EvolutionView() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <GitBranch className="mx-auto mb-3 h-10 w-10 opacity-50" />
-              {t('evolution.autodream.empty')}
+              {t('plugin.vivy/evolution.autodream.empty')}
             </CardContent>
           </Card>
         ) : (
@@ -691,7 +692,7 @@ export function EvolutionView() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="min-w-0 break-all font-mono text-sm font-medium">{run.id}</span>
-                    <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`evolution.autodream.states.${run.state}`)}</Badge>
+                    <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`plugin.vivy/evolution.autodream.states.${run.state}`)}</Badge>
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{run.summary ?? run.trigger}</p>
                   <p className="mt-2 text-xs text-muted-foreground">{new Date(run.started_at).toLocaleString(dateTimeLocale())}</p>
@@ -702,7 +703,7 @@ export function EvolutionView() {
               selectedRun ? (
                 <RunDetailPane run={selectedRun} events={runEvents} onOpenRequests={openRequestsFromRun} />
               ) : (
-                selectHintShell(<GitBranch className="h-full w-full" />, t('evolution.autodream.selectHint'))
+                selectHintShell(<GitBranch className="h-full w-full" />, t('plugin.vivy/evolution.autodream.selectHint'))
               )
             }
           />

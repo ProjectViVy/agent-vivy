@@ -111,6 +111,10 @@ require (
 	example.com/vivy/plugins/scxreference v0.0.0
 	example.com/vivy/plugins/telegram v0.0.0
 	example.com/vivy/plugins/lsp v0.0.0
+	example.com/vivy/plugins/vivy-persona v0.0.0
+	example.com/vivy/plugins/vivy-evolution v0.0.0
+	example.com/vivy/plugins/vivy-memory v0.0.0
+	example.com/vivy/plugins/vivy-notebook v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -180,6 +184,14 @@ replace example.com/vivy/plugins/qq => ./plugins/qq
 replace example.com/vivy/plugins/lsp => ./plugins/lsp
 
 replace example.com/vivy/plugins/scxreference => ./plugins/scx-reference
+
+replace example.com/vivy/plugins/vivy-persona => ./plugins/vivy-persona
+
+replace example.com/vivy/plugins/vivy-evolution => ./plugins/vivy-evolution
+
+replace example.com/vivy/plugins/vivy-memory => ./plugins/vivy-memory
+
+replace example.com/vivy/plugins/vivy-notebook => ./plugins/vivy-notebook
 
 replace example.com/vivy/faces/headless => ./faces/headless
 

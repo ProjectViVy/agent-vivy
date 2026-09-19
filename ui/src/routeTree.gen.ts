@@ -11,16 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout.index'
+import { Route as LayoutSplatRouteImport } from './routes/_layout.$'
 import { Route as LayoutApprovalsRouteImport } from './routes/_layout.approvals'
 import { Route as LayoutCronTasksRouteImport } from './routes/_layout.cron-tasks'
 import { Route as LayoutDashboardRouteImport } from './routes/_layout.dashboard'
-import { Route as LayoutEvolutionRouteImport } from './routes/_layout.evolution'
 import { Route as LayoutLifecycleRouteImport } from './routes/_layout.lifecycle'
 import { Route as LayoutMasksRouteImport } from './routes/_layout.masks'
 import { Route as LayoutMcpRouteImport } from './routes/_layout.mcp'
-import { Route as LayoutMemoryRouteImport } from './routes/_layout.memory'
-import { Route as LayoutNotebookRouteImport } from './routes/_layout.notebook'
-import { Route as LayoutPersonaRouteImport } from './routes/_layout.persona'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout.settings'
 import { Route as LayoutSkillsRouteImport } from './routes/_layout.skills'
 
@@ -31,6 +28,11 @@ const LayoutRoute = LayoutRouteImport.update({
 const LayoutIndexRoute = LayoutIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutSplatRoute = LayoutSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutApprovalsRoute = LayoutApprovalsRouteImport.update({
@@ -48,11 +50,6 @@ const LayoutDashboardRoute = LayoutDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutEvolutionRoute = LayoutEvolutionRouteImport.update({
-  id: '/evolution',
-  path: '/evolution',
-  getParentRoute: () => LayoutRoute,
-} as any)
 const LayoutLifecycleRoute = LayoutLifecycleRouteImport.update({
   id: '/lifecycle',
   path: '/lifecycle',
@@ -68,21 +65,6 @@ const LayoutMcpRoute = LayoutMcpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutMemoryRoute = LayoutMemoryRouteImport.update({
-  id: '/memory',
-  path: '/memory',
-  getParentRoute: () => LayoutRoute,
-} as any)
-const LayoutNotebookRoute = LayoutNotebookRouteImport.update({
-  id: '/notebook',
-  path: '/notebook',
-  getParentRoute: () => LayoutRoute,
-} as any)
-const LayoutPersonaRoute = LayoutPersonaRouteImport.update({
-  id: '/persona',
-  path: '/persona',
-  getParentRoute: () => LayoutRoute,
-} as any)
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -96,30 +78,24 @@ const LayoutSkillsRoute = LayoutSkillsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
+  '/$': typeof LayoutSplatRoute
   '/approvals': typeof LayoutApprovalsRoute
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
-  '/evolution': typeof LayoutEvolutionRoute
   '/lifecycle': typeof LayoutLifecycleRoute
   '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
-  '/memory': typeof LayoutMemoryRoute
-  '/notebook': typeof LayoutNotebookRoute
-  '/persona': typeof LayoutPersonaRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
 }
 export interface FileRoutesByTo {
+  '/$': typeof LayoutSplatRoute
   '/approvals': typeof LayoutApprovalsRoute
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
-  '/evolution': typeof LayoutEvolutionRoute
   '/lifecycle': typeof LayoutLifecycleRoute
   '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
-  '/memory': typeof LayoutMemoryRoute
-  '/notebook': typeof LayoutNotebookRoute
-  '/persona': typeof LayoutPersonaRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
   '/': typeof LayoutIndexRoute
@@ -127,16 +103,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_layout': typeof LayoutRouteWithChildren
+  '/_layout/$': typeof LayoutSplatRoute
   '/_layout/approvals': typeof LayoutApprovalsRoute
   '/_layout/cron-tasks': typeof LayoutCronTasksRoute
   '/_layout/dashboard': typeof LayoutDashboardRoute
-  '/_layout/evolution': typeof LayoutEvolutionRoute
   '/_layout/lifecycle': typeof LayoutLifecycleRoute
   '/_layout/masks': typeof LayoutMasksRoute
   '/_layout/mcp': typeof LayoutMcpRoute
-  '/_layout/memory': typeof LayoutMemoryRoute
-  '/_layout/notebook': typeof LayoutNotebookRoute
-  '/_layout/persona': typeof LayoutPersonaRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/skills': typeof LayoutSkillsRoute
   '/_layout/': typeof LayoutIndexRoute
@@ -145,46 +118,37 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
     | '/approvals'
     | '/cron-tasks'
     | '/dashboard'
-    | '/evolution'
     | '/lifecycle'
     | '/masks'
     | '/mcp'
-    | '/memory'
-    | '/notebook'
-    | '/persona'
     | '/settings'
     | '/skills'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/$'
     | '/approvals'
     | '/cron-tasks'
     | '/dashboard'
-    | '/evolution'
     | '/lifecycle'
     | '/masks'
     | '/mcp'
-    | '/memory'
-    | '/notebook'
-    | '/persona'
     | '/settings'
     | '/skills'
     | '/'
   id:
     | '__root__'
     | '/_layout'
+    | '/_layout/$'
     | '/_layout/approvals'
     | '/_layout/cron-tasks'
     | '/_layout/dashboard'
-    | '/_layout/evolution'
     | '/_layout/lifecycle'
     | '/_layout/masks'
     | '/_layout/mcp'
-    | '/_layout/memory'
-    | '/_layout/notebook'
-    | '/_layout/persona'
     | '/_layout/settings'
     | '/_layout/skills'
     | '/_layout/'
@@ -210,6 +174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutIndexRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/$': {
+      id: '/_layout/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof LayoutSplatRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/approvals': {
       id: '/_layout/approvals'
       path: '/approvals'
@@ -229,13 +200,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof LayoutDashboardRouteImport
-      parentRoute: typeof LayoutRoute
-    }
-    '/_layout/evolution': {
-      id: '/_layout/evolution'
-      path: '/evolution'
-      fullPath: '/evolution'
-      preLoaderRoute: typeof LayoutEvolutionRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/lifecycle': {
@@ -259,27 +223,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutMcpRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/memory': {
-      id: '/_layout/memory'
-      path: '/memory'
-      fullPath: '/memory'
-      preLoaderRoute: typeof LayoutMemoryRouteImport
-      parentRoute: typeof LayoutRoute
-    }
-    '/_layout/notebook': {
-      id: '/_layout/notebook'
-      path: '/notebook'
-      fullPath: '/notebook'
-      preLoaderRoute: typeof LayoutNotebookRouteImport
-      parentRoute: typeof LayoutRoute
-    }
-    '/_layout/persona': {
-      id: '/_layout/persona'
-      path: '/persona'
-      fullPath: '/persona'
-      preLoaderRoute: typeof LayoutPersonaRouteImport
-      parentRoute: typeof LayoutRoute
-    }
     '/_layout/settings': {
       id: '/_layout/settings'
       path: '/settings'
@@ -298,32 +241,26 @@ declare module '@tanstack/react-router' {
 }
 
 interface LayoutRouteChildren {
+  LayoutSplatRoute: typeof LayoutSplatRoute
   LayoutApprovalsRoute: typeof LayoutApprovalsRoute
   LayoutCronTasksRoute: typeof LayoutCronTasksRoute
   LayoutDashboardRoute: typeof LayoutDashboardRoute
-  LayoutEvolutionRoute: typeof LayoutEvolutionRoute
   LayoutLifecycleRoute: typeof LayoutLifecycleRoute
   LayoutMasksRoute: typeof LayoutMasksRoute
   LayoutMcpRoute: typeof LayoutMcpRoute
-  LayoutMemoryRoute: typeof LayoutMemoryRoute
-  LayoutNotebookRoute: typeof LayoutNotebookRoute
-  LayoutPersonaRoute: typeof LayoutPersonaRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutSkillsRoute: typeof LayoutSkillsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
+  LayoutSplatRoute: LayoutSplatRoute,
   LayoutApprovalsRoute: LayoutApprovalsRoute,
   LayoutCronTasksRoute: LayoutCronTasksRoute,
   LayoutDashboardRoute: LayoutDashboardRoute,
-  LayoutEvolutionRoute: LayoutEvolutionRoute,
   LayoutLifecycleRoute: LayoutLifecycleRoute,
   LayoutMasksRoute: LayoutMasksRoute,
   LayoutMcpRoute: LayoutMcpRoute,
-  LayoutMemoryRoute: LayoutMemoryRoute,
-  LayoutNotebookRoute: LayoutNotebookRoute,
-  LayoutPersonaRoute: LayoutPersonaRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutSkillsRoute: LayoutSkillsRoute,
   LayoutIndexRoute: LayoutIndexRoute,

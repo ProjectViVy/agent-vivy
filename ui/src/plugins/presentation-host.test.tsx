@@ -7,7 +7,6 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Navigate,
   Outlet,
   RouterProvider,
   useRouterState,
@@ -25,6 +24,7 @@ import {
   createWebFaceHost,
   PRESENTATION_COMMAND_EVENT,
   PresentationHost,
+  useActivePresentationRoute,
   type PresentationProvenance,
 } from './presentation-host';
 
@@ -699,10 +699,12 @@ describe('PresentationHost', () => {
     });
 
     expect(actualRouter!.state.location.pathname).toBe('/fixture');
-    expect(container.querySelector('[data-testid="tanstack-route"]')?.textContent).toBe('TanStack route');
+    // The Host router owns the address; a Generation without an exclusive root
+    // leaves the frame to the shell, which nests the Module route itself.
+    expect(container.querySelector('[data-testid="tanstack-route"]')).toBeNull();
   });
 
-  it('keeps a direct plugin deep link in the real router and restores NotFound after cleanup', async () => {
+  it('hands a claimed path to the frame route slot and clears it when the route is disposed', async () => {
     let actualRouter: ReturnType<typeof createRouter> | undefined;
     let disposeRoute: (() => void) | undefined;
     const selectedExtension = extension('fixture/tanstack-deep-link', (receivedHost) => {
@@ -716,11 +718,19 @@ describe('PresentationHost', () => {
       navigate: (options) => actualRouter!.navigate(options as never),
       invalidate: () => actualRouter!.invalidate(),
     });
+    const slot = () => container.querySelector('[data-testid="route-slot"]');
+    function RouteSlotProbe({ host }: { readonly host: FullUIHost }) {
+      return <div data-testid="route-slot">{useActivePresentationRoute(host)}</div>;
+    }
     const rootRoute = createRootRoute({
-      notFoundComponent: () => <Navigate to="/" replace />,
+      notFoundComponent: () => null,
       component: () => {
         const pathname = useRouterState({ select: (state) => state.location.pathname });
-        return <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}><Outlet /></PresentationHost>;
+        return (
+          <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}>
+            <RouteSlotProbe host={selectedHost} />
+          </PresentationHost>
+        );
       },
     });
     const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: () => null });
@@ -735,15 +745,13 @@ describe('PresentationHost', () => {
       await actualRouter!.load();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(actualRouter!.state.location.pathname).toBe('/deep-link');
-    expect(container.querySelector('[data-testid="deep-link-route"]')?.textContent).toBe('Deep link route');
+    expect(slot()?.querySelector('[data-testid="deep-link-route"]')?.textContent).toBe('Deep link route');
 
     await act(async () => {
       disposeRoute?.();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(actualRouter!.state.location.pathname).toBe('/');
-    expect(container.querySelector('[data-testid="deep-link-route"]')).toBeNull();
+    expect(slot()?.querySelector('[data-testid="deep-link-route"]')).toBeNull();
   });
 });
 

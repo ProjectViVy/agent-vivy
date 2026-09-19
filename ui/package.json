@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "stage:ui": "node scripts/stage-ui-assembly.mjs",
+    "predev": "node scripts/stage-ui-assembly.mjs",
     "dev": "vite --port 3015 --host 0.0.0.0 --strictPort",
+    "prebuild": "node scripts/stage-ui-assembly.mjs",
     "build": "vite build",
     "preview": "vite preview --port 3015 --host 0.0.0.0",
+    "pretypecheck": "node scripts/stage-ui-assembly.mjs",
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/stage-ui-assembly.mjs",
     "test": "vitest run",
     "e2e": "playwright test"
   },

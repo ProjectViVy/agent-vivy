@@ -1,0 +1,185 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/persona.current": {
+      "description": "Persona page copy: current",
+      "placeholders": [],
+      "messages": {
+        "en": "Current document",
+        "zh": "当前文档"
+      }
+    },
+    "plugin.vivy/persona.dirtyConfirm": {
+      "description": "Persona page copy: dirtyConfirm",
+      "placeholders": [],
+      "messages": {
+        "en": "You have unsaved changes. Discard them?",
+        "zh": "当前有未保存的更改，是否放弃？"
+      }
+    },
+    "plugin.vivy/persona.editorPlaceholder": {
+      "description": "Persona page copy: editorPlaceholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Edit the persona document...",
+        "zh": "编辑人格文档内容..."
+      }
+    },
+    "plugin.vivy/persona.emptyHistory": {
+      "description": "Persona page copy: emptyHistory",
+      "placeholders": [],
+      "messages": {
+        "en": "No history yet",
+        "zh": "暂无历史记录"
+      }
+    },
+    "plugin.vivy/persona.emptyPending": {
+      "description": "Persona page copy: emptyPending",
+      "placeholders": [],
+      "messages": {
+        "en": "No pending changes",
+        "zh": "暂无待审变更"
+      }
+    },
+    "plugin.vivy/persona.errors.acceptFailed": {
+      "description": "Persona page copy: errors.acceptFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to accept",
+        "zh": "接受失败"
+      }
+    },
+    "plugin.vivy/persona.errors.historyLoadFailed": {
+      "description": "Persona page copy: errors.historyLoadFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load the history revision",
+        "zh": "加载历史版本失败"
+      }
+    },
+    "plugin.vivy/persona.errors.loadFailed": {
+      "description": "Persona page copy: errors.loadFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load",
+        "zh": "加载失败"
+      }
+    },
+    "plugin.vivy/persona.errors.rejectFailed": {
+      "description": "Persona page copy: errors.rejectFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to reject",
+        "zh": "拒绝失败"
+      }
+    },
+    "plugin.vivy/persona.errors.saveFailed": {
+      "description": "Persona page copy: errors.saveFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to save",
+        "zh": "保存失败"
+      }
+    },
+    "plugin.vivy/persona.history": {
+      "description": "Persona page copy: history",
+      "placeholders": [],
+      "messages": {
+        "en": "History",
+        "zh": "历史"
+      }
+    },
+    "plugin.vivy/persona.nav": {
+      "description": "Sidebar VIVY group label for the Persona Module",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona",
+        "zh": "人格"
+      }
+    },
+    "plugin.vivy/persona.pending": {
+      "description": "Persona page copy: pending",
+      "placeholders": [],
+      "messages": {
+        "en": "Pending changes",
+        "zh": "待审变更"
+      }
+    },
+    "plugin.vivy/persona.pendingState.accepted": {
+      "description": "Persona page copy: pendingState.accepted",
+      "placeholders": [],
+      "messages": {
+        "en": "Accepted",
+        "zh": "已接受"
+      }
+    },
+    "plugin.vivy/persona.pendingState.pending": {
+      "description": "Persona page copy: pendingState.pending",
+      "placeholders": [],
+      "messages": {
+        "en": "Pending",
+        "zh": "待审"
+      }
+    },
+    "plugin.vivy/persona.pendingState.rejected": {
+      "description": "Persona page copy: pendingState.rejected",
+      "placeholders": [],
+      "messages": {
+        "en": "Rejected",
+        "zh": "已拒绝"
+      }
+    },
+    "plugin.vivy/persona.preview": {
+      "description": "Persona page copy: preview",
+      "placeholders": [],
+      "messages": {
+        "en": "Preview",
+        "zh": "预览"
+      }
+    },
+    "plugin.vivy/persona.reasonLabel": {
+      "description": "Persona page copy: reasonLabel",
+      "placeholders": [
+        "reason"
+      ],
+      "messages": {
+        "en": "Reason: {{reason}}",
+        "zh": "原因：{{reason}}"
+      }
+    },
+    "plugin.vivy/persona.source": {
+      "description": "Persona page copy: source",
+      "placeholders": [],
+      "messages": {
+        "en": "Source",
+        "zh": "源码"
+      }
+    },
+    "plugin.vivy/persona.subtitle": {
+      "description": "Persona page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Seven persona Markdown documents · current / pending / history",
+        "zh": "七份人格 Markdown 文档 · 当前 / 待审 / 历史"
+      }
+    },
+    "plugin.vivy/persona.title": {
+      "description": "Persona page copy: title",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona",
+        "zh": "人格"
+      }
+    },
+    "plugin.vivy/persona.version": {
+      "description": "Persona page copy: version",
+      "placeholders": [
+        "revision"
+      ],
+      "messages": {
+        "en": "Version r{{revision}}",
+        "zh": "版本 r{{revision}}"
+      }
+    }
+  }
+}

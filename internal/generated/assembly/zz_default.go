@@ -27,6 +27,10 @@ import (
 	feishu "example.com/vivy/plugins/feishu"
 	qq "example.com/vivy/plugins/qq"
 	telegram "example.com/vivy/plugins/telegram"
+	vivyevolution "example.com/vivy/plugins/vivy-evolution"
+	vivymemory "example.com/vivy/plugins/vivy-memory"
+	vivynotebook "example.com/vivy/plugins/vivy-notebook"
+	vivypersona "example.com/vivy/plugins/vivy-persona"
 )
 
 type HostResolver interface {
@@ -71,7 +75,7 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:          []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"},
+			Modules:          []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/memory", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"},
 			Channels:         []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
 			Actions:          []string{},
@@ -92,7 +96,7 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 25)
+	owners := make([]module.Instance, 0, 29)
 	owner0, err := defaults.NewActionHost().Construct(ctx, hosts.ForModule("vivy/action-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
@@ -163,61 +167,81 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner13)
-	owner14, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
+	owner14, err := vivyevolution.New().Construct(ctx, hosts.ForModule("vivy/evolution"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner14)
-	owner15, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
+	owner15, err := vivymemory.New().Construct(ctx, hosts.ForModule("vivy/memory"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner15)
-	owner16, err := sandbox.NewModule().Construct(ctx, hosts.ForModule("vivy/sandbox"))
+	owner16, err := vivynotebook.New().Construct(ctx, hosts.ForModule("vivy/notebook"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner16)
-	owner17, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
+	owner17, err := vivypersona.New().Construct(ctx, hosts.ForModule("vivy/persona"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner17)
-	owner18, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
+	owner18, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner18)
-	owner19, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
+	owner19, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner19)
-	owner20, err := storage.NewModule().Construct(ctx, hosts.ForModule("vivy/storage"))
+	owner20, err := sandbox.NewModule().Construct(ctx, hosts.ForModule("vivy/sandbox"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner20)
-	owner21, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	owner21, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner21)
-	owner22, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	owner22, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner22)
-	owner23, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	owner23, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner23)
-	owner24, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	owner24, err := storage.NewModule().Construct(ctx, hosts.ForModule("vivy/storage"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner24)
+	owner25, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner25)
+	owner26, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner26)
+	owner27, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner27)
+	owner28, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner28)
 	generation, err := module.StartGeneration(ctx, owners)
 	if err != nil {
 		return err

@@ -99,7 +99,7 @@ describe('t() lookup', () => {
   it('uses English with no saved or backend value', () => {
     resetLocaleForTests();
     expect(getLocale()).toBe('en');
-    expect(t('notebook.reports')).toBe('Reports');
+    expect(t('nav.masks')).toBe('Masks');
   });
 
   it('does not detect the locale from browser languages', async () => {
@@ -160,7 +160,7 @@ describe('locale switching', () => {
     expect(getLocale()).toBe('en');
     expect(storage['vivy.language']).toBe('en');
     expect((document.documentElement as { lang: string }).lang).toBe('en');
-    expect(t('notebook.reports')).toBe('Reports');
+    expect(t('nav.masks')).toBe('Masks');
   });
 
   it('locale option labels follow the current language while nativeLabel stays constant', () => {
