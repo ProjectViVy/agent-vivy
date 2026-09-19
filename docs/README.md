@@ -2,15 +2,16 @@
 
 > This directory contains all documentation for the Vivy species kernel and first-party Studio.
 > Canonical product rules: `architecture/VIVY-STUDIO.md`.
-> Updated: 2026-09-14
+> Updated: 2026-09-19
 
 ## 1. Recommended Reading Order
 
-1. `TODO.md` §0 — Current posture and remaining work (the living board)
+1. `TODO.md` §0 — Current posture and open work (the living board)
 2. `COMPLETE.MD` — Historical archive of completed TODO work
-3. `architecture/VIVY-STUDIO.md` — Canonical product contract
-3. `IMPLEMENTATION-PLAN.md` — V0 architecture implementation and translation
-4. `research/README.md` — Decision and design archive index (pre-V0 archive, with its own reading order)
+3. `DEFER.MD` — Deferred, superseded, and declined work moved off the open board
+4. `architecture/VIVY-STUDIO.md` — Canonical product contract
+5. `IMPLEMENTATION-PLAN.md` — V0 architecture implementation and translation
+6. `research/README.md` — Decision and design archive index (pre-V0 archive, with its own reading order)
 
 ## 2. Top-Level Active Documents (Stable Paths; Do Not Move)
 
@@ -18,8 +19,10 @@ The following files are referenced by the repository-root `README.md` and `inter
 
 | File | Purpose |
 |---|---|
-| `TODO.md` | Living board: remaining work is in §0.1; completed history is archived in `COMPLETE.MD` |
-| `COMPLETE.MD` | Historical archive of completed, closed, and superseded TODO work |\n| `IMPLEMENTATION-PLAN.md` | V0 implementation plan and architecture translation (TODO architecture reference) |
+| `TODO.md` | Living board: open work is in §0.1; completed history in `COMPLETE.MD`, deferred/superseded/declined work in `DEFER.MD` |
+| `COMPLETE.MD` | Historical archive of completed, closed, and superseded TODO work |
+| `DEFER.MD` | Deferred, superseded, and declined work moved off the open board; nothing here is scheduled |
+| `IMPLEMENTATION-PLAN.md` | V0 implementation plan and architecture translation (TODO architecture reference) |
 | `AGENT-VIVY-ARCHITECTURE-V0.md` | ADR baseline (ADR-001..009+), recording the V0 shape |
 | `GOAL-AGENT-HARNESS-ROADMAP.md` | Harness strengthening roadmap (H0–H10) |
 | `eino-capability-verify.md` | Eino v0.9.13 capability verification record (A1, checkpoint-bridge GO) |
