@@ -27,6 +27,8 @@
     "types": ["vite/client"],
     "paths": {
       "@/*": ["./src/*"],
+      "@vivy/ui-sdk": ["../sdk/ui/src/index.ts"],
+      "@vivy/ui-sdk/module": ["../sdk/ui/src/module.ts"],
       "@vivy/generated-assembly": ["./src/generated/assembly.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],

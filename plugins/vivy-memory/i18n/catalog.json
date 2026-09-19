@@ -1,6 +1,22 @@
 {
   "apiVersion": "vivy.i18n/v1",
   "units": {
+    "plugin.vivy/memory.title": {
+      "description": "Memory page copy: title",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory",
+        "zh": "记忆"
+      }
+    },
+    "plugin.vivy/memory.subtitle": {
+      "description": "Memory page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Remembered items · search and inspect each record",
+        "zh": "记忆条目 · 搜索并查看每条记录"
+      }
+    },
     "plugin.vivy/memory.categories.decision": {
       "description": "Memory page copy: categories.decision",
       "placeholders": [],

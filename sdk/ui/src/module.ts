@@ -132,16 +132,86 @@ export interface UINavigationItem {
   /** Plugin-owned translation key for the visible label. */
   readonly labelKey: string;
   readonly label?: string;
-  /** Optional icon component rendered by the group surface. */
-  readonly icon?: React.ComponentType<{ readonly className?: string }>;
+  /**
+   * The entry's left icon, named from the host icon set (`HOST_ICON_NAMES`).
+   * The host resolves the name against its own icon implementation, so the
+   * icon looks the same in every surface and a Module never ships an icon
+   * dependency of its own. The page surface shows the same icon in its header,
+   * which is why this is the only place a Module names one.
+   */
+  readonly icon?: HostIconName;
   /** Ascending order inside the group; equal orders keep Recipe order. */
   readonly order?: number;
   readonly exact?: boolean;
 }
 
+/**
+ * The icon names the host guarantees. Every name maps to one icon in the
+ * host's own set: a Module picks a name, never an implementation, so the
+ * installed icon library stays a host decision and two surfaces cannot drift.
+ */
+export const HOST_ICON_NAMES = [
+  'dashboard',
+  'wrench',
+  'sparkles',
+  'settings',
+  'clock',
+  'plug',
+  'zap',
+  'shield-check',
+  'venetian-mask',
+  'user-round',
+  'dna',
+  'brain',
+  'notebook-pen',
+] as const;
+
+export type HostIconName = (typeof HOST_ICON_NAMES)[number];
+
+/**
+ * True when a contribution named an icon from the host set. A host validates
+ * with this before rendering, so an unknown name falls back to the group icon
+ * instead of reaching the renderer as a broken entry.
+ */
+export function isHostIconName(value: unknown): value is HostIconName {
+  return typeof value === 'string' && (HOST_ICON_NAMES as readonly string[]).includes(value);
+}
+
 /** Type-safe authoring helper for grouped navigation contributions. */
 export function defineNavigationItem<T extends UINavigationItem>(item: T): T {
   return item;
+}
+
+/**
+ * A page contribution. The host renders the page surface around it: the
+ * header (icon, title, subtitle), the demo banner when the page is local demo
+ * data, and the content region with a definite full height. The render
+ * function therefore returns page *content* only — it must not draw its own
+ * page header, banner, or window-level frame, and it owns whatever scrolling
+ * its own panes need.
+ *
+ * `titleKey`/`subtitleKey` are resolved through the host translator exactly
+ * like a navigation `labelKey`, so they are Module-owned
+ * `plugin.<module-id>.*` units.
+ */
+export interface UIRouteItem {
+  /** In-app route path this page answers. */
+  readonly path: string;
+  /** Plugin-owned key for the page title. */
+  readonly titleKey?: string;
+  /** Plugin-owned key for the page subtitle. */
+  readonly subtitleKey?: string;
+  /** Literal fallbacks for surfaces without a translator. */
+  readonly title?: string;
+  readonly subtitle?: string;
+  /** True when the page is local demo data and needs the host demo banner. */
+  readonly demo?: boolean;
+  readonly render: () => React.ReactNode;
+}
+
+/** Type-safe authoring helper for page contributions. */
+export function defineUIRoute<T extends UIRouteItem>(route: T): T {
+  return route;
 }
 
 export interface UIContributionRelations {

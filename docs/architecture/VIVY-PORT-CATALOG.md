@@ -274,6 +274,26 @@ receives for one group as a single ordered surface (today the VIVY sidebar
 group) rather than one global nav list, which is how a Module entry lands
 beside the Host's own entries without owning the group.
 
+Two presentation standards keep assembled Module UI coherent. Both make the
+Host the owner and the Module a declarer.
+
+- **Entry icons are names, not implementations.** `UINavigationItem.icon` is a
+  `HostIconName` from the SDK's closed `HOST_ICON_NAMES` list. The Host resolves
+  that name against its own icon set, so a Module never ships an icon
+  dependency, the shell and Module entries cannot diverge in size or style, and
+  an unknown name degrades to the group icon instead of an unlabelled row.
+- **The Host renders the page frame.** A page declares `defineUIRoute({ path,
+  titleKey, subtitleKey, demo, render })` and returns content only: the Host
+  renders the demo banner, a header carrying the page's own entry icon plus its
+  title and subtitle, and a content region with a definite full height. A Module
+  page therefore fills its frame and owns only its internal scrolling, and every
+  plugin page looks the same no matter who wrote it. A page never draws its own
+  page header, banner, or window-level frame.
+
+A Module names one icon: the one on its navigation contribution. The page
+surface reads it back for the header, so the sidebar entry and the page can
+never disagree.
+
 Localized copy follows the same ownership rule: a Module's strings live in its
 sealed catalog under `plugin.<module-id>.*`, and any other key it looks up
 falls back to the Host dictionary, so shared shell copy (`common.*`) keeps one

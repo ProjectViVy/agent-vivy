@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/notebook, version: 0.1.0}
-source: {ref: repo:plugins/vivy-notebook, sha256: 274acbece18e9c7b858a5b829a536d7cff505de188f69ef77e54bb42cb4e7e5d}
+source: {ref: repo:plugins/vivy-notebook, sha256: d264a732bd3f66763fa435f9d1ed320f5e14db111df4bcc0fd9f702c742fc6c3}
 provides:
   - {port: std/ui-extension@v1, id: vivy.notebook.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

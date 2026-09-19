@@ -7,8 +7,8 @@
  * group, so the surface renders exactly what the Recipe assembled and nothing
  * else. It reads the composition registry; it never registers into it.
  */
-import { useMemo, useSyncExternalStore, type ComponentType } from 'react';
-import type { FullUIHost } from '@vivy/ui-sdk';
+import { useMemo, useSyncExternalStore } from 'react';
+import { isHostIconName, type FullUIHost, type HostIconName } from '@vivy/ui-sdk';
 import { compositionRuntimeOf } from './presentation-host';
 
 /** The sidebar group assembled on the main page. */
@@ -22,7 +22,8 @@ export interface GroupedNavigationEntry {
   readonly to: string;
   readonly labelKey: string;
   readonly label?: string;
-  readonly icon?: ComponentType<{ readonly className?: string }>;
+  /** Host icon name; the surface resolves it against the host icon set. */
+  readonly icon?: HostIconName;
   readonly order: number;
   readonly exact: boolean;
 }
@@ -58,7 +59,7 @@ export function projectGroupedNavigation(
       to,
       labelKey,
       label: typeof object.label === 'string' ? object.label : undefined,
-      icon: typeof object.icon === 'function' ? object.icon as GroupedNavigationEntry['icon'] : undefined,
+      icon: isHostIconName(object.icon) ? object.icon : undefined,
       order,
       exact: object.exact === true,
     });

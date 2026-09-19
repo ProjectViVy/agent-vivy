@@ -1,6 +1,22 @@
 {
   "apiVersion": "vivy.i18n/v1",
   "units": {
+    "plugin.vivy/notebook.title": {
+      "description": "Notebook page copy: title",
+      "placeholders": [],
+      "messages": {
+        "en": "Notebook",
+        "zh": "记事本"
+      }
+    },
+    "plugin.vivy/notebook.subtitle": {
+      "description": "Notebook page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Periodic reports and session search",
+        "zh": "周期报告与会话检索"
+      }
+    },
     "plugin.vivy/notebook.emptyReports": {
       "description": "Notebook page copy: emptyReports",
       "placeholders": [],
