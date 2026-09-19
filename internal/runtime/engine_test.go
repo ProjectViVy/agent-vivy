@@ -203,12 +203,16 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 		t.Fatalf("tool output = %q, want untrusted header and original data", out)
 	}
 
-	// Malformed args must surface as an error, never a panic.
-	if _, err := ad.InvokableRun(ctx, `{}`); err == nil {
-		t.Fatal("expected argument error for empty text")
-	}
-	if _, err := ad.InvokableRun(ctx, `{"text":"x","extra":1}`); err == nil {
-		t.Fatal("expected argument error for unknown field")
+	// Malformed args must surface as a model-visible refusal, never a panic
+	// and never a failed run.
+	for _, args := range []string{`{}`, `{"text":"x","extra":1}`} {
+		refused, err := ad.InvokableRun(ctx, args)
+		if err != nil {
+			t.Fatalf("args %s failed the run: %v", args, err)
+		}
+		if !strings.Contains(refused, "did not run") {
+			t.Fatalf("args %s refusal result = %q", args, refused)
+		}
 	}
 }
 

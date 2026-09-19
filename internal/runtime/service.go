@@ -105,6 +105,11 @@ type ServiceDeps struct {
 	// ApprovalExpiration bounds how long a pending approval stays valid
 	// (D-009).
 	ApprovalExpiration time.Duration
+	// ApprovalSettleTimeout bounds human review under the smart preset
+	// (runtime.sandbox.approval.timeout_seconds): at the deadline the runtime
+	// approves the call on the user's behalf instead of letting it expire.
+	// Zero disables timed auto-approval, so ApprovalExpiration governs alone.
+	ApprovalSettleTimeout time.Duration
 	// Questions persists ask_user interactions separately from approvals.
 	Questions storage.QuestionStore
 	// Budget bounds the complete run tree, including resumed work. A zero
@@ -215,6 +220,12 @@ type Service struct {
 	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
 	cron     *cronState
 	cronInit sync.Mutex
+
+	// approvalSettle is the live smart-mode review window
+	// (runtime.sandbox.approval.timeout_seconds). A settings save replaces it
+	// without a restart; a value <= 0 disables timed auto-approval. Guarded
+	// by mu.
+	approvalSettle time.Duration
 }
 
 // ErrModelChangeBusy means a model selection cannot be changed while any
@@ -287,6 +298,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		provider:        provider,
 		modelID:         modelID,
 		defaultProfile:  deps.PolicyDefaultProfile,
+		approvalSettle:  deps.ApprovalSettleTimeout,
 		active:          make(map[domain.RunID]context.CancelFunc),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
@@ -332,6 +344,71 @@ func (s *Service) SetModel(providerName, modelID string) {
 	s.provider = providerName
 	s.modelID = modelID
 	s.mu.Unlock()
+}
+
+// SetApprovalSettleTimeout replaces the live smart-mode review window. A
+// settings save calls this so the next approval honors the new deadline
+// without a restart; a value <= 0 disables timed auto-approval.
+func (s *Service) SetApprovalSettleTimeout(d time.Duration) {
+	if s == nil {
+		return
+	}
+	if d < 0 {
+		d = 0
+	}
+	s.mu.Lock()
+	s.approvalSettle = d
+	s.mu.Unlock()
+}
+
+// ApprovalSettleWindow reports the live smart-mode review window.
+func (s *Service) ApprovalSettleWindow() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.approvalSettle
+}
+
+// approvalDeadline is the single settlement deadline for a pending approval
+// raised now: the configured smart-mode review window when it is enabled,
+// clamped by the caller's hard bound. The interaction sweeper reads the same
+// deadline, so human review, timed auto-approval, and expiry share one
+// authority instead of racing.
+func (s *Service) approvalDeadline(now time.Time, hard time.Duration) time.Time {
+	window := s.ApprovalSettleWindow()
+	switch {
+	case hard <= 0:
+		// An unset hard bound must not collapse the review window to zero,
+		// which would expire the approval the moment it was raised: the
+		// configured window then becomes the only bound.
+		if window > 0 {
+			return now.Add(window)
+		}
+		return now.Add(hard)
+	case window > 0 && window < hard:
+		return now.Add(window)
+	default:
+		return now.Add(hard)
+	}
+}
+
+// autoApprovesOnTimeout reports whether a due approval may be approved on
+// the user's behalf instead of expiring. It is deliberately the smart preset
+// only (workspace-write sandbox + ask policy): cautious review stays strict,
+// and the trusted preset already auto-approves its allowlist. The decision
+// reads the row as recorded when the human was asked, never the current
+// settings, so a preset change cannot retroactively authorize a call.
+func autoApprovesOnTimeout(approval domain.Approval) bool {
+	return domain.SandboxMode(approval.SandboxMode) == domain.SandboxModeWorkspaceWrite &&
+		domain.ApprovalPolicy(approval.ApprovalPolicy) == domain.ApprovalPolicyAsk
+}
+
+// approvalSettleReason is the durable actor+reason pair for a timed
+// auto-approval (D-010: numbers and preset names only, no user content).
+func approvalSettleReason(window time.Duration) string {
+	return fmt.Sprintf("auto-approved after %s with no response (smart mode)", window)
 }
 
 // ChangeModelWhenIdle serializes a persisted model selection with every run
@@ -797,18 +874,29 @@ func (s *Service) StopInteractionSweeper() {
 }
 
 // SweepExpired settles all expired pending interactions. Conditional storage
-// transitions preserve first-writer-wins against a simultaneous response.
+// transitions preserve first-writer-wins against a simultaneous response. An
+// approval raised under the smart preset is approved on the user's behalf
+// when timed auto-approval is enabled; every other due approval expires and
+// closes its run with the human_timeout cause.
 func (s *Service) SweepExpired(ctx context.Context) error {
 	if s.deps.Approvals != nil {
 		approvals, err := s.deps.Approvals.ListPendingApprovals(ctx)
 		if err != nil {
 			return fmt.Errorf("runtime: list approvals for expiry: %w", err)
 		}
+		now := time.Now().UnixMilli()
 		for _, approval := range approvals {
-			if approval.ExpiresAt > 0 && approval.ExpiresAt <= time.Now().UnixMilli() {
-				if err := s.expireApproval(ctx, approval, "human review timed out"); err != nil {
+			if approval.ExpiresAt <= 0 || approval.ExpiresAt > now {
+				continue
+			}
+			if autoApprovesOnTimeout(approval) && s.ApprovalSettleWindow() > 0 {
+				if err := s.settleApprovalAsSystem(ctx, approval); err != nil {
 					return err
 				}
+				continue
+			}
+			if err := s.expireApproval(ctx, approval, "human review timed out"); err != nil {
+				return err
 			}
 		}
 	}
@@ -817,8 +905,9 @@ func (s *Service) SweepExpired(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("runtime: list questions for expiry: %w", err)
 		}
+		now := time.Now().UnixMilli()
 		for _, question := range questions {
-			if question.ExpiresAt > 0 && question.ExpiresAt <= time.Now().UnixMilli() {
+			if question.ExpiresAt > 0 && question.ExpiresAt <= now {
 				if err := s.expireQuestion(ctx, question, "user response timed out"); err != nil {
 					return err
 				}
@@ -1964,7 +2053,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		return
 	}
 
-	expiresAt := time.Now().Add(s.deps.ApprovalExpiration).UnixMilli()
+	expiresAt := s.approvalDeadline(time.Now(), s.deps.ApprovalExpiration).UnixMilli()
 	proposalData, proposalErr := json.Marshal(details.Args)
 	if proposalErr != nil {
 		fail(proposalErr)
@@ -2192,7 +2281,15 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
 	}
-	decided, err := s.decideApproval(ctx, approvalID, decision, reason)
+	return s.settleApproval(ctx, approval, decision, "local_user", reason)
+}
+
+// settleApproval records a decision whose guards the caller already checked
+// and then routes it. The durable row is the no-replay boundary, so the
+// journal entry and the resume follow it; actor distinguishes a human
+// decision (local_user) from a timed auto-approval (system).
+func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
 	}
@@ -2201,7 +2298,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 		return ErrApprovalAlreadyDecided
 	}
 	decisionPersisted := s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
-		ApprovalID: approval.ID, Decision: decision, Actor: "local_user", Reason: reason, DecidedAt: time.Now().UnixMilli(),
+		ApprovalID: approval.ID, Decision: decision, Actor: actor, Reason: reason, DecidedAt: time.Now().UnixMilli(),
 	})
 	if approval.Kind == domain.ApprovalKindChild {
 		if s.deps.ChildApprovals == nil {
@@ -2248,7 +2345,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 		// cancelled, or the decision raced the close): the decision
 		// stands, nothing resumes. Restart-orphaned runs never land here:
 		// startup recovery re-registers their pending state (E2).
-		slog.Warn("approval decided without a pending run", "approval", approvalID, "run", string(approval.RunID))
+		slog.Warn("approval decided without a pending run", "approval", approval.ID, "run", string(approval.RunID))
 		return nil
 	}
 
@@ -2271,11 +2368,53 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	return nil
 }
 
-func (s *Service) decideApproval(ctx context.Context, id, decision, reason string) (bool, error) {
+func (s *Service) decideApproval(ctx context.Context, id, decision, actor, reason string) (bool, error) {
 	if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
-		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, "local_user", reason)
+		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, actor, reason)
 	}
 	return s.deps.Approvals.DecideApproval(ctx, id, decision)
+}
+
+// settleApprovalAsSystem approves a due approval on the user's behalf after
+// the smart-mode review window elapsed. It is the timed counterpart of
+// DecideApprovalWithReason: the row must still be pending and past its
+// deadline, and first-writer-wins still arbitrates against a human decision
+// that lands at the same moment.
+func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Approval) error {
+	current, err := s.deps.Approvals.GetApproval(ctx, approval.ID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("runtime: get approval for timed settlement: %w", err)
+	}
+	if current.Decision != domain.ApprovalPending || current.ExpiresAt > time.Now().UnixMilli() {
+		return nil
+	}
+	if !autoApprovesOnTimeout(current) {
+		return nil
+	}
+	window := s.ApprovalSettleWindow()
+	if window <= 0 {
+		return nil
+	}
+	if isShellApproval(current) {
+		if err := s.waitShellApprovalReady(ctx, current.RunID); err != nil {
+			return err
+		}
+	} else if !s.ApprovalRequiredDurable(ctx, current.RunID, current.ID) {
+		// The approval is not durable yet: leave it for the next sweep.
+		return nil
+	}
+	reason := approvalSettleReason(window)
+	if err := s.settleApproval(ctx, current, domain.ApprovalApproved, "system", reason); err != nil {
+		if errors.Is(err, ErrApprovalAlreadyDecided) {
+			return nil
+		}
+		return err
+	}
+	slog.Info("approval auto-approved on timeout", "approval", current.ID, "run", string(current.RunID), "window", window.String())
+	return nil
 }
 
 func (s *Service) cancelApproval(ctx context.Context, approval domain.Approval, reason string) error {

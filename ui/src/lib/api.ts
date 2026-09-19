@@ -158,6 +158,12 @@ export interface SandboxSettingsView {
   allowed_domains: string[];
   workspace_root?: string;
   execute_allowed_commands?: string[];
+  /** 智能模式下审批无人处理时的等待秒数；0 = 不允许超时自动同意。 */
+  approval_timeout_seconds: number;
+  /** 未设置覆盖层时的配置回退值。 */
+  config_approval_timeout_seconds: number;
+  /** 审批硬有效期（秒）：等待时间不会超过它。 */
+  approval_expiration_seconds: number;
 }
 export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & {
   api_key?: string;
@@ -167,6 +173,8 @@ export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base
     default_preset: Exclude<PermissionPreset, 'custom'>;
     deny_private_ips: boolean;
     allowed_domains: string[];
+    /** 缺省保留已保存值；显式 0 表示不允许超时自动同意。 */
+    approval_timeout_seconds?: number;
   };
   compaction?: {
     enabled: boolean;
@@ -187,6 +195,11 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
       default_preset: settings.sandbox.default_preset,
       deny_private_ips: settings.sandbox.deny_private_ips,
       allowed_domains: settings.sandbox.allowed_domains ?? [],
+      // 审批等待时间随 sandbox 段整块回传（settings/update 是整文档替换）；
+      // 缺省时省略该键，让后端保留已保存值。
+      ...(typeof settings.sandbox.approval_timeout_seconds === 'number'
+        ? { approval_timeout_seconds: settings.sandbox.approval_timeout_seconds }
+        : {}),
     }
     : undefined);
   // compaction 段同样随整文档保存（避免其他分区保存时把压缩设置清掉）；

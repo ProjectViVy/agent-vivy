@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -261,6 +262,53 @@ func TestApplySettingsOverlaySandboxPreset(t *testing.T) {
 	}
 	if len(got.Runtime.Sandbox.Network.AllowedDomains) != 1 || got.Runtime.Sandbox.Network.AllowedDomains[0] != "example.com" {
 		t.Fatalf("allowed domains = %+v", got.Runtime.Sandbox.Network.AllowedDomains)
+	}
+}
+
+// TestApplySettingsOverlayApprovalTimeout: the review window overlay wins
+// over the config default, an explicit 0 disables timed auto-approval, and a
+// window that cannot shorten the hard expiration is refused rather than
+// silently clamped.
+func TestApplySettingsOverlayApprovalTimeout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	base := config.Default()
+	base.Storage.SQLite.Path = filepath.Join(t.TempDir(), "vivy.db")
+	if base.Runtime.Sandbox.Approval.TimeoutSeconds != 300 || base.Tools.Approval.Expiration != 5*time.Minute {
+		t.Fatalf("fixture defaults = %d/%s", base.Runtime.Sandbox.Approval.TimeoutSeconds, base.Tools.Approval.Expiration)
+	}
+
+	window := 45
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &window},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 45 {
+		t.Fatalf("approval timeout overlay = %d, want 45", got.Runtime.Sandbox.Approval.TimeoutSeconds)
+	}
+
+	off := 0
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &off},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 0 {
+		t.Fatalf("explicit 0 must disable timed auto-approval, got %d", got.Runtime.Sandbox.Approval.TimeoutSeconds)
+	}
+
+	// At or above the hard expiration the overlay cannot shorten review.
+	tooLong := int(base.Tools.Approval.Expiration/time.Second) + 60
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &tooLong},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 300 {
+		t.Fatalf("overlay past the expiration = %d, want the config default 300", got.Runtime.Sandbox.Approval.TimeoutSeconds)
 	}
 }
 

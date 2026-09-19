@@ -429,8 +429,12 @@ type SandboxConfig struct {
 type SandboxApprovalConfig struct {
 	// DefaultPolicy is the initial approval policy: ask, never, or auto.
 	DefaultPolicy string `yaml:"default_policy"`
-	// TimeoutSeconds bounds how long a pending approval stays valid before
-	// being automatically expired and denied.
+	// TimeoutSeconds is the human review window for effectful tool
+	// approvals. When it elapses with no decision, the runtime settles the
+	// approval: under the smart preset (workspace-write + ask) it is
+	// approved on the user's behalf, and under every other preset it expires
+	// and closes the run with the human_timeout cause. Zero disables timed
+	// auto-approval, leaving tools.approval.expiration as the only bound.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 	// AutoApproveTools lists tool names that are auto-approved under the
 	// "auto" policy (typically readonly tools).

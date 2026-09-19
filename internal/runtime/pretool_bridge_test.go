@@ -3,7 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -47,6 +47,8 @@ func (tool *middlewareRuntimeTool) ApplyPreTool(ctx context.Context, arguments j
 	return result, nil
 }
 
+// A published Middleware rewrite is re-checked against policy; a denied
+// rewrite is refused to the model without failing the run.
 func TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite(t *testing.T) {
 	policy, err := NewPolicyEngine(map[domain.PolicyProfile]PolicyDefinition{
 		domain.PolicyProfileDefault: {
@@ -65,9 +67,12 @@ func TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite(t *testing.T) {
 	}
 	tool := &middlewareRuntimeTool{rewrite: json.RawMessage(`{"value":"danger"}`)}
 	adapter := newToolAdapter(tool, 0, policy, nil, nil)
-	_, err = adapter.InvokableRun(context.Background(), `{"value":"safe"}`)
-	if !errors.Is(err, ErrPolicyDenied) {
-		t.Fatalf("middleware rewrite error = %v, want ErrPolicyDenied", err)
+	result, err := adapter.InvokableRun(context.Background(), `{"value":"safe"}`)
+	if err != nil {
+		t.Fatalf("middleware rewrite refusal failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "rewritten value denied") {
+		t.Fatalf("middleware rewrite refusal result = %q", result)
 	}
 	if tool.calls != 0 {
 		t.Fatalf("denied rewritten tool calls = %d, want 0", tool.calls)

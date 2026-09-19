@@ -267,6 +267,223 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	}
 }
 
+// A run that resumed for one approved tool must still dispatch every other
+// tool call: the human approval binds the decided call, not the rest of the
+// run. Regression for run_9b5ae7e437a91008, where the run-scoped
+// approved-arguments hash made the next read-only call report "approved tool
+// checkpoint state is unavailable", failed the run, and stamped the
+// already-approved approval stale.
+func TestServiceResumedRunDispatchesToolsAfterApproval(t *testing.T) {
+	const (
+		echoCallID = "call-echo-after-approval"
+		echoText   = "resumed turn still dispatches tools"
+	)
+	model := NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
+		}}),
+		// The resumed segment asks for a read-only tool that carries no
+		// interrupt state of its own.
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID: echoCallID, Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"` + echoText + `"}`},
+		}}),
+		schema.AssistantMessage("Done after approval.", nil),
+	)
+	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, model)
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-after-approval", "note that I need milk, then echo")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	if i := indexOfType(events, domain.EventToolProposalStale); i >= 0 {
+		t.Fatalf("a later call marked the approval stale at event %d: %s", i, events[i].Payload)
+	}
+	sawEcho := false
+	for _, ev := range events {
+		if ev.Type != domain.EventToolFinished {
+			continue
+		}
+		var fin payloadToolFinished
+		mustUnmarshal(t, ev.Payload, &fin)
+		if fin.ToolCallID == echoCallID {
+			sawEcho = true
+			if !strings.Contains(fin.Result, echoText) {
+				t.Fatalf("echo result = %q", fin.Result)
+			}
+		}
+	}
+	if !sawEcho {
+		t.Fatal("the read-only call issued after the approved call never finished")
+	}
+	if n := countTerminal(events); n != 1 {
+		t.Fatalf("terminal events = %d, want exactly 1", n)
+	}
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatalf("get approval: %v", err)
+	}
+	if stored.Decision != domain.ApprovalApproved {
+		t.Fatalf("approval decision = %q, want approved (a later call must not restamp it)", stored.Decision)
+	}
+}
+
+// waitUntilPast blocks until the given unix-milli deadline has passed, so a
+// sweeper assertion never depends on scheduler timing.
+func waitUntilPast(t *testing.T, unixMilli int64) {
+	t.Helper()
+	if wait := time.Until(time.UnixMilli(unixMilli)); wait > 0 {
+		time.Sleep(wait + 20*time.Millisecond)
+	}
+}
+
+// Timed auto-approval: a smart-preset (workspace-write + ask) approval that
+// nobody answers is approved on the user's behalf when the sweep reaches its
+// deadline, and the decision is recorded against the system actor.
+func TestServiceSweepAutoApprovesSmartApprovalOnTimeout(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 50*time.Millisecond)
+	svc.SetApprovalSettleTimeout(50 * time.Millisecond)
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-auto-1", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	if approval.SandboxMode != string(domain.SandboxModeWorkspaceWrite) || approval.ApprovalPolicy != string(domain.ApprovalPolicyAsk) {
+		t.Fatalf("approval preset = %s/%s, want workspace_write/ask", approval.SandboxMode, approval.ApprovalPolicy)
+	}
+	// The row must be durable before the sweep settles it (D-029).
+	waitForApprovalEvent(t, backend, runID)
+	waitUntilPast(t, approval.ExpiresAt)
+
+	if err := svc.SweepExpired(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatalf("get approval: %v", err)
+	}
+	if stored.Decision != domain.ApprovalApproved || stored.Actor != "system" {
+		t.Fatalf("approval after sweep = %s by %s (%q)", stored.Decision, stored.Actor, stored.DecisionReason)
+	}
+	if !strings.Contains(stored.DecisionReason, "auto-approved") {
+		t.Fatalf("auto-approval reason = %q", stored.DecisionReason)
+	}
+
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolProposalStale) >= 0 {
+		t.Fatal("auto-approved run reported a stale proposal")
+	}
+	sawDecided := false
+	for _, ev := range events {
+		if ev.Type != domain.EventToolApprovalDecided {
+			continue
+		}
+		var p payloadApprovalDecided
+		mustUnmarshal(t, ev.Payload, &p)
+		if p.Actor != "system" || !strings.Contains(p.Reason, "auto-approved") {
+			t.Fatalf("tool.approval_decided = %+v, want a system auto-approval", p)
+		}
+		sawDecided = true
+	}
+	if !sawDecided {
+		t.Fatal("missing tool.approval_decided for the timed auto-approval")
+	}
+	sawTool := false
+	for _, ev := range events {
+		if ev.Type != domain.EventToolFinished {
+			continue
+		}
+		var fin payloadToolFinished
+		mustUnmarshal(t, ev.Payload, &fin)
+		if fin.ToolCallID == ApprovalFlowCallID && strings.Contains(fin.Result, "saved (1 total)") {
+			sawTool = true
+		}
+	}
+	if !sawTool {
+		t.Fatal("the auto-approved tool did not execute")
+	}
+	if n := countTerminal(events); n != 1 {
+		t.Fatalf("terminal events = %d, want exactly 1", n)
+	}
+}
+
+// The "never auto-approve" setting: the same due approval expires and closes
+// its run with the human_timeout cause instead of being approved.
+func TestServiceSweepExpiresSmartApprovalWhenAutoApproveDisabled(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 50*time.Millisecond)
+	svc.SetApprovalSettleTimeout(0)
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-auto-2", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
+	waitUntilPast(t, approval.ExpiresAt)
+
+	if err := svc.SweepExpired(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatalf("get approval: %v", err)
+	}
+	if stored.Decision != domain.ApprovalExpired {
+		t.Fatalf("approval after sweep = %s by %s, want an expiry", stored.Decision, stored.Actor)
+	}
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolApprovalExpired) < 0 {
+		t.Fatal("missing tool.approval_expired event")
+	}
+	failed := false
+	for _, ev := range events {
+		if ev.Type != domain.EventRunFailed {
+			continue
+		}
+		var p payloadRunFailed
+		mustUnmarshal(t, ev.Payload, &p)
+		failed = p.CauseCategory == causeHumanTimeout
+	}
+	if !failed {
+		t.Fatalf("run.failed cause = %v, want %s", events, causeHumanTimeout)
+	}
+}
+
+// The auto-approval gate reads the preset recorded when the human was asked.
+func TestAutoApprovesOnTimeoutPresetGate(t *testing.T) {
+	cases := []struct {
+		mode   domain.SandboxMode
+		policy domain.ApprovalPolicy
+		want   bool
+	}{
+		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, true},
+		{domain.SandboxModeReadOnly, domain.ApprovalPolicyAsk, false},
+		{domain.SandboxModeDangerFullAccess, domain.ApprovalPolicyAuto, false},
+		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever, false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		got := autoApprovesOnTimeout(domain.Approval{SandboxMode: string(tc.mode), ApprovalPolicy: string(tc.policy)})
+		if got != tc.want {
+			t.Fatalf("autoApprovesOnTimeout(%q, %q) = %v, want %v", tc.mode, tc.policy, got, tc.want)
+		}
+	}
+}
+
 func TestServiceApprovalResumePersistsChunkBeforeProviderEOF(t *testing.T) {
 	model := &gatedApprovalResumeModel{blocked: make(chan struct{}), release: make(chan struct{})}
 	released := false
@@ -328,7 +545,9 @@ func TestServicePlanModeDoesNotOpenApprovalOrMutate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	waitForRunStatus(t, backend, runID, domain.RunFailed)
+	// The effectful call is refused to the model and the run finishes: plan
+	// mode is a read-only boundary, not a way to lose the conversation.
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
 	approvals, err := backend.ListPendingApprovals(ctx)
 	if err != nil {
@@ -350,6 +569,18 @@ func TestServicePlanModeDoesNotOpenApprovalOrMutate(t *testing.T) {
 	events := replayAll(t, backend, runID)
 	if indexOfType(events, domain.EventToolApprovalRequired) >= 0 {
 		t.Fatal("plan mode must not emit tool.approval_required")
+	}
+	if i := indexOfType(events, domain.EventRunFailed); i >= 0 {
+		t.Fatalf("plan mode refusal failed the run: %s", events[i].Payload)
+	}
+	fi := indexOfType(events, domain.EventToolFinished)
+	if fi < 0 {
+		t.Fatalf("no tool.finished in %+v", events)
+	}
+	var fin payloadToolFinished
+	mustUnmarshal(t, events[fi].Payload, &fin)
+	if !strings.Contains(fin.Result, "did not run") || !strings.Contains(fin.Result, "plan mode") {
+		t.Fatalf("plan mode tool result = %q, want a model-visible refusal", fin.Result)
 	}
 	var started payloadRunStarted
 	mustUnmarshal(t, events[0].Payload, &started)

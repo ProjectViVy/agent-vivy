@@ -778,6 +778,18 @@ export interface FaceSandboxSettings {
   readonly allowed_domains: string[];
   readonly workspace_root?: string;
   readonly execute_allowed_commands?: string[];
+  /**
+   * Human review window for an effectful tool approval, in seconds; 0 means
+   * timed auto-approval is disabled. Under the smart preset the runtime
+   * approves the call on the user's behalf when the window elapses. Kept
+   * required and mutually assignable with the host's own view, like the rest
+   * of this interface.
+   */
+  readonly approval_timeout_seconds: number;
+  /** The config-file fallback a face shows when the overlay is cleared. */
+  readonly config_approval_timeout_seconds: number;
+  /** The hard `tools.approval.expiration` (seconds) bounding the window. */
+  readonly approval_expiration_seconds: number;
 }
 
 export interface FaceSettingsUpdate {
@@ -791,6 +803,8 @@ export interface FaceSettingsUpdate {
     readonly default_preset: Exclude<FacePermissionPreset, "custom">;
     readonly deny_private_ips: boolean;
     readonly allowed_domains: string[];
+    /** Absent keeps the saved value; explicit 0 disables timed auto-approval. */
+    readonly approval_timeout_seconds?: number;
   };
   readonly compaction?: {
     readonly enabled: boolean;

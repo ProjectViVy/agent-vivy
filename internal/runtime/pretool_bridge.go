@@ -49,7 +49,13 @@ func (a *toolAdapter) applyGovernedMiddleware(
 			Reason:     "post-middleware argument rewrite: " + next.Reason,
 		})
 		if next.Decision == domain.PolicyDeny {
-			return fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name)
+			// A denied rewrite is a per-call refusal: the middleware result is
+			// discarded and the model is told why, instead of failing the run.
+			return refuseCall(
+				"rewritten arguments for "+spec.Name+" are denied by policy: "+next.Reason,
+				fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name),
+				next.Snapshot.Hash,
+			)
 		}
 		evaluation = next
 		return nil

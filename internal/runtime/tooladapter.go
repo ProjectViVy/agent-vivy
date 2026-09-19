@@ -149,13 +149,82 @@ func staleToolApproval(ctx context.Context, toolName, reason string) error {
 	return fmt.Errorf("runtime: approval for %s is stale: %s", toolName, reason)
 }
 
+// toolRefusal marks a per-call governance refusal: the invocation must not
+// run, but the run itself is healthy. Eino's ToolsNode escalates every
+// non-interrupt tool error into a NodeRunError that fails the whole run
+// (compose/tool_node.go), so toolAdapter converts a refusal into the
+// model-visible tool result instead — the same shape a human denial uses.
+type toolRefusal struct {
+	cause      error
+	reason     string
+	policyHash string
+	// journaled reports that this refusal reason is already recorded as the
+	// call's policy decision, so the adapter does not journal it twice.
+	journaled bool
+}
+
+func (r *toolRefusal) Error() string { return r.reason }
+func (r *toolRefusal) Unwrap() error { return r.cause }
+
+func refuseCall(reason string, cause error, policyHash string) error {
+	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash}
+}
+
+// refuseJournaledCall refuses a call whose reason was already journaled as the
+// evaluation decision for that call.
+func refuseJournaledCall(reason string, cause error, policyHash string) error {
+	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, journaled: true}
+}
+
+// asToolRefusal classifies an error raised before or by a tool invocation.
+// Governance denials — argument guards, policy, plan mode, sandbox
+// confinement — are refusals. Everything else (wiring, budget, journal, or
+// backend failure) stays a run-fatal error.
+func asToolRefusal(err error) (*toolRefusal, bool) {
+	var refusal *toolRefusal
+	if errors.As(err, &refusal) {
+		return refusal, true
+	}
+	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) {
+		return &toolRefusal{cause: err, reason: publicRefusalReason(err)}, true
+	}
+	return nil, false
+}
+
+// publicRefusalReason keeps a refusal readable in model context: the
+// "runtime: " prefix is ours, not the model's.
+func publicRefusalReason(err error) string {
+	return strings.TrimPrefix(tools.RedactSensitive(err.Error()), "runtime: ")
+}
+
+// refusalToolResult is the model-visible outcome of a per-call refusal: the
+// invocation did not run, and the model is told so in the same shape a human
+// denial uses, so the run continues instead of failing on an unrecoverable
+// tool error. It is runtime-authored text, never untrusted tool output.
+func refusalToolResult(toolName, reason string) string {
+	return fmt.Sprintf("%s did not run: %s. Choose a different tool or arguments.", toolName, reason)
+}
+
 func authorizeToolDispatch(ctx context.Context, toolName string, arguments json.RawMessage) (string, bool, error) {
 	wasInterrupted, hasState, encodedState := einotool.GetInterruptState[string](ctx)
 	approvedHash := approvedToolArgumentsHash(ctx)
-	if !wasInterrupted && approvedHash == "" {
-		return "", false, nil
+	if !wasInterrupted {
+		if approvedHash == "" {
+			return "", false, nil
+		}
+		// The approved-arguments hash belongs to the run's resume, not to
+		// every call that happens after it. Only the call the human actually
+		// decided is bound by it; a sibling or fresh call in the resumed
+		// segment carries no interrupt state and dispatches under its own
+		// policy decision. Binding those calls to the approval marked them
+		// stale and aborted otherwise-healthy runs.
+		isTarget, hasData, _ := einotool.GetResumeContext[string](ctx)
+		if !isTarget || !hasData {
+			return "", false, nil
+		}
+		return "", true, staleToolApproval(ctx, toolName, "approved tool checkpoint state is unavailable")
 	}
-	if !wasInterrupted || !hasState {
+	if !hasState {
 		return "", true, staleToolApproval(ctx, toolName, "approved tool checkpoint state is unavailable")
 	}
 	stateToolName, _, _, message, ok := decodeToolApprovalInterrupt(encodedState)
@@ -418,6 +487,35 @@ func decodeJSONWithNumbers(raw json.RawMessage) (any, error) {
 }
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
+	result, err := a.dispatch(ctx, argumentsInJSON)
+	if err == nil {
+		return result, nil
+	}
+	refusal, ok := asToolRefusal(err)
+	if !ok {
+		return "", err
+	}
+	spec := a.t.Spec()
+	reason := tools.RedactSensitive(refusal.reason)
+	if !refusal.journaled {
+		// The refusal is recorded as a policy decision at the moment it
+		// happens, so the run inspector shows why the call did not run.
+		policyHash := refusal.policyHash
+		if policyHash == "" {
+			policyHash = policySnapshot(ctx).Hash
+		}
+		emitGovernanceEvent(ctx, GovernanceEvent{
+			Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyDeny),
+			Profile: policyProfile(ctx), PolicyHash: policyHash, Reason: reason,
+		})
+	}
+	return refusalToolResult(spec.Name, reason), nil
+}
+
+// dispatch performs one governed call. Every per-call refusal leaves it as a
+// *toolRefusal so InvokableRun can turn it into a tool result instead of a
+// run-fatal error.
+func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
@@ -430,13 +528,19 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
 		}
 	}
-	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", err
-	}
-	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", err
-	}
 	profile := policyProfile(ctx)
+	// A malformed call is the model's own mistake and is recoverable: the
+	// invocation never reaches the tool, and the model is told what was wrong
+	// so it can correct the arguments instead of losing the whole run.
+	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
+		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+	}
+	// Shape-level hazards (NUL bytes, path traversal, blocked command syntax)
+	// are refused exactly like the deny table: the call does not run, and the
+	// run continues. Script-level hazards are the shell classifier's to judge.
+	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
+		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+	}
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
@@ -447,9 +551,20 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	})
 	if evaluation.Decision == domain.PolicyDeny {
 		if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
-			return "", fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name)
+			// Plan mode refines the generic profile denial, so its reason is
+			// journaled on its own.
+			return "", refuseCall(
+				"plan mode runs read-only tools; describe the change instead of applying it",
+				fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name),
+				evaluation.Snapshot.Hash,
+			)
 		}
-		return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason)
+		// The evaluation event above already journals this exact reason.
+		return "", refuseJournaledCall(
+			evaluation.Reason,
+			fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason),
+			evaluation.Snapshot.Hash,
+		)
 	}
 	args := json.RawMessage(argumentsInJSON)
 	if a.hooks != nil {
@@ -460,10 +575,10 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			return "", err
 		}
 		if err := tools.ValidateArgs(spec, args); err != nil {
-			return "", err
+			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
 		}
 		if err := tools.ValidateArgsSafety(spec, args); err != nil {
-			return "", err
+			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
 		}
 		// A hook rewrite is untrusted input. The policy must see the final
 		// arguments before the tool can observe them.
@@ -477,10 +592,11 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "post-hook argument rewrite: " + evaluation.Reason,
 			})
 			if evaluation.Decision != domain.PolicyAllow {
-				if evaluation.Decision == domain.PolicyDeny {
-					return "", fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name)
+				reason := "rewritten arguments for " + spec.Name + " are denied by policy: " + evaluation.Reason
+				if evaluation.Decision == domain.PolicyPrompt {
+					reason = "rewritten arguments for " + spec.Name + " need an approval a post-hook rewrite cannot request"
 				}
-				return "", fmt.Errorf("%w: rewritten arguments for %s require a fresh approval", ErrPolicyDenied, spec.Name)
+				return "", refuseCall(reason, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash)
 			}
 		}
 	}
@@ -507,7 +623,11 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			if reason == "" {
 				reason = "deny-table match"
 			}
-			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, reason)
+			// The deny table refuses this invocation, not the run: the model
+			// receives the refusal as the tool result (the same shape a human
+			// denial uses) so it can choose another approach. The call never
+			// reaches the tool, on any profile or approval policy.
+			return "", refuseCall(reason, nil, evaluation.Snapshot.Hash)
 		}
 		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !middlewareRequiresApproval {
 			emitGovernanceEvent(ctx, GovernanceEvent{
@@ -546,7 +666,7 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 				return a.run(ctx, string(args))
 			}
 			if !approvalEval.ShouldAsk {
-				return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
+				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash)
 			}
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {

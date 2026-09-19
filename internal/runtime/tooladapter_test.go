@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -58,6 +59,35 @@ func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 	}
 }
 
+// A deny-table refusal is recorded as a policy decision at the moment the
+// call is refused, so the run inspector shows why it did not run.
+func TestToolAdapterDenyTableRefusalEmitsPolicyEvent(t *testing.T) {
+	tool := &classifierStubTool{class: tools.InvocationDenied, findings: []string{"deny-table: host shell or interpreter escape"}}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	var events []GovernanceEvent
+	ctx := withGovernanceEventSink(withPolicyProfile(context.Background(), domain.PolicyProfileDefault),
+		func(_ context.Context, ev GovernanceEvent) error {
+			events = append(events, ev)
+			return nil
+		})
+	result, err := adapter.InvokableRun(ctx, `{"command":"cmd /c dir"}`)
+	if err != nil {
+		t.Fatalf("deny-table refusal surfaced a run-failing error: %v", err)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("refused tool calls = %d, want zero", tool.calls)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "deny-table: host shell or interpreter escape") {
+		t.Fatalf("refusal result = %q", result)
+	}
+	for _, ev := range events {
+		if ev.Type == domain.EventPolicyEvaluated && ev.Decision == string(domain.PolicyDeny) && ev.ToolName == "stub_classifier" {
+			return
+		}
+	}
+	t.Fatalf("no deny governance event recorded: %+v", events)
+}
+
 // A skill_view mount extends the selected surface for the run: a tool
 // absent from the base selection executes once mounted.
 func TestToolAdapterAllowsMountedTool(t *testing.T) {
@@ -74,12 +104,18 @@ func TestToolAdapterAllowsMountedTool(t *testing.T) {
 	}
 }
 
-func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
+// A malformed call is refused to the model instead of failing the run: the
+// tool never runs, and the model can correct its own arguments.
+func TestToolAdapterRefusesInvalidSchemaBeforeInvocation(t *testing.T) {
 	tool := &countingTool{}
 	adapter := newToolAdapter(tool, 0, nil, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{tool.Spec().Name})
-	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil {
-		t.Fatal("missing required argument must fail")
+	result, err := adapter.InvokableRun(ctx, `{}`)
+	if err != nil {
+		t.Fatalf("missing required argument failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "required") {
+		t.Fatalf("refusal result = %q", result)
 	}
 	if tool.calls != 0 {
 		t.Fatalf("invalid argument calls = %d, want zero", tool.calls)
@@ -131,26 +167,36 @@ func TestToolAdapterInfoPreservesUnsupportedJSONSchemaKeywords(t *testing.T) {
 	}
 }
 
-func TestToolAdapterPlanModeBlocksEffectfulToolBeforeApproval(t *testing.T) {
+// Plan mode refuses effectful calls to the model rather than failing the run:
+// exploring in plan mode is normal model behavior.
+func TestToolAdapterPlanModeRefusesEffectfulToolBeforeApproval(t *testing.T) {
 	tool := &planCountingTool{}
 	adapter := newToolAdapter(tool, 0, nil, nil, nil)
 	ctx := withRunMode(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.RunModePlan)
-	_, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
-	if !errors.Is(err, ErrPlanModeToolDenied) {
-		t.Fatalf("plan mode error = %v, want %v", err, ErrPlanModeToolDenied)
+	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("plan mode refusal failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "plan mode") {
+		t.Fatalf("plan mode refusal result = %q", result)
 	}
 	if tool.calls != 0 {
 		t.Fatalf("plan mode effectful calls = %d, want zero", tool.calls)
 	}
 }
 
-func TestToolAdapterApprovalPolicyNeverDeniesEffectful(t *testing.T) {
+// The 'never' approval policy denies effectful calls per call; the run stays
+// alive so the model can answer without them.
+func TestToolAdapterApprovalPolicyNeverRefusesEffectful(t *testing.T) {
 	tool := &planCountingTool{}
 	adapter := newToolAdapter(tool, 0, nil, nil, nil)
 	ctx := withSessionSandbox(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever)
-	_, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
-	if !errors.Is(err, ErrPolicyDenied) {
-		t.Fatalf("never policy error = %v, want %v", err, ErrPolicyDenied)
+	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("'never' policy refusal failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "never") {
+		t.Fatalf("never policy refusal result = %q", result)
 	}
 	if tool.calls != 0 {
 		t.Fatalf("never policy calls = %d, want zero", tool.calls)
@@ -170,6 +216,24 @@ func TestToolAdapterApprovalPolicyAutoAllowlistsEffectful(t *testing.T) {
 	}
 	if !strings.Contains(got, "mutated") {
 		t.Fatalf("auto policy result = %q", got)
+	}
+}
+
+// A sandbox denial raised by the tool implementation is a per-call refusal,
+// not a run failure: the call did not happen and the model is told why.
+func TestToolAdapterSandboxDenialRefusesInsteadOfFailing(t *testing.T) {
+	tool := &sandboxDeniedTool{}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	ctx := withPolicyProfile(context.Background(), domain.PolicyProfileFullAuto)
+	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("sandbox denial failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "sandbox denied") {
+		t.Fatalf("sandbox denial result = %q", result)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("sandbox denial calls = %d, want the tool to have been asked once", tool.calls)
 	}
 }
 
@@ -232,6 +296,26 @@ func (longResultTool) InvokableRun(context.Context, json.RawMessage) (string, er
 
 type countingTool struct {
 	calls int
+}
+
+// sandboxDeniedTool stands in for a workspace backend that refuses the write.
+type sandboxDeniedTool struct {
+	calls int
+}
+
+func (t *sandboxDeniedTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:     "sandbox_write",
+		Readonly: false,
+		Params: map[string]domain.ToolParam{
+			"value": {Required: true},
+		},
+	}
+}
+
+func (t *sandboxDeniedTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	t.calls++
+	return "", fmt.Errorf("%w: path escapes workspace via traversal", ErrSandboxDenied)
 }
 
 type planCountingTool struct {

@@ -21,13 +21,32 @@ server.
 
 ```text
 pending -> approved | denied | cancelled | expired | stale
+pending -> approved                            (smart preset, timeout auto-approval)
 pending -> answered | cancelled | expired       (question)
 approved -> stale                              (precondition mismatch)
 ```
 
-Every response is conditional on `pending`. The interaction sweeper performs
-the server-side timeout transition and closes the owning run with the
-structured `human_timeout` cause. Restart recovery uses the same transition.
+Every response is conditional on `pending`, and the first durable writer wins.
+The interaction sweeper performs the server-side timeout transition. For a
+pending approval it applies one of two transitions at the single deadline
+recorded on the row (`expires_at`, the configured review window clamped by the
+hard `tools.approval.expiration`):
+
+- Under the **smart preset only** (sandbox `workspace_write` + policy `ask`),
+  and only while
+  `runtime.sandbox.approval.timeout_seconds` (settings → 通用 → 审批超时) is
+  greater than zero, the sweeper **approves the call on the user's behalf**,
+  records the decision with the `system` actor and an
+  `auto-approved after Ns …` reason, and resumes the run. A background
+  conversation therefore continues instead of dying at the deadline.
+- Under every other preset, or with timed auto-approval disabled, the
+  approval **expires** and closes the owning run with the structured
+  `human_timeout` cause (unchanged).
+
+The eligibility check reads the sandbox mode and approval policy recorded on
+the row when the human was asked, never the current settings, so changing the
+preset cannot retroactively authorize a call. The enabled flag and duration
+come from the live setting. Restart recovery uses the same transition.
 Decision, expiry, cancellation, and stale outcomes are journal events and can
 be replayed by the run inspector.
 
