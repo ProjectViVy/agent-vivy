@@ -19,6 +19,7 @@ import type {
   UICompositionHost,
   UIRoot,
 } from '@vivy/ui-sdk';
+import { defineNavigationItem, defineUIRoute } from '@vivy/ui-sdk';
 import { useVivyStore } from '@/lib/store';
 import {
   createWebFaceHost,
@@ -663,6 +664,80 @@ describe('PresentationHost', () => {
     for (const test of cases) {
       expect(createWebFaceHost(router, { catalogs: [test.catalog] }).t(key), test.name).toContain('[missing translation:');
     }
+  });
+
+  it('renders a claimed path inside the host page surface with its entry icon, title, and demo banner', async () => {
+    let actualRouter: ReturnType<typeof createRouter> | undefined;
+    const selectedExtension = extension('fixture/surface', (receivedHost) => {
+      receivedHost.composition.navigation.register('fixture-surface-nav', defineNavigationItem({
+        group: 'fixture', to: '/surface', labelKey: 'plugin.fixture/surface.nav', icon: 'brain', order: 10,
+      }));
+      receivedHost.composition.routes.register('fixture-surface-route', defineUIRoute({
+        path: '/surface',
+        titleKey: 'plugin.fixture/surface.title',
+        subtitleKey: 'plugin.fixture/surface.subtitle',
+        demo: true,
+        render: () => <article data-testid="surface-content">Surface content</article>,
+      }));
+    });
+    const catalog = {
+      apiVersion: 'vivy.i18n/v1',
+      schemaVersion: 'vivy.i18n/v1',
+      path: 'i18n/catalog.json',
+      defaultLocale: 'en',
+      locales: ['en', 'zh'],
+      module: 'fixture/surface',
+      units: {
+        'plugin.fixture/surface.title': { description: 'Title', placeholders: [], messages: { en: 'Surface title', zh: '表面标题' } },
+        'plugin.fixture/surface.subtitle': { description: 'Subtitle', placeholders: [], messages: { en: 'Surface subtitle', zh: '表面副标题' } },
+      },
+    } as const;
+    const selectedHost = createWebFaceHost(
+      { navigate: (options) => actualRouter!.navigate(options as never), invalidate: () => actualRouter!.invalidate() },
+      { catalogs: [{ ...catalog, digest: catalogProjectionDigest(catalog) }] },
+    );
+    const slot = () => container.querySelector('[data-testid="route-slot"]');
+    function RouteSlotProbe({ host }: { readonly host: FullUIHost }) {
+      return <div data-testid="route-slot">{useActivePresentationRoute(host)}</div>;
+    }
+    const rootRoute = createRootRoute({
+      notFoundComponent: () => null,
+      component: () => {
+        const pathname = useRouterState({ select: (state) => state.location.pathname });
+        return (
+          <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}>
+            <RouteSlotProbe host={selectedHost} />
+          </PresentationHost>
+        );
+      },
+    });
+    const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: () => null });
+    actualRouter = createRouter({
+      routeTree: rootRoute.addChildren([indexRoute]),
+      history: createMemoryHistory({ initialEntries: ['/surface'] }),
+      notFoundMode: 'fuzzy',
+    });
+
+    await act(async () => {
+      reactRoot.render(<RouterProvider router={actualRouter!} />);
+      await actualRouter!.load();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const surface = slot()?.querySelector('[data-vivy-presentation-route="fixture-surface-route"]');
+    // The surface is the host's frame: a definite full height, one header, one
+    // content region — a Module page never draws its own.
+    expect(surface?.className).toContain('h-full');
+    expect(surface?.className).toContain('min-h-0');
+    expect(surface?.querySelectorAll('[data-vivy-presentation-page-header] h1')).toHaveLength(1);
+    expect(surface?.querySelector('[data-vivy-presentation-page-header] h1')?.textContent).toBe('Surface title');
+    expect(surface?.querySelector('[data-vivy-presentation-page-header]')?.textContent).toContain('Surface subtitle');
+    // The header icon is the icon the page's own navigation entry named.
+    expect(surface?.querySelectorAll('[data-vivy-presentation-page-header] svg')).toHaveLength(1);
+    expect(surface?.querySelector('[data-vivy-presentation-page-content] [data-testid="surface-content"]')?.textContent).toBe('Surface content');
+    expect(surface?.textContent).toContain('Demo');
+    // The shell frame is untouched: the surface nests inside it.
+    expect(container.querySelector('.vivy-presentation-host')).not.toBeNull();
   });
 
   it('uses the actual TanStack router location for registered plugin navigation', async () => {

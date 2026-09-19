@@ -1,26 +1,12 @@
 /**
- * 进化页面 - 由 vivy/evolution Module 装配
+ * 进化页面内容 - 由 vivy/evolution Module 装配。
+ *
+ * 页面外壳（演示横幅、图标 + 标题、副标题、滚动区）由宿主的 Module 页面表面渲染，
+ * 这里只返回页面内容，因此所有插件页面的外观一致。
  */
 
-import { DemoBanner } from '@/components/demo/DemoBanner';
-import { usePluginTranslation } from '@vivy/ui-sdk';
 import { EvolutionView } from './view';
 
 export function EvolutionPage() {
-  const { t } = usePluginTranslation();
-  return (
-    <div className="h-full flex flex-col">
-      <DemoBanner />
-      {/* 顶部标题 */}
-      <div className="border-b px-4 py-4 sm:px-6">
-        <h1 className="text-lg font-semibold">{t('plugin.vivy/evolution.title')}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{t('plugin.vivy/evolution.subtitle')}</p>
-      </div>
-
-      {/* 内容区 */}
-      <div className="min-h-0 flex-1">
-        <EvolutionView />
-      </div>
-    </div>
-  );
+  return <EvolutionView />;
 }

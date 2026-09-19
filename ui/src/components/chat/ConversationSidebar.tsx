@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
-  Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Folder, FolderOpen, FolderPlus,
-  LayoutDashboard, Pencil, Plug, Plus, Search, Settings, ShieldCheck, SlidersHorizontal,
-  Sparkles, Trash2, VenetianMask, Wrench, X, Zap,
+  Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderPlus,
+  Pencil, Plus, Search, SlidersHorizontal, Trash2, X,
 } from 'lucide-react';
 import type { Session } from '@/lib/api';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { SIDEBAR_VIVY_GROUP, useGroupedNavigation } from '@/plugins/grouped-navigation';
-import { usePluginHost } from '@vivy/ui-sdk';
+import { resolveHostIcon } from '@/plugins/host-icons';
+import { usePluginHost, type HostIconName } from '@vivy/ui-sdk';
 import { groupSessionsByWorkspace } from './session-workspaces';
 import {
   filterSessions, readSessionListView, storeSessionListView, type SessionListView,
@@ -18,17 +18,17 @@ import {
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
 
 type SidebarView = 'root' | 'toolbox' | 'vivy';
-type NavIcon = ComponentType<{ className?: string }>;
-type NavItem = { to: string; icon: NavIcon; labelKey: string; label?: string; exact?: boolean };
+/** Every entry names its left icon from the host icon set, core or Module. */
+type NavItem = { to: string; icon: HostIconName; labelKey: string; label?: string; exact?: boolean };
 /** One VIVY entry with the order that places it among assembled entries. */
 type OrderedNavItem = { readonly order: number; readonly item: NavItem };
 
-const DASHBOARD_ITEM: NavItem = { to: '/dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' };
+const DASHBOARD_ITEM: NavItem = { to: '/dashboard', icon: 'dashboard', labelKey: 'nav.dashboard' };
 const TOOLBOX_ITEMS: NavItem[] = [
-  { to: '/cron-tasks', icon: Clock, labelKey: 'nav.cron' },
-  { to: '/mcp', icon: Plug, labelKey: 'nav.mcp' },
-  { to: '/skills', icon: Zap, labelKey: 'nav.skill' },
-  { to: '/approvals', icon: ShieldCheck, labelKey: 'nav.approvals' },
+  { to: '/cron-tasks', icon: 'clock', labelKey: 'nav.cron' },
+  { to: '/mcp', icon: 'plug', labelKey: 'nav.mcp' },
+  { to: '/skills', icon: 'zap', labelKey: 'nav.skill' },
+  { to: '/approvals', icon: 'shield-check', labelKey: 'nav.approvals' },
 ];
 /**
  * The VIVY group is assembled: 面具 is a core entry this shell always owns, and
@@ -37,7 +37,7 @@ const TOOLBOX_ITEMS: NavItem[] = [
  * profile without pinning it ahead of a Module that claims an earlier slot.
  */
 const CORE_VIVY_ITEMS: OrderedNavItem[] = [
-  { order: 20, item: { to: '/masks', icon: VenetianMask, labelKey: 'nav.masks' } },
+  { order: 20, item: { to: '/masks', icon: 'venetian-mask', labelKey: 'nav.masks' } },
 ];
 const VIEW_MODES: SessionListView[] = ['grouped', 'flat'];
 
@@ -83,7 +83,7 @@ export function ConversationSidebar({
     order: entry.order,
     item: {
       to: entry.to,
-      icon: entry.icon ?? Sparkles,
+      icon: entry.icon ?? 'sparkles',
       labelKey: entry.labelKey,
       label: entry.label,
       exact: entry.exact,
@@ -128,7 +128,7 @@ export function ConversationSidebar({
     item.exact ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`);
 
   const renderNavLink = (item: NavItem) => {
-    const Icon = item.icon;
+    const Icon = resolveHostIcon(item.icon);
     const active = isNavItemActive(item);
     return (
       <Link key={item.to} to={item.to}>
@@ -143,8 +143,8 @@ export function ConversationSidebar({
     );
   };
 
-  const renderDrillButton = (key: SidebarView, icon: typeof Wrench, label: string, childItems: NavItem[]) => {
-    const Icon = icon;
+  const renderDrillButton = (key: SidebarView, icon: HostIconName, label: string, childItems: NavItem[]) => {
+    const Icon = resolveHostIcon(icon);
     const active = view === key || childItems.some(isNavItemActive);
     return (
       <button type="button" onClick={() => setManualView(key)} className={cn(
@@ -295,8 +295,8 @@ export function ConversationSidebar({
     </div>
   );
 
-  const renderDrillHeader = (icon: typeof Wrench, title: string) => {
-    const Icon = icon;
+  const renderDrillHeader = (icon: HostIconName, title: string) => {
+    const Icon = resolveHostIcon(icon);
     return <div className="flex items-center gap-1 px-2 pb-1 pt-3">
       <button type="button" onClick={() => setManualView('root')} aria-label={t('nav.back')} title={t('nav.back')} className="-ml-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"><ChevronLeft className="h-4 w-4" /></button>
       <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground"><Icon className="h-4 w-4 shrink-0" /><span className="truncate">{title}</span></div>
@@ -305,14 +305,14 @@ export function ConversationSidebar({
 
   const rootBody = <>
     <div className="px-2 pt-2"><button type="button" onClick={() => void onCreateSession('')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"><Plus className="h-4 w-4" /><span>{t('sidebar.newSession')}</span></button></div>
-    <nav className="space-y-0.5 px-2 py-1">{renderNavLink(DASHBOARD_ITEM)}{renderDrillButton('toolbox', Wrench, t('nav.toolbox'), TOOLBOX_ITEMS)}{renderDrillButton('vivy', Sparkles, t('nav.vivy'), vivyItems)}</nav>
+    <nav className="space-y-0.5 px-2 py-1">{renderNavLink(DASHBOARD_ITEM)}{renderDrillButton('toolbox', 'wrench', t('nav.toolbox'), TOOLBOX_ITEMS)}{renderDrillButton('vivy', 'sparkles', t('nav.vivy'), vivyItems)}</nav>
     {renderSessions()}
   </>;
 
   return <aside className="flex h-full flex-col bg-sidebar">
     <div className="flex items-center gap-2.5 px-4 py-4"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary"><span className="text-sm font-bold text-primary-foreground">V</span></div><span className="text-lg font-semibold text-foreground">Vivy</span></div>
-    <div className="flex min-h-0 flex-1 flex-col">{view === 'toolbox' ? <>{renderDrillHeader(Wrench, t('nav.toolbox'))}<nav className="space-y-0.5 px-2 py-1">{TOOLBOX_ITEMS.map(renderNavLink)}</nav></> : view === 'vivy' ? <>{renderDrillHeader(Sparkles, t('nav.vivy'))}<nav className="space-y-0.5 px-2 py-1">{vivyItems.map(renderNavLink)}</nav></> : rootBody}</div>
-    <div className="border-t border-sidebar-border p-2">{renderNavLink({ to: '/settings', icon: Settings, labelKey: 'nav.settings' })}</div>
+    <div className="flex min-h-0 flex-1 flex-col">{view === 'toolbox' ? <>{renderDrillHeader('wrench', t('nav.toolbox'))}<nav className="space-y-0.5 px-2 py-1">{TOOLBOX_ITEMS.map(renderNavLink)}</nav></> : view === 'vivy' ? <>{renderDrillHeader('sparkles', t('nav.vivy'))}<nav className="space-y-0.5 px-2 py-1">{vivyItems.map(renderNavLink)}</nav></> : rootBody}</div>
+    <div className="border-t border-sidebar-border p-2">{renderNavLink({ to: '/settings', icon: 'settings', labelKey: 'nav.settings' })}</div>
     <WorkspaceFolderDialog
       open={folderPickerOpen}
       onOpenChange={setFolderPickerOpen}

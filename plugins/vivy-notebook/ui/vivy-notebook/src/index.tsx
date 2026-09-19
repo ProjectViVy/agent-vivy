@@ -5,8 +5,7 @@
  * grouped navigation entry the main sidebar assembles. Removing this Module
  * from the Recipe removes the page and the entry together.
  */
-import { defineNavigationItem, defineUIExtension, type FullUIHost } from '@vivy/ui-sdk';
-import { NotebookPen } from 'lucide-react';
+import { defineNavigationItem, defineUIRoute, defineUIExtension, type FullUIHost } from '@vivy/ui-sdk';
 import { NotebookPage } from './page';
 
 const ROUTE = '/notebook';
@@ -15,15 +14,18 @@ export const extension = defineUIExtension({
   id: 'vivy.notebook.extension',
   install: (host: FullUIHost) => {
     const registrations = [
-      host.composition.routes.register('vivy-notebook', {
+      host.composition.routes.register('vivy-notebook', defineUIRoute({
         path: ROUTE,
+        titleKey: 'plugin.vivy/notebook.title',
+        subtitleKey: 'plugin.vivy/notebook.subtitle',
+        demo: true,
         render: () => <NotebookPage />,
-      }),
+      })),
       host.composition.navigation.register('vivy-notebook', defineNavigationItem({
         group: 'vivy',
         to: ROUTE,
         labelKey: 'plugin.vivy/notebook.nav',
-        icon: NotebookPen,
+        icon: 'notebook-pen',
         order: 50,
       })),
     ];

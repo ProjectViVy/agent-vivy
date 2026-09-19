@@ -17,6 +17,7 @@ import {
 import {
   cleanupHandleFromInstall,
   createCleanupHandle,
+  isHostIconName,
   type CleanupHandle,
   type FaceClient,
   type FaceClientAPI,
@@ -26,6 +27,7 @@ import {
   type FaceNavigationOptions,
   type FaceStoreState,
   type FullUIHost,
+  type HostIconName,
   type UICompositionHost,
   type UIExtension,
   type UIMessageForm,
@@ -39,7 +41,9 @@ import { generatedUIExtensions, generatedUIRoot, UI_ASSEMBLY_MANIFEST } from '@v
 import * as faceAPI from '@/lib/api';
 import * as rpcTransport from '@/lib/rpc';
 import { useVivyStore } from '@/lib/store';
+import { DemoBanner } from '@/components/demo/DemoBanner';
 import { getLocale, t as translate } from '@/i18n';
+import { resolveHostIcon } from '@/plugins/host-icons';
 
 /** Build metadata shown in diagnostics; it never controls whether a Module runs. */
 export interface PresentationProvenance {
@@ -173,6 +177,11 @@ interface NavigationProjection {
 interface RouteProjection {
   readonly path: string;
   readonly render: unknown;
+  readonly titleKey?: string;
+  readonly subtitleKey?: string;
+  readonly title?: string;
+  readonly subtitle?: string;
+  readonly demo: boolean;
 }
 
 interface ShortcutProjection {
@@ -841,8 +850,14 @@ export function PresentationHost({
 
   const diagnostic = phase.status === 'error' ? phase.diagnostic : controller.getDiagnostic();
   const route = runtime.getActiveRoute();
-  const routeNode = route
-    ? createElement('div', { 'data-vivy-presentation-route': route.id }, renderContribution(routeProjection(route.id, route.value)?.render))
+  const routeValue = route ? routeProjection(route.id, route.value) : undefined;
+  const routeNode = route && routeValue
+    ? createElement(ModulePageSurface, {
+      routeId: route.id,
+      projection: routeValue,
+      iconName: navigationIconName(runtime, routeValue.path),
+      translate: hostT(host),
+    })
     : null;
   // A Module that supplies an exclusive root owns the whole window, so the host
   // renders its assembled route over that root. Without one the shell owns the
@@ -876,10 +891,16 @@ export function useActivePresentationRoute(host?: FullUIHost): ReactNode | undef
     () => 0,
   );
   const route = runtime?.getActiveRoute();
+  const projection = route ? routeProjection(route.id, route.value) : undefined;
   // `version` is the path/registry revision the route lookup must be rebuilt for.
-  return useMemo(() => (route
-    ? createElement('div', { 'data-vivy-presentation-route': route.id }, renderContribution(routeProjection(route.id, route.value)?.render))
-    : undefined), [route, version]);
+  return useMemo(() => (route && projection
+    ? createElement(ModulePageSurface, {
+      routeId: route.id,
+      projection,
+      iconName: runtime ? navigationIconName(runtime, projection.path) : undefined,
+      translate: hostT(host),
+    })
+    : undefined), [route, projection, runtime, host, version]);
 }
 
 /** Options for the production Face adapter; all values are runtime facts. */
@@ -1305,12 +1326,101 @@ function navigationProjection(id: string, value: unknown): NavigationProjection 
 }
 
 function routeProjection(id: string, value: unknown): RouteProjection | undefined {
-  if (typeof value === 'function' || isValidElement(value)) return id.startsWith('/') ? { path: id, render: value } : undefined;
-  if (!value || typeof value !== 'object') return id.startsWith('/') ? { path: id, render: value } : undefined;
+  if (typeof value === 'function' || isValidElement(value)) {
+    return id.startsWith('/') ? { path: id, render: value, demo: false } : undefined;
+  }
+  if (!value || typeof value !== 'object') {
+    return id.startsWith('/') ? { path: id, render: value, demo: false } : undefined;
+  }
   const object = value as Record<string, unknown>;
   const path = typeof object.path === 'string' ? object.path : typeof object.to === 'string' ? object.to : typeof object.href === 'string' ? object.href : id.startsWith('/') ? id : undefined;
   const render = object.render ?? object.component ?? object.element ?? value;
-  return path && render !== undefined ? { path, render } : undefined;
+  if (!path || render === undefined) return undefined;
+  return {
+    path,
+    render,
+    titleKey: typeof object.titleKey === 'string' ? object.titleKey : undefined,
+    subtitleKey: typeof object.subtitleKey === 'string' ? object.subtitleKey : undefined,
+    title: typeof object.title === 'string' ? object.title : undefined,
+    subtitle: typeof object.subtitle === 'string' ? object.subtitle : undefined,
+    demo: object.demo === true,
+  };
+}
+
+/**
+ * The icon a page header shows: the one its own entry declares.
+ *
+ * A Module names one icon, on its navigation contribution, and both the
+ * sidebar entry and the page header render it, so the two can never disagree.
+ * A Generation whose page has no corresponding entry simply has no icon.
+ */
+function navigationIconName(runtime: LiveCompositionRuntime, path: string): HostIconName | undefined {
+  const target = normalizePath(path);
+  for (const entry of runtime.getEntries('navigation')) {
+    const value = entry.value;
+    if (!value || typeof value !== 'object') continue;
+    const object = value as Record<string, unknown>;
+    const to = typeof object.to === 'string' ? object.to : typeof object.path === 'string' ? object.path : undefined;
+    if (!to || normalizePath(to) !== target) continue;
+    if (isHostIconName(object.icon)) return object.icon;
+  }
+  return undefined;
+}
+
+/**
+ * The translator a surface uses for Module-owned copy: the host translator when
+ * the caller has a host, the core translator otherwise. A host that carries no
+ * translator (a minimal test or diagnostic host) must not break a page.
+ */
+function hostT(host?: FullUIHost): (key: string) => string {
+  if (typeof host?.t === 'function') return (key: string) => host.t(key);
+  return translate;
+}
+
+/**
+ * The page surface every Module page renders inside.
+ *
+ * It is the *host's* frame, not the Module's: the demo banner when the page is
+ * local demo data, the header (the entry's icon, the title, the subtitle), and
+ * a content region with a definite full height so a page's own panes scroll
+ * instead of collapsing to their content height. A Module therefore returns
+ * page content only, and every plugin page looks the same regardless of who
+ * wrote it.
+ */
+function ModulePageSurface({ routeId, projection, iconName, translate: translator }: {
+  readonly routeId: string;
+  readonly projection: RouteProjection;
+  readonly iconName?: string;
+  readonly translate: (key: string) => string;
+}) {
+  const translateKey = (key: string | undefined, fallback: string | undefined): string | undefined =>
+    key ? translator(key) : fallback;
+  const title = translateKey(projection.titleKey, projection.title);
+  const subtitle = translateKey(projection.subtitleKey, projection.subtitle);
+  const Icon = resolveHostIcon(iconName);
+  return createElement(
+    'div',
+    { 'data-vivy-presentation-route': routeId, className: 'flex h-full min-h-0 flex-col' },
+    projection.demo ? createElement(DemoBanner) : null,
+    title || subtitle
+      ? createElement(
+        'header',
+        { 'data-vivy-presentation-page-header': '', className: 'shrink-0 border-b px-4 py-4 sm:px-6' },
+        createElement(
+          'div',
+          { className: 'flex min-w-0 items-center gap-2' },
+          createElement(Icon, { className: 'h-5 w-5 shrink-0 text-muted-foreground' }),
+          createElement('h1', { className: 'truncate text-lg font-semibold' }, title ?? ''),
+        ),
+        subtitle ? createElement('p', { className: 'mt-0.5 text-sm text-muted-foreground' }, subtitle) : null,
+      )
+      : null,
+    createElement(
+      'div',
+      { 'data-vivy-presentation-page-content': '', className: 'min-h-0 flex-1 overflow-y-auto' },
+      renderContribution(projection.render),
+    ),
+  );
 }
 
 function renderContribution(value: unknown): ReactNode {
