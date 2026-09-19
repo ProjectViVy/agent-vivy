@@ -2439,6 +2439,88 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	}
 }
 
+// The smart-mode review window round-trips through settings/get and
+// settings/update, including the explicit 0 that disables timed
+// auto-approval, and an update that omits the field keeps the saved value.
+func TestSettingsApprovalTimeoutOverlay(t *testing.T) {
+	env, settingsPath := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ConfigApprovalTimeoutSeconds = 300
+		deps.ConfigApprovalExpirationSeconds = 300
+	})
+
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Sandbox.ApprovalTimeoutSeconds != 300 || get.Sandbox.ConfigApprovalTimeoutSeconds != 300 || get.Sandbox.ApprovalExpirationSeconds != 300 {
+		t.Fatalf("initial sandbox window = %+v", get.Sandbox)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": 45},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 45 {
+		t.Fatalf("saved approval timeout = %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if got := result.(settingsResult).Sandbox.ApprovalTimeoutSeconds; got != 45 {
+		t.Fatalf("effective approval timeout = %d, want 45", got)
+	}
+
+	// An update that carries no sandbox block must not clear the window.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek", "default_model": "deepseek-flash",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if loaded, err = settings.Load(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 45 {
+		t.Fatalf("unrelated update cleared the window: %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+
+	// Explicit 0 is the "never auto-approve" setting and survives as 0.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": 0},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if loaded, err = settings.Load(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 0 {
+		t.Fatalf("explicit 0 did not persist: %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if got := result.(settingsResult).Sandbox.ApprovalTimeoutSeconds; got != 0 {
+		t.Fatalf("effective approval timeout after 0 = %d, want 0", got)
+	}
+
+	// Out of range is rejected at the boundary.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": -5},
+	}); rpcErr == nil {
+		t.Fatal("negative approval timeout must be rejected")
+	}
+}
+
 // PROV-P4: the catalog payload is the embedded data — every vendor with all of
 // its endpoint variants — so the frontend holds no provider data of its own.
 // The deferred protocol must be visible and marked non-executable, and no

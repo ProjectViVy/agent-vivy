@@ -146,6 +146,14 @@ type ControlDeps struct {
 	ConfigSandboxDenyPrivateIPs bool
 	// ConfigSandboxAllowedDomains is the production config domain allowlist.
 	ConfigSandboxAllowedDomains []string
+	// ConfigApprovalTimeoutSeconds is the production config human review
+	// window for effectful tool approvals (runtime.sandbox.approval
+	// .timeout_seconds), surfaced by settings/get as the value an overlay
+	// clears back to.
+	ConfigApprovalTimeoutSeconds int
+	// ConfigApprovalExpirationSeconds is the hard tools.approval.expiration
+	// that bounds the review window; the UI caps its input with it.
+	ConfigApprovalExpirationSeconds int
 	// ConfigHTTPAllowedHosts is the production config http_request allowlist
 	// (non-secret), surfaced by settings/get as the UI fallback.
 	ConfigHTTPAllowedHosts []string
@@ -3802,6 +3810,14 @@ type sandboxSettingsResult struct {
 	AllowedDomains         []string                `json:"allowed_domains"`
 	WorkspaceRoot          string                  `json:"workspace_root"`
 	ExecuteAllowedCommands []string                `json:"execute_allowed_commands"`
+	// ApprovalTimeoutSeconds is the effective human review window for an
+	// effectful tool approval: 0 means timed auto-approval is disabled.
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds"`
+	// ConfigApprovalTimeoutSeconds is the config fallback the UI restores
+	// when the overlay is cleared.
+	ConfigApprovalTimeoutSeconds int `json:"config_approval_timeout_seconds"`
+	// ApprovalExpirationSeconds is the hard expiration bounding that window.
+	ApprovalExpirationSeconds int `json:"approval_expiration_seconds"`
 }
 
 // networkSearchSettingsResult is the non-secret network_search section of
@@ -3976,13 +3992,24 @@ func (h *controlHandler) sandboxView(saved settings.SandboxSettings) sandboxSett
 	if domains == nil {
 		domains = []string{}
 	}
+	// The review window follows the same overlay-over-config rule as the
+	// restart path: an overlay that cannot shorten the hard expiration is not
+	// shorter than it and is therefore not in force.
+	approvalTimeout := h.deps.ConfigApprovalTimeoutSeconds
+	if saved.ApprovalTimeoutSeconds != nil &&
+		(h.deps.ConfigApprovalExpirationSeconds <= 0 || *saved.ApprovalTimeoutSeconds < h.deps.ConfigApprovalExpirationSeconds) {
+		approvalTimeout = *saved.ApprovalTimeoutSeconds
+	}
 	return sandboxSettingsResult{
-		DefaultPreset:          preset,
-		ConfigDefaultPreset:    h.defaultPreset(),
-		DenyPrivateIPs:         denyPrivate,
-		AllowedDomains:         domains,
-		WorkspaceRoot:          h.deps.SandboxWorkspaceRoot,
-		ExecuteAllowedCommands: append([]string(nil), h.deps.ExecuteAllowedCommands...),
+		DefaultPreset:                preset,
+		ConfigDefaultPreset:          h.defaultPreset(),
+		DenyPrivateIPs:               denyPrivate,
+		AllowedDomains:               domains,
+		WorkspaceRoot:                h.deps.SandboxWorkspaceRoot,
+		ExecuteAllowedCommands:       append([]string(nil), h.deps.ExecuteAllowedCommands...),
+		ApprovalTimeoutSeconds:       approvalTimeout,
+		ConfigApprovalTimeoutSeconds: h.deps.ConfigApprovalTimeoutSeconds,
+		ApprovalExpirationSeconds:    h.deps.ConfigApprovalExpirationSeconds,
 	}
 }
 
@@ -4055,6 +4082,10 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 			DefaultPreset  string   `json:"default_preset"`
 			DenyPrivateIPs *bool    `json:"deny_private_ips"`
 			AllowedDomains []string `json:"allowed_domains"`
+			// ApprovalTimeoutSeconds overrides the human review window;
+			// absent keeps the previous value, and an explicit 0 means
+			// "never auto-approve on timeout".
+			ApprovalTimeoutSeconds *int `json:"approval_timeout_seconds"`
 		} `json:"sandbox"`
 		// Compaction is the context compression overlay; absent keeps the
 		// previous value, explicit zeros inside a present block keep the
@@ -4103,6 +4134,10 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 				cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
 				if params.Sandbox.AllowedDomains != nil {
 					cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+				}
+				if params.Sandbox.ApprovalTimeoutSeconds != nil {
+					seconds := *params.Sandbox.ApprovalTimeoutSeconds
+					cur.Sandbox.ApprovalTimeoutSeconds = &seconds
 				}
 			}
 			if params.Compaction != nil {

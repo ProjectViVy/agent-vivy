@@ -523,7 +523,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 	proposal.Data = shellStateRefData(stateRef)
 	proposal.RiskFindings = boundShellFindings(proposal.RiskFindings)
 	proposal = boundToolProposalReview(proposal, p.mapper.maxPayload)
-	expiresAt := time.Now().Add(s.shellApprovalExpiration()).UnixMilli()
+	expiresAt := s.approvalDeadline(time.Now(), s.shellApprovalExpiration()).UnixMilli()
 	approvedHash := shellApprovalHash(args, p.snapshot.Hash, s.engine.cfg.ToolHooks)
 	approval := domain.Approval{
 		ID: newPrefixedID("apr_"), RunID: p.mapper.runID, ToolCallID: p.toolCallID,

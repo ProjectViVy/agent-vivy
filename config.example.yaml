@@ -152,8 +152,13 @@ runtime:
       #   never - deny all effectful tools without asking
       #   auto  - auto-approve readonly/whitelisted tools, ask for others
       default_policy: ask
-      # Timeout in seconds before pending approvals are auto-expired and denied.
-      # Set to 0 to disable timeout (approvals expire based on expiration field only).
+      # Human review window, in seconds, for an effectful tool approval. When
+      # it elapses with no decision the runtime settles the approval: under
+      # the smart preset (workspace-write + ask) the call is approved on the
+      # user's behalf, and under every other preset it expires and closes the
+      # run with the human_timeout cause.
+      # Set to 0 to disable timed auto-approval; tools.approval.expiration
+      # then remains the only bound.
       timeout_seconds: 300
       # Tools that are auto-approved under the "auto" policy (typically readonly tools).
       auto_approve_tools:

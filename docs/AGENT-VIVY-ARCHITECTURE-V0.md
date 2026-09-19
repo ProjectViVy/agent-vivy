@@ -109,6 +109,20 @@ two-layer checkpoint bridge (D-028): `EinoCheckpointAdapter` →
 (D-009). Checkpoint bytes never define product history: the journal is the
 record, the checkpoint only resumes it.
 
+**Per-call refusals are tool results, not run failures (2026-09-19).** A
+refused invocation — argument guard (malformed arguments, NUL bytes, path
+traversal, blocked command syntax), the bash deny table, a policy or plan-mode
+denial, a `never`-policy denial, sandbox confinement of a write, or a denied
+pre-tool/post-hook/middleware rewrite — is delivered to the model as the tool
+result ("`<tool> did not run: <reason>`"), journaled as a `policy.evaluated`
+deny, and the run continues so the model can choose another approach. The call
+must never reach the tool, on any profile or approval policy. Eino's
+`ToolsNode` escalates every non-interrupt tool error into a `NodeRunError` that
+fails the whole run, so the conversion is owned by Vivy's `toolAdapter`
+(`internal/runtime/tooladapter.go`); a cause that is not a per-call refusal —
+provider, journal, budget, checkpoint/approval integrity, tool wiring — still
+fails the run with a structured cause category (FR-11).
+
 ## ADR-007 — UI: thin browser shell over the JSON-RPC contract
 
 **Decision.** The UI is a zero-runtime-dependency Vite + TypeScript shell

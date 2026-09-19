@@ -384,6 +384,44 @@ func TestSaveAndLoadSandboxPreset(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadApprovalTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	window := 45
+	if _, err := Save(path, Settings{Sandbox: SandboxSettings{ApprovalTimeoutSeconds: &window}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 45 {
+		t.Fatalf("approval timeout round trip = %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	// An explicit 0 survives as 0 (never auto-approve), not as "absent".
+	off := 0
+	if _, err := Save(path, Settings{Sandbox: SandboxSettings{ApprovalTimeoutSeconds: &off}}); err != nil {
+		t.Fatalf("save zero: %v", err)
+	}
+	if loaded, err = Load(path); err != nil {
+		t.Fatalf("load zero: %v", err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 0 {
+		t.Fatalf("explicit 0 did not round trip: %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	if loaded.IsZero() {
+		t.Fatal("a document carrying only the approval window must not read as zero")
+	}
+	// Out of range values are rejected before they reach the runtime.
+	negative := -1
+	if err := (Settings{Sandbox: SandboxSettings{ApprovalTimeoutSeconds: &negative}}).Validate(); err == nil {
+		t.Fatal("negative approval timeout must be rejected")
+	}
+	tooLong := 90000
+	if err := (Settings{Sandbox: SandboxSettings{ApprovalTimeoutSeconds: &tooLong}}).Validate(); err == nil {
+		t.Fatal("approval timeout above one day must be rejected")
+	}
+}
+
 func TestSaveAndLoadProviderRegistry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	s := Settings{

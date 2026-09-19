@@ -217,6 +217,12 @@ type ChannelOverlay struct {
 type SandboxSettings struct {
 	DefaultPreset domain.PermissionPreset `yaml:"default_preset"`
 	Network       SandboxNetworkSettings  `yaml:"network"`
+	// ApprovalTimeoutSeconds overlays
+	// runtime.sandbox.approval.timeout_seconds: the human review window for an
+	// effectful tool approval, in seconds. It is a pointer because zero is
+	// meaningful ("never auto-approve on timeout"); nil keeps the config
+	// default. Values above the hard expiration are ignored with a warning.
+	ApprovalTimeoutSeconds *int `yaml:"approval_timeout_seconds,omitempty"`
 }
 
 // SandboxNetworkSettings overlays runtime.sandbox.network. Nil pointer /
@@ -332,6 +338,7 @@ func (s Settings) IsZero() bool {
 		s.ToolsEnabled == nil &&
 		s.Sandbox.DefaultPreset == "" &&
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
+		s.Sandbox.ApprovalTimeoutSeconds == nil &&
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
 		s.Compaction == nil &&
 		s.HTTP == nil &&
@@ -508,6 +515,9 @@ func (s Settings) Validate() error {
 		if strings.TrimSpace(domainName) == "" {
 			return fmt.Errorf("settings: sandbox.network.allowed_domains[%d] must not be empty", i)
 		}
+	}
+	if seconds := s.Sandbox.ApprovalTimeoutSeconds; seconds != nil && (*seconds < 0 || *seconds > 86400) {
+		return fmt.Errorf("settings: sandbox.approval_timeout_seconds %d out of range; want 0 (never auto-approve) or 1..86400", *seconds)
 	}
 	if s.Compaction != nil {
 		if s.Compaction.MaxTokens < 0 {

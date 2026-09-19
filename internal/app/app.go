@@ -648,14 +648,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
-		Journal:            backend,
-		Runs:               backend,
-		Messages:           backend,
-		Notes:              backend,
-		Approvals:          backend,
-		Questions:          backend,
-		ApprovalExpiration: cfg.Tools.Approval.Expiration,
-		ShellState:         backend.Blobs(),
+		Journal:               backend,
+		Runs:                  backend,
+		Messages:              backend,
+		Notes:                 backend,
+		Approvals:             backend,
+		Questions:             backend,
+		ApprovalExpiration:    cfg.Tools.Approval.Expiration,
+		ApprovalSettleTimeout: time.Duration(cfg.Runtime.Sandbox.Approval.TimeoutSeconds) * time.Second,
+		ShellState:            backend.Blobs(),
 		Budget: runtime.BudgetPolicy{
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
@@ -874,17 +875,19 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			// speaks (PROV-P3).
 			return modelHost.Statuses(current.Adapter, current.Ready)
 		},
-		RuntimeBaseURL:                 cur.BaseURL,
-		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
-		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
-		DefaultPermissionPreset:        defaultPermissionPreset(cfg),
-		SandboxWorkspaceRoot:           cfg.Runtime.WorkspaceRoot,
-		ExecuteAllowedCommands:         append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
-		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
-		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
-		ConfigHTTPAllowedHosts:         append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
-		ConfigHTTPTimeoutSeconds:       cfg.Runtime.HTTPTimeoutSeconds,
-		ConfigCompaction:               cmp,
+		RuntimeBaseURL:                  cur.BaseURL,
+		ConfigNetworkSearchProvider:     cfg.Tools.NetworkSearch.Provider,
+		ConfigExecuteMaxTimeoutSeconds:  cfg.Runtime.ExecuteMaxTimeoutSeconds,
+		DefaultPermissionPreset:         defaultPermissionPreset(cfg),
+		SandboxWorkspaceRoot:            cfg.Runtime.WorkspaceRoot,
+		ExecuteAllowedCommands:          append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
+		ConfigSandboxDenyPrivateIPs:     cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
+		ConfigSandboxAllowedDomains:     append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
+		ConfigApprovalTimeoutSeconds:    cfg.Runtime.Sandbox.Approval.TimeoutSeconds,
+		ConfigApprovalExpirationSeconds: int(cfg.Tools.Approval.Expiration / time.Second),
+		ConfigHTTPAllowedHosts:          append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
+		ConfigHTTPTimeoutSeconds:        cfg.Runtime.HTTPTimeoutSeconds,
+		ConfigCompaction:                cmp,
 		// Channel ears: the Host exposes the compiled-in set and the process
 		// truth of the last StartAll; channel writes go through the settings
 		// overlay and apply on the next restart (contract §11).
@@ -951,6 +954,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			svc.SetModel(name, id)
 			applyLiveSandboxSettings(sandboxManager, liveSettingsPath, cfg)
 			applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
+			applyLiveApprovalWindow(svc, liveSettingsPath, cfg, logger)
 			s, err := settings.Load(liveSettingsPath)
 			if err != nil {
 				logger.Warn("mcp overlay reload skipped", "err", err)
@@ -1307,12 +1311,33 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 	if s.Sandbox.Network.AllowedDomains != nil {
 		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
+	if s.Sandbox.ApprovalTimeoutSeconds != nil {
+		cfg.Runtime.Sandbox.Approval.TimeoutSeconds = effectiveApprovalTimeoutSeconds(cfg, s.Sandbox.ApprovalTimeoutSeconds, logger)
+	}
 	cfg.Runtime.Compaction = mergedCompactionConfig(cfg.Runtime.Compaction, s.Compaction)
 	if merged := mergedChannels(logger, cfg.Channels, s.Channels, compiledChannels); merged != nil {
 		cfg.Channels = merged
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "approval_timeout_seconds", cfg.Runtime.Sandbox.Approval.TimeoutSeconds, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
 	return cfg
+}
+
+// effectiveApprovalTimeoutSeconds resolves the human review window
+// (runtime.sandbox.approval.timeout_seconds) from the config default plus the
+// optional settings overlay. An overlay that is not shorter than the hard
+// tools.approval.expiration cannot shorten review, so it is ignored with a
+// warning rather than silently ignored by the deadline clamp. The startup
+// overlay and the live reload share this rule.
+func effectiveApprovalTimeoutSeconds(cfg config.Config, overlay *int, logger *slog.Logger) int {
+	base := cfg.Runtime.Sandbox.Approval.TimeoutSeconds
+	if overlay == nil || *overlay < 0 {
+		return base
+	}
+	if cfg.Tools.Approval.Expiration > 0 && time.Duration(*overlay)*time.Second >= cfg.Tools.Approval.Expiration {
+		logger.Warn("sandbox approval timeout overlay ignored", "seconds", *overlay, "expiration", cfg.Tools.Approval.Expiration.String())
+		return base
+	}
+	return *overlay
 }
 
 // mergedChannels overlays the settings.yaml per-channel entries onto the
@@ -1519,6 +1544,20 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 		}
 	}
 	backend.SetConfig(hosts, timeout)
+}
+
+// applyLiveApprovalWindow replays the settings.yaml approval-timeout overlay
+// over the config default and live-applies it, so the next approval honors
+// the saved review window without a restart.
+func applyLiveApprovalWindow(svc *runtime.Service, path string, cfg config.Config, logger *slog.Logger) {
+	if svc == nil {
+		return
+	}
+	s, err := settings.Load(path)
+	if err != nil {
+		return
+	}
+	svc.SetApprovalSettleTimeout(time.Duration(effectiveApprovalTimeoutSeconds(cfg, s.Sandbox.ApprovalTimeoutSeconds, logger)) * time.Second)
 }
 
 // Run blocks until ctx is cancelled or the server fails. On cancellation
