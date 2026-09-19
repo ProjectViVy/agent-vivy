@@ -89,7 +89,6 @@ function ToolResultBubble({ message }: { message: Message }) {
 
 export function MessageBubble({
   message,
-  reasoning,
   streaming,
   canRegenerate = false,
   actionsDisabled = false,
@@ -99,7 +98,6 @@ export function MessageBubble({
   onFork,
 }: {
   message: Message;
-  reasoning?: string;
   streaming?: boolean;
   /** 助手消息之前存在用户消息（有可重发的输入） */
   canRegenerate?: boolean;
@@ -136,7 +134,7 @@ export function MessageBubble({
   // content 为空的 assistant 消息（internal/runtime/message_projector.go
   // EventToolRequested），此前它渲染成一只空气泡 + 一整条操作栏。
   // 工具调用自身的呈现是另一件事，不在这里补。
-  if (message.role !== 'user' && message.content.trim() === '' && !reasoning && !streaming) return null;
+  if (message.role !== 'user' && message.content.trim() === '' && !streaming) return null;
   // channel 出处徽章（CH-C1-N3）：ui 轮无 provenance，不出任何标记。
   const origin = message.provenance
     ? [message.provenance.channel || message.provenance.source, message.provenance.chat_id].filter(Boolean).join(' · ')
@@ -185,7 +183,6 @@ export function MessageBubble({
   }
   return <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-start"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
     <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-relaxed shadow-sm">
-      {reasoning ? <details className="mb-3 border-b border-border pb-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{streaming ? t('chat.thinkingStreaming') : t('chat.thinking')}</summary><div className="mt-2 whitespace-pre-wrap">{reasoning}</div></details> : null}
       <MarkdownBody content={message.content || (streaming ? '…' : '')} />
     </div>
     {streaming ? null : (

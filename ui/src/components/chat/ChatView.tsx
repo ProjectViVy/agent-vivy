@@ -26,8 +26,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const runEvents = useVivyStore((state) => state.runEvents);
   const runLogs = useVivyStore((state) => state.runLogs);
   const runBusy = useVivyStore((state) => state.runBusy);
-  const streamingText = useVivyStore((state) => state.streamingText);
-  const streamingReasoning = useVivyStore((state) => state.streamingReasoning);
   const sessionContext = useVivyStore((state) => state.sessionContext);
   const startRun = useVivyStore((state) => state.startRun);
 	const editSession = useVivyStore((state) => state.editSession);
@@ -87,9 +85,10 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 	} catch (error) { setActionError(error); throw error; }
 	finally { setHistoryAction(false); }
   };
-  const streamMessage = streamingText || streamingReasoning ? { id: `stream-${run?.id}`, run_id: run?.id, role: 'assistant' as const, content: streamingText, created_at: Date.now() } : null;
-  // 转写行：事件（run/log 或实时订阅）折叠出工具与思考行，投影消息提供用户与
-  // 助手正文；没有事件的运行仍按投影渲染（助手气泡 + 工具结果卡）。
+  // 转写行：事件（run/log 或实时订阅）折叠出思考、工具与正文行，投影消息提供
+  // 用户输入并接上真实的助手消息。实时运行也走这一条路径——同一段增量只有这一个
+  // 渲染者（此前的流式兜底气泡会让思考/正文各出现两份）；拿不到事件的运行仍按
+  // 投影渲染（助手气泡 + 工具结果卡）。
   const runRows = useMemo(() => {
     const map: Record<string, ReturnType<typeof foldRunEvents>> = {};
     for (const [runId, events] of Object.entries(runLogs)) map[runId] = foldRunEvents(runId, events);
@@ -107,13 +106,12 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
-          {phase === 'empty' && !streamMessage && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-lg text-muted-foreground">{t('chat.startNew')}</p></div> : null}
+          {phase === 'empty' && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-lg text-muted-foreground">{t('chat.startNew')}</p></div> : null}
           {transcript.map((row) => {
             if (row.kind === 'user' || row.kind === 'assistant') return <MessageBubble key={row.id} message={row.message} streaming={row.kind === 'assistant' && row.streaming} canRegenerate={regeneratePrompt(messages, row.message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(row.message.id)} onEditConfirm={(text) => handleEdit(row.message.id, text)} onRewind={() => handleRewind(row.message.id)} onFork={() => handleFork(row.message.id)} />;
             if (row.kind === 'toolResult') return <MessageBubble key={row.id} message={row.message} />;
             return <RunRowView key={row.id} row={row.row} />;
           })}
-          {streamMessage ? <MessageBubble message={streamMessage} reasoning={streamingReasoning} streaming /> : null}
           {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
           {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}
         </div></ScrollArea>
