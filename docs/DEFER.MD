@@ -25,6 +25,7 @@ Deliberately not scheduled. Each row keeps the reason it waits and the record th
 | SBX-LIVE | Hot-swappable permission preset for an in-progress run | DEFERRED | The current turn pins the session policy; it takes effect on the next `turn/start` |
 | ST-SUB-3 | Further split community plugins into nested submodules (optional) | DEFERRED | The initial tree is all in `vivy-studio`; split it after size/update policy stabilizes |
 | WF-3 | Workflow follow-ups: trigger Port + single invocation entry, conditional edges/branch routing, node error policies (retry/skip), resume-after-interruption, structured (non-string) node IO, visual editor UI module, workflow nesting, version migration beyond schema v1, checkpoint-store mapping | DEFERRED | Umbrella for `DETAILED-DESIGN.md` §14 open items; none block WF-1/WF-2. Split into own rows when a slice is scheduled. |
+| RB-L2-DEFER | Restore side: files/restore RPC + one-click session rollback UI (optionally include a Crush-style panel showing “which files this session changed”) | DEFERRED | Deferred by decision on 2026-09-01: the prototype MVP is not ready, so align with Crush first (the record side lands with the VC-3 tail); the restore side is a differentiation beyond Crush and can be revisited after MVP validation. The design is ready: rollback research §5.2/5.3/5.4, with O4 (archive scope) and O5 (restore governance) decisions to be made at kickoff |
 
 ## 2. Resolved-deferred
 
