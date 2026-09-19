@@ -4,6 +4,7 @@ import { runFailedMessage } from './failure';
 import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
 import { isTaskToolName } from './todos';
+import { recentRunIds } from './run-rows';
 import { hydrateLocale, t } from '@/i18n';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
@@ -30,6 +31,20 @@ function lastRunId(messages: api.Message[]): string | null {
   return null;
 }
 
+/** 历史运行事件缓存上限：转写只折叠最近若干个运行，避免一次会话拉爆内存。 */
+const RUN_LOG_CACHE_LIMIT = 8;
+
+/** 写入一条运行事件缓存；超出上限时按插入顺序淘汰最早的。 */
+function withCachedRunLog(cache: Record<string, RunEvent[]>, runId: string, events: RunEvent[]): Record<string, RunEvent[]> {
+  if (events.length === 0) return cache;
+  const next: Record<string, RunEvent[]> = { ...cache, [runId]: events };
+  const keys = Object.keys(next);
+  for (const stale of keys.slice(0, Math.max(0, keys.length - RUN_LOG_CACHE_LIMIT))) {
+    if (stale !== runId) delete next[stale];
+  }
+  return next;
+}
+
 interface RuntimeState {
   initialized: boolean;
   initializationError: string | null;
@@ -51,6 +66,8 @@ interface RuntimeState {
   todoPanelOpen: boolean;
   currentRun: api.Run | null;
   runEvents: RunEvent[];
+  /** 历史运行的事件缓存（run/log 回放）：转写据此折叠工具/思考行。 */
+  runLogs: Record<string, RunEvent[]>;
   streamingText: string;
   streamingReasoning: string;
   runError: string | null;
@@ -111,6 +128,8 @@ interface RuntimeState {
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
+  /** 按需拉取并缓存某个历史运行的事件（失败即静默回退到投影渲染）。 */
+  loadRunLog: (runId: string) => Promise<void>;
   loadBackgroundRuns: () => Promise<void>;
   attachBackgroundRun: (runId: string) => Promise<void>;
   loadChildren: (parentRunId?: string) => Promise<void>;
@@ -284,7 +303,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
-  currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
+  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
@@ -458,7 +477,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -469,6 +488,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
       const runId = background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id ?? lastRunId(messages);
       if (runId) await get().openRun(runId, id);
+      // 最近的两个更早运行按需回放事件，让前几轮也按工具/思考行渲染。
+      const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
+      await Promise.all(older.map((candidate) => get().loadRunLog(candidate)));
     } catch (error) { if (epoch === sessionEpoch) set({ messagesPhase: 'error', messagesError: errorMessage(error) }); }
   },
   loadTodos: async (sessionId = get().activeSessionId ?? undefined) => {
@@ -514,9 +536,22 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const failed = !active && run.status === 'failed'
         ? runFailedMessage([...events].reverse().find((event) => event.type === 'run.failed')?.payload) ?? t('errors.runFailedTitle')
         : null;
-      set({ currentRun: run, runEvents: events, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
+      // 切换运行前先把上一轮的事件留在缓存里，否则它下一轮就会退回投影渲染。
+      const previous = get();
+      const runLogs = previous.currentRun && previous.currentRun.id !== runId && previous.runEvents.length > 0
+        ? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
+        : previous.runLogs;
+      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
+  },
+  loadRunLog: async (runId) => {
+    if (runId === '' || get().runLogs[runId] !== undefined) return;
+    try {
+      const log = await api.getRunLog(runId);
+      const events = log.events.sort((a, b) => a.seq - b.seq);
+      set((state) => ({ runLogs: withCachedRunLog(state.runLogs, runId, events) }));
+    } catch { /* 历史事件不可得（已删除/清理）：该运行保持投影渲染 */ }
   },
   startRun: async (sessionId, text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => {
     if (get().activeSessionId !== sessionId) {
@@ -532,7 +567,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
       const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
       const localAttachments: api.MessageAttachment[] | undefined = attachments?.map((item) => ({ name: item.name, mime_type: item.mime_type, data_url: `data:${item.mime_type};base64,${item.data}` }));
-      set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', messages: [...state.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user', content: text, created_at: Date.now(), attachments: localAttachments }], messagesPhase: 'ready', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
+      // 新一轮开始前把上一轮的事件留在缓存里：它的工具/思考行不会因为切换而消失。
+      const previous = get();
+      const runLogs = previous.currentRun && previous.runEvents.length > 0
+        ? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
+        : previous.runLogs;
+      set((state) => ({ currentRun: run, runEvents: [], runLogs, streamingText: '', streamingReasoning: '', connection: 'connecting', messages: [...state.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user', content: text, created_at: Date.now(), attachments: localAttachments }], messagesPhase: 'ready', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
       startSubscription(run.id, 0);
     } catch (error) { set({ runError: errorMessage(error) }); throw error; } finally { set({ runBusy: false }); }
   },
@@ -549,7 +589,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 			if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
 			const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
 			await loadMessagesIntoStore(sessionId, sessionEpoch);
-			set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
+			const previous = get();
+			const runLogs = previous.currentRun && previous.runEvents.length > 0
+				? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
+				: previous.runLogs;
+			set((state) => ({ currentRun: run, runEvents: [], runLogs, streamingText: '', streamingReasoning: '', connection: 'connecting', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
 			startSubscription(run.id, 0);
 		} catch (error) { set({ runError: errorMessage(error) }); throw error; }
 		finally { set({ runBusy: false }); }

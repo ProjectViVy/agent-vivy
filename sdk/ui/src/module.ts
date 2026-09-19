@@ -1564,6 +1564,11 @@ export interface FaceStoreState {
   readonly todoPanelOpen: boolean;
   readonly currentRun: FaceRun | null;
   readonly runEvents: FaceRunEvent[];
+  /**
+   * 历史运行的事件缓存（`run/log` 回放），键为 run id；转写据此折叠工具与
+   * 思考行。当前运行始终以 `runEvents` 为准。
+   */
+  readonly runLogs: { readonly [runId: string]: FaceRunEvent[] };
   readonly streamingText: string;
   readonly streamingReasoning: string;
   readonly runError: string | null;
@@ -1620,6 +1625,7 @@ export interface FaceStoreState {
   clearQueue(): void;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
+  loadRunLog(runId: string): Promise<void>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;

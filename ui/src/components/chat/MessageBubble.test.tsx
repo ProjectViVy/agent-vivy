@@ -2,6 +2,7 @@ import { resetLocaleForTests } from '@/i18n';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MessageBubble } from './MessageBubble';
+import { UNTRUSTED_RESULT_HEADER } from '@/lib/run-rows';
 import type { Message } from '@/lib/api';
 
 function assistant(partial: Partial<Message> = {}): Message {
@@ -48,5 +49,13 @@ describe('MessageBubble', () => {
     const html = renderToStaticMarkup(<MessageBubble message={assistant({ content: '**加粗** 与 `code`' })} />);
     expect(html).toContain('<strong>加粗</strong>');
     expect(html).toContain('<code>code</code>');
+  });
+
+  it('finds the diff inside a tool result that carries the untrusted envelope', () => {
+    const diff = ['--- a/a.ts', '+++ b/a.ts', '@@ -1,1 +1,1 @@', '-old', '+new'].join('\n');
+    const content = `${UNTRUSTED_RESULT_HEADER}\n${JSON.stringify({ path: 'a.ts', diff })}`;
+    const html = renderToStaticMarkup(<MessageBubble message={assistant({ role: 'tool', content })} />);
+    expect(html).toContain('aria-label="1 added, 1 removed"');
+    expect(html).toContain('a.ts');
   });
 });
