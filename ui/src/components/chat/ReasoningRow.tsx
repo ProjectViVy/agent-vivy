@@ -1,6 +1,7 @@
 // 思考行（对照 DSH `ui-chat` 的 ReasoningRow）：默认收起的折叠行，标题稳定，
-// 摘要来自数据——运行中显示最后一行（右对齐，让最新 token 始终可见），结束后
-// 显示第一行；展开后正文是纯文本、表头吸顶，长思考链也能随时收起。
+// 摘要来自数据——运行中显示最后一行、结束后显示第一行；两种状态都左对齐并按行宽
+// 从右端截断，因此摘要始终从左向右生长（不对齐到行尾，避免看起来从右往左打印）。
+// 展开后正文是纯文本、表头吸顶，长思考链也能随时收起。
 // `**` 只在摘要里剥掉，正文保持原文。
 
 import { useState } from 'react';
@@ -45,13 +46,7 @@ export function ReasoningRow({ text, running }: { text: string; running: boolean
         {!expanded && summary !== '' ? (
           <>
             <span aria-hidden className="mx-2 h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/60" />
-            {running ? (
-              <span className="flex min-w-0 flex-1 justify-end overflow-hidden">
-                <span className="whitespace-nowrap text-[13px] leading-6 text-muted-foreground/80">{summary}</span>
-              </span>
-            ) : (
-              <span className="min-w-0 flex-1 truncate text-[13px] leading-6 text-muted-foreground/80">{summary}</span>
-            )}
+            <span className="min-w-0 flex-1 truncate text-[13px] leading-6 text-muted-foreground/80">{summary}</span>
           </>
         ) : null}
         {running ? (

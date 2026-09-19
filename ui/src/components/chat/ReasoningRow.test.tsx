@@ -22,6 +22,17 @@ describe('ReasoningRow', () => {
     expect(html).toContain('Running');
   });
 
+  // 摘要曾经在运行中右对齐（贴在行尾，看起来从右往左打印）；两种状态现在共用同一个
+  // 左对齐、按行宽从右端截断的摘要元素。
+  it('prints the running summary left to right like the settled one', () => {
+    const running = renderToStaticMarkup(<ReasoningRow text={'第一行\n最新一行'} running />);
+    const settled = renderToStaticMarkup(<ReasoningRow text={'第一行\n最新一行'} running={false} />);
+    for (const html of [running, settled]) {
+      expect(html).toContain('flex-1 truncate');
+      expect(html).not.toContain('justify-end');
+    }
+  });
+
   it('strips emphasis markers from the summary only', () => {
     const html = renderToStaticMarkup(<ReasoningRow text={'**重要**：先看文件'} running={false} />);
     expect(html).toContain('重要：先看文件');
