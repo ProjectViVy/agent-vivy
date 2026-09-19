@@ -5,6 +5,7 @@ import { Check, Copy, GitFork, Pencil, RefreshCw, Rewind, X } from 'lucide-react
 import type { Message } from '@/lib/api';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 import { parseToolResultDiff } from '@/lib/diff';
+import { stripUntrustedHeader } from '@/lib/run-rows';
 import { cn } from '@/lib/utils';
 import { DiffView } from '@/components/ui/DiffView';
 import { Textarea } from '@/components/ui/textarea';
@@ -65,7 +66,9 @@ function MarkdownBody({ content, className }: { content: string; className?: str
 
 function ToolResultBubble({ message }: { message: Message }) {
   const { t } = useTranslation();
-  const toolDiff = parseToolResultDiff(message.content);
+  // 内核给工具结果加了可信度信封头；比对面向前解析前先剥掉，否则文件变更的
+  // diff 永远解析不出来（历史消息有的带信封、有的不带）。
+  const toolDiff = parseToolResultDiff(stripUntrustedHeader(message.content));
   if (!toolDiff) {
     return <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm"><div className="mb-1 text-xs font-medium text-muted-foreground">{t('chat.toolResult')}</div><pre className="overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre></div>;
   }

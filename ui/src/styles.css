@@ -29,6 +29,17 @@
   --tw-prose-td-borders: currentColor;
 }
 
+/* 运行中的折叠行扫光（思考行 / 工具行，对照 DSH 的 row sweep）。
+   transform 动画不触发布局；prefers-reduced-motion 下整条去掉。 */
+@keyframes vivy-row-sweep {
+  0% { transform: translateX(-120%); }
+  90%, 100% { transform: translateX(320%); }
+}
+.row-sweep { animation: vivy-row-sweep 2.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .row-sweep { animation: none; opacity: 0; }
+}
+
 /* 皮肤套数：:root 即 default 主题；每套皮肤一个 [data-theme] 完整令牌块。
    .dark 类只驱动 dark: 变体（深色皮肤由 applyThemeToDOM 同步挂上），
    不再承载令牌值。预览色板字面量在 src/hooks/use-theme.ts。 */
