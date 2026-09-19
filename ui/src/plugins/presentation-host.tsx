@@ -162,6 +162,12 @@ interface NavigationProjection {
   readonly render?: unknown;
   readonly component?: ComponentType<Record<string, unknown>>;
   readonly onClick?: (event: MouseEvent<HTMLElement>) => unknown;
+  /**
+   * Named host surface that owns this entry. A grouped entry is rendered
+   * inside that surface (the assembled sidebar group) instead of the default
+   * top navigation, so it is never displayed twice.
+   */
+  readonly group?: string;
 }
 
 interface RouteProjection {
@@ -176,7 +182,7 @@ interface ShortcutProjection {
 }
 
 /** Runtime composition owned by one PresentationHost mount. */
-class LiveCompositionRuntime {
+export class LiveCompositionRuntime {
   private readonly entries = new Map<RegistryKind, Map<string, CompositionEntry[]>>();
   private readonly registrationOrder: CompositionEntry[] = [];
   private readonly listeners = new Set<() => void>();
@@ -653,6 +659,15 @@ function compositionRuntime(composition: UICompositionHost): LiveCompositionRunt
   return (composition as Partial<LiveCompositionHost>)[LIVE_COMPOSITION];
 }
 
+/**
+ * Core-shell read seam over the live composition registry owned by one Face
+ * host. Assembled surfaces (the sidebar VIVY group) use it to render Module
+ * contributions; it exposes reads only, never registration.
+ */
+export function compositionRuntimeOf(host: FullUIHost): LiveCompositionRuntime | undefined {
+  return compositionRuntime(host.composition);
+}
+
 function createCompositionAdapters(source: UICompositionHost, runtime: LiveCompositionRuntime, owner: symbol, ownerId: string | undefined, isDisposed: () => boolean, track: (handle: CleanupHandle) => CleanupHandle, reportCleanupFailure: (cause: unknown) => void): UICompositionHost {
   const sourceRuntime = compositionRuntime(source);
   const wrap = (kind: RegistryKind, registry: UIRegistry<unknown>): UIRegistry<unknown> => {
@@ -829,13 +844,42 @@ export function PresentationHost({
   const routeNode = route
     ? createElement('div', { 'data-vivy-presentation-route': route.id }, renderContribution(routeProjection(route.id, route.value)?.render))
     : null;
-  const selectedNode = routeNode ?? (root ? phase.status === 'ready' ? phase.node : null : children);
+  // A Module that supplies an exclusive root owns the whole window, so the host
+  // renders its assembled route over that root. Without one the shell owns the
+  // frame and nests the route through its catch-all slot
+  // (`useActivePresentationRoute`), which keeps the sidebar and panels in place
+  // instead of replacing them with a single page.
+  const selectedNode = root ? routeNode ?? (phase.status === 'ready' ? phase.node : null) : children;
   const hostedContent = diagnostic
     ? diagnosticsNode(diagnostic, resolvedProvenance)
     : phase.status === 'ready'
       ? createElement(PresentationErrorBoundary, { controller, provenance: resolvedProvenance }, createElement(Fragment, null, navigationNode(runtime, controller.getRouter()), selectedNode))
       : null;
   return createElement('div', { className: 'vivy-presentation-host', 'data-vivy-presentation-tree': '', 'data-vivy-presentation-provenance': serializedProvenance(resolvedProvenance) }, hostedContent);
+}
+
+const noopSubscribe = (): (() => void) => () => undefined;
+
+/**
+ * The assembled Module route for the current path, for the shell that owns the
+ * app frame. A Generation without an exclusive root keeps the shell (sidebar,
+ * composer, panels), and `routes/_layout.$.tsx` renders this node where the
+ * core route tree has no page, so a Module route nests inside the frame
+ * instead of replacing it. A Generation with a UI root renders its route over
+ * that root in the host itself, and this returns nothing there.
+ */
+export function useActivePresentationRoute(host?: FullUIHost): ReactNode | undefined {
+  const runtime = host ? compositionRuntimeOf(host) : undefined;
+  const version = useSyncExternalStore(
+    runtime ? runtime.subscribe : noopSubscribe,
+    runtime ? runtime.getSnapshot : () => 0,
+    () => 0,
+  );
+  const route = runtime?.getActiveRoute();
+  // `version` is the path/registry revision the route lookup must be rebuilt for.
+  return useMemo(() => (route
+    ? createElement('div', { 'data-vivy-presentation-route': route.id }, renderContribution(routeProjection(route.id, route.value)?.render))
+    : undefined), [route, version]);
 }
 
 /** Options for the production Face adapter; all values are runtime facts. */
@@ -1223,7 +1267,7 @@ function interpolate(template: string, args?: UITranslationArgs): string {
 }
 
 function navigationNode(runtime: LiveCompositionRuntime, router: FaceClientRouter): ReactNode {
-  const entries = runtime.getEntries('navigation');
+  const entries = runtime.getEntries('navigation').filter((entry) => !navigationProjection(entry.id, entry.value)?.group);
   if (entries.length === 0) return null;
   return createElement('nav', { 'data-vivy-presentation-navigation': '', 'aria-label': 'Module navigation' }, entries.map((entry, index) => createElement(NavigationItem, { key: `${entry.id}-${index}`, entry, runtime, router })));
 }
@@ -1255,7 +1299,9 @@ function navigationProjection(id: string, value: unknown): NavigationProjection 
   const render = object.render ?? object.element;
   const component = typeof object.component === 'function' ? object.component as ComponentType<Record<string, unknown>> : undefined;
   const onClick = typeof object.onClick === 'function' ? object.onClick as NavigationProjection['onClick'] : undefined;
-  return { target, label: object.label as ReactNode ?? object.title as ReactNode ?? id, render, component, onClick };
+  const rawGroup = object.group ?? object.surface;
+  const group = typeof rawGroup === 'string' && rawGroup.trim().length > 0 ? rawGroup.trim() : undefined;
+  return { target, label: object.label as ReactNode ?? object.title as ReactNode ?? id, render, component, onClick, group };
 }
 
 function routeProjection(id: string, value: unknown): RouteProjection | undefined {

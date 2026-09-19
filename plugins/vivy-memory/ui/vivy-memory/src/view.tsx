@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { getDemoMemories } from '@/lib/demo-api';
 import type { DemoMemoryItem } from '@/lib/types';
-import { useTranslation, dateTimeLocale } from '@/i18n';
-import { DemoLoadError } from './DemoBanner';
+import { dateTimeLocale } from '@/i18n';
+import { usePluginTranslation } from '@vivy/ui-sdk';
+import { DemoLoadError } from '@/components/demo/DemoBanner';
 
 export function MemoryDemoView() {
-  const { t } = useTranslation();
+  const { t } = usePluginTranslation();
   const [memories, setMemories] = useState<DemoMemoryItem[]>([]);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -55,7 +56,7 @@ export function MemoryDemoView() {
           <div className="border-b p-3">
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('memory.searchPlaceholder')} className="pl-9" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('plugin.vivy/memory.searchPlaceholder')} className="pl-9" />
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -73,12 +74,12 @@ export function MemoryDemoView() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium">{item.title}</span>
-                  <Badge variant="outline">{t(`memory.categories.${item.category}`)}</Badge>
+                  <Badge variant="outline">{t(`plugin.vivy/memory.categories.${item.category}`)}</Badge>
                 </div>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{item.content}</p>
               </button>
             )) : (
-              <p className="px-3 py-10 text-center text-sm text-muted-foreground">{query ? t('memory.noMatch') : t('memory.empty')}</p>
+              <p className="px-3 py-10 text-center text-sm text-muted-foreground">{query ? t('plugin.vivy/memory.noMatch') : t('plugin.vivy/memory.empty')}</p>
             )}
           </div>
         </section>
@@ -94,14 +95,14 @@ export function MemoryDemoView() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Badge>{t(`memory.categories.${selected.category}`)}</Badge>
+                <Badge>{t(`plugin.vivy/memory.categories.${selected.category}`)}</Badge>
                 <p className="mt-4 leading-7 break-words">{selected.content}</p>
-                <p className="mt-6 text-xs text-muted-foreground">{t('memory.updatedAt', { date: new Date(selected.updatedAt).toLocaleString(dateTimeLocale()) })}</p>
+                <p className="mt-6 text-xs text-muted-foreground">{t('plugin.vivy/memory.updatedAt', { date: new Date(selected.updatedAt).toLocaleString(dateTimeLocale()) })}</p>
               </CardContent>
             </Card>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-muted-foreground">{t('memory.selectHint')}</div>
+          <div className="flex h-full items-center justify-center p-6 text-muted-foreground">{t('plugin.vivy/memory.selectHint')}</div>
         )
       }
     />

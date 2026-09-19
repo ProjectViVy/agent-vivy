@@ -18,6 +18,10 @@ import (
 	"example.com/vivy/plugins/feishu"
 	"example.com/vivy/plugins/qq"
 	"example.com/vivy/plugins/telegram"
+	"example.com/vivy/plugins/vivy-evolution"
+	"example.com/vivy/plugins/vivy-memory"
+	"example.com/vivy/plugins/vivy-notebook"
+	"example.com/vivy/plugins/vivy-persona"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,7 +52,7 @@ func main() {
 	for _, r := range internal {
 		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(root, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
-	externals := []extern{{dingtalk.New().Descriptor(), "plugins/dingtalk", "example.com/vivy/plugins/dingtalk", "dingtalk"}, {discord.New().Descriptor(), "plugins/discord", "example.com/vivy/plugins/discord", "discord"}, {feishu.New().Descriptor(), "plugins/feishu", "example.com/vivy/plugins/feishu", "feishu"}, {qq.New().Descriptor(), "plugins/qq", "example.com/vivy/plugins/qq", "qq"}, {telegram.New().Descriptor(), "plugins/telegram", "example.com/vivy/plugins/telegram", "telegram"}}
+	externals := []extern{{dingtalk.New().Descriptor(), "plugins/dingtalk", "example.com/vivy/plugins/dingtalk", "dingtalk"}, {discord.New().Descriptor(), "plugins/discord", "example.com/vivy/plugins/discord", "discord"}, {feishu.New().Descriptor(), "plugins/feishu", "example.com/vivy/plugins/feishu", "feishu"}, {qq.New().Descriptor(), "plugins/qq", "example.com/vivy/plugins/qq", "qq"}, {telegram.New().Descriptor(), "plugins/telegram", "example.com/vivy/plugins/telegram", "telegram"}, {vivypersona.New().Descriptor(), "plugins/vivy-persona", "example.com/vivy/plugins/vivy-persona", "vivypersona"}, {vivyevolution.New().Descriptor(), "plugins/vivy-evolution", "example.com/vivy/plugins/vivy-evolution", "vivyevolution"}, {vivymemory.New().Descriptor(), "plugins/vivy-memory", "example.com/vivy/plugins/vivy-memory", "vivymemory"}, {vivynotebook.New().Descriptor(), "plugins/vivy-notebook", "example.com/vivy/plugins/vivy-notebook", "vivynotebook"}}
 	for _, e := range externals {
 		records = append(records, assemblyv1.SourceRecord{Descriptor: e.descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(root, e.dir), Ref: "repo:" + e.dir, Binding: assemblyv1.GoBinding{ImportPath: e.importPath, Package: e.pkg, Constructor: "New", ProviderConstructor: "NewProvider"}})
 	}

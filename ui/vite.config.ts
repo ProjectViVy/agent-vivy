@@ -15,6 +15,7 @@ const UI_SDK_PACKAGE_NAME = UI_SDK_SOURCE_PACKAGE_NAME;
 const UI_SDK_EXPECTED_VERSION = UI_SDK_SOURCE_VERSION;
 const UI_SDK_PROVENANCE_MARKER = `${UI_SDK_PACKAGE_NAME}@${UI_SDK_EXPECTED_VERSION}`;
 const UI_SDK_ROOT = fileURLToPath(new URL("../sdk/ui", import.meta.url));
+const UI_SOURCE_ROOT = fileURLToPath(new URL("src/", import.meta.url));
 const UI_SDK_PACKAGE_FILE = resolve(UI_SDK_ROOT, "package.json");
 const DEFAULT_UI_ASSEMBLY_ENTRY = fileURLToPath(new URL("src/generated/assembly.ts", import.meta.url));
 const UI_ASSEMBLY_ENTRY = resolve(process.env.VIVY_UI_ASSEMBLY_ENTRY?.trim() || DEFAULT_UI_ASSEMBLY_ENTRY);
@@ -61,10 +62,24 @@ export default defineConfig({
     __VIVY_UI_SDK_PROVENANCE_MARKER__: JSON.stringify(UI_SDK_PROVENANCE_MARKER),
   },
   resolve: {
+    // One React in the assembled UI. The SDK is consumed from source
+    // (`@vivy/ui-sdk` → `sdk/ui/src`) and installs its own React devDependency
+    // in its own pnpm store, so a Module calling a hook re-exported by the SDK
+    // resolved a second React copy: the development pre-bundled graph happened
+    // to share one instance, while the production/embedded bundle crashed with
+    // `Cannot read properties of null (reading 'useContext')`. Deduping forces
+    // every React entry point to this project's copy.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@vivy/ui-sdk": resolve(UI_SDK_ROOT, "src"),
       "@vivy/ui-assembly": UI_ASSEMBLY_ENTRY,
       "@vivy/generated-assembly": UI_ASSEMBLY_ENTRY,
+      // The host UI source root. tsconfig paths resolves `@/*` for the files
+      // this project owns, but a Module staged outside the project (a packed
+      // Generation builds from a temporary Assembly root) is not in that
+      // program, so the bundler needs the mapping itself. The alias matches
+      // `@/…` exactly; a bare `@scope/pkg` is not affected.
+      "@": UI_SOURCE_ROOT,
     },
   },
   plugins: [

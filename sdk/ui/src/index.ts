@@ -8,3 +8,4 @@ export const UI_SDK_PROVENANCE = Object.freeze({
 
 export * from "./module";
 export * from "./action-client";
+export * from "./plugin-host";

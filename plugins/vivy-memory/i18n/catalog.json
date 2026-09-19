@@ -1,0 +1,79 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/memory.categories.decision": {
+      "description": "Memory page copy: categories.decision",
+      "placeholders": [],
+      "messages": {
+        "en": "Decision",
+        "zh": "决策"
+      }
+    },
+    "plugin.vivy/memory.categories.preference": {
+      "description": "Memory page copy: categories.preference",
+      "placeholders": [],
+      "messages": {
+        "en": "Preference",
+        "zh": "偏好"
+      }
+    },
+    "plugin.vivy/memory.categories.project": {
+      "description": "Memory page copy: categories.project",
+      "placeholders": [],
+      "messages": {
+        "en": "Project",
+        "zh": "项目"
+      }
+    },
+    "plugin.vivy/memory.empty": {
+      "description": "Memory page copy: empty",
+      "placeholders": [],
+      "messages": {
+        "en": "No memories yet",
+        "zh": "暂无记忆"
+      }
+    },
+    "plugin.vivy/memory.nav": {
+      "description": "Sidebar VIVY group label for the Memory Module",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory",
+        "zh": "记忆"
+      }
+    },
+    "plugin.vivy/memory.noMatch": {
+      "description": "Memory page copy: noMatch",
+      "placeholders": [],
+      "messages": {
+        "en": "No matching memories",
+        "zh": "没有匹配的记忆"
+      }
+    },
+    "plugin.vivy/memory.searchPlaceholder": {
+      "description": "Memory page copy: searchPlaceholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Search memories",
+        "zh": "搜索记忆"
+      }
+    },
+    "plugin.vivy/memory.selectHint": {
+      "description": "Memory page copy: selectHint",
+      "placeholders": [],
+      "messages": {
+        "en": "Select a memory to see details",
+        "zh": "选择一条记忆查看详情"
+      }
+    },
+    "plugin.vivy/memory.updatedAt": {
+      "description": "Memory page copy: updatedAt",
+      "placeholders": [
+        "date"
+      ],
+      "messages": {
+        "en": "Updated {{date}}",
+        "zh": "更新于 {{date}}"
+      }
+    }
+  }
+}

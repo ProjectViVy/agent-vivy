@@ -28,9 +28,10 @@ import {
   listAutoDreamRuns,
   getAutoDreamRunEvents,
 } from '@/lib/demo-api';
-import { t } from '@/i18n';
+import { usePluginTranslation } from '@vivy/ui-sdk';
 
 export function useEvolution() {
+  const { t } = usePluginTranslation();
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [requests, setRequests] = useState<SkillRequest[]>([]);
   const [runs, setRuns] = useState<AutoDreamRunRecord[]>([]);
@@ -57,7 +58,7 @@ export function useEvolution() {
       setRequests(requestList);
       setRuns(runList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.loadFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -69,7 +70,7 @@ export function useEvolution() {
       setSkills(skillList);
       setRequests(requestList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.loadFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.loadFailed'));
     }
   }, []);
 
@@ -81,7 +82,7 @@ export function useEvolution() {
       setSelectedSkill(doc);
       setHistory(historyList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.loadFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.loadFailed'));
     }
   }, []);
 
@@ -102,7 +103,7 @@ export function useEvolution() {
       await loadSkillsAndRequests();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.saveFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.saveFailed'));
       return false;
     } finally {
       endBusy(key);
@@ -118,7 +119,7 @@ export function useEvolution() {
       await loadSkillsAndRequests();
       setSelectedSkill((prev) => (prev && prev.slug === slug ? { ...prev, enabled } : prev));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.saveFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.saveFailed'));
     } finally {
       endBusy(key);
     }
@@ -137,7 +138,7 @@ export function useEvolution() {
       }
       await loadSkillsAndRequests();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.saveFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.saveFailed'));
     } finally {
       endBusy(key);
     }
@@ -149,7 +150,7 @@ export function useEvolution() {
       const doc = await getSkillHistoryDocument(slug, revision);
       setHistoryPreview(doc);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.loadFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.loadFailed'));
     }
   }, []);
 
@@ -162,7 +163,7 @@ export function useEvolution() {
       await loadSkillsAndRequests();
       return created;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.createRequestFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.createRequestFailed'));
       return null;
     } finally {
       endBusy(key);
@@ -182,7 +183,7 @@ export function useEvolution() {
       }
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.acceptFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.acceptFailed'));
       // 拒绝（含 stale）也会改变请求状态，刷新列表让用户看到最新状态
       await loadSkillsAndRequests();
       return false;
@@ -200,7 +201,7 @@ export function useEvolution() {
       await loadSkillsAndRequests();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.rejectFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.rejectFailed'));
       return false;
     } finally {
       endBusy(key);
@@ -213,7 +214,7 @@ export function useEvolution() {
       setSelectedRunId(runId);
       setRunEvents(await getAutoDreamRunEvents(runId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('evolution.errors.loadFailed'));
+      setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.loadFailed'));
     }
   }, []);
 

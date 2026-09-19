@@ -1,5 +1,5 @@
 {
-  "modules": ["vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"],
+  "modules": ["vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/memory", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"],
   "channels": ["dingtalk", "discord", "feishu", "qq", "telegram"],
   "protectedTools": ["ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"],
   "actions": [],

@@ -98,6 +98,43 @@ func parsePackArgs(args []string) (packOptions, error) {
 	return o, nil
 }
 
+// stageUIOptions selects one repository dev/build UI projection.
+type stageUIOptions struct {
+	repo, recipe, out string
+}
+
+func parseStageUIArgs(args []string) (stageUIOptions, error) {
+	o := stageUIOptions{repo: "."}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--recipe":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--recipe requires a file")
+			}
+			o.recipe = args[i]
+		case "--out", "--output":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--out requires a directory")
+			}
+			o.out = args[i]
+		case "--repo":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--repo requires a directory")
+			}
+			o.repo = args[i]
+		default:
+			return o, fmt.Errorf("unknown stage-ui argument %q", args[i])
+		}
+	}
+	if o.recipe == "" || o.out == "" {
+		return o, errors.New("stage-ui requires --recipe and --out")
+	}
+	return o, nil
+}
+
 // repoSourceDirs is the single build-owned table of repository Modules that
 // enter a Generation without an external Recipe pin. snapshotSourceDirs and
 // sourceRecords both derive from it, so a new repository Module cannot be
@@ -117,6 +154,10 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
 	{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
 	{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
+	{dir: "plugins/vivy-persona", importPath: "example.com/vivy/plugins/vivy-persona", pkg: "vivypersona"},
+	{dir: "plugins/vivy-evolution", importPath: "example.com/vivy/plugins/vivy-evolution", pkg: "vivyevolution"},
+	{dir: "plugins/vivy-memory", importPath: "example.com/vivy/plugins/vivy-memory", pkg: "vivymemory"},
+	{dir: "plugins/vivy-notebook", importPath: "example.com/vivy/plugins/vivy-notebook", pkg: "vivynotebook"},
 	{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
 }
@@ -1222,7 +1263,10 @@ func copyUISourceTree(source, destination string) error {
 			return os.MkdirAll(destination, 0o700)
 		}
 		if entry.IsDir() {
-			if entry.Name() == "node_modules" || entry.Name() == ".git" {
+			// A Module's sealed i18n catalog travels through the UI Assembly
+			// manifest, never through the Vite source boundary. Skipping it
+			// keeps two selected Modules from colliding on one catalog path.
+			if entry.Name() == "node_modules" || entry.Name() == ".git" || entry.Name() == "i18n" {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(filepath.Join(destination, rel), 0o700)
@@ -1646,7 +1690,7 @@ func findRepoRoot(start string) (string, error) {
 func Run(args []string) int { return run(args, os.Stdout, os.Stderr) }
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: vivy-sdk verify <module-dir> | pack --recipe <file> --output <dir> [--source <dir>] | inspect-artifact <dir>")
+		fmt.Fprintln(stderr, "usage: vivy-sdk verify <module-dir> | pack --recipe <file> --output <dir> [--source <dir>] | stage-ui --recipe <file> --out <dir> [--repo <root>] | inspect-artifact <dir>")
 		return 2
 	}
 	switch args[0] {
@@ -1674,6 +1718,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		_ = json.NewEncoder(stdout).Encode(a)
+		return 0
+	case "stage-ui":
+		o, err := parseStageUIArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		r, err := StageUI(o.repo, o.recipe, o.out)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		_ = json.NewEncoder(stdout).Encode(r)
 		return 0
 	case "inspect-artifact":
 		if len(args) != 2 {

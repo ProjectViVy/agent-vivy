@@ -31,6 +31,7 @@ function Layout() {
   const renameSession = useVivyStore((state) => state.renameSession);
   const selectSession = useVivyStore((state) => state.selectSession);
   const createSession = useVivyStore((state) => state.createSession);
+  const chooseWorkspace = useVivyStore((state) => state.chooseWorkspace);
   const connection = useVivyStore((state) => state.connection);
   const run = useVivyStore((state) => state.currentRun);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
@@ -62,6 +63,14 @@ function Layout() {
     await navigate({ to: '/' });
     return created;
   };
+  // Folder entry from the session list: the store decides whether the active
+  // empty draft adopts the folder or a new session is created in it.
+  const chooseFolderAndOpen = async (workspacePath: string) => {
+    const entered = await chooseWorkspace(workspacePath);
+    setMobileNavOpen(false);
+    await navigate({ to: '/' });
+    return entered;
+  };
   const toggleNav = () => {
     if (mobile) setMobileNavOpen((open) => !open);
     else setDesktopCollapsed((collapsed) => !collapsed);
@@ -77,6 +86,7 @@ function Layout() {
       onRenameSession={renameSession}
       onDeleteSession={deleteSession}
       onCreateSession={(workspacePath) => createAndOpen(workspacePath)}
+      onChooseWorkspace={(workspacePath) => chooseFolderAndOpen(workspacePath)}
     />
   );
 

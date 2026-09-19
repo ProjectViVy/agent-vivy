@@ -114,6 +114,36 @@ export function defineUIRoot<T extends UIRoot>(root: T): T {
   return root;
 }
 
+/**
+ * A navigation contribution claimed by a named host group. The Web Face Host
+ * renders grouped entries inside the assembled host surface that owns the
+ * group (the sidebar group `vivy` on the current shell) and keeps ungrouped
+ * entries in its own top navigation. A contribution with a `group` is
+ * rendered exactly once, by that group's surface.
+ *
+ * `labelKey` is resolved through the host translator, so a Module must own the
+ * `plugin.<module-id>.*` unit it names; `label` is only a last-resort literal
+ * for a group surface that has no translator.
+ */
+export interface UINavigationItem {
+  readonly group: string;
+  /** In-app route path the entry navigates to. */
+  readonly to: string;
+  /** Plugin-owned translation key for the visible label. */
+  readonly labelKey: string;
+  readonly label?: string;
+  /** Optional icon component rendered by the group surface. */
+  readonly icon?: React.ComponentType<{ readonly className?: string }>;
+  /** Ascending order inside the group; equal orders keep Recipe order. */
+  readonly order?: number;
+  readonly exact?: boolean;
+}
+
+/** Type-safe authoring helper for grouped navigation contributions. */
+export function defineNavigationItem<T extends UINavigationItem>(item: T): T {
+  return item;
+}
+
 export interface UIContributionRelations {
   /** IDs that must be installed before this contribution. */
   readonly before?: readonly string[] | string;

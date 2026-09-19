@@ -4,7 +4,7 @@
  * From ui/: node ../scripts/check-i18n-completeness.js
  * Uses the locked UI TypeScript parser, with no new runtime dependency.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -107,6 +107,12 @@ function scan(file, english) {
   const name = relative(root, file).replaceAll('\\', '/');
   if (/\.test\.[^.]+$/.test(name) || name === 'ui/src/routeTree.gen.ts' ||
       name === 'ui/src/i18n/en.ts' || name === 'ui/src/i18n/zh.ts' || dataFiles.has(name)) return;
+  // The Assembler's output: the generated Assembly inlines every sealed Module
+  // catalog, and the staged Module sources are copies of `plugins/*`. Their
+  // copy is validated where it is owned — `vivy-module.yaml` + the Module's own
+  // `i18n/catalog.json` under `go run ./sdk verify` — never against the shell
+  // dictionary, which no longer holds it.
+  if (name.startsWith('ui/src/generated/')) return;
   const source = parse(file);
   function visit(node) {
     const location = name + ':' + (source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
@@ -134,6 +140,53 @@ function walk(dir, english) {
     else if (/\.tsx?$/.test(entry.name)) scan(file, english);
   }
 }
+// A Module owns the copy it renders: its sealed catalog is addressed by
+// `plugin.<module-id>.*` and anything else it translates must still exist in
+// the shell dictionary. Both halves are checked here, because a stale
+// reference renders a raw key at runtime instead of failing any Module build.
+function scanModule(file, keys, english) {
+  const name = relative(root, file).replaceAll('\\', '/');
+  const known = (key) => keys.has(key) || Object.hasOwn(english, key);
+  const prefixKnown = (prefix) => [...keys].some((key) => key.startsWith(prefix)) || Object.keys(english).some((key) => key.startsWith(prefix));
+  const source = parse(file);
+  function visit(node) {
+    const location = name + ':' + (source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+    const literal = (value) => ts.isStringLiteralLike(value) ? value
+      : ts.isTemplateExpression(value) && ts.isTemplateHead(value.head) ? value.head : undefined;
+    if (ts.isCallExpression(node) && /(^|\.)t$/.test(node.expression.getText(source)) && node.arguments[0]) {
+      const value = literal(node.arguments[0]);
+      if (value && ts.isTemplateHead(value)) {
+        if (!prefixKnown(value.text)) errors.push('Unknown Module translation prefix: ' + location + ': ' + value.text);
+      } else if (value && !known(value.text)) {
+        errors.push('Unknown Module translation: ' + location + ': ' + value.text);
+      }
+    }
+    if (ts.isPropertyAssignment(node) && node.name.getText(source) === 'labelKey' && ts.isStringLiteralLike(node.initializer) && !known(node.initializer.text)) {
+      errors.push('Unknown Module label key: ' + location + ': ' + node.initializer.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+}
+function walkModules(dir, english) {
+  const plugins = resolve(dir, 'plugins');
+  if (!existsSync(plugins)) return;
+  for (const entry of readdirSync(plugins, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifest = resolve(plugins, entry.name, 'i18n/catalog.json');
+    const sources = resolve(plugins, entry.name, 'ui');
+    if (!existsSync(manifest) || !existsSync(sources)) continue;
+    const keys = new Set(Object.keys(JSON.parse(readFileSync(manifest, 'utf8')).units ?? {}));
+    const visit = (current) => {
+      for (const child of readdirSync(current, { withFileTypes: true })) {
+        const file = resolve(current, child.name);
+        if (child.isDirectory()) visit(file);
+        else if (/\.tsx?$/.test(child.name) && !/\.test\.[^.]+$/.test(child.name)) scanModule(file, keys, english);
+      }
+    };
+    visit(sources);
+  }
+}
 try {
   const en = catalog('en');
   const zh = catalog('zh');
@@ -143,6 +196,7 @@ try {
   }
   for (const key of Object.keys(zh)) if (!Object.hasOwn(en, key)) errors.push('Missing in en: ' + key);
   walk(resolve(root, 'ui/src'), en);
+  walkModules(root, en);
   if (errors.length) {
     console.error(errors.join('\n'));
     process.exitCode = 1;
