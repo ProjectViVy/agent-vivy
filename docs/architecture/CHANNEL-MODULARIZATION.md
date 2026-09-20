@@ -1,6 +1,6 @@
 # Channel Modularization Contract
 
-> Status: **Normative architecture; CH-P0-1 contract foundation**  
+> Status: **Normative architecture; CH-P0-2 backend ownership complete**
 > Decision date: 2026-09-19  
 > Implementation baseline: `main@9e6db43c81e1d7ce249ee785f1b6efd91a09c5bb`  
 > Parent decision: [issue #42](https://github.com/ProjectViVy/agent-vivy/issues/42)
@@ -12,8 +12,9 @@ omit the Channel Host, every Channel Provider, its management methods, and its
 dedicated UI without affecting ordinary chat, tools, or retained historical
 data. Backend Channel operation does not require Channel UI.
 
-CH-P0-1 freezes the contracts and conformance cases needed to implement that
-outcome. It does not move ownership or make the subsystem removable yet.
+CH-P0-1 froze the contracts and conformance cases. CH-P0-2 moves backend
+ownership behind those contracts while preserving the default Generation.
+Physical omission and UI modularization remain later slices.
 
 ### Requirements
 
@@ -56,22 +57,26 @@ outcome. It does not move ownership or make the subsystem removable yet.
 
 ## 2. Verified current implementation
 
-At the baseline revision:
+After CH-P0-2:
 
-- `internal/app/app.go` calls `bindChannels`, constructs
-  `*channelhost.Host`, injects its Run hook and delivery interface, passes it to
-  RPC, and owns startup/shutdown;
-- `internal/app/channels.go` owns Provider construction and Grant facades;
-- `internal/modules/defaults/constructors.go:NewChannelHost` constructs only a
-  no-op lifecycle owner, not the real Host instance;
-- `internal/rpc/control.go` imports `internal/channelhost`, owns Channel DTO
-  conversion and handlers, and advertises `channel.*` capabilities
-  unconditionally;
-- Channel configuration validation and overlay behavior span
-  `internal/config`, `internal/app`, and `internal/app/settings`; and
-- the Web settings shell imports Channel UI statically.
+- generated Assembly exposes one `channelcontract.Factory` for the selected
+  canonical `vivy/channel-host` owner;
+- `internal/modules/channel` constructs and owns the private
+  `internal/channelhost.Host`, Provider binding, Grant facades, lifecycle,
+  inspection, and `channel/inspect|get|update` handlers;
+- `internal/app` constructs, starts, and closes only
+  `channelcontract.Owned`; it retains the single Run callback and shared
+  settings-document adapter but no concrete Channel Host knowledge;
+- `internal/rpc` validates and dispatches generic `rpccontract.Contribution`
+  bindings and contains no Channel-specific method, DTO, capability, or Host
+  import;
+- `WithoutEars()` constructs the compiled owner with process availability
+  false and does not start Provider networking; and
+- the default Generation still carries all five first-party Providers and the
+  Web settings shell still imports Channel UI statically.
 
-These are baseline facts, not completed modularization.
+The last point is deliberate: CH-P0-2 establishes backend ownership but does
+not claim generated import, executable, or UI-asset omission.
 
 ## 3. Boundary and dependency direction
 
@@ -106,18 +111,18 @@ their present policy and persistence semantics when ownership moves.
 
 ## 4. Ownership and lifecycle
 
-The selected canonical Module eventually owns construction, Provider binding,
+The selected canonical Module owns construction, Provider binding,
 Grant admission, session mapping, inbound dispatch, terminal delivery,
 Channel-specific configuration interpretation, management handlers, and
 lifecycle. Platform Providers keep their present source boundaries and public
 `std/channel@v1` ABI.
 
-Construction performs no networking. Assembly constructs and registers the
-Channel run-hook/delivery seams before a Run can begin, binds the one Run
-callback after Service creation, then starts Channel after Service is usable
-and before the public control plane is ready. Shutdown closes admission and
-network ingress before dependent runtime/storage teardown. Partial startup
-unwinds in reverse order.
+Construction performs no networking. The app constructs the selected owner
+before Service composition, supplies it as the run hook and delivery seam,
+then starts and readies it after durable recovery and before the public control
+plane is returned. Shutdown closes admission and network ingress before
+dependent runtime/storage teardown. Partial startup invokes contract-level
+Stop/Close rollback in reverse dependency order.
 
 The Host-selected/zero-Provider state is legal and starts no connection.
 Missing configuration or credentials leaves a Provider inactive. Existing
@@ -173,13 +178,13 @@ No destructive schema migration is required.
 The design adds no request-time discovery, reflection, dynamic code loading,
 second dispatcher, or second runtime. Generated wiring and a small validated
 binding slice are sufficient. Normal Channel traffic continues through the
-existing Host and Service paths. CH-P0-1 adds only contracts, validation, and
-tests; performance measurements are deferred until executable ownership or
-artifact composition changes.
+existing Host and Service paths. CH-P0-2 changes composition ownership only;
+performance measurements remain deferred until executable or asset
+composition changes.
 
 ## 9. Verification seams
 
-CH-P0-1 evidence consists of:
+CH-P0-1 and CH-P0-2 evidence consists of:
 
 1. compile-time satisfaction of the factory/owned-instance contract;
 2. contract package dependency closure without Channel implementation,
@@ -189,16 +194,25 @@ CH-P0-1 evidence consists of:
 4. Assembly cases for zero Providers, Provider-without-Host, duplicate Host,
    and public core Provider;
 5. lossless settings preservation for an omitted Provider; and
-6. backend/frontend serialization of the optional UI projection.
+6. backend/frontend serialization of the optional UI projection;
+7. canonical factory generation with no placeholder Channel owner lifecycle;
+8. Module-owned Provider/Grant, management-wire, settings, lifecycle, and
+   rollback suites;
+9. generic contribution dispatch, capability, collision, and core-vocabulary
+   conformance; and
+10. dependency scans proving app/RPC no longer import the Channel Host or
+    implementation Module.
 
 Physical executable and asset omission is not claimed until CH-P0-3 through
 CH-P0-5 produce source-bound artifact evidence.
 
 ## 10. Slice fence
 
-- **CH-P0-1:** contracts, normative text, conformance cases, baseline evidence.
-- **CH-P0-2:** real backend owner, binding/config/management relocation, manual
-  app ownership removal.
+- **CH-P0-1 — complete:** contracts, normative text, conformance cases,
+  baseline evidence.
+- **CH-P0-2 — complete:** real backend owner, binding/config/management
+  relocation, generated factory, generic contribution dispatch, and app/RPC
+  concrete ownership removal.
 - **CH-P0-3:** conditional generated imports, reduced Recipes, backend physical
   omission and Inspect truth.
 - **CH-P0-4:** Channel UI Module, settings contribution, visibility and asset
@@ -206,7 +220,7 @@ CH-P0-5 produce source-bound artifact evidence.
 - **CH-P0-5:** complete release matrix, packaged artifacts, browser/network
   evidence, rollback record.
 
-CH-P0-1 must not perform work assigned to a later slice.
+Each completed slice must not perform work assigned to a later slice.
 
 ## 11. Eino decision
 
