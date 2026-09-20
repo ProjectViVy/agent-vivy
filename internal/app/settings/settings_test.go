@@ -1263,3 +1263,32 @@ func TestUpdateLocalePreservesUnrelatedSettings(t *testing.T) {
 		t.Fatalf("persisted locale update changed unrelated settings:\n got: %+v\nwant: %+v", loaded, want)
 	}
 }
+
+func TestChannelOverlayPreservedByUnrelatedUpdate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	enabled := false
+	allowFrom := []string{"operator-1"}
+	omitted := ChannelOverlay{
+		Name:      "omitted-provider",
+		Enabled:   &enabled,
+		AllowFrom: &allowFrom,
+		TokenEnv:  StringPtr("OMITTED_PROVIDER_TOKEN"),
+	}
+	if _, err := Save(path, Settings{Channels: []ChannelOverlay{omitted}}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	if _, err := Update(path, func(current Settings) (Settings, error) {
+		current.Locale = "zh"
+		return current, nil
+	}); err != nil {
+		t.Fatalf("update unrelated locale: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load updated settings: %v", err)
+	}
+	if len(loaded.Channels) != 1 || !reflect.DeepEqual(loaded.Channels[0], omitted) {
+		t.Fatalf("omitted Channel overlay changed: got %+v, want %+v", loaded.Channels, omitted)
+	}
+}

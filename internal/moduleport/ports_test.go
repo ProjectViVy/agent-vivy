@@ -16,6 +16,7 @@ func TestCoreCatalogDefinesCanonicalClosedPorts(t *testing.T) {
 		testClosed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		testClosed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),
 		testClosed("core/sandbox-backend@v1", "vivy/sandbox", CardinalityExactlyOne, RequirementAgent),
+		testConditional("core/channel-host@v1", "vivy/channel-host", "std/channel@v1"),
 		testConditional("core/context-host@v1", "vivy/context-host", "std/context-source@v1"),
 		testConditional("core/skill-host@v1", "vivy/skill-host", "std/skill-source@v1"),
 		testClosed("core/mcp-host@v1", "vivy/mcp-host", CardinalityAtMostOne, RequirementDefault),
@@ -48,6 +49,7 @@ func TestPublicSourceCannotProvideCorePort(t *testing.T) {
 func TestConditionalCoreHostsFollowOnlyTheirCatalogedPublicPorts(t *testing.T) {
 	catalog := Catalog()
 	want := map[string][]string{
+		"std/channel@v1":             {"core/channel-host@v1"},
 		"std/context-source@v1":      {"core/context-host@v1"},
 		"std/skill-source@v1":        {"core/skill-host@v1"},
 		"std/observer/run@v1":        {"core/observer-host@v1"},

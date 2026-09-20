@@ -60,6 +60,7 @@ func Catalog() Registry {
 		closed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		closed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),
 		closed("core/sandbox-backend@v1", "vivy/sandbox", CardinalityExactlyOne, RequirementAgent),
+		conditional("core/channel-host@v1", "vivy/channel-host", "std/channel@v1"),
 		conditional("core/context-host@v1", "vivy/context-host", "std/context-source@v1"),
 		conditional("core/skill-host@v1", "vivy/skill-host", "std/skill-source@v1"),
 		closed("core/mcp-host@v1", "vivy/mcp-host", CardinalityAtMostOne, RequirementDefault),
