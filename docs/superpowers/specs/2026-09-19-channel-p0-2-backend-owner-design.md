@@ -91,10 +91,11 @@ helpers, and `internal/rpccontract`. It must not import `internal/app`,
 
 `RuntimeAssembly` exposes one `channelcontract.Factory` selected from the
 canonical `core/channel-host@v1` owner. In CH-P0-2 the generated type and the
-default generated file still carry that contract field, and the default file
-imports and supplies the concrete Channel Module unconditionally. P0-3 may
-leave the field nil and omit the concrete Module import according to Recipe
-selection without changing app composition again.
+default generated file still carry that contract field. A transitional
+build-owned defaults constructor supplies the concrete Channel Module and
+keeps it linked unconditionally, so this slice does not claim physical
+omission. P0-3 removes that bridge, may leave the field nil, and makes the
+concrete Module import Recipe-controlled without changing app composition.
 
 The internal Go binding gains one focused Channel factory-constructor field.
 The generator uses it only for the canonical `core/channel-host@v1` owner and
