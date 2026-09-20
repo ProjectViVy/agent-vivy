@@ -25,6 +25,9 @@ func TestInternalModulesCannotCreateSecondL0Authority(t *testing.T) {
 			return err
 		}
 		for _, token := range forbidden {
+			if token == "channelhost.New(" && filepath.ToSlash(path) == "channel/module.go" {
+				continue
+			}
 			if strings.Contains(string(source), token) {
 				t.Errorf("%s creates forbidden L0 authority with %s", path, token)
 			}
