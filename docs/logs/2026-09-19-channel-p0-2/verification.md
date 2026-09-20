@@ -36,7 +36,7 @@
 | `node --test scripts/check-i18n-cross-face.test.js` | PASS, 8 tests |
 | `node scripts/check-i18n-cross-face.js` | PASS, 13 shared semantic units |
 | full repository `go vet` excluding only `internal/workflow` | PASS |
-| full repository `go test -timeout 20m` excluding only `internal/workflow` | PASS; `sdk/internal` 297.958s, `sdk/internal/conformance` 75.734s |
+| full repository `go test -timeout 20m` excluding only `internal/workflow` | PASS after independent review fixes; `sdk/internal` 313.011s, `sdk/internal/conformance` 74.760s |
 | all independent `plugins/*` and `faces/*`: `go vet ./...` and `go test ./...` | PASS, 10 modules |
 | forbidden app/RPC implementation import scan | PASS; empty output |
 | Recipe/UI scope-fence diff from CH-P0-1 | PASS; empty output |
@@ -71,7 +71,24 @@ untouched. The producer then passed on the final source tree.
 ok agent-vivy/sdk/internal/conformance 67.607s
 ```
 
-The final full repository test repeated that proof successfully.
+The final full repository test repeated that proof successfully. Focused race
+tests for the Channel Module, contribution dispatcher, startup cleanup, and app
+owner composition also passed after review.
+
+## Independent review resolution
+
+The whole-branch review found no Critical issues and three Important issues.
+The final patch:
+
+- preserves large-integer and high-precision decimal lexemes across the opaque
+  YAML → contract JSON → private Host → Provider path;
+- replaces ad hoc startup defers/manual storage closes with one bounded LIFO
+  cleanup stack that joins cleanup failures into the composition error; and
+- de-duplicates contributed capabilities against the whole advertised list
+  while preserving established core order and deterministic contributed order.
+
+The reviewer also identified retained closed-owner configuration and two
+trailing Markdown spaces as Minor issues; both were removed.
 
 ## Scope fence
 
