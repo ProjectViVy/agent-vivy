@@ -4331,3 +4331,30 @@ func TestSessionForkRoute(t *testing.T) {
 		t.Fatalf("missing message_id err = %v, want InvalidParams", rpcErr)
 	}
 }
+
+func TestUIExtensionProjectionSerialization(t *testing.T) {
+	t.Run("omitted is backward compatible", func(t *testing.T) {
+		raw, err := json.Marshal(capabilitiesResult{ProtocolVersion: ProtocolVersion, Capabilities: []string{"session"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "ui_extensions") {
+			t.Fatalf("optional projection was serialized: %s", raw)
+		}
+	})
+
+	t.Run("present is secret free", func(t *testing.T) {
+		raw, err := json.Marshal(capabilitiesResult{
+			ProtocolVersion: ProtocolVersion,
+			Capabilities:    []string{"session"},
+			UIExtensions:    []UIExtensionProjection{{ID: "vivy/channel-ui", Enabled: true}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `{"protocol_version":"vivy.rpc.v1","capabilities":["session"],"ui_extensions":[{"id":"vivy/channel-ui","enabled":true}]}`
+		if string(raw) != want {
+			t.Fatalf("projection = %s, want %s", raw, want)
+		}
+	})
+}

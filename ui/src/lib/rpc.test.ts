@@ -1,6 +1,13 @@
 import { resetLocaleForTests } from '@/i18n';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { getRpcCapabilitiesSnapshot, resetRpcClient, RpcClient, RpcClientError } from './rpc';
+import {
+  getRpcCapabilitiesSnapshot,
+  resetRpcClient,
+  RpcClient,
+  RpcClientError,
+  type RpcCapabilities,
+  type UIExtensionProjection,
+} from './rpc';
 
 beforeEach(() => resetLocaleForTests());
 
@@ -60,5 +67,25 @@ describe('RpcClient bootstrap', () => {
     expect(getRpcCapabilitiesSnapshot()).toEqual({ protocol_version: 'vivy.rpc.v1', capabilities: ['session.read'] });
     FakeWebSocket.latest?.onclose?.();
     expect(getRpcCapabilitiesSnapshot()).toEqual({ protocol_version: '', capabilities: [] });
+  });
+});
+
+describe('UI extension projection contract', () => {
+  it('accepts an omitted projection', () => {
+    const capabilities = {
+      protocol_version: 'vivy.rpc.v1',
+      capabilities: [],
+    } satisfies RpcCapabilities;
+    expect(capabilities).not.toHaveProperty('ui_extensions');
+  });
+
+  it('accepts the secret-free projection shape', () => {
+    const extension = { id: 'vivy/channel-ui', enabled: true } satisfies UIExtensionProjection;
+    const capabilities = {
+      protocol_version: 'vivy.rpc.v1',
+      capabilities: [],
+      ui_extensions: [extension],
+    } satisfies RpcCapabilities;
+    expect(capabilities.ui_extensions).toEqual([{ id: 'vivy/channel-ui', enabled: true }]);
   });
 });

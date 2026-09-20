@@ -25,6 +25,12 @@ interface RpcResponse<T> {
 export interface RpcCapabilities {
   protocol_version: string;
   capabilities: string[];
+  ui_extensions?: UIExtensionProjection[];
+}
+
+export interface UIExtensionProjection {
+  id: string;
+  enabled: boolean;
 }
 
 interface Bootstrap {

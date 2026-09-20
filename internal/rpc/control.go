@@ -57,6 +57,20 @@ const (
 	maxModuleActionIdentifier = 256
 )
 
+// UIExtensionProjection is the secret-free runtime projection of one UI
+// extension selected by the generated Assembly. CH-P0-1 defines the wire
+// shape only; later slices populate it from build and process truth.
+type UIExtensionProjection struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+type capabilitiesResult struct {
+	ProtocolVersion string                  `json:"protocol_version"`
+	Capabilities    []string                `json:"capabilities"`
+	UIExtensions    []UIExtensionProjection `json:"ui_extensions,omitempty"`
+}
+
 type ControlDeps struct {
 	Sessions  storage.SessionStore
 	Messages  storage.MessageStore
