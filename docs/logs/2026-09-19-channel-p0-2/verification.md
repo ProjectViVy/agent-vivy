@@ -58,13 +58,14 @@ repository command produced:
 
 ```text
 go run ./sdk/internal/cmd/source-hash internal ""
-3e38b4e959697c19c50cd2cf2b8e9cd9d8056604c85cf3ff6609c3c83dba45ee
+e817a94a6b99984ddf77b3b330926785f8ac4762bef1cc810e247d7ca0ad5e2d
 ```
 
 Only the five internal-rooted entries in
 `sdk/internal/assembly/conformance_results.json` were mechanically changed
-from `5b6912e3...`; external Provider evidence was untouched. The producer then
-passed:
+from `5b6912e3...`; the independent review fixes moved the final value once
+more, from `3e38b4e9...` to `e817a94a...`. External Provider evidence was
+untouched. The producer then passed on the final source tree.
 
 ```text
 ok agent-vivy/sdk/internal/conformance 67.607s

@@ -1016,7 +1016,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
-		capabilities = append(capabilities, h.contributions.capabilities...)
+		capabilities = appendUniqueCapabilities(capabilities, h.contributions.capabilities...)
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,

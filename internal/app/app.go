@@ -188,7 +188,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 // syntax and policy errors are rejected by config.Load / config.Validate;
 // generation-specific capability mismatches are rejected here before any
 // runtime construction begins.
-func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error) {
+func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (result *App, resultErr error) {
 	logger := slog.Default()
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
@@ -203,13 +203,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err := runtimeAssembly.Start(ctx, assemblyHosts{}); err != nil {
 		return nil, fmt.Errorf("app: start generated assembly: %w", err)
 	}
-	assemblyOwned := true
+	startup := newStartupCleanup(shutdownGrace)
+	startup.Add(func(cleanupCtx context.Context) error {
+		return errors.Join(closeToolWorlds(cleanupCtx, runtimeAssembly.Worlds), runtimeAssembly.Close(cleanupCtx))
+	})
 	defer func() {
-		if assemblyOwned {
-			shutdownCtx := context.WithoutCancel(ctx)
-			_ = closeToolWorlds(shutdownCtx, runtimeAssembly.Worlds)
-			_ = runtimeAssembly.Close(shutdownCtx)
-		}
+		resultErr = errors.Join(resultErr, startup.Run())
 	}()
 	if err := validateRuntimeAssembly(runtimeAssembly); err != nil {
 		return nil, err
@@ -254,6 +253,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err != nil {
 		return nil, err
 	}
+	startup.Add(func(context.Context) error { return backend.Close() })
 
 	// Provider metadata is part of the binary: there is no bundle directory,
 	// no working-directory dependency, and nothing a running instance can be
@@ -261,11 +261,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// against the sealed adapter set before anything can use it (D15).
 	vendors, err := provider.LoadEmbedded()
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: load embedded provider data: %w", err)
 	}
 	if err := provider.ReconcileAdapters(vendors, provider.AdapterFamilies()); err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: provider data does not match the sealed adapter set: %w", err)
 	}
 	catalog := provider.NewCatalog(vendors...)
@@ -273,7 +271,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// membership check lives here rather than in config.Validate because
 	// internal/config cannot depend on the provider registry (PROV-P3).
 	if _, ok := catalog.Vendor(cfg.Providers.Active); !ok {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: providers.active %q is not an embedded vendor; provider metadata is data now, "+
 			"so name one of the embedded vendors", cfg.Providers.Active)
 	}
@@ -292,12 +289,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		cfg.Channels,
 	))
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
 	}
 	modelProvider, err := modelmodule.Compose(compiledProfiles, provider.Capabilities())
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
 	modelHost := modelProvider.Host()
@@ -314,7 +309,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
 	loopDriver, err := loopmodule.Compose(runtime.NewEngineFactory(chatModel))
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct LoopDriver: %w", err)
 	}
 	// CMP-2: optional cheaper compaction summary model, pinned to the
@@ -346,7 +340,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if cfg.Runtime.WorkspaceRoot != "" {
 		sandboxProvider, err = sandboxmodule.ComposeWithSessionWorkspaces(cfg, backend, backend)
 		if err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: compose Sandbox Backend: %w", err)
 		}
 		workspaceManager = sandboxProvider.Workspaces()
@@ -360,7 +353,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if cfg.Runtime.SkillsRoot != "" {
 		built, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
 		if err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: build skills backend: %w", err)
 		}
 		skillBackend = built
@@ -371,7 +363,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if skillBackend != nil {
 		built, err := runtime.NewMarketplaceService(skillBackend, cfg.Runtime.SkillsMarketplaceURL)
 		if err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: build skills marketplace: %w", err)
 		}
 		marketplace = built
@@ -395,12 +386,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Logger:      logger,
 		})
 	}
-	mcpOwned := true
-	defer func() {
-		if mcpOwned && mcpBackend != nil {
-			_ = mcpBackend.Close()
-		}
-	}()
+	if mcpBackend != nil {
+		startup.Add(func(context.Context) error { return mcpBackend.Close() })
+	}
 	if mcpBackend != nil {
 		mcpOps = mcpBackend
 		// Replace the generated no-op MCP provider with the runtime bridge
@@ -461,7 +449,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil
 	}
 	if err := rebuildToolRegistry(runtimeAssembly.Worlds); err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	appliedMCPConfigs := []runtime.MCPServerConfig(nil)
@@ -541,7 +528,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	ts, hidden, err := resolveActiveTools()
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
 	}
 	// The checkpoint bridge fail-closes on its engine version, so an
@@ -549,12 +535,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// unverifiable checkpoints (C6).
 	engineVersion := runtime.EinoEngineVersion()
 	if engineVersion == "" {
-		_ = backend.Close()
 		return nil, errors.New("app: eino engine version unavailable; checkpoint store cannot be anchored")
 	}
 	checkpointProvider, err := checkpointmodule.Compose(backend.Blobs(), engineVersion)
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
 	checkpoints := checkpointProvider.Store()
@@ -572,25 +556,21 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
 	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend, backend)
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	engineCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
 	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend)
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	engineCfg.SkillSources, err = generatedSkillSources(runtimeAssembly)
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
 	eng, err := loopDriver.Build(ctx, ts, engineCfg)
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: build engine: %w", err)
 	}
 
@@ -605,21 +585,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var svc *runtime.Service
 	var onSettingsChanged func()
 	var channelOwner channelcontract.Owned
-	channelOwnerOwned := false
-	closeChannelOwner := func() {
-		if !channelOwnerOwned || channelOwner == nil {
-			return
-		}
-		shutdownCtx := context.WithoutCancel(ctx)
-		_ = channelOwner.Stop(shutdownCtx)
-		_ = channelOwner.Close(shutdownCtx)
-		channelOwnerOwned = false
-	}
-	defer closeChannelOwner()
 	if runtimeAssembly.ChannelFactory != nil {
 		selectionConfig, selectionErr := channelSelectionConfig(cfg.Channels)
 		if selectionErr != nil {
-			_ = backend.Close()
 			return nil, selectionErr
 		}
 		channelOwner, err = runtimeAssembly.ChannelFactory.Construct(ctx, channelcontract.Dependencies{
@@ -643,10 +611,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Config: selectionConfig, ProcessAvailable: ao.channels,
 		})
 		if err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: construct Channel owner: %w", err)
 		}
-		channelOwnerOwned = true
+		startup.Add(func(cleanupCtx context.Context) error {
+			return errors.Join(channelOwner.Stop(cleanupCtx), channelOwner.Close(cleanupCtx))
+		})
 	}
 	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
 	if channelOwner != nil {
@@ -654,19 +623,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend)
 	if err != nil {
-		closeChannelOwner()
-		_ = backend.Close()
 		return nil, err
 	}
-	observerHostOwned := runObserverHost != nil
 	if runObserverHost != nil {
 		runHooks = append(runHooks, runObserverHost)
-	}
-	defer func() {
-		if observerHostOwned && runObserverHost != nil {
+		startup.Add(func(context.Context) error {
 			runObserverHost.Close()
-		}
-	}()
+			return nil
+		})
+	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:            backend,
 		Runs:               backend,
@@ -724,7 +689,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	rpcToken := controlrpc.NewSessionToken()
 	generationID := runtimeGenerationID(runtimeAssembly)
 	var actionHost *actionhost.Host
-	actionHostOwned := false
 	if len(runtimeAssembly.ActionSets) > 0 && generationID != "" {
 		allowedTools := make(map[string]struct{}, len(ts))
 		for _, candidate := range ts {
@@ -819,24 +783,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			},
 		})
 		if err != nil {
-			closeChannelOwner()
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: build action host: %w", err)
 		}
-		actionHostOwned = true
+		startup.Add(func(cleanupCtx context.Context) error { return actionHost.CloseContext(cleanupCtx) })
 	} else if len(runtimeAssembly.ActionSets) > 0 {
 		logger.Warn("control actions disabled: sealed Generation identity unavailable")
 	}
-	defer func() {
-		if actionHostOwned {
-			_ = actionHost.CloseContext(context.Background())
-		}
-	}()
 
 	liveSnap, err := policy.Snapshot(liveProfile)
 	if err != nil {
-		closeChannelOwner()
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
 	}
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
@@ -1056,8 +1011,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}),
 	})
 	if err != nil {
-		closeChannelOwner()
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
 	// Restart recovery before the server listens (E2, FR-8): every
@@ -1065,21 +1018,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// closes with a definitive run.failed. A listing failure means the
 	// storage truth is unreachable; startup aborts.
 	if err := svc.Recover(ctx); err != nil {
-		closeChannelOwner()
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
 	// Start the selected Channel owner only after recovery. WithoutEars keeps
 	// its compiled inventory but deliberately skips process activation.
 	if ao.channels && channelOwner != nil {
 		if err := channelOwner.Start(ctx); err != nil {
-			closeChannelOwner()
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: start Channel owner: %w", err)
 		}
 		if err := channelOwner.Ready(ctx); err != nil {
-			closeChannelOwner()
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: ready Channel owner: %w", err)
 		}
 	}
@@ -1107,11 +1054,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// that closes the storage backend.
 		runObserverHost.Start(ctx)
 	}
-	mcpOwned = false
-	actionHostOwned = false
-	observerHostOwned = false
-	channelOwnerOwned = false
-	assemblyOwned = false
+	startup.Transfer()
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane

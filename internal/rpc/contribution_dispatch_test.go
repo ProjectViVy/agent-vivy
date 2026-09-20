@@ -103,6 +103,31 @@ func TestControlHandlerContributionCapabilitiesAreSortedUniqueAndDetached(t *tes
 	}
 }
 
+func TestControlHandlerCapabilitiesAreGloballyUnique(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.Contributions = []rpccontract.Contribution{testContribution{{
+			Method: "test/session-capability", Capability: "session",
+			Handler: func(context.Context, rpccontract.Peer, rpccontract.Request) (any, *rpccontract.Error) {
+				return nil, nil
+			},
+		}}}
+	})
+	initialized, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	capabilities := initialized.(map[string]any)["capabilities"].([]string)
+	count := 0
+	for _, capability := range capabilities {
+		if capability == "session" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("session capability count = %d in %v, want 1", count, capabilities)
+	}
+}
+
 func TestControlHandlerContributionDiagnosticsAreDeterministic(t *testing.T) {
 	handler := func(context.Context, rpccontract.Peer, rpccontract.Request) (any, *rpccontract.Error) {
 		return nil, nil

@@ -1,7 +1,7 @@
 # CH-P0-2 Backend Owner Design
 
-> Status: proposed implementation design  
-> Parent decision: issue #42 and `docs/architecture/CHANNEL-MODULARIZATION.md`  
+> Status: proposed implementation design
+> Parent decision: issue #42 and `docs/architecture/CHANNEL-MODULARIZATION.md`
 > Depends on: CH-P0-1 at `22acb6982d1d4abce948acf08a8575fb98d5669f`
 
 ## 1. Outcome

@@ -37,6 +37,8 @@ type ownerProbe struct {
 	mu       sync.Mutex
 	events   []string
 	startErr error
+	stopErr  error
+	closeErr error
 }
 
 func (owner *ownerProbe) add(event string) {
@@ -46,8 +48,8 @@ func (owner *ownerProbe) add(event string) {
 }
 func (owner *ownerProbe) Start(context.Context) error { owner.add("start"); return owner.startErr }
 func (owner *ownerProbe) Ready(context.Context) error { owner.add("ready"); return nil }
-func (owner *ownerProbe) Stop(context.Context) error  { owner.add("stop"); return nil }
-func (owner *ownerProbe) Close(context.Context) error { owner.add("close"); return nil }
+func (owner *ownerProbe) Stop(context.Context) error  { owner.add("stop"); return owner.stopErr }
+func (owner *ownerProbe) Close(context.Context) error { owner.add("close"); return owner.closeErr }
 func (owner *ownerProbe) OnRunEvent(context.Context, domain.RunEvent) {
 	owner.add("run-event")
 }
@@ -132,6 +134,27 @@ func TestChannelOwnerStartFailureClosesOwner(t *testing.T) {
 	}
 	events := factory.owner.snapshot()
 	if len(events) != 3 || events[0] != "start" || events[1] != "stop" || events[2] != "close" {
+		t.Fatalf("rollback events=%v", events)
+	}
+}
+
+func TestChannelOwnerRollbackJoinsCleanupErrors(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	stopErr := errors.New("channel stop cleanup")
+	closeErr := errors.New("channel close cleanup")
+	factory := &ownerProbeFactory{owner: &ownerProbe{stopErr: stopErr, closeErr: closeErr}}
+	cfg := newDeepSeekTestConfig(t)
+	cfg.Logging.Format = "invalid"
+	app, err := NewWithAssembly(context.Background(), cfg, channelOwnerAssembly(factory), WithoutGateway())
+	if app != nil || err == nil {
+		t.Fatalf("app=%v err=%v, want composition failure", app, err)
+	}
+	if !errors.Is(err, stopErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("composition error does not retain cleanup failures: %v", err)
+	}
+	events := factory.owner.snapshot()
+	if len(events) != 2 || events[0] != "stop" || events[1] != "close" {
 		t.Fatalf("rollback events=%v", events)
 	}
 }

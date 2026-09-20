@@ -37,6 +37,19 @@ func newContributionDispatch(contributions []rpccontract.Contribution) (contribu
 	return contributionDispatch{handlers: handlers, capabilities: capabilities}, nil
 }
 
+func appendUniqueCapabilities(base []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(base)+len(additions))
+	out := make([]string, 0, len(base)+len(additions))
+	for _, capability := range append(append([]string(nil), base...), additions...) {
+		if _, exists := seen[capability]; exists {
+			continue
+		}
+		seen[capability] = struct{}{}
+		out = append(out, capability)
+	}
+	return out
+}
+
 var coreMethodNames = map[string]struct{}{
 	"initialize": {}, "capabilities": {},
 	"session/create": {}, "session/set_permission": {}, "session/set_workspace": {},

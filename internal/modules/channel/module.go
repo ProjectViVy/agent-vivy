@@ -90,15 +90,17 @@ func hostConfig(input channelcontract.Config) (config.Channels, error) {
 			TokenEnv:  envelope.TokenEnv,
 		}
 		if len(envelope.Settings) > 0 {
-			var value any
-			if err := json.Unmarshal(envelope.Settings, &value); err != nil {
+			if !json.Valid(envelope.Settings) {
+				return nil, fmt.Errorf("channel module: decode channels.%s settings: invalid JSON", name)
+			}
+			var document yaml.Node
+			if err := yaml.Unmarshal(envelope.Settings, &document); err != nil {
 				return nil, fmt.Errorf("channel module: decode channels.%s settings: %w", name, err)
 			}
-			var node yaml.Node
-			if err := node.Encode(value); err != nil {
-				return nil, fmt.Errorf("channel module: encode channels.%s settings: %w", name, err)
+			if document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+				return nil, fmt.Errorf("channel module: decode channels.%s settings: expected one JSON value", name)
 			}
-			hostEnvelope.Settings = node
+			hostEnvelope.Settings = *document.Content[0]
 		}
 		out[name] = hostEnvelope
 	}
@@ -141,6 +143,7 @@ func (o *owned) Close(ctx context.Context) error {
 		o.closeErr = o.Stop(ctx)
 		o.mu.Lock()
 		o.host = nil
+		o.config = nil
 		o.settings = nil
 		o.onSettingsChanged = nil
 		o.mu.Unlock()

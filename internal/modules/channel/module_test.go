@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -17,15 +18,17 @@ var _ channelcontract.Factory = NewFactory()
 var _ channelcontract.Owned = (*owned)(nil)
 
 type providerProbe struct {
-	starts int
-	stops  int
+	starts   int
+	stops    int
+	settings json.RawMessage
 }
 
 func (*providerProbe) Definition() channelport.Definition {
 	return channelport.Definition{ID: "vivy.fake"}
 }
 
-func (p *providerProbe) Construct(context.Context, channelport.Host) (channelport.Instance, error) {
+func (p *providerProbe) Construct(_ context.Context, host channelport.Host) (channelport.Instance, error) {
+	p.settings = append(json.RawMessage(nil), host.Settings()...)
 	return p, nil
 }
 
@@ -126,6 +129,9 @@ func TestOwnedStartAndCloseAreIdempotent(t *testing.T) {
 	if provider.starts != 1 || provider.stops != 1 {
 		t.Fatalf("starts=%d stops=%d, want 1/1", provider.starts, provider.stops)
 	}
+	if retained := instance.(*owned).config; retained != nil {
+		t.Fatalf("closed owner retained config: %+v", retained)
+	}
 }
 
 func TestConstructRejectsInvalidOpaqueSettings(t *testing.T) {
@@ -137,5 +143,27 @@ func TestConstructRejectsInvalidOpaqueSettings(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("invalid opaque JSON must fail construction")
+	}
+}
+
+func TestOpaqueSettingsPreserveJSONNumberPrecisionThroughProviderHost(t *testing.T) {
+	provider := &providerProbe{}
+	instance, err := NewFactory().Construct(context.Background(), validDeps(t), channelcontract.Selection{
+		Providers: []channelport.ChannelProvider{provider},
+		Config: channelcontract.Config{"fake": {
+			Enabled: true, AllowFrom: []string{"alice"},
+			Settings: json.RawMessage(`{"large":9007199254740993,"decimal":0.12345678901234567890123456789}`),
+		}},
+		ProcessAvailable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := instance.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = instance.Close(context.Background()) })
+	if got, want := string(provider.settings), `{"decimal":0.12345678901234567890123456789,"large":9007199254740993}`; got != want {
+		t.Fatalf("provider settings = %s, want %s", got, want)
 	}
 }

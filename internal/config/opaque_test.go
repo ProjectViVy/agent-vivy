@@ -16,6 +16,7 @@ func TestOpaqueYAMLToJSON(t *testing.T) {
 		{name: "absent", want: `{}`},
 		{name: "null", yaml: `null`, want: `{}`},
 		{name: "mapping", yaml: "nested:\n  deep: 7\n", want: `{"nested":{"deep":7}}`},
+		{name: "precise numbers", yaml: "large: 9007199254740993\ndecimal: 0.12345678901234567890123456789\n", want: `{"decimal":0.12345678901234567890123456789,"large":9007199254740993}`},
 		{name: "sequence", yaml: `[one, two]`, want: `["one","two"]`},
 		{name: "scalar", yaml: `value`, want: `"value"`},
 	}
