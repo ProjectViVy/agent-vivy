@@ -12,8 +12,8 @@ import (
 func TestGeneratedBinderCompilesAndRollsBackLifecycle(t *testing.T) {
 	plan := AssemblyPlan{
 		Modules: []ResolvedModule{
-			{Descriptor: testDescriptor("fixture/clock"), Trust: TrustT1, Binding: GoBinding{ImportPath: "generatedtest/clock", Package: "clock", Constructor: "New"}},
-			{Descriptor: testDescriptor("fixture/search"), Trust: TrustT2, Binding: GoBinding{ImportPath: "generatedtest/search", Package: "search", Constructor: "New"}},
+			{Descriptor: testDescriptor("fixture/clock"), Trust: TrustT1, Binding: GoBinding{ImportPath: "agent-vivy/generatedtest/clock", Package: "clock", Constructor: "New"}},
+			{Descriptor: testDescriptor("fixture/search"), Trust: TrustT2, Binding: GoBinding{ImportPath: "agent-vivy/generatedtest/search", Package: "search", Constructor: "New"}},
 		},
 		LifecycleOrder: []string{"fixture/clock", "fixture/search"},
 	}
@@ -31,7 +31,7 @@ func TestGeneratedBinderCompilesAndRollsBackLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	goMod := fmt.Sprintf("module generatedtest\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repositoryRoot))
+	goMod := fmt.Sprintf("module agent-vivy/generatedtest\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repositoryRoot))
 	writeGeneratedTestFile(t, root, "go.mod", goMod)
 	writeGeneratedTestFile(t, root, "events/events.go", `package events
 
@@ -48,7 +48,7 @@ func Reset() { Items = nil; FailStart = "" }
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default.go", string(runtimeAssembly))
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default_test.go", generatedRuntimeAssemblyBehaviorTest)
 
-	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "-v", "./...")
+	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "-mod=mod", "-v", "./...")
 	command.Dir = root
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -67,7 +67,7 @@ import (
     "fmt"
 
     "agent-vivy/sdk/module"
-    "generatedtest/events"
+    "agent-vivy/generatedtest/events"
 )
 
 type definition struct{}
@@ -109,7 +109,7 @@ import (
     "testing"
 
     "agent-vivy/sdk/module"
-    "generatedtest/events"
+    "agent-vivy/generatedtest/events"
 )
 
 type host string
@@ -148,7 +148,7 @@ import (
     "testing"
 
     "agent-vivy/sdk/module"
-    "generatedtest/events"
+    "agent-vivy/generatedtest/events"
 )
 
 type host string

@@ -66,7 +66,7 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 	generated := string(binder) + "\n" + string(uiAssembly)
 	omitted := map[string][]string{
 		"vivy/action-host":       {"vivy/action-host", "NewActionHost"},
-		"vivy/channel-host":      {"vivy/channel-host", "NewChannelHost"},
+		"vivy/channel-host":      {"vivy/channel-host", "NewChannelFactory"},
 		"vivy/context-host":      {"vivy/context-host", "NewContextHost"},
 		"vivy/context-source":    {"vivy/context-source", "NewContextSource"},
 		"vivy/face-host":         {"vivy/face-host", "NewFaceHost"},

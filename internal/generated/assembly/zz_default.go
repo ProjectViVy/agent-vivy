@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"agent-vivy/internal/channelcontract"
 	checkpoint "agent-vivy/internal/modules/checkpoint"
 	credential "agent-vivy/internal/modules/credential"
 	defaults "agent-vivy/internal/modules/defaults"
@@ -47,6 +48,7 @@ type RuntimeAssembly struct {
 	LanguageServerStatuses     []toolworld.LanguageServerStatusProvider
 	ToolWorldGrants            map[string][]module.GrantBinding
 	ChannelGrants              map[string][]module.GrantBinding
+	ChannelFactory             channelcontract.Factory
 	GenerationID               string
 	Manifest                   generation.Manifest
 	generation                 *module.Generation
@@ -54,6 +56,7 @@ type RuntimeAssembly struct {
 
 func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{
+		ChannelFactory:   defaults.NewChannelFactory(),
 		Tools:            append([]tool.ToolProvider{}, defaults.ProtectedToolProviders()...),
 		Worlds:           []toolworld.Provider{defaults.NewMCPProvider()},
 		ProviderProfiles: append([]providerprofile.Provider{}, defaults.ProviderProfiles()...),
@@ -98,11 +101,6 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner0)
-	owner1, err := defaults.NewChannelHost().Construct(ctx, hosts.ForModule("vivy/channel-host"))
-	if err != nil {
-		return errors.Join(err, module.CloseConstructed(ctx, owners))
-	}
-	owners = append(owners, owner1)
 	owner2, err := checkpoint.NewModule().Construct(ctx, hosts.ForModule("vivy/checkpoint"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))

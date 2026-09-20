@@ -88,3 +88,23 @@ func TestDefaultCatalogBindsP4HostsAndSources(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultCatalogBindsCanonicalChannelFactory(t *testing.T) {
+	records, err := Catalog(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if record.Descriptor.Module.ID != "vivy/channel-host" {
+			continue
+		}
+		if record.Binding.ImportPath != "agent-vivy/internal/modules/defaults" ||
+			record.Binding.Package != "defaults" ||
+			record.Binding.ChannelFactoryConstructor != "NewChannelFactory" ||
+			record.Binding.Constructor != "" {
+			t.Fatalf("channel host binding = %+v", record.Binding)
+		}
+		return
+	}
+	t.Fatal("canonical channel host record is missing")
+}

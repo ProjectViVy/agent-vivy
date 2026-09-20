@@ -27,7 +27,8 @@ func TestMinimalRecipeOmitsOptionalCapabilities(t *testing.T) {
 			Binding: GoBinding{
 				ImportPath: record.Binding.ImportPath, Package: record.Binding.Package,
 				Constructor: record.Binding.Constructor, ProviderConstructor: record.Binding.ProviderConstructor,
-				ProviderCollection: record.Binding.ProviderCollection, ContextSourceProvider: record.Binding.ContextSourceProvider,
+				ChannelFactoryConstructor: record.Binding.ChannelFactoryConstructor,
+				ProviderCollection:        record.Binding.ProviderCollection, ContextSourceProvider: record.Binding.ContextSourceProvider,
 				SkillSourceProvider: record.Binding.SkillSourceProvider, MCPHostProvider: record.Binding.MCPHostProvider,
 			},
 		})

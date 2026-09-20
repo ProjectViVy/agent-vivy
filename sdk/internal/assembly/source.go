@@ -34,6 +34,7 @@ type GoBinding struct {
 	Package                      string
 	Constructor                  string
 	ProviderConstructor          string
+	ChannelFactoryConstructor    string
 	ProviderCollection           bool
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool

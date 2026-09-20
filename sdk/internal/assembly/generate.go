@@ -21,10 +21,13 @@ func GenerateBinder(plan AssemblyPlan, packageName string) ([]byte, error) {
 	modules := make(map[string]ResolvedModule, len(plan.Modules))
 	for _, resolved := range plan.Modules {
 		id := resolved.Descriptor.Module.ID
-		if resolved.Binding.ImportPath == "" || resolved.Binding.Package == "" || resolved.Binding.Constructor == "" {
+		if err := validateChannelFactoryBinding(resolved); err != nil {
+			return nil, err
+		}
+		if resolved.Binding.ImportPath == "" || resolved.Binding.Package == "" || (resolved.Binding.Constructor == "" && resolved.Binding.ChannelFactoryConstructor == "") {
 			return nil, fmt.Errorf("missing Go binding for %s", id)
 		}
-		if !goIdentifierPattern.MatchString(resolved.Binding.Package) || !goIdentifierPattern.MatchString(resolved.Binding.Constructor) {
+		if !goIdentifierPattern.MatchString(resolved.Binding.Package) || (resolved.Binding.Constructor != "" && !goIdentifierPattern.MatchString(resolved.Binding.Constructor)) {
 			return nil, fmt.Errorf("invalid Go binding for %s", id)
 		}
 		if _, duplicate := modules[id]; duplicate {
@@ -48,6 +51,9 @@ func GenerateBinder(plan AssemblyPlan, packageName string) ([]byte, error) {
 
 	imports := make([]ResolvedModule, 0, len(modules))
 	for _, resolved := range modules {
+		if resolved.Binding.ChannelFactoryConstructor != "" {
+			continue
+		}
 		imports = append(imports, resolved)
 	}
 	sort.Slice(imports, func(i, j int) bool {
@@ -97,6 +103,9 @@ func GenerateBinder(plan AssemblyPlan, packageName string) ([]byte, error) {
 	source.WriteString(")\n")
 	for index, id := range plan.LifecycleOrder {
 		resolved := modules[id]
+		if resolved.Binding.ChannelFactoryConstructor != "" {
+			continue
+		}
 		alias := aliases[id]
 		fmt.Fprintf(&source, "\towner%d, err := %s.%s().Construct(ctx, hosts.ForModule(%q))\n", index, alias, resolved.Binding.Constructor, id)
 		source.WriteString("\tif err != nil {\n\t\treturn nil, errors.Join(err, closeOwners(ctx, owners))\n\t}\n")

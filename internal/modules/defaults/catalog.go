@@ -16,6 +16,7 @@ import (
 
 type Binding struct {
 	ImportPath, Package, Constructor, ProviderConstructor string
+	ChannelFactoryConstructor                             string
 	ProviderCollection                                    bool
 	ContextSourceProvider                                 bool
 	SkillSourceProvider                                   bool
@@ -46,7 +47,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
-		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
+		factoryRecord("vivy/channel-host", "NewChannelFactory", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
 		record("vivy/provider-profiles", "NewProviderProfiles", source, port("std/provider-profile@v1", provider.AdapterOpenAICompletions), port("std/provider-profile@v1", provider.AdapterOpenAIResponses), port("std/provider-profile@v1", provider.AdapterAnthropicMessages)),
 	}
@@ -97,6 +98,11 @@ func Catalog(repoRoot string) ([]Record, error) {
 
 func record(id, constructor string, source module.Source, provides ...module.PortRef) Record {
 	return Record{Descriptor: module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: source, Provides: provides, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}, Binding: Binding{ImportPath: "agent-vivy/internal/modules/defaults", Package: "defaults", Constructor: constructor}}
+}
+func factoryRecord(id, constructor string, source module.Source, provides ...module.PortRef) Record {
+	record := record(id, "", source, provides...)
+	record.Binding.ChannelFactoryConstructor = constructor
+	return record
 }
 func boundRecord(id, importPath, packageName, constructor string, source module.Source, provides ...module.PortRef) Record {
 	record := record(id, constructor, source, provides...)

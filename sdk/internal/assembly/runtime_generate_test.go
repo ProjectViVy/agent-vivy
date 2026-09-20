@@ -29,6 +29,80 @@ func TestGenerateRuntimeAssemblyUsesTypedProviderConstructors(t *testing.T) {
 	}
 }
 
+func TestGenerateRuntimeAssemblyEmitsCanonicalChannelFactory(t *testing.T) {
+	descriptor := testDescriptor("vivy/channel-host")
+	descriptor.Provides = []module.PortRef{{Port: "core/channel-host@v1", ID: "vivy.channel-host"}}
+	plan := AssemblyPlan{
+		Modules: []ResolvedModule{{Descriptor: descriptor, Binding: GoBinding{
+			ImportPath: "agent-vivy/internal/modules/defaults", Package: "defaults",
+			ChannelFactoryConstructor: "NewChannelFactory",
+		}}},
+		LifecycleOrder: []string{"vivy/channel-host"},
+	}
+	generated, err := GenerateRuntimeAssembly(plan, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	compact := strings.Join(strings.Fields(source), " ")
+	for _, want := range []string{
+		`"agent-vivy/internal/channelcontract"`,
+		"ChannelFactory channelcontract.Factory",
+		"ChannelFactory: defaults.NewChannelFactory()",
+	} {
+		if !strings.Contains(compact, strings.Join(strings.Fields(want), " ")) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, source)
+		}
+	}
+	if strings.Contains(source, "defaults.NewChannelHost().Construct") || strings.Contains(source, `hosts.ForModule("vivy/channel-host")`) {
+		t.Fatalf("channel host was emitted through ordinary lifecycle:\n%s", source)
+	}
+}
+
+func TestGenerateRuntimeAssemblyKeepsNilChannelFactoryWithoutHost(t *testing.T) {
+	descriptor := testDescriptor("fixture/core")
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{
+		Modules: []ResolvedModule{{Descriptor: descriptor, Binding: GoBinding{
+			ImportPath: "example.com/fixture/core", Package: "core", Constructor: "New",
+		}}},
+		LifecycleOrder: []string{"fixture/core"},
+	}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	compact := strings.Join(strings.Fields(source), " ")
+	if !strings.Contains(compact, "ChannelFactory channelcontract.Factory") {
+		t.Fatalf("contract-shaped nil factory field is missing:\n%s", source)
+	}
+	if strings.Contains(source, "ChannelFactory:") || strings.Contains(source, "NewChannelFactory") {
+		t.Fatalf("absent channel host emitted a factory initializer:\n%s", source)
+	}
+	if !strings.Contains(source, "core.New().Construct") {
+		t.Fatalf("ordinary lifecycle owner was not emitted:\n%s", source)
+	}
+}
+
+func TestGenerateRuntimeAssemblyRejectsInvalidChannelFactoryBindings(t *testing.T) {
+	wrong := testDescriptor("fixture/wrong")
+	wrong.Provides = []module.PortRef{{Port: "core/tool-host@v1", ID: "fixture.tool-host"}}
+	if _, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: wrong,
+		Binding:    GoBinding{ImportPath: "example.com/wrong", Package: "wrong", ChannelFactoryConstructor: "NewChannelFactory"},
+	}}}, "assembly"); err == nil || !strings.Contains(err.Error(), "core/channel-host@v1") {
+		t.Fatalf("factory on wrong module error=%v", err)
+	}
+
+	host := testDescriptor("vivy/channel-host")
+	host.Provides = []module.PortRef{{Port: "core/channel-host@v1", ID: "vivy.channel-host"}}
+	if _, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: host,
+		Binding:    GoBinding{ImportPath: "agent-vivy/internal/modules/defaults", Package: "defaults"},
+	}}}, "assembly"); err == nil || !strings.Contains(err.Error(), "Channel factory constructor") {
+		t.Fatalf("host without factory error=%v", err)
+	}
+}
+
 func TestGenerateRuntimeAssemblyComposesMultipleToolProviderSets(t *testing.T) {
 	firstDescriptor := testDescriptor("fixture/tools-a")
 	firstDescriptor.Provides = []module.PortRef{{Port: "std/tool@v1", ID: "fixture.tool-a"}}
