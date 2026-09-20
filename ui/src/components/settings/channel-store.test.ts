@@ -1,21 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChannelEnvelope, ChannelStatus } from '../../lib/api';
+import type { ChannelDelivery, ChannelEnvelope, ChannelStatus } from '../../lib/api';
+import type { RpcCapabilities } from '../../lib/rpc';
 
 // api 模块整体 mock：通道真源在服务端，store 只做状态编排。
 const inspectChannels = vi.fn<() => Promise<ChannelStatus[]>>();
 const getChannel = vi.fn<(name: string) => Promise<ChannelEnvelope>>();
 const updateChannel = vi.fn<(name: string, patch: Record<string, unknown>) => Promise<ChannelEnvelope>>();
+const listChannelDeliveries = vi.fn<() => Promise<{ deliveries: ChannelDelivery[] }>>();
+const redeliverChannelDelivery = vi.fn<(runId: string) => Promise<{ run_id: string; redelivered: boolean }>>();
+const readRpcCapabilities = vi.fn<() => RpcCapabilities>();
 
 vi.mock('../../lib/api', () => ({
   inspectChannels: () => inspectChannels(),
   getChannel: (name: string) => getChannel(name),
   updateChannel: (name: string, patch: Record<string, unknown>) => updateChannel(name, patch),
+  listChannelDeliveries: () => listChannelDeliveries(),
+  redeliverChannelDelivery: (runId: string) => redeliverChannelDelivery(runId),
+}));
+
+vi.mock('../../lib/rpc', () => ({
+  getRpcCapabilitiesSnapshot: () => readRpcCapabilities(),
 }));
 
 import {
   channelPendingRestart,
   disableChannel,
   getChannelsState,
+  redeliverDelivery,
   refreshChannels,
   saveChannel,
   toggleChannel,
@@ -34,6 +45,7 @@ const telegramStatus: ChannelStatus = {
   token_env: 'TELEGRAM_BOT_TOKEN',
   token_env_set: false,
   note: 'disabled',
+  health: null,
 };
 
 const telegramEnvelope: ChannelEnvelope = {
@@ -43,6 +55,24 @@ const telegramEnvelope: ChannelEnvelope = {
   token_env: 'TELEGRAM_BOT_TOKEN',
   configured: true,
 };
+
+const combinedCapabilities = {
+  protocol_version: 'vivy.rpc.v1',
+  capabilities: ['channel.deliveries.list', 'channel.deliveries.redeliver'],
+  ui_extensions: [{ id: 'vivy/channel-ui', enabled: true }],
+} satisfies RpcCapabilities;
+
+const failedDelivery = {
+  run_id: 'run-1',
+  session_id: 'session-1',
+  channel: 'telegram',
+  chat_id: 'chat-1',
+  topic_id: '',
+  state: 'failed',
+  attempts: 3,
+  created_at_ms: 1,
+  updated_at_ms: 2,
+} satisfies ChannelDelivery;
 
 function seedStatuses(statuses: ChannelStatus[], envelopes: Record<string, ChannelEnvelope> = {}): void {
   inspectChannels.mockResolvedValue(statuses);
@@ -57,6 +87,9 @@ function seedStatuses(statuses: ChannelStatus[], envelopes: Record<string, Chann
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readRpcCapabilities.mockReturnValue({ protocol_version: 'vivy.rpc.v1', capabilities: [] });
+  listChannelDeliveries.mockResolvedValue({ deliveries: [] });
+  redeliverChannelDelivery.mockResolvedValue({ run_id: 'run-1', redelivered: true });
   seedStatuses([], {});
 });
 
@@ -65,6 +98,34 @@ afterEach(() => {
 });
 
 describe('refreshChannels（服务端真源）', () => {
+  it('能力缺失时不请求失败投递接口', async () => {
+    await refreshChannels();
+
+    expect(readRpcCapabilities).toHaveBeenCalledTimes(1);
+    expect(listChannelDeliveries).not.toHaveBeenCalled();
+    expect(getChannelsState().failedDeliveries).toEqual([]);
+  });
+
+  it('同一能力投影保留 UI extension、投递能力、健康态与失败投递', async () => {
+    const healthyStatus: ChannelStatus = {
+      ...telegramStatus,
+      started: true,
+      health: { ok: true, detail: 'connected' },
+    };
+    readRpcCapabilities.mockReturnValue(combinedCapabilities);
+    seedStatuses([healthyStatus], { telegram: telegramEnvelope });
+    listChannelDeliveries.mockResolvedValue({ deliveries: [failedDelivery] });
+
+    await refreshChannels();
+
+    expect(combinedCapabilities.ui_extensions?.[0]?.id).toBe('vivy/channel-ui');
+    expect(combinedCapabilities.capabilities).toContain('channel.deliveries.list');
+    expect(combinedCapabilities.capabilities).toContain('channel.deliveries.redeliver');
+    expect(getChannelsState().statuses[0]?.health).toEqual({ ok: true, detail: 'connected' });
+    expect(getChannelsState().failedDeliveries).toEqual([failedDelivery]);
+    expect(listChannelDeliveries).toHaveBeenCalledTimes(1);
+  });
+
   it('拉取 inspect 列表与各通道 envelope（编译内通道，按服务端排序）', async () => {
     seedStatuses([telegramStatus], { telegram: telegramEnvelope });
     await refreshChannels();
@@ -100,6 +161,32 @@ describe('refreshChannels（服务端真源）', () => {
     expect(state.error).toBeNull();
     expect(state.statuses).toHaveLength(1);
     expect(state.envelopes.telegram).toBeUndefined();
+  });
+
+  it('重投失败投递后刷新台账', async () => {
+    readRpcCapabilities.mockReturnValue(combinedCapabilities);
+    listChannelDeliveries
+      .mockResolvedValueOnce({ deliveries: [failedDelivery] })
+      .mockResolvedValue({ deliveries: [] });
+    await refreshChannels();
+
+    await redeliverDelivery(failedDelivery.run_id);
+
+    expect(redeliverChannelDelivery).toHaveBeenCalledWith('run-1');
+    expect(listChannelDeliveries).toHaveBeenCalledTimes(2);
+    expect(getChannelsState().failedDeliveries).toEqual([]);
+  });
+
+  it('重投前能力消失时不发请求并清除旧台账', async () => {
+    readRpcCapabilities.mockReturnValue(combinedCapabilities);
+    listChannelDeliveries.mockResolvedValue({ deliveries: [failedDelivery] });
+    await refreshChannels();
+    readRpcCapabilities.mockReturnValue({ protocol_version: 'vivy.rpc.v1', capabilities: [] });
+
+    await redeliverDelivery(failedDelivery.run_id);
+
+    expect(redeliverChannelDelivery).not.toHaveBeenCalled();
+    expect(getChannelsState().failedDeliveries).toEqual([]);
   });
 
   it('遗留 localStorage（vivy.ui.channels）只删不迁：首次拉取即清除，且从不写回', async () => {

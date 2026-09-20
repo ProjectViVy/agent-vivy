@@ -1,6 +1,7 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"crypto/tls"
@@ -15,6 +16,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +39,7 @@ const (
 	stubAppSecretValue   = "vivy-test-app-secret-value"
 	stubTenantToken      = "t-vivy-test-tenant-token"
 	stubMessageID        = "om_vivy_test_message"
+	stubReactionID       = "omr_vivy_test_reaction"
 )
 
 // setCredentials plants the two test credential variables the way the
@@ -359,7 +363,7 @@ func TestDecodeSettings(t *testing.T) {
 	}
 
 	s, err = DecodeSettings(nil)
-	if err != nil || s != (Settings{}) {
+	if err != nil || !reflect.DeepEqual(s, Settings{}) {
 		t.Fatalf("absent settings = %+v err=%v, want zero value with no error", s, err)
 	}
 
@@ -391,7 +395,7 @@ func TestDomainFor(t *testing.T) {
 // this shape filter). Reaction events are separate event types and never
 // reach this handler.
 func TestNormalizeEvent(t *testing.T) {
-	msg, ok := normalizeEvent(p2pTextEvent())
+	msg, _, ok := normalizeEvent(p2pTextEvent())
 	if !ok {
 		t.Fatal("p2p text event must be publishable")
 	}
@@ -410,7 +414,7 @@ func TestNormalizeEvent(t *testing.T) {
 		m.Event.Sender.SenderId.OpenId = nil
 		m.Event.Sender.SenderId.UserId = ptr("u_88")
 	})
-	if msg, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:u_88" {
+	if msg, _, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:u_88" {
 		t.Fatalf("user_id fallback = %+v ok=%v", msg, ok)
 	}
 	noOpen = withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) {
@@ -418,7 +422,7 @@ func TestNormalizeEvent(t *testing.T) {
 		m.Event.Sender.SenderId.UserId = nil
 		m.Event.Sender.SenderId.UnionId = ptr("un_99")
 	})
-	if msg, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:un_99" {
+	if msg, _, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:un_99" {
 		t.Fatalf("union_id fallback = %+v ok=%v", msg, ok)
 	}
 
@@ -443,7 +447,7 @@ func TestNormalizeEvent(t *testing.T) {
 		"missing chat id":      withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) { m.Event.Message.ChatId = nil }),
 	}
 	for name, event := range cases {
-		if msg, ok := normalizeEvent(event); ok {
+		if msg, _, ok := normalizeEvent(event); ok {
 			t.Fatalf("%s must not be publishable, got %+v", name, msg)
 		}
 	}
@@ -730,10 +734,11 @@ func TestSendNotStartedFailsClosed(t *testing.T) {
 	}
 }
 
-// TestSendPlainText: Send delivers text parts as one im.v1.message Create
-// call each — receive_id_type chat_id, msg_type text, content
-// {"text":...} — and skips non-text parts.
-func TestSendPlainText(t *testing.T) {
+// TestSendTextGoesOutAsMarkdownCard: Send delivers text parts as one
+// im.v1.message Create call each — receive_id_type chat_id, msg_type
+// interactive, content a schema-2.0 card with one markdown element — and
+// skips non-text parts.
+func TestSendTextGoesOutAsMarkdownCard(t *testing.T) {
 	stub := newLarkStub(t, stubOptions{})
 	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
 	p, _ := startWithFake(t, env, newFakeWS(nil))
@@ -764,8 +769,11 @@ func TestSendPlainText(t *testing.T) {
 		if call.receiveIDType != "chat_id" {
 			t.Fatalf("message call %d receive_id_type = %q, want chat_id", i, call.receiveIDType)
 		}
-		if call.receiveID != "oc_chat_1" || call.msgType != "text" || call.text != want {
-			t.Fatalf("message call %d body = %+v, want text %q to oc_chat_1", i, call, want)
+		if call.receiveID != "oc_chat_1" || call.msgType != "interactive" {
+			t.Fatalf("message call %d body = %+v, want an interactive card to oc_chat_1", i, call)
+		}
+		if got := cardMarkdownOf(t, call.content); got != want {
+			t.Fatalf("message call %d card content = %q, want markdown %q", i, got, want)
 		}
 		if !strings.HasPrefix(call.authorization, "Bearer ") {
 			t.Fatalf("message call %d authorization = %q, want a bearer tenant token", i, call.authorization)
@@ -789,6 +797,28 @@ func TestSendPlainText(t *testing.T) {
 	if token.appID != env.appID || token.appSecret != stubAppSecretValue {
 		t.Fatalf("token call body = %+v, want the resolved credentials", token)
 	}
+}
+
+// cardMarkdownOf decodes a card content payload and returns the markdown
+// text of its first body element.
+func cardMarkdownOf(t *testing.T, raw string) string {
+	t.Helper()
+	var card struct {
+		Schema string `json:"schema"`
+		Body   struct {
+			Elements []struct {
+				Tag     string `json:"tag"`
+				Content string `json:"content"`
+			} `json:"elements"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(raw), &card); err != nil {
+		t.Fatalf("decode card content %q: %v", raw, err)
+	}
+	if card.Schema != "2.0" || len(card.Body.Elements) != 1 || card.Body.Elements[0].Tag != "markdown" {
+		t.Fatalf("card shape = %+v, want one schema-2.0 markdown element", card)
+	}
+	return card.Body.Elements[0].Content
 }
 
 // TestSendSurfacesAPIError: platform failures surface to the Host as Send
@@ -862,15 +892,28 @@ type larkStub struct {
 	server *httptest.Server
 	wsOpen chan struct{}
 
-	mu           sync.Mutex
-	tokenHits    int
-	tokenCode    int
-	tokenMsg     string
-	messageCode  int
-	messageMsg   string
-	tokens       []tokenCall
-	messages     []messageCall
-	endpointHits int
+	mu              sync.Mutex
+	tokenHits       int
+	tokenCode       int
+	tokenMsg        string
+	messageCode     int
+	messageMsg      string
+	cardCode        int
+	cardMsg         string
+	tokens          []tokenCall
+	messages        []messageCall
+	patches         []patchCall
+	messageDeletes  []deleteMessageCall
+	reactionCreates []reactionCall
+	reactionDeletes []reactionDeleteCall
+	endpointHits    int
+	resourceHits    int
+	resourceCode    int
+	resourceMsg     string
+	resourceAuths   []string
+	imageHits       int
+	imageAuths      []string
+	uploads         []imageUploadCall
 }
 
 type tokenCall struct {
@@ -880,28 +923,61 @@ type tokenCall struct {
 
 type messageCall struct {
 	path          string
+	method        string
 	receiveIDType string
 	receiveID     string
 	msgType       string
-	text          string
+	text          string // the "text" field when the payload is a text message
+	content       string // the raw content JSON as the SDK serialized it
 	authorization string
 }
 
+// patchCall records one message-content Patch (the edit path).
+type patchCall struct {
+	path    string
+	content string
+}
+
+// deleteMessageCall records one message delete.
+type deleteMessageCall struct {
+	path string
+}
+
+// reactionCall records one reaction create (the ack path).
+type reactionCall struct {
+	messageID string
+	emoji     string
+}
+
+// reactionDeleteCall records one reaction withdraw with the id it undoes.
+type reactionDeleteCall struct {
+	messageID  string
+	reactionID string
+}
+
 type stubOptions struct {
-	tokenCode   int // non-zero: the token endpoint answers with this error
-	tokenMsg    string
-	messageCode int // non-zero: the message endpoint answers with this error
-	messageMsg  string
+	tokenCode    int // non-zero: the token endpoint answers with this error
+	tokenMsg     string
+	messageCode  int // non-zero: the message endpoint answers with this error
+	messageMsg   string
+	resourceCode int // non-zero: the message-resource download answers with this error
+	resourceMsg  string
+	cardCode     int // non-zero: interactive sends answer with this code (card-limit fallback)
+	cardMsg      string
 }
 
 func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 	t.Helper()
 	stub := &larkStub{
-		wsOpen:      make(chan struct{}, 1),
-		tokenCode:   opts.tokenCode,
-		tokenMsg:    opts.tokenMsg,
-		messageCode: opts.messageCode,
-		messageMsg:  opts.messageMsg,
+		wsOpen:       make(chan struct{}, 1),
+		tokenCode:    opts.tokenCode,
+		tokenMsg:     opts.tokenMsg,
+		messageCode:  opts.messageCode,
+		messageMsg:   opts.messageMsg,
+		resourceCode: opts.resourceCode,
+		resourceMsg:  opts.resourceMsg,
+		cardCode:     opts.cardCode,
+		cardMsg:      opts.cardMsg,
 	}
 	mux := http.NewServeMux()
 
@@ -1000,6 +1076,44 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		}
 	})
 
+	// Image upload (POST .../images): the outbound step one. Serves the
+	// canned image key.
+	mux.HandleFunc("/open-apis/im/v1/images", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			http.Error(w, "bad multipart", http.StatusBadRequest)
+			return
+		}
+		call := imageUploadCall{imageType: r.FormValue("image_type")}
+		if fhs := r.MultipartForm.File["image"]; len(fhs) > 0 {
+			f, err := fhs[0].Open()
+			if err == nil {
+				data, _ := io.ReadAll(f)
+				_ = f.Close()
+				call.data = data
+				call.fileName = fhs[0].Filename
+			}
+		}
+		stub.mu.Lock()
+		stub.uploads = append(stub.uploads, call)
+		stub.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"msg":  "ok",
+			"data": map[string]string{"image_key": "img_out_key"},
+		})
+	})
+
+	// Image download (GET .../images/:image_key): the fallback route.
+	mux.HandleFunc("/open-apis/im/v1/images/", func(w http.ResponseWriter, r *http.Request) {
+		stub.mu.Lock()
+		stub.imageHits++
+		stub.imageAuths = append(stub.imageAuths, r.Header.Get("Authorization"))
+		stub.mu.Unlock()
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(stubFeishuImageBytes)
+	})
+
 	// Tenant access token: the SDK exchanges app credentials before the
 	// first message call and caches the result.
 	mux.HandleFunc("/open-apis/auth/v3/tenant_access_token/internal", func(w http.ResponseWriter, r *http.Request) {
@@ -1027,7 +1141,7 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		})
 	})
 
-	// Message send: the reply path of this slice.
+	// Message send: the reply path of this slice (text and card Creates).
 	mux.HandleFunc("/open-apis/im/v1/messages", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
@@ -1042,12 +1156,17 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		_ = json.Unmarshal([]byte(req.Content), &textPayload)
 		stub.mu.Lock()
 		code, msg := stub.messageCode, stub.messageMsg
+		if req.MsgType == "interactive" && stub.cardCode != 0 {
+			code, msg = stub.cardCode, stub.cardMsg
+		}
 		stub.messages = append(stub.messages, messageCall{
 			path:          r.URL.Path,
+			method:        r.Method,
 			receiveIDType: r.URL.Query().Get("receive_id_type"),
 			receiveID:     req.ReceiveID,
 			msgType:       req.MsgType,
 			text:          textPayload.Text,
+			content:       req.Content,
 			authorization: r.Header.Get("Authorization"),
 		})
 		stub.mu.Unlock()
@@ -1061,6 +1180,76 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 			"msg":  "success",
 			"data": map[string]any{"message_id": stubMessageID},
 		})
+	})
+
+	// Message subtree: content Patch (edit), delete, and the reaction
+	// create/withdraw endpoints, and the message-resource download, routed
+	// by path shape below the shared /messages/ prefix.
+	mux.HandleFunc("/open-apis/im/v1/messages/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/resources/img_stub_key") {
+			stub.mu.Lock()
+			stub.resourceHits++
+			stub.resourceAuths = append(stub.resourceAuths, r.Header.Get("Authorization"))
+			code, msg := stub.resourceCode, stub.resourceMsg
+			stub.mu.Unlock()
+			if code != 0 {
+				// Error envelopes ride a non-200 status — the SDK only
+				// parses the JSON body (and reports Success()=false) below
+				// 200.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "msg": msg})
+				return
+			}
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write(stubFeishuImageBytes)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		respond := func(payload map[string]any) {
+			_ = json.NewEncoder(w).Encode(payload)
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/reactions"):
+			var req struct {
+				ReactionType struct {
+					EmojiType string `json:"emoji_type"`
+				} `json:"reaction_type"`
+			}
+			_ = json.Unmarshal(body, &req)
+			stub.mu.Lock()
+			stub.reactionCreates = append(stub.reactionCreates, reactionCall{
+				messageID: messageIDOf(r.URL.Path),
+				emoji:     req.ReactionType.EmojiType,
+			})
+			stub.mu.Unlock()
+			respond(map[string]any{"code": 0, "msg": "success", "data": map[string]any{"reaction_id": stubReactionID}})
+		case strings.Contains(r.URL.Path, "/reactions/"):
+			stub.mu.Lock()
+			stub.reactionDeletes = append(stub.reactionDeletes, reactionDeleteCall{
+				messageID:  messageIDOf(r.URL.Path),
+				reactionID: reactionIDOf(r.URL.Path),
+			})
+			stub.mu.Unlock()
+			respond(map[string]any{"code": 0, "msg": "success"})
+		case r.Method == http.MethodPatch:
+			var req struct {
+				Content string `json:"content"`
+			}
+			_ = json.Unmarshal(body, &req)
+			stub.mu.Lock()
+			stub.patches = append(stub.patches, patchCall{path: r.URL.Path, content: req.Content})
+			stub.mu.Unlock()
+			respond(map[string]any{"code": 0, "msg": "success"})
+		case r.Method == http.MethodDelete:
+			stub.mu.Lock()
+			stub.messageDeletes = append(stub.messageDeletes, deleteMessageCall{path: r.URL.Path})
+			stub.mu.Unlock()
+			respond(map[string]any{"code": 0, "msg": "success"})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
 	})
 
 	stub.server = httptest.NewTLSServer(mux)
@@ -1086,10 +1275,57 @@ func (s *larkStub) messageCalls() []messageCall {
 	return append([]messageCall(nil), s.messages...)
 }
 
+func (s *larkStub) downloadCalls() (resourceHits, imageHits int, auths []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resourceHits, s.imageHits, append(append([]string(nil), s.resourceAuths...), s.imageAuths...)
+}
+
 func (s *larkStub) endpointCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.endpointHits
+}
+
+func (s *larkStub) patchCalls() []patchCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]patchCall(nil), s.patches...)
+}
+
+func (s *larkStub) messageDeleteCalls() []deleteMessageCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]deleteMessageCall(nil), s.messageDeletes...)
+}
+
+func (s *larkStub) reactionCreateCalls() []reactionCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]reactionCall(nil), s.reactionCreates...)
+}
+
+func (s *larkStub) reactionDeleteCalls() []reactionDeleteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]reactionDeleteCall(nil), s.reactionDeletes...)
+}
+
+// messageIDOf extracts the om_* id from /open-apis/im/v1/messages/<id>...
+func messageIDOf(path string) string {
+	rest := strings.TrimPrefix(path, "/open-apis/im/v1/messages/")
+	if idx := strings.Index(rest, "/"); idx >= 0 {
+		return rest[:idx]
+	}
+	return rest
+}
+
+// reactionIDOf extracts the trailing omr_* id from a reaction delete path.
+func reactionIDOf(path string) string {
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 // TestWSLoopbackLifecycle runs the production websocket client and the
@@ -1139,7 +1375,7 @@ func TestWSLoopbackLifecycle(t *testing.T) {
 	}
 	calls := stub.messageCalls()
 	if len(calls) != 1 || calls[0].receiveIDType != "chat_id" || calls[0].receiveID != "oc_loopback" ||
-		calls[0].msgType != "text" || calls[0].text != "hello human" {
+		calls[0].msgType != "interactive" || cardMarkdownOf(t, calls[0].content) != "hello human" {
 		t.Fatalf("message calls = %+v", calls)
 	}
 
@@ -1353,4 +1589,287 @@ func TestStopDuringFirstConnectReturns(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Start did not return after Stop")
 	}
+}
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a dropped connection
+// surfaces as a temporary HealthError while the loop redials, and Health
+// returns to nil once a replacement attempt connects.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	oldDelay := wsRedialDelay
+	wsRedialDelay = 20 * time.Millisecond
+	t.Cleanup(func() { wsRedialDelay = oldDelay })
+
+	stub := newLarkStub(t, stubOptions{})
+	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+
+	// Scripted attempts: 1 connects (the test drops it), 2 fails its
+	// connect, 3 reconnects and clears the classification.
+	live := newFakeWS(nil)
+	dead := newFakeWS(errors.New("handshake refused"))
+	fresh := newFakeWS(nil)
+	var mu sync.Mutex
+	var attempt int
+	p := newAdapter()
+	p.newWS = func(onEvent eventFunc, _ wsCreds, _ string) wsClient {
+		mu.Lock()
+		attempt++
+		i := attempt
+		mu.Unlock()
+		var ws *fakeWS
+		switch i {
+		case 1:
+			ws = live
+		case 2:
+			ws = dead
+		default:
+			ws = fresh
+		}
+		ws.setOnEvent(onEvent)
+		return ws
+	}
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = p.Stop(ctx)
+	})
+
+	live.cancelRun(errors.New("connection reset"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return p.Health(context.Background()) == nil
+	})
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// TestGroupMentionOnlyGatesGroupChats: a group text message publishes only
+// when a mention entry typed "bot" is present (the closest identity signal
+// the event model carries — the adapter cannot learn its own open_id from
+// the pinned SDK), with the @_user_N placeholders stripped; user-only
+// mentions and mention-less group chatter drop.
+func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
+	groupEvent := func(content string, mentionTypes ...string) *larkim.P2MessageReceiveV1 {
+		return withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) {
+			m.Event.Message.ChatType = ptr("group")
+			m.Event.Message.Content = ptr(`{"text":` + strconv.Quote(content) + `}`)
+			var mentions []*larkim.MentionEvent
+			for i, typ := range mentionTypes {
+				mentions = append(mentions, &larkim.MentionEvent{
+					Key:           ptr("@_user_" + strconv.Itoa(i+1)),
+					MentionedType: ptr(typ),
+					Name:          ptr("member-" + typ),
+				})
+			}
+			m.Event.Message.Mentions = mentions
+		})
+	}
+
+	// A bot mention publishes, with every placeholder stripped.
+	msg, _, ok := normalizeEvent(groupEvent("@_user_1 @_user_2 summarize this", "user", "bot"))
+	if !ok {
+		t.Fatal("group message with a bot mention must publish")
+	}
+	if msg.Parts[0].Text != "summarize this" {
+		t.Fatalf("stripped text = %q, want the placeholders gone", msg.Parts[0].Text)
+	}
+	if msg.ChatID != "oc_chat_1" {
+		t.Fatalf("chat id = %q, want the group chat id", msg.ChatID)
+	}
+
+	// User-only mentions drop.
+	if _, _, ok := normalizeEvent(groupEvent("@_user_1 hello there", "user")); ok {
+		t.Fatal("a group message mentioning only users must drop")
+	}
+	// No mentions drop.
+	if _, _, ok := normalizeEvent(groupEvent("plain chatter")); ok {
+		t.Fatal("unmentioned group chatter must drop")
+	}
+	// A bare bot mention leaves nothing to publish.
+	if _, _, ok := normalizeEvent(groupEvent("@_user_1", "bot")); ok {
+		t.Fatal("a bare bot mention leaves nothing to publish")
+	}
+}
+
+// stubFeishuImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubFeishuImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// p2pImageEvent builds a p2p image message event carrying the stub image
+// key.
+func p2pImageEvent() *larkim.P2MessageReceiveV1 {
+	return &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Sender: &larkim.EventSender{
+				SenderId:   &larkim.UserId{OpenId: ptr("ou_manager1234")},
+				SenderType: ptr("user"),
+			},
+			Message: &larkim.EventMessage{
+				MessageId:   ptr("om_img_1"),
+				ChatId:      ptr("oc_chat_1"),
+				ChatType:    ptr("p2p"),
+				MessageType: ptr("image"),
+				Content:     ptr(`{"image_key":"img_stub_key"}`),
+			},
+		},
+	}
+}
+
+// TestNormalizeEventImageType: an image event yields a download ref and no
+// text; junk keys and unknown message types stay dropped.
+func TestNormalizeEventImageType(t *testing.T) {
+	msg, refs, ok := normalizeEvent(p2pImageEvent())
+	if !ok {
+		t.Fatal("image event must be publishable")
+	}
+	if len(refs) != 1 || refs[0].messageID != "om_img_1" || refs[0].imageKey != "img_stub_key" {
+		t.Fatalf("refs = %+v", refs)
+	}
+	if len(msg.Parts) != 0 || msg.ChatID != "oc_chat_1" {
+		t.Fatalf("envelope = %+v", msg)
+	}
+
+	noKey := p2pImageEvent()
+	noKey.Event.Message.Content = ptr(`{"image_key":""}`)
+	if _, refs, ok := normalizeEvent(noKey); ok || len(refs) != 0 {
+		t.Fatal("an image event with an empty key must not publish")
+	}
+
+	rich := p2pTextEvent()
+	rich.Event.Message.MessageType = ptr("post")
+	rich.Event.Message.Content = ptr(`{"title":"t"}`)
+	if _, _, ok := normalizeEvent(rich); ok {
+		t.Fatal("post messages stay out of this slice")
+	}
+}
+
+// TestInboundImageDualAPIFallback: the message-resource route answers
+// first; when it fails, the image API serves the bytes. The envelope keeps
+// the [image: key] annotation either way.
+func TestInboundImageDualAPIFallback(t *testing.T) {
+	t.Run("primary route serves", func(t *testing.T) {
+		stub := newLarkStub(t, stubOptions{})
+		env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+		ws := newFakeWS(nil)
+		p, _ := startWithFake(t, env, ws)
+		onEvent, _, _ := ws.state()
+		if err := onEvent(context.Background(), p2pImageEvent()); err != nil {
+			t.Fatalf("event handler: %v", err)
+		}
+		waitFor(t, "image envelope", func() bool { return len(env.snapshot()) == 1 })
+		got := env.snapshot()[0]
+		if len(got.Parts) != 2 ||
+			got.Parts[0].Text != "[image: img_stub_key]" ||
+			got.Parts[1].Kind != plugin.PartMedia ||
+			string(got.Parts[1].Media.Data) != string(stubFeishuImageBytes) {
+			t.Fatalf("envelope parts = %+v", got.Parts)
+		}
+		resourceHits, imageHits, auths := stub.downloadCalls()
+		if resourceHits != 1 || imageHits != 0 {
+			t.Fatalf("downloads: resource=%d image=%d, want primary only", resourceHits, imageHits)
+		}
+		if len(auths) != 1 || auths[0] != "Bearer "+stubTenantToken {
+			t.Fatalf("authorization = %v, want the tenant bearer token", auths)
+		}
+		_ = p
+	})
+
+	t.Run("fallback serves on resource failure", func(t *testing.T) {
+		stub := newLarkStub(t, stubOptions{resourceCode: 99991663, resourceMsg: "token invalid"})
+		env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+		ws := newFakeWS(nil)
+		p, _ := startWithFake(t, env, ws)
+		onEvent, _, _ := ws.state()
+		if err := onEvent(context.Background(), p2pImageEvent()); err != nil {
+			t.Fatalf("event handler: %v", err)
+		}
+		waitFor(t, "fallback image envelope", func() bool { return len(env.snapshot()) == 1 })
+		got := env.snapshot()[0]
+		if len(got.Parts) != 2 ||
+			got.Parts[0].Text != "[image: img_stub_key]" ||
+			got.Parts[1].Kind != plugin.PartMedia ||
+			string(got.Parts[1].Media.Data) != string(stubFeishuImageBytes) {
+			t.Fatalf("envelope parts = %+v", got.Parts)
+		}
+		resourceHits, imageHits, _ := stub.downloadCalls()
+		if resourceHits < 1 || imageHits != 1 {
+			// The SDK retries an auth-class resource failure on its own, so
+			// the primary count may exceed one; the fallback runs exactly
+			// once and serves the bytes.
+			t.Fatalf("downloads: resource=%d image=%d, want retries plus one fallback", resourceHits, imageHits)
+		}
+		_ = p
+	})
+}
+
+// TestSendMediaImageUploadAndSend: each media part uploads (image_type
+// "message") and leaves as one msg_type=image message carrying the
+// returned key.
+func TestSendMediaImageUploadAndSend(t *testing.T) {
+	stub := newLarkStub(t, stubOptions{})
+	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+	ws := newFakeWS(nil)
+	p, _ := startWithFake(t, env, ws)
+
+	ids, err := p.SendMedia(context.Background(), "oc_chat_1", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "out.jpg", MimeType: "image/jpeg", Data: stubFeishuImageBytes}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != stubMessageID {
+		t.Fatalf("ids = %v, want [%s]", ids, stubMessageID)
+	}
+	uploads := stub.uploadCalls()
+	if len(uploads) != 1 || uploads[0].imageType != "message" ||
+		string(uploads[0].data) != string(stubFeishuImageBytes) {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	calls := stub.messageCalls()
+	if len(calls) != 1 || calls[0].msgType != "image" {
+		t.Fatalf("message calls = %+v, want one image message", calls)
+	}
+	var content struct {
+		ImageKey string `json:"image_key"`
+	}
+	if err := json.Unmarshal([]byte(calls[0].content), &content); err != nil || content.ImageKey != "img_out_key" {
+		t.Fatalf("message content = %q, want the uploaded key", calls[0].content)
+	}
+
+	// A send failure surfaces for the ledger to retry.
+	stub.setMessageCode(230013, "permission denied")
+	if _, err := p.SendMedia(context.Background(), "oc_chat_1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "out2.jpg", MimeType: "image/jpeg", Data: stubFeishuImageBytes}},
+	}); err == nil {
+		t.Fatal("a failed image message must surface")
+	}
+}
+
+// setMessageCode makes the message endpoint answer the given platform
+// error from now on.
+func (s *larkStub) setMessageCode(code int, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messageCode, s.messageMsg = code, msg
+}
+
+// imageUploadCall records one outbound image upload.
+type imageUploadCall struct {
+	imageType string
+	fileName  string
+	data      []byte
+}
+
+func (s *larkStub) uploadCalls() []imageUploadCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]imageUploadCall(nil), s.uploads...)
 }

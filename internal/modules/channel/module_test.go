@@ -3,10 +3,13 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 
 	"agent-vivy/internal/channelcontract"
 	"agent-vivy/internal/domain"
@@ -21,6 +24,7 @@ type providerProbe struct {
 	starts   int
 	stops    int
 	settings json.RawMessage
+	onStart  func()
 }
 
 func (*providerProbe) Definition() channelport.Definition {
@@ -34,6 +38,9 @@ func (p *providerProbe) Construct(_ context.Context, host channelport.Host) (cha
 
 func (p *providerProbe) Start(context.Context) error {
 	p.starts++
+	if p.onStart != nil {
+		p.onStart()
+	}
 	return nil
 }
 
@@ -46,6 +53,22 @@ func (*providerProbe) Send(context.Context, channelport.OutboundMessage) ([]stri
 	return nil, nil
 }
 
+type maintenanceProbe struct {
+	calls  int
+	cutoff time.Time
+	err    error
+	events *[]string
+}
+
+func (probe *maintenanceProbe) PruneChannelInboundEvents(_ context.Context, cutoff time.Time) (int, error) {
+	probe.calls++
+	probe.cutoff = cutoff
+	if probe.events != nil {
+		*probe.events = append(*probe.events, "prune")
+	}
+	return 1, probe.err
+}
+
 func validDeps(t *testing.T) channelcontract.Dependencies {
 	t.Helper()
 	backend, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "channel-owner.db"))
@@ -54,13 +77,90 @@ func validDeps(t *testing.T) channelcontract.Dependencies {
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 	return channelcontract.Dependencies{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
-			return "run-test", nil
+		Journal:     backend,
+		Messages:    backend,
+		Sessions:    backend,
+		Deliveries:  backend,
+		Maintenance: backend,
+		Approvals:   backend,
+		Runs:        backend,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Run: func(_ context.Context, _ domain.SessionID, _ string, _ []domain.Attachment, _ *domain.Provenance, prepare channelcontract.PrepareRunCallback) (domain.RunID, error) {
+			runID := domain.RunID("run-test")
+			if err := prepare(runID); err != nil {
+				return "", err
+			}
+			return runID, nil
 		},
+		DecideApproval: func(context.Context, string, string, string) error { return nil },
+	}
+}
+
+func TestProcessAvailableRequiresDeliveryDependencies(t *testing.T) {
+	deps := validDeps(t)
+	deps.Deliveries = nil
+	if _, err := NewFactory().Construct(context.Background(), deps, channelcontract.Selection{ProcessAvailable: true}); err == nil {
+		t.Fatal("available process accepted missing durable delivery store")
+	}
+	instance, err := NewFactory().Construct(context.Background(), deps, channelcontract.Selection{ProcessAvailable: false})
+	if err != nil {
+		t.Fatalf("unavailable process rejected optional delivery store: %v", err)
+	}
+	if err := instance.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPreparedOwnerStartPrunesBeforeProviderStart(t *testing.T) {
+	events := []string{}
+	maintenance := &maintenanceProbe{events: &events}
+	provider := &providerProbe{onStart: func() { events = append(events, "start") }}
+	deps := validDeps(t)
+	deps.Maintenance = maintenance
+	instance, err := NewFactory().Construct(context.Background(), deps, channelcontract.Selection{
+		Providers: []channelport.ChannelProvider{provider},
+		Config: channelcontract.Config{"fake": {
+			Enabled: true, AllowFrom: []string{"alice"},
+		}},
+		ProcessAvailable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Add(-30 * 24 * time.Hour)
+	if err := instance.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().Add(-30 * 24 * time.Hour)
+	t.Cleanup(func() { _ = instance.Close(context.Background()) })
+	if !reflect.DeepEqual(events, []string{"prune", "start"}) {
+		t.Fatalf("events = %v, want prune before start", events)
+	}
+	if maintenance.cutoff.Before(before) || maintenance.cutoff.After(after) {
+		t.Fatalf("retention cutoff = %v, want between %v and %v", maintenance.cutoff, before, after)
+	}
+}
+
+func TestPreparedOwnerStartContinuesAfterPruneFailure(t *testing.T) {
+	provider := &providerProbe{}
+	deps := validDeps(t)
+	deps.Maintenance = &maintenanceProbe{err: errors.New("prune failed")}
+	instance, err := NewFactory().Construct(context.Background(), deps, channelcontract.Selection{
+		Providers: []channelport.ChannelProvider{provider},
+		Config: channelcontract.Config{"fake": {
+			Enabled: true, AllowFrom: []string{"alice"},
+		}},
+		ProcessAvailable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := instance.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = instance.Close(context.Background()) })
+	if provider.starts != 1 {
+		t.Fatalf("provider starts = %d, want 1 after non-fatal prune failure", provider.starts)
 	}
 }
 
@@ -86,7 +186,10 @@ func TestConstructDoesNotStartProviders(t *testing.T) {
 
 func TestUnavailableProcessKeepsCompiledInventoryWithoutStart(t *testing.T) {
 	provider := &providerProbe{}
-	instance, err := NewFactory().Construct(context.Background(), validDeps(t), channelcontract.Selection{
+	maintenance := &maintenanceProbe{}
+	deps := validDeps(t)
+	deps.Maintenance = maintenance
+	instance, err := NewFactory().Construct(context.Background(), deps, channelcontract.Selection{
 		Providers:        []channelport.ChannelProvider{provider},
 		ProcessAvailable: false,
 	})
@@ -97,8 +200,8 @@ func TestUnavailableProcessKeepsCompiledInventoryWithoutStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := instance.Inspect()
-	if !state.Compiled || state.ProcessAvailable || len(state.Providers) != 1 || provider.starts != 0 {
-		t.Fatalf("state=%+v starts=%d", state, provider.starts)
+	if !state.Compiled || state.ProcessAvailable || len(state.Providers) != 1 || provider.starts != 0 || maintenance.calls != 0 {
+		t.Fatalf("state=%+v starts=%d prune_calls=%d", state, provider.starts, maintenance.calls)
 	}
 }
 

@@ -584,6 +584,77 @@ func BuildModifiedFileSummaries(rows []FileVersionRow) ModifiedFile {
 	return ModifiedFile{Path: rows[0].Path, Diff: diff, UpdatedAt: updated}
 }
 
+// Channel delivery states (CH-C3-N1 durable outbound intent). armed marks
+// the intent recorded when the inbound turn opened its run; pending marks
+// an observed run.completed whose reply is being delivered or retried;
+// failed marks attempts exhausted. Successful rows are deleted, so the
+// table only ever holds undelivered intent.
+const (
+	ChannelDeliveryArmed   = "armed"
+	ChannelDeliveryPending = "pending"
+	ChannelDeliveryFailed  = "failed"
+)
+
+// ChannelInboundRetention bounds the channel.inbound pseudo-run events
+// (chanin_* rows in run_events): events older than this are pruned once per
+// process start. A constant, not config, matching the FileVersionRetention
+// precedent — retention policy changes ship as code, not as a new knob.
+const ChannelInboundRetention = 30 * 24 * time.Hour
+
+// ChannelInboundPrefix is the pseudo-run id prefix of channel.inbound
+// journal rows. They are provenance records without a runs row; retention
+// is the only thing that ever deletes them.
+const ChannelInboundPrefix = "chanin_"
+
+// ChannelDelivery is one durable outbound reply intent. It is Host-internal
+// operational state, not a Journal event: the reply text itself stays in the
+// message log, the row only remembers where a run's reply must land so a
+// restart can finish (or settle) the delivery.
+type ChannelDelivery struct {
+	RunID       domain.RunID
+	SessionID   domain.SessionID
+	Channel     string
+	ChatID      string
+	TopicID     string
+	State       string // ChannelDeliveryArmed / Pending / Failed
+	Attempts    int
+	CreatedAtMs int64
+	UpdatedAtMs int64
+}
+
+// ChannelDeliveryStore persists the outbound reply intents. A restart
+// reconciles open rows: armed rows are resolved against the run's terminal
+// state, pending rows are redelivered (at-least-once).
+type ChannelDeliveryStore interface {
+	// UpsertChannelDelivery inserts the row or replaces every field of the
+	// existing row keyed by RunID.
+	UpsertChannelDelivery(ctx context.Context, d ChannelDelivery) error
+	// ListOpenChannelDeliveries returns armed and pending rows, oldest
+	// first, so restart reconcile drains in arrival order. failed rows are
+	// never returned.
+	ListOpenChannelDeliveries(ctx context.Context) ([]ChannelDelivery, error)
+	// ListFailedChannelDeliveries returns only failed rows, oldest first —
+	// the operator-visible side of the ledger (delivery control surface).
+	// Rows stay failed until an explicit redeliver re-arms them or they are
+	// deleted; listing never mutates.
+	ListFailedChannelDeliveries(ctx context.Context) ([]ChannelDelivery, error)
+	// DeleteChannelDelivery removes the row (delivery succeeded, or the
+	// run's terminal state settled the intent). Deleting an unknown row is
+	// not an error.
+	DeleteChannelDelivery(ctx context.Context, runID domain.RunID) error
+}
+
+// ChannelMaintenanceStore is the channel retention extension: the
+// channel.inbound provenance events are append-only to the Journal contract,
+// but they are bounded operational records, so the backend exposes an
+// explicit prune instead of letting them grow forever.
+type ChannelMaintenanceStore interface {
+	// PruneChannelInboundEvents deletes chanin_* run_events created before
+	// the cutoff and returns how many rows it removed. Non-chanin events
+	// are never touched.
+	PruneChannelInboundEvents(ctx context.Context, olderThan time.Time) (int, error)
+}
+
 // Engine is one organism's durable store. App composition talks to this
 // surface; SQLite remains the default implementation.
 type Engine interface {
@@ -608,6 +679,8 @@ type Engine interface {
 	StudioStore
 	TokenUsageStore
 	LeaseStore
+	ChannelDeliveryStore
+	ChannelMaintenanceStore
 	Snapshot() SnapshotStore
 	Blobs() BlobStore
 	Close() error

@@ -48,6 +48,23 @@ function ChannelCard({
     : status.enabled
       ? t('channels.enabled')
       : t('channels.disabled');
+  /** 实时健康徽标（CH-R-1）：只在已启动且适配器有健康面时出现。 */
+  const healthBadge = status.health
+    ? status.health.ok
+      ? { label: t('channels.healthOk'), className: 'border-emerald-500/40 text-emerald-600' }
+      : {
+          label:
+            status.health.class === 'dead'
+              ? t('channels.healthDead')
+              : status.health.class === 'rate-limit'
+                ? t('channels.healthRateLimit')
+                : t('channels.healthTemporary'),
+          className:
+            status.health.class === 'dead'
+              ? 'border-destructive/40 text-destructive'
+              : 'border-amber-500/40 text-amber-600',
+        }
+    : null;
 
   return (
     <div
@@ -62,6 +79,7 @@ function ChannelCard({
         <div className="flex flex-col items-end gap-1">
           <Badge variant={status.started ? 'default' : 'secondary'}>{badgeLabel}</Badge>
           {pendingRestart ? <Badge variant="outline">{t('channels.pendingRestart')}</Badge> : null}
+          {healthBadge ? <Badge variant="outline" className={healthBadge.className}>{healthBadge.label}</Badge> : null}
         </div>
       </div>
 

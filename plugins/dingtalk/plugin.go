@@ -121,6 +121,10 @@ type Plugin struct {
 	// and never mutated afterwards, so the loop reads it without the
 	// mutex; nil (env without the face) keeps the loop silent.
 	logger *slog.Logger
+	// health is the live link state for the HealthChecker face (CH-R-1):
+	// nil while the stream is connected, a classified HealthError while
+	// redialing. Guarded by mu; read through Health.
+	health error
 }
 
 func newAdapter() *Plugin {
@@ -207,17 +211,15 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 }
 
 // supervise keeps the stream client connected until the context is
-// cancelled. The protocol client's auto-reconnect is deliberately absent;
-// this loop is the context-aware owner: while the client holds a connection,
-// Start is a cheap no-op, so the tick only re-runs the gateway exchange
-// and handshake once the connection is actually gone. That happens on
-// graceful gateway disconnect frames (the protocol reader closes
-// the conn, so the next tick redials) — but NOT on silent network death
-// (NAT timeout, read stall): the SDK never notices, Start keeps being a
-// no-op, and the ear stays deaf until process restart (CH-C6-N3). Failed
-// redials stay visible — every failed attempt is warned through the
-// kernel log face (CH-C6-N1) and the recovery is logged — while Stop ends
-// the loop.
+// cancelled. The protocol client holds no auto-reconnect; this loop is the
+// context-aware owner: while the client holds a connection, Start is a
+// cheap no-op, so the tick only re-runs the gateway exchange and handshake
+// once the connection is actually gone. That happens on graceful gateway
+// disconnect frames and on silent link death alike — the client bounds
+// every read (ping + read deadline, CH-C6-N3), so a NAT-dropped socket
+// clears itself and the next tick redials. Failed redials stay visible —
+// every failed attempt is warned through the kernel log face (CH-C6-N1)
+// and the recovery is logged — while Stop ends the loop.
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 	defer close(done)
 	failures := 0
@@ -235,14 +237,22 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 		}
 		if err := stream.Start(ctx); err != nil {
 			failures++
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("stream redial failed: %w", err)}
+			p.mu.Unlock()
 			if p.logger != nil {
 				p.logger.Warn("dingtalk: stream redial failed; will retry",
 					"failures", failures, "err", err)
 			}
 			continue
 		}
-		if failures > 0 && p.logger != nil {
-			p.logger.Info("dingtalk: stream reconnected", "failed_attempts", failures)
+		if failures > 0 {
+			p.mu.Lock()
+			p.health = nil
+			p.mu.Unlock()
+			if p.logger != nil {
+				p.logger.Info("dingtalk: stream reconnected", "failed_attempts", failures)
+			}
 		}
 		failures = 0
 		// A redial that raced Stop must not leave an orphan socket behind.
@@ -343,6 +353,16 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Health implements plugin.HealthChecker (CH-R-1): read-only link state,
+// no network I/O. A connected stream is healthy; a broken link surfaces as
+// a temporary HealthError — the supervise loop owns recovery, so no
+// dingtalk condition is classified dead this generation.
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
+}
+
 // Send implements plugin.Channel: deliver each text part as one
 // sessionWebhook POST and return one id per delivered part. DingTalk's
 // robot webhook reply carries no platform message id ({errcode,errmsg}
@@ -374,8 +394,15 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		if err := replyText(ctx, p.http, sessionWebhook, part.Text); err != nil {
-			return ids, fmt.Errorf("dingtalk: send message to chat %q: %w", msg.ChatID, err)
+		// The reply carries the model's markdown: send it as DingTalk
+		// markdown (the dialect renders the common subset natively) and
+		// fall back to plain text when the platform rejects the formatted
+		// body (tier-1 text loop) — a rejection degrades the formatting,
+		// never the reply.
+		if err := replyMarkdown(ctx, p.http, sessionWebhook, part.Text); err != nil {
+			if err := replyText(ctx, p.http, sessionWebhook, part.Text); err != nil {
+				return ids, fmt.Errorf("dingtalk: send message to chat %q: %w", msg.ChatID, err)
+			}
 		}
 		ids = append(ids, msg.ChatID)
 	}
@@ -396,6 +423,47 @@ func replyText(ctx context.Context, httpClient *http.Client, sessionWebhook, tex
 	if err != nil {
 		return err
 	}
+	return postWebhook(ctx, httpClient, sessionWebhook, body)
+}
+
+// replyMarkdown posts one markdown reply to a sessionWebhook — the
+// DingTalk robot markdown contract ({"msgtype":"markdown",
+// "markdown":{"title":...,"text":...}}), the shape the Stream SDK's own
+// chatbot.SimpleReplyMarkdown sends. The model's markdown goes over as-is.
+func replyMarkdown(ctx context.Context, httpClient *http.Client, sessionWebhook, text string) error {
+	body, err := json.Marshal(map[string]any{
+		"msgtype":  "markdown",
+		"markdown": map[string]string{"title": markdownTitle(text), "text": text},
+	})
+	if err != nil {
+		return err
+	}
+	return postWebhook(ctx, httpClient, sessionWebhook, body)
+}
+
+// markdownTitle picks the notification-card title: the first non-empty
+// line, capped at 20 runes with an ellipsis. Empty text keeps a constant
+// title so the payload stays well-formed.
+func markdownTitle(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > 20 {
+			return string(runes[:20]) + "…"
+		}
+		return line
+	}
+	return "vivy"
+}
+
+// postWebhook is the shared sessionWebhook transport: one JSON POST and
+// the robot-ack decode. The reply body must decode as
+// {"errcode":<int>,"errmsg":<string>}; a non-zero errcode is an error even
+// on HTTP 200.
+func postWebhook(ctx context.Context, httpClient *http.Client, sessionWebhook string, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sessionWebhook, bytes.NewReader(body))
 	if err != nil {
 		// A parse failure wraps the raw webhook URL (token included) in
@@ -448,12 +516,15 @@ func redactWebhookURLError(err error) error {
 }
 
 // normalizeCallback maps one DingTalk chatbot callback to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a single-chat
-// (conversationType "1") TEXT message from a human other than the bot —
-// and reports everything else as not publishable: group chats, cards and
-// non-text payloads (their text.content is empty; media in is a later
-// slice), empty messages, and envelopes the Host dispatch would drop
-// anyway (missing sender or message id).
+// envelope. Direct chats (conversationType "1") publish as before. Group
+// chats follow the tier-1 mention-only ruling: a group message publishes
+// only when IsInAtList says the bot was @-addressed, and the leading
+// @-mention markup is stripped from the text (a bare "@vivy" ping has
+// nothing left and publishes nothing). Everything else reports as not
+// publishable: cards and non-text payloads (their text.content is empty;
+// media in is a later slice), unmentioned group messages, empty messages,
+// and envelopes the Host dispatch would drop anyway (missing sender or
+// message id).
 //
 // The bot-self guard compares the sender against ChatbotUserId: if the
 // platform ever echoes the bot's own outgoing message back through the
@@ -462,7 +533,10 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 	if data == nil {
 		return plugin.InboundMessage{}, false
 	}
-	if data.ConversationType != singleChatType {
+	isGroup := data.ConversationType != singleChatType
+	if isGroup && !data.IsInAtList {
+		// Mention-only: group chatter the bot was not addressed in never
+		// becomes a turn.
 		return plugin.InboundMessage{}, false
 	}
 	if chatbotUserID := strings.TrimSpace(data.ChatbotUserId); chatbotUserID != "" &&
@@ -483,6 +557,12 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 	if content == "" {
 		// Pictures, audio, cards — no text part to publish.
 		return plugin.InboundMessage{}, false
+	}
+	if isGroup {
+		content = stripLeadingAtMentions(content)
+		if content == "" {
+			return plugin.InboundMessage{}, false
+		}
 	}
 	sender := strings.TrimSpace(data.SenderStaffId)
 	if sender == "" {
@@ -510,10 +590,29 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 		ChatID:    chatID,
 		Sender:    senderPrefix + sender,
 		MessageID: messageID,
-		// ReplyTo/TopicID stay empty this slice (single chat, no reply
-		// threading, no forum topics).
+		// ReplyTo/TopicID stay empty (no reply threading this batch, no
+		// forum topics).
 		ReplyTo: "",
 		TopicID: "",
 		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
 	}, true
+}
+
+// stripLeadingAtMentions removes the @-mention tokens DingTalk prepends to
+// group text content ("@张三 @vivy hello" -> "hello"), so the markup never
+// reaches the model as literal text. Only leading mentions are stripped —
+// a mid-sentence "@name" stays as the author wrote it.
+func stripLeadingAtMentions(text string) string {
+	for {
+		text = strings.TrimLeft(text, " \t")
+		if !strings.HasPrefix(text, "@") {
+			return strings.TrimRight(text, " \t")
+		}
+		rest := text[1:]
+		if idx := strings.IndexAny(rest, " \t"); idx >= 0 {
+			text = rest[idx+1:]
+		} else {
+			return ""
+		}
+	}
 }

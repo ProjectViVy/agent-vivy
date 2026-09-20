@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RpcCapabilities } from './rpc';
 
 const call = vi.fn();
+const capabilities = {
+  protocol_version: 'vivy.rpc.v1',
+  capabilities: ['channel.deliveries.list', 'channel.deliveries.redeliver'],
+  ui_extensions: [{ id: 'vivy/channel-ui', enabled: true }],
+} satisfies RpcCapabilities;
 vi.mock('./rpc', () => ({
   RpcClientError: class RpcClientError extends Error { constructor(public code: number, message: string) { super(message); } },
-  getRpcClient: vi.fn(async () => ({ call, capabilities: { protocol_version: 'vivy.rpc.v1', capabilities: [] } })),
+  getRpcClient: vi.fn(async () => ({ call, capabilities })),
 }));
 
 import * as api from './api';
+
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false;
 
 describe('typed Vivy API', () => {
   beforeEach(() => { call.mockReset(); call.mockResolvedValue({}); });
@@ -34,6 +44,52 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('cron/delete');
     expect(api.RPC_METHODS).toContain('cron/trigger');
     expect(api.RPC_METHODS).toContain('cron/stop');
+  });
+  it('keeps the UI projection, Channel health, and delivery RPCs in one API shape', async () => {
+    expect((await api.initialize()).ui_extensions?.[0]?.id).toBe('vivy/channel-ui');
+    expect(capabilities.capabilities).toContain('channel.deliveries.list');
+    expect(capabilities.capabilities).toContain('channel.deliveries.redeliver');
+
+    const status = {
+      name: 'telegram',
+      capabilities: {
+        typing: true,
+        edit: true,
+        delete: true,
+        reaction: true,
+        placeholder: true,
+        media: true,
+        media_store: true,
+        webhook: false,
+        listen: true,
+        stream: true,
+        health: true,
+      },
+      configured: true,
+      enabled: true,
+      allow_from: ['alice'],
+      started: true,
+      token_env: 'TELEGRAM_BOT_TOKEN',
+      token_env_set: true,
+      note: '',
+      health: { ok: false, class: 'temporary', detail: 'reconnecting' },
+    } satisfies api.ChannelStatus;
+    call.mockResolvedValueOnce([status]);
+    expect((await api.inspectChannels())[0]?.health).toEqual(status.health);
+    expect(call).toHaveBeenLastCalledWith('channel/inspect', undefined);
+
+    call.mockResolvedValueOnce({ deliveries: [] });
+    await api.listChannelDeliveries();
+    expect(call).toHaveBeenLastCalledWith('channel/deliveries/list', undefined);
+
+    call.mockResolvedValueOnce({ run_id: 'run-1', redelivered: true });
+    await api.redeliverChannelDelivery('run-1');
+    expect(call).toHaveBeenLastCalledWith('channel/deliveries/redeliver', { run_id: 'run-1' });
+  });
+  it('keeps message provenance on the runtime source vocabulary', () => {
+    type SourceMatchesRuntime = Equal<api.MessageProvenance['source'], 'ui' | 'channel' | 'headless'>;
+    const sourceMatchesRuntime: true = true as SourceMatchesRuntime;
+    expect(sourceMatchesRuntime).toBe(true);
   });
   it('maps workspace selection and browsing to their wire methods', async () => {
     await api.createSession('', '/code/vivy');

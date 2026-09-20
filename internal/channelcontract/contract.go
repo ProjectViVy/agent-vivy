@@ -16,8 +16,23 @@ import (
 	"agent-vivy/sdk/port/channel"
 )
 
+// PrepareRunCallback registers owner state that must exist before runtime
+// persistence or events become visible.
+type PrepareRunCallback func(domain.RunID) error
+
 // RunCallback enters the organism's one Service.RunWithOptions path.
-type RunCallback func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error)
+type RunCallback func(
+	context.Context,
+	domain.SessionID,
+	string,
+	[]domain.Attachment,
+	*domain.Provenance,
+	PrepareRunCallback,
+) (domain.RunID, error)
+
+// DecideApprovalCallback settles one approval through the organism's
+// server-attributed approval path.
+type DecideApprovalCallback func(context.Context, string, string, string) error
 
 // CredentialResolver is the focused credential authority required by the
 // existing Channel Host. The selected Module receives this facade; it never
@@ -108,13 +123,18 @@ func MarkInvalidSettings(cause error) error {
 // Dependencies contains focused existing authorities. The Channel Module
 // does not create or own these services.
 type Dependencies struct {
-	Journal     storage.Journal
-	Messages    storage.MessageStore
-	Sessions    storage.SessionStore
-	Credentials CredentialResolver
-	Settings    SettingsAccess
-	Logger      *slog.Logger
-	Run         RunCallback
+	Journal        storage.Journal
+	Messages       storage.MessageStore
+	Sessions       storage.SessionStore
+	Deliveries     storage.ChannelDeliveryStore
+	Maintenance    storage.ChannelMaintenanceStore
+	Approvals      storage.ApprovalStore
+	Runs           storage.RunStore
+	DecideApproval DecideApprovalCallback
+	Credentials    CredentialResolver
+	Settings       SettingsAccess
+	Logger         *slog.Logger
+	Run            RunCallback
 	// OnSettingsChanged is called after a successful settings update so the
 	// application can refresh its current settings projection.
 	OnSettingsChanged func()

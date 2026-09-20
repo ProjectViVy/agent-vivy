@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -14,6 +16,7 @@ import (
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 type factory struct{}
@@ -27,6 +30,8 @@ type owned struct {
 	host              *channelhost.Host
 	config            channelcontract.Config
 	settings          channelcontract.SettingsAccess
+	maintenance       storage.ChannelMaintenanceStore
+	logger            *slog.Logger
 	onSettingsChanged func()
 	processAvailable  bool
 	startOnce         sync.Once
@@ -43,6 +48,9 @@ func (factory) Construct(_ context.Context, deps channelcontract.Dependencies, s
 	if deps.Run == nil {
 		return nil, errors.New("channel module: run callback is required")
 	}
+	if selection.ProcessAvailable && deps.Deliveries == nil {
+		return nil, errors.New("channel module: durable delivery store is required when process availability is enabled")
+	}
 
 	configured, err := hostConfig(selection.Config)
 	if err != nil {
@@ -52,20 +60,32 @@ func (factory) Construct(_ context.Context, deps channelcontract.Dependencies, s
 	if err != nil {
 		return nil, err
 	}
+	logger := deps.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	host := channelhost.New(channelhost.Deps{
-		Journal:     deps.Journal,
-		Messages:    deps.Messages,
-		Sessions:    deps.Sessions,
-		Run:         channelhost.RunFunc(deps.Run),
-		Channels:    providers,
-		Config:      configured,
-		Credentials: deps.Credentials,
-		Logger:      deps.Logger,
+		Journal:    deps.Journal,
+		Messages:   deps.Messages,
+		Sessions:   deps.Sessions,
+		Deliveries: deps.Deliveries,
+		RunPrepared: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, provenance *domain.Provenance, prepare channelhost.PrepareRunFunc) (domain.RunID, error) {
+			return deps.Run(ctx, sessionID, text, attachments, provenance, channelcontract.PrepareRunCallback(prepare))
+		},
+		Approvals:      deps.Approvals,
+		Runs:           deps.Runs,
+		DecideApproval: channelhost.DecideApprovalFunc(deps.DecideApproval),
+		Channels:       providers,
+		Config:         configured,
+		Credentials:    deps.Credentials,
+		Logger:         logger,
 	})
 	return &owned{
 		host:              host,
 		config:            cloneContractConfig(selection.Config),
 		settings:          deps.Settings,
+		maintenance:       deps.Maintenance,
+		logger:            logger,
 		onSettingsChanged: deps.OnSettingsChanged,
 		processAvailable:  selection.ProcessAvailable,
 	}, nil
@@ -119,6 +139,14 @@ func (o *owned) Start(ctx context.Context) error {
 			o.startErr = errors.New("channel module: owner is closed")
 			return
 		}
+		if o.maintenance != nil {
+			cutoff := time.Now().Add(-storage.ChannelInboundRetention)
+			if rows, err := o.maintenance.PruneChannelInboundEvents(ctx, cutoff); err != nil {
+				o.logger.Warn("channel inbound event prune failed", "err", err)
+			} else if rows > 0 {
+				o.logger.Info("channel inbound events pruned", "rows", rows)
+			}
+		}
 		o.startErr = host.StartAll(ctx)
 	})
 	return o.startErr
@@ -145,6 +173,8 @@ func (o *owned) Close(ctx context.Context) error {
 		o.host = nil
 		o.config = nil
 		o.settings = nil
+		o.maintenance = nil
+		o.logger = nil
 		o.onSettingsChanged = nil
 		o.mu.Unlock()
 	})

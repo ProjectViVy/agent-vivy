@@ -24,27 +24,66 @@ import (
 
 // RunFunc opens one run for an inbound turn. The app injects it from
 // *runtime.Service.RunWithOptions; the host never holds *runtime.Service,
-// and the runtime package is never imported here.
-type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error)
+// and the runtime package is never imported here. Attachments are the
+// Host-validated inbound media parts (channel tier 2) carried onto the
+// user turn; the callback decides whether the current model consumes them.
+type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error)
+
+// PrepareRunFunc registers all host-owned state that must exist before a run
+// can publish events. Returning an error aborts runtime startup.
+type PrepareRunFunc func(runID domain.RunID) error
+
+// RunPreparedFunc is the race-free production seam. The runtime calls prepare
+// synchronously after minting the run ID and before persisting or publishing
+// run state. RunFunc remains as a compatibility seam for embedders and tests.
+type RunPreparedFunc func(
+	ctx context.Context,
+	sessionID domain.SessionID,
+	text string,
+	attachments []domain.Attachment,
+	prov *domain.Provenance,
+	prepare PrepareRunFunc,
+) (domain.RunID, error)
+
+// DecideApprovalFunc settles one approval attributed to the named actor.
+// The app injects it from *runtime.Service.DecideApprovalAsActor; the host
+// only forwards decisions that passed its own scoping (allow-listed sender,
+// originating session), and every decision still runs through the kernel's
+// single DecideApproval path (contract §12).
+type DecideApprovalFunc func(ctx context.Context, approvalID, decision, actor string) error
 
 type CredentialResolver interface {
 	Resolve(moduleID, ref string) (string, error)
 	IsSet(moduleID, ref string) bool
 }
 
-// Deps wires the host. Journal, Messages and Sessions are the organism's
-// durable stores; Channels is the generated Assembly's Channel set;
-// Config is the kernel-owned channels envelope.
+// Deps wires the host. Journal, Messages, Sessions and Deliveries are the
+// organism's durable stores; Channels is the generated Assembly's Channel
+// set; Config is the kernel-owned channels envelope.
 type Deps struct {
 	Journal  storage.Journal
 	Messages storage.MessageStore
 	Sessions storage.SessionStore
-	// Run starts one run per accepted inbound turn. Nil Deps.Run makes
-	// StartAll fail closed.
+	// Deliveries persists the durable outbound reply intents (CH-C3-N1).
+	// Nil Deps.Deliveries makes StartAll fail closed: an ear that can lose
+	// replies to a restart must not go live.
+	Deliveries storage.ChannelDeliveryStore
+	// Run and RunPrepared start one run per accepted inbound turn.
+	// Production uses RunPrepared so the host can durably register the
+	// delivery before runtime events become visible. At least one is required.
 	Run         RunFunc
+	RunPrepared RunPreparedFunc
 	Channels    []plugin.Channel
 	Config      config.Channels
 	Credentials CredentialResolver
+	// Approvals, Runs, and DecideApproval enable the HITL channel surface
+	// (contract §12): a pending-approval notification to the originating
+	// chat plus the session-scoped /approve, /deny, and /pending commands.
+	// All three are optional; if any is nil the notification and the
+	// commands are disabled with a start note, never half-enabled.
+	Approvals      storage.ApprovalStore
+	Runs           storage.RunStore
+	DecideApproval DecideApprovalFunc
 	// Logger receives structured host logs. Inbound content is never
 	// logged; sender ids and chat ids are identifiers, not content.
 	Logger *slog.Logger

@@ -3,6 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"go/parser"
+	"go/token"
+	"os"
+	"path"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -12,6 +18,36 @@ import (
 	"agent-vivy/internal/rpccontract"
 	"agent-vivy/internal/runtime"
 )
+
+func TestChannelOwnerImportsNoConcreteChannelImplementation(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden := map[string]bool{
+		path.Join("agent-vivy", "internal", "channelhost"):        true,
+		path.Join("agent-vivy", "internal", "modules", "channel"): true,
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, imported := range file.Imports {
+			path, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				t.Fatalf("parse import in %s: %v", name, err)
+			}
+			if forbidden[path] {
+				t.Fatalf("%s imports forbidden concrete Channel owner %q", name, path)
+			}
+		}
+	}
+}
 
 type ownerProbeFactory struct {
 	mu        sync.Mutex
