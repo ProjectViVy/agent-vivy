@@ -17,21 +17,15 @@ setup:
 build:
     & "{{go}}" build ./...
 
-# Transient carve-out: the WF-1 lane's `internal/workflow` package is untracked
-# work-in-progress that does not compile yet (undefined ValidationContext /
-# Compile symbols). It predates this change and is not part of any current
-# deliverable, so `test` and `vet` enumerate packages and skip it. Revert both
-# recipes to the plain `./...` form once that lane lands. Do NOT add more
-# exclusions here.
 test:
     # The Windows runtime package exercises hundreds of SQLite-backed real paths
     # and now legitimately exceeds Go's default 10-minute per-package timeout;
     # the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
     # exceeds it too. Both are well inside this bound.
-    $pkgs = @(& "{{go}}" list ./... | Where-Object { $_ -ne "agent-vivy/internal/workflow" }); & "{{go}}" test -timeout 20m $pkgs
+    & "{{go}}" test -timeout 20m ./...
 
 vet:
-    $pkgs = @(& "{{go}}" list ./... | Where-Object { $_ -ne "agent-vivy/internal/workflow" }); & "{{go}}" vet $pkgs
+    & "{{go}}" vet ./...
 
 fmt-check:
     powershell -NoProfile -Command '$files = & git ls-files -- ''*.go''; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'

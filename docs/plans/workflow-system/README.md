@@ -11,6 +11,45 @@
 > (this design defines the seam #39 will implement), #38 (evolution
 > pipelines, independent), #35 (AutoDream, independent).
 
+## 0. Lane and landing policy
+
+WF-1 is developed on a **long-lived independent branch**, not on the main
+line. This is a product decision, not a scheduling accident: the workflow
+layer is optional and cold-pluggable (#40), so it may stay unmerged
+indefinitely and **may never land on `main` at all**.
+
+| Fact | Value |
+|---|---|
+| Branch | `feat/workflow-wf1` (also on `origin/feat/workflow-wf1`) |
+| Worktree | `.worktrees/workflow-wf1` |
+| Tip when this policy was written | `08fa3d2 feat(workflow): ship WF-1 workflow product slice (#40)` |
+| Relation to `main` | Not an ancestor; `main..feat/workflow-wf1` = 1 commit |
+
+Consequences, which are binding on every lane:
+
+1. **No WF-1 file belongs in the root working tree.** `internal/workflow/`,
+   WF-1-only `internal/domain` helpers, and any other WIP from this lane
+   stay in that lane's worktree. `internal/sourcehash.Tree` hashes **every
+   file under `internal/`**, tracked or not, so a stray WF-1 file silently
+   rewrites `main`'s canonical source digest and the checked-in
+   `sdk/internal/assembly/conformance_results.json` evidence with it. That
+   happened once: `docs/logs/2026-09-20-workflow-lane-hygiene/`.
+2. **The root gate must not be narrowed for this lane.** `just test` and
+   `just vet` run plain `./...`. An exclusion that skips
+   `agent-vivy/internal/workflow` hides exactly the breakage a stray file
+   causes, so it is not an acceptable mitigation; remove the file instead.
+3. **A stray is a deletion task, never a synchronization task.** If a WF-1
+   file appears in the root tree, delete it (its home is the branch) rather
+   than copying it back or keeping both sides in step.
+4. **Landing, if it ever happens, moves the digest in the same change.** A
+   merge or PR from this branch must update the `internal` digest value in
+   `sdk/internal/assembly/conformance_results.json` in that same commit,
+   because the branch adds files under both `internal/domain` and
+   `internal/workflow`.
+5. **Root-tree hygiene is not a statement about WF-1's future.** Keeping
+   the branch out of the root tree says nothing about whether the feature
+   ships; it keeps `main`'s identity attributable to `main`.
+
 ## 1. Summary
 
 An optional, cold-pluggable workflow product layer: typed workflow
