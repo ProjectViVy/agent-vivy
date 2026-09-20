@@ -275,9 +275,18 @@ Each of these broke the build or the tests during the phase and is now fixed.
 | `internal/config/config_test.go:544` | asserted the Dockerfile **must** contain `fixtures/provider`; the assertion is now inverted (the image must not copy fixtures). |
 | `ui/e2e/global-setup.ts:16-24` | writes the Playwright child config; it emitted `bundle_dir`, which strict config parsing would now reject. |
 | `docs/TODO.md` `DEEPSEEK-REASONING-CONTENT` relevant-paths cell | live backlog row pointing at `fixtures/provider/deepseek.yaml`. |
+| `studio/dsh-vivy-console/index.js` → `prepare()` (writes the managed backend's `config.yaml`) | the `studio/` submodule is a separate repository; the host-repo `rg` only scans it when the submodule is checked out, so the P1 acceptance check reported "no hits" while this producer kept emitting `bundle_dir` and the `openai`/`anthropic` blocks. Missed at landing and fixed 2026-09-19 (`docs/logs/2026-09-19-vivy-backend-start-config/`). |
 
 `internal/provider/secret_audit_test.go` was listed in §1.7 but needed no change:
 it never references a bundle or a fixture path.
+
+The console producer is the one missed site that failed at **runtime** rather
+than at build or test time: no host Go gate loads a Studio-overlay file, and
+strict config decoding turned its stale template into `startup aborted` — the
+managed backend died before opening its listener, so 总控台 reported a start
+that never happened and only `gateway.out.log` explained why. It now emits
+`providers.active` alone, and `studio/dsh-vivy-console/config.test.mjs` pins
+that shape so the two cannot drift apart again.
 
 Historical records were deliberately not rewritten: `docs/logs/**`,
 `docs/research/**`, `docs/COMPLETE.MD` and the older `docs/plans/**` describe what
