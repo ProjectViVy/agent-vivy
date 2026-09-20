@@ -42,6 +42,10 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 	for _, moduleID := range assembly.Manifest.Modules {
 		compiledModules[moduleID] = true
 	}
+	channelHostCompiled := compiledModules["vivy/channel-host"]
+	if channelHostCompiled != (assembly.ChannelFactory != nil) {
+		return fmt.Errorf("app: generated ChannelFactory presence does not match compiled ChannelHost")
+	}
 	contextSources, err := generatedContextSources(assembly)
 	if err != nil {
 		return fmt.Errorf("app: generated ContextSource inventory: %w", err)

@@ -26,7 +26,7 @@ import (
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
-	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/channelcontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -45,6 +45,7 @@ import (
 	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/rpccontract"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
@@ -70,7 +71,7 @@ type App struct {
 	logger *slog.Logger
 
 	service      *runtime.Service
-	channels     *channelhost.Host
+	channelOwner channelcontract.Owned
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
 	backend      storage.Engine
@@ -106,9 +107,9 @@ type appOptions struct {
 	instructionRoot string
 }
 
-// WithoutEars composes the process with no channel Host: no partition, no
-// run hook, no StartAll. The headless face is one terminal-bound turn and
-// must never consume inbound channel traffic.
+// WithoutEars keeps the compiled Channel owner and inventory but makes
+// process networking unavailable. The headless face must never consume
+// inbound channel traffic.
 func WithoutEars() AppOption { return func(o *appOptions) { o.channels = false } }
 
 // WithoutGateway composes the process with no HTTP gateway: no listener, no
@@ -231,7 +232,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// settings.yaml / frozen ENV per call. The compiled plugin set is
 	// registered first so the channels overlay can only name channels this
 	// generation actually carries.
-	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, compiledChannelNames(runtimeAssembly.Channels))
+	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, append([]string(nil), runtimeAssembly.Manifest.Channels...))
 	if err := validateRuntimeAssemblyConfig(runtimeAssembly, cfg); err != nil {
 		return nil, err
 	}
@@ -598,43 +599,62 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if ao.sink != nil {
 		svcSink = fanoutSink{primary: bus, extra: ao.sink}
 	}
-	// The ChannelHost is constructed before the runtime service so it can
-	// join the initial hook list. It receives only a Run callback — never
-	// *runtime.Service — so plugins cannot reach the runtime and the
-	// channelhost layer stays free of internal/runtime imports. The
-	// channels envelope may only name compiled-in channel plugins, and
-	// every generated Channel Provider must carry the focused v1 Channel ABI (FR-10).
-	// The headless face composes with no ears (WithoutEars).
+	// The generated Channel Factory constructs one contract-owned instance
+	// before the runtime service so it can join the initial hook list. The
+	// Run callback remains guarded until Service composition completes.
 	var svc *runtime.Service
-	var channelHost *channelhost.Host
-	if ao.channels {
-		channelPlugins, err := bindChannels(runtimeAssembly.Channels, runtimeAssembly.ChannelGrants, cfg.Channels)
-		if err != nil {
-			_ = backend.Close()
-			return nil, err
+	var onSettingsChanged func()
+	var channelOwner channelcontract.Owned
+	channelOwnerOwned := false
+	closeChannelOwner := func() {
+		if !channelOwnerOwned || channelOwner == nil {
+			return
 		}
-		channelHost = channelhost.New(channelhost.Deps{
-			Journal:  backend,
-			Messages: backend,
-			Sessions: backend,
+		shutdownCtx := context.WithoutCancel(ctx)
+		_ = channelOwner.Stop(shutdownCtx)
+		_ = channelOwner.Close(shutdownCtx)
+		channelOwnerOwned = false
+	}
+	defer closeChannelOwner()
+	if runtimeAssembly.ChannelFactory != nil {
+		selectionConfig, selectionErr := channelSelectionConfig(cfg.Channels)
+		if selectionErr != nil {
+			_ = backend.Close()
+			return nil, selectionErr
+		}
+		channelOwner, err = runtimeAssembly.ChannelFactory.Construct(ctx, channelcontract.Dependencies{
+			Journal: backend, Messages: backend, Sessions: backend,
+			Credentials: credentialResolver,
+			Settings:    newChannelSettingsAccess(liveSettingsPath, resolver.Frozen()),
+			Logger:      logger,
 			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
 				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
 			},
-			Channels:    channelPlugins,
-			Config:      cfg.Channels,
-			Logger:      logger,
-			Credentials: credentialResolver,
+			OnSettingsChanged: func() {
+				if onSettingsChanged != nil {
+					onSettingsChanged()
+				}
+			},
+		}, channelcontract.Selection{
+			Providers: runtimeAssembly.Channels, Grants: runtimeAssembly.ChannelGrants,
+			Config: selectionConfig, ProcessAvailable: ao.channels,
 		})
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: construct Channel owner: %w", err)
+		}
+		channelOwnerOwned = true
 	}
 	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
-	if channelHost != nil {
-		runHooks = append(runHooks, channelHost)
+	if channelOwner != nil {
+		runHooks = append(runHooks, channelOwner)
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend)
 	if err != nil {
+		closeChannelOwner()
 		_ = backend.Close()
 		return nil, err
 	}
@@ -668,7 +688,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Compactions:          backend,
 		Truncations:          backend,
 		Crons:                backend,
-		Channels:             channelHost,
+		Channels:             channelOwner,
 		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
@@ -799,6 +819,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			},
 		})
 		if err != nil {
+			closeChannelOwner()
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: build action host: %w", err)
 		}
@@ -814,6 +835,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 
 	liveSnap, err := policy.Snapshot(liveProfile)
 	if err != nil {
+		closeChannelOwner()
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
 	}
@@ -842,6 +864,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	fileVersions, _ := backend.(storage.ModifiedFileStore)
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
+	shareSettingsChanged := func(callback func()) func() {
+		onSettingsChanged = callback
+		return callback
+	}
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
@@ -885,11 +911,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ConfigHTTPAllowedHosts:         append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
 		ConfigHTTPTimeoutSeconds:       cfg.Runtime.HTTPTimeoutSeconds,
 		ConfigCompaction:               cmp,
-		// Channel ears: the Host exposes the compiled-in set and the process
-		// truth of the last StartAll; channel writes go through the settings
-		// overlay and apply on the next restart (contract §11).
-		Channels:       channelHost,
-		ConfigChannels: cfg.Channels,
+		Contributions: func() []rpccontract.Contribution {
+			if channelOwner == nil {
+				return nil
+			}
+			return []rpccontract.Contribution{channelOwner}
+		}(),
 		// Settings→Tools surface: the full builtin catalog (active and
 		// hidden) plus the effective config default active set.
 		ToolCatalog:        builtinRegistry.Specs(),
@@ -935,7 +962,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			}
 			return registry.Specs()
 		},
-		OnSettingsChanged: func() {
+		OnSettingsChanged: shareSettingsChanged(func() {
 			liveApplyMu.Lock()
 			defer liveApplyMu.Unlock()
 			resolver.Invalidate()
@@ -1026,9 +1053,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 					logger.Warn("engine reload failed", "err", err)
 				}
 			}
-		},
+		}),
 	})
 	if err != nil {
+		closeChannelOwner()
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
@@ -1037,17 +1065,22 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// closes with a definitive run.failed. A listing failure means the
 	// storage truth is unreachable; startup aborts.
 	if err := svc.Recover(ctx); err != nil {
+		closeChannelOwner()
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
-	// Start the channel ears before the server listens (C3). Unconfigured
-	// and disabled channels are skipped; empty allow_from refuses Start
-	// for that channel. A wiring failure here aborts startup. The headless
-	// face has no ears.
-	if channelHost != nil {
-		if err := channelHost.StartAll(ctx); err != nil {
+	// Start the selected Channel owner only after recovery. WithoutEars keeps
+	// its compiled inventory but deliberately skips process activation.
+	if ao.channels && channelOwner != nil {
+		if err := channelOwner.Start(ctx); err != nil {
+			closeChannelOwner()
 			_ = backend.Close()
-			return nil, fmt.Errorf("app: start channels: %w", err)
+			return nil, fmt.Errorf("app: start Channel owner: %w", err)
+		}
+		if err := channelOwner.Ready(ctx); err != nil {
+			closeChannelOwner()
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: ready Channel owner: %w", err)
 		}
 	}
 
@@ -1055,7 +1088,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		cfg:          cfg,
 		logger:       logger,
 		service:      svc,
-		channels:     channelHost,
+		channelOwner: channelOwner,
 		actionHost:   actionHost,
 		observerHost: runObserverHost,
 		backend:      backend,
@@ -1077,6 +1110,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpOwned = false
 	actionHostOwned = false
 	observerHostOwned = false
+	channelOwnerOwned = false
 	assemblyOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
@@ -1129,11 +1163,11 @@ func (a *App) Close() error {
 	a.closeOnce.Do(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		if a.channelOwner != nil {
+			a.closeErr = errors.Join(a.closeErr, a.channelOwner.Stop(shutdownCtx), a.channelOwner.Close(shutdownCtx))
+		}
 		if a.actionHost != nil {
 			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
-		}
-		if a.channels != nil {
-			a.channels.StopAll(shutdownCtx)
 		}
 		if a.service != nil {
 			a.service.StopInteractionSweeper()
@@ -1569,8 +1603,10 @@ func (a *App) Run(ctx context.Context) error {
 	// open, so every run.cancelled terminal persists before the journal
 	// closes; only then do the HTTP server and the backend shut down.
 	a.service.StopInteractionSweeper()
-	if a.channels != nil {
-		a.channels.StopAll(shutdownCtx)
+	if a.channelOwner != nil {
+		if err := errors.Join(a.channelOwner.Stop(shutdownCtx), a.channelOwner.Close(shutdownCtx)); err != nil {
+			a.logger.Warn("channel owner shutdown failed", "err", err)
+		}
 	}
 	// Stop the armed timer before cancelling runs: any in-flight cron
 	// terminal watcher still writes its state back while storage is open

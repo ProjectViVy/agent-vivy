@@ -20,15 +20,11 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
-	"agent-vivy/internal/channelhost"
-	"agent-vivy/internal/channelhost/fake"
-	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/modelhost"
-	credentialmodule "agent-vivy/internal/modules/credential"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -36,7 +32,6 @@ import (
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
-	plugin "agent-vivy/sdk/port/channel"
 )
 
 func TestSessionHistoryRepairsDurableAssistantProjection(t *testing.T) {
@@ -1345,11 +1340,13 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") || !containsFold(string(raw), "settings.locale") {
 		t.Fatalf("settings capabilities not advertised: %s", raw)
 	}
+	if containsFold(string(raw), "channel.inspect") || containsFold(string(raw), "channel.get") || containsFold(string(raw), "channel.update") {
+		t.Fatalf("Channel capabilities advertised without a module contribution: %s", raw)
+	}
 	for _, method := range []string{
 		"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 		"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 		"settings.mcp.resources", "settings.mcp.read", "mcp.resources.list", "mcp.resources.read",
-		"channel.inspect", "channel.get", "channel.update",
 	} {
 		if !containsFold(string(raw), method) {
 			t.Fatalf("capability %s not advertised: %s", method, raw)
@@ -3296,235 +3293,6 @@ func TestContextCompactionRPC(t *testing.T) {
 	}
 	if result, ok := disabledResult.(runtime.CompactionResult); !ok || !result.Skipped {
 		t.Fatalf("disabled compaction = %+v, want skipped", disabledResult)
-	}
-}
-
-// TestChannelInspectRPC covers channel/inspect: the method is disabled
-// without a ChannelHost, an empty host reports an empty list, and a
-// populated host surfaces the compiled-in channel with its StartAll note,
-// envelope state, and the token env NAME (value never crosses the wire).
-func TestChannelInspectRPC(t *testing.T) {
-	env := newControlTestEnv(t)
-	if _, rpcErr := callControl(t, env.handler, "channel/inspect", nil); rpcErr == nil || rpcErr.Code != MethodNotFound {
-		t.Fatalf("expected method-not-found without a channel host, got %v", rpcErr)
-	}
-	if _, rpcErr := callControl(t, env.handler, "channel/update", map[string]any{"name": "fake"}); rpcErr == nil || rpcErr.Code != MethodNotFound {
-		t.Fatalf("expected method-not-found for update without a channel host, got %v", rpcErr)
-	}
-
-	// Empty host: the compiled-in set is empty and inspect returns [].
-	emptyHost := channelhost.New(channelhost.Deps{})
-	envEmpty, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) { deps.Channels = emptyHost })
-	got, rpcErr := callControl(t, envEmpty.handler, "channel/inspect", nil)
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	if statuses, ok := got.([]channelStatusResult); !ok || len(statuses) != 0 {
-		t.Fatalf("empty host inspect = %+v, want []", got)
-	}
-
-	// Populated host: StartAll records its decision and inspect reports it.
-	ctx := context.Background()
-	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "chan.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = backend.Close() })
-	fakeCh := fake.New()
-	envelope := config.ChannelEnvelope{Enabled: false, AllowFrom: []string{"alice"}, TokenEnv: "VIVY_TEST_FAKE_CHANNEL_TOKEN"}
-	credentials, err := credentialmodule.Compose(credentialmodule.CompileScopes(nil, config.Channels{"fake": envelope}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	host := channelhost.New(channelhost.Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
-			return "run-chan-inspect", nil
-		},
-		Channels:    []plugin.Channel{fakeCh},
-		Config:      config.Channels{"fake": envelope},
-		Credentials: credentials,
-	})
-	if err := host.StartAll(ctx); err != nil {
-		t.Fatalf("start all: %v", err)
-	}
-	envCh, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
-		deps.Channels = host
-		deps.ConfigChannels = config.Channels{"fake": envelope}
-	})
-	inspected, rpcErr := callControl(t, envCh.handler, "channel/inspect", nil)
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	statuses, ok := inspected.([]channelStatusResult)
-	if !ok || len(statuses) != 1 {
-		t.Fatalf("inspect = %+v, want one entry", inspected)
-	}
-	status := statuses[0]
-	if status.Name != "fake" || !status.Configured || status.Enabled || status.Started {
-		t.Fatalf("inspect status = %+v", status)
-	}
-	if status.Note != "disabled" {
-		t.Fatalf("note = %q, want the disabled reason", status.Note)
-	}
-	if len(status.AllowFrom) != 1 || status.AllowFrom[0] != "alice" {
-		t.Fatalf("allow_from = %v, want the startup-effective summary [alice]", status.AllowFrom)
-	}
-	if status.TokenEnv != "VIVY_TEST_FAKE_CHANNEL_TOKEN" || status.TokenEnvSet {
-		t.Fatalf("token surface = %q set=%v, want the env NAME with set=false (unset variable)", status.TokenEnv, status.TokenEnvSet)
-	}
-	t.Setenv("VIVY_TEST_FAKE_CHANNEL_TOKEN", "dummy-not-a-secret")
-	inspected, rpcErr = callControl(t, envCh.handler, "channel/inspect", nil)
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	if !inspected.([]channelStatusResult)[0].TokenEnvSet {
-		t.Fatal("token_env_set = false for a set variable")
-	}
-}
-
-// TestChannelInspectAllowFromAlwaysArray: an unconfigured channel has no
-// allow list, but the wire still carries [] rather than null so the UI can
-// compare document truth against it element-wise.
-func TestChannelInspectAllowFromAlwaysArray(t *testing.T) {
-	got := toChannelStatusResult(channelhost.ChannelStatus{Name: "fake"})
-	if got.AllowFrom == nil || len(got.AllowFrom) != 0 {
-		t.Fatalf("allow_from = %#v, want a non-nil empty array", got.AllowFrom)
-	}
-}
-
-// TestChannelGetAndUpdateRPC covers channel/get and channel/update: get is
-// NotFound for non-compiled-in names, update writes the settings overlay
-// (never config.yaml) and echoes the folded envelope, and the guards
-// (unknown name, "*" wildcard, frozen, read-only) all fail closed.
-func TestChannelGetAndUpdateRPC(t *testing.T) {
-	envelopeConfig := config.Channels{
-		"fake": {Enabled: false, AllowFrom: []string{"alice"}, TokenEnv: "VIVY_TEST_FAKE_CHANNEL_TOKEN"},
-	}
-	host := channelhost.New(channelhost.Deps{
-		Channels: []plugin.Channel{fake.New()},
-		Config:   envelopeConfig,
-	})
-	probe := &settingsApplierProbe{}
-	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
-		deps.Channels = host
-		deps.ConfigChannels = envelopeConfig
-	})
-
-	// get: known name reports document truth; unknown name is NotFound.
-	got, rpcErr := callControl(t, env.handler, "channel/get", map[string]any{"name": "fake"})
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	envelope := got.(channelEnvelopeResult)
-	if envelope.Name != "fake" || envelope.Enabled || !envelope.Configured ||
-		len(envelope.AllowFrom) != 1 || envelope.AllowFrom[0] != "alice" ||
-		envelope.TokenEnv != "VIVY_TEST_FAKE_CHANNEL_TOKEN" {
-		t.Fatalf("get envelope = %+v", envelope)
-	}
-	_, rpcErr = callControl(t, env.handler, "channel/get", map[string]any{"name": "ghost"})
-	if rpcErr == nil || rpcErr.Code != CodeNotFound || !strings.Contains(rpcErr.Message, `channel "ghost" is not compiled into this generation`) {
-		t.Fatalf("unknown get error = %v", rpcErr)
-	}
-
-	// update: happy path persists the overlay entry and echoes the fold.
-	saved, rpcErr := callControl(t, env.handler, "channel/update", map[string]any{
-		"name": "fake", "enabled": true, "allow_from": []string{"bob", "carol"},
-	})
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	envelope = saved.(channelEnvelopeResult)
-	if !envelope.Enabled || !envelope.Configured || len(envelope.AllowFrom) != 2 ||
-		envelope.AllowFrom[0] != "bob" || envelope.TokenEnv != "VIVY_TEST_FAKE_CHANNEL_TOKEN" {
-		t.Fatalf("update envelope = %+v", envelope)
-	}
-	doc, err := settings.Load(settingsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.Channels) != 1 || doc.Channels[0].Name != "fake" || doc.Channels[0].Enabled == nil || !*doc.Channels[0].Enabled {
-		t.Fatalf("overlay document = %+v", doc.Channels)
-	}
-	if doc.Channels[0].AllowFrom == nil || len(*doc.Channels[0].AllowFrom) != 2 {
-		t.Fatalf("overlay allow_from = %+v", doc.Channels[0].AllowFrom)
-	}
-	if probe.n != 1 {
-		t.Fatalf("OnSettingsChanged calls = %d, want 1", probe.n)
-	}
-
-	// update: unknown name is InvalidParams with the generation message.
-	if _, rpcErr = callControl(t, env.handler, "channel/update", map[string]any{"name": "ghost", "enabled": true}); rpcErr == nil ||
-		rpcErr.Code != InvalidParams || !strings.Contains(rpcErr.Message, "not compiled into this generation") {
-		t.Fatalf("unknown update error = %v", rpcErr)
-	}
-
-	// update: the "*" wildcard sender is rejected by settings validation.
-	if _, rpcErr = callControl(t, env.handler, "channel/update", map[string]any{
-		"name": "fake", "allow_from": []string{"*"},
-	}); rpcErr == nil || rpcErr.Code != InvalidParams {
-		t.Fatalf("wildcard allow_from error = %v", rpcErr)
-	}
-
-	// update: a bad token_env name is rejected (env NAME, never a value).
-	if _, rpcErr = callControl(t, env.handler, "channel/update", map[string]any{
-		"name": "fake", "token_env": "not-an-env",
-	}); rpcErr == nil || rpcErr.Code != InvalidParams {
-		t.Fatalf("bad token_env error = %v", rpcErr)
-	}
-
-	// update: frozen deployments refuse channel writes.
-	frozenEnv, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
-		deps.Channels = host
-		deps.ConfigChannels = envelopeConfig
-		deps.Frozen = true
-	})
-	if _, rpcErr = callControl(t, frozenEnv.handler, "channel/update", map[string]any{"name": "fake", "enabled": true}); rpcErr == nil || rpcErr.Code != CodeConflict {
-		t.Fatalf("frozen update error = %v", rpcErr)
-	}
-
-	// update: read-only deployments (no settings document) refuse too.
-	roEnv, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
-		deps.Channels = host
-		deps.ConfigChannels = envelopeConfig
-		deps.SettingsPath = ""
-	})
-	if _, rpcErr = callControl(t, roEnv.handler, "channel/update", map[string]any{"name": "fake", "enabled": true}); rpcErr == nil || rpcErr.Code != CodeConflict {
-		t.Fatalf("read-only update error = %v", rpcErr)
-	}
-
-	// get on a frozen deployment still reads (document truth is visible).
-	if _, rpcErr = callControl(t, frozenEnv.handler, "channel/get", map[string]any{"name": "fake"}); rpcErr != nil {
-		t.Fatalf("frozen get must stay readable: %v", rpcErr)
-	}
-
-	// update on a compiled-in channel that config.yaml never configured:
-	// the overlay entry alone marks it configured (the wizard-add path).
-	addableHost := channelhost.New(channelhost.Deps{
-		Channels: []plugin.Channel{fake.New()},
-	})
-	addableEnv, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
-		deps.Channels = addableHost
-		// No ConfigChannels: nothing configured in config.yaml.
-	})
-	added, rpcErr := callControl(t, addableEnv.handler, "channel/update", map[string]any{
-		"name": "fake", "enabled": true, "allow_from": []string{"carol"},
-	})
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	if envelope := added.(channelEnvelopeResult); !envelope.Configured || !envelope.Enabled ||
-		len(envelope.AllowFrom) != 1 || envelope.AllowFrom[0] != "carol" || envelope.TokenEnv != "" {
-		t.Fatalf("overlay-only envelope = %+v, want configured+enabled with fresh fields", envelope)
-	}
-	got, rpcErr = callControl(t, addableEnv.handler, "channel/get", map[string]any{"name": "fake"})
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	if envelope := got.(channelEnvelopeResult); !envelope.Configured {
-		t.Fatalf("get after overlay-only write = %+v, want configured", envelope)
 	}
 }
 

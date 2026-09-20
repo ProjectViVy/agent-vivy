@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	genassembly "agent-vivy/internal/generated/assembly"
@@ -51,6 +52,24 @@ func TestValidateRuntimeAssemblyRejectsProviderIdentityDrift(t *testing.T) {
 	}
 	if err := validateRuntimeAssembly(assembly); err == nil {
 		t.Fatal("runtime assembly accepted a Provider identity that drifted from the sealed manifest")
+	}
+}
+
+func TestValidateRuntimeAssemblyRequiresChannelFactoryForCompiledHost(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	assembly.ChannelFactory = nil
+	if err := validateRuntimeAssembly(assembly); err == nil {
+		t.Fatal("runtime assembly accepted a compiled ChannelHost without its ChannelFactory")
+	}
+}
+
+func TestValidateRuntimeAssemblyRejectsChannelFactoryWithoutCompiledHost(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	assembly.Manifest.Modules = slices.DeleteFunc(assembly.Manifest.Modules, func(id string) bool {
+		return id == "vivy/channel-host"
+	})
+	if err := validateRuntimeAssembly(assembly); err == nil {
+		t.Fatal("runtime assembly accepted a ChannelFactory without a compiled ChannelHost")
 	}
 }
 
