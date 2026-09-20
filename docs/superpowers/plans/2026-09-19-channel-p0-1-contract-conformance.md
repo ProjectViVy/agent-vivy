@@ -2,11 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not start CH-P0-2 ownership migration from this plan.
 
-**Story:** CH-P0-1  
-**Parent:** [#42 — Channel subsystem modularization](https://github.com/ProjectViVy/agent-vivy/issues/42)  
-**Status:** Ready  
-**Baseline:** `main@9e6db43c81e1d7ce249ee785f1b6efd91a09c5bb`  
-**Immediate predecessors:** none; #42 is the approved architecture authority  
+**Story:** CH-P0-1
+
+**Parent:** [#42 — Channel subsystem modularization](https://github.com/ProjectViVy/agent-vivy/issues/42)
+
+**Epic index:** [Channel Modularization Epic Execution Index](channel-modularization/index.md)
+
+**Status:** COMPLETE; see `docs/logs/2026-09-19-channel-p0-1/acceptance.md`
+
+**Baseline:** `main@9e6db43c81e1d7ce249ee785f1b6efd91a09c5bb`
+
+**Immediate predecessors:** none; #42 is the approved architecture authority
+
 **Goal:** Freeze the smallest internal Channel Host composition contracts and executable conformance expectations without moving runtime ownership, changing behavior, or implementing Channel omission/UI modularization.
 
 **Architecture:** Add one implementation-free `internal/channelcontract` package for Channel composition types, and one generic typed RPC contribution seam inside `internal/rpc`. Document `vivy/channel-host` as the canonical build-owned T1 provider of `core/channel-host@v1` (`0..1`) and describe the later generated Assembly dependency, but leave all current app construction, lifecycle, handlers, settings behavior, generated files, and UI unchanged.
@@ -276,7 +283,8 @@ func TestSelectionAllowsZeroProviders(t *testing.T) {
 
 - [ ] **Step 2: Confirm the tests fail before the package exists**
 
-Run: `go test ./internal/channelcontract -count=1`  
+Run: `go test ./internal/channelcontract -count=1`
+
 Expected: FAIL because the package/contracts do not exist.
 
 - [ ] **Step 3: Implement only the frozen types**
@@ -408,7 +416,8 @@ These are graph/contract cases only. Do not create `recipes/web-no-channels.vivy
 
 - [ ] **Step 3: Run RED and capture exact gaps**
 
-Run: `go test ./sdk/internal/assembly -run TestChannelHostContract -count=1`  
+Run: `go test ./sdk/internal/assembly -run TestChannelHostContract -count=1`
+
 Expected before minimal compiler work: one or more cases fail because current optional catalog/graph lacks the approved Host relationship. Record each failing case; a failure is CH-P0-1 evidence, not permission to implement CH-P0-3 generation.
 
 - [ ] **Step 4: Add only general validation needed by these cases**

@@ -2,6 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Story:** CH-P0-2
+
+**Parent:** [#42 — Channel subsystem modularization](https://github.com/ProjectViVy/agent-vivy/issues/42)
+
+**Epic index:** [Channel Modularization Epic Execution Index](channel-modularization/index.md)
+
+**Status:** COMPLETE; see `docs/logs/2026-09-19-channel-p0-2/acceptance.md`
+
+**Immediate predecessor:** accepted CH-P0-1
+
 **Goal:** Make `vivy/channel-host` the real backend owner so app and RPC compose Channel only through the CH-P0-1 contracts while preserving the default Generation's behavior.
 
 **Architecture:** Add `internal/modules/channel` as the canonical Factory/Owned implementation and keep `internal/channelhost` as its private, proven pipeline engine. Generated Assembly supplies the factory; app performs only contract-level late construction/lifecycle orchestration; RPC validates and dispatches generic typed contributions.
