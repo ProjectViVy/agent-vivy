@@ -5,6 +5,7 @@ package channelcontract
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 
 	"agent-vivy/internal/domain"
@@ -81,6 +82,29 @@ type SettingsAccess interface {
 	Frozen() bool
 }
 
+// ErrInvalidSettings classifies a rejected Channel settings update without
+// coupling the canonical Module to the application's settings package.
+var ErrInvalidSettings = errors.New("invalid channel settings")
+
+type invalidSettingsError struct {
+	cause error
+}
+
+func (e invalidSettingsError) Error() string { return e.cause.Error() }
+func (e invalidSettingsError) Unwrap() error { return e.cause }
+func (e invalidSettingsError) Is(target error) bool {
+	return target == ErrInvalidSettings
+}
+
+// MarkInvalidSettings preserves the cause and its message while adding the
+// implementation-free invalid-settings classification.
+func MarkInvalidSettings(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return invalidSettingsError{cause: cause}
+}
+
 // Dependencies contains focused existing authorities. The Channel Module
 // does not create or own these services.
 type Dependencies struct {
@@ -99,9 +123,10 @@ type Dependencies struct {
 // Selection is the generated Provider/Grant set plus effective inert config.
 // An empty Providers slice is valid.
 type Selection struct {
-	Providers []channel.ChannelProvider
-	Grants    map[string][]module.GrantBinding
-	Config    Config
+	Providers        []channel.ChannelProvider
+	Grants           map[string][]module.GrantBinding
+	Config           Config
+	ProcessAvailable bool
 }
 
 // Factory constructs the single owned Channel instance without starting

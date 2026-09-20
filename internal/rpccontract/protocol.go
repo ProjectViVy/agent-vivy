@@ -10,6 +10,17 @@ import (
 	"agent-vivy/internal/actionhost"
 )
 
+const (
+	ParseError     = -32700
+	InvalidRequest = -32600
+	MethodNotFound = -32601
+	InvalidParams  = -32602
+	InternalError  = -32603
+	ServerOverload = -32001
+	CodeNotFound   = -32004
+	CodeConflict   = -32009
+)
+
 // Error is the JSON-RPC error shape used by both core and contributed methods.
 type Error struct {
 	Code    int             `json:"code"`

@@ -22,12 +22,14 @@ import (
 const ProtocolVersion = "vivy.rpc.v1"
 
 const (
-	ParseError     = -32700
-	InvalidRequest = -32600
-	MethodNotFound = -32601
-	InvalidParams  = -32602
-	InternalError  = -32603
-	ServerOverload = -32001
+	ParseError     = rpccontract.ParseError
+	InvalidRequest = rpccontract.InvalidRequest
+	MethodNotFound = rpccontract.MethodNotFound
+	InvalidParams  = rpccontract.InvalidParams
+	InternalError  = rpccontract.InternalError
+	ServerOverload = rpccontract.ServerOverload
+	CodeNotFound   = rpccontract.CodeNotFound
+	CodeConflict   = rpccontract.CodeConflict
 )
 
 var (

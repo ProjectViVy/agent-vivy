@@ -2,6 +2,7 @@ package channelcontract_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"agent-vivy/internal/channelcontract"
@@ -34,6 +35,24 @@ func TestSelectionAllowsZeroProviders(t *testing.T) {
 	got := channelcontract.Selection{Config: channelcontract.Config{}}
 	if len(got.Providers) != 0 {
 		t.Fatalf("providers = %d, want 0", len(got.Providers))
+	}
+}
+
+func TestSelectionCarriesProcessAvailability(t *testing.T) {
+	selection := channelcontract.Selection{ProcessAvailable: true}
+	if !selection.ProcessAvailable {
+		t.Fatal("ProcessAvailable = false, want true")
+	}
+}
+
+func TestInvalidSettingsMarkerPreservesMessageAndIdentity(t *testing.T) {
+	want := errors.New("allow_from wildcard is forbidden")
+	got := channelcontract.MarkInvalidSettings(want)
+	if got.Error() != want.Error() || !errors.Is(got, channelcontract.ErrInvalidSettings) {
+		t.Fatalf("marked error = %v", got)
+	}
+	if channelcontract.MarkInvalidSettings(nil) != nil {
+		t.Fatal("MarkInvalidSettings(nil) must return nil")
 	}
 }
 

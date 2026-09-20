@@ -41,3 +41,9 @@ func TestAuthenticatedCallerContextRoundTrip(t *testing.T) {
 		t.Fatalf("caller = (%q, %v), want (%q, true)", got.Opaque(), ok, want.Opaque())
 	}
 }
+
+func TestContributionErrorsUseSharedProtocolCodes(t *testing.T) {
+	if InvalidParams != -32602 || MethodNotFound != -32601 || CodeNotFound != -32004 || CodeConflict != -32009 {
+		t.Fatalf("unexpected shared RPC codes: %d %d %d %d", InvalidParams, MethodNotFound, CodeNotFound, CodeConflict)
+	}
+}

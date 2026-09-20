@@ -43,8 +43,6 @@ import (
 var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
 
 const (
-	CodeNotFound = -32004
-	CodeConflict = -32009
 	// CodeBadGateway reports a failed marketplace upstream call (skills.sh)
 	// so the UI can offer a retry instead of reading it as a server bug.
 	CodeBadGateway = -32010
