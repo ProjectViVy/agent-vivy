@@ -14,7 +14,6 @@ import (
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/rpccontract"
 )
 
 type factory struct{}
@@ -24,14 +23,17 @@ type factory struct{}
 func NewFactory() channelcontract.Factory { return factory{} }
 
 type owned struct {
-	mu               sync.RWMutex
-	host             *channelhost.Host
-	processAvailable bool
-	startOnce        sync.Once
-	stopOnce         sync.Once
-	closeOnce        sync.Once
-	startErr         error
-	closeErr         error
+	mu                sync.RWMutex
+	host              *channelhost.Host
+	config            channelcontract.Config
+	settings          channelcontract.SettingsAccess
+	onSettingsChanged func()
+	processAvailable  bool
+	startOnce         sync.Once
+	stopOnce          sync.Once
+	closeOnce         sync.Once
+	startErr          error
+	closeErr          error
 }
 
 func (factory) Construct(_ context.Context, deps channelcontract.Dependencies, selection channelcontract.Selection) (channelcontract.Owned, error) {
@@ -60,7 +62,23 @@ func (factory) Construct(_ context.Context, deps channelcontract.Dependencies, s
 		Credentials: deps.Credentials,
 		Logger:      deps.Logger,
 	})
-	return &owned{host: host, processAvailable: selection.ProcessAvailable}, nil
+	return &owned{
+		host:              host,
+		config:            cloneContractConfig(selection.Config),
+		settings:          deps.Settings,
+		onSettingsChanged: deps.OnSettingsChanged,
+		processAvailable:  selection.ProcessAvailable,
+	}, nil
+}
+
+func cloneContractConfig(input channelcontract.Config) channelcontract.Config {
+	out := make(channelcontract.Config, len(input))
+	for name, envelope := range input {
+		envelope.AllowFrom = append([]string(nil), envelope.AllowFrom...)
+		envelope.Settings = append(json.RawMessage(nil), envelope.Settings...)
+		out[name] = envelope
+	}
+	return out
 }
 
 func hostConfig(input channelcontract.Config) (config.Channels, error) {
@@ -123,6 +141,8 @@ func (o *owned) Close(ctx context.Context) error {
 		o.closeErr = o.Stop(ctx)
 		o.mu.Lock()
 		o.host = nil
+		o.settings = nil
+		o.onSettingsChanged = nil
 		o.mu.Unlock()
 	})
 	return o.closeErr
@@ -168,6 +188,3 @@ func (o *owned) Inspect() channelcontract.State {
 	}
 	return state
 }
-
-// RPCBindings is populated by the management contribution slice.
-func (*owned) RPCBindings() []rpccontract.MethodBinding { return nil }
