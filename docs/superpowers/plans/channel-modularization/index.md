@@ -20,6 +20,10 @@
 **Execution policy:** implementation is delegated to other agents; this package
 contains plans only.
 
+**Integration prerequisite:** [PR #36](https://github.com/ProjectViVy/agent-vivy/pull/36)
+is integrated through CH-INT-36 after CH-P0-2 and before CH-P0-3. It is a
+delivery gate, not a new issue #42 product requirement.
+
 ## Outcome
 
 Channel becomes a removable, build-owned subsystem. A Recipe may include the
@@ -51,14 +55,16 @@ tags, a second feature registry, a second dispatcher, or dynamic code loading.
 |---|---|---|---|---|
 | CH-P0-1 | [Contract and conformance foundation](../2026-09-19-channel-p0-1-contract-conformance.md) | COMPLETE | none | `docs/logs/2026-09-19-channel-p0-1/acceptance.md` |
 | CH-P0-2 | [Actual backend owner](../2026-09-19-channel-p0-2-backend-owner.md) | COMPLETE | CH-P0-1 | `docs/logs/2026-09-19-channel-p0-2/acceptance.md` |
-| CH-P0-3 | [Backend omission](ch-p0-3-backend-omission.md) | READY | CH-P0-2 | new CH-P0-3 acceptance log |
+| CH-INT-36 | [Integrate PR #36 channel arc](pr36-integration.md) | READY | CH-P0-2 | new PR #36 integration acceptance log |
+| CH-P0-3 | [Backend omission](ch-p0-3-backend-omission.md) | BLOCKED | accepted CH-INT-36 | new CH-P0-3 acceptance log |
 | CH-P0-4 | [UI modularization and configuration](ch-p0-4-ui-modularization.md) | BLOCKED | accepted CH-P0-3 | new CH-P0-4 acceptance log |
 | CH-P0-5 | [Release matrix and closeout](ch-p0-5-release-matrix.md) | BLOCKED | accepted CH-P0-3 and CH-P0-4 outputs | new CH-P0-5 acceptance log |
 
 ```mermaid
 flowchart TD
     P01["CH-P0-1 · contracts · COMPLETE"] --> P02["CH-P0-2 · owner · COMPLETE"]
-    P02 --> P03["CH-P0-3 · backend omission · READY"]
+    P02 --> I36["CH-INT-36 · PR #36 integration · READY"]
+    I36 --> P03["CH-P0-3 · backend omission · BLOCKED"]
     P03 --> P04["CH-P0-4 · UI modularization · BLOCKED"]
     P03 --> P05["CH-P0-5 · release matrix · BLOCKED"]
     P04 --> P05
@@ -67,6 +73,13 @@ flowchart TD
 The direct P0-3 -> P0-5 edge is intentional: P0-5 consumes P0-3's packaged
 backend dependency-closure and live no-channel evidence independently of
 P0-4's UI evidence.
+
+CH-INT-36 is deliberately serialized after P0-2 because PR #36 was authored
+against the former direct app/RPC Channel ownership. Its accepted output must
+preserve the P0-2 owner and contribution contracts while establishing the
+complete durable-delivery, media, health, approval, and interaction behavior
+that P0-3 physically includes or omits. It owns no #42 requirement and cannot
+advance P0-3 through P0-5 acceptance by itself.
 
 ## Ordered Recipe matrix
 
@@ -85,6 +98,12 @@ the two UI-bearing Recipes. P0-5 changes no product selection semantics.
 
 These Stories are deliberately serial because they overlap compiler and
 Recipe authority. Parallel implementation is not authorized.
+
+CH-INT-36 also runs serially before this table. It owns the merge resolution
+for `internal/app/app.go`, `internal/modules/channel/*`, `internal/rpc/*`,
+Channel Host/runtime/storage behavior, Channel UI behavior, and conformance
+evidence. P0-3 must branch from its accepted aggregate result, never from the
+pre-integration P0-2 head.
 
 | Shared surface | P0-3 responsibility | P0-4 responsibility | P0-5 responsibility |
 |---|---|---|---|
@@ -123,7 +142,8 @@ Recipe authority. Parallel implementation is not authorized.
 ## Execution handoff protocol
 
 1. Start an isolated worktree from the current aggregate-branch head, not from
-   the planning baseline after later Stories have merged.
+   a historical planning baseline. CH-P0-3 additionally requires accepted
+   CH-INT-36 evidence.
 2. Read root and subtree `AGENTS.md`, `.agents/skills/vivy-plugin/SKILL.md`, and
    the Story plan in full. Compiler/Host work also follows
    `vivy-kernel-ci`. UI work must load `oil-frontend` when that skill is
@@ -142,7 +162,8 @@ Recipe authority. Parallel implementation is not authorized.
 
 ## Epic Definition of Done
 
-- All five Story rows are `COMPLETE`, with no skipped immediate predecessor.
+- CH-INT-36 and all five issue #42 Story rows are `COMPLETE`, with no skipped
+  immediate predecessor.
 - The four-Recipe matrix is built twice with stable Generation identities and
   inspected from packaged artifacts.
 - Dependency and asset evidence prove physical removal, not merely nil values,

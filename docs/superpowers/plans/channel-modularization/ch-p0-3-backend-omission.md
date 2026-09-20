@@ -12,12 +12,17 @@
 
 **Index:** [Channel Modularization Epic Execution Index](index.md)
 
-**Status:** READY
+**Status:** BLOCKED pending accepted CH-INT-36
 
-**Planning baseline:** `feat/channel-modularization@1be71c4d0892967fd8f4192abb1c2414dad9f498`
+**Original design baseline:** `feat/channel-modularization@1be71c4d0892967fd8f4192abb1c2414dad9f498`
 
-**Immediate predecessor:** CH-P0-2, accepted at
-`docs/logs/2026-09-19-channel-p0-2/acceptance.md`
+**Execution baseline:** the accepted CH-INT-36 aggregate commit recorded by
+the Epic index; the original design SHA is not an executable starting point.
+
+**Immediate predecessor:** CH-INT-36. Its plan is
+`docs/superpowers/plans/channel-modularization/pr36-integration.md`; execution
+requires the integration acceptance log and aggregate commit recorded by the
+Epic index. CH-P0-2 remains the accepted architecture predecessor.
 
 **Requirements:** CH-R1, CH-R2, CH-R3, CH-R7
 
@@ -41,15 +46,17 @@ CH-06 through CH-09, CH-12, and the CH-P0-3 slice fence.
 
 ## Global Constraints
 
-- Branch from the current aggregate head after verifying the P0-2 acceptance
-  log. Do not branch from the historical planning SHA if the aggregate moved.
+- Branch from the current aggregate head after verifying both the P0-2
+  acceptance log and the CH-INT-36 acceptance log. Do not branch from the
+  historical planning SHA or pre-integration P0-2 head.
 - Use `.agents/skills/vivy-plugin/SKILL.md` and the `vivy-kernel-ci` companion
   skill before compiler, generator, Host, Recipe, or Inspect edits.
 - `vivy/channel-host` remains the canonical T1 owner of
   `core/channel-host@v1`; Host selected with zero Providers is legal.
 - Preserve `channelcontract.Factory`/`Owned`, `std/channel@v1`, the single Run
-  callback, Channel management wire shape, overlay persistence, and default
-  five-Provider behavior.
+  callback, Channel management wire shape, overlay persistence, and the full
+  PR #36 default behavior: durable deliveries, health, approvals, media,
+  typing, reply threading, placeholders, reactions, and Provider interaction.
 - An omitted backend must have no implementation Module, Provider, platform
   SDK, management contribution, listener, worker, or delivery seam. A nil
   factory alone is not acceptance evidence.
