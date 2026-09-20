@@ -32,6 +32,7 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
+	"agent-vivy/internal/rpccontract"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
@@ -107,6 +108,9 @@ type ControlDeps struct {
 	Live        studio.LiveView
 	Eval        eval.Starter
 	Children    ChildController
+	// Contributions are build-owned typed method attachments. They are
+	// validated and detached once when the control handler is constructed.
+	Contributions []rpccontract.Contribution
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -327,11 +331,16 @@ func NewControlHandler(deps ControlDeps) (Handler, error) {
 		deps.Approvals == nil || deps.Questions == nil || deps.Bus == nil || deps.Service == nil {
 		return nil, errors.New("rpc: control dependencies are incomplete")
 	}
-	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc)}, nil
+	contributions, err := newContributionDispatch(deps.Contributions)
+	if err != nil {
+		return nil, fmt.Errorf("rpc: compose contributions: %w", err)
+	}
+	return &controlHandler{deps: deps, contributions: contributions, subscriptions: make(map[string]context.CancelFunc)}, nil
 }
 
 type controlHandler struct {
-	deps ControlDeps
+	deps          ControlDeps
+	contributions contributionDispatch
 
 	mu            sync.Mutex
 	subscriptions map[string]context.CancelFunc
@@ -1018,6 +1027,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
+		capabilities = append(capabilities, h.contributions.capabilities...)
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -1280,6 +1290,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case ModuleActionMethod:
 		return h.invokeModuleAction(ctx, peer, request)
 	default:
+		if handler, ok := h.contributions.handlers[request.Method]; ok {
+			return handler(ctx, peer, request)
+		}
 		// No plugin owns an RPC namespace. Keep malformed action-like methods
 		// on the fixed protocol error surface rather than echoing an arbitrary
 		// plugin-provided method string.
