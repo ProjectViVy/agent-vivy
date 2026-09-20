@@ -15,8 +15,9 @@ import (
 	"time"
 
 	apphost "agent-vivy/internal/app"
-	"agent-vivy/internal/config"
+	"agent-vivy/internal/channelcontract"
 	genassembly "agent-vivy/internal/generated/assembly"
+	channelmodule "agent-vivy/internal/modules/channel"
 	"agent-vivy/internal/tools"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
@@ -157,7 +158,7 @@ func TestP1P2PortConformanceSuite(t *testing.T) {
 
 	t.Run("startup rollback", func(t *testing.T) {
 		instance := &conformanceChannelInstance{mode: "unavailable"}
-		channels, err := apphost.BindChannels([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, config.Channels{})
+		channels, err := channelmodule.BindProviders([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, channelcontract.Config{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +172,7 @@ func TestP1P2PortConformanceSuite(t *testing.T) {
 
 	t.Run("idempotent cleanup", func(t *testing.T) {
 		instance := &conformanceChannelInstance{}
-		channels, err := apphost.BindChannels([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, config.Channels{})
+		channels, err := channelmodule.BindProviders([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, channelcontract.Config{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -422,7 +423,7 @@ func exercisePort(t *testing.T, portName, mode string, ctx context.Context) erro
 		return err
 	case "std/channel@v1":
 		instance := &conformanceChannelInstance{mode: mode}
-		channels, err := apphost.BindChannels([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, config.Channels{})
+		channels, err := channelmodule.BindProviders([]channelport.ChannelProvider{conformanceChannelProvider{instance: instance}}, nil, channelcontract.Config{})
 		if err != nil {
 			return err
 		}
@@ -460,7 +461,7 @@ func exerciseDefaultPort(t *testing.T, portName string) {
 			t.Fatalf("default ToolWorld inactive behavior: bound=%d manifest=%v err=%v", len(bound), assembly.Manifest.ToolWorlds, err)
 		}
 	case "std/channel@v1":
-		bound, err := apphost.BindChannels(assembly.Channels, assembly.ChannelGrants, config.Channels{})
+		bound, err := channelmodule.BindProviders(assembly.Channels, assembly.ChannelGrants, channelcontract.Config{})
 		if err != nil || len(bound) != len(assembly.Manifest.Channels) {
 			t.Fatalf("default Channel bind: bound=%d manifest=%d err=%v", len(bound), len(assembly.Manifest.Channels), err)
 		}

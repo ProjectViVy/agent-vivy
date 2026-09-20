@@ -55,9 +55,9 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 		"std/channel@v1": completedEvidence(map[port.EvidenceKind]string{
 			port.EvidencePortDefinition:    "sdk/port/catalog.go#PublicCatalog",
 			port.EvidenceSDKContract:       "sdk/port/channel/channel.go#ChannelProvider",
-			port.EvidenceHostConsumer:      "internal/app/channels.go#bindChannels",
+			port.EvidenceHostConsumer:      "internal/modules/channel/binding.go#bindProviders",
 			port.EvidenceRealProvider:      "plugins/dingtalk/module_v1.go#NewProvider",
-			port.EvidenceFailureModel:      "internal/app/channels_test.go#TestBindChannelsRejectsUncompiledConfig",
+			port.EvidenceFailureModel:      "internal/modules/channel/binding_test.go#TestBindProvidersRejectsDuplicateAndUncompiledNames",
 			port.EvidenceConformanceSuite:  "sdk/internal/assembly/p1_p2_conformance_test.go#TestP1P2PortConformanceSuite",
 			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackAndInspectEveryShippedRecipe",
 		}),

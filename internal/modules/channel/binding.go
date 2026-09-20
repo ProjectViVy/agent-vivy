@@ -43,6 +43,13 @@ func bindProviders(providers []channelport.ChannelProvider, grants map[string][]
 	return out, nil
 }
 
+// BindProviders exposes the canonical Module's Provider/Host binding boundary
+// to the SDK conformance suite. Product composition reaches the same binding
+// through Factory.Construct.
+func BindProviders(providers []channelport.ChannelProvider, grants map[string][]module.GrantBinding, configured channelcontract.Config) ([]channelport.Channel, error) {
+	return bindProviders(providers, grants, configured)
+}
+
 func compiledProviderNames(providers []channelport.ChannelProvider) []string {
 	names := make([]string, 0, len(providers))
 	for _, provider := range providers {
