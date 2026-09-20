@@ -42,7 +42,7 @@ L0 owns the physical laws of a Vivy species:
 - Journal authority and durability-before-visibility;
 - Policy, approval, Grant, identity, and RPC authorization;
 - credential redaction authority;
-- ChannelHost and FaceHost authority;
+- Channel admission/delivery and FaceHost authority;
 - Eino import quarantine.
 
 L0 cannot be supplied or replaced by a public plugin. A Module Descriptor
@@ -58,10 +58,18 @@ with L0.
 
 ### L2 — Optional Internal Organs
 
-ContextHost, SkillHost, MCPHost, ObserverHost, StatusHost, PresentationHost,
+ChannelHost, ContextHost, SkillHost, MCPHost, ObserverHost, StatusHost, PresentationHost,
 ActionHost, compaction, worker supervision, and similar organs are internal.
 The default Vivy Generation includes the established first-party organs. A
 minimal Recipe may omit one only when no selected Provider requires it.
+
+Some optional organs are **canonical build-owned internal Providers**: their
+authority remains an L0 rule, but their implementation is a source-pinned T1
+Module selected by the Recipe. Public Modules cannot provide their `core/*`
+Port, and selection cannot replace them with another implementation.
+`vivy/channel-host` is the canonical provider of
+`core/channel-host@v1`; its detailed ownership and omission rules are defined
+by [the Channel modularization contract](CHANNEL-MODULARIZATION.md).
 
 ### L3 — Public Pluggable Alliance
 

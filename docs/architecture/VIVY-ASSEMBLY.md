@@ -83,6 +83,12 @@ A deliberate minimal Recipe MAY omit an optional Host and its Providers. The
 Assembly Compiler MUST reject a Provider whose Consumer was removed. Inspect
 MUST display absence, not claim an inactive capability that was never compiled.
 
+`vivy/channel-host` is a canonical build-owned T1 optional Host. A selected
+`std/channel@v1` Provider conditionally requires its
+`core/channel-host@v1`; the Host selected with zero Channel Providers is valid.
+No public or alternate internal Module may provide that core Port. The
+complete contract is [CHANNEL-MODULARIZATION.md](CHANNEL-MODULARIZATION.md).
+
 A protected Tool may be explicitly omitted from a minimal VIVY CODE Recipe.
 Its reserved identity remains unavailable to public Providers.
 
@@ -230,6 +236,11 @@ Inspect is read-only. It MUST distinguish:
 - unavailable;
 - specified but not implemented;
 - deferred indefinitely.
+
+For removable organs, Inspect MUST also keep immutable compiled inventory
+separate from process availability. A process-level override such as
+`WithoutEars()` can make a compiled Channel Host unavailable without changing
+the sealed Generation identity.
 
 It MUST NOT reveal Secret values, raw Journal blobs, or private configuration.
 

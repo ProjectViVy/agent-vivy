@@ -329,9 +329,13 @@ re-enters ToolHost.
 | `core/status-host@v1` | `0..1` | Required when a Status Source exists |
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
+| `core/channel-host@v1` | `0..1` | Required when a Channel Provider exists; canonical provider `vivy/channel-host` only |
 
-L0 owns ChannelHost and FaceHost authority; they are not replaceable Provider
-slots even though they consume public Ports.
+L0 owns Channel admission/delivery and FaceHost authority. FaceHost is not a replaceable Provider.
+ChannelHost implementation is the removable, build-owned T1 Module
+`vivy/channel-host`; it is not a publicly replaceable slot. Public Modules and
+alternative internal Modules cannot provide `core/channel-host@v1`. See
+[the Channel modularization contract](CHANNEL-MODULARIZATION.md).
 
 ## 14. Closed surfaces
 
