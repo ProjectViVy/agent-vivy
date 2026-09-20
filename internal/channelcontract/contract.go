@@ -8,7 +8,7 @@ import (
 	"log/slog"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/rpc"
+	"agent-vivy/internal/rpccontract"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/module"
@@ -55,6 +55,32 @@ type State struct {
 	Providers        []ProviderState
 }
 
+// ChannelOverlay is the persisted, optional per-field override for one
+// Provider. Pointer fields preserve the distinction between absent and an
+// explicit zero value, including an intentionally empty allowlist.
+type ChannelOverlay struct {
+	Name      string
+	Enabled   *bool
+	AllowFrom *[]string
+	TokenEnv  *string
+}
+
+// Settings is the Channel-owned projection of the shared settings document.
+// The adapter behind SettingsAccess preserves all non-Channel document data.
+type Settings struct {
+	Channels []ChannelOverlay
+}
+
+// SettingsAccess is the focused authority needed by Channel management
+// methods. Writable and Frozen preserve the current deployment policy without
+// exposing a settings path or the shared document implementation.
+type SettingsAccess interface {
+	Read(context.Context) (Settings, error)
+	Update(context.Context, ChannelOverlay) (Settings, error)
+	Writable() bool
+	Frozen() bool
+}
+
 // Dependencies contains focused existing authorities. The Channel Module
 // does not create or own these services.
 type Dependencies struct {
@@ -62,8 +88,12 @@ type Dependencies struct {
 	Messages    storage.MessageStore
 	Sessions    storage.SessionStore
 	Credentials CredentialResolver
+	Settings    SettingsAccess
 	Logger      *slog.Logger
 	Run         RunCallback
+	// OnSettingsChanged is called after a successful settings update so the
+	// application can refresh its current settings projection.
+	OnSettingsChanged func()
 }
 
 // Selection is the generated Provider/Grant set plus effective inert config.
@@ -87,6 +117,6 @@ type Owned interface {
 	module.Instance
 	runtime.RunHook
 	runtime.ChannelDeliverer
-	rpc.Contribution
+	rpccontract.Contribution
 	Inspect() State
 }

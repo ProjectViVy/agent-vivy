@@ -54,21 +54,21 @@ The worker must use these responsibilities and dependency directions. Minor file
 
 ```text
 app + generated assembly -> internal/channelcontract <- internal/modules/channel (CH-P0-2)
-internal/modules/channel -> internal/rpc contribution types
-internal/rpc dispatcher -> validated generic contribution set
+internal/modules/channel -> internal/rpccontract contribution types
+internal/rpc dispatcher -> internal/rpccontract <- validated generic contribution set
 internal/channelcontract -X-> internal/channelhost or platform SDKs
-internal/rpc -X-> internal/channelhost
+internal/rpccontract -X-> internal/rpc or internal/channelhost
 ```
 
-### `internal/rpc/contribution.go`
+### `internal/rpccontract/contribution.go` and `internal/rpc/contribution.go`
 
 ```go
-package rpc
+package rpccontract
 
 type MethodBinding struct {
     Method     string
     Capability string
-    Handler    HandlerFunc
+    Handler    HandlerFunc // context.Context, typed Peer, shared Request/Error
 }
 
 type Contribution interface {
@@ -78,7 +78,7 @@ type Contribution interface {
 func ValidateMethodBindings(coreMethods map[string]struct{}, bindings []MethodBinding) error
 ```
 
-Rules: trim neither identity nor namespace; reject empty method/capability, nil handler, duplicate methods, and collision with any core method. A capability may intentionally cover more than one method. Preserve `context.Context`, authenticated `*Peer`, `Request`, and existing `*Error` mapping through `HandlerFunc`. This is a typed build-owned attachment, not a public registry. Validation must sort diagnostic method names so failures are deterministic.
+Rules: trim neither identity nor namespace; reject empty method/capability, nil handler, duplicate methods, and collision with any core method. A capability may intentionally cover more than one method. Preserve `context.Context`, the typed least-authority Peer view, shared `Request`, and existing `*Error` mapping through `HandlerFunc`. `internal/rpc` re-exports these names and compile-checks `*rpc.Peer` against the Peer view. This is a typed build-owned attachment, not a public registry. Validation must sort diagnostic method names so failures are deterministic.
 
 ### `internal/channelcontract/contract.go`
 
@@ -114,13 +114,31 @@ type State struct {
     Providers        []ProviderState
 }
 
+type ChannelOverlay struct {
+    Name      string
+    Enabled   *bool
+    AllowFrom *[]string
+    TokenEnv  *string
+}
+
+type Settings struct { Channels []ChannelOverlay }
+
+type SettingsAccess interface {
+    Read(context.Context) (Settings, error)
+    Update(context.Context, ChannelOverlay) (Settings, error)
+    Writable() bool
+    Frozen() bool
+}
+
 type Dependencies struct {
     Journal     storage.Journal
     Messages    storage.MessageStore
     Sessions    storage.SessionStore
     Credentials CredentialResolver
+    Settings    SettingsAccess
     Logger      *slog.Logger
     Run         RunCallback
+    OnSettingsChanged func()
 }
 
 type Selection struct {
@@ -137,12 +155,12 @@ type Owned interface {
     module.Instance
     runtime.RunHook
     runtime.ChannelDeliverer
-    rpc.Contribution
+    rpccontract.Contribution
     Inspect() State
 }
 ```
 
-`Config`, `ProviderConfig`, and `State` are inert contract-owned data with the exact fields above. The later implementation adapter converts the current YAML node into bounded JSON without exposing a platform type. These types must not validate a platform, read/write settings, start providers, or import `internal/channelhost`. Keep `CredentialResolver` local: its method deliberately matches the current `internal/channelhost.CredentialResolver` without importing that implementation package or expanding `sdk/port/channel`.
+`Config`, `ProviderConfig`, `State`, `ChannelOverlay`, and `Settings` are inert contract-owned data with the exact fields above. The later implementation adapter converts the current YAML node into bounded JSON without exposing a platform type. `SettingsAccess` is the only settings authority: its adapter preserves the rest of the shared document while exposing Channel projection reads, atomic overlay upserts, and writable/frozen policy. These types must not validate a platform, start providers, or import `internal/channelhost`. Keep `CredentialResolver` local: its methods deliberately match the current `internal/channelhost.CredentialResolver` without importing that implementation package or expanding `sdk/port/channel`.
 
 `State` must distinguish `Compiled`, `ProcessAvailable`, and provider runtime states so later `WithoutEars()` handling cannot conflate artifact presence with an active process. No RPC DTOs belong in `channelcontract`.
 
@@ -298,12 +316,14 @@ git commit -m "feat(channel): define internal host composition contract"
 ### Task 3: Add and validate generic RPC contributions
 
 **Files:**
-- Create: `internal/rpc/contribution.go`
+- Create: `internal/rpccontract/protocol.go`
+- Create: `internal/rpccontract/contribution.go`
+- Create: `internal/rpc/contribution.go` as compatibility aliases/bridge
 - Create: `internal/rpc/contribution_test.go`
 - Modify: `internal/rpc/control.go` only to centralize/read the immutable core-method set if required by validation tests; do not dispatch contributions
 
 **Interfaces:**
-- Consumes: existing `rpc.HandlerFunc`, `rpc.Peer`, `rpc.Request`, and `rpc.Error`
+- Consumes: existing RPC protocol wire shapes and the public operations of `rpc.Peer`
 - Produces: `MethodBinding`, `Contribution`, `ValidateMethodBindings`
 
 - [ ] **Step 1: Write table-driven validation tests**
@@ -311,15 +331,15 @@ git commit -m "feat(channel): define internal host composition contract"
 Cover: valid binding; empty method; empty capability; nil handler; duplicate method; repeated capability across distinct methods is accepted; core-method collision; deterministic sorted diagnostic. Also assert an empty binding slice validates and yields no implied capability.
 
 ```go
-valid := rpc.MethodBinding{
+valid := rpccontract.MethodBinding{
     Method: "channel/inspect", Capability: "channel.inspect",
-    Handler: func(context.Context, *rpc.Peer, rpc.Request) (any, *rpc.Error) { return nil, nil },
+    Handler: func(context.Context, rpccontract.Peer, rpccontract.Request) (any, *rpccontract.Error) { return nil, nil },
 }
 ```
 
 - [ ] **Step 2: Confirm RED**
 
-Run: `go test ./internal/rpc -run 'TestValidateMethodBindings|TestEmptyContribution' -count=1`  
+Run: `go test ./internal/rpccontract ./internal/rpc -run 'TestValidateMethodBindings|TestEmptyContribution' -count=1`
 Expected: FAIL because the contribution types do not exist.
 
 - [ ] **Step 3: Implement deterministic validation**
@@ -331,7 +351,7 @@ Return ordinary Go errors from assembly-time validation. Do not wrap handlers, a
 Run:
 
 ```bash
-go test ./internal/rpc -run 'TestValidateMethodBindings|TestEmptyContribution|TestControlHandler' -count=1
+go test ./internal/rpccontract ./internal/rpc -run 'TestValidateMethodBindings|TestEmptyContribution|TestControlHandler' -count=1
 git diff 9e6db43 -- internal/rpc/control.go
 ```
 
@@ -340,7 +360,7 @@ Expected: tests PASS; any `control.go` diff is limited to immutable method-name 
 - [ ] **Step 5: Commit the generic seam**
 
 ```bash
-git add internal/rpc/contribution.go internal/rpc/contribution_test.go internal/rpc/control.go
+git add internal/rpccontract internal/rpc/contribution.go internal/rpc/contribution_test.go internal/rpc/protocol.go
 git commit -m "feat(rpc): define typed method contributions"
 ```
 

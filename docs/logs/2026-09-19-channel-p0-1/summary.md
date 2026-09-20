@@ -14,9 +14,11 @@ moving Channel runtime ownership.
   as a removable canonical build-owned T1 Module whose authority remains an L0
   rule.
 - `internal/channelcontract` provides the inert Factory/Owned dependency seam,
-  including distinct compiled and process-available state.
-- `internal/rpc` provides typed method contributions with deterministic
-  validation and no dispatcher attachment.
+  including distinct compiled/process-available state and focused settings
+  read/update, writable/frozen policy, and change-notification authorities.
+- `internal/rpccontract` provides implementation-free protocol and typed method
+  contribution types; `internal/rpc` re-exports them, compile-checks the Peer
+  bridge, and adds no dispatcher attachment.
 - The closed internal Port catalog records that `std/channel@v1` conditionally
   requires `core/channel-host@v1`.
 - Conformance tests cover a Host with zero Providers, Provider without Host,
@@ -38,4 +40,3 @@ moving Channel runtime ownership.
 
 The default runtime paths, generated Assembly, existing Recipes, Channel UI,
 and `internal/channelhost` implementation remain unchanged.
-

@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 
 	"agent-vivy/internal/actionhost"
+	"agent-vivy/internal/rpccontract"
 )
 
 const ProtocolVersion = "vivy.rpc.v1"
@@ -34,25 +35,8 @@ var (
 	ErrOverloaded = errors.New("rpc: outgoing queue is full")
 )
 
-type Error struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
-}
-
-func (e *Error) Error() string {
-	if e == nil {
-		return ""
-	}
-	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
-}
-
-type Request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
+type Error = rpccontract.Error
+type Request = rpccontract.Request
 
 type Handler interface {
 	Handle(context.Context, *Peer, Request) (any, *Error)
@@ -260,45 +244,10 @@ func (p *Peer) handleRequest(ctx context.Context, request Request) {
 	p.runAfterResponse(request.ID)
 }
 
-// authenticatedCallerKey is intentionally private to the RPC transport. A
-// caller is admitted by the connection adapter (for example, the WebSocket
-// handshake), then carried in this context into the control handler. Browser
-// request fields can never populate this value.
-type authenticatedCallerKey struct{}
-
-// WithAuthenticatedCaller binds an already-authenticated transport caller to
-// a request context. It does not authenticate the value; ActionHost performs
-// the server-owned token/session check before executing an action.
-func WithAuthenticatedCaller(ctx context.Context, caller actionhost.Caller) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if caller.Opaque() == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, authenticatedCallerKey{}, caller)
-}
-
-// AuthenticatedCallerFromContext returns the transport-bound caller carried
-// by an RPC request context. The boolean is false for an unauthenticated or
-// absent caller.
-func AuthenticatedCallerFromContext(ctx context.Context) (actionhost.Caller, bool) {
-	if ctx == nil {
-		return actionhost.Caller{}, false
-	}
-	caller, ok := ctx.Value(authenticatedCallerKey{}).(actionhost.Caller)
-	return caller, ok && caller.Opaque() != ""
-}
-
-// WithCaller and CallerFromContext are concise aliases used by transport
-// adapters that already use caller terminology.
-func WithCaller(ctx context.Context, caller actionhost.Caller) context.Context {
-	return WithAuthenticatedCaller(ctx, caller)
-}
-
-func CallerFromContext(ctx context.Context) (actionhost.Caller, bool) {
-	return AuthenticatedCallerFromContext(ctx)
-}
+var WithAuthenticatedCaller = rpccontract.WithAuthenticatedCaller
+var AuthenticatedCallerFromContext = rpccontract.AuthenticatedCallerFromContext
+var WithCaller = rpccontract.WithCaller
+var CallerFromContext = rpccontract.CallerFromContext
 
 // AuthenticatedCaller returns the connection-bound caller for this Peer. It
 // is a transport handle, not an identity or permission result.

@@ -78,7 +78,7 @@ These are baseline facts, not completed modularization.
 ```text
 app + generated Assembly -> channel composition contracts <- Channel module
 Channel module -> existing runtime/storage/credential/RPC contracts
-RPC dispatcher -> generic validated contributions
+RPC dispatcher -> implementation-free RPC protocol/contribution contracts
 Channel Provider -> std/channel@v1 -> canonical Channel Host
 ```
 
@@ -89,10 +89,20 @@ instance implements the existing `module.Instance`, `runtime.RunHook`, and
 `runtime.ChannelDeliverer` contracts and contributes its management handlers.
 
 The generic RPC contribution binds an exact method name and capability name to
-the existing `HandlerFunc`. Validation rejects empty bindings, duplicate
-methods, and core-method replacement. It preserves authenticated peer context,
-method policy, and existing error mapping. It is not a runtime-discovered or
-public registry.
+an implementation-free handler contract in `internal/rpccontract`. Its
+`Request` and `Error` are also the dispatcher protocol types; its typed `Peer`
+view preserves the existing connection operations while authenticated caller
+and identity remain server-attested in `context.Context`. `internal/rpc`
+re-exports the contribution names and compile-checks that `*rpc.Peer` satisfies
+that view. Validation rejects empty bindings, duplicate methods, and
+core-method replacement. It is not a runtime-discovered or public registry.
+
+The Channel construction dependencies include a focused settings authority:
+read the current Channel overlay projection, atomically upsert one overlay,
+report writable/frozen policy, and notify the app after a successful write.
+It does not expose the settings path or the rest of the shared settings
+document. This is sufficient for `channel/get` and `channel/update` to retain
+their present policy and persistence semantics when ownership moves.
 
 ## 4. Ownership and lifecycle
 
@@ -172,8 +182,8 @@ artifact composition changes.
 CH-P0-1 evidence consists of:
 
 1. compile-time satisfaction of the factory/owned-instance contract;
-2. contract package dependency closure without Channel implementation or
-   platform SDKs;
+2. contract package dependency closure without Channel implementation,
+   dispatcher implementation, or platform SDKs;
 3. RPC contribution validation for empty, invalid, duplicate, and core
    collisions;
 4. Assembly cases for zero Providers, Provider-without-Host, duplicate Host,
@@ -203,4 +213,3 @@ CH-P0-1 must not perform work assigned to a later slice.
 This change is composition and ownership only. It preserves the existing
 callback into `Service.RunWithOptions` and adds no model, prompt, streaming,
 context, tool, or orchestration capability. No Eino/EinoExt adapter is needed.
-

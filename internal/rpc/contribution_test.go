@@ -10,7 +10,7 @@ func validMethodBinding(method, capability string) MethodBinding {
 	return MethodBinding{
 		Method:     method,
 		Capability: capability,
-		Handler: func(context.Context, *Peer, Request) (any, *Error) {
+		Handler: func(context.Context, ContributionPeer, Request) (any, *Error) {
 			return nil, nil
 		},
 	}
