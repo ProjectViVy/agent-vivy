@@ -17,6 +17,45 @@ import (
 	"agent-vivy/sdk/module"
 )
 
+func TestRepositoryModulePathsUseCanonicalNamespace(t *testing.T) {
+	const canonicalPrefix = "agent-vivy/"
+	placeholder := "example.com" + "/vivy"
+
+	for _, entry := range repoSourceDirs {
+		if strings.Contains(entry.importPath, placeholder) {
+			t.Errorf("%s uses placeholder import path %q", entry.dir, entry.importPath)
+		}
+		if !strings.HasPrefix(entry.importPath, canonicalPrefix) {
+			t.Errorf("%s import path = %q, want prefix %q", entry.dir, entry.importPath, canonicalPrefix)
+		}
+	}
+
+	for _, path := range []string{
+		"../../faces/headless/go.mod",
+		"../../faces/tui/go.mod",
+		"../../plugins/dingtalk/go.mod",
+		"../../plugins/discord/go.mod",
+		"../../plugins/feishu/go.mod",
+		"../../plugins/governance/go.mod",
+		"../../plugins/lsp/go.mod",
+		"../../plugins/qq/go.mod",
+		"../../plugins/scx-reference/go.mod",
+		"../../plugins/telegram/go.mod",
+		"../../plugins/vivy-persona/go.mod",
+		"../../plugins/vivy-evolution/go.mod",
+		"../../plugins/vivy-memory/go.mod",
+		"../../plugins/vivy-notebook/go.mod",
+	} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(body), placeholder) {
+			t.Errorf("%s contains placeholder module path %q", path, placeholder)
+		}
+	}
+}
+
 func TestUIDependencyLockHashNormalizesCRLF(t *testing.T) {
 	lfRoot := t.TempDir()
 	crlfRoot := t.TempDir()
@@ -125,7 +164,7 @@ func TestV1PackAndInspectProveRecipeRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, omitted := range []string{
-		"vivy/dingtalk", "channel.poll", "example.com/vivy/plugins/dingtalk",
+		"vivy/dingtalk", "channel.poll", "agent-vivy/plugins/dingtalk",
 		"vivy/context-host", "vivy/context-source", "vivy/skill-host", "vivy/skill-source",
 	} {
 		if strings.Contains(string(binder), omitted) {

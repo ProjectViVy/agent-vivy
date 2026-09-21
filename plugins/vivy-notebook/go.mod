@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/vivy-notebook
+module agent-vivy/plugins/vivy-notebook
 
 go 1.26.4
 

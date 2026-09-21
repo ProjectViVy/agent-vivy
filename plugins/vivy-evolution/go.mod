@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/vivy-evolution
+module agent-vivy/plugins/vivy-evolution
 
 go 1.26.4
 

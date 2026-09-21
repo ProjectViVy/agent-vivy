@@ -67,7 +67,7 @@ vivy-sdk pack --with telegram --out dist/ # Produce candidate EXE (linked with t
 vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins contains telegram
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/telegram`) is mandatory:
+The standalone go.mod (`agent-vivy/plugins/telegram`) is mandatory:
 the default `just ci` and the species’ `go build ./cmd/vivy` import graphs do
 not reach `github.com/mymmrac/telego`—only the generation produced by pack has
 the ear in its body.

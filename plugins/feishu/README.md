@@ -104,7 +104,7 @@ vivy-sdk pack --with feishu --out dist/ # Produce candidate EXE (linked with oap
 vivy-sdk inspect-artifact dist/<gen>/   # recipes.plugins contains feishu
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/feishu`) is mandatory:
+The standalone go.mod (`agent-vivy/plugins/feishu`) is mandatory:
 the default `just ci` and the species’ `go build ./cmd/vivy` import graphs do
 not reach `github.com/larksuite/oapi-sdk-go`—only the generation produced by
 pack has the ear in its body.

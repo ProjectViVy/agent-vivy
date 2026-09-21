@@ -81,7 +81,7 @@ vivy-sdk pack --with dingtalk --out dist/ # Produce candidate EXE (linked with d
 vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins contains dingtalk
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/dingtalk`) is mandatory:
+The standalone go.mod (`agent-vivy/plugins/dingtalk`) is mandatory:
 the default `just ci` and the species’ `go build ./cmd/vivy` import graphs do
 not reach `github.com/open-dingtalk/dingtalk-stream-sdk-go`—only the generation
 produced by pack has the ear in its body.

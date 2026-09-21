@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/feishu
+module agent-vivy/plugins/feishu
 
 go 1.26.4
 

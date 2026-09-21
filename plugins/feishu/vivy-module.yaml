@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/feishu, version: 0.1.0}
-source: {ref: repo:plugins/feishu, sha256: 0a5b062c84060b09f427f4ccb91612471d3a76fa2aa40e581fa9a690fde04d77}
+source: {ref: repo:plugins/feishu, sha256: d99bfea7ce2257d4a71b6a1b4a2afd2e76c41533876db2c6b32f1c7c0d725d94}
 provides: [{port: std/channel@v1, id: vivy.feishu}]
 requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
 requestedGrants: [channel.poll, secret.read, net.client]
