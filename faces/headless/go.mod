@@ -1,4 +1,4 @@
-module example.com/vivy/faces/headless
+module agent-vivy/faces/headless
 
 go 1.26.4
 

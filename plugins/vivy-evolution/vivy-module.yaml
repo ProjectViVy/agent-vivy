@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/evolution, version: 0.1.0}
-source: {ref: repo:plugins/vivy-evolution, sha256: c959a947b1a9ac1cf00807e94d67a2c82fd87c88e1a5e244179b72f40edfb0ba}
+source: {ref: repo:plugins/vivy-evolution, sha256: 6f3c65d3d3f3aeeef3bf1065bb9c5b28de946d27f6fdab989318f4eb442e28fd}
 provides:
   - {port: std/ui-extension@v1, id: vivy.evolution.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

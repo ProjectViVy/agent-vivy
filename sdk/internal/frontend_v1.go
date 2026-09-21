@@ -146,20 +146,20 @@ type repoSourceDir struct {
 }
 
 var repoSourceDirs = []repoSourceDir{
-	{dir: "plugins/dingtalk", importPath: "example.com/vivy/plugins/dingtalk", pkg: "dingtalk"},
-	{dir: "plugins/discord", importPath: "example.com/vivy/plugins/discord", pkg: "discord"},
-	{dir: "plugins/feishu", importPath: "example.com/vivy/plugins/feishu", pkg: "feishu"},
-	{dir: "plugins/qq", importPath: "example.com/vivy/plugins/qq", pkg: "qq"},
-	{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
+	{dir: "plugins/dingtalk", importPath: "agent-vivy/plugins/dingtalk", pkg: "dingtalk"},
+	{dir: "plugins/discord", importPath: "agent-vivy/plugins/discord", pkg: "discord"},
+	{dir: "plugins/feishu", importPath: "agent-vivy/plugins/feishu", pkg: "feishu"},
+	{dir: "plugins/qq", importPath: "agent-vivy/plugins/qq", pkg: "qq"},
+	{dir: "plugins/telegram", importPath: "agent-vivy/plugins/telegram", pkg: "telegram"},
 	{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
-	{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
-	{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
-	{dir: "plugins/vivy-persona", importPath: "example.com/vivy/plugins/vivy-persona", pkg: "vivypersona"},
-	{dir: "plugins/vivy-evolution", importPath: "example.com/vivy/plugins/vivy-evolution", pkg: "vivyevolution"},
-	{dir: "plugins/vivy-memory", importPath: "example.com/vivy/plugins/vivy-memory", pkg: "vivymemory"},
-	{dir: "plugins/vivy-notebook", importPath: "example.com/vivy/plugins/vivy-notebook", pkg: "vivynotebook"},
-	{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
-	{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
+	{dir: "plugins/lsp", importPath: "agent-vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
+	{dir: "plugins/scx-reference", importPath: "agent-vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
+	{dir: "plugins/vivy-persona", importPath: "agent-vivy/plugins/vivy-persona", pkg: "vivypersona"},
+	{dir: "plugins/vivy-evolution", importPath: "agent-vivy/plugins/vivy-evolution", pkg: "vivyevolution"},
+	{dir: "plugins/vivy-memory", importPath: "agent-vivy/plugins/vivy-memory", pkg: "vivymemory"},
+	{dir: "plugins/vivy-notebook", importPath: "agent-vivy/plugins/vivy-notebook", pkg: "vivynotebook"},
+	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
+	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }
 
 func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, error) {

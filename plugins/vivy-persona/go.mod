@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/vivy-persona
+module agent-vivy/plugins/vivy-persona
 
 go 1.26.4
 

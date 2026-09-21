@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/vivy-memory
+module agent-vivy/plugins/vivy-memory
 
 go 1.26.4
 

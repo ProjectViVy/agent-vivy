@@ -1,4 +1,4 @@
-module example.com/vivy/faces/tui
+module agent-vivy/faces/tui
 
 go 1.26.4
 

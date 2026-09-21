@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/lsp, version: 0.1.0}
-source: {ref: repo:plugins/lsp, sha256: 96dac7da535dbbc1557b3ec83c5b4c46c1449b38e9d9e957a4cd22fa583991d3}
+source: {ref: repo:plugins/lsp, sha256: 217790956559c42a0efd318df712c01d1a7f88032db291c5af33fd2e213b320b}
 provides: [{port: std/tool-world@v1, id: vivy.lsp}]
 requires: [{port: core/tool-host@v1, provider: vivy/tool-host}]
 requestedGrants: [fs.read, fs.write, proc.spawn]
