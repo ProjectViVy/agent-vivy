@@ -178,7 +178,7 @@ vivy-sdk pack --with discord --out dist/  # Produce candidate EXE (linked with d
 vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins contains discord
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/discord`) is mandatory: the
+The standalone go.mod (`agent-vivy/plugins/discord`) is mandatory: the
 default `just ci` and the species’ `go build ./cmd/vivy` import graphs do not
 reach `github.com/bwmarrin/discordgo`—only the generation produced by pack has
 the ear in its body.

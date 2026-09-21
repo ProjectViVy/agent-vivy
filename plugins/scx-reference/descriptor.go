@@ -6,7 +6,7 @@ func (vivyModule) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: "scx/reference-fixtures", Version: "0.1.0"},
-		Source:     module.Source{Ref: "repo:plugins/scx-reference", SHA256: "3abef450f9dd9ccd7735e0a2d2db13421db53d4b0297bd9f50c1af3ce127d665"},
+		Source:     module.Source{Ref: "repo:plugins/scx-reference", SHA256: "fa85239d62b12bc8ce880bae5e2e9c15ba3a7d3986d14c4fc23db2cbeba203ae"},
 		Provides: []module.PortRef{
 			{Port: "std/context-source@v1", ID: providerID},
 			{Port: "std/observer/run@v1", ID: providerID},

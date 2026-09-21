@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/dingtalk
+module agent-vivy/plugins/dingtalk
 
 go 1.26.4
 

@@ -18,8 +18,8 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
+	scxreference "agent-vivy/plugins/scxreference"
 	"agent-vivy/sdk/port/contextsource"
-	scxreference "example.com/vivy/plugins/scxreference"
 )
 
 type runtimeContextFixtureSource struct{}

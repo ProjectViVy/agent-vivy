@@ -18,7 +18,7 @@ func (vivyModule) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: "vivy/governance-reference", Version: "0.1.0"},
-		Source:     module.Source{Ref: "repo:plugins/governance", SHA256: "384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23"},
+		Source:     module.Source{Ref: "repo:plugins/governance", SHA256: "7000dd87b89aa76b4dad29a49ebd2beff5ecdbb3afe0a9d8d695f6ffb488f5e2"},
 		Provides: []module.PortRef{
 			{Port: "std/middleware/pre-tool@v1", ID: "vivy.governance.pre-tool"},
 			{Port: "std/observer/run@v1", ID: "vivy.governance.run"},
