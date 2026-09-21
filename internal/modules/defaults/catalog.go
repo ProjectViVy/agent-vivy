@@ -3,7 +3,6 @@
 package defaults
 
 import (
-	"fmt"
 	"strings"
 
 	"agent-vivy/internal/modules/optional"
