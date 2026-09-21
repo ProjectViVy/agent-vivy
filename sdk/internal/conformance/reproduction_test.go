@@ -294,8 +294,14 @@ func checkRealFailure(repoRoot string, suite releaseSuiteCase, definition port.D
 	descriptor := releaseDescriptor(suite.ProviderID)
 	descriptor.Source = module.Source{Ref: "release:" + suite.ProviderID, SHA256: strings.Repeat("0", 64)}
 	descriptor.Provides = []module.PortRef{{Port: definition.Ref.Port, ID: "release.provider"}}
-	_, err := assemblyv1.NewSourceCatalog([]assemblyv1.SourceRecord{{Descriptor: descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, filepath.FromSlash(suite.SourceRoot)), Ref: descriptor.Source.Ref}})
-	return requireDiagnostic(err, "source hash mismatch")
+	record := assemblyv1.SourceRecord{Descriptor: descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, filepath.FromSlash(suite.SourceRoot)), Ref: descriptor.Source.Ref}
+	catalog, err := assemblyv1.NewSourceCatalog([]assemblyv1.SourceRecord{record})
+	if err != nil {
+		return err
+	}
+	plan := assemblyv1.AssemblyPlan{Modules: []assemblyv1.ResolvedModule{{Descriptor: descriptor}}}
+	err = assemblyv1.VerifyBoundSourceHashes(plan, catalog)
+	return requireDiagnostic(err, "source changed during pack")
 }
 
 func releaseCompiler(definition port.Definition, descriptors []module.Descriptor) assemblyv1.Compiler {

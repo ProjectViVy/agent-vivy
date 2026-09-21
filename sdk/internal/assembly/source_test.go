@@ -28,7 +28,7 @@ func TestSourceCatalogAssignsTrustOutsideDescriptor(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogRejectsTreeAndReferenceDrift(t *testing.T) {
+func TestSourceCatalogKeepsReferenceBoundaryWithoutHashGate(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -52,8 +52,39 @@ func TestSourceCatalogRejectsTreeAndReferenceDrift(t *testing.T) {
 	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
-		t.Fatalf("tree drift error = %v", err)
+	if _, err := NewSourceCatalog([]SourceRecord{record}); err != nil {
+		t.Fatalf("NewSourceCatalog() rejected source drift before pack: %v", err)
+	}
+}
+
+func TestBindSourceHashesAndDetectsPackDrift(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "module.go")
+	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := testDescriptor("fixture/source")
+	descriptor.Source.SHA256 = ""
+	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+	catalog, err := NewSourceCatalog([]SourceRecord{record})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: descriptor}}}
+	if err := BindSourceHashes(&plan, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Modules[0].Descriptor.Source.SHA256 == "" {
+		t.Fatal("BindSourceHashes() produced an empty digest")
+	}
+	if err := VerifyBoundSourceHashes(plan, catalog); err != nil {
+		t.Fatalf("VerifyBoundSourceHashes() rejected unchanged source: %v", err)
+	}
+	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyBoundSourceHashes(plan, catalog); err == nil || !strings.Contains(err.Error(), "source changed during pack") {
+		t.Fatalf("VerifyBoundSourceHashes() error = %v, want pack drift diagnostic", err)
 	}
 }
 
