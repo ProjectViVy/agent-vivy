@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/persona, version: 0.1.0}
-source: {ref: repo:plugins/vivy-persona, sha256: 2bd4b79be16f36ff512de00994dd3ed186587d76a85c2ba7b93ec2e98dd37e91}
+source: {ref: repo:plugins/vivy-persona, sha256: d08b771e31d2a9bace664a1cf2b0c971c541e22db3130f5ac001e93eb1d54816}
 provides:
   - {port: std/ui-extension@v1, id: vivy.persona.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}
