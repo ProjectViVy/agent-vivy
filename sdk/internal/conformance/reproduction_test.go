@@ -47,9 +47,9 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	// The "internal" suites all share one canonical content identity. Derive it
 	// from the checked-in artifact and use that value for circular-content
 	// normalization. internal/sourcehash hashes every file under internal/
-	// (excluding generated/assembly/zz_default.go), which includes this artifact;
-	// seeding the normalizer from the artifact keeps the content identity stable
-	// while the digest is still verified against the live tree.
+	// (excluding generated/assembly/zz_default.go); seeding the normalizer from
+	// the artifact keeps any embedded digest fields stable while the digest is
+	// still verified against the live tree.
 	var internalDigest string
 	for _, result := range expected {
 		if result.ProviderID == "vivy/protected-tools" {
