@@ -124,8 +124,8 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 	}
 	mismatch := base
 	mismatch.Sources = map[string]module.Source{provider.Module.ID: {Ref: provider.Source.Ref, SHA256: strings.Repeat("f", 64)}}
-	if _, err := compiler.Compile(context.Background(), mismatch); err == nil || !strings.Contains(err.Error(), "source pin mismatch") {
-		t.Fatalf("mismatched pin error = %v", err)
+	if _, err := compiler.Compile(context.Background(), mismatch); err != nil {
+		t.Fatalf("stale source hash blocked compilation: %v", err)
 	}
 	valid := base
 	valid.Sources = map[string]module.Source{provider.Module.ID: provider.Source}

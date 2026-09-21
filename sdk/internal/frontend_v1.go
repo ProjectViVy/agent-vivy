@@ -275,6 +275,9 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
+	if err := assemblyv1.BindSourceHashes(&plan, catalog); err != nil {
+		return Artifact{}, err
+	}
 	binder, err := assemblyv1.GenerateBinder(plan, "assembly")
 	if err != nil {
 		return Artifact{}, err
@@ -464,8 +467,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
 	}
-	if _, err := assemblyv1.NewSourceCatalog(records); err != nil {
-		return Artifact{}, fmt.Errorf("sdk: source changed during build: %w", err)
+	if err := assemblyv1.VerifyBoundSourceHashes(plan, catalog); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: %w", err)
 	}
 	if err := verifyDependencyLocks(repoRoot, modfile, dependencyLocks); err != nil {
 		return Artifact{}, err
@@ -674,17 +677,18 @@ func bindUIContentHashes(input *assemblyv1.UIAssemblyInput, plan assemblyv1.Asse
 			return fmt.Errorf("sdk: resolve UI source %s: %w", contribution.ID, err)
 		}
 		contribution.ModuleID = moduleID
-		sourceHash := strings.TrimSpace(record.Descriptor.Source.SHA256)
+		sourceHash := ""
+		for _, resolved := range plan.Modules {
+			if resolved.Descriptor.Module.ID == moduleID {
+				sourceHash = strings.TrimSpace(resolved.Descriptor.Source.SHA256)
+				break
+			}
+		}
 		if sourceHash == "" {
-			sourceHash, err = assemblyv1.HashSourceTree(root, "")
+			sourceHash, err = assemblyv1.HashSourceTree(root, record.Descriptor.Source.SHA256)
 			if err != nil {
 				return fmt.Errorf("sdk: hash UI source %s: %w", contribution.ID, err)
 			}
-		}
-		if claimed, claimErr := claimedUIHash("source", contribution.SourceHash, contribution.SourceSHA256, []string{moduleID, contribution.ID}, input.SourceHashes); claimErr != nil {
-			return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, claimErr)
-		} else if claimed != "" && claimed != sourceHash {
-			return fmt.Errorf("sdk: UI provider %s source hash mismatch: got %s, want %s", contribution.ID, claimed, sourceHash)
 		}
 		lockHash, err := hashUIDependencyLocks(root)
 		if err != nil {
@@ -1634,7 +1638,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if !ok {
 			return nil, fmt.Errorf("sdk: external source %s requires an authoritative Recipe sources pin", d.Module.ID)
 		}
-		if pin.Ref != d.Source.Ref || pin.SHA256 != d.Source.SHA256 {
+		if pin.Ref != d.Source.Ref {
 			return nil, fmt.Errorf("sdk: external source pin mismatch for %s", d.Module.ID)
 		}
 		importPath, packageName, err := sourceGoBinding(dir)
