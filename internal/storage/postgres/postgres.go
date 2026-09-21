@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/migrations"
 )
 
 const (
-	schemaVersion    = 21
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -77,7 +77,7 @@ func open(ctx context.Context, dsn, schema string) (*Backend, error) {
 	}
 	raw.SetMaxOpenConns(defaultMaxConns)
 	b := &Backend{db: &DB{SQL: raw}}
-	if err := b.migrate(ctx); err != nil {
+	if err := migrations.Apply(ctx, raw, migrations.Postgres); err != nil {
 		_ = raw.Close()
 		return nil, err
 	}
@@ -128,99 +128,6 @@ func instanceOwner() (string, error) {
 		return "", fmt.Errorf("storage: lease nonce: %w", err)
 	}
 	return fmt.Sprintf("%s:%d:%s", host, os.Getpid(), hex.EncodeToString(nonce[:])), nil
-}
-
-func (b *Backend) migrate(ctx context.Context) error {
-	if _, err := b.db.SQL.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version BIGINT PRIMARY KEY,
-			applied_at BIGINT NOT NULL
-		)`); err != nil {
-		return fmt.Errorf("storage: init postgres schema_migrations: %w", err)
-	}
-	var n int
-	if err := b.db.SQL.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, schemaVersion).Scan(&n); err != nil {
-		return fmt.Errorf("storage: check postgres schema version: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	tx, err := b.db.SQL.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("storage: begin postgres schema: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Version 15 was also used by the pre-reconciliation channel branch. A
-	// version-15 database may therefore have the message provenance columns
-	// without cron_jobs, so version 16 is a repair migration rather than a
-	// second full bootstrap.
-	var prior int
-	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, 15).Scan(&prior); err != nil {
-		return fmt.Errorf("storage: check postgres schema version 15: %w", err)
-	}
-	if prior == 0 {
-		var priorV14 int
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, 14).Scan(&priorV14); err != nil {
-			return fmt.Errorf("storage: check postgres schema version 14: %w", err)
-		}
-		ddl := schemaV15
-		if priorV14 > 0 {
-			ddl = schemaV15Upgrade
-		}
-		if _, err := tx.ExecContext(ctx, ddl); err != nil {
-			return fmt.Errorf("storage: apply postgres schema 15: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
-			15, time.Now().UnixMilli()); err != nil {
-			return fmt.Errorf("storage: record postgres schema version 15: %w", err)
-		}
-	}
-	apply := func(version int64, ddl string) error {
-		var applied int
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, version).Scan(&applied); err != nil {
-			return fmt.Errorf("storage: check postgres schema version %d: %w", version, err)
-		}
-		if applied > 0 {
-			return nil
-		}
-		if _, err := tx.ExecContext(ctx, ddl); err != nil {
-			return fmt.Errorf("storage: apply postgres schema %d: %w", version, err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
-			version, time.Now().UnixMilli()); err != nil {
-			return fmt.Errorf("storage: record postgres schema version %d: %w", version, err)
-		}
-		return nil
-	}
-	if err := apply(16, schemaV16Upgrade); err != nil {
-		return err
-	}
-	if err := apply(17, schemaV17Upgrade); err != nil {
-		return err
-	}
-	if err := apply(18, schemaV18Upgrade); err != nil {
-		return err
-	}
-	if err := apply(19, schemaV19Upgrade); err != nil {
-		return err
-	}
-	if err := apply(20, schemaV20Upgrade); err != nil {
-		return err
-	}
-	if err := apply(21, schemaV21Upgrade); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("storage: commit postgres schema: %w", err)
-	}
-	return nil
 }
 
 const sessionLockSQL = `SELECT pg_try_advisory_lock(hashtextextended(current_schema() || '/vivy/organism', 0))`

@@ -286,6 +286,25 @@ work.
 - A Port is supported only with Definition, SDK Contract, Host Consumer, real
   Provider, Failure Model, Conformance Suite, and Inspect Projection.
 
+## Database schema ownership (mandatory)
+
+- Core Storage is the sole owner of core database initialization, schema, and
+  migrations. DDL belongs only in `internal/storage/migrations` as paired,
+  embedded SQL files; it must not be hidden in repositories, feature modules,
+  plugins, or package `init()` functions.
+- Migration files are append-only and immutable after release. SQLite and
+  PostgreSQL use the same logical numeric ID and filename stem; dialect-specific
+  SQL is allowed, but missing pairs, name drift, and checksum drift fail closed.
+- The shared migration runner owns ordering, manifest validation, metadata,
+  checksums, per-migration transactions, and startup failure behavior. Runtime
+  artifacts must not require an external SQL directory.
+- Public plugins must not access or migrate the core database directly. Plugin
+  persistence requires an explicit reviewed Storage Port with its own ownership,
+  lifecycle, and conformance contract.
+- Any schema change must prove fresh install, every supported upgrade shape,
+  reopen idempotence, rollback on failure, SQLite/PostgreSQL logical parity, and
+  the repository CI gates before it is considered complete.
+
 ## DSH harness reference source
 
 DeepSeek Harness source lives in `.workspace/deepseek-harness/` (currently:

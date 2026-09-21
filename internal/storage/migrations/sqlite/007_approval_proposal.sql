@@ -1,0 +1,7 @@
+
+ALTER TABLE approvals ADD COLUMN action TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN target TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN precondition_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN preview BLOB NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN risk_findings_json BLOB NOT NULL DEFAULT '[]';
+ALTER TABLE approvals ADD COLUMN proposal_data BLOB NOT NULL DEFAULT '';
