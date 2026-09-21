@@ -494,8 +494,11 @@ export interface FaceMessage {
   readonly provenance?: FaceMessageProvenance;
 }
 
+/** Closed message-source vocabulary accepted by the runtime (CH-C1-N4). */
+export type FaceMessageSource = "ui" | "channel" | "headless";
+
 export interface FaceMessageProvenance {
-  readonly source: string;
+  readonly source: FaceMessageSource;
   readonly channel?: string;
   readonly chat_id?: string;
   readonly channel_message_id?: string;
@@ -1052,6 +1055,13 @@ export interface FaceChannelCapabilities {
   readonly health: boolean;
 }
 
+/** Live probe of a started HealthChecker adapter (CH-R-1). */
+export interface FaceChannelHealth {
+  readonly ok: boolean;
+  readonly class?: string;
+  readonly detail?: string;
+}
+
 export interface FaceChannelStatus {
   readonly name: string;
   readonly capabilities: FaceChannelCapabilities;
@@ -1062,6 +1072,7 @@ export interface FaceChannelStatus {
   readonly token_env: string;
   readonly token_env_set: boolean;
   readonly note: string;
+  readonly health: FaceChannelHealth | null;
 }
 
 export interface FaceChannelEnvelope {
@@ -1076,6 +1087,23 @@ export interface FaceChannelUpdateInput {
   readonly enabled?: boolean;
   readonly allow_from?: string[];
   readonly token_env?: string;
+}
+
+/** One failed delivery intent (channel/deliveries/list row). Identifiers only. */
+export interface FaceChannelDelivery {
+  readonly run_id: string;
+  readonly session_id: string;
+  readonly channel: string;
+  readonly chat_id: string;
+  readonly topic_id: string;
+  readonly state: string;
+  readonly attempts: number;
+  readonly created_at_ms: number;
+  readonly updated_at_ms: number;
+}
+
+export interface FaceChannelDeliveryList {
+  readonly deliveries: readonly FaceChannelDelivery[];
 }
 
 export type FaceTokenUsagePeriod = "1d" | "3d" | "1w" | "1m" | "6m" | "1y";
@@ -1492,6 +1520,8 @@ export interface FaceClientAPI {
   inspectChannels(): Promise<readonly FaceChannelStatus[]>;
   getChannel(name: string): Promise<FaceChannelEnvelope>;
   updateChannel(name: string, patch: FaceChannelUpdateInput): Promise<FaceChannelEnvelope>;
+  listChannelDeliveries(): Promise<FaceChannelDeliveryList>;
+  redeliverChannelDelivery(runId: string): Promise<{ readonly run_id: string; readonly redelivered: boolean }>;
   getTokenUsage(params: FaceTokenUsageParams): Promise<FaceTokenUsageSnapshot>;
   listSkills(): Promise<FaceSkillList>;
   getSkill(name: string, path?: string): Promise<FaceSkillView>;

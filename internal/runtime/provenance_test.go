@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/testsupport"
 )
 
@@ -92,6 +94,46 @@ func TestRunWithoutProvenanceKeepsUISource(t *testing.T) {
 	}
 }
 
+// TestRunWithHeadlessProvenanceAccepted: headless is a vocabulary member
+// (CH-C1-N4) — vivy run turns persist with Source=headless.
+func TestRunWithHeadlessProvenanceAccepted(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	runID, err := svc.RunWithOptions(context.Background(), "sess-headless-1", "hello vivy", RunOptions{
+		Provenance: &domain.Provenance{Source: domain.SourceHeadless},
+	})
+	if err != nil {
+		t.Fatalf("run with headless provenance: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	msgs, err := backend.ListMessages(context.Background(), "sess-headless-1")
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) == 0 || msgs[0].Source != domain.SourceHeadless {
+		t.Fatalf("headless turn Source = %+v, want %q", msgs, domain.SourceHeadless)
+	}
+}
+
+// TestRunWithUnknownProvenanceSourceRejected covers the vocabulary failure
+// path (CH-C1-N4): a non-nil Provenance whose Source is outside the closed
+// ui|channel|headless set is rejected before anything is persisted.
+func TestRunWithUnknownProvenanceSourceRejected(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	_, err := svc.RunWithOptions(context.Background(), "sess-bad-2", "hello vivy", RunOptions{
+		Provenance: &domain.Provenance{Source: "telegram"},
+	})
+	if err == nil {
+		t.Fatal("run with out-of-vocabulary provenance source: want error, got nil")
+	}
+	msgs, listErr := backend.ListMessages(context.Background(), "sess-bad-2")
+	if listErr != nil {
+		t.Fatalf("list messages: %v", listErr)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("rejected run left messages behind: %+v", msgs)
+	}
+}
+
 // TestRunWithEmptyProvenanceSourceRejected covers the failure path: a
 // non-nil Provenance with an empty Source is rejected before anything is
 // persisted.
@@ -116,5 +158,55 @@ func TestRunWithEmptyProvenanceSourceRejected(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("rejected run left run rows behind: %+v", runs)
+	}
+}
+
+func TestBeforeStartFailureLeavesNoPersistedRunState(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	const sessionID = domain.SessionID("sess-before-start")
+	prepareErr := errors.New("arm delivery failed")
+	var preparedRunID domain.RunID
+
+	_, err := svc.RunWithOptions(ctx, sessionID, "hello vivy", RunOptions{
+		BeforeStart: func(runID domain.RunID) error {
+			preparedRunID = runID
+			if runID == "" {
+				t.Fatal("BeforeStart received an empty run ID")
+			}
+			messages, listErr := backend.ListMessages(ctx, sessionID)
+			if listErr != nil {
+				t.Fatalf("list messages during BeforeStart: %v", listErr)
+			}
+			if len(messages) != 0 {
+				t.Fatalf("BeforeStart observed persisted messages: %+v", messages)
+			}
+			if _, getErr := backend.GetRun(ctx, runID); !errors.Is(getErr, storage.ErrNotFound) {
+				t.Fatalf("GetRun during BeforeStart = %v, want storage.ErrNotFound", getErr)
+			}
+			if events := replayAll(t, backend, runID); len(events) != 0 {
+				t.Fatalf("BeforeStart observed persisted events: %+v", events)
+			}
+			return prepareErr
+		},
+	})
+	if !errors.Is(err, prepareErr) {
+		t.Fatalf("RunWithOptions error = %v, want wrapped prepare error", err)
+	}
+	if preparedRunID == "" {
+		t.Fatal("BeforeStart was not called with a minted run ID")
+	}
+	messages, listErr := backend.ListMessages(ctx, sessionID)
+	if listErr != nil {
+		t.Fatalf("list messages after prepare failure: %v", listErr)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("prepare failure left messages behind: %+v", messages)
+	}
+	if _, getErr := backend.GetRun(ctx, preparedRunID); !errors.Is(getErr, storage.ErrNotFound) {
+		t.Fatalf("GetRun after prepare failure = %v, want storage.ErrNotFound", getErr)
+	}
+	if events := replayAll(t, backend, preparedRunID); len(events) != 0 {
+		t.Fatalf("prepare failure left events behind: %+v", events)
 	}
 }

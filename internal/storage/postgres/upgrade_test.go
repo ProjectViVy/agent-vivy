@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // schemaV14Fixture freezes the pre-provenance Journal DDL (the schemaV14
@@ -397,5 +398,118 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	if got[0].ID != "msg-upg-legacy" {
 		t.Fatalf("legacy row displaced: %+v", got[0])
+	}
+}
+
+func TestMigrateUpgradesV21WorkspaceToV22ChannelDeliveries(t *testing.T) {
+	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("VIVY_POSTGRES_TEST_DSN not set")
+	}
+	ctx := context.Background()
+	schema := fmt.Sprintf("upg_v21_%d_%d", time.Now().UnixNano(), upgradeSeq.Add(1))
+
+	admin, err := openPool(dsn, "")
+	if err != nil {
+		t.Fatalf("open admin pool: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		_ = admin.Close()
+	})
+	if _, err := admin.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS `+schema); err != nil {
+		t.Fatalf("create schema %s: %v", schema, err)
+	}
+
+	setup, err := openPool(dsn, schema)
+	if err != nil {
+		t.Fatalf("open setup pool: %v", err)
+	}
+	if _, err := setup.ExecContext(ctx, `
+		CREATE TABLE schema_migrations (
+			version BIGINT PRIMARY KEY,
+			applied_at BIGINT NOT NULL
+		)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	if _, err := setup.ExecContext(ctx, schemaV15); err != nil {
+		t.Fatalf("apply v15 fixture DDL: %v", err)
+	}
+	if _, err := setup.ExecContext(ctx,
+		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
+		15, int64(15)); err != nil {
+		t.Fatalf("record version 15: %v", err)
+	}
+	upgrades := []struct {
+		version int64
+		ddl     string
+	}{
+		{16, schemaV16Upgrade},
+		{17, schemaV17Upgrade},
+		{18, schemaV18Upgrade},
+		{19, schemaV19Upgrade},
+		{20, schemaV20Upgrade},
+		{21, schemaV21Upgrade},
+	}
+	for _, upgrade := range upgrades {
+		if _, err := setup.ExecContext(ctx, upgrade.ddl); err != nil {
+			t.Fatalf("apply v21 fixture schema %d: %v", upgrade.version, err)
+		}
+		if _, err := setup.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
+			upgrade.version, upgrade.version); err != nil {
+			t.Fatalf("record v21 fixture schema %d: %v", upgrade.version, err)
+		}
+	}
+	if _, err := setup.ExecContext(ctx,
+		`INSERT INTO sessions (id, title, created_at, workspace_path) VALUES ($1, $2, $3, $4)`,
+		"sess-v21", "upgrade", int64(1), "/projects/v21"); err != nil {
+		t.Fatalf("v21 workspace artifact missing: %v", err)
+	}
+	var channelTables int
+	if err := setup.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'channel_deliveries'`,
+		schema).Scan(&channelTables); err != nil {
+		t.Fatalf("inspect v21 channel table: %v", err)
+	}
+	if channelTables != 0 {
+		t.Fatalf("v21 fixture has %d channel_deliveries tables, want 0", channelTables)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatalf("close v21 fixture: %v", err)
+	}
+
+	b, err := OpenSchema(ctx, dsn, schema)
+	if err != nil {
+		t.Fatalf("OpenSchema over v21 database: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	session, err := b.GetSession(ctx, "sess-v21")
+	if err != nil {
+		t.Fatalf("GetSession after upgrade: %v", err)
+	}
+	if session.WorkspacePath != "/projects/v21" {
+		t.Fatalf("workspace after upgrade = %q, want /projects/v21", session.WorkspacePath)
+	}
+	var markerCount int
+	if err := admin.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM `+schema+`.schema_migrations WHERE version = 22`).Scan(&markerCount); err != nil {
+		t.Fatalf("read schema version 22 marker: %v", err)
+	}
+	if markerCount != 1 {
+		t.Fatalf("schema version 22 marker count = %d, want 1", markerCount)
+	}
+	if err := b.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: "run-v22", SessionID: session.ID, Channel: "fake", ChatID: "chat-v22",
+		State: storage.ChannelDeliveryArmed, CreatedAtMs: 2, UpdatedAtMs: 2,
+	}); err != nil {
+		t.Fatalf("UpsertChannelDelivery after upgrade: %v", err)
+	}
+	open, err := b.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListOpenChannelDeliveries after upgrade: %v", err)
+	}
+	if len(open) != 1 || open[0].RunID != "run-v22" {
+		t.Fatalf("channel delivery after upgrade = %+v, want run-v22", open)
 	}
 }

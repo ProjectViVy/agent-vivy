@@ -312,13 +312,14 @@ func TestStartAllWarnsMalformedSettingsEnvName(t *testing.T) {
 	backend := openBackend(t)
 	runs := &runRecorder{messages: backend}
 	host := New(Deps{
-		Journal:  &recordingJournal{Journal: backend},
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{grantStub{name: "audit", grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}}},
-		Config:   config.Channels{"audit": envelope},
-		Logger:   slog.New(slog.NewTextHandler(&buf, nil)),
+		Journal:    &recordingJournal{Journal: backend},
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{grantStub{name: "audit", grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}}},
+		Config:     config.Channels{"audit": envelope},
+		Logger:     slog.New(slog.NewTextHandler(&buf, nil)),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)

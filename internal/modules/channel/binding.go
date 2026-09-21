@@ -31,8 +31,13 @@ func bindProviders(providers []channelport.ChannelProvider, grants map[string][]
 			return nil, fmt.Errorf("app: duplicate channel provider name %q", name)
 		}
 		byName[name] = true
+		var capabilityTarget any
+		if source, ok := provider.(channelport.CapabilitySource); ok {
+			capabilityTarget = source.CapabilityTarget()
+		}
 		out = append(out, &providerChannel{
-			name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes,
+			name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]),
+			maxRunes: definition.MaxMessageRunes, capabilityTarget: capabilityTarget,
 		})
 	}
 	for name := range configured {
@@ -62,11 +67,12 @@ func compiledProviderNames(providers []channelport.ChannelProvider) []string {
 }
 
 type providerChannel struct {
-	name     string
-	provider channelport.ChannelProvider
-	grants   []module.GrantBinding
-	instance channelport.Instance
-	maxRunes int
+	name             string
+	provider         channelport.ChannelProvider
+	grants           []module.GrantBinding
+	instance         channelport.Instance
+	maxRunes         int
+	capabilityTarget any
 }
 
 func (c *providerChannel) Name() string { return c.name }
@@ -104,6 +110,15 @@ func (c *providerChannel) Send(ctx context.Context, msg channelport.OutboundMess
 	return c.instance.Send(ctx, msg)
 }
 func (c *providerChannel) MaxMessageRunes() int { return c.maxRunes }
+
+func (c *providerChannel) CapabilityTarget() any {
+	if source, ok := c.instance.(channelport.CapabilitySource); ok {
+		if target := source.CapabilityTarget(); target != nil {
+			return target
+		}
+	}
+	return c.capabilityTarget
+}
 
 func cloneGrantBindings(bindings []module.GrantBinding) []module.GrantBinding {
 	out := make([]module.GrantBinding, len(bindings))

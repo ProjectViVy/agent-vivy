@@ -45,6 +45,32 @@ type Settings struct {
 	// deployments. Empty means the domain chosen by IsLark. It mirrors the
 	// dingtalk adapter's open_api_host precedent (CH-C6).
 	OpenBaseURL string `json:"open_base_url"`
+	// AckEmojis lists the emoji_type candidates the inbound ack reaction
+	// draws from (contract §1, 2026-09-15: e.g. "THUMBSUP", "Pin" — the
+	// platform's emoji vocabulary). Absent means the default pool
+	// (["THUMBSUP"]); an explicit empty list disables the ack reaction.
+	// Empty entries are ignored so a ["", "Pin"] list never picks "".
+	AckEmojis []string `json:"ack_emojis"`
+}
+
+// defaultAckEmoji is the ack emoji used when the settings do not name a
+// pool — one reaction, no config burden.
+const defaultAckEmoji = "THUMBSUP"
+
+// ackEmojiPool returns the trimmed, non-empty emoji candidates for the
+// ack reaction. A nil list decodes as the default pool; an explicit empty
+// list yields an empty pool (the ack is disabled).
+func (s Settings) ackEmojiPool() []string {
+	if s.AckEmojis == nil {
+		return []string{defaultAckEmoji}
+	}
+	pool := make([]string, 0, len(s.AckEmojis))
+	for _, emoji := range s.AckEmojis {
+		if emoji = strings.TrimSpace(emoji); emoji != "" {
+			pool = append(pool, emoji)
+		}
+	}
+	return pool
 }
 
 // DecodeSettings decodes the raw settings JSON handed over by the Host

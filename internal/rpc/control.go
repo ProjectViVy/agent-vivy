@@ -24,6 +24,7 @@ import (
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -544,11 +545,11 @@ type messageProvenanceResult struct {
 }
 
 func messageProvenance(message domain.Message) *messageProvenanceResult {
-	if message.EffectiveSource() != "channel" {
+	if message.EffectiveSource() != domain.SourceChannel {
 		return nil
 	}
 	return &messageProvenanceResult{
-		Source:           "channel",
+		Source:           domain.SourceChannel,
 		Channel:          message.Channel,
 		ChatID:           message.ChatID,
 		ChannelMessageID: message.ChannelMessageID,
@@ -2876,8 +2877,8 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		return nil, rpcErr
 	}
 	if len(params.AttachmentPaths) > 0 {
-		if len(attachments)+len(params.AttachmentPaths) > maxAttachmentCount {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+		if len(attachments)+len(params.AttachmentPaths) > attachment.MaxCount {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 		}
 		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
 		if err != nil {
@@ -3459,53 +3460,28 @@ func parseShellParams(request Request) (shellParams, *Error) {
 	return params, nil
 }
 
-// Image attachment limits (VC-1g-2, aligned with the Crush client
-// surface): images only, 5 MiB per file, at most 4 per message.
-var attachmentMimeWhitelist = map[string]bool{
-	"image/png":  true,
-	"image/jpeg": true,
-	"image/gif":  true,
-	"image/webp": true,
-}
-
-const (
-	maxAttachmentBytes = 5 << 20
-	maxAttachmentCount = 4
-)
-
 // attachmentsFromParams decodes and validates the base64 image
-// attachments of a turn/start call.
+// attachments of a turn/start call. The limits are the shared
+// internal/attachment vocabulary (VC-1g-2), the same numbers the channel
+// inbound path enforces.
 func attachmentsFromParams(items []turnAttachment) ([]domain.Attachment, *Error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	if len(items) > maxAttachmentCount {
-		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+	if len(items) > attachment.MaxCount {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 	}
 	out := make([]domain.Attachment, 0, len(items))
 	for index, item := range items {
-		mime := strings.ToLower(strings.TrimSpace(item.MimeType))
-		if !attachmentMimeWhitelist[mime] {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: unsupported type %q (png, jpeg, gif and webp images only)", index+1, item.MimeType)}
-		}
 		data, err := base64.StdEncoding.DecodeString(item.Data)
 		if err != nil {
 			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must be base64-encoded image bytes", index+1)}
 		}
-		if len(data) == 0 {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must not be empty", index+1)}
+		mime, err := attachment.ValidateOne(item.MimeType, data)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: %v", index+1, err)}
 		}
-		if len(data) > maxAttachmentBytes {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: image exceeds the %d MiB limit", index+1, maxAttachmentBytes>>20)}
-		}
-		detected := sniffAttachmentMIME(data)
-		if detected == "" {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: file content is not a supported image", index+1)}
-		}
-		if detected != mime {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: MIME type does not match image content", index+1)}
-		}
-		out = append(out, domain.Attachment{Name: safeAttachmentName(item.Name), MimeType: mime, Data: data})
+		out = append(out, domain.Attachment{Name: attachment.SanitizeName(item.Name), MimeType: mime, Data: data})
 	}
 	return out, nil
 }

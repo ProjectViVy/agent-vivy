@@ -3,6 +3,7 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -257,6 +258,86 @@ func TestReopenIsIdempotent(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	_ = b.Close()
+}
+
+func TestMigrateUpgradesV23WorkspaceToV24ChannelDeliveries(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "vivy-v23.db")
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open v23 fixture: %v", err)
+	}
+	raw.SetMaxOpenConns(1)
+	if _, err := raw.ExecContext(ctx, `
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at INTEGER NOT NULL
+		)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	for _, migration := range migrations {
+		if migration.version > 23 {
+			break
+		}
+		if _, err := raw.ExecContext(ctx, migration.sql); err != nil {
+			t.Fatalf("apply v23 fixture migration %d: %v", migration.version, err)
+		}
+		if _, err := raw.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+			migration.version, int64(migration.version)); err != nil {
+			t.Fatalf("record v23 fixture migration %d: %v", migration.version, err)
+		}
+	}
+	if _, err := raw.ExecContext(ctx,
+		`INSERT INTO sessions (id, title, created_at, workspace_path) VALUES (?, ?, ?, ?)`,
+		"sess-v23", "upgrade", int64(1), "/projects/v23"); err != nil {
+		t.Fatalf("v23 workspace artifact missing: %v", err)
+	}
+	var channelTables int
+	if err := raw.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'channel_deliveries'`).Scan(&channelTables); err != nil {
+		t.Fatalf("inspect v23 channel table: %v", err)
+	}
+	if channelTables != 0 {
+		t.Fatalf("v23 fixture has %d channel_deliveries tables, want 0", channelTables)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close v23 fixture: %v", err)
+	}
+
+	b, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open over v23 database: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+	session, err := b.GetSession(ctx, "sess-v23")
+	if err != nil {
+		t.Fatalf("GetSession after upgrade: %v", err)
+	}
+	if session.WorkspacePath != "/projects/v23" {
+		t.Fatalf("workspace after upgrade = %q, want /projects/v23", session.WorkspacePath)
+	}
+	var markerCount int
+	if err := b.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 24`).Scan(&markerCount); err != nil {
+		t.Fatalf("read migration024 marker: %v", err)
+	}
+	if markerCount != 1 {
+		t.Fatalf("migration024 marker count = %d, want 1", markerCount)
+	}
+	if err := b.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: "run-v24", SessionID: session.ID, Channel: "fake", ChatID: "chat-v24",
+		State: storage.ChannelDeliveryArmed, CreatedAtMs: 2, UpdatedAtMs: 2,
+	}); err != nil {
+		t.Fatalf("UpsertChannelDelivery after upgrade: %v", err)
+	}
+	open, err := b.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListOpenChannelDeliveries after upgrade: %v", err)
+	}
+	if len(open) != 1 || open[0].RunID != "run-v24" {
+		t.Fatalf("channel delivery after upgrade = %+v, want run-v24", open)
+	}
 }
 
 func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/channelcontract"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/rpccontract"
 )
 
@@ -25,16 +27,23 @@ type channelCapsResult struct {
 	Health      bool `json:"health"`
 }
 
+type channelHealthResult struct {
+	OK     bool   `json:"ok"`
+	Class  string `json:"class,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type channelStatusResult struct {
-	Name         string            `json:"name"`
-	Capabilities channelCapsResult `json:"capabilities"`
-	Configured   bool              `json:"configured"`
-	Enabled      bool              `json:"enabled"`
-	AllowFrom    []string          `json:"allow_from"`
-	Started      bool              `json:"started"`
-	TokenEnv     string            `json:"token_env"`
-	TokenEnvSet  bool              `json:"token_env_set"`
-	Note         string            `json:"note"`
+	Name         string               `json:"name"`
+	Capabilities channelCapsResult    `json:"capabilities"`
+	Health       *channelHealthResult `json:"health"`
+	Configured   bool                 `json:"configured"`
+	Enabled      bool                 `json:"enabled"`
+	AllowFrom    []string             `json:"allow_from"`
+	Started      bool                 `json:"started"`
+	TokenEnv     string               `json:"token_env"`
+	TokenEnvSet  bool                 `json:"token_env_set"`
+	Note         string               `json:"note"`
 }
 
 type channelEnvelopeResult struct {
@@ -45,11 +54,27 @@ type channelEnvelopeResult struct {
 	Configured bool     `json:"configured"`
 }
 
+// channelDeliveryResult exposes only durable delivery identifiers and state.
+// Reply content remains in the message log and never crosses this surface.
+type channelDeliveryResult struct {
+	RunID       string `json:"run_id"`
+	SessionID   string `json:"session_id"`
+	Channel     string `json:"channel"`
+	ChatID      string `json:"chat_id"`
+	TopicID     string `json:"topic_id"`
+	State       string `json:"state"`
+	Attempts    int    `json:"attempts"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+	UpdatedAtMs int64  `json:"updated_at_ms"`
+}
+
 func (o *owned) RPCBindings() []rpccontract.MethodBinding {
 	return []rpccontract.MethodBinding{
 		{Method: "channel/inspect", Capability: "channel.inspect", Handler: o.inspectChannel},
 		{Method: "channel/get", Capability: "channel.get", Handler: o.getChannel},
 		{Method: "channel/update", Capability: "channel.update", Handler: o.updateChannel},
+		{Method: "channel/deliveries/list", Capability: "channel.deliveries.list", Handler: o.listChannelDeliveries},
+		{Method: "channel/deliveries/redeliver", Capability: "channel.deliveries.redeliver", Handler: o.redeliverChannelDelivery},
 	}
 }
 
@@ -74,6 +99,12 @@ func toChannelStatusResult(status channelhost.ChannelStatus) channelStatusResult
 		allowFrom = []string{}
 	}
 	capabilities := status.Capabilities
+	var health *channelHealthResult
+	if status.Health != nil {
+		health = &channelHealthResult{
+			OK: status.Health.OK, Class: status.Health.Class, Detail: status.Health.Detail,
+		}
+	}
 	return channelStatusResult{
 		Name: status.Name,
 		Capabilities: channelCapsResult{
@@ -83,6 +114,7 @@ func toChannelStatusResult(status channelhost.ChannelStatus) channelStatusResult
 			Webhook: capabilities.Webhook, Listen: capabilities.Listen,
 			Stream: capabilities.Stream, Health: capabilities.Health,
 		},
+		Health:      health,
 		Configured:  status.Configured,
 		Enabled:     status.Enabled,
 		AllowFrom:   allowFrom,
@@ -91,6 +123,60 @@ func toChannelStatusResult(status channelhost.ChannelStatus) channelStatusResult
 		TokenEnvSet: status.TokenEnvSet,
 		Note:        status.Note,
 	}
+}
+
+func (o *owned) listChannelDeliveries(ctx context.Context, _ rpccontract.Peer, _ rpccontract.Request) (any, *rpccontract.Error) {
+	o.mu.RLock()
+	host := o.host
+	o.mu.RUnlock()
+	if host == nil {
+		return nil, &rpccontract.Error{Code: rpccontract.MethodNotFound, Message: "channel host is not configured"}
+	}
+	failed, err := host.FailedDeliveries(ctx)
+	if err != nil {
+		return nil, internalRPCError()
+	}
+	out := make([]channelDeliveryResult, 0, len(failed))
+	for _, delivery := range failed {
+		out = append(out, channelDeliveryResult{
+			RunID: string(delivery.RunID), SessionID: string(delivery.SessionID),
+			Channel: delivery.Channel, ChatID: delivery.ChatID, TopicID: delivery.TopicID,
+			State: delivery.State, Attempts: delivery.Attempts,
+			CreatedAtMs: delivery.CreatedAtMs, UpdatedAtMs: delivery.UpdatedAtMs,
+		})
+	}
+	return map[string]any{"deliveries": out}, nil
+}
+
+func (o *owned) redeliverChannelDelivery(ctx context.Context, _ rpccontract.Peer, request rpccontract.Request) (any, *rpccontract.Error) {
+	o.mu.RLock()
+	host := o.host
+	o.mu.RUnlock()
+	if host == nil {
+		return nil, &rpccontract.Error{Code: rpccontract.MethodNotFound, Message: "channel host is not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.RunID == "" {
+		return nil, &rpccontract.Error{Code: rpccontract.InvalidParams, Message: "run_id is required"}
+	}
+	if err := host.RedeliverDelivery(ctx, domain.RunID(params.RunID)); err != nil {
+		message := err.Error()
+		switch {
+		case strings.HasPrefix(message, "channelhost: no failed delivery intent"):
+			return nil, &rpccontract.Error{Code: rpccontract.CodeNotFound, Message: "failed delivery not found"}
+		case strings.HasPrefix(message, "channelhost: host is shutting down"),
+			strings.HasPrefix(message, "channelhost: channel ") && strings.Contains(message, " is not running"):
+			return nil, &rpccontract.Error{Code: rpccontract.CodeConflict, Message: "channel delivery is unavailable"}
+		default:
+			return nil, internalRPCError()
+		}
+	}
+	return map[string]any{"run_id": params.RunID, "redelivered": true}, nil
 }
 
 func (o *owned) getChannel(ctx context.Context, _ rpccontract.Peer, request rpccontract.Request) (any, *rpccontract.Error) {

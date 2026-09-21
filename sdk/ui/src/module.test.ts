@@ -10,6 +10,7 @@ import {
   defineUIExtension,
   type FullUIHost,
   type FaceNavigationOptions,
+  type FaceMessageProvenance,
   type FaceStoreState,
   type UICompositionInput,
   type UIExtension,
@@ -20,6 +21,10 @@ import {
   UI_EXTENSION_PORT,
   UI_ROOT_PORT,
 } from "./module";
+
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false;
 
 function root(id: string): UIRoot {
   return { id, render: () => null };
@@ -78,6 +83,7 @@ const emptyFaceStoreState: FaceStoreState = {
   settingsPhase: "idle",
   settingsError: null,
   providers: [],
+  catalog: [],
   providersPhase: "empty",
   providersError: null,
   species: null,
@@ -91,6 +97,7 @@ const emptyFaceStoreState: FaceStoreState = {
   retryInitialize: unavailableFaceOperation,
   loadSessions: unavailableFaceOperation,
   createSession: unavailableFaceOperation,
+  chooseWorkspace: unavailableFaceOperation,
   renameSession: unavailableFaceOperation,
   setSessionPermission: unavailableFaceOperation,
   deleteSession: unavailableFaceOperation,
@@ -137,6 +144,12 @@ const emptyFaceStoreState: FaceStoreState = {
 };
 
 describe("full-code UI composition", () => {
+  it("keeps message provenance on the runtime source vocabulary", () => {
+    type SourceMatchesRuntime = Equal<FaceMessageProvenance["source"], "ui" | "channel" | "headless">;
+    const sourceMatchesRuntime: true = true as SourceMatchesRuntime;
+    expect(sourceMatchesRuntime).toBe(true);
+  });
+
   it("rejects duplicate root providers", () => {
     const input: UICompositionInput = {
       roots: [root("vivy/default-ui"), root("example/search-ui")],
@@ -276,6 +289,7 @@ describe("full-code UI composition", () => {
         initialize: async () => ({ protocol_version: "vivy/rpc-v1", capabilities: [] }),
         listWorkspaceFiles: unavailableFaceOperation,
         readWorkspaceFile: unavailableFaceOperation,
+        browseWorkspace: unavailableFaceOperation,
         listSessions: async () => ({ sessions: [] }),
         getSession: async () => ({
           session: { id: "fixture/session", title: "Fixture", created_at: 0 },
@@ -284,6 +298,7 @@ describe("full-code UI composition", () => {
         createSession: async () => ({ id: "fixture/session", title: "Fixture", created_at: 0 }),
         renameSession: async () => ({ id: "fixture/session", title: "Renamed", created_at: 0 }),
         setSessionPermission: unavailableFaceOperation,
+        setSessionWorkspace: unavailableFaceOperation,
         deleteSession: unavailableFaceOperation,
         listMessages: async () => ({ messages: [] }),
         getSessionContext: unavailableFaceOperation,
@@ -349,6 +364,8 @@ describe("full-code UI composition", () => {
         deleteMcpServer: unavailableFaceOperation,
         probeMcpServer: unavailableFaceOperation,
         inspectChannels: unavailableFaceOperation,
+        listChannelDeliveries: unavailableFaceOperation,
+        redeliverChannelDelivery: unavailableFaceOperation,
         getChannel: unavailableFaceOperation,
         updateChannel: unavailableFaceOperation,
         getTokenUsage: unavailableFaceOperation,

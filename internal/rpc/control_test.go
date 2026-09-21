@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
@@ -1340,9 +1341,6 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") || !containsFold(string(raw), "settings.locale") {
 		t.Fatalf("settings capabilities not advertised: %s", raw)
 	}
-	if containsFold(string(raw), "channel.inspect") || containsFold(string(raw), "channel.get") || containsFold(string(raw), "channel.update") {
-		t.Fatalf("Channel capabilities advertised without a module contribution: %s", raw)
-	}
 	for _, method := range []string{
 		"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 		"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
@@ -1350,6 +1348,28 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	} {
 		if !containsFold(string(raw), method) {
 			t.Fatalf("capability %s not advertised: %s", method, raw)
+		}
+	}
+}
+
+func TestChannelContributionAbsenceReturnsMethodNotFoundAndOmitsCapability(t *testing.T) {
+	env := newControlTestEnv(t)
+	initialized, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	capabilities := initialized.(map[string]any)["capabilities"].([]string)
+	for _, capability := range capabilities {
+		if strings.HasPrefix(capability, "channel.") {
+			t.Fatalf("Channel capability advertised without a contribution: %v", capabilities)
+		}
+	}
+	for _, method := range []string{
+		"channel/inspect", "channel/get", "channel/update",
+		"channel/deliveries/list", "channel/deliveries/redeliver",
+	} {
+		if _, rpcErr := callControl(t, env.handler, method, nil); rpcErr == nil || rpcErr.Code != MethodNotFound {
+			t.Fatalf("method %s without a contribution returned %v, want MethodNotFound", method, rpcErr)
 		}
 	}
 }
@@ -3331,7 +3351,7 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 		}},
 		{"oversize", map[string]any{
 			"session_id": sessionID, "text": "hi",
-			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, maxAttachmentBytes+1))}},
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, attachment.MaxBytes+1))}},
 		}},
 		{"too many", map[string]any{
 			"session_id": sessionID, "text": "hi",
@@ -3487,7 +3507,7 @@ func TestAttachmentPathsFlowAndMessageDTOConsistency(t *testing.T) {
 		t.Fatalf("metadata-only attachment = %+v", metadataMessage)
 	}
 
-	inline := make([]map[string]string, maxAttachmentCount)
+	inline := make([]map[string]string, attachment.MaxCount)
 	for index := range inline {
 		inline[index] = map[string]string{
 			"name":      fmt.Sprintf("inline-%d.png", index),

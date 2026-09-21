@@ -23,6 +23,20 @@ import (
 
 const dingtalkDefaultOpenAPIHost = "https://api.dingtalk.com"
 
+// Liveness knobs (CH-C6-N3). The gateway's app-level ping topic only
+// proves liveness while frames still arrive; a silently dropped link (NAT
+// expiry, no FIN/RST) would block ReadMessage forever and leave the ear
+// deaf until process restart. The client therefore pings the socket
+// itself and bounds every read: no inbound frame — data, pong, or server
+// ping — inside the read deadline means the link is gone, the reader
+// exits, and the next supervise tick redials. The vars are defaults
+// captured into each client at construction (never read from a running
+// goroutine), so lifecycle tests can shrink them before Start.
+var (
+	streamPingInterval = 30 * time.Second
+	streamReadDeadline = 90 * time.Second
+)
+
 // governedStreamClient implements the small DingTalk Stream protocol surface
 // the adapter needs. The upstream SDK hard-codes its HTTP transport and
 // websocket dialer, so this client routes both operations through the Host.
@@ -35,13 +49,22 @@ type governedStreamClient struct {
 	conn     *websocket.Conn
 	readDone <-chan struct{}
 	closing  bool
+	// Liveness budget captured at construction from the package defaults.
+	pingInterval time.Duration
+	readDeadline time.Duration
+	// writeMu serializes data-frame writes (reader) and control-frame
+	// writes (pinger) — gorilla forbids concurrent writers on one conn.
+	writeMu sync.Mutex
 }
 
 func newGovernedStreamClient(host plugin.ChannelEnv, creds streamCreds, baseURL string) *governedStreamClient {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = dingtalkDefaultOpenAPIHost
 	}
-	return &governedStreamClient{host: host, creds: creds, baseURL: strings.TrimRight(baseURL, "/")}
+	return &governedStreamClient{
+		host: host, creds: creds, baseURL: strings.TrimRight(baseURL, "/"),
+		pingInterval: streamPingInterval, readDeadline: streamReadDeadline,
+	}
 }
 
 func (client *governedStreamClient) RegisterChatBotCallbackRouter(handler chatbot.IChatBotMessageHandler) {
@@ -139,7 +162,7 @@ func (client *governedStreamClient) endpoint(ctx context.Context) (*payload.Conn
 	return &endpoint, nil
 }
 
-func (client *governedStreamClient) readLoop(ctx context.Context, conn *websocket.Conn, done chan<- struct{}) {
+func (client *governedStreamClient) readLoop(ctx context.Context, conn *websocket.Conn, done chan struct{}) {
 	defer func() {
 		client.mu.Lock()
 		if client.conn == conn {
@@ -149,11 +172,20 @@ func (client *governedStreamClient) readLoop(ctx context.Context, conn *websocke
 		_ = conn.Close()
 		close(done)
 	}()
+	// Every inbound frame — data, pong, or server ping — proves the link
+	// and moves the deadline forward; a pong answers the client-side ping
+	// and nothing else needs to handle control frames.
+	_ = conn.SetReadDeadline(time.Now().Add(client.readDeadline))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(client.readDeadline))
+	})
+	go client.pingLoop(conn, done)
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(client.readDeadline))
 		frame, err := payload.DecodeDataFrame(raw)
 		if err != nil || frame.Headers == nil {
 			continue
@@ -185,8 +217,34 @@ func (client *governedStreamClient) readLoop(ctx context.Context, conn *websocke
 		}
 		response.SetHeader(payload.DataFrameHeaderKMessageId, frame.GetMessageId())
 		response.SetHeader(payload.DataFrameHeaderKContentType, payload.DataFrameContentTypeKJson)
-		if err := conn.WriteJSON(response); err != nil {
+		client.writeMu.Lock()
+		err = conn.WriteJSON(response)
+		client.writeMu.Unlock()
+		if err != nil {
 			return
+		}
+	}
+}
+
+// pingLoop sends a websocket ping on every tick so a silent link fails the
+// read deadline instead of blocking forever. It exits with the reader
+// (done closes in the readLoop defer); a failed ping kills the socket so
+// the pending ReadMessage unblocks immediately.
+func (client *governedStreamClient) pingLoop(conn *websocket.Conn, done <-chan struct{}) {
+	ticker := time.NewTicker(client.pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			client.writeMu.Lock()
+			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+			client.writeMu.Unlock()
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
 		}
 	}
 }

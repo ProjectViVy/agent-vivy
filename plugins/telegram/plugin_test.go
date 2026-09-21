@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -103,16 +104,68 @@ func (e *fakeEnv) setFailures(n int) {
 	e.publishFailures = n
 }
 
+// stubPhotoBytes is a tiny well-formed JPEG payload (magic bytes plus
+// padding): enough for the host-side content sniff, no real image needed.
+var stubPhotoBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
 // telegramStub is a loopback stand-in for the Telegram Bot API serving the
-// three calls the adapter makes this slice: getMe (authentication),
-// getUpdates (polling), and sendMessage (outbound text). All routing is by
-// path suffix because the bot token is embedded in the URL path.
+// calls the adapter makes this slice: getMe (authentication), getUpdates
+// (polling), sendMessage (outbound text with a formatted-send fallback),
+// sendChatAction (typing live surface), editMessageText / deleteMessage
+// (interaction), and getFile plus the /file/bot path (inbound photo
+// download). All routing is by path suffix because the bot token is
+// embedded in the URL path.
 type telegramStub struct {
 	server  *httptest.Server
 	updates chan []map[string]any // one-shot update batches for getUpdates
 
 	sends   chan sendMessageCall
 	sendSeq atomic.Int64
+
+	// sendFailures counts remaining sendMessage rejections for the
+	// formatted-send fallback tests.
+	sendFailures atomic.Int64
+
+	actions chan chatActionCall
+
+	edits           chan editMessageCall
+	editFailures    atomic.Int64 // remaining parse rejections for the plain-text edit fallback
+	editNotModified atomic.Bool  // answer "message is not modified" instead of success
+	deletes         chan deleteMessageCall
+
+	// Inbound photo behavior. Defaults serve stubPhotoBytes at
+	// photos/file_0.jpg with a truthful declared size; tests flip the
+	// error/size fields to exercise the drop paths.
+	photoMutex   sync.Mutex
+	photoBytes   []byte
+	filePath     string
+	fileSize     int  // declared by getFile; negative = omit
+	getFileErr   bool // getFile answers a platform error
+	getFileCalls int  // observed hits on the getFile endpoint
+	downloadErr  bool // file endpoint answers 500
+	downloads    int  // observed hits on the file endpoint
+
+	photoCalls    chan mediaCall
+	documentCalls chan mediaCall
+	groupCalls    chan mediaGroupCall
+	// dimensionFail makes sendPhoto answer the platform's invalid-dimensions
+	// rejection (the SendDocument fallback trigger); photoFail answers a
+	// generic rejection that must surface instead of falling back.
+	dimensionFail atomic.Bool
+	photoFail     atomic.Bool
+}
+
+// mediaCall records one multipart media send.
+type mediaCall struct {
+	ChatID   json.RawMessage
+	FileName string
+}
+
+// mediaGroupCall records one SendMediaGroup invocation.
+type mediaGroupCall struct {
+	ChatID    json.RawMessage
+	MediaJSON []json.RawMessage // the serialized media items
+	Files     []string          // multipart file names in attach order
 }
 
 type sendMessageCall struct {
@@ -121,13 +174,43 @@ type sendMessageCall struct {
 	ChatID    json.RawMessage `json:"chat_id"`
 	Text      string          `json:"text"`
 	ParseMode string          `json:"parse_mode"`
+	ReplyTo   *struct {
+		MessageID                int  `json:"message_id"`
+		AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
+	} `json:"reply_parameters"`
+}
+
+type chatActionCall struct {
+	ChatID json.RawMessage `json:"chat_id"`
+	Action string          `json:"action"`
+}
+
+type editMessageCall struct {
+	ChatID    json.RawMessage `json:"chat_id"`
+	MessageID int             `json:"message_id"`
+	Text      string          `json:"text"`
+	ParseMode string          `json:"parse_mode"`
+}
+
+type deleteMessageCall struct {
+	ChatID    json.RawMessage `json:"chat_id"`
+	MessageID int             `json:"message_id"`
 }
 
 func newTelegramStub(t *testing.T) *telegramStub {
 	t.Helper()
 	stub := &telegramStub{
-		updates: make(chan []map[string]any, 8),
-		sends:   make(chan sendMessageCall, 16),
+		updates:       make(chan []map[string]any, 8),
+		sends:         make(chan sendMessageCall, 16),
+		actions:       make(chan chatActionCall, 16),
+		edits:         make(chan editMessageCall, 16),
+		deletes:       make(chan deleteMessageCall, 16),
+		photoBytes:    append([]byte(nil), stubPhotoBytes...),
+		filePath:      "photos/file_0.jpg",
+		fileSize:      len(stubPhotoBytes),
+		photoCalls:    make(chan mediaCall, 16),
+		documentCalls: make(chan mediaCall, 16),
+		groupCalls:    make(chan mediaGroupCall, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -155,10 +238,126 @@ func newTelegramStub(t *testing.T) *telegramStub {
 				return
 			}
 			stub.sends <- call
+			if stub.sendFailures.Add(-1) >= 0 {
+				writeTelegramError(w, "Bad Request: can't parse entities")
+				return
+			}
 			writeTelegramOK(w, map[string]any{
 				"message_id": stub.sendSeq.Add(1),
 				"chat":       map[string]any{"id": 1, "type": "private"},
 			})
+		case strings.HasSuffix(r.URL.Path, "/sendChatAction"):
+			body, _ := io.ReadAll(r.Body)
+			var call chatActionCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.actions <- call
+			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			body, _ := io.ReadAll(r.Body)
+			var call editMessageCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.edits <- call
+			if stub.editNotModified.Load() {
+				writeTelegramError(w, "Bad Request: message is not modified")
+				return
+			}
+			if stub.editFailures.Add(-1) >= 0 {
+				writeTelegramError(w, "Bad Request: can't parse entities")
+				return
+			}
+			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/deleteMessage"):
+			body, _ := io.ReadAll(r.Body)
+			var call deleteMessageCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.deletes <- call
+			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/getFile"):
+			stub.photoMutex.Lock()
+			stub.getFileCalls++
+			filePath, fileSize, fail := stub.filePath, stub.fileSize, stub.getFileErr
+			stub.photoMutex.Unlock()
+			if fail {
+				writeTelegramError(w, "file not found")
+				return
+			}
+			result := map[string]any{"file_id": "photo-large", "file_unique_id": "u1", "file_path": filePath}
+			if fileSize >= 0 {
+				result["file_size"] = fileSize
+			}
+			writeTelegramOK(w, result)
+		case strings.HasSuffix(r.URL.Path, "/sendPhoto"), strings.HasSuffix(r.URL.Path, "/sendDocument"):
+			if err := r.ParseMultipartForm(8 << 20); err != nil {
+				writeTelegramError(w, "bad multipart")
+				return
+			}
+			field := "photo"
+			if strings.HasSuffix(r.URL.Path, "/sendDocument") {
+				field = "document"
+			}
+			var fileName string
+			if fhs := r.MultipartForm.File[field]; len(fhs) > 0 {
+				fileName = fhs[0].Filename
+			}
+			call := mediaCall{ChatID: json.RawMessage(r.FormValue("chat_id")), FileName: fileName}
+			if field == "photo" {
+				if stub.dimensionFail.Load() {
+					writeTelegramError(w, "Bad Request: PHOTO_INVALID_DIMENSIONS: photo has invalid dimensions")
+					return
+				}
+				if stub.photoFail.Load() {
+					writeTelegramError(w, "Bad Request: image is too large")
+					return
+				}
+				stub.photoCalls <- call
+			} else {
+				stub.documentCalls <- call
+			}
+			writeTelegramOK(w, map[string]any{
+				"message_id": stub.sendSeq.Add(1),
+				"chat":       map[string]any{"id": 1, "type": "private"},
+			})
+		case strings.HasSuffix(r.URL.Path, "/sendMediaGroup"):
+			if err := r.ParseMultipartForm(16 << 20); err != nil {
+				writeTelegramError(w, "bad multipart")
+				return
+			}
+			var raw []json.RawMessage
+			_ = json.Unmarshal([]byte(r.FormValue("media")), &raw)
+			var names []string
+			for _, fhs := range r.MultipartForm.File {
+				for _, fh := range fhs {
+					names = append(names, fh.Filename)
+				}
+			}
+			stub.groupCalls <- mediaGroupCall{
+				ChatID:    json.RawMessage(r.FormValue("chat_id")),
+				MediaJSON: raw,
+				Files:     names,
+			}
+			writeTelegramOK(w, []any{
+				map[string]any{"message_id": stub.sendSeq.Add(1), "chat": map[string]any{"id": 1}},
+				map[string]any{"message_id": stub.sendSeq.Add(1), "chat": map[string]any{"id": 1}},
+			})
+		case strings.Contains(r.URL.Path, "/file/bot"):
+			stub.photoMutex.Lock()
+			stub.downloads++
+			body, fail := append([]byte(nil), stub.photoBytes...), stub.downloadErr
+			stub.photoMutex.Unlock()
+			if fail {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(body)
 		default:
 			http.NotFound(w, r)
 		}
@@ -171,6 +370,10 @@ func newTelegramStub(t *testing.T) *telegramStub {
 // pushUpdates queues one update batch; the next getUpdates call returns it.
 func (s *telegramStub) pushUpdates(batch []map[string]any) { s.updates <- batch }
 
+// failNextSends makes the next n sendMessage calls answer with the
+// platform's parse rejection (the formatted-send failure stand-in).
+func (s *telegramStub) failNextSends(n int64) { s.sendFailures.Add(n) }
+
 // waitForSend reads one recorded sendMessage call.
 func (s *telegramStub) waitForSend(t *testing.T) sendMessageCall {
 	t.Helper()
@@ -182,6 +385,50 @@ func (s *telegramStub) waitForSend(t *testing.T) sendMessageCall {
 		return sendMessageCall{}
 	}
 }
+
+// waitForAction reads one recorded sendChatAction call.
+func (s *telegramStub) waitForAction(t *testing.T) chatActionCall {
+	t.Helper()
+	select {
+	case call := <-s.actions:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendChatAction was never called")
+		return chatActionCall{}
+	}
+}
+
+// waitForEdit reads one recorded editMessageText call.
+func (s *telegramStub) waitForEdit(t *testing.T) editMessageCall {
+	t.Helper()
+	select {
+	case call := <-s.edits:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("editMessageText was never called")
+		return editMessageCall{}
+	}
+}
+
+// waitForDelete reads one recorded deleteMessage call.
+func (s *telegramStub) waitForDelete(t *testing.T) deleteMessageCall {
+	t.Helper()
+	select {
+	case call := <-s.deletes:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("deleteMessage was never called")
+		return deleteMessageCall{}
+	}
+}
+
+// failNextEdits makes the next n editMessageText calls answer with the
+// platform's parse rejection (the formatted-edit failure stand-in).
+func (s *telegramStub) failNextEdits(n int64) { s.editFailures.Add(n) }
+
+// answerNotModified makes every editMessageText call answer the platform's
+// "message is not modified" idempotency error.
+func (s *telegramStub) answerNotModified() { s.editNotModified.Store(true) }
 
 func writeTelegramOK(w http.ResponseWriter, result any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -281,9 +528,14 @@ func TestDecodeSettings(t *testing.T) {
 	}
 }
 
-// TestNormalizeUpdate: exactly one shape publishes — a private text message
-// from a human. Everything else is dropped locally (the Host allow-list is
-// the policy layer, not this shape filter).
+// testBotUser is the getMe identity the group mention gate matches
+// against in the normalize tests.
+var testBotUser = &telego.User{ID: 42, IsBot: true, Username: "vivy_test_bot"}
+
+// TestNormalizeUpdate: private text messages from a human publish; group
+// messages publish only under the mention-only gate; everything else is
+// dropped locally (the Host allow-list is the policy layer, not this
+// shape filter).
 func TestNormalizeUpdate(t *testing.T) {
 	privateText := telego.Update{Message: &telego.Message{
 		MessageID: 55,
@@ -291,7 +543,7 @@ func TestNormalizeUpdate(t *testing.T) {
 		Chat:      telego.Chat{ID: 123456, Type: "private"},
 		Text:      "hello vivy",
 	}}
-	msg, ok := normalizeUpdate(privateText)
+	msg, _, ok := normalizeUpdate(privateText, testBotUser)
 	if !ok {
 		t.Fatal("private text message must be publishable")
 	}
@@ -329,18 +581,114 @@ func TestNormalizeUpdate(t *testing.T) {
 			MessageID: 61, From: &telego.User{ID: 123456}, SenderChat: &telego.Chat{ID: 777, Type: "private"},
 			Chat: telego.Chat{ID: 123456, Type: "private"}, Text: "not a human sender",
 		}},
-		"photo without text": {Message: &telego.Message{
-			MessageID: 62, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"},
-			Photo: []telego.PhotoSize{{FileID: "f"}},
-		}},
 		"empty text": {Message: &telego.Message{
 			MessageID: 63, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"}, Text: "",
 		}},
 	}
 	for name, upd := range cases {
-		if msg, ok := normalizeUpdate(upd); ok {
+		if msg, _, ok := normalizeUpdate(upd, testBotUser); ok {
 			t.Fatalf("%s must not be publishable, got %+v", name, msg)
 		}
+	}
+
+	// --- group trigger (tier-1, mention-only) ---
+
+	// Telegram entities span exactly the mention text.
+	mentionEntity := []telego.MessageEntity{{Type: telego.EntityTypeMention, Offset: 0, Length: 14}}
+	mentionEntityMid := []telego.MessageEntity{{Type: telego.EntityTypeMention, Offset: 4, Length: 14}}
+	textMentionEntity := []telego.MessageEntity{{Type: telego.EntityTypeTextMention, Offset: 0, Length: 3, User: testBotUser}}
+	otherBotCommand := []telego.MessageEntity{{Type: telego.EntityTypeBotCommand, Offset: 0, Length: 17}}
+	thisBotCommand := []telego.MessageEntity{{Type: telego.EntityTypeBotCommand, Offset: 0, Length: 21}}
+
+	groupMsg := func(chatType string, text string, entities []telego.MessageEntity) telego.Update {
+		return telego.Update{Message: &telego.Message{
+			MessageID: 70, From: &telego.User{ID: 123456, IsBot: false},
+			Chat: telego.Chat{ID: -999, Type: chatType}, Text: text, Entities: entities,
+		}}
+	}
+
+	// A @username mention publishes with the markup stripped.
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot summarize", mentionEntity), testBotUser); !ok {
+		t.Fatal("mentioned group message must be publishable")
+	} else if msg.Parts[0].Text != "summarize" || msg.ChatID != "-999" {
+		t.Fatalf("group envelope = %+v, want the stripped text", msg)
+	}
+
+	// A mid-sentence mention strips cleanly (the two spaces around the
+	// removed span collapse at the edges only — an honest artifact).
+	if msg, _, ok := normalizeUpdate(groupMsg("supergroup", "hey @vivy_test_bot hi", mentionEntityMid), testBotUser); !ok {
+		t.Fatal("mid-sentence mention must be publishable")
+	} else if msg.Parts[0].Text != "hey  hi" {
+		t.Fatalf("stripped text = %q, want 'hey  hi'", msg.Parts[0].Text)
+	}
+
+	// A text_mention of the bot publishes.
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "bot x", textMentionEntity), testBotUser); !ok {
+		t.Fatal("text_mention of the bot must be publishable")
+	} else if msg.Parts[0].Text != "x" {
+		t.Fatalf("stripped text = %q, want 'x'", msg.Parts[0].Text)
+	}
+
+	// A /command@thisbot publishes with the suffix stripped; another
+	// bot's command does not trigger.
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "/status@vivy_test_bot", thisBotCommand), testBotUser); !ok {
+		t.Fatal("a /cmd@thisbot command must be publishable")
+	} else if msg.Parts[0].Text != "/status" {
+		t.Fatalf("command text = %q, want '/status'", msg.Parts[0].Text)
+	}
+	if _, _, ok := normalizeUpdate(groupMsg("group", "/status@other_bot", otherBotCommand), testBotUser); ok {
+		t.Fatal("another bot's command must not trigger")
+	}
+
+	// A bare mention leaves nothing to publish.
+	if _, _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot", mentionEntity), testBotUser); ok {
+		t.Fatal("a bare mention has nothing left to publish")
+	}
+
+	// A forum topic carries its thread id in TopicID.
+	forum := groupMsg("supergroup", "@vivy_test_bot topic talk", mentionEntity)
+	forum.Message.MessageThreadID = 77
+	forum.Message.Chat.IsForum = true
+	if msg, _, ok := normalizeUpdate(forum, testBotUser); !ok || msg.TopicID != "77" {
+		t.Fatalf("forum topic envelope ok=%v TopicID=%q, want TopicID 77", ok, msg.TopicID)
+	}
+
+	// --- inbound photo (private) ---
+
+	// A photo message publishes: the caption becomes the text part and the
+	// largest photo variant is the download target. Without a caption the
+	// envelope starts with no text part at all.
+	photoMsg := telego.Update{Message: &telego.Message{
+		MessageID: 64, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"},
+		Caption: "look",
+		Photo: []telego.PhotoSize{
+			{FileID: "photo-small", Width: 90, Height: 90},
+			{FileID: "photo-large", Width: 1280, Height: 960},
+		},
+	}}
+	msg, photo, ok := normalizeUpdate(photoMsg, testBotUser)
+	if !ok {
+		t.Fatal("photo message must be publishable")
+	}
+	if photo == nil || photo.fileID != "photo-large" || photo.messageID != 64 {
+		t.Fatalf("photo ref = %+v, want the largest variant of message 64", photo)
+	}
+	if len(msg.Parts) != 1 || msg.Parts[0].Kind != plugin.PartText || msg.Parts[0].Text != "look" {
+		t.Fatalf("photo envelope text parts = %+v", msg.Parts)
+	}
+
+	photoMsg.Message.Caption = ""
+	msg, photo, ok = normalizeUpdate(photoMsg, testBotUser)
+	if !ok || photo == nil || len(msg.Parts) != 0 {
+		t.Fatalf("captionless photo must carry only the download ref: parts=%+v photo=%+v ok=%v", msg.Parts, photo, ok)
+	}
+
+	// A group photo stays out this slice even with a mentioning caption:
+	// group turns are text-only until group media is ruled in.
+	groupPhoto := groupMsg("group", "look what I made", nil)
+	groupPhoto.Message.Caption = "@vivy_test_bot look"
+	if _, _, ok := normalizeUpdate(groupPhoto, testBotUser); ok {
+		t.Fatal("a group photo must not publish this slice")
 	}
 }
 
@@ -468,8 +816,8 @@ func TestSendPlainText(t *testing.T) {
 	first := stub.waitForSend(t)
 	second := stub.waitForSend(t)
 	for _, call := range []sendMessageCall{first, second} {
-		if string(call.ChatID) != "123456" || call.ParseMode != "" {
-			t.Fatalf("sendMessage call = %+v, want numeric chat id and no parse_mode", call)
+		if string(call.ChatID) != "123456" || call.ParseMode != "HTML" {
+			t.Fatalf("sendMessage call = %+v, want numeric chat id and parse_mode HTML", call)
 		}
 	}
 	if first.Text != "first" || second.Text != "second" {
@@ -507,6 +855,54 @@ func TestSendIsIdempotentAfterStop(t *testing.T) {
 	_, _ = p.Send(context.Background(), plugin.OutboundMessage{ChatID: "123456", Parts: []plugin.Part{{Kind: plugin.PartText, Text: "after stop"}}})
 }
 
+// TestSendMarkdownWithPlainFallback: a formatted send the platform rejects
+// (entity parse failure) degrades to the same chunk resent as plain text —
+// the reply is lost only if plain text fails too.
+func TestSendMarkdownWithPlainFallback(t *testing.T) {
+	stub := newTelegramStub(t)
+	stub.failNextSends(1)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	ids, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "123456",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold** and <raw>"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+
+	formatted := stub.waitForSend(t)
+	if formatted.ParseMode != "HTML" || formatted.Text != "<b>bold</b> and &lt;raw&gt;" {
+		t.Fatalf("formatted call = %+v, want the HTML body with parse_mode", formatted)
+	}
+	fallback := stub.waitForSend(t)
+	if fallback.ParseMode != "" || fallback.Text != "**bold** and <raw>" {
+		t.Fatalf("fallback call = %+v, want the raw markdown without parse_mode", fallback)
+	}
+}
+
+// TestTypingSendsChatAction: plugin.Typing sends one "typing" chat action
+// for the numeric chat; the Host owns resend cadence and stop. Typing
+// before Start fails closed like Send.
+func TestTypingSendsChatAction(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+	if err := p.Typing(context.Background(), "123456"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	call := stub.waitForAction(t)
+	if call.Action != "typing" {
+		t.Fatalf("chat action = %q, want typing", call.Action)
+	}
+	if string(call.ChatID) != "123456" {
+		t.Fatalf("chat id = %s, want the numeric 123456", call.ChatID)
+	}
+
+	if err := newAdapter().Typing(context.Background(), "123456"); err == nil {
+		t.Fatal("typing before start must fail closed")
+	}
+}
+
 // TestSendSurfacesAPIError: a platform error surfaces to the Host as a
 // Send error (the Host logs it; the adapter has no logger of its own).
 func TestSendSurfacesAPIError(t *testing.T) {
@@ -527,5 +923,576 @@ func TestSendSurfacesAPIError(t *testing.T) {
 	defer cancel()
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("stop: %v", err)
+	}
+}
+
+// TestHealthReportsStartedEar (CH-R-1): Health returns nil for a started
+// ear (telego owns transient-poll recovery internally) and a temporary
+// classification before Start.
+func TestHealthReportsStartedEar(t *testing.T) {
+	p := newAdapter()
+	if err := p.Health(context.Background()); err == nil {
+		t.Fatal("health before start = nil, want a temporary error")
+	} else {
+		var healthErr *plugin.HealthError
+		if !errors.As(err, &healthErr) || healthErr.Class != plugin.ClassTemporary {
+			t.Fatalf("health before start = %v, want a temporary HealthError", err)
+		}
+	}
+
+	stub := newTelegramStub(t)
+	p2 := startForTest(t, envForStub(stubSettings(stub)))
+	if err := p2.Health(context.Background()); err != nil {
+		t.Fatalf("health after start = %v, want nil", err)
+	}
+}
+
+// TestSendRepliesViaReplyParameters: a non-empty ReplyTo threads the
+// message (allow_sending_without_reply keeps a deleted anchor from
+// costing the reply); a non-numeric ReplyTo fails closed.
+func TestSendRepliesViaReplyParameters(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if _, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "123456",
+		ReplyTo: "49",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	call := stub.waitForSend(t)
+	if call.ReplyTo == nil || call.ReplyTo.MessageID != 49 || !call.ReplyTo.AllowSendingWithoutReply {
+		t.Fatalf("reply_parameters = %+v, want message_id 49 with allow_sending_without_reply", call.ReplyTo)
+	}
+
+	if _, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "123456",
+		ReplyTo: "not-numeric",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "x"}},
+	}); err == nil {
+		t.Fatal("non-numeric reply-to must fail closed")
+	}
+}
+
+// photoUpdate builds one raw private-chat photo update: two resolution
+// variants and an optional caption.
+func photoUpdate(updateID int64, caption string) map[string]any {
+	message := map[string]any{
+		"message_id": int(updateID) + 48,
+		"from":       map[string]any{"id": 123456, "is_bot": false, "first_name": "Human"},
+		"chat":       map[string]any{"id": 123456, "type": "private"},
+		"photo": []any{
+			map[string]any{"file_id": "photo-small", "file_unique_id": "s1", "width": 90, "height": 90},
+			map[string]any{"file_id": "photo-large", "file_unique_id": "l1", "width": 1280, "height": 960},
+		},
+	}
+	if caption != "" {
+		message["caption"] = caption
+	}
+	return map[string]any{"update_id": updateID, "message": message}
+}
+
+// setPhotoBehavior mutates the stub's download behavior under the lock.
+func (s *telegramStub) setPhotoBehavior(apply func(*telegramStub)) {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	apply(s)
+}
+
+// downloadCount reports observed hits on the file endpoint.
+func (s *telegramStub) downloadCount() int {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	return s.downloads
+}
+
+// getFileCount reports observed hits on the getFile endpoint.
+func (s *telegramStub) getFileCount() int {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	return s.getFileCalls
+}
+
+// TestPhotoWithCaptionPublishesTextAndMedia: a captioned photo arrives as
+// one text part plus one bounded media part with the downloaded bytes.
+func TestPhotoWithCaptionPublishesTextAndMedia(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{photoUpdate(7, "look at this")})
+	waitFor(t, "published photo message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 2 {
+		t.Fatalf("parts = %d, want text + media", len(parts))
+	}
+	if parts[0].Kind != plugin.PartText || parts[0].Text != "look at this" {
+		t.Fatalf("text part = %+v", parts[0])
+	}
+	if parts[1].Kind != plugin.PartMedia {
+		t.Fatalf("media part kind = %q", parts[1].Kind)
+	}
+	media := parts[1].Media
+	if media.MimeType != "image/jpeg" || string(media.Data) != string(stubPhotoBytes) {
+		t.Fatalf("media payload mime=%q bytes=%d, want image/jpeg and %d bytes", media.MimeType, len(media.Data), len(stubPhotoBytes))
+	}
+	if media.Name != "photo-55.jpg" {
+		t.Fatalf("media name = %q, want photo-55.jpg", media.Name)
+	}
+	if stub.downloadCount() != 1 {
+		t.Fatalf("file endpoint hits = %d, want 1", stub.downloadCount())
+	}
+}
+
+// TestCaptionlessPhotoPublishesMediaOnly.
+func TestCaptionlessPhotoPublishesMediaOnly(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{photoUpdate(8, "")})
+	waitFor(t, "published captionless photo", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartMedia || len(parts[0].Media.Data) == 0 {
+		t.Fatalf("parts = %+v, want exactly one media part", parts)
+	}
+}
+
+// TestPhotoDownloadFailureKeepsCaption: a failed getFile drops only the
+// image part; the caption still becomes a text turn.
+func TestPhotoDownloadFailureKeepsCaption(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.getFileErr = true })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(9, "the caption survives")})
+	waitFor(t, "published caption-only message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartText || parts[0].Text != "the caption survives" {
+		t.Fatalf("parts = %+v, want the caption text only", parts)
+	}
+	if stub.downloadCount() != 0 {
+		t.Fatalf("file endpoint hits = %d, want 0 (getFile failed)", stub.downloadCount())
+	}
+}
+
+// TestPhotoFailureWithoutCaptionNotPublished: when the photo fails and no
+// caption exists, nothing publishes.
+func TestPhotoFailureWithoutCaptionNotPublished(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.getFileErr = true })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(10, "")})
+	waitFor(t, "getFile attempt", func() bool { return stub.getFileCount() == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes, want none", got)
+	}
+}
+
+// TestOversizePhotoDroppedWithoutDownload: a declared size over the
+// inbound bound short-circuits before the download; the caption survives.
+func TestOversizePhotoDroppedWithoutDownload(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.fileSize = maxInboundPhotoBytes + 1 })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(11, "still text")})
+	waitFor(t, "published caption-only message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartText {
+		t.Fatalf("parts = %+v, want text only", parts)
+	}
+	if stub.downloadCount() != 0 {
+		t.Fatalf("file endpoint hits = %d, want 0 (declared oversize)", stub.downloadCount())
+	}
+}
+
+// TestOversizeBodyDropped: a lying declared size cannot smuggle more than
+// the bound through the download; the media part is dropped.
+func TestOversizeBodyDropped(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	oversize := append([]byte{0xff, 0xd8, 0xff, 0xe0}, make([]byte, maxInboundPhotoBytes)...)
+	stub.setPhotoBehavior(func(s *telegramStub) {
+		s.fileSize = 16 // the stub lies; the byte bound is the backstop
+		s.photoBytes = oversize
+	})
+
+	stub.pushUpdates([]map[string]any{photoUpdate(12, "")})
+	waitFor(t, "oversize body download", func() bool { return stub.downloadCount() == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes from an oversize photo, want none", got)
+	}
+	if stub.downloadCount() != 1 {
+		t.Fatalf("file endpoint hits = %d, want 1", stub.downloadCount())
+	}
+}
+
+// shrinkAlbumWindow shrinks the album aggregation window for lifecycle
+// assertions and restores the production value on cleanup.
+func shrinkAlbumWindow(t *testing.T) time.Duration {
+	t.Helper()
+	old := mediaGroupDelay
+	mediaGroupDelay = 20 * time.Millisecond
+	t.Cleanup(func() { mediaGroupDelay = old })
+	return mediaGroupDelay
+}
+
+// albumPhotoUpdate builds one raw album-member photo update: a private
+// chat photo with (optionally) a caption and the shared media group id.
+func albumPhotoUpdate(updateID, messageID int64, groupID, caption string) map[string]any {
+	msg := map[string]any{
+		"message_id":     messageID,
+		"from":           map[string]any{"id": 123456, "is_bot": false, "first_name": "Human"},
+		"chat":           map[string]any{"id": 123456, "type": "private"},
+		"media_group_id": groupID,
+		"photo": []any{
+			map[string]any{"file_id": "photo-small-" + fmt.Sprint(messageID), "width": 90, "height": 90},
+			map[string]any{"file_id": "photo-large-" + fmt.Sprint(messageID), "width": 1280, "height": 960},
+		},
+	}
+	if caption != "" {
+		msg["caption"] = caption
+	}
+	return map[string]any{"update_id": updateID, "message": msg}
+}
+
+// TestAlbumAggregatesIntoOneTurn: album members arriving out of order land
+// as one envelope — the captions join in message-id order and each
+// message's largest photo variant becomes its own media part.
+func TestAlbumAggregatesIntoOneTurn(t *testing.T) {
+	shrinkAlbumWindow(t)
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	_ = startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{
+		albumPhotoUpdate(101, 149, "grp-1", "second caption"),
+		albumPhotoUpdate(102, 148, "grp-1", "first caption"),
+	})
+
+	waitFor(t, "aggregated album envelope", func() bool { return len(env.snapshot()) == 1 })
+	got := env.snapshot()[0]
+	if got.ChatID != "123456" || got.Sender != "telegram:123456" || got.MessageID != "148" {
+		t.Fatalf("envelope header = %+v", got)
+	}
+	if len(got.Parts) != 3 ||
+		got.Parts[0].Kind != plugin.PartText ||
+		got.Parts[0].Text != "first caption\nsecond caption" ||
+		got.Parts[1].Kind != plugin.PartMedia ||
+		got.Parts[1].Media.Name != "photo-148.jpg" ||
+		got.Parts[2].Media.Name != "photo-149.jpg" {
+		t.Fatalf("envelope parts = %+v", got.Parts)
+	}
+}
+
+// TestAlbumFlushedOnStop: an album still inside its window publishes when
+// the ear stops — Stop drains the aggregation before cancelling the poll
+// context.
+func TestAlbumFlushedOnStop(t *testing.T) {
+	shrinkAlbumWindow(t)
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	p := startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{
+		albumPhotoUpdate(103, 150, "grp-2", "lost album"),
+	})
+	// Wait until the poll loop actually buffered the album member (the
+	// long-poll window means the update may still be in flight), then stop
+	// before the aggregation window elapses; the drain must still publish.
+	waitFor(t, "album buffered", func() bool {
+		p.mediaGroupMu.Lock()
+		defer p.mediaGroupMu.Unlock()
+		return len(p.mediaGroups) == 1
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitFor(t, "flushed album on stop", func() bool { return len(env.snapshot()) == 1 })
+	got := env.snapshot()[0]
+	if len(got.Parts) != 2 || got.Parts[0].Text != "lost album" ||
+		got.Parts[1].Kind != plugin.PartMedia || got.Parts[1].Media.Name != "photo-150.jpg" {
+		t.Fatalf("flushed envelope parts = %+v", got.Parts)
+	}
+}
+
+// TestGroupAlbumStaysOut: a group album is dropped this slice — group
+// turns are text-only under the mention-gate ruling.
+func TestGroupAlbumStaysOut(t *testing.T) {
+	tick := shrinkAlbumWindow(t)
+	_ = tick
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	_ = startForTest(t, env)
+
+	group := albumPhotoUpdate(104, 151, "grp-3", "look")
+	msg := group["message"].(map[string]any)
+	msg["chat"] = map[string]any{"id": -999, "type": "group", "title": "Room"}
+	stub.pushUpdates([]map[string]any{group})
+
+	time.Sleep(10 * tick)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes, want 0 for a group album", got)
+	}
+}
+
+// mediaOutFixture starts an ear for outbound media assertions.
+func mediaOutFixture(t *testing.T) (*Plugin, *telegramStub) {
+	t.Helper()
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	return startForTest(t, env), stub
+}
+
+func mediaPart(name string, data []byte) plugin.Part {
+	return plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{Name: name, MimeType: "image/jpeg", Data: data}}
+}
+
+// TestSendMediaSinglePhoto: one image leaves as one multipart sendPhoto.
+func TestSendMediaSinglePhoto(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+
+	ids, err := p.SendMedia(context.Background(), "123456", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		mediaPart("photo-1.jpg", stubPhotoBytes),
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "1" {
+		t.Fatalf("ids = %v, want one photo id", ids)
+	}
+	select {
+	case call := <-stub.photoCalls:
+		if string(call.ChatID) != "123456" || call.FileName != "photo-1.jpg" {
+			t.Fatalf("photo call = %+v", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendPhoto never recorded")
+	}
+	select {
+	case call := <-stub.documentCalls:
+		t.Fatalf("unexpected document call: %+v", call)
+	default:
+	}
+}
+
+// TestSendMediaAlbumBatches: two-plus images leave as one SendMediaGroup;
+// more than ten split into batches of ten.
+func TestSendMediaAlbumBatches(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+
+	parts := []plugin.Part{
+		mediaPart("a.jpg", stubPhotoBytes),
+		mediaPart("b.jpg", stubPhotoBytes),
+	}
+	ids, err := p.SendMedia(context.Background(), "123456", parts)
+	if err != nil {
+		t.Fatalf("send album: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids = %v, want two (one per album member)", ids)
+	}
+	select {
+	case call := <-stub.groupCalls:
+		if len(call.MediaJSON) != 2 || len(call.Files) != 2 {
+			t.Fatalf("group call = %+v, want two media items with two files", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendMediaGroup never recorded")
+	}
+
+	// Eleven images: one album of ten plus a single follow-up photo.
+	var big []plugin.Part
+	for i := 0; i < 11; i++ {
+		big = append(big, mediaPart(fmt.Sprintf("img-%d.jpg", i), stubPhotoBytes))
+	}
+	if _, err := p.SendMedia(context.Background(), "123456", big); err != nil {
+		t.Fatalf("send eleven: %v", err)
+	}
+	select {
+	case call := <-stub.groupCalls:
+		if len(call.MediaJSON) != 10 {
+			t.Fatalf("first batch items = %d, want 10", len(call.MediaJSON))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("first album never recorded")
+	}
+	select {
+	case call := <-stub.photoCalls:
+		if call.FileName != "img-10.jpg" {
+			t.Fatalf("overflow photo = %q, want img-10.jpg", call.FileName)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("overflow photo never recorded")
+	}
+}
+
+// TestSendMediaDimensionFallback: a photo Telegram rejects for invalid
+// dimensions leaves as a document with the same bytes.
+func TestSendMediaDimensionFallback(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+	stub.dimensionFail.Store(true)
+
+	ids, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("weird.jpg", stubPhotoBytes)})
+	if err != nil {
+		t.Fatalf("send with fallback: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("ids = %v, want the document id", ids)
+	}
+	select {
+	case call := <-stub.photoCalls:
+		t.Fatalf("unexpected successful photo path: %+v", call)
+	default:
+	}
+	select {
+	case call := <-stub.documentCalls:
+		if call.FileName != "weird.jpg" {
+			t.Fatalf("document call = %+v, want the same file name", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendDocument fallback never recorded")
+	}
+}
+
+// TestSendMediaFailClosed: not started fails closed; a hard platform
+// failure surfaces for the ledger to retry.
+func TestSendMediaFailClosed(t *testing.T) {
+	p := newAdapter()
+	if _, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("a.jpg", []byte("x"))}); err == nil {
+		t.Fatal("send media before start must fail closed")
+	}
+
+	p, stub := mediaOutFixture(t)
+	stub.photoFail.Store(true)
+	if _, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("a.jpg", stubPhotoBytes)}); err == nil {
+		t.Fatal("a hard photo failure must surface for the ledger to retry")
+	}
+}
+
+// --- interaction capabilities (edit / delete / placeholder) ---
+
+// TestEditMessageRewritesWithHTMLAndFallsBackToPlainText: the formatted
+// edit carries the same markdown→HTML conversion as Send, and a platform
+// parse rejection degrades to the plain body instead of failing.
+func TestEditMessageRewritesWithHTMLAndFallsBackToPlainText(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	stub.failNextEdits(1)
+	err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "**bold** text"}},
+	})
+	if err != nil {
+		t.Fatalf("edit with fallback: %v", err)
+	}
+	first := stub.waitForEdit(t)
+	if first.MessageID != 77 || first.ParseMode != telego.ModeHTML || !strings.Contains(first.Text, "<b>bold</b>") {
+		t.Fatalf("formatted edit = %+v", first)
+	}
+	second := stub.waitForEdit(t)
+	if second.MessageID != 77 || second.ParseMode != "" || second.Text != "**bold** text" {
+		t.Fatalf("plain-text retry = %+v", second)
+	}
+}
+
+// TestEditMessageTreatsNotModifiedAsSuccess: the platform's idempotency
+// answer ("the content already reads that way") is success, and no retry
+// is fired.
+func TestEditMessageTreatsNotModifiedAsSuccess(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	stub.answerNotModified()
+	if err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "same"}},
+	}); err != nil {
+		t.Fatalf("not-modified edit must succeed: %v", err)
+	}
+	stub.waitForEdit(t)
+	if got := len(stub.edits); got != 0 {
+		t.Fatalf("edit calls after the not-modified answer = %d, want none", got)
+	}
+}
+
+// TestEditMessageRejectsEmptyPayload: an edit with no text is a caller bug
+// and errors without touching the platform.
+func TestEditMessageRejectsEmptyPayload(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{}); err == nil {
+		t.Fatal("empty edit payload must fail")
+	}
+	if got := len(stub.edits); got != 0 {
+		t.Fatalf("edit calls for an empty payload = %d, want none", got)
+	}
+}
+
+// TestDeleteMessageRemovesTheSentMessage: the platform delete carries the
+// chat and message ids.
+func TestDeleteMessageRemovesTheSentMessage(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if err := p.DeleteMessage(context.Background(), "123456", "77"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	call := stub.waitForDelete(t)
+	if call.MessageID != 77 || string(call.ChatID) != "123456" {
+		t.Fatalf("delete call = %+v", call)
+	}
+}
+
+// TestPlaceholderSendsFixedCopyAndReturnsTheID: the placeholder is the
+// fixed plain-text copy (no parse mode) and reports its message id for the
+// Host's terminal delete.
+func TestPlaceholderSendsFixedCopyAndReturnsTheID(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	id, err := p.Placeholder(context.Background(), "123456")
+	if err != nil {
+		t.Fatalf("placeholder: %v", err)
+	}
+	if id != "1" {
+		t.Fatalf("placeholder id = %q, want the first stub message id", id)
+	}
+	call := stub.waitForSend(t)
+	if call.Text != placeholderText || call.ParseMode != "" {
+		t.Fatalf("placeholder send = %+v, want fixed plain copy", call)
+	}
+}
+
+// TestInteractionFacesFailClosedWhenNotStarted: the optional faces are
+// useless before Start and must say so instead of panicking.
+func TestInteractionFacesFailClosedWhenNotStarted(t *testing.T) {
+	p := newAdapter()
+	ctx := context.Background()
+	if err := p.EditMessage(ctx, "1", "2", plugin.OutboundMessage{Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
+		t.Fatal("edit before start must fail")
+	}
+	if err := p.DeleteMessage(ctx, "1", "2"); err == nil {
+		t.Fatal("delete before start must fail")
+	}
+	if _, err := p.Placeholder(ctx, "1"); err == nil {
+		t.Fatal("placeholder before start must fail")
 	}
 }

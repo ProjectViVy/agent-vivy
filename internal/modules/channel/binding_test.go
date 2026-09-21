@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/channelcontract"
+	"agent-vivy/internal/channelhost"
 	"agent-vivy/sdk/module"
 	channelport "agent-vivy/sdk/port/channel"
 )
@@ -95,6 +96,46 @@ func TestBindProvidersDefensivelyCopiesGrantConstraints(t *testing.T) {
 	bound := got[0].(*providerChannel)
 	if bound.grants[0].Constraints["names"][0] != "TOKEN" {
 		t.Fatalf("grant constraints changed through caller alias: %#v", bound.grants)
+	}
+}
+
+type capabilityAdapter struct{}
+
+func (*capabilityAdapter) Typing(context.Context, string) error { return nil }
+func (*capabilityAdapter) Health(context.Context) error         { return nil }
+
+type capabilityInstance struct{}
+
+func (capabilityInstance) Start(context.Context) error { return nil }
+func (capabilityInstance) Stop(context.Context) error  { return nil }
+func (capabilityInstance) Send(context.Context, channelport.OutboundMessage) ([]string, error) {
+	return nil, nil
+}
+
+type capabilityProvider struct{}
+
+func (capabilityProvider) Definition() channelport.Definition {
+	return channelport.Definition{ID: "vivy.capability", MaxMessageRunes: 1234}
+}
+
+func (capabilityProvider) Construct(context.Context, channelport.Host) (channelport.Instance, error) {
+	return capabilityInstance{}, nil
+}
+
+func (capabilityProvider) CapabilityTarget() any { return (*capabilityAdapter)(nil) }
+
+func TestBindProvidersPreservesCapabilityTarget(t *testing.T) {
+	bound, err := BindProviders([]channelport.ChannelProvider{capabilityProvider{}}, nil, nil)
+	if err != nil || len(bound) != 1 {
+		t.Fatalf("bound = %#v, err = %v", bound, err)
+	}
+	caps := channelhost.Discover(bound[0])
+	if !caps.Typing || !caps.Health {
+		t.Fatal(caps)
+	}
+	limited := bound[0].(channelport.RunesLimiter)
+	if limited.MaxMessageRunes() != 1234 {
+		t.Fatal(limited.MaxMessageRunes())
 	}
 }
 

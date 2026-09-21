@@ -52,6 +52,16 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-08-30 | **Adopt the super-channel.** Host + envelope + capability matrix are the contract spine. A2A / NeuroLink come later, using the same envelope. |
 | 2026-08-30 | **Pluginize all five in this batch.** Put the five adapters in `plugins/<name>/` and use the established `Register()` overlay. Do not add a `channels/` directory or a new `RegisterChannels()`. |
 | 2026-08-30 | **Eino-native A2A = borrow the protocol, not the example server.** Later, `plugins/a2a` uses the `models`/`transport` from `eino-ext/a2a`; do not use `RegisterServerHandlers(adk.Agent)` as the gateway. The loop remains `Service.Run`. |
+| 2026-09-14 | **§12 ledger corrected to the implemented shape (CH-C1-N2).** The `channel.inbound` payload is the identifiers-only `{channel, chat_id, sender, message_id, session_id}`; `content_digest` / `bytes` and the `peer` provenance blob are retired from the contract. **Source vocabulary ruled `ui \| channel \| headless` (CH-C1-N4)** — the platform name lives in the `channel` field. Outbound delivery became durable (at-least-once intent rows + restart reconcile), `chanin_*` events got a 30-day retention, and StopAll drains in-flight Sends. |
+| 2026-09-15 | **Capability discovery wired through the v1 wrappers; every ear carries an outbound rune ceiling (gate-0).** `plugin.CapabilitySource` (`CapabilityTarget() any`) lets the assembly wrappers point Discover at the adapter's own method set — a typed-nil probe captured from the provider at bind time, type-asserted and never called — so `advertised` reports what the adapter implements instead of a wrapper-induced zero; the five text-only ears still advertise nothing today, and tier1's CH-R-1 `HealthChecker` flips them to `Health: true` on rebase (Health call-path forwarding stays with that batch). Outbound ceilings land in `Definition.MaxMessageRunes` with sources: discord 2000 characters (official create-message, reject 50035), dingtalk 5000 runes (official 20000-**byte** `text.content` bound — picoclaw's character reading is unsafe for CJK — divided by 4 for worst-case runes), feishu 37500 runes (official 150KB text message, error 230025), qq 2000 runes (no official number published; over-length rejects with 40054007, so the value follows community practice aligned with Discord), telegram 4096 (official Bot API; the Definition is now the single source and the adapter's shadowed duplicate is gone). `splitRunes` closes and reopens fenced code so every delivered chunk renders standalone; behavior without an open fence at the cut is unchanged. |
+| 2026-09-15 | **Error classification ruled `rate-limit \| temporary \| dead` (CH-R-1).** `plugin.ErrorClass` + `plugin.HealthError` land in `sdk/port/channel`; `HealthChecker.Health` is defined as read-only internal state, no network I/O, so the Host probes it inline while building the inspect surface. All five batch adapters report it; a plain (unclassified) Health error defaults to `temporary` — the supervised-ear assumption. This closes the §8 Reliability slot for this generation; rate-limit is carried by the vocabulary but no adapter currently emits it. |
+| 2026-09-15 | **Channel-side HITL commands ruled in (supersedes the 2026-08-31 ACP "channel user = remote principal" reading for this narrow surface).** A user at home with only a phone chat cannot walk to the PC to click Approve, so the originating chat gets a pending-approval text and the allow-listed sender may answer `/approve` / `/deny` / `/pending`. Boundaries: one decision path (`DecideApprovalAsActor`, actor `channel:<channel>:<sender>`, journaled like a local decision); session-scoped visibility (a chat can never see or decide another chat's approvals); allow_from remains the sender boundary; exact-token commands only, no free-text decisions, no native approval cards this generation. |
+| 2026-09-15 | **Text loop ruled: group triggers are mention-only; outbound markdown scope set per ear (tier-1 text loop).** A group message triggers a run only when the bot is explicitly addressed — @mention / `text_mention` / `/cmd@bot` entities on Telegram (forum topics carry `topic_id`), `IsInAtList` on DingTalk, a mention entry typed `bot` on Feishu (the pinned lark SDK has no self-bot-info endpoint, so matching is by mention type rather than the bot's own open_id; a mention of ANOTHER bot would also trigger — recorded in the batch log), the group AT event itself on QQ (decoded by the plugin's own ws dispatcher, bypassing the botgo v0.2.1 `group_id` defect), and a `Mentions` hit on Discord. `allow_from` keeps exact sender matching and empty-`allow_from` fail-closed admission unchanged in groups; there is no config knob in this cut — mention-only is fixed, and prefix/permissive modes would need their own decision record. Outbound markdown: Telegram converts model markdown to HTML, sends with `parse_mode`, and falls back to plain text on platform rejection; DingTalk posts markdown to the sessionWebhook with the same fallback; QQ grows a `markdown` settings flag (default off) with the fallback; Discord renders markdown natively (no change); Feishu stays plain text this batch (no native markdown message type). Reply threading sets `OutboundMessage.ReplyTo` from the triggering message on the first chunk of a reply only, in-process only (a restart-recovered redelivery sends unthreaded — persisting the anchor would need a `channel_deliveries` migration); adapters opt in per platform (Feishu claims nothing — its quote semantics are inbound-context and stay a separate item). |
+| 2026-09-15 | **Typing is a live surface with host-owned lifecycle.** `plugin.Typing` (already declared) is implemented on the ears with a platform indicator — telegram (`sendChatAction`), qq, discord; feishu and dingtalk have no platform typing and stay out. The Host begins typing when an inbound turn is accepted, refreshes it while the run is live (the Telegram indicator lapses in ~5s), stops it on terminal run events, and sweeps it on StopAll. No Journal events — §5.1/§7/§12 unchanged. |
+| 2026-09-15 | **Inbound channel media = telegram photos first, host-enforced.** The envelope gains a by-value `Part{Kind: media, Media: …}` (additive; `std/channel@v1` unchanged). The telegram adapter downloads Bot API photos through the Host-governed `net.client` grant (`api.telegram.org:443`) and attaches them to the user turn. Limits are the UI/RPC attachment limits with one source (`internal/attachment`): 5 MiB per image, at most 4 per message, png/jpeg/gif/webp whitelist with magic-byte sniffing; reject, never truncate. `MediaStore` stays the noop handle; attachments persist bounded in `message_attachments` beside the user row; the `channel.inbound` journal payload stays identifiers-only. Outbound media (`MediaSender`) and other ears' media stay out for now. |
+| 2026-09-15 | **Inbound media widens to four ears, images only.** Discord, QQ, and Feishu join telegram on the same host-enforced terms: the adapter pre-screens image-class attachments by content type/extension and downloads them through the governed transport (QQ adds its `X-Union-Appid` + `Authorization` headers; Feishu falls back from `MessageResource.Get` to `Image.Get` on transport/auth/empty-body failures), and the Host re-validates every part against the shared limits before the turn — the adapter's MIME claim is provisional, the magic-byte sniff is authoritative. Non-image attachments (voice/audio/video/documents) are never downloaded; they survive as text annotations (`[voice]`, `[file: name]`) so the model keeps the signal without the bytes. Telegram albums aggregate by `media_group_id` under a sliding 500 ms window into one envelope; the timer sweep is part of `Stop`. No transcoding exists anywhere in this generation — the picoclaw reference does not transcode either. DingTalk stays out: picoclaw has no media for it, and unreferenced media would be invention, not porting. |
+| 2026-09-15 | **Outbound media rides the durable delivery path with a batch `MediaSender`.** The interface grows to `SendMedia(ctx, chatID string, parts []Part) ([]string, error)` at zero breakage (no implementer existed — Discover only type-asserted it). The byte source is the terminal assistant row's attachments: the "user rows only" note on `domain.Message.Attachments` widens; producers that create assistant-row media are a later slice, and this batch verifies the path with injected rows. After the text chunks are sent, `deliver` re-reads the bytes from `message_attachments` on every attempt and calls `SendMedia` — a retry re-uploads (uploads are not idempotent; at-least-once already documents a possible duplicated reply, and a platform-side orphan file from a completed upload whose send failed is accepted the same way). Media failure fails the delivery attempt like any send failure; an ear without a `MediaSender` logs a warning and the delivery still succeeds. Caption handling does not apply this batch — the model emits text and attachments as separate parts, and the text is already delivered as text chunks. Per-ear semantics follow the picoclaw numbers: Discord one complex send, Telegram album (≤10 per group, single photo with `PHOTO_INVALID_DIMENSIONS`→document fallback), QQ two-step `/files` upload (base64, outbound re-check against the 5 MiB bound) then `msg_type=7`, Feishu `Image.Create` then an image message. |
+| 2026-09-15 | **Interaction ruled: edit/delete, the thinking placeholder, and the feishu ack/card (channel interact).** Port fixes at zero breakage (no implementer existed): `EditMessage` gains the chat id, `React` returns the platform reaction id, and `ReactionRemover` completes the withdrawal half — Discover advertises `Reaction` only when both faces exist. **The placeholder keeps the simple semantics:** an accepted turn gets a fixed "Thinking…" placeholder (telegram/discord text messages, feishu a schema-2.0 markdown card); at ANY terminal the Host deletes the placeholder and the reply is always sent fresh through the durable delivery path — the placeholder is never edited into the answer, so at-least-once keeps its plain meaning. Placeholder and reaction are live surfaces exactly like typing: started on acceptance, never in the Journal or `channel_deliveries`, swept at `StopAll`, and a 10-minute per-entry TTL backstops a lost terminal (it covers the 5-minute default approval expiry, so a pending approval keeps its placeholder). **feishu reaction ack:** an accepted inbound gets one random emoji from `settings.ack_emojis` (default `THUMBSUP`; an explicit empty list disables), withdrawn when the turn settles or the TTL fires — idempotent through the reaction id. **feishu outbound = interactive cards:** every text part renders as a schema-2.0 markdown-element card (supersedes "feishu stays plain text"); platform error 11310 falls back to plain text, every other non-zero code keeps the existing failure semantics. **Edit/delete:** telegram (`editMessageText`/`deleteMessage`; a `message is not modified` answer is success — the idempotency guard for retried edits), discord (REST edit/delete on the never-opened send client), feishu (`message.Patch` with card content / `message.Delete`). qq has no edit or reaction API and only in-window passive ids; dingtalk's sessionWebhook returns no message id — both stay out, the skip recorded. Streaming drafts and command menus remain gated (see §12/§14). |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -204,7 +214,7 @@ Exclusive responsibilities that adapters must not perform:
 1. **Admission.** Empty `allow_from` = reject `Start` (fail-closed). Forbid picoclaw / Diva GUI's "an empty list means speaking to the whole world." `"*"` is not allowed in the first cut.
 2. **Session mapping.** `(channel, chat_id[, topic_id])` → existing or new Vivy `Session`. Local UI Session and channel Session do not merge by default.
 3. **Accounting.** First `channel.inbound`, then `Message(role=user)` with provenance. Call `Service.Run`.
-4. **Outbound.** Send terminal state (and future incremental output, if implemented) back through the adapter's `Send`. Live-surface typing / placeholder does not enter the Journal.
+4. **Outbound.** Send terminal state (and future incremental output, if implemented) back through the adapter's `Send`; reply threading sets `ReplyTo` from the triggering message on the first chunk only. Live-surface typing / placeholder does not enter the Journal.
 5. **Secrets.** Resolve only `token_env` in the envelope (or the symmetric `*_env`). Values are never written to configuration or the Journal.
 6. **Capability discovery.** Host uses type assertions on adapters; degrade when an optional interface is absent, and do not require all five packages to implement the full set.
 7. **Supervision.** Supervise later child-process lifecycles; a crash = `channel_lost`, not species death.
@@ -236,11 +246,13 @@ Required     Start Stop Send
 Interaction  Typing  Edit  Delete  Reaction  Placeholder  Stream
 Media        MediaSender
 Ingress      WebhookHandler / ListenHandler   ← Host owns Listen
-Reliability  HealthChecker  error classification (rate-limit / temporary)
+Reliability  HealthChecker  error classification: rate-limit / temporary / dead
 Heavyweight  TaskLifecycle (A2A)  PipeServer (NeuroLink)
 ```
 
 The first cut for the five packages: required capabilities plus optional capabilities already stable in that platform's picoclaw implementation and not blocking the text loop. Stream / media / groups / approval cards all come later, but **Host must already understand these interfaces**. Otherwise this is not a super-channel, only five bots.
+
+2026-09-15: the typing live surface (Interaction row, on the ears with a platform indicator), inbound photo parts on the envelope, and the batch `MediaSender` row land inside this rule (see §1 Decision Record and §12); streaming stays out. The interact batch fills the Interaction row's Edit/Delete/Reaction/Placeholder slots on the ears that can anchor them (telegram/discord/feishu; qq and dingtalk stay empty — §1) with the same host-must-understand rule already satisfied: Discover asserted these interfaces from the start.
 
 ---
 
@@ -464,28 +476,115 @@ platform Update
   → adapter normalizes InboundMessage / SenderInfo / parts
   → ChannelEnv.PublishInbound
   → Host: allow_from (empty = discard and record an audit entry; a channel that is not started cannot reach here)
-  → Journal  channel.inbound
-        {channel, peer, message_id, content_digest, bytes}
-        never write tokens, raw secrets, or unbounded attachments
   → SessionMap.Ensure(channel, chat_id[, topic]) → Session (with provenance)
+  → Journal  channel.inbound
+        {channel, chat_id, sender, message_id, session_id}
+        never write tokens, raw secrets, or unbounded attachments
   → Message(role=user, source=channel, …)
   → Service.Run
   → live surface: typing / placeholder (does not enter the Journal)
   → run terminal state → Host → adapter.Send
 ```
 
-NG-10: every new model-visible input requires a new event. Today, writing Telegram text as an ordinary `user` row makes replay look as if it came from the local UI.
+NG-10: every new model-visible input requires a new event. Writing Telegram text as an ordinary `user` row would make replay look as if it came from the local UI; `channel.inbound` plus the message provenance is the landing of that rule, and outbound delivery state deliberately stays out of the vocabulary (it is not model-visible input).
 
-Contract changes needed (after adoption, in a separate PR; do not smuggle implementation into this document):
+> **2026-09-14 ledger ruling (CH-C1-N2 / CH-C1-N4):** the sketch above is the
+> implemented shape — the journal payload is the identifiers-only
+> `{channel, chat_id, sender, message_id, session_id}` (schema:
+> `schemas/events/payloads/channel.inbound.json`, `additionalProperties: false`;
+> `run_id` is optional and stays omitted, because no run exists at journal
+> time). `content_digest` / `bytes` were dropped at implementation: the event
+> is a provenance record, not a content audit. The append lands under a
+> per-message pseudo run (`chanin_<16hex>`) so the one-terminal-per-run
+> journal invariant is untouched, and the session mapping runs BEFORE the
+> journal append because the payload names the mapped session.
 
-- New `EventType`: `channel.inbound` (and optional `channel.started` / `channel.stopped` / `channel.lost`; the latter two may start as live-surface events)
-- Add provenance to `domain.Message`: `source` (`ui` \| channel name), `peer` (bounded)
+Provenance `source` is the **closed vocabulary `ui | channel | headless`**
+(CH-C1-N4): the platform name lives in the separate `channel` field, never in
+`source`; `headless` marks `vivy run` turns; anything else is rejected by the
+runtime before a turn is persisted. An empty source exists only on legacy rows
+and in-process appends and reads as `ui`.
+
+**Outbound durability (CH-C3-N1, landed 2026-09-14).** The reply intent is
+durable, not in-memory. When an inbound turn opens its run, the Host records a
+delivery intent (run, session, channel, chat, topic, state); `run.completed`
+flips it to pending before the Send goroutine spawns; success deletes the row,
+bounded attempts — persisted across restarts — park it as `failed`, and a
+failed / cancelled terminal settles it. On restart the Host reconciles open
+rows against the journal: armed + completed → deliver, armed + ended →
+settle, pending → redeliver. Delivery is therefore **at-least-once**: a crash
+between Send success and the row delete can duplicate one reply —
+exactly-once is impossible against external platforms. Delivery state is
+Host-internal operational state, **not** a Journal event; the event vocabulary
+is unchanged (NG-10 untouched). Two bounds keep it finite: `chanin_*`
+provenance events are pruned after 30 days (a constant, matching
+`FileVersionRetention` — retention policy ships as code, not as a knob), and
+`StopAll` waits, bounded by the shutdown deadline, for in-flight Sends before
+stopping adapters; an intent that does not drain stays pending and the next
+start redelivers it.
+
+Contract changes (landed with CH-C1; hardened 2026-09-14):
+
+- `EventType` `channel.inbound` exists; `channel.started` / `channel.stopped` / `channel.lost` remain optional future events
+- `domain.Message` provenance: `source` in the closed vocabulary `ui | channel | headless` (CH-C1-N4), plus `channel` / `chat_id` / `channel_message_id` (bounded ids; the `peer` blob did not survive implementation)
 - Keep `run.started` as `additionalProperties: false`; do not put provenance into the old payload
-- SQLite / Postgres migrations and conformance
+- SQLite / Postgres migrations and conformance: CN-17 (provenance), CN-27 / CN-28 (delivery intents, retention)
 
-The first cut does not do media, group triggers, or incremental streaming edits. If Telegram forums are encountered, append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
+Inbound media is scoped to images across four ears (2026-09-15, telegram
+first then discord/qq/feishu): images enter `Message.Attachments` under the
+shared UI attachment limits — one source, `internal/attachment`: 5 MiB per
+image, at most 4 per message, png/jpeg/gif/webp with magic-byte sniffing,
+rejected not truncated — and are consumed by the existing multimodal context
+path. The adapter's download is a pre-screen; the Host's sniff is the
+authority. Non-image attachments are never downloaded and survive as text
+annotations. The journal payload above stays identifiers-only, so "never
+write unbounded attachments" holds: the bounded bytes persist in
+`message_attachments` beside the user message row, never inside a Journal
+event. Group triggers landed mention-only (2026-09-15, §1). If Telegram
+forums are encountered, append `topic_id` to the mapping key as picoclaw
+does, to avoid mixing contexts.
 
-HITL: the kernel still decides all approval / question outcomes. The first cut dual-writes to the local UI; the channel only delivers text such as "there is a pending approval" (optional and may be cut later). A Telegram user directly deciding an approval = an ACP remote principal, not part of this contract.
+**Live surface: placeholder and reaction (2026-09-15, §1).** The sketch's
+live-surface line is now three faces with one lifecycle: typing, the
+thinking placeholder, and the feishu ack reaction. All three start when an
+accepted turn's target registers, live only in Host memory keyed by the
+run, and settle together: any terminal event (completed, failed, cancelled)
+deletes the placeholder and withdraws the reaction, then the ordinary
+delivery or settlement proceeds — the placeholder is never edited into the
+answer, and the reply stays a fresh durable send. An approval-required
+event is not a terminal: a turn suspended for approval keeps its
+placeholder until the run ends or the TTL fires. `StopAll` settles every
+live surface it can still see. A per-entry 10-minute TTL is the leak
+backstop for a run that never reaches a terminal (a lost event, a hung
+runtime): the placeholder is deleted and the reaction withdrawn best-effort,
+the delivery intent is untouched. None of the three faces ever appends a
+Journal event or a `channel_deliveries` row — the ledger above records only
+the durable reply intent, and the placeholder/reaction bookkeeping holds
+platform message ids in process memory exactly like the typing stop
+channel does. Streaming drafts (incremental edits of a live message) stay
+out of the live surface until ruled in: they are a runtime event-stream
+surface (`model.delta` → platform edit), not an interaction capability.
+
+Outbound media (2026-09-15) rides the same durable ledger: after the text
+chunks, `deliver` re-reads the terminal assistant row's attachments from
+`message_attachments` and hands them to the ear's `SendMedia` as one batch.
+Bytes re-read and re-upload on every attempt — uploads are not idempotent,
+the at-least-once semantics above already accept a duplicated reply, and an
+orphan file left by an upload whose send later failed is accepted with it.
+A media failure counts as a delivery attempt; an ear without a `MediaSender`
+logs and delivers the text alone. Media bytes still never enter the Journal
+or any event payload — the `channel.inbound` vocabulary is untouched.
+
+HITL (implemented 2026-09-15, see §1): the kernel still owns every approval / question outcome — there is
+exactly one decision path. A channel run suspended for approval notifies its originating chat with one plain
+text (tool name, session pointer, command hint); the notification is a direct adapter Send and never touches
+the §12 delivery ledger. An allow-listed sender may decide with the exact commands `/approve [id]`, `/deny [id]`,
+and `/pending`: commands are journaled like any inbound message but open no run, track no target, and record no
+delivery intent; the decision is forwarded through `Service.DecideApprovalAsActor` with actor
+`channel:<channel>:<sender>` and is session-scoped — a sender only ever sees and decides approvals of the
+session this chat maps to (allow_from stays the authorization boundary). Native platform approval cards
+(Feishu interactive cards, DingTalk STREAM card callbacks, QQ keyboard templates) are explicitly NOT part of
+this contract; they would need their own decision record. See `docs/research/2026-09-15-channel-native-approval-ui.md`.
 
 ---
 
@@ -509,8 +608,7 @@ The product does not need picoclaw's 21 protocols; it needs a set of **domestic 
 Rewrite all adapters from `.workspace/picoclaw` (**do not** import its modules) and connect them to the same Host.
 The committed default `vivy.exe` still has `Register() = nil`. The following are **plugins that can be named in a recipe**, not parts welded into the daily body.
 
-The first cut for every adapter is: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, no media, no group triggers, and no HITL proxy approval.
-Groups / media / placeholder editing / streaming come later for each package and do not block Host.
+The first cut for every adapter was: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, and no HITL proxy approval. Since then (2026-09-15, §1/§12): group triggers landed mention-only for every ear, typing runs as a host-owned live surface, image media (in and out) landed on telegram/discord/qq/feishu under the shared attachment limits with dingtalk skipped by ruling, attachments ride the durable delivery path, and interaction landed — edit/delete, the thinking placeholder, and the feishu ack/card — with qq/dingtalk skipped where the platforms give nothing to anchor (§1). Streaming drafts and command menus still come later per package and do not block Host.
 
 ### 14.1 Waves (by Transport and Product Risk, Not Name Recognition)
 
@@ -554,11 +652,11 @@ The resident may want only one of these. Do not weld all five into the default `
 
 | Package | Does | Explicitly does not do (later for this package) |
 |---|---|---|
-| telegram | Private-chat text, long-poll, proxy/`base_url` may go in settings | webhook, groups, media, command menus, full MarkdownV2 |
-| dingtalk | Direct-chat text, Stream mode, save and use session webhook | Cards, media; do not turn it into a webhook text bot |
-| feishu | Direct-chat text, WS events, `is_lark` domain switch | 32-bit, emoji, the public webhook mode described in the docs |
-| qq | Direct/channel text (as reliably received through the official API) | Large-file base64, voice, personal accounts, OneBot |
-| discord | DM / text-channel text, Message Content Intent | `voice.go`, WebRTC, the full slash-command suite, TTS |
+| telegram | Private + group mention-only text (groups, supergroups, forum topics via `topic_id`), long-poll, proxy/`base_url` may go in settings; outbound markdown (HTML) with plain-text fallback; typing; reply threading; inbound photos and albums under the shared attachment limits (§12); outbound media (album / photo with the `PHOTO_INVALID_DIMENSIONS`→document fallback); edit/delete of sent messages (`message is not modified` counts as success) and the thinking placeholder | webhook, command menus, full MarkdownV2 |
+| dingtalk | Direct-chat + group mention-only (`IsInAtList`) text, Stream mode, save and use session webhook; markdown via sessionWebhook with plain-text fallback | Cards, media (no picoclaw reference — skipped by ruling, §1); typing (the platform has none); edit/delete/placeholder (the sessionWebhook returns no message id — nothing to anchor, §1); do not turn it into a webhook text bot |
+| feishu | Direct-chat + group mention-only (bot open_id) text, WS events, `is_lark` domain switch; inbound/outbound image media under the shared limits (§12); outbound text as schema-2.0 markdown cards with the 11310 plain-text fallback; edit (card `Patch`) / delete / card placeholder; reaction ack from `ack_emojis` with idempotent withdrawal | 32-bit, the public webhook mode described in the docs; typing / reply threading (no platform typing; quote semantics deferred with picoclaw's inbound-quote item) |
+| qq | C2C text + group AT mention-only text through the plugin's own ws decode (`group_openid`; bypasses the botgo v0.2.1 `group_id` defect), typing, reply threading via `msg_id`+`msg_seq`, opt-in `markdown` flag with plain-text fallback; inbound/outbound image media under the shared limits (§12, two-step `/files` upload) | Large-file base64, voice, personal accounts, OneBot; edit/reaction/placeholder (the platform has no edit or reaction API and passive ids live only inside the 60-minute reply window — §1) |
+| discord | DM / text-channel + guild mention-only text, Message Content Intent, native markdown rendering, typing, reply threading via `MessageReference`; inbound/outbound image media under the shared limits (§12, one complex send); edit/delete of sent messages and the thinking placeholder | `voice.go`, WebRTC, the full slash-command suite, TTS |
 
 ### 14.4 Rewrite Rules (Relative to picoclaw)
 
@@ -682,7 +780,7 @@ channel is the new Kind B seam; it is not Kind A, MCP, or a second EXE.
 
 - Change `sdk/plugin` or add event types while merging this document (that is a post-adoption implementation PR)
 - Hot mounting / hot unloading / marketplace scanning
-- The complete picoclaw protocol matrix, media pipeline, group triggers, or streaming placeholder editing
+- The complete picoclaw protocol matrix, media pipeline, or streaming placeholder editing (group triggers landed mention-only, 2026-09-15 §1)
 - Public webhook, Discord voice, WeChat personal accounts, an external OneBot bridge, or email
 - WeCom QR binding surface
 - Replacing the local UI with a channel
