@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/telegram
+module agent-vivy/plugins/telegram
 
 go 1.26.4
 

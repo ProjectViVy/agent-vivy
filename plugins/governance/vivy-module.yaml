@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/governance-reference, version: 0.1.0}
-source: {ref: repo:plugins/governance, sha256: 384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23}
+source: {ref: repo:plugins/governance, sha256: 8e0d6e287288eff1e0a81a9458cd5e04e3e97d8c39589c29b749cb741eefa5b0}
 provides:
   - {port: std/middleware/pre-tool@v1, id: vivy.governance.pre-tool}
   - {port: std/observer/run@v1, id: vivy.governance.run}

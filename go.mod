@@ -102,19 +102,19 @@ require (
 )
 
 require (
-	example.com/vivy/faces/headless v0.0.0
-	example.com/vivy/faces/tui v0.0.0
-	example.com/vivy/plugins/dingtalk v0.0.0
-	example.com/vivy/plugins/discord v0.0.0
-	example.com/vivy/plugins/feishu v0.0.0
-	example.com/vivy/plugins/qq v0.0.0
-	example.com/vivy/plugins/scxreference v0.0.0
-	example.com/vivy/plugins/telegram v0.0.0
-	example.com/vivy/plugins/lsp v0.0.0
-	example.com/vivy/plugins/vivy-persona v0.0.0
-	example.com/vivy/plugins/vivy-evolution v0.0.0
-	example.com/vivy/plugins/vivy-memory v0.0.0
-	example.com/vivy/plugins/vivy-notebook v0.0.0
+	agent-vivy/faces/headless v0.0.0
+	agent-vivy/faces/tui v0.0.0
+	agent-vivy/plugins/dingtalk v0.0.0
+	agent-vivy/plugins/discord v0.0.0
+	agent-vivy/plugins/feishu v0.0.0
+	agent-vivy/plugins/qq v0.0.0
+	agent-vivy/plugins/scxreference v0.0.0
+	agent-vivy/plugins/telegram v0.0.0
+	agent-vivy/plugins/lsp v0.0.0
+	agent-vivy/plugins/vivy-persona v0.0.0
+	agent-vivy/plugins/vivy-evolution v0.0.0
+	agent-vivy/plugins/vivy-memory v0.0.0
+	agent-vivy/plugins/vivy-notebook v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -171,28 +171,28 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace example.com/vivy/plugins/telegram => ./plugins/telegram
+replace agent-vivy/plugins/telegram => ./plugins/telegram
 
-replace example.com/vivy/plugins/dingtalk => ./plugins/dingtalk
+replace agent-vivy/plugins/dingtalk => ./plugins/dingtalk
 
-replace example.com/vivy/plugins/discord => ./plugins/discord
+replace agent-vivy/plugins/discord => ./plugins/discord
 
-replace example.com/vivy/plugins/feishu => ./plugins/feishu
+replace agent-vivy/plugins/feishu => ./plugins/feishu
 
-replace example.com/vivy/plugins/qq => ./plugins/qq
+replace agent-vivy/plugins/qq => ./plugins/qq
 
-replace example.com/vivy/plugins/lsp => ./plugins/lsp
+replace agent-vivy/plugins/lsp => ./plugins/lsp
 
-replace example.com/vivy/plugins/scxreference => ./plugins/scx-reference
+replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
-replace example.com/vivy/plugins/vivy-persona => ./plugins/vivy-persona
+replace agent-vivy/plugins/vivy-persona => ./plugins/vivy-persona
 
-replace example.com/vivy/plugins/vivy-evolution => ./plugins/vivy-evolution
+replace agent-vivy/plugins/vivy-evolution => ./plugins/vivy-evolution
 
-replace example.com/vivy/plugins/vivy-memory => ./plugins/vivy-memory
+replace agent-vivy/plugins/vivy-memory => ./plugins/vivy-memory
 
-replace example.com/vivy/plugins/vivy-notebook => ./plugins/vivy-notebook
+replace agent-vivy/plugins/vivy-notebook => ./plugins/vivy-notebook
 
-replace example.com/vivy/faces/headless => ./faces/headless
+replace agent-vivy/faces/headless => ./faces/headless
 
-replace example.com/vivy/faces/tui => ./faces/tui
+replace agent-vivy/faces/tui => ./faces/tui

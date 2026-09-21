@@ -49,8 +49,6 @@ func verifySource(dir string, descriptor module.Descriptor) error {
 				"agent-vivy/sdk/internal/",
 				"agent-vivy/plugins/",
 				"agent-vivy/faces/",
-				"example.com/vivy/plugins/",
-				"example.com/vivy/faces/",
 				"github.com/cloudwego/eino",
 				"github.com/pion/",
 				"golang.org/x/sys",

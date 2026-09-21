@@ -175,7 +175,7 @@ vivy-sdk pack --with qq --out dist/   # Produce candidate EXE (linked with botgo
 vivy-sdk inspect-artifact dist/<gen>/ # recipes.plugins contains qq
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/qq`) is mandatory: the default
+The standalone go.mod (`agent-vivy/plugins/qq`) is mandatory: the default
 `just ci` and the species’ `go build ./cmd/vivy` import graphs do not reach
 `github.com/tencent-connect/botgo`—only the generation produced by pack has the
 ear in its body.
