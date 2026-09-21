@@ -48,9 +48,11 @@ assigns T1 or T2 Trust. A Module Descriptor cannot assign its own Trust.
 
 ### Module Descriptor
 
-The Descriptor provides pure-data identity, version, source hash, provided and
-required Ports, optional dependencies, conflicts, requested Grants, and
-lifecycle scope. When localization is required, it also selects one
+The Descriptor provides pure-data identity, version, source reference, and
+provided and required Ports, optional dependencies, conflicts, requested
+Grants, and lifecycle scope. A source hash may be present for legacy
+normalization, but the authoritative hash is derived by `pack` from the exact
+selected source tree and sealed into the Generation Manifest. When localization is required, it also selects one
 source-confined `vivy.i18n/v1` catalog with explicit default and packaged
 locales.
 
@@ -188,7 +190,7 @@ Generation ID is derived from canonical, content-addressed inputs:
 ```text
 specification version
 + canonical Recipe
-+ Module IDs, versions, source refs, and source hashes
++ Module IDs, versions, source refs, and pack-bound source hashes
 + Port contract versions
 + SDK version
 + backend and frontend dependency lock results
