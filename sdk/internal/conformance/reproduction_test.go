@@ -43,17 +43,29 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expected := assemblyv1.SupportedPortConformance()
 	// The "internal" suites all share one canonical content identity. Derive it
-	// from the live tree rather than storing a second copy of the constant
-	// inside releaseSuiteCases: internal/sourcehash hashes every file under
-	// internal/ (excluding generated/assembly/zz_default.go), so a hand-kept
-	// duplicate silently goes stale on any edit there and fails with a
-	// confusing digest mismatch. The checked-in artifact is still byte-compared
-	// below, so the digest remains verified evidence; it is simply computed
-	// instead of restated.
-	internalDigest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "internal"), "")
+	// from the checked-in artifact and use that value for circular-content
+	// normalization. internal/sourcehash hashes every file under internal/
+	// (excluding generated/assembly/zz_default.go), which includes this artifact;
+	// seeding the normalizer from the artifact keeps the content identity stable
+	// while the digest is still verified against the live tree.
+	var internalDigest string
+	for _, result := range expected {
+		if result.ProviderID == "vivy/protected-tools" {
+			internalDigest = result.SourceSHA256
+			break
+		}
+	}
+	if internalDigest == "" {
+		t.Fatal("checked-in conformance results do not contain an internal source digest")
+	}
+	computedInternalDigest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "internal"), internalDigest)
 	if err != nil {
 		t.Fatalf("hash internal source tree: %v", err)
+	}
+	if computedInternalDigest != internalDigest {
+		t.Fatalf("checked-in internal source digest = %s, want %s", computedInternalDigest, internalDigest)
 	}
 	actual := make([]providerconformance.ConformanceResult, 0)
 	for _, suite := range releaseSuiteCases(internalDigest) {
@@ -80,7 +92,6 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := assemblyv1.SupportedPortConformance()
 	actualJSON, err := json.Marshal(actual)
 	if err != nil {
 		t.Fatal(err)
