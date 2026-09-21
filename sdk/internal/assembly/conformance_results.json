@@ -30,56 +30,56 @@
     {
       "port": "std/tool-world@v1",
       "providerId": "vivy/lsp",
-      "sourceSha256": "d8a8e2d802f607fb22a42f80570ea13b0a3013269ba8e81155f2622e19c87f2c",
+      "sourceSha256": "217790956559c42a0efd318df712c01d1a7f88032db291c5af33fd2e213b320b",
       "evidenceId": "plugins/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/channel@v1",
       "providerId": "vivy/dingtalk",
-      "sourceSha256": "cfeed32ac0746681abdd2b754b7b1c93f444fe92c821eabbc5aa8ed2f7c02e23",
+      "sourceSha256": "9def70cefa5bda9e3c5a1e65c76165a74d730b0d71ebbdf426df5ad8982b197f",
       "evidenceId": "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/channel@v1",
       "providerId": "vivy/discord",
-      "sourceSha256": "175469f9668ddb395741f4cd67675ff5d54975294428dbdd2d1c7ea61e0cadfa",
+      "sourceSha256": "e360a7405bd03a2185154cd3992c4b49a998cdecffd6111ae5518fbdd890420e",
       "evidenceId": "plugins/discord/plugin_test.go#TestStartSuccessWiring",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/channel@v1",
       "providerId": "vivy/feishu",
-      "sourceSha256": "d99bfea7ce2257d4a71b6a1b4a2afd2e76c41533876db2c6b32f1c7c0d725d94",
+      "sourceSha256": "ba6bd61c9532ab2ae8c179e7c3a4f066e676f00073a60af21b668b559d2b6ab5",
       "evidenceId": "plugins/feishu/plugin_test.go#TestStartStopFullLoop",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/channel@v1",
       "providerId": "vivy/qq",
-      "sourceSha256": "d201b30ff008a22cc685d29e0b6a72a35ff486d882d048adec7cc2d216beb0ab",
+      "sourceSha256": "e4f1767624d707d9e7387d4831a0d4aeed3af31f74f6a34d203070df9e068b3c",
       "evidenceId": "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/channel@v1",
       "providerId": "vivy/telegram",
-      "sourceSha256": "4241491cf710d5d5b6a50a2670660d3c4cd849b869092004267ec4907991fe60",
+      "sourceSha256": "41df19a635440f6aedbe4e3870edef35204455a0d0d841d81042fef8a0accf1d",
       "evidenceId": "plugins/telegram/plugin_test.go#TestStartStopFullLoop",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/face@v1",
       "providerId": "vivy/headless",
-      "sourceSha256": "cc0773ad1753006a9a6d04978b8653e08312d7c4ed9733f4474b21d7bfff8b5a",
+      "sourceSha256": "a7dde271b69e1701a40dbfd4fb8ce63d4a65b7481a4b562b82e64c0578d153d4",
       "evidenceId": "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/face@v1",
       "providerId": "vivy/tui",
-      "sourceSha256": "456e4dd9975d4f8baa3846f62232023a6412f4f6d7272f013b0e3aad4ad1f3d8",
+      "sourceSha256": "1e9ff549d8b1ca4e6bcd76050e236d3be3c2f16a06e920dd5814ddeca397d464",
       "evidenceId": "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
@@ -100,7 +100,7 @@
     {
       "port": "std/context-source@v1",
       "providerId": "scx/reference-fixtures",
-      "sourceSha256": "fa85239d62b12bc8ce880bae5e2e9c15ba3a7d3986d14c4fc23db2cbeba203ae",
+      "sourceSha256": "5c39ce4d73b0e1cb47fb9a3bf6e317a32191830cea87ed554e83c3c9db1fdfe4",
       "evidenceId": "internal/contexthost/scx_conformance_test.go#TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
@@ -114,35 +114,35 @@
     {
       "port": "std/middleware/pre-tool@v1",
       "providerId": "vivy/governance-reference",
-      "sourceSha256": "7000dd87b89aa76b4dad29a49ebd2beff5ecdbb3afe0a9d8d695f6ffb488f5e2",
+      "sourceSha256": "8e0d6e287288eff1e0a81a9458cd5e04e3e97d8c39589c29b749cb741eefa5b0",
       "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/observer/run@v1",
       "providerId": "vivy/governance-reference",
-      "sourceSha256": "7000dd87b89aa76b4dad29a49ebd2beff5ecdbb3afe0a9d8d695f6ffb488f5e2",
+      "sourceSha256": "8e0d6e287288eff1e0a81a9458cd5e04e3e97d8c39589c29b749cb741eefa5b0",
       "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/observer/run@v1",
       "providerId": "scx/reference-fixtures",
-      "sourceSha256": "fa85239d62b12bc8ce880bae5e2e9c15ba3a7d3986d14c4fc23db2cbeba203ae",
+      "sourceSha256": "5c39ce4d73b0e1cb47fb9a3bf6e317a32191830cea87ed554e83c3c9db1fdfe4",
       "evidenceId": "internal/observerhost/scx_conformance_test.go#TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/observer/diagnostic@v1",
       "providerId": "vivy/governance-reference",
-      "sourceSha256": "7000dd87b89aa76b4dad29a49ebd2beff5ecdbb3afe0a9d8d695f6ffb488f5e2",
+      "sourceSha256": "8e0d6e287288eff1e0a81a9458cd5e04e3e97d8c39589c29b749cb741eefa5b0",
       "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/status-source@v1",
       "providerId": "vivy/governance-reference",
-      "sourceSha256": "7000dd87b89aa76b4dad29a49ebd2beff5ecdbb3afe0a9d8d695f6ffb488f5e2",
+      "sourceSha256": "8e0d6e287288eff1e0a81a9458cd5e04e3e97d8c39589c29b749cb741eefa5b0",
       "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },

@@ -27,7 +27,7 @@ func (moduleInstance) Ready(context.Context) error { return nil }
 func (moduleInstance) Stop(context.Context) error  { return nil }
 func (moduleInstance) Close(context.Context) error { return nil }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/tui", Version: "0.1.0"}, Source: module.Source{Ref: "repo:faces/tui", SHA256: "456e4dd9975d4f8baa3846f62232023a6412f4f6d7272f013b0e3aad4ad1f3d8"}, Provides: []module.PortRef{{Port: "std/face@v1", ID: "vivy.tui"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/face-host@v1"}, Provider: "vivy/face-host"}}, RequestedGrants: []module.Grant{module.GrantRPCClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/tui", Version: "0.1.0"}, Source: module.Source{Ref: "repo:faces/tui", SHA256: "1e9ff549d8b1ca4e6bcd76050e236d3be3c2f16a06e920dd5814ddeca397d464"}, Provides: []module.PortRef{{Port: "std/face@v1", ID: "vivy.tui"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/face-host@v1"}, Provider: "vivy/face-host"}}, RequestedGrants: []module.Grant{module.GrantRPCClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
 
 type provider struct{}

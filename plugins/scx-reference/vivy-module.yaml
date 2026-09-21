@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: scx/reference-fixtures, version: 0.1.0}
-source: {ref: repo:plugins/scx-reference, sha256: fa85239d62b12bc8ce880bae5e2e9c15ba3a7d3986d14c4fc23db2cbeba203ae}
+source: {ref: repo:plugins/scx-reference, sha256: 5c39ce4d73b0e1cb47fb9a3bf6e317a32191830cea87ed554e83c3c9db1fdfe4}
 provides:
   - {port: std/context-source@v1, id: scx.reference}
   - {port: std/observer/run@v1, id: scx.reference}
