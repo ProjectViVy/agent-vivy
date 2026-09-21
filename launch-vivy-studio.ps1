@@ -14,6 +14,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $plugin = Join-Path $PSScriptRoot "studio\dsh-vivy-studio"
 $console = Join-Path $PSScriptRoot "studio\dsh-vivy-console"
+$workbench = Join-Path $PSScriptRoot "studio\dsh-species-workbench"
 $pluginHub = Join-Path $PSScriptRoot "studio\dsh-plugin-hub"
 $homeDir = Join-Path $root "data\studio-home"
 $profileDir = Join-Path $homeDir "profiles\vivy-studio"
@@ -69,6 +70,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 $pluginUnix = ($plugin -replace "\\", "/")
 $consoleUnix = ($console -replace "\\", "/")
+$workbenchUnix = ($workbench -replace "\\", "/")
 $pluginHubUnix = ($pluginHub -replace "\\", "/")
 $profilePkg = Join-Path $profileDir "package.json"
 $vivyRoot = $root
@@ -77,12 +79,13 @@ $env:VIVY_ROOT = $vivyRoot
 # Build the profile manifest from the canonical first-party bundles, then merge
 # any Vivy-source plugins installed by dsh-plugin-hub so they survive restarts.
 $deps = [ordered]@{
-  "dsh-vivy-studio"  = "file:$pluginUnix"
-  "dsh-vivy-console" = "file:$consoleUnix"
-  "dsh-plugin"       = "file:$pluginHubUnix"
+  "dsh-vivy-studio"       = "file:$pluginUnix"
+  "dsh-vivy-console"      = "file:$consoleUnix"
+  "dsh-species-workbench" = "file:$workbenchUnix"
+  "dsh-plugin"            = "file:$pluginHubUnix"
 }
 $bundles = [System.Collections.Generic.List[string]]::new()
-@("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-vivy-studio", "dsh-vivy-console", "dsh-plugin") | ForEach-Object { $bundles.Add($_) }
+@("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-vivy-studio", "dsh-vivy-console", "dsh-species-workbench", "dsh-plugin") | ForEach-Object { $bundles.Add($_) }
 
 $registryPath = Join-Path $profileDir "vivy-source-plugins.json"
 if (Test-Path $registryPath) {
@@ -120,12 +123,12 @@ $manifestJson = $manifest | ConvertTo-Json -Depth 6
 $needSeal = $true
 if (Test-Path $profilePkg) {
   $profileText = Get-Content -Raw -Path $profilePkg
-  $needSeal = ($profileText -notmatch '"dsh-vivy-studio"') -or ($profileText -notmatch '"dsh-vivy-console"') -or ($profileText -notmatch '"dsh-plugin"')
+  $needSeal = ($profileText -notmatch '"dsh-vivy-studio"') -or ($profileText -notmatch '"dsh-vivy-console"') -or ($profileText -notmatch '"dsh-species-workbench"') -or ($profileText -notmatch '"dsh-plugin"')
 }
 
 if ($needSeal) {
-  Write-Host "linking first-party skin + console + plugin-hub"
-  & $dsh plugin --profile vivy-studio add "file:$plugin" "file:$console" "file:$pluginHub"
+  Write-Host "linking first-party skin + console + workbench + plugin-hub"
+  & $dsh plugin --profile vivy-studio add "file:$plugin" "file:$console" "file:$workbench" "file:$pluginHub"
 } else {
   # Ensure any merged vivy-source file: dependencies are materialized.
   & pnpm install --dir $profileDir | Out-Null
