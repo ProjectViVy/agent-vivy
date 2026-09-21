@@ -138,3 +138,34 @@
       "sourceSha256": "384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23",
       "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
+    },
+    {
+      "port": "std/status-source@v1",
+      "providerId": "vivy/governance-reference",
+      "sourceSha256": "384e02bd3d01301e1bc87d7ea131b84d5d21fb52529777e1379055641ce2be23",
+      "evidenceId": "plugins/governance/provider_test.go#TestReferenceProviderConformance",
+      "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
+    },
+    {
+      "port": "std/ui-extension@v1",
+      "providerId": "fixture/full-ui",
+      "sourceSha256": "c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc",
+      "evidenceId": "ui/src/plugins/conformance.test.tsx#full UI module conformance",
+      "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
+    },
+    {
+      "port": "std/ui-root@v1",
+      "providerId": "fixture/full-ui",
+      "sourceSha256": "c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc",
+      "evidenceId": "ui/src/plugins/conformance.test.tsx#builds and presents default, extension, replacement-root, and minimal generations",
+      "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
+    },
+    {
+      "port": "std/control-action@v1",
+      "providerId": "fixture/full-ui",
+      "sourceSha256": "c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc",
+      "evidenceId": "internal/rpc/module_action_test.go#TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult",
+      "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
+    }
+  ]
+}
