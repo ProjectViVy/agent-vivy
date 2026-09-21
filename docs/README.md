@@ -31,6 +31,10 @@ The following files are referenced by the repository-root `README.md` and `inter
 
 ## 3. Subdirectories
 
+Issue #51: [Session continuity Story index](superpowers/plans/session-continuity/index.md)
+links all 13 Story plans, the shared contract ledger and the approved full frontend specification.
+Planning verification: [SC-P4 delivery record](logs/2026-09-21-session-continuity-story-plans/summary.md).
+
 | Directory | Contents |
 |---|---|
 | `architecture/` | Canonical product contracts: VIVY-STUDIO, SELF-EVOLVING-GATEWAY, VIVY-ASSEMBLY, VIVY-CHANNEL-PACK, VIVY-PLUGIN-SPEC, VIVY-WORLDVIEW, VIVY-GATEWAY-AND-STUDIO, ACP-REMOTE-CONTROL-PROPOSAL, hitl-review-center |
