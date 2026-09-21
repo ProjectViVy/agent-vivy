@@ -2,9 +2,11 @@ package studiocore
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,70 +35,171 @@ func newTestService(t *testing.T) (*Service, string) {
 	return svc, worktree
 }
 
-// TestRecordGenerationRecordsPackOutput proves Studio records a
-// generation.json written by vivy-sdk into the Studio ledger with the
-// built phase. The pack exec itself is covered by the sdk pack tests and
-// the end-to-end demo; here the record seam is exercised directly.
-func TestRecordGenerationRecordsPackOutput(t *testing.T) {
-	svc, worktree := newTestService(t)
+// TestPackRequiresRecipe pins the v1 contract: the recipe is the pack
+// bill of materials (PLG-P2); there is no --with plugin list anymore.
+func TestPackRequiresRecipe(t *testing.T) {
+	svc, _ := newTestService(t)
 	ctx := context.Background()
-	outDir := filepath.Join(worktree, "data", "studio-home", "generations", "gen_demo")
-	if err := os.MkdirAll(outDir, 0o700); err != nil {
-		t.Fatal(err)
+	if _, err := svc.Pack(ctx, "", "", nil); err == nil || !strings.Contains(err.Error(), "recipe") {
+		t.Fatalf("pack without recipe = %v", err)
 	}
-	exe := filepath.Join(outDir, "vivy.exe")
-	if err := os.WriteFile(exe, []byte("candidate body"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	sum, err := hashFile(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := []byte(`{
-		"id": "gen_demo",
-		"artifact_sha256": "` + sum + `",
-		"source_ref": "file:` + filepath.ToSlash(exe) + `",
-		"recipe": {"loop":"eino","world":"sandbox","plugins":["hello-fs"],"settings":{"locale":"zh"}},
-		"phase": "built"
-	}`)
-	if err := os.WriteFile(filepath.Join(outDir, "generation.json"), raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
+}
 
-	g, err := svc.recordGeneration(ctx, outDir)
+// TestPackRecordsV1Artifact runs Pack against a fake vivy-sdk that prints
+// the same Artifact JSON shape the real `pack` command seals on stdout.
+// It proves the ledger records the manifest generationId, the digest of
+// the produced binary, a file: source ref the eval launcher consumes, and
+// that --recipe/--source reach the sdk argv.
+func TestPackRecordsV1Artifact(t *testing.T) {
+	fake := buildFakeSDK(t)
+	worktree := t.TempDir()
+	ctx := context.Background()
+	svc, err := NewService(ctx, Options{
+		Worktree:   worktree,
+		SDKPath:    fake,
+		LedgerPath: filepath.Join(worktree, "data", "studio-home", "studio.db"),
+		EvalRoot:   filepath.Join(worktree, "data", "studio-home", "evals"),
+		Timeout:    60 * time.Second,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.ID != "gen_demo" || g.Phase != domain.GenerationBuilt {
+	t.Cleanup(func() { _ = svc.Close() })
+	outDir := filepath.Join(worktree, "pack-out")
+
+	g, err := svc.Pack(ctx, "recipes/minimal.vivy.yml", outDir, []string{"plugins/fake-src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.ID != "gen_fake_1" || g.Phase != domain.GenerationBuilt {
 		t.Fatalf("generation = %+v", g)
+	}
+	binary := filepath.Join(outDir, "vivy.exe")
+	sum, err := hashFile(binary)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if g.ArtifactSHA256 != sum {
 		t.Fatalf("sha = %s, want %s", g.ArtifactSHA256, sum)
 	}
-	if len(g.Recipe.Plugins) != 1 || g.Recipe.Plugins[0] != "hello-fs" {
-		t.Fatalf("recipe = %+v", g.Recipe)
+	if !strings.HasPrefix(g.SourceRef, "file:") {
+		t.Fatalf("source ref = %q, want file: prefix", g.SourceRef)
 	}
-	if g.Recipe.Settings.Locale != "zh" {
-		t.Fatalf("recipe locale = %q, want zh", g.Recipe.Settings.Locale)
+	if !reflect.DeepEqual(g.Recipe, domain.AssemblyRecipe{}) {
+		t.Fatalf("recipe bill must stay empty, not fabricated: %+v", g.Recipe)
 	}
 	got, err := svc.Ledger().GetGeneration(ctx, g.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Phase != domain.GenerationBuilt {
-		t.Fatalf("recorded phase = %q", got.Phase)
+	if got.Phase != domain.GenerationBuilt || got.ArtifactSHA256 != sum {
+		t.Fatalf("recorded generation = %+v", got)
 	}
-	if got.Recipe.Settings.Locale != "zh" {
-		t.Fatalf("recorded recipe locale = %q, want zh", got.Recipe.Settings.Locale)
+
+	raw, err := os.ReadFile(filepath.Join(outDir, "argv.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	var argv []string
+	if err := json.Unmarshal(raw, &argv); err != nil {
+		t.Fatal(err)
+	}
+	assertContainsPair(t, argv, "--recipe", "recipes/minimal.vivy.yml")
+	assertContainsPair(t, argv, "--source", "plugins/fake-src")
+	assertContainsPair(t, argv, "--output", outDir)
 }
 
-func TestPackRequiresPlugin(t *testing.T) {
-	svc, _ := newTestService(t)
-	ctx := context.Background()
-	if _, err := svc.Pack(ctx, nil, ""); err == nil || !strings.Contains(err.Error(), "--with") {
-		t.Fatalf("pack with no plugins = %v", err)
+func assertContainsPair(t *testing.T, argv []string, flag, value string) {
+	t.Helper()
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == flag && argv[i+1] == value {
+			return
+		}
 	}
+	t.Fatalf("argv %v missing %s %s", argv, flag, value)
+}
+
+// fakeSDKSource is a stdlib-only stand-in for `vivy-sdk pack`: it records
+// its argv, publishes a candidate binary under --output (the real sdk
+// rejects a pre-existing dir, so the fake creates it itself), and prints
+// the Artifact JSON the real pack command seals on stdout.
+const fakeSDKSource = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+func main() {
+	args := os.Args[1:]
+	if len(args) == 0 || args[0] != "pack" {
+		fmt.Fprintln(os.Stderr, "fakesdk: expected pack")
+		os.Exit(2)
+	}
+	args = args[1:]
+	out := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--output" {
+			out = args[i+1]
+		}
+	}
+	if out == "" {
+		fmt.Fprintln(os.Stderr, "fakesdk: missing --output")
+		os.Exit(2)
+	}
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	raw, _ := json.Marshal(args)
+	if err := os.WriteFile(filepath.Join(out, "argv.json"), raw, 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	binary := filepath.Join(out, "vivy.exe")
+	if err := os.WriteFile(binary, []byte("fake species body"), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"directory": out,
+		"binary":    binary,
+		"manifest":  map[string]any{"generationId": "gen_fake_1", "recipeDigest": "digest"},
+	})
+}
+`
+
+func buildFakeSDK(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(fakeSDKSource), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goBin := filepath.Join(runtime.GOROOT(), "bin", "go")
+	if runtime.GOOS == "windows" {
+		goBin += ".exe"
+	}
+	if out, err := runIn(dir, goBin, "mod", "init", "fakesdk"); err != nil {
+		t.Fatalf("go mod init: %v\n%s", err, out)
+	}
+	name := "fakesdk"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	exe := filepath.Join(dir, name)
+	if out, err := runIn(dir, goBin, "build", "-o", exe, "."); err != nil {
+		t.Fatalf("build fakesdk: %v\n%s", err, out)
+	}
+	return exe
+}
+
+func runIn(dir, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func TestReleaseRequiresHuman(t *testing.T) {

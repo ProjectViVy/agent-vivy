@@ -28,7 +28,7 @@ install location are separate from both.
 ```text
 vivy-studio workspace pin <path> [--kind kernel|first-party|plugin]
 vivy-studio workspace list
-vivy-studio pack --with <plugin>... [--out <dir>]
+vivy-studio pack --recipe <file.vivy.yml> [--out <dir>] [--source <module-dir>]...
 vivy-studio eval --candidate <gen> [--baseline <gen>] [--suite airgap.probe]
 vivy-studio release --generation <gen> [--eval <evl>] --actor human --yes
 vivy-studio reject --generation <gen>
@@ -45,8 +45,10 @@ PATH / worktree), `--target <dir>` (default `$env:VIVY_INSTALL_DIR`).
 
 1. Build the tool once: `just studio` (produces `vivy-studio.exe`).
 2. Pin the worktree (one-time): `vivy-studio workspace pin <repo-root> --kind kernel`.
-3. **Pack** — Studio runs the sdk itself:
-   `vivy-studio pack --with hello-fs` → Generation `gen_...` (phase `built`).
+3. **Pack** — Studio runs the sdk itself against one Generation recipe:
+   `vivy-studio pack --recipe recipes/minimal.vivy.yml` → Generation
+   `gen_...` (phase `built`). Modules outside the build-owned repo table
+   need a `--source <dir>` beside their `sources:` pin in the recipe.
 4. **Eval** — the Studio spawns the candidate EXE itself with an isolated
    data dir (zero live-species participation):
    `vivy-studio eval --candidate gen_...` → EvalRun (phase `evaluated`).

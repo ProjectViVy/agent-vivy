@@ -134,16 +134,23 @@ func workspaceCmd(ctx context.Context, svc *studiocore.Service, args []string) i
 }
 
 func packCmd(ctx context.Context, svc *studiocore.Service, args []string) int {
-	var with []string
+	recipe := ""
 	out := ""
+	var sources []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--with":
+		case "--recipe":
 			if i+1 >= len(args) {
-				return fail("--with needs a plugin name")
+				return fail("--recipe needs a recipe file")
 			}
 			i++
-			with = append(with, args[i])
+			recipe = args[i]
+		case "--source":
+			if i+1 >= len(args) {
+				return fail("--source needs a module directory")
+			}
+			i++
+			sources = append(sources, args[i])
 		case "--out":
 			if i+1 >= len(args) {
 				return fail("--out needs a directory")
@@ -154,7 +161,10 @@ func packCmd(ctx context.Context, svc *studiocore.Service, args []string) int {
 			return fail("unknown pack flag %q", args[i])
 		}
 	}
-	g, err := svc.Pack(ctx, with, out)
+	if recipe == "" {
+		return fail("pack requires --recipe")
+	}
+	g, err := svc.Pack(ctx, recipe, out, sources)
 	if err != nil {
 		return fail("pack: %v", err)
 	}
@@ -370,7 +380,7 @@ func usage(w *os.File) {
 Commands:
   workspace pin <path> [--kind kernel|first-party|plugin]
   workspace list
-  pack --with <plugin>... [--out <dir>]
+  pack --recipe <file.vivy.yml> [--out <dir>] [--source <module-dir>]...
   eval --candidate <gen> [--baseline <gen>] [--suite airgap.probe]
   release --generation <gen> [--eval <evl>] --actor human --yes
   reject --generation <gen>

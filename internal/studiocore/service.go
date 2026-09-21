@@ -133,29 +133,30 @@ func (s *Service) ListWorktrees(ctx context.Context) ([]domain.Worktree, error) 
 
 // ---- Pack ----
 
-// sdkArtifact mirrors vivy-sdk's generation.json so the Studio binary does
-// not import the sdk's internal package (sdk/internal is sdk-only).
-type sdkArtifact struct {
-	ID             string `json:"id"`
-	ArtifactSHA256 string `json:"artifact_sha256"`
-	SourceRef      string `json:"source_ref"`
-	Recipe         struct {
-		Loop      string                    `json:"loop,omitempty"`
-		World     string                    `json:"world,omitempty"`
-		Providers []string                  `json:"providers,omitempty"`
-		Tools     []string                  `json:"tools,omitempty"`
-		Plugins   []string                  `json:"plugins,omitempty"`
-		Settings  domain.GenerationSettings `json:"settings,omitempty"`
-	} `json:"recipe"`
-	Phase string `json:"phase"`
+// sdkPackArtifact mirrors the JSON object vivy-sdk prints on stdout for a
+// successful pack (sdk/internal.Artifact). Studio does not import
+// sdk/internal, so the wire shape is restated here field by field: the v1
+// GenerationManifest carries generationId/recipeDigest and no longer the
+// v0 id/artifact_sha256/source_ref/recipe/phase keys.
+type sdkPackArtifact struct {
+	Directory string `json:"directory"`
+	Binary    string `json:"binary"`
+	Manifest  struct {
+		GenerationID string `json:"generationId"`
+		RecipeDigest string `json:"recipeDigest"`
+	} `json:"manifest"`
 }
 
 // Pack runs vivy-sdk pack (Studio invokes the sdk; the live species does
 // not participate) and records the resulting Generation in the Studio
-// ledger. outDir defaults to data/studio-home/generations/<id>.
-func (s *Service) Pack(ctx context.Context, with []string, outDir string) (domain.Generation, error) {
-	if len(with) == 0 {
-		return domain.Generation{}, errors.New("studiocore: pack requires at least one --with plugin")
+// ledger. recipe is a Generation recipe YAML (apiVersion
+// vivy.generation/v1); sources names Module directories outside the
+// build-owned repo table, each forwarded as --source. outDir must not
+// exist yet (the sdk publishes by rename) and defaults to
+// data/studio-home/generations/<id>.
+func (s *Service) Pack(ctx context.Context, recipe, outDir string, sources []string) (domain.Generation, error) {
+	if recipe == "" {
+		return domain.Generation{}, errors.New("studiocore: pack requires a recipe (--recipe)")
 	}
 	sdkPath, err := s.resolveSDK()
 	if err != nil {
@@ -164,49 +165,59 @@ func (s *Service) Pack(ctx context.Context, with []string, outDir string) (domai
 	if outDir == "" {
 		outDir = filepath.Join(s.opt.Worktree, "data", "studio-home", "generations", NewID("gen_"))
 	}
-	if err := os.MkdirAll(outDir, 0o700); err != nil {
-		return domain.Generation{}, fmt.Errorf("studiocore: create pack out dir: %w", err)
+	args := []string{"pack", "--recipe", recipe, "--output", outDir}
+	for _, src := range sources {
+		args = append(args, "--source", src)
 	}
-	args := []string{"pack"}
-	for _, name := range with {
-		args = append(args, "--with", name)
-	}
-	args = append(args, "--out", outDir)
 	cmd := exec.CommandContext(ctx, sdkPath, args...)
 	cmd.Dir = s.opt.Worktree
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return domain.Generation{}, fmt.Errorf("studiocore: vivy-sdk pack failed: %s", strings.TrimSpace(string(out)))
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return domain.Generation{}, fmt.Errorf("studiocore: vivy-sdk pack failed: %s (%w)", strings.TrimSpace(stderr.String()), err)
 	}
-	return s.recordGeneration(ctx, outDir)
-}
-
-// recordGeneration reads generation.json written by vivy-sdk and records
-// the Generation in the Studio ledger.
-func (s *Service) recordGeneration(ctx context.Context, outDir string) (domain.Generation, error) {
-	art, err := readSDKArtifact(outDir)
+	art, err := decodePackArtifact(stdout.String())
 	if err != nil {
 		return domain.Generation{}, err
+	}
+	return s.recordGeneration(ctx, art)
+}
+
+// decodePackArtifact parses the single Artifact JSON object vivy-sdk pack
+// prints on stdout.
+func decodePackArtifact(out string) (sdkPackArtifact, error) {
+	var art sdkPackArtifact
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &art); err != nil {
+		return art, fmt.Errorf("studiocore: decode vivy-sdk pack output: %w", err)
+	}
+	if art.Manifest.GenerationID == "" || art.Binary == "" {
+		return art, errors.New("studiocore: incomplete pack artifact from vivy-sdk")
+	}
+	return art, nil
+}
+
+// recordGeneration seals the packed artifact into the Studio ledger. The
+// v1 manifest reports generationId and recipeDigest; the ledger's v0
+// AssemblyRecipe bill (loop/world/providers/tools/plugins/settings) is
+// not restorable from it, so Recipe stays empty rather than being
+// fabricated. Eval consumes the candidate through the file: source ref.
+func (s *Service) recordGeneration(ctx context.Context, art sdkPackArtifact) (domain.Generation, error) {
+	sum, err := hashFile(art.Binary)
+	if err != nil {
+		return domain.Generation{}, fmt.Errorf("studiocore: hash packed binary: %w", err)
 	}
 	parent := ""
 	if gens, err := s.ledger.ListGenerations(ctx); err == nil && len(gens) > 0 {
 		parent = gens[0].ID
 	}
 	g := domain.Generation{
-		ID:             art.ID,
+		ID:             art.Manifest.GenerationID,
 		ParentID:       parent,
-		ArtifactSHA256: art.ArtifactSHA256,
-		SourceRef:      art.SourceRef,
-		Recipe: domain.AssemblyRecipe{
-			Loop:      art.Recipe.Loop,
-			World:     art.Recipe.World,
-			Providers: art.Recipe.Providers,
-			Tools:     art.Recipe.Tools,
-			Plugins:   art.Recipe.Plugins,
-			Settings:  art.Recipe.Settings,
-		},
-		Phase:     domain.GenerationBuilt,
-		CreatedAt: time.Now().UnixMilli(),
+		ArtifactSHA256: sum,
+		SourceRef:      "file:" + filepath.ToSlash(art.Binary),
+		Phase:          domain.GenerationBuilt,
+		CreatedAt:      time.Now().UnixMilli(),
 	}
 	if err := s.ledger.CreateGeneration(ctx, g); err != nil {
 		return domain.Generation{}, err
@@ -217,21 +228,6 @@ func (s *Service) recordGeneration(ctx context.Context, outDir string) (domain.G
 		return domain.Generation{}, err
 	}
 	return g, nil
-}
-
-func readSDKArtifact(outDir string) (sdkArtifact, error) {
-	raw, err := os.ReadFile(filepath.Join(outDir, "generation.json"))
-	if err != nil {
-		return sdkArtifact{}, fmt.Errorf("studiocore: read generation.json: %w", err)
-	}
-	var art sdkArtifact
-	if err := json.Unmarshal(raw, &art); err != nil {
-		return sdkArtifact{}, fmt.Errorf("studiocore: decode generation.json: %w", err)
-	}
-	if art.ID == "" || art.ArtifactSHA256 == "" || art.SourceRef == "" {
-		return sdkArtifact{}, errors.New("studiocore: incomplete generation.json from vivy-sdk")
-	}
-	return art, nil
 }
 
 func (s *Service) resolveSDK() (string, error) {
