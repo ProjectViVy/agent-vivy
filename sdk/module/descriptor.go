@@ -38,7 +38,7 @@ type Identity struct {
 }
 
 type Source struct {
-	Ref    string `json:"ref" yaml:"ref"`
+	Ref string `json:"ref" yaml:"ref"`
 	// SHA256 is optional in source descriptors. The packer derives the
 	// authoritative value from the selected source tree before sealing a
 	// Generation Manifest; legacy authoring values are not compile gates.
