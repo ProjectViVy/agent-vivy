@@ -83,6 +83,9 @@ func StageUI(repoRoot, recipePath, outputDir string) (StageUIReport, error) {
 	if err != nil {
 		return StageUIReport{}, err
 	}
+	if err := assemblyv1.BindSourceHashes(&plan, catalog); err != nil {
+		return StageUIReport{}, err
+	}
 
 	var catalogs []assemblyv1.CatalogManifest
 	for _, resolved := range plan.Modules {

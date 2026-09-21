@@ -95,7 +95,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			pin, ok := recipe.Sources[moduleID]
 			if !ok {
 				diagnostics = append(diagnostics, "missing authoritative source pin for "+moduleID)
-			} else if pin.Ref != record.Ref || pin != record.Descriptor.Source {
+			} else if pin.Ref != record.Ref {
 				diagnostics = append(diagnostics, "source pin mismatch for "+moduleID)
 			}
 		}

@@ -39,6 +39,9 @@ type Identity struct {
 
 type Source struct {
 	Ref    string `json:"ref" yaml:"ref"`
+	// SHA256 is optional in source descriptors. The packer derives the
+	// authoritative value from the selected source tree before sealing a
+	// Generation Manifest; legacy authoring values are not compile gates.
 	SHA256 string `json:"sha256" yaml:"sha256"`
 }
 
@@ -112,7 +115,7 @@ func (descriptor Descriptor) Validate() error {
 	if strings.TrimSpace(descriptor.Source.Ref) == "" {
 		return fmt.Errorf("source.ref is required for %s", descriptor.Module.ID)
 	}
-	if !sha256Pattern.MatchString(descriptor.Source.SHA256) {
+	if descriptor.Source.SHA256 != "" && !sha256Pattern.MatchString(descriptor.Source.SHA256) {
 		return fmt.Errorf("invalid source sha256 for %s", descriptor.Module.ID)
 	}
 	if err := validatePortRefs("provides", descriptor.Provides); err != nil {

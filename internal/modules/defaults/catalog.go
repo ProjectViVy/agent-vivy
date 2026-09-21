@@ -4,12 +4,10 @@ package defaults
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"agent-vivy/internal/modules/optional"
 	"agent-vivy/internal/provider"
-	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
 )
@@ -26,12 +24,8 @@ type Record struct {
 	Binding    Binding
 }
 
-func Catalog(repoRoot string) ([]Record, error) {
-	digest, err := sourcehash.Tree(filepath.Join(repoRoot, "internal"), "")
-	if err != nil {
-		return nil, fmt.Errorf("default Source Catalog: %w", err)
-	}
-	source := module.Source{Ref: "file:internal", SHA256: digest}
+func Catalog(_ string) ([]Record, error) {
+	source := module.Source{Ref: "file:internal"}
 	protectedPorts := make([]module.PortRef, 0, len(tools.AssemblyControlledToolNames()))
 	for _, id := range tools.AssemblyControlledToolNames() {
 		protectedPorts = append(protectedPorts, port("std/tool@v1", id))
