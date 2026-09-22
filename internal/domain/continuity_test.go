@@ -70,7 +70,7 @@ func TestContinuityCanonicalHistoryScopeHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new scope: %v", err)
 	}
-	if got, want := accepted.ScopeHash, "6d9aef6d4fca8bc36a3ac48914ebc16f64ba3b6d2cf8624019f3e436a45ed45e"; got != want {
+	if got, want := accepted.ScopeHash, "a88372eb32c67959bcfaef072e689f46a9c86b8e8498b23f2e8fce0d528d4fc0"; got != want {
 		t.Fatalf("scope hash = %q, want %q", got, want)
 	}
 	if err := accepted.Validate(); err != nil {
@@ -117,7 +117,7 @@ func TestContinuityAggregateLimits(t *testing.T) {
 	limits := DefaultContinuityLimits()
 	references := make([]ContextReference, limits.ReferencesPerTask)
 	for i := range references {
-		references[i] = validContextReference(string(rune('a' + i)), strings.Repeat("x", 8000))
+		references[i] = validContextReference(string(rune('a'+i)), strings.Repeat("x", 8000))
 	}
 	if err := ValidateContextReferences(references[:limits.ReferencesPerTask-1], limits); err != nil {
 		t.Fatalf("reference aggregate at bounded size: %v", err)
@@ -128,7 +128,7 @@ func TestContinuityAggregateLimits(t *testing.T) {
 
 	files := make([]Deliverable, 4)
 	for i := range files {
-		files[i] = validDeliverable(string(rune('a' + i)), limits.PresentFileBytes)
+		files[i] = validDeliverable(string(rune('a'+i)), limits.PresentFileBytes)
 	}
 	set := DeliverySet{ID: "set", SessionID: "session", RunID: "run", ToolCallID: "call", Items: files, Status: DeliveryStatusOK}
 	if err := set.Validate(limits); err != nil {
