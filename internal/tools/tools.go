@@ -355,6 +355,7 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
 		NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
 		NewTaskCreate(todos), NewTaskGet(todos), NewTaskUpdate(todos), NewTaskList(todos),
+		NewEnterPlanMode(), NewSubmitPlan(), NewGetGoal(), NewCreateGoal(), NewReportGoal(),
 	}
 	if search != nil {
 		registered = append(registered, NewNetworkSearch(search))
