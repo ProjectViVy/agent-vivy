@@ -3,6 +3,7 @@ import * as api from './api';
 import { runFailedMessage } from './failure';
 import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
+import { subscribeWork, type WorkSubscription } from './work-subscription';
 import { isTaskToolName } from './todos';
 import { recentRunIds } from './run-rows';
 import { hydrateLocale, t } from '@/i18n';
@@ -72,6 +73,10 @@ interface RuntimeState {
   streamingReasoning: string;
   runError: string | null;
   runBusy: boolean;
+  work: api.WorkState | null;
+  workPhase: Phase;
+  workError: string | null;
+  workBusy: boolean;
   queuedMessages: QueuedMessage[];
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
@@ -130,6 +135,16 @@ interface RuntimeState {
   openRun: (runId: string, sessionId: string) => Promise<void>;
   /** 按需拉取并缓存某个历史运行的事件（失败即静默回退到投影渲染）。 */
   loadRunLog: (runId: string) => Promise<void>;
+  loadWork: (sessionId?: string) => Promise<void>;
+  commitWork: (method: api.WorkMethod, fields?: Record<string, unknown>) => Promise<api.WorkCommitResult>;
+  createGoal: (objective: string, maxRounds: number) => Promise<api.WorkCommitResult>;
+  editGoal: (objective: string, maxRounds: number) => Promise<api.WorkCommitResult>;
+  pauseGoal: (reason?: string) => Promise<api.WorkCommitResult>;
+  resumeGoal: () => Promise<api.WorkCommitResult>;
+  clearGoal: () => Promise<api.WorkCommitResult>;
+  enterPlan: () => Promise<api.WorkCommitResult>;
+  leavePlan: () => Promise<api.WorkCommitResult>;
+  decidePlan: (action: api.PlanAction, feedback?: string) => Promise<api.WorkCommitResult>;
   loadBackgroundRuns: () => Promise<void>;
   attachBackgroundRun: (runId: string) => Promise<void>;
   loadChildren: (parentRunId?: string) => Promise<void>;
@@ -168,6 +183,7 @@ interface RuntimeState {
 
 let initialization: Promise<void> | null = null;
 let subscription: RunSubscription | null = null;
+let workSubscription: WorkSubscription | null = null;
 let sessionEpoch = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
@@ -216,6 +232,11 @@ function applySettingsError(error: unknown, operation: SettingsOperation | null)
 }
 
 function stopSubscription(): void { subscription?.close(); subscription = null; }
+function stopWorkSubscription(): void { workSubscription?.close(); workSubscription = null; }
+function workRequestID(prefix: string): string {
+  try { return `${prefix}-${crypto.randomUUID()}`; }
+  catch { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+}
 
 async function refreshAfterTerminal(runId: string): Promise<void> {
   const state = useVivyStore.getState();
@@ -274,6 +295,37 @@ function startSubscription(runId: string, afterSeq: number): void {
   });
 }
 
+function handleWorkEvent(event: api.WorkEvent): void {
+  const state = useVivyStore.getState();
+  if (!state.activeSessionId || event.seq <= (state.work?.version ?? 0)) return;
+  void state.loadWork(state.activeSessionId);
+}
+
+function startWorkSubscription(sessionId: string, afterSeq: number): void {
+  stopWorkSubscription();
+  workSubscription = subscribeWork(sessionId, afterSeq, handleWorkEvent, (message) => {
+    if (useVivyStore.getState().activeSessionId === sessionId) {
+      useVivyStore.setState({ workError: message, workPhase: 'error' });
+    }
+  });
+}
+
+async function loadWorkIntoStore(sessionId: string, epoch: number): Promise<api.WorkState | null> {
+  try {
+    const work = await api.getSessionWork(sessionId);
+    const state = useVivyStore.getState();
+    if (epoch === sessionEpoch && state.activeSessionId === sessionId) {
+      useVivyStore.setState({ work, workPhase: 'ready', workError: null });
+    }
+    return work;
+  } catch (error) {
+    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      useVivyStore.setState({ workPhase: 'error', workError: errorMessage(error) });
+    }
+    return null;
+  }
+}
+
 async function loadMessagesIntoStore(sessionId: string, epoch: number): Promise<api.Message[]> {
   const result = await api.listMessages(sessionId);
   const state = useVivyStore.getState();
@@ -304,6 +356,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
   currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
+  work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
@@ -381,6 +434,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   retryInitialize: async () => {
     if (!get().initialized) return;
     stopSubscription();
+    stopWorkSubscription();
     resetRpcClient();
     initialization = null;
     sessionEpoch += 1;
@@ -411,6 +465,10 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       streamingReasoning: '',
       runError: null,
       queuedMessages: [],
+      work: null,
+      workPhase: 'idle',
+      workError: null,
+      workBusy: false,
     });
     await get().initialize();
   },
@@ -467,8 +525,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const remaining = get().sessions.filter((item) => item.id !== id);
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
-        stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [] });
+        stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], work: null, workPhase: 'idle', workError: null });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -476,13 +534,15 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
-    stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
+    stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
-      })]);
+      }), loadWorkIntoStore(id, epoch)]);
       void loadContextIntoStore(id);
+      const work = get().work;
+      if (work && epoch === sessionEpoch && get().activeSessionId === id) startWorkSubscription(id, work.version);
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
@@ -492,6 +552,63 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
       await Promise.all(older.map((candidate) => get().loadRunLog(candidate)));
     } catch (error) { if (epoch === sessionEpoch) set({ messagesPhase: 'error', messagesError: errorMessage(error) }); }
+  },
+  loadWork: async (sessionId = get().activeSessionId ?? undefined) => {
+    if (!sessionId) return;
+    const epoch = sessionEpoch;
+    set({ workPhase: get().work ? 'refreshing' : 'loading', workError: null });
+    const work = await loadWorkIntoStore(sessionId, epoch);
+    if (work && epoch === sessionEpoch && get().activeSessionId === sessionId) startWorkSubscription(sessionId, work.version);
+  },
+  commitWork: async (method, fields = {}) => {
+    const state = get();
+    const sessionId = state.activeSessionId;
+    const work = state.work;
+    if (!sessionId || !work) throw new Error(t('workControl.unavailable'));
+    set({ workBusy: true, workError: null });
+    try {
+      const result = await api.commitWork(method, {
+        session_id: sessionId,
+        expected_version: work.version,
+        request_id: workRequestID(method.replace('/', '-')),
+        ...fields,
+      });
+      if (get().activeSessionId === sessionId) set({ work: result.work, workPhase: 'ready', workError: null });
+      return result;
+    } catch (error) {
+      if (get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
+      throw error;
+    } finally {
+      if (get().activeSessionId === sessionId) set({ workBusy: false });
+    }
+  },
+  createGoal: (objective, maxRounds) => get().commitWork('goal/create', { objective, max_rounds: maxRounds }),
+  editGoal: (objective, maxRounds) => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/edit', { goal_id: goal.id, goal_revision: goal.revision, objective, max_rounds: maxRounds });
+  },
+  pauseGoal: (reason = '') => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/pause', { goal_id: goal.id, goal_revision: goal.revision, reason });
+  },
+  resumeGoal: () => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/resume', { goal_id: goal.id, goal_revision: goal.revision });
+  },
+  clearGoal: () => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/clear', { goal_id: goal.id, goal_revision: goal.revision });
+  },
+  enterPlan: () => get().commitWork('plan/enter'),
+  leavePlan: () => get().commitWork('plan/leave'),
+  decidePlan: (action, feedback = '') => {
+    const submissionID = get().work?.plan.submission_id;
+    if (!submissionID) return Promise.reject(new Error(t('workControl.noPlan')));
+    return get().commitWork('plan/decide', { submission_id: submissionID, action, feedback });
   },
   loadTodos: async (sessionId = get().activeSessionId ?? undefined) => {
     if (!sessionId) return;
@@ -732,6 +849,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 }));
 
 export function resetStoreForTests(): void {
-  stopSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
+  stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;
 }
