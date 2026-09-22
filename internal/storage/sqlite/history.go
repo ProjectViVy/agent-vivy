@@ -43,10 +43,14 @@ func (b *Backend) CaptureHistoryCut(ctx context.Context, ids []domain.SessionID)
 		cut.Sessions = append(cut.Sessions, storage.HistorySessionCut{SessionID: id, Position: next - 1})
 	}
 
-	args := sessionArgs(ids)
-	rows, err := tx.QueryContext(ctx, `SELECT r.id, r.session_id, COALESCE(MAX(e.seq), 0)
+	args := []any{storage.HistoryMetadataIdentityBytesMax, storage.HistoryMetadataIdentityBytesMax}
+	args = append(args, sessionArgs(ids)...)
+	rows, err := tx.QueryContext(ctx, `SELECT
+		CASE WHEN length(CAST(r.id AS BLOB)) <= ? THEN r.id END,
+		CASE WHEN length(CAST(r.session_id AS BLOB)) <= ? THEN r.session_id END,
+		COALESCE(MAX(e.seq), 0)
 		FROM runs r LEFT JOIN run_events e ON e.run_id = r.id
-		WHERE r.session_id IN (`+strings.TrimRight(strings.Repeat("?,", len(args)), ",")+`)
+		WHERE r.session_id IN (`+strings.TrimRight(strings.Repeat("?,", len(ids)), ",")+`)
 		GROUP BY r.id, r.session_id ORDER BY r.id LIMIT 257`, args...)
 	if err != nil {
 		return storage.HistoryCut{}, fmt.Errorf("storage: capture history run ceilings: %w", err)
@@ -56,14 +60,17 @@ func (b *Backend) CaptureHistoryCut(ctx context.Context, ids []domain.SessionID)
 		if err := ctx.Err(); err != nil {
 			return storage.HistoryCut{}, err
 		}
-		var runID, sessionID string
+		var runID, sessionID sql.NullString
 		var seq int64
 		if err := rows.Scan(&runID, &sessionID, &seq); err != nil {
 			return storage.HistoryCut{}, fmt.Errorf("storage: scan history run ceiling: %w", err)
 		}
+		if !boundedHistoryIdentity(runID, false) || !boundedHistoryIdentity(sessionID, false) {
+			return storage.HistoryCut{}, fmt.Errorf("%w: captured run identity", storage.ErrHistoryMalformed)
+		}
 		cut.Runs = append(cut.Runs, storage.HistoryRunCut{
-			RunID:     domain.RunID(runID),
-			SessionID: domain.SessionID(sessionID),
+			RunID:     domain.RunID(runID.String),
+			SessionID: domain.SessionID(sessionID.String),
 			Seq:       domain.EventSeq(seq),
 		})
 	}
@@ -133,6 +140,7 @@ func (b *Backend) queryMessageHistoryPage(ctx context.Context, cut storage.Histo
 			return storage.HistoryCandidates{}, err
 		}
 		if i >= limits.CandidateRecords {
+			out.HasMore = true
 			out.ScanIncomplete = true
 			break
 		}
@@ -156,6 +164,10 @@ func (b *Backend) queryMessageHistoryPage(ctx context.Context, cut storage.Histo
 		}
 		out.BytesInspected += item.bytes
 		if item.hidden {
+			continue
+		}
+		if item.metadataMalformed {
+			out.Records = append(out.Records, unavailableHistoryCandidate(item))
 			continue
 		}
 		if item.bytes > limits.ResultItemBytes {
@@ -203,6 +215,7 @@ func (b *Backend) queryRunEventHistoryPage(ctx context.Context, cut storage.Hist
 			return storage.HistoryCandidates{}, err
 		}
 		if i >= limits.CandidateRecords {
+			out.HasMore = true
 			out.ScanIncomplete = true
 			break
 		}
@@ -228,6 +241,10 @@ func (b *Backend) queryRunEventHistoryPage(ctx context.Context, cut storage.Hist
 		if item.hidden {
 			continue
 		}
+		if item.metadataMalformed {
+			out.Records = append(out.Records, unavailableRunEventCandidate(item))
+			continue
+		}
 		if item.bytes > limits.ResultItemBytes {
 			out.Records = append(out.Records, unavailableRunEventCandidate(item))
 			continue
@@ -240,7 +257,7 @@ func (b *Backend) queryRunEventHistoryPage(ctx context.Context, cut storage.Hist
 			return storage.HistoryCandidates{}, fmt.Errorf("storage: load bounded run-event payload: %w", err)
 		}
 		candidate := unavailableRunEventCandidate(item)
-		if json.Valid(body) {
+		if utf8.Valid(body) && json.Valid(body) {
 			candidate.Unavailable = false
 			candidate.Truncated = false
 			candidate.Text = string(body)
@@ -254,25 +271,38 @@ func (b *Backend) queryRunEventHistoryPage(ctx context.Context, cut storage.Hist
 }
 
 type historyMetadata struct {
-	id        string
-	sessionID domain.SessionID
-	runID     domain.RunID
-	role      string
-	createdAt int64
-	position  int64
-	bytes     int
-	hidden    bool
+	id                string
+	sessionID         domain.SessionID
+	runID             domain.RunID
+	role              string
+	createdAt         int64
+	position          int64
+	bytes             int
+	hidden            bool
+	metadataMalformed bool
 }
 
 func sqliteHistoryMetadata(ctx context.Context, tx *sql.Tx, cut storage.HistoryCut, after storage.HistoryPosition, max int) ([]historyMetadata, error) {
 	clauses := make([]string, 0, len(cut.Sessions))
-	args := make([]any, 0, len(cut.Sessions)*2+5)
-	args = append(args, storage.TruncationRewind, storage.TruncationEdit)
+	args := make([]any, 0, len(cut.Sessions)*2+10)
+	args = append(args,
+		storage.HistoryMetadataIdentityBytesMax,
+		storage.HistoryMetadataIdentityBytesMax,
+		storage.HistoryMetadataIdentityBytesMax,
+		storage.HistoryMetadataLabelBytesMax,
+		storage.TruncationRewind,
+		storage.TruncationEdit,
+	)
 	for _, c := range cut.Sessions {
 		clauses = append(clauses, "(m.session_id = ? AND m.position <= ?)")
 		args = append(args, c.SessionID, c.Position)
 	}
-	query := `SELECT m.id, m.session_id, m.run_id, m.role, m.created_at, m.position,
+	query := `SELECT
+		CASE WHEN length(CAST(m.id AS BLOB)) <= ? THEN m.id END,
+		CASE WHEN length(CAST(m.session_id AS BLOB)) <= ? THEN m.session_id END,
+		CASE WHEN length(CAST(m.run_id AS BLOB)) <= ? THEN m.run_id END,
+		CASE WHEN length(CAST(m.role AS BLOB)) <= ? THEN m.role END,
+		m.created_at, m.position,
 		length(CAST(m.content AS BLOB)),
 		EXISTS (
 			SELECT 1 FROM session_truncations st
@@ -301,37 +331,58 @@ func sqliteHistoryMetadata(ctx context.Context, tx *sql.Tx, cut storage.HistoryC
 			return nil, err
 		}
 		var item historyMetadata
-		var sessionID, runID string
-		if err := rows.Scan(&item.id, &sessionID, &runID, &item.role, &item.createdAt, &item.position, &item.bytes, &item.hidden); err != nil {
+		var id, sessionID, runID, role sql.NullString
+		if err := rows.Scan(&id, &sessionID, &runID, &role, &item.createdAt, &item.position, &item.bytes, &item.hidden); err != nil {
 			return nil, fmt.Errorf("storage: scan history metadata: %w", err)
 		}
-		item.sessionID = domain.SessionID(sessionID)
-		item.runID = domain.RunID(runID)
+		if !boundedHistoryIdentity(id, false) || !boundedHistoryIdentity(sessionID, false) || !boundedHistoryIdentity(runID, true) {
+			return nil, fmt.Errorf("%w: message identity", storage.ErrHistoryMalformed)
+		}
+		item.id = id.String
+		item.sessionID = domain.SessionID(sessionID.String)
+		item.runID = domain.RunID(runID.String)
+		if role.Valid && utf8.ValidString(role.String) {
+			item.role = role.String
+		} else {
+			item.metadataMalformed = true
+		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
 }
 
 type runEventMetadata struct {
-	runID          domain.RunID
-	sessionID      domain.SessionID
-	seq            domain.EventSeq
-	eventType      domain.EventType
-	createdAt      int64
-	payloadVersion int
-	bytes          int
-	hidden         bool
+	runID             domain.RunID
+	sessionID         domain.SessionID
+	seq               domain.EventSeq
+	eventType         domain.EventType
+	createdAt         int64
+	payloadVersion    int
+	bytes             int
+	hidden            bool
+	metadataMalformed bool
 }
 
 func sqliteRunEventMetadata(ctx context.Context, tx *sql.Tx, cut storage.HistoryCut, after storage.HistoryPosition, max int) ([]runEventMetadata, error) {
 	clauses := make([]string, 0, len(cut.Runs))
-	args := make([]any, 0, len(cut.Runs)*3+6)
-	args = append(args, storage.TruncationRewind, storage.TruncationEdit)
+	args := make([]any, 0, len(cut.Runs)*3+9)
+	args = append(args,
+		storage.HistoryMetadataIdentityBytesMax,
+		storage.HistoryMetadataIdentityBytesMax,
+		storage.HistoryMetadataLabelBytesMax,
+		storage.TruncationRewind,
+		storage.TruncationEdit,
+	)
 	for _, c := range cut.Runs {
 		clauses = append(clauses, "(e.run_id = ? AND r.session_id = ? AND e.seq <= ?)")
 		args = append(args, c.RunID, c.SessionID, c.Seq)
 	}
-	query := `SELECT e.run_id, r.session_id, e.seq, e.type, e.created_at, e.payload_version,
+	query := `SELECT
+		CASE WHEN length(CAST(e.run_id AS BLOB)) <= ? THEN e.run_id END,
+		CASE WHEN length(CAST(r.session_id AS BLOB)) <= ? THEN r.session_id END,
+		e.seq,
+		CASE WHEN length(CAST(e.type AS BLOB)) <= ? THEN e.type END,
+		e.created_at, e.payload_version,
 		length(CAST(e.payload AS BLOB)),
 		EXISTS (
 			SELECT 1 FROM messages projected
@@ -339,6 +390,11 @@ func sqliteRunEventMetadata(ctx context.Context, tx *sql.Tx, cut storage.History
 			JOIN messages cutoff ON cutoff.id = st.cutoff_message_id AND cutoff.session_id = st.session_id
 			JOIN messages tail ON tail.id = st.tail_message_id AND tail.session_id = st.session_id
 			WHERE projected.session_id = r.session_id AND projected.run_id = e.run_id
+				AND projected.id = CASE e.type
+					WHEN 'tool.requested' THEN 'msgp_' || e.run_id || '_' || printf('%020d', e.seq) || '_1'
+					WHEN 'tool.finished' THEN 'msgp_' || e.run_id || '_' || printf('%020d', e.seq) || '_0'
+					WHEN 'model.completed' THEN 'msgp_' || e.run_id || '_' || printf('%020d', e.seq) || '_0'
+				END
 				AND (st.reason = ? OR st.reason = ?)
 				AND cutoff.position <= tail.position
 				AND projected.position BETWEEN cutoff.position AND tail.position
@@ -363,15 +419,22 @@ func sqliteRunEventMetadata(ctx context.Context, tx *sql.Tx, cut storage.History
 			return nil, err
 		}
 		var item runEventMetadata
-		var runID, sessionID, eventType string
+		var runID, sessionID, eventType sql.NullString
 		var seq int64
 		if err := rows.Scan(&runID, &sessionID, &seq, &eventType, &item.createdAt, &item.payloadVersion, &item.bytes, &item.hidden); err != nil {
 			return nil, fmt.Errorf("storage: scan run-event history metadata: %w", err)
 		}
-		item.runID = domain.RunID(runID)
-		item.sessionID = domain.SessionID(sessionID)
+		if !boundedHistoryIdentity(runID, false) || !boundedHistoryIdentity(sessionID, false) {
+			return nil, fmt.Errorf("%w: run-event identity", storage.ErrHistoryMalformed)
+		}
+		item.runID = domain.RunID(runID.String)
+		item.sessionID = domain.SessionID(sessionID.String)
 		item.seq = domain.EventSeq(seq)
-		item.eventType = domain.EventType(eventType)
+		if eventType.Valid && utf8.ValidString(eventType.String) {
+			item.eventType = domain.EventType(eventType.String)
+		} else {
+			item.metadataMalformed = true
+		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -414,4 +477,11 @@ func sessionArgs(ids []domain.SessionID) []any {
 		out[i] = ids[i]
 	}
 	return out
+}
+
+func boundedHistoryIdentity(value sql.NullString, allowEmpty bool) bool {
+	if !value.Valid || len(value.String) > storage.HistoryMetadataIdentityBytesMax || !utf8.ValidString(value.String) {
+		return false
+	}
+	return allowEmpty || value.String != ""
 }
