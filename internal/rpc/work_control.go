@@ -134,6 +134,40 @@ func (h *controlHandler) getWork(ctx context.Context, request Request) (any, *Er
 	return workStateView(state, activation, currentRunID), nil
 }
 
+func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Work == nil || h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "work control is not configured"}
+	}
+	var params workParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	sessionID, rpcErr := h.authorizeWorkSession(ctx, params.SessionID)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if strings.TrimSpace(params.PlanSubmissionID) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "submission_id is required"}
+	}
+	state, err := h.deps.Service.ReadWork(ctx, sessionID)
+	if err != nil {
+		return nil, workError(err)
+	}
+	if state.Plan.SubmissionID != params.PlanSubmissionID {
+		return nil, &Error{Code: CodeNotFound, Message: "plan submission not found"}
+	}
+	status := state.Plan.ReviewStatus
+	if status == "" {
+		status = domain.PlanReviewNone
+	}
+	return workPlanResult{
+		Active: state.Plan.Active, SubmissionID: state.Plan.SubmissionID,
+		Markdown: state.Plan.Markdown, ReviewStatus: string(status),
+		Feedback: state.Plan.Feedback, OriginRunID: string(state.Plan.OriginRunID),
+		OriginToolCallID: state.Plan.OriginToolCallID,
+	}, nil
+}
+
 func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, request Request, kind domain.WorkEventKind) (any, *Error) {
 	if h.deps.Work == nil || h.deps.Service == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "work control is not configured"}
