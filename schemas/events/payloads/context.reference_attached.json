@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/context.reference_attached.json",
+  "title": "context.reference_attached payload (v1)",
+  "type": "object",
+  "properties": {
+    "reference": {
+      "$ref": "#/$defs/contextReference"
+    }
+  },
+  "required": ["reference"],
+  "additionalProperties": false,
+  "$defs": {
+    "sourceRef": {
+      "type": "object",
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "run_id": { "type": "string", "maxLength": 512 },
+        "message_id": { "type": "string", "maxLength": 512 },
+        "event_seq": { "type": "integer", "minimum": 0 },
+        "kind": {
+          "type": "string",
+          "enum": ["message", "tool_call", "tool_result", "event", "summary", "file", "diff"]
+        },
+        "created_at": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["session_id", "kind", "created_at"],
+      "additionalProperties": false
+    },
+    "historyItem": {
+      "type": "object",
+      "properties": {
+        "ref": { "$ref": "#/$defs/sourceRef" },
+        "author": { "type": "string", "enum": ["user", "assistant", "tool"] },
+        "text": { "type": "string", "maxLength": 8192 },
+        "source_refs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/sourceRef" }
+        },
+        "redacted": { "type": "boolean" },
+        "truncated": { "type": "boolean" }
+      },
+      "required": ["ref", "author", "text", "redacted", "truncated"],
+      "additionalProperties": false
+    },
+    "contextReference": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "destination_session_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "destination_run_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "source_session_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "source_workspace": { "type": "string", "maxLength": 1024 },
+        "captured_at": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/historyItem" }
+        },
+        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "origin": { "type": "string", "enum": ["user_selection", "model_tool"] }
+      },
+      "required": [
+        "id",
+        "destination_session_id",
+        "destination_run_id",
+        "source_session_id",
+        "source_workspace",
+        "captured_at",
+        "items",
+        "digest",
+        "origin"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/deliverables.presented.json",
+  "title": "deliverables.presented payload (v1)",
+  "type": "object",
+  "properties": {
+    "delivery_set": {
+      "$ref": "#/$defs/deliverySet"
+    }
+  },
+  "required": ["delivery_set"],
+  "additionalProperties": false,
+  "$defs": {
+    "deliverable": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "run_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "workspace_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "description": { "type": "string", "maxLength": 512 },
+        "size": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "media_type": { "type": "string", "maxLength": 255 },
+        "captured_at": { "type": "integer", "minimum": 0 },
+        "origin_tool_call_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "file_version_id": { "type": "string", "maxLength": 512 }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "run_id",
+        "workspace_id",
+        "path",
+        "name",
+        "description",
+        "size",
+        "sha256",
+        "media_type",
+        "captured_at",
+        "origin_tool_call_id"
+      ],
+      "additionalProperties": false
+    },
+    "failure": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 512 }
+      },
+      "required": ["path", "reason"],
+      "additionalProperties": false
+    },
+    "deliverySet": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "run_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "tool_call_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "created_at": { "type": "integer", "minimum": 0 },
+        "title": { "type": "string", "maxLength": 512 },
+        "items": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/deliverable" }
+        },
+        "failures": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/failure" }
+        },
+        "status": { "type": "string", "enum": ["ok", "partial", "failed"] }
+      },
+      "required": ["id", "session_id", "run_id", "tool_call_id", "created_at", "items", "failures", "status"],
+      "additionalProperties": false
+    }
+  }
+}

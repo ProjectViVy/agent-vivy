@@ -45,6 +45,34 @@
       "type": "string",
       "minLength": 1,
       "description": "Digest of the policy definition used by the run."
+    },
+    "history_scope": {
+      "type": "object",
+      "description": "Host-resolved bounded history scope accepted at task admission; absent for legacy run.started events.",
+      "properties": {
+        "destination_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "source_session_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "scope_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": ["destination_session_id", "source_session_ids", "scope_hash"],
+      "additionalProperties": false
     }
   },
   "required": [
