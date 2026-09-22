@@ -594,6 +594,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
+	workBus := events.NewWorkBus(cfg.Runtime.StreamBuffer)
 	svcSink := runtime.EventSink(bus)
 	if ao.sink != nil {
 		svcSink = fanoutSink{primary: bus, extra: ao.sink}
@@ -846,7 +847,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
-		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: backend,
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: backend, WorkBus: workBus,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		ActionHost:     actionHost,
 		Marketplace:    marketplace,

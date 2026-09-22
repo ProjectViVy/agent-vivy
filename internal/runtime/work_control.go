@@ -31,5 +31,9 @@ func (s *Service) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	if err := storage.ValidateWorkMutation(mutation); err != nil {
 		return storage.WorkCommitResult{}, err
 	}
-	return s.deps.Work.CommitWork(ctx, mutation)
+	result, err := s.deps.Work.CommitWork(ctx, mutation)
+	if err == nil && !result.Replayed && s.deps.WorkSink != nil {
+		s.deps.WorkSink.Publish(result.Event)
+	}
+	return result, err
 }
