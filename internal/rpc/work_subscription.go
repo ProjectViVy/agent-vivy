@@ -63,7 +63,7 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 
 func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptionID string, sessionID domain.SessionID, after domain.WorkVersion) {
 	ch, cancel := h.deps.WorkBus.Subscribe(sessionID)
-	defer cancel()
+	defer func() { cancel() }()
 	last := domain.WorkSeq(after)
 	send := func(event domain.WorkEvent) bool {
 		if event.Seq <= last {
@@ -111,13 +111,13 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 			return
 		case event, ok := <-ch:
 			if !ok {
-				// A dropped subscriber must re-enter durable replay before
-				// listening again; this preserves the no-gap contract.
+				// Subscribe before replay so events committed while the durable
+				// gap is repaired remain buffered for the resumed stream.
+				cancel()
+				ch, cancel = h.deps.WorkBus.Subscribe(sessionID)
 				if err := replay(); err != nil {
 					return
 				}
-				ch, cancel = h.deps.WorkBus.Subscribe(sessionID)
-				defer cancel()
 				continue
 			}
 			if !send(event) {
