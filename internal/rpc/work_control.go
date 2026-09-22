@@ -66,6 +66,7 @@ type workStateResult struct {
 	Goal *workGoalResult `json:"goal,omitempty"`
 	Plan workPlanResult `json:"plan"`
 	Activation string `json:"activation"`
+	CurrentRunID string `json:"current_run_id,omitempty"`
 }
 
 type workEventResult struct {
@@ -81,7 +82,7 @@ type workCommitResult struct {
 	Replayed bool `json:"replayed"`
 }
 
-func workStateView(state domain.WorkState) workStateResult {
+func workStateView(state domain.WorkState, activation string, currentRunID domain.RunID) workStateResult {
 	status := state.Plan.ReviewStatus
 	if status == "" {
 		status = domain.PlanReviewNone
@@ -94,7 +95,7 @@ func workStateView(state domain.WorkState) workStateResult {
 			Feedback: state.Plan.Feedback, OriginRunID: string(state.Plan.OriginRunID),
 			OriginToolCallID: state.Plan.OriginToolCallID,
 		},
-		Activation: "disarmed",
+		Activation: activation, CurrentRunID: string(currentRunID),
 	}
 	if state.Goal != nil {
 		result.Goal = &workGoalResult{
@@ -126,7 +127,8 @@ func (h *controlHandler) getWork(ctx context.Context, request Request) (any, *Er
 	if err != nil {
 		return nil, workError(err)
 	}
-	return workStateView(state), nil
+	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
+	return workStateView(state, activation, currentRunID), nil
 }
 
 func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, request Request, kind domain.WorkEventKind) (any, *Error) {
@@ -153,7 +155,14 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	if peer != nil {
 		h.bindPeerSessionRequest(ctx, peer, request)
 	}
-	return workCommitResult{Work: workStateView(result.State), Event: workEventView(result.Event), Replayed: result.Replayed}, nil
+	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
+	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalResumed {
+		h.deps.Service.WakeGoal(sessionID)
+	}
+	if kind == domain.WorkEventGoalPaused || kind == domain.WorkEventGoalCleared {
+		h.deps.Service.CancelGoal(sessionID)
+	}
+	return workCommitResult{Work: workStateView(result.State, activation, currentRunID), Event: workEventView(result.Event), Replayed: result.Replayed}, nil
 }
 
 func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (domain.SessionID, *Error) {
