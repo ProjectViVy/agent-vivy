@@ -70,6 +70,8 @@ type GoalState struct {
 	Phase         WorkPhase
 	MaxRounds     int
 	RoundsStarted int
+	Reason        string
+	EvidenceRunID RunID
 }
 
 // PlanReviewStatus is the durable state of the current plan submission.
@@ -125,7 +127,8 @@ type WorkMutation struct {
 	Objective            string
 	MaxRounds            int
 	Reason               string
-	Admission            GoalRunAdmission
+	EvidenceRunID        RunID
+	Admission             GoalRunAdmission
 	PlanSubmissionID     string
 	PlanMarkdown         string
 	PlanAction           PlanDecisionAction
@@ -354,6 +357,10 @@ func transitionGoal(state *WorkState, mutation WorkMutation, phase WorkPhase) er
 		return fmt.Errorf("%w: Plan is active", ErrStaleGoalReference)
 	}
 	state.Goal.Phase = phase
+	state.Goal.Reason = mutation.Reason
+	if mutation.EvidenceRunID != "" {
+		state.Goal.EvidenceRunID = mutation.EvidenceRunID
+	}
 	return nil
 }
 
@@ -377,5 +384,7 @@ func admitGoalRound(state *WorkState, admission GoalRunAdmission) error {
 		return fmt.Errorf("%w: max rounds %d", ErrWorkRoundLimit, state.Goal.MaxRounds)
 	}
 	state.Goal.RoundsStarted++
+	state.Goal.Reason = ""
+	state.Goal.EvidenceRunID = admission.RunID
 	return nil
 }

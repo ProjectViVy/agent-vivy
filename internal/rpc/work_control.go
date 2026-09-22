@@ -48,6 +48,8 @@ type workGoalResult struct {
 	Phase         string `json:"phase"`
 	MaxRounds     int    `json:"max_rounds"`
 	RoundsStarted int    `json:"rounds_started"`
+	Reason        string `json:"reason,omitempty"`
+	EvidenceRunID string `json:"evidence_run_id,omitempty"`
 }
 
 type workPlanResult struct {
@@ -102,6 +104,7 @@ func workStateView(state domain.WorkState, activation string, currentRunID domai
 			ID: state.Goal.Ref.ID, Revision: state.Goal.Ref.Revision,
 			Objective: state.Goal.Objective, Phase: string(state.Goal.Phase),
 			MaxRounds: state.Goal.MaxRounds, RoundsStarted: state.Goal.RoundsStarted,
+			Reason: state.Goal.Reason, EvidenceRunID: string(state.Goal.EvidenceRunID),
 		}
 	}
 	return result

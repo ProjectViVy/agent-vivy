@@ -77,6 +77,8 @@ export interface WorkGoal {
   phase: GoalPhase;
   max_rounds: number;
   rounds_started: number;
+  reason?: string;
+  evidence_run_id?: string;
 }
 export interface WorkPlan {
   active: boolean;
