@@ -112,7 +112,7 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	at := messageActivityAt(message.CreatedAt)
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE sessions SET updated_at = CASE WHEN updated_at < $1 THEN $2 ELSE $2 END WHERE id = $3",
+		"UPDATE sessions SET updated_at = CASE WHEN updated_at < $1 THEN $2 ELSE updated_at END WHERE id = $3",
 		at, at, message.SessionID); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: touch primary session: %w", err)
 	}
@@ -128,7 +128,7 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-		run.ID, run.SessionID, string(run.Status), string(kind), run.ParentID, rootID, run.Depth); err != nil {
+		run.ID, run.SessionID, string(run.Status), run.CreatedAt, string(kind), run.ParentID, rootID, run.Depth); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: create primary run: %w", err)
 	}
 
