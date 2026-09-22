@@ -98,8 +98,9 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	defer s.goalAdmissionMu.Unlock()
 	s.mu.Lock()
 	stopping := s.stopping
+	humanPending := s.humanPending[sessionID] > 0
 	s.mu.Unlock()
-	if stopping {
+	if stopping || humanPending {
 		return nil
 	}
 	if strings.TrimSpace(string(sessionID)) == "" {
@@ -134,8 +135,9 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 
 	s.mu.Lock()
 	stopping = s.stopping
+	humanPending = s.humanPending[sessionID] > 0
 	s.mu.Unlock()
-	if stopping {
+	if stopping || humanPending {
 		return nil
 	}
 

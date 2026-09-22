@@ -2949,6 +2949,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -2986,6 +2987,7 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking),
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
