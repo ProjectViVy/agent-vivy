@@ -168,3 +168,8 @@ cd diva-go/agent-vivy
 ```
 
 No API keys, no network at runtime (module already in cache via goproxy.cn).
+## 6. PG-D2 probe status (2026-09-22)
+
+The first focused sibling-fence probe was attempted against the pinned v0.9.13 APIs. It did not produce accepted evidence: the expected sibling interrupt context was not observed, and the probe was not committed because it was unformatted and failed its focused assertion. This is evidence of an unresolved boundary, not a pass.
+
+Therefore the verified scope remains C6 only. Plan guidance exactly-once behavior, duplicate review idempotency, and same-batch effect fencing remain unverified and continue to block PG-2/PG-3 release. The next probe must isolate one claim per test and must report a deterministic failure when the Eino boundary cannot guarantee the invariant.
