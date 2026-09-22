@@ -92,6 +92,7 @@ type ServiceDeps struct {
 	Journal  storage.Journal
 	Runs     storage.RunStore
 	Messages storage.MessageStore
+	GoalRuns storage.GoalRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -252,6 +253,19 @@ type pendingRun struct {
 }
 
 // RunOptions controls the physical policy applied to one run.
+// GoalRoundAdmission carries the host-authenticated admission envelope for
+// one automatic Goal round. RunID is allocated before the durable commit so
+// retries can identify the same accepted run.
+type GoalRoundAdmission struct {
+	ExpectedVersion domain.WorkVersion
+	RequestID       string
+	RequestHash     string
+	Goal            domain.GoalRef
+	Round           int
+	RunID           domain.RunID
+}
+
+// RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
 	Mode    domain.RunMode
 	Profile domain.PolicyProfile
@@ -276,6 +290,9 @@ type RunOptions struct {
 	// RunWithOptions; the runtime validates and persists the snapshot without
 	// reading the host filesystem.
 	FileContexts []domain.FileContext
+	// GoalRound requests the atomic Goal admission path. Ordinary callers
+	// leave it nil and retain the legacy startup sequence.
+	GoalRound *GoalRoundAdmission
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -616,6 +633,9 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	if options.GoalRound != nil && options.GoalRound.RunID != "" {
+		runID = options.GoalRound.RunID
+	}
 	workspaceID := ""
 	if s.deps.Workspaces != nil {
 		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
@@ -654,10 +674,47 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
 	if persist != nil {
+		if options.GoalRound != nil {
+			return "", errors.New("runtime: goal admission cannot use custom persistence")
+		}
 		started, err = persist(message, run, started)
 		if err != nil {
 			return "", err
 		}
+	} else if options.GoalRound != nil {
+		if s.deps.GoalRuns == nil {
+			return "", errors.New("runtime: goal admission store is not wired")
+		}
+		goal := options.GoalRound
+		run.Status = domain.RunActive
+		mutation := domain.WorkMutation{
+			SessionID:       sessionID,
+			ExpectedVersion: goal.ExpectedVersion,
+			RequestID:       goal.RequestID,
+			RequestHash:     goal.RequestHash,
+			Kind:            domain.WorkEventGoalRoundAdmitted,
+			Admission: domain.GoalRunAdmission{
+				SessionID: sessionID,
+				Goal:      goal.Goal,
+				Round:     goal.Round,
+				RunID:     runID,
+			},
+		}
+		admitted, err := s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
+			Mutation: mutation,
+			Message:  message,
+			Run:      run,
+			Started:  started,
+		})
+		if err != nil {
+			return "", fmt.Errorf("runtime: admit goal round: %w", err)
+		}
+		if admitted.Work.Replayed {
+			return admitted.Run.ID, nil
+		}
+		run = admitted.Run
+		runID = run.ID
+		started = admitted.Started
 	} else {
 		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
 			return "", fmt.Errorf("runtime: append user message: %w", err)

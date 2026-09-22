@@ -651,6 +651,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Journal:               backend,
 		Runs:                  backend,
 		Messages:              backend,
+		GoalRuns:              backend,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
