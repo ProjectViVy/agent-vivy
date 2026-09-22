@@ -1,0 +1,243 @@
+package domain
+
+import (
+	"errors"
+	"fmt"
+)
+
+// WorkSeq is the session-scoped sequence assigned to a work event.
+type WorkSeq int64
+
+// WorkVersion is the session-scoped version of folded work state.
+type WorkVersion int64
+
+const WorkPayloadVersion = 1
+
+// WorkEventKind is the bounded vocabulary of session work events.
+type WorkEventKind string
+
+const (
+	WorkEventGoalCreated        WorkEventKind = "goal.created"
+	WorkEventGoalEdited         WorkEventKind = "goal.edited"
+	WorkEventGoalPaused         WorkEventKind = "goal.paused"
+	WorkEventGoalResumed        WorkEventKind = "goal.resumed"
+	WorkEventGoalCompleted      WorkEventKind = "goal.completed"
+	WorkEventGoalBlocked        WorkEventKind = "goal.blocked"
+	WorkEventGoalCleared        WorkEventKind = "goal.cleared"
+	WorkEventGoalRoundAdmitted  WorkEventKind = "goal.round_admitted"
+)
+
+// Valid reports whether k is a supported work event kind.
+func (k WorkEventKind) Valid() bool {
+	switch k {
+	case WorkEventGoalCreated,
+		WorkEventGoalEdited,
+		WorkEventGoalPaused,
+		WorkEventGoalResumed,
+		WorkEventGoalCompleted,
+		WorkEventGoalBlocked,
+		WorkEventGoalCleared,
+		WorkEventGoalRoundAdmitted:
+		return true
+	}
+	return false
+}
+
+// WorkPhase is the durable lifecycle phase of a Goal.
+type WorkPhase string
+
+const (
+	WorkPhaseActive    WorkPhase = "active"
+	WorkPhasePaused    WorkPhase = "paused"
+	WorkPhaseBlocked   WorkPhase = "blocked"
+	WorkPhaseCompleted WorkPhase = "completed"
+)
+
+// GoalRef identifies one revision of a session Goal.
+type GoalRef struct {
+	ID       string
+	Revision int64
+}
+
+// GoalState is the folded durable state of the current Goal.
+type GoalState struct {
+	Ref           GoalRef
+	Objective     string
+	Phase         WorkPhase
+	MaxRounds     int
+	RoundsStarted int
+}
+
+// WorkState is the pure reducer state for one session.
+type WorkState struct {
+	SessionID SessionID
+	Version   WorkVersion
+	Goal      *GoalState
+}
+
+// WorkMutation is the versioned Goal lifecycle payload of a WorkEvent.
+type WorkMutation struct {
+	SessionID SessionID
+	Goal      GoalRef
+	Objective string
+	MaxRounds int
+	Reason    string
+}
+
+// GoalRunAdmission records one atomically admitted Goal round.
+type GoalRunAdmission struct {
+	SessionID SessionID
+	Goal      GoalRef
+	Round     int
+	RunID     RunID
+}
+
+// WorkEvent is one session-scoped, versioned work mutation.
+type WorkEvent struct {
+	SessionID      SessionID
+	Seq            WorkSeq
+	Kind           WorkEventKind
+	PayloadVersion int
+	Mutation       WorkMutation
+	Admission      GoalRunAdmission
+}
+
+var (
+	ErrNonContiguousWorkSeq       = errors.New("non-contiguous work sequence")
+	ErrUnsupportedWorkPayloadVersion = errors.New("unsupported work payload version")
+	ErrUnsupportedWorkEventKind    = errors.New("unsupported work event kind")
+	ErrStaleGoalReference          = errors.New("stale goal reference")
+	ErrWorkRoundLimit              = errors.New("work round limit exceeded")
+)
+
+// FoldWork strictly reduces events into session work state.
+func FoldWork(events []WorkEvent) (WorkState, error) {
+	var state WorkState
+	for _, event := range events {
+		if event.Seq != WorkSeq(state.Version)+1 {
+			return WorkState{}, fmt.Errorf("%w: got %d after %d", ErrNonContiguousWorkSeq, event.Seq, state.Version)
+		}
+		if event.PayloadVersion != WorkPayloadVersion {
+			return WorkState{}, fmt.Errorf("%w: got %d", ErrUnsupportedWorkPayloadVersion, event.PayloadVersion)
+		}
+		if !event.Kind.Valid() {
+			return WorkState{}, fmt.Errorf("%w: %q", ErrUnsupportedWorkEventKind, event.Kind)
+		}
+		if state.SessionID == "" {
+			state.SessionID = event.SessionID
+		}
+		if event.SessionID != state.SessionID {
+			return WorkState{}, fmt.Errorf("%w: event session %q does not match %q", ErrStaleGoalReference, event.SessionID, state.SessionID)
+		}
+
+		next := state
+		if err := applyWorkEvent(&next, event); err != nil {
+			return WorkState{}, err
+		}
+		next.Version = WorkVersion(event.Seq)
+		state = next
+	}
+	return state, nil
+}
+
+func applyWorkEvent(state *WorkState, event WorkEvent) error {
+	switch event.Kind {
+	case WorkEventGoalCreated:
+		return createGoal(state, event.Mutation)
+	case WorkEventGoalEdited:
+		return editGoal(state, event.Mutation)
+	case WorkEventGoalPaused:
+		return transitionGoal(state, event.Mutation, WorkPhasePaused)
+	case WorkEventGoalResumed:
+		return transitionGoal(state, event.Mutation, WorkPhaseActive)
+	case WorkEventGoalCompleted:
+		return transitionGoal(state, event.Mutation, WorkPhaseCompleted)
+	case WorkEventGoalBlocked:
+		return transitionGoal(state, event.Mutation, WorkPhaseBlocked)
+	case WorkEventGoalCleared:
+		if err := requireGoal(state, event.Mutation.Goal); err != nil {
+			return err
+		}
+		state.Goal = nil
+		return nil
+	case WorkEventGoalRoundAdmitted:
+		return admitGoalRound(state, event.Admission)
+	}
+	return fmt.Errorf("%w: %q", ErrUnsupportedWorkEventKind, event.Kind)
+}
+
+func createGoal(state *WorkState, mutation WorkMutation) error {
+	if state.Goal != nil {
+		return fmt.Errorf("%w: goal already exists", ErrStaleGoalReference)
+	}
+	if mutation.SessionID != state.SessionID ||
+		mutation.Goal.ID == "" ||
+		mutation.Goal.Revision != 1 ||
+		mutation.Objective == "" ||
+		mutation.MaxRounds <= 0 {
+		return fmt.Errorf("%w: invalid goal creation", ErrStaleGoalReference)
+	}
+	state.Goal = &GoalState{
+		Ref:       mutation.Goal,
+		Objective: mutation.Objective,
+		Phase:     WorkPhaseActive,
+		MaxRounds: mutation.MaxRounds,
+	}
+	return nil
+}
+
+func editGoal(state *WorkState, mutation WorkMutation) error {
+	if err := requireGoal(state, mutation.Goal); err != nil {
+		return err
+	}
+	if mutation.SessionID != state.SessionID ||
+		mutation.Goal.Revision != state.Goal.Ref.Revision+1 ||
+		mutation.Objective == "" ||
+		mutation.MaxRounds <= 0 {
+		return fmt.Errorf("%w: invalid goal edit", ErrStaleGoalReference)
+	}
+	state.Goal.Ref = mutation.Goal
+	state.Goal.Objective = mutation.Objective
+	state.Goal.MaxRounds = mutation.MaxRounds
+	return nil
+}
+
+func transitionGoal(state *WorkState, mutation WorkMutation, phase WorkPhase) error {
+	if err := requireGoal(state, mutation.Goal); err != nil {
+		return err
+	}
+	if mutation.SessionID != state.SessionID {
+		return fmt.Errorf("%w: mutation session %q", ErrStaleGoalReference, mutation.SessionID)
+	}
+	if state.Goal.Phase != WorkPhaseActive && phase != WorkPhaseActive {
+		return fmt.Errorf("%w: goal phase %q", ErrStaleGoalReference, state.Goal.Phase)
+	}
+	if phase == WorkPhaseActive && state.Goal.Phase != WorkPhasePaused {
+		return fmt.Errorf("%w: goal phase %q", ErrStaleGoalReference, state.Goal.Phase)
+	}
+	state.Goal.Phase = phase
+	return nil
+}
+
+func requireGoal(state *WorkState, ref GoalRef) error {
+	if state.Goal == nil || state.Goal.Ref != ref {
+		return fmt.Errorf("%w: got %#v", ErrStaleGoalReference, ref)
+	}
+	return nil
+}
+
+func admitGoalRound(state *WorkState, admission GoalRunAdmission) error {
+	if err := requireGoal(state, admission.Goal); err != nil {
+		return err
+	}
+	if admission.SessionID != state.SessionID ||
+		admission.RunID == "" ||
+		admission.Round != state.Goal.RoundsStarted+1 {
+		return fmt.Errorf("%w: invalid round admission", ErrStaleGoalReference)
+	}
+	if state.Goal.RoundsStarted >= state.Goal.MaxRounds {
+		return fmt.Errorf("%w: max rounds %d", ErrWorkRoundLimit, state.Goal.MaxRounds)
+	}
+	state.Goal.RoundsStarted++
+	return nil
+}
