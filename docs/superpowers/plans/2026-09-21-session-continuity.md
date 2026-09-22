@@ -8,19 +8,21 @@
 
 **Tech Stack:** Existing Go, SQLite/PostgreSQL, Eino v0.9.13, React 19, TypeScript, Zustand, Radix UI, Vitest and Playwright; no new production dependency.
 
-**Spec:** [SC-D3 specification](../specs/2026-09-21-session-continuity-design.md), including §13 complete frontend interaction design.
+**Planning package:** SC-P5, 2026-09-22.
+
+**Spec:** [SC-D4 specification](../specs/2026-09-21-session-continuity-design.md), including §13 complete frontend interaction design.
 
 ## Global Constraints
 
 - Product naming: Lite means the reduced-capability coding product with retained GUI; Headless means operation without a UI. The planned product recipe is recipes/lite.vivy.yml. Existing recipes/minimal.vivy.yml is a baseline path, not the product name.
 
-- Baseline: a2d2b5912e8dd93668aae787b198441d8100a969 plus this documentation branch. Reconcile later main changes before editing; do not silently replace approved semantics.
+- Baseline: a8d361b0244a1c40be513622bbdaebb5c9d40014 (current main). This SC-P5 refresh changes no approved product semantics.
 - One Service.Run path, Journal, policy/approval pipeline and workspace owner. Eino imports remain confined to runtime/provider.
 - Read repository AGENTS.md, ui/AGENTS.md, vivy-eino, vivy-plugin and vivy-kernel-ci instructions before their respective implementation tasks. Do not touch tenant data/ directories.
 - Default: current session only, intersected with policy. Attaching selected excerpts grants access only to those captured excerpts.
 - No automatic retrieval, long-term memory, persona, channels, SSH, image offload, publishing, new engine or external search service.
 - New delivery groups are additive; delivery does not imply run completion or passed verification. Preserve saved excerpt when its source is deleted; disclose that copy semantics.
-- Effective bounds are the minimum of SC-D3 ceilings and existing runtime limits. One backend-owned limits projection; no independent UI constants.
+- Effective bounds are the minimum of SC-D4 ceilings and existing runtime limits. One backend-owned limits projection; no independent UI constants.
 - No new public Port, hand-edited generated Assembly, separate permissions database, transcript database, filesystem mirror or permanent artifact archive.
 - Documentation/commits are English; UI copy supports en/zh. Use verified human git attribution per AGENTS.md; do not inherit a generic AI identity.
 - Each task uses fail -> minimal implementation -> pass -> focused commit. Required final gate is just ci plus real split-GUI smoke; focused tests are not substitutes.
@@ -35,11 +37,11 @@
 
 ## Execution entry point
 
-Use the [Story index](session-continuity/index.md) for the only status/dependency table, execution waves and T0–T12 plans. This file owns shared contracts and constraints; each Story owns its implementation checklist. The approved SC-D3 remains the sole product design.
+Use the [Story index](session-continuity/index.md) for the only status/dependency table, execution waves and T0–T12 plans. This file owns shared contracts and constraints; each Story owns its implementation checklist. The approved SC-D4 remains the sole product design.
 
 ## Shared contract ledger
 
-These names are the shared contract; later tasks must not create alternative DTOs. Go types live in the three domain files named by T1; JSON tags use snake_case. Existing SourceRef, HistoryItem, ContextReference and Deliverable fields are specified in SC-D3 §5.
+These names are the shared contract; later tasks must not create alternative DTOs. Go types live in the three domain files named by T1; JSON tags use snake_case. Existing SourceRef, HistoryItem, ContextReference and Deliverable fields are specified in SC-D4 §5.
 
 | Type | Fields / invariant |
 | --- | --- |
@@ -113,4 +115,4 @@ Admission must lock source and destination sessions in sorted-ID order, validate
 
 Design is confirmed; the restructured Story package requires user review before execution per Superpowers. Recommend native implementation because contract/storage/app/UI seams are shared, with one whole-branch review after implementation. Delegated execution is available if selected, with isolated worktrees and no concurrent writes to common files.
 
-Known prerequisite: centralized migration ownership from #45 and usable just/Go/pnpm/Postgres/browser environment. These are explicit execution gates, not unimplemented product semantics. No time or performance estimate is claimed. On completion report implemented/verified/unverified separately, retain iteration evidence, and push/create PR only under user authorization.
+Known prerequisites: accepted predecessor evidence and usable just/Go/pnpm/Postgres/browser environment. PR #45 is already merged: `internal/storage/migrations` owns paired embedded SQLite/PostgreSQL migrations through `manifest.go`/`runner.go`; highest is `023_workspace_path.sql` and `024` is only the next available logical number. These are explicit execution gates, not unimplemented product semantics. No time or performance estimate is claimed. On completion report implemented/verified/unverified separately, retain iteration evidence, and push/create PR only under user authorization.

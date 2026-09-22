@@ -1,8 +1,8 @@
 # Session Continuity and Explicit Deliverables
 
-Revision SC-D3, 2026-09-21. Status: product design confirmed in conversation; detailed frontend and implementation planning recorded. Product code is not implemented.
+Revision SC-D4, 2026-09-22. Status: product design confirmed in conversation; planning baseline refreshed without changing approved product semantics. Product code is not implemented.
 Product authority: [Issue #51](https://github.com/ProjectViVy/agent-vivy/issues/51).
-Baseline: `a2d2b5912e8dd93668aae787b198441d8100a969` (main).
+Baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (main).
 
 ## 1. Intent and decision
 
@@ -30,7 +30,7 @@ Confirmed product defaults are explicit: model history is current-session-only u
 | Context feed | `internal/runtime/contextadapter.go`, `context.go` | Existing ContextHost budgets and user-part projection are the integration seam. Imported roles must not become live system/tool roles. |
 | UI | `ui/src/lib/api.ts`, `store.ts`, chat components | Backend owns truth; preserve current transport and store, no demo/localStorage implementation. |
 
-Related active work at inspection: PR #45 centralizes paired SQLite/PostgreSQL migrations (head `760ac1c`); PR #44 integrates channel work on the modular branch (`611cec9`); PR #36 remains channel-only (`eb8fee3`). Do not merge their implementations into this design lane. Schema implementation should follow #45's migration owner once integrated; never reintroduce inline DDL. Channel work is not a dependency. #47's proposed `session_work_events` is work-control state, not a history database; #51 neither extends it nor creates a competing work-control journal. #47 can later cite deliverable IDs as evidence without #51 knowing about Goals. #32 owns media expansion and #50 owns remote SSH.
+Related work at this baseline: PR #45 is merged through `680ef78`; its centralization implementation is `760ac1c`. `internal/storage/migrations` is the central migration owner, with paired embedded SQLite/PostgreSQL SQL and `manifest.go`/`runner.go`. The highest current migration is `023_workspace_path.sql` in both dialects; `024` is the next available logical number and is recorded here, not reserved or created. PR #44 integrates channel work on the modular branch (`611cec9`); PR #36 remains channel-only (`eb8fee3`). Schema implementation must use the central migration owner and never reintroduce inline DDL. Channel work is not a dependency. `origin/feat/issue-47-goal-plan-foundation` is identical to current main and contains no `session_work_events` implementation or migration; Issue #47 remains design-only. #51 neither extends it nor creates a competing work-control journal. #47 can later cite deliverable IDs as evidence without #51 knowing about Goals. #32 owns media expansion and #50 owns remote SSH.
 
 ## 3. Ownership and Eino capability check
 
@@ -244,7 +244,7 @@ New paths below are planned, not already implemented. Prefer cohesive files over
 | Domain | new `internal/domain/history.go`, `context_reference.go`, `deliverable.go`; extend `event.go` | DTOs, source identity, versioned events |
 | Storage contract | new `internal/storage/history.go`, `continuity.go` | Bounded read/receipt/atomic admission contracts |
 | SQLite/Postgres | matching new history/continuity files; session deletion | SQL projections, transaction locking, idempotency, ordering |
-| Migration owner | `internal/storage/migrations` after #45 integration | Paired append-only migrations and indexes; no preallocated conflicting migration numbers |
+| Migration owner | `internal/storage/migrations` | Paired embedded SQLite/PostgreSQL append-only migrations and indexes via `manifest.go`/`runner.go`; highest `023_workspace_path.sql`, next available logical number `024` is not preallocated |
 | Runtime | new `history_service.go`, `reference_service.go`, `deliverable_service.go` | Narrow host operations, policy and persistence ordering |
 | Runtime integration | `service.go`, `context.go`, `contextadapter.go`, `message_projector.go`, `rewind_service.go` | Atomic task acceptance, bounded feed, replay/fork/rewind |
 | Filesystem | `workspace_files.go`, focused shared safe-open helper | Fingerprinting, transfer snapshot, secure file access |
