@@ -31,11 +31,16 @@ const faceCodePreamble = "Code mode is active: work directly on the files in thi
 // existence of an enabled tool surface, and the existing bounded Notes
 // digest; it does not introduce a new memory source or repeat the tool
 // catalog in the prompt.
-func composeRunPreamble(now time.Time, notesDigest string, hasEnabledTools bool, face domain.Face) string {
+func composeRunPreamble(now time.Time, notesDigest string, hasEnabledTools bool, face domain.Face, collaboration ...domain.CollaborationMode) string {
 	var b strings.Builder
+	softPlan := len(collaboration) > 0 && collaboration[0] == domain.CollaborationModePlan
 	fmt.Fprintf(&b, "Today's date: %s.", now.Format("2006-01-02"))
 	if face == domain.FaceCode {
 		b.WriteString("\n" + faceCodePreamble)
+	}
+	if softPlan {
+		b.WriteString("
+Planning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy.")
 	}
 	if !hasEnabledTools {
 		// Defensive: an empty active set is a legal configuration

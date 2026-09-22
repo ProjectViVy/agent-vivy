@@ -270,6 +270,10 @@ type GoalRoundAdmission struct {
 type RunOptions struct {
 	Mode    domain.RunMode
 	Profile domain.PolicyProfile
+	// CollaborationMode is orthogonal soft guidance. It never changes
+	// execution policy; legacy RunModePlan remains hard policy.
+	CollaborationMode    domain.CollaborationMode
+	CollaborationVersion int
 	// Face attributes the run to its serving assembly (domain.Face).
 	// Empty keeps the web face.
 	Face domain.Face
@@ -596,7 +600,8 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if options.Profile == "" {
 		options.Profile = s.defaultProfile
 	}
-	mode, profile, err := normalizeRunPolicy(options.Mode, options.Profile)
+	mode, profile, collaborationMode, collaborationVersion, err := normalizeRunOptions(
+		options.Mode, options.Profile, options.CollaborationMode, options.CollaborationVersion)
 	if err != nil {
 		return "", err
 	}
@@ -669,8 +674,10 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
+	collaborationPayloadMode, collaborationPayloadVersion := collaborationPayload(collaborationMode, collaborationVersion)
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
+		CollaborationMode: collaborationPayloadMode, CollaborationVersion: collaborationPayloadVersion,
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
@@ -754,7 +761,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, collaborationMode, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
 	}()
 	return runID, nil
 }
@@ -1746,7 +1753,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, collaboration domain.CollaborationMode, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -1754,7 +1761,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
+	msgs, selection, stats, err := s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, collaboration)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -1825,12 +1832,16 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 }
 
 func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
+	return s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, domain.CollaborationModeNone)
+}
+
+func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string, collaboration domain.CollaborationMode) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
 	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
 	// official middleware.
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face)
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face, collaboration)
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
