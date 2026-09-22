@@ -180,6 +180,9 @@ type Service struct {
 	goalStarting    map[domain.SessionID]struct{}
 	goalRuns        map[domain.SessionID]domain.RunID
 	goalRunSessions map[domain.RunID]domain.SessionID
+	goalAdmissionMu  sync.Mutex
+	goalWG          sync.WaitGroup
+	stopping        bool
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -905,6 +908,7 @@ func (s *Service) WaitIdle(ctx context.Context) bool {
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
+		s.goalWG.Wait()
 		close(done)
 	}()
 	select {

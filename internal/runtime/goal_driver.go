@@ -24,7 +24,18 @@ func (s *Service) WakeGoal(sessionID domain.SessionID) {
 	if s == nil || strings.TrimSpace(string(sessionID)) == "" {
 		return
 	}
+	s.goalAdmissionMu.Lock()
+	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		s.goalAdmissionMu.Unlock()
+		return
+	}
+	s.goalWG.Add(1)
+	s.mu.Unlock()
+	s.goalAdmissionMu.Unlock()
 	go func() {
+		defer s.goalWG.Done()
 		if err := s.admitGoalRound(context.Background(), sessionID); err != nil && !errors.Is(err, storage.ErrWorkRunConflict) {
 			// A failed admission leaves the Goal durable and disarmed. The
 			// next explicit human action can retry it; there is no outer retry.
@@ -35,6 +46,20 @@ func (s *Service) WakeGoal(sessionID domain.SessionID) {
 // CancelGoal cancels the process-local run currently owned by a Goal. Durable
 // pause/clear mutations remain authoritative even if the run is already
 // settling; terminal cleanup will observe the new phase and will not wake it.
+// StopAutomaticWork closes the process-local admission gate. Existing runs
+// are left to CancelAll/WaitIdle; no new automatic round can be admitted
+// after this returns.
+func (s *Service) StopAutomaticWork() {
+	if s == nil {
+		return
+	}
+	s.goalAdmissionMu.Lock()
+	s.mu.Lock()
+	s.stopping = true
+	s.mu.Unlock()
+	s.goalAdmissionMu.Unlock()
+}
+
 func (s *Service) CancelGoal(sessionID domain.SessionID) {
 	if s == nil {
 		return
@@ -69,6 +94,14 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	if s == nil || s.deps.Work == nil || s.deps.GoalRuns == nil {
 		return ErrGoalDriverUnavailable
 	}
+	s.goalAdmissionMu.Lock()
+	defer s.goalAdmissionMu.Unlock()
+	s.mu.Lock()
+	stopping := s.stopping
+	s.mu.Unlock()
+	if stopping {
+		return nil
+	}
 	if strings.TrimSpace(string(sessionID)) == "" {
 		return ErrGoalSessionRequired
 	}
@@ -98,6 +131,13 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 		delete(s.goalStarting, sessionID)
 		s.mu.Unlock()
 	}()
+
+	s.mu.Lock()
+	stopping = s.stopping
+	s.mu.Unlock()
+	if stopping {
+		return nil
+	}
 
 	round := state.Goal.RoundsStarted + 1
 	requestID := fmt.Sprintf("goal-round-%s-%d-%d", state.Goal.Ref.ID, state.Goal.Ref.Revision, round)
