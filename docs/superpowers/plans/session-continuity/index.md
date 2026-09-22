@@ -1,6 +1,6 @@
 # Issue #51 — Session Continuity Story Index
 
-Revision SC-P5, 2026-09-22. Planning package baseline refreshed; product implementation has not started. Execution and method selection still require user approval.
+Revision SC-P5, 2026-09-22. Planning package baseline refreshed; T0 and T1 are accepted, with Go verification still pending. Delegated execution is authorized for this implementation branch; external push/PR/issue updates remain separately unauthorized.
 
 ## Authority and scope
 
@@ -8,7 +8,7 @@ Revision SC-P5, 2026-09-22. Planning package baseline refreshed; product impleme
 - [Shared contracts and constraints](../2026-09-21-session-continuity.md) own DTOs, transaction rules, bounds and review focus.
 - This index alone owns Story status and dependency data. Individual plans contain executable checklists, not competing status tables.
 - Current code baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (main). PR #45 is merged through `680ef78`; its centralization implementation is `760ac1c`. `internal/storage/migrations` owns paired embedded SQLite/PostgreSQL migrations via `manifest.go`/`runner.go`; highest is `023_workspace_path.sql` in both dialects and `024` is the next available logical number, not a reservation.
-- This turn authorizes planning only. No product edits, merge, push, issue updates or deployment. No individual Story is marked Ready from a draft interface alone.
+- T0/T1 execution is authorized in this isolated branch. No external push, PR, issue update or deployment is authorized. No Story is accepted from a draft interface alone; acceptance requires reviewed implementation evidence.
 
 ## Requirements and Epics
 
@@ -27,7 +27,7 @@ Revision SC-P5, 2026-09-22. Planning package baseline refreshed; product impleme
 | Story / plan | Epic | Requirements | Immediate predecessors and required output | Outcome | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
 | [T0](T0.md) | Core-0 | R0 | None | Reconcile baseline and validation prerequisites | Accepted | SC-P5/SC-D4 documentation baseline refresh and its evidence log were reviewed and accepted; `just ci` remains unverified (exit 127: `just` not found). |
-| [T1](T1.md) | Core-0 | R0,R1,R2,R3 | T0: baseline revision, migration owner and environment evidence | Domain, JSON schemas, limits and task authority | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
+| [T1](T1.md) | Core-0 | R0,R1,R2,R3 | T0: baseline revision, migration owner and environment evidence | Domain, JSON schemas, limits and task authority | Accepted | Commits `a594912` + `9a1c5c1` passed task review and scoped fix re-review; focused Go tests remain unverified because `go` is unavailable. |
 | [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | Planned | The migration owner is available; remain non-Ready until T1 implementation and verification evidence is accepted. |
 | [T3](T3.md) | Core-1 | R1 | T2: stable HistoryQueryStore cuts and backend parity | Governed history projection, tools and inspection RPC | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
 | [T4](T4.md) | Core-2 | R2,R4 | T2: stable HistoryQueryStore cuts and backend parity | Atomic task admission and operation receipts | Planned | The migration owner is available; remain non-Ready until T2 implementation and verification evidence, including the admission workspace contract, is accepted. |
