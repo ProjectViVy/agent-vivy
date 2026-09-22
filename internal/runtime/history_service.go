@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -166,15 +167,15 @@ func (s *HistoryService) Capabilities(context.Context) (tools.HistoryCapabilitie
 		},
 		Filters: []string{"query", "session_ids", "from", "to", "kinds"},
 		Limits: tools.HistoryCapabilityLimits{
-			SearchQueryBytes: limits.SearchQueryBytes,
+			SearchQueryBytes:  limits.SearchQueryBytes,
 			SearchPageDefault: limits.SearchPageDefault,
-			SearchPageMax: limits.SearchPageMax,
-			ReadPageDefault: limits.ReadPageDefault,
-			ReadPageMax: limits.ReadPageMax,
-			CandidateRecords: limits.CandidateRecords,
-			CandidateBytes: limits.CandidateBytes,
-			ResultItemBytes: limits.ResultItemBytes,
-			ResultPageBytes: limits.ResultPageBytes,
+			SearchPageMax:     limits.SearchPageMax,
+			ReadPageDefault:   limits.ReadPageDefault,
+			ReadPageMax:       limits.ReadPageMax,
+			CandidateRecords:  limits.CandidateRecords,
+			CandidateBytes:    limits.CandidateBytes,
+			ResultItemBytes:   limits.ResultItemBytes,
+			ResultPageBytes:   limits.ResultPageBytes,
 		},
 	}, nil
 }
@@ -190,6 +191,9 @@ func (s *HistoryService) Search(ctx context.Context, request domain.HistorySearc
 	}
 	if request.ArtifactID != "" || request.TaskID != "" {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "unsupported_filter"), nil
+	}
+	if tools.SessionIDFromContext(ctx) == "" {
+		return historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
 	}
 	if s.query == nil {
 		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
@@ -209,6 +213,9 @@ func (s *HistoryService) Read(ctx context.Context, request domain.HistoryReadReq
 	}
 	if request.ReferenceID != "" {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "reference_lookup_unavailable"), nil
+	}
+	if tools.SessionIDFromContext(ctx) == "" {
+		return historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
 	}
 	if s.query == nil || request.Selection == nil {
 		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
@@ -232,12 +239,12 @@ func (s *HistoryService) Trace(ctx context.Context, request domain.HistoryTraceR
 	if request.SourceRef == nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "source_ref_required"), nil
 	}
-	if s.query == nil {
-		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
-	}
 	current := tools.SessionIDFromContext(ctx)
 	if current == "" {
 		return historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
+	}
+	if s.query == nil {
+		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
 	}
 	if !s.sessionAllowed(ctx, request.SourceRef.SessionID, current) {
 		return historyStatusPage(domain.HistoryStatusForbidden, "out_of_scope"), nil
@@ -413,12 +420,12 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 }
 
 type historyCursorState struct {
-	Version     int                  `json:"version"`
-	Destination string               `json:"destination"`
-	ScopeHash   string               `json:"scope_hash"`
-	FilterHash  string               `json:"filter_hash"`
-	Cut         storage.HistoryCut  `json:"cut"`
-	Phase       string               `json:"phase"`
+	Version     int                     `json:"version"`
+	Destination string                  `json:"destination"`
+	ScopeHash   string                  `json:"scope_hash"`
+	FilterHash  string                  `json:"filter_hash"`
+	Cut         storage.HistoryCut      `json:"cut"`
+	Phase       string                  `json:"phase"`
 	After       storage.HistoryPosition `json:"after"`
 }
 
@@ -751,21 +758,10 @@ func sanitizeHistoryText(text string, maximum int) (string, bool, bool) {
 	redacted := tools.RedactSensitive(text)
 	truncated := false
 	if len(redacted) > maximum {
-		redacted = truncateUTF8(redacted, maximum)
+		redacted = takePrefixUTF8(redacted, maximum)
 		truncated = true
 	}
 	return redacted, redacted != text, truncated
-}
-
-func truncateUTF8(text string, maximum int) string {
-	if maximum <= 0 || len(text) <= maximum {
-		return text
-	}
-	cut := maximum
-	for cut > 0 && !utf8.ValidString(text[:cut]) {
-		cut--
-	}
-	return text[:cut]
 }
 
 func historyEventAllowed(eventType domain.EventType) bool {
@@ -848,27 +844,18 @@ func (s *HistoryService) boundPage(page domain.HistoryPage, limits domain.Contin
 		page.Status = string(domain.HistoryStatusPartial)
 		page.SelectionDigest = ""
 		warning := "result_budget"
-		if !containsString(page.Warnings, warning) {
+		if !slices.Contains(page.Warnings, warning) {
 			page.Warnings = append(page.Warnings, warning)
 		}
 	}
 	return page
 }
 
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
 type historyFilterEnvelope struct {
-	Kind       string                     `json:"kind"`
-	Search     *domain.HistorySearchRequest `json:"search,omitempty"`
-	Read       *domain.HistoryReadRequest   `json:"read,omitempty"`
-	ScopeHash  string                     `json:"scope_hash"`
+	Kind      string                       `json:"kind"`
+	Search    *domain.HistorySearchRequest `json:"search,omitempty"`
+	Read      *domain.HistoryReadRequest   `json:"read,omitempty"`
+	ScopeHash string                       `json:"scope_hash"`
 }
 
 func historyFilterHash(kind string, request any, scopeHash string) string {
