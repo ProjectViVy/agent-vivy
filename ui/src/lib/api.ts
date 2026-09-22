@@ -310,6 +310,8 @@ export const setSessionWorkspace = (id: string, workspacePath: string) => reques
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
 export const getSessionWork = (sessionId: string) => request<WorkState>('session/work/get', { session_id: sessionId });
+export const getPlan = (sessionId: string, submissionId: string) =>
+  request<WorkPlan>('plan/get', { session_id: sessionId, submission_id: submissionId });
 export const commitWork = (method: WorkMethod, params: Record<string, unknown>) =>
   request<WorkCommitResult>(method, params);
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });

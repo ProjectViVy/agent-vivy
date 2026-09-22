@@ -904,6 +904,9 @@ func cnRunsBySession(t *testing.T, h Harness) {
 	if got[1].Status != domain.RunActive || got[0].Status != domain.RunCompleted {
 		t.Fatalf("ListRunsBySession must return all statuses, got %s then %s", got[0].Status, got[1].Status)
 	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-conflict", SessionID: "sess-pin", Status: domain.RunAccepted, CreatedAt: 3}); !errors.Is(err, storage.ErrWorkRunConflict) {
+		t.Fatalf("second active primary CreateRun = %v, want ErrWorkRunConflict", err)
+	}
 	empty, err := b.ListRunsBySession(ctx, "sess-none")
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("ListRunsBySession(unknown) = %+v, %v; want empty, nil", empty, err)

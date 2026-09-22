@@ -33,6 +33,17 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	} else if err != nil {
 		return fmt.Errorf("storage: lock session for run %s: %w", r.ID, err)
 	}
+	if kind == domain.RunKindPrimary && (r.Status == domain.RunAccepted || r.Status == domain.RunQueued || r.Status == domain.RunActive) {
+		var active int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM runs WHERE session_id = $1 AND kind = $2 AND status IN `+activeStatuses,
+			r.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
+			return fmt.Errorf("storage: inspect active run for %s: %w", r.ID, err)
+		}
+		if active != 0 {
+			return storage.ErrWorkRunConflict
+		}
+	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,

@@ -53,6 +53,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
           </span>
         ) : <span className="text-xs text-muted-foreground">{t('workControl.noGoal')}</span>}
         <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{t('workControl.' + work.activation)}</span>
+        {work.current_run_id ? <span className="text-[11px] text-muted-foreground">{t('workControl.currentRun')}: {work.current_run_id}</span> : null}
         <div className="ml-auto flex flex-wrap gap-1">
           {goal && goalIsActive ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void runAction(pauseGoal)}>{t('workControl.pause')}</Button> : null}
           {goal && goal.phase === 'paused' ? <Button type="button" size="sm" variant="outline" disabled={busy || Boolean(work.plan.active)} onClick={() => void runAction(resumeGoal)}>{t('workControl.resume')}</Button> : null}
@@ -66,6 +67,12 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
           <Textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder={t('workControl.objectivePlaceholder')} disabled={busy} className="min-h-9 flex-1" />
           <Input value={maxRounds} onChange={(event) => setMaxRounds(event.target.value)} aria-label={t('workControl.maxRounds')} type="number" min={1} max={1000} disabled={busy} className="w-24" />
           <Button type="button" disabled={busy || !objective.trim()} onClick={() => void create()}>{t('workControl.create')}</Button>
+        </div>
+      ) : null}
+      {goal && (goal.reason || goal.evidence_run_id) ? (
+        <div className="mx-auto mt-1 flex max-w-4xl flex-wrap gap-x-3 text-[11px] text-muted-foreground">
+          {goal.reason ? <span>{t('workControl.reason')}: {goal.reason}</span> : null}
+          {goal.evidence_run_id ? <span>{t('workControl.evidence')}: {goal.evidence_run_id}</span> : null}
         </div>
       ) : null}
       {plan?.active ? <PlanReview plan={plan} busy={busy} onDecide={handlePlanDecision} /> : null}
