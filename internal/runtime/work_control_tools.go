@@ -34,7 +34,42 @@ func (s *Service) modelWorkContext(ctx context.Context) (domain.SessionID, domai
 	if run.SessionID != sessionID || (run.Kind != "" && run.Kind != domain.RunKindPrimary) {
 		return "", "", fmt.Errorf("runtime: work tool run is not the session primary run")
 	}
+	if run.Status != domain.RunActive {
+		return "", "", ErrWorkRunUnavailable
+	}
+	s.mu.Lock()
+	owner, live := s.runSessions[runID]
+	s.mu.Unlock()
+	if !live || owner != sessionID {
+		return "", "", ErrWorkRunUnavailable
+	}
 	return sessionID, runID, nil
+}
+
+// WorkRunFenced reports whether a model Goal run has already committed a
+// terminal work report. The tool adapter uses this process-local fence to
+// reject every later tool call in the same model batch.
+func (s *Service) WorkRunFenced(ctx context.Context) bool {
+	if s == nil {
+		return false
+	}
+	runID := tools.RunIDFromContext(ctx)
+	if runID == "" {
+		return false
+	}
+	s.mu.Lock()
+	_, fenced := s.workFenced[runID]
+	s.mu.Unlock()
+	return fenced
+}
+
+func (s *Service) fenceWorkRun(runID domain.RunID) {
+	if s == nil || runID == "" {
+		return
+	}
+	s.mu.Lock()
+	s.workFenced[runID] = struct{}{}
+	s.mu.Unlock()
 }
 
 func modelWorkIdentity(runID domain.RunID, operation string, input any) (string, string, error) {
@@ -157,7 +192,7 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 	if reason == "" {
 		reason = "model reported " + status
 	}
-	return s.commitModelWork(ctx, sessionID, runID, "report-goal", map[string]any{
+	state, err := s.commitModelWork(ctx, sessionID, runID, "report-goal", map[string]any{
 		"goal_id": goalID, "revision": revision, "status": status, "reason": reason,
 	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
@@ -167,4 +202,8 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 			Reason: reason, EvidenceRunID: runID,
 		}
 	})
+	if err == nil {
+		s.fenceWorkRun(runID)
+	}
+	return state, err
 }
