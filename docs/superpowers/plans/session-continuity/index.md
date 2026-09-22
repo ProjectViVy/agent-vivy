@@ -1,6 +1,6 @@
 # Issue #51 — Session Continuity Story Index
 
-Revision SC-P5, 2026-09-22. Planning package baseline refreshed; T0 and T1 are accepted, with Go verification still pending. Delegated execution is authorized for this implementation branch; external push/PR/issue updates remain separately unauthorized.
+Revision SC-P6, 2026-09-22. Planning package baseline refreshed; T0 and T1 are accepted and T2 execution is in progress, with Go verification still pending. Delegated execution is authorized for this implementation branch; external push/PR/issue updates remain separately unauthorized.
 
 ## Authority and scope
 
@@ -28,7 +28,7 @@ Revision SC-P5, 2026-09-22. Planning package baseline refreshed; T0 and T1 are a
 | --- | --- | --- | --- | --- | --- | --- |
 | [T0](T0.md) | Core-0 | R0 | None | Reconcile baseline and validation prerequisites | Accepted | SC-P5/SC-D4 documentation baseline refresh and its evidence log were reviewed and accepted; `just ci` remains unverified (exit 127: `just` not found). |
 | [T1](T1.md) | Core-0 | R0,R1,R2,R3 | T0: baseline revision, migration owner and environment evidence | Domain, JSON schemas, limits and task authority | Accepted | Commits `a594912` + `9a1c5c1` passed task review and scoped fix re-review; focused Go tests remain unverified because `go` is unavailable. |
-| [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | Planned | The migration owner is available; remain non-Ready until T1 implementation and verification evidence is accepted. |
+| [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | In progress | T1 is accepted (9a1c5c1 plus status commit 94fd4b9); a fresh implementer is active on the isolated branch. Go/Postgres verification remains pending and no T2 acceptance is implied. |
 | [T3](T3.md) | Core-1 | R1 | T2: stable HistoryQueryStore cuts and backend parity | Governed history projection, tools and inspection RPC | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
 | [T4](T4.md) | Core-2 | R2,R4 | T2: stable HistoryQueryStore cuts and backend parity | Atomic task admission and operation receipts | Planned | The migration owner is available; remain non-Ready until T2 implementation and verification evidence, including the admission workspace contract, is accepted. |
 | [T5](T5.md) | Core-2 | R2 | T3: sanitized HistoryService, model tools and inspection RPC; T4: atomic ContinuityStore admission and idempotent receipts | Explicit reference preview and attachment | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
