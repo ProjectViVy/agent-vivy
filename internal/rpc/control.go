@@ -348,8 +348,8 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-    CollaborationMode    string Z`json:"collaboration_mode,omitempty"`
-    CollaborationVersion int    Z`json:"collaboration_version,omitempty"`
+    CollaborationMode    string `json:"collaboration_mode,omitempty"`
+    CollaborationVersion int    `json:"collaboration_version,omitempty"`
 	SessionID       string           `json:"session_id"`
 	Text            string           `json:"text"`
 	Mode            string           `json:"mode,omitempty"`
@@ -370,8 +370,8 @@ type shellParams struct {
 }
 
 type editSessionParams struct {
-    CollaborationMode    string Z`json:"collaboration_mode,omitempty"`
-    CollaborationVersion int    Z`json:"collaboration_version,omitempty"`
+    CollaborationMode    string `json:"collaboration_mode,omitempty"`
+    CollaborationVersion int    `json:"collaboration_version,omitempty"`
 	SessionID     string `json:"session_id"`
 	MessageID     string `json:"message_id"`
 	Text          string `json:"text"`
