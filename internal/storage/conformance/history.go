@@ -354,12 +354,14 @@ func assertHistoryMetadataBounds(t *testing.T, b storage.Engine, q storage.Histo
 	ctx := context.Background()
 	limits := domain.DefaultContinuityLimits()
 	limits.CandidateRecords = 1
-	hostile := strings.Repeat("x", 1<<20)
+	largeRole := strings.Repeat("x", 1<<20)
+	hostileLabel := strings.Repeat("x", storage.HistoryMetadataLabelBytesMax+1)
+	hostileIdentity := strings.Repeat("x", storage.HistoryMetadataIdentityBytesMax+1)
 
 	messageSID := domain.SessionID("history-message-metadata")
 	createHistorySession(t, b, messageSID)
 	appendHistoryMessage(t, b, messageSID, "metadata-safe", 1, "safe")
-	if err := b.AppendMessage(ctx, domain.Message{ID: "metadata-hostile", SessionID: messageSID, Role: domain.Role(hostile), CreatedAt: 2, Content: "safe"}); err != nil { t.Fatal(err) }
+	if err := b.AppendMessage(ctx, domain.Message{ID: "metadata-hostile", SessionID: messageSID, Role: domain.Role(largeRole), CreatedAt: 2, Content: "safe"}); err != nil { t.Fatal(err) }
 	messageCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{messageSID})
 	if err != nil { t.Fatal(err) }
 	messageFirst, err := q.QueryHistoryPage(ctx, messageCut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Limit: 2, Limits: limits})
@@ -377,7 +379,7 @@ func assertHistoryMetadataBounds(t *testing.T, b storage.Engine, q storage.Histo
 	if err := b.CreateRun(ctx, domain.Run{ID: eventRunID, SessionID: eventSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
 	if _, err := b.Append(ctx, storage.Commit{RunID: eventRunID, Events: []domain.RunEvent{
 		{Type: domain.EventModelDelta, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{}`)},
-		{Type: domain.EventType(hostile), CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)},
+		{Type: domain.EventType(hostileLabel), CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)},
 	}}); err != nil { t.Fatal(err) }
 	eventCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{eventSID})
 	if err != nil { t.Fatal(err) }
@@ -392,7 +394,7 @@ func assertHistoryMetadataBounds(t *testing.T, b storage.Engine, q storage.Histo
 
 	runSID := domain.SessionID("history-run-metadata")
 	createHistorySession(t, b, runSID)
-	if err := b.CreateRun(ctx, domain.Run{ID: domain.RunID(hostile), SessionID: runSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
+	if err := b.CreateRun(ctx, domain.Run{ID: domain.RunID(hostileIdentity), SessionID: runSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
 	if _, err := q.CaptureHistoryCut(ctx, []domain.SessionID{runSID}); !errors.Is(err, storage.ErrHistoryMalformed) {
 		t.Fatalf("oversized captured run ID = %v, want ErrHistoryMalformed", err)
 	}
