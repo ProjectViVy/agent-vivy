@@ -183,6 +183,7 @@ type Service struct {
 	goalAdmissionMu sync.Mutex
 	goalWG          sync.WaitGroup
 	stopping        bool
+	humanPending    map[domain.SessionID]int
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -312,6 +313,10 @@ type RunOptions struct {
 	// GoalRound requests the atomic Goal admission path. Ordinary callers
 	// leave it nil and retain the legacy startup sequence.
 	GoalRound *GoalRoundAdmission
+	// HumanAdmission registers a host-originated request before it competes
+	// with an uncommitted automatic Goal candidate. It is set only by the
+	// authenticated control plane, never by model/tool JSON.
+	HumanAdmission bool
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -339,6 +344,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalStarting:    make(map[domain.SessionID]struct{}),
 		goalRuns:        make(map[domain.SessionID]domain.RunID),
 		goalRunSessions: make(map[domain.RunID]domain.SessionID),
+		humanPending:    make(map[domain.SessionID]int),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
 		pending:         make(map[domain.RunID]pendingRun),
@@ -600,6 +606,20 @@ type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.Ru
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
+	}
+	if options.HumanAdmission && options.GoalRound == nil {
+		s.mu.Lock()
+		s.humanPending[sessionID]++
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			if pending := s.humanPending[sessionID]; pending <= 1 {
+				delete(s.humanPending, sessionID)
+			} else {
+				s.humanPending[sessionID] = pending - 1
+			}
+			s.mu.Unlock()
+		}()
 	}
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
@@ -3055,7 +3075,9 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	s.mu.Lock()
 	var shellStateRefToDelete string
 	var goalSession domain.SessionID
+	var runSession domain.SessionID
 	goalSession = s.goalRunSessions[terminal.RunID]
+	runSession = s.runSessions[terminal.RunID]
 	delete(s.goalRunSessions, terminal.RunID)
 	if goalSession != "" && s.goalRuns[goalSession] == terminal.RunID {
 		delete(s.goalRuns, goalSession)
@@ -3079,6 +3101,10 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status)
 		settleCancel()
+	} else if status == domain.RunCompleted && runSession != "" {
+		// A completed human turn releases the session for the next
+		// event-driven Goal candidate, if one is still durable and active.
+		s.WakeGoal(runSession)
 	}
 }
 
