@@ -32,6 +32,10 @@ Observed implementation writers: `internal/storage/sqlite/messages.go`, `interna
 
 ### Unverified checks and environment skips
 
+| Command | Result |
+| --- | --- |
+| `just ci` | UNVERIFIED — exit 127: `/bin/bash: just: command not found`. This is not a passing CI result. |
+
 `node` and `pnpm` are available. `go`, `just`, PowerShell (`pwsh`/`powershell`), Docker, PostgreSQL client (`psql`), Chromium, and Playwright are unavailable; `ui/node_modules` is absent. Accordingly, Go tests, `just ci`, PostgreSQL checks, HTTP/UI browser smoke, and Playwright/browser-cache checks are unverified, not passes.
 
 ### T0 conclusion
