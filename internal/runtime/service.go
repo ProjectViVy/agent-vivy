@@ -1832,6 +1832,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithMountedTools(runCtx, mounts)
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
+	runCtx = tools.WithWorkControl(runCtx, s)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
@@ -2829,6 +2830,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
+	ctx = tools.WithWorkControl(ctx, s)
 	// Restore the skill mounts captured at suspend time so tools mounted
 	// before the interrupt stay callable after resume (TT-2). A nil
 	// registry (restart recovery) falls back to a fresh one so a
