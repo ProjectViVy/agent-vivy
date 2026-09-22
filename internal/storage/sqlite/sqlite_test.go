@@ -350,11 +350,13 @@ func TestMessagesPersistImageAttachments(t *testing.T) {
 	}
 	// Re-appending the same message id must not resurrect stale attachment
 	// rows: a surviving attachment would attach itself to the new row.
-	if err := b.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: "s-att2", Role: domain.RoleUser, CreatedAt: 3, Content: "reborn"}); err != nil {
-		t.Fatalf("AppendMessage re-born: %v", err)
-	}
+	// The destination session must exist first: message position allocation
+	// is fail-closed against the session row.
 	if err := b.CreateSession(ctx, domain.Session{ID: "s-att2", Title: "reborn", CreatedAt: 3}); err != nil {
 		t.Fatalf("CreateSession s-att2: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: "s-att2", Role: domain.RoleUser, CreatedAt: 3, Content: "reborn"}); err != nil {
+		t.Fatalf("AppendMessage re-born: %v", err)
 	}
 	reborn, err := b.ListMessages(ctx, "s-att2")
 	if err != nil {
