@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -127,8 +128,11 @@ func decodeToolArgs(args json.RawMessage, target any) error {
 		return &ArgError{Field: "args", Reason: fmt.Sprintf("must be one JSON object: %v", err)}
 	}
 	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return &ArgError{Field: "args", Reason: "must contain one JSON object"}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return &ArgError{Field: "args", Reason: "must contain one JSON object"}
+		}
+		return &ArgError{Field: "args", Reason: fmt.Sprintf("must contain one JSON object: %v", err)}
 	}
 	return nil
 }
@@ -313,9 +317,6 @@ func (reportGoalTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 	}
 	if params.Status != "completed" && params.Status != "blocked" {
 		return "", &ArgError{Field: "status", Reason: "must be completed or blocked"}
-	}
-	if params.Reason == "" {
-		return "", &ArgError{Field: "reason", Reason: "must not be empty"}
 	}
 	if len([]byte(params.Reason)) > 4<<10 {
 		return "", &ArgError{Field: "reason", Reason: "exceeds the 4 KiB limit"}
