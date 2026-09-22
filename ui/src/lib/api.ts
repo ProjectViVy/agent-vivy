@@ -93,6 +93,7 @@ export interface WorkState {
   goal?: WorkGoal;
   plan: WorkPlan;
   activation: 'armed' | 'disarmed';
+  current_run_id?: string;
 }
 export interface WorkEvent {
   seq: number;

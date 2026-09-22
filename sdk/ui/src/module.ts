@@ -1522,6 +1522,52 @@ export interface FaceRunEvent {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
+export interface FaceWorkGoal {
+  readonly id: string;
+  readonly revision: number;
+  readonly objective: string;
+  readonly phase: "active" | "paused" | "blocked" | "completed";
+  readonly max_rounds: number;
+  readonly rounds_started: number;
+}
+
+export interface FaceWorkPlan {
+  readonly active: boolean;
+  readonly submission_id?: string;
+  readonly markdown?: string;
+  readonly review_status: "none" | "pending" | "accepted" | "rejected" | "cancelled" | "expired";
+  readonly feedback?: string;
+  readonly origin_run_id?: string;
+  readonly origin_tool_call_id?: string;
+}
+
+export interface FaceWorkState {
+  readonly session_id: string;
+  readonly version: number;
+  readonly goal?: FaceWorkGoal;
+  readonly plan: FaceWorkPlan;
+  readonly activation: "armed" | "disarmed";
+  readonly current_run_id?: string;
+}
+
+export interface FaceWorkEvent {
+  readonly seq: number;
+  readonly kind: string;
+  readonly request_id: string;
+  readonly created_at: number;
+}
+
+export interface FaceWorkCommitResult {
+  readonly work: FaceWorkState;
+  readonly event: FaceWorkEvent;
+  readonly replayed: boolean;
+}
+
+export type FaceWorkMethod =
+  | "goal/create" | "goal/edit" | "goal/pause" | "goal/resume" | "goal/complete" | "goal/block" | "goal/clear"
+  | "plan/enter" | "plan/leave" | "plan/submit" | "plan/decide";
+
+
 /** Structural client surface aligned with the current Web Face API module. */
 export interface FaceClientAPI {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -1538,6 +1584,8 @@ export interface FaceClientAPI {
 	setSessionWorkspace(id: string, workspacePath: string): Promise<FaceSession>;
   deleteSession(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<FaceMessageList>;
+  getSessionWork(sessionId: string): Promise<FaceWorkState>;
+  commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
   compactSession(sessionId: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
@@ -1687,6 +1735,10 @@ export interface FaceStoreState {
   readonly streamingReasoning: string;
   readonly runError: string | null;
   readonly runBusy: boolean;
+  readonly work: FaceWorkState | null;
+  readonly workPhase: FacePhase;
+  readonly workError: string | null;
+  readonly workBusy: boolean;
   readonly queuedMessages: FaceQueuedMessage[];
   readonly backgroundRuns: FaceBackgroundRun[];
   readonly backgroundPhase: FacePhase;
@@ -1740,6 +1792,16 @@ export interface FaceStoreState {
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
+  loadWork(sessionId?: string): Promise<void>;
+  commitWork(method: FaceWorkMethod, fields?: Record<string, unknown>): Promise<FaceWorkCommitResult>;
+  createGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
+  editGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
+  pauseGoal(reason?: string): Promise<FaceWorkCommitResult>;
+  resumeGoal(): Promise<FaceWorkCommitResult>;
+  clearGoal(): Promise<FaceWorkCommitResult>;
+  enterPlan(): Promise<FaceWorkCommitResult>;
+  leavePlan(): Promise<FaceWorkCommitResult>;
+  decidePlan(action: "revise" | "execute_once" | "start_goal", feedback?: string): Promise<FaceWorkCommitResult>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;
