@@ -90,6 +90,7 @@ var (
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
 	Journal  storage.Journal
+	Work     storage.WorkStore
 	Runs     storage.RunStore
 	Messages storage.MessageStore
 	GoalRuns storage.GoalRunStore

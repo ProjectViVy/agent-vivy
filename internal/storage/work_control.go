@@ -12,6 +12,7 @@ var (
 	ErrWorkRequestConflict = errors.New("storage: work request conflict")
 	ErrWorkInvalidMutation = errors.New("storage: invalid work mutation")
 	ErrWorkEventCorrupt    = errors.New("storage: corrupt work event")
+	ErrWorkRunConflict     = errors.New("storage: active run conflict")
 )
 
 // WorkCommitResult is the durable result of one work mutation. Replayed results

@@ -62,6 +62,7 @@ type ControlDeps struct {
 	Messages  storage.MessageStore
 	Runs      storage.RunStore
 	Journal   storage.Journal
+	Work      storage.WorkStore
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
