@@ -89,6 +89,9 @@ type ControlDeps struct {
 	// session/messages filtering and session/rewind. Nil leaves the full
 	// history in every view and disables the method.
 	Truncations storage.TruncationStore
+	// History is the single runtime-owned bounded projection shared by model
+	// tools and operator inspection RPCs. Nil disables history/*.
+	History tools.HistoryOperations
 	Bus         *events.Bus
 	Service     *runtime.Service
 	Studio      *studio.Service
@@ -1014,6 +1017,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
+		if h.deps.History != nil {
+			capabilities = append(capabilities, "history/search", "history/read", "history/trace", "history/capabilities", "history/sessions")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -1058,6 +1064,16 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerSessionRequest(ctx, peer, request)
 		}
 		return result, rpcErr
+	case "history/search":
+		return h.historySearch(ctx, request)
+	case "history/read":
+		return h.historyRead(ctx, request)
+	case "history/trace":
+		return h.historyTrace(ctx, request)
+	case "history/capabilities":
+		return h.historyCapabilities(ctx)
+	case "history/sessions":
+		return h.historySessions(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {
