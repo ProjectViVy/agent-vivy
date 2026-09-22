@@ -106,10 +106,22 @@ func ValidateWorkMutation(mutation domain.WorkMutation) error {
 	switch mutation.Kind {
 	case domain.WorkEventPlanEntered,
 		domain.WorkEventPlanLeft,
-		domain.WorkEventPlanSubmitted,
-		domain.WorkEventPlanDecided:
+		domain.WorkEventPlanSubmitted:
 		if mutation.Admission != (domain.GoalRunAdmission{}) ||
 			mutation.Goal != (domain.GoalRef{}) {
+			return ErrWorkInvalidMutation
+		}
+	case domain.WorkEventPlanDecided:
+		switch mutation.PlanAction {
+		case domain.PlanDecisionRevise, domain.PlanDecisionExecuteOnce:
+			if mutation.Admission != (domain.GoalRunAdmission{}) || mutation.Goal != (domain.GoalRef{}) || mutation.Objective != "" || mutation.MaxRounds != 0 {
+				return ErrWorkInvalidMutation
+			}
+		case domain.PlanDecisionStartGoal:
+			if mutation.Admission != (domain.GoalRunAdmission{}) || mutation.Goal.ID == "" || mutation.Goal.Revision != 1 || mutation.Objective == "" || mutation.MaxRounds <= 0 {
+				return ErrWorkInvalidMutation
+			}
+		default:
 			return ErrWorkInvalidMutation
 		}
 	default:

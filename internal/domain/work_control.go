@@ -288,12 +288,26 @@ func decidePlan(state *WorkState, mutation WorkMutation) error {
 	}
 	switch mutation.PlanAction {
 	case PlanDecisionRevise:
+		if mutation.Goal != (GoalRef{}) || mutation.Objective != "" || mutation.MaxRounds != 0 {
+			return fmt.Errorf("%w: revision cannot carry Goal fields", ErrStaleGoalReference)
+		}
 		state.Plan.ReviewStatus = PlanReviewRejected
 		state.Plan.Feedback = mutation.PlanFeedback
-	case PlanDecisionExecuteOnce, PlanDecisionStartGoal:
+	case PlanDecisionExecuteOnce:
+		if mutation.Goal != (GoalRef{}) || mutation.Objective != "" || mutation.MaxRounds != 0 {
+			return fmt.Errorf("%w: execute_once cannot carry Goal fields", ErrStaleGoalReference)
+		}
 		state.Plan.Active = false
 		state.Plan.ReviewStatus = PlanReviewAccepted
 		state.Plan.Feedback = mutation.PlanFeedback
+	case PlanDecisionStartGoal:
+		if state.Goal != nil || mutation.Goal.ID == "" || mutation.Goal.Revision != 1 || mutation.Objective == "" || mutation.MaxRounds <= 0 {
+			return fmt.Errorf("%w: start_goal requires a new Goal", ErrStaleGoalReference)
+		}
+		state.Plan.Active = false
+		state.Plan.ReviewStatus = PlanReviewAccepted
+		state.Plan.Feedback = mutation.PlanFeedback
+		state.Goal = &GoalState{Ref: mutation.Goal, Objective: mutation.Objective, Phase: WorkPhaseActive, MaxRounds: mutation.MaxRounds}
 	default:
 		return fmt.Errorf("%w: unsupported plan decision %q", ErrStaleGoalReference, mutation.PlanAction)
 	}
@@ -358,9 +372,7 @@ func transitionGoal(state *WorkState, mutation WorkMutation, phase WorkPhase) er
 	}
 	state.Goal.Phase = phase
 	state.Goal.Reason = mutation.Reason
-	if mutation.EvidenceRunID != "" {
-		state.Goal.EvidenceRunID = mutation.EvidenceRunID
-	}
+	state.Goal.EvidenceRunID = mutation.EvidenceRunID
 	return nil
 }
 
