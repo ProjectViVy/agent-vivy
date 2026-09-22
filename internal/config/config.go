@@ -646,7 +646,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent", "history_search", "history_read", "history_trace"},
 			NetworkSearch: NetworkSearchConfig{Provider: ""},
 			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
