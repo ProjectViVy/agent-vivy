@@ -1,13 +1,13 @@
 # Issue #51 — Session Continuity Story Index
 
-Revision SC-P4, 2026-09-21. Planning package complete; product implementation has not started. Execution and method selection still require user approval.
+Revision SC-P5, 2026-09-22. Planning package baseline refreshed; product implementation has not started. Execution and method selection still require user approval.
 
 ## Authority and scope
 
-- [SC-D3 product specification](../../specs/2026-09-21-session-continuity-design.md) is unchanged, including its full frontend design.
+- [SC-D4 product specification](../../specs/2026-09-21-session-continuity-design.md) is unchanged in product semantics, including its full frontend design.
 - [Shared contracts and constraints](../2026-09-21-session-continuity.md) own DTOs, transaction rules, bounds and review focus.
 - This index alone owns Story status and dependency data. Individual plans contain executable checklists, not competing status tables.
-- Inspected branch: `docs/issue51-architecture`, revision `e2bfc333f857ddf36f828e3bb17e06e7c6a3e8cf`; underlying code `a2d2b5912e8dd93668aae787b198441d8100a969`.
+- Current code baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (main). PR #45 is merged through `680ef78`; its centralization implementation is `760ac1c`. `internal/storage/migrations` owns paired embedded SQLite/PostgreSQL migrations via `manifest.go`/`runner.go`; highest is `023_workspace_path.sql` in both dialects and `024` is the next available logical number, not a reservation.
 - This turn authorizes planning only. No product edits, merge, push, issue updates or deployment. No individual Story is marked Ready from a draft interface alone.
 
 ## Requirements and Epics
@@ -28,9 +28,9 @@ Revision SC-P4, 2026-09-21. Planning package complete; product implementation ha
 | --- | --- | --- | --- | --- | --- | --- |
 | [T0](T0.md) | Core-0 | R0 | None | Reconcile baseline and validation prerequisites | Planned | Read-only audit can be selected after plan review; no implementation baseline gate passed. |
 | [T1](T1.md) | Core-0 | R0,R1,R2,R3 | T0: baseline revision, migration owner and environment evidence | Domain, JSON schemas, limits and task authority | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
-| [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | Blocked | Migration owner from #45 is not in this baseline; T0 must resolve its integration and allocation before DDL. |
+| [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | Planned | The migration owner is available; remain non-Ready until T1 implementation and verification evidence is accepted. |
 | [T3](T3.md) | Core-1 | R1 | T2: stable HistoryQueryStore cuts and backend parity | Governed history projection, tools and inspection RPC | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
-| [T4](T4.md) | Core-2 | R2,R4 | T2: stable HistoryQueryStore cuts and backend parity | Atomic task admission and operation receipts | Blocked | Migration owner from #45 is not in this baseline; T0 must resolve its integration and allocation before DDL. |
+| [T4](T4.md) | Core-2 | R2,R4 | T2: stable HistoryQueryStore cuts and backend parity | Atomic task admission and operation receipts | Planned | The migration owner is available; remain non-Ready until T2 implementation and verification evidence, including the admission workspace contract, is accepted. |
 | [T5](T5.md) | Core-2 | R2 | T3: sanitized HistoryService, model tools and inspection RPC; T4: atomic ContinuityStore admission and idempotent receipts | Explicit reference preview and attachment | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
 | [T6](T6.md) | Core-2 | R2,R4 | T5: reference preview/digest and attach integration | Feed projection and historical lifecycle | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
 | [T7](T7.md) | Core-2 | R1,R2,R5 | T5: reference preview/digest and attach integration | History picker, composer and queue | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
@@ -58,7 +58,7 @@ Waves are logical ordering, not permission for parallel writes. Recommended exec
 
 | Shared boundary | Story owners | Scheduling rule |
 | --- | --- | --- |
-| Migration manifest and message/session/journal writers | T2 then T4 | One storage lane; T0 allocates from the actual migration owner. No inline DDL or competing migration numbers. |
+| Migration manifest and message/session/journal writers | T2 then T4 | One storage lane under `internal/storage/migrations`; T0 records highest `023_workspace_path.sql` and next available logical number `024` without reserving it. No inline DDL or competing migration numbers. |
 | Tool registry / app composition / RPC dispatch | T3,T5,T8,T10 | Sequence shared-file edits; each service's adapters remain cohesive. |
 | Service startup, context and run metadata | T4,T5,T6 | Transaction output is accepted before feed/lifecycle integration. |
 | api/store and SDK Face declarations | T7,T8,T11 | One frontend lane; update host and SDK shapes together and run compatibility tests. |
@@ -72,7 +72,7 @@ Waves are logical ordering, not permission for parallel writes. Recommended exec
 3. T8 explicitly owns reference/get RPC wiring; T6 owns its runtime lifecycle projection.
 4. T3 owns one canonical selection digest encoder reused by T5; a second encoder would make preview/admission disagree.
 5. Remove redundant T1 -> T9 and T6/T8 -> T12 scheduling edges; their outputs are already prerequisites through the graph. All acceptance obligations remain.
-6. T0 cannot integrate an unmerged storage PR without authorization. Until centralized migrations are available, downstream DDL remains blocked.
+6. PR #45 is merged through `680ef78` (centralization implementation `760ac1c`), so T2 and T4 are not blocked by migration ownership. They remain non-Ready until their actual predecessor implementation and verification evidence is accepted.
 
 No product semantics, schema implementation, dependency or existing project rule changes are made by these corrections.
 
