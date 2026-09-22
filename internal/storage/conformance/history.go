@@ -2,10 +2,12 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -28,6 +30,8 @@ func RunHistoryQuerySuite(t *testing.T, b storage.Engine) {
 	t.Run("cancellation and hostile identifiers", func(t *testing.T) { assertHistoryCancellationAndIDs(t, b, q) })
 	t.Run("all current message writers allocate positions", func(t *testing.T) { assertHistoryWriterPositions(t, b, q) })
 	t.Run("run-event cut and paging", func(t *testing.T) { assertHistoryRunEventCut(t, b, q) })
+	t.Run("run-event projection visibility", func(t *testing.T) { assertHistoryRunEventVisibility(t, b, q) })
+	t.Run("bounded metadata projection", func(t *testing.T) { assertHistoryMetadataBounds(t, b, q) })
 	t.Run("storage scan hard caps", func(t *testing.T) { assertHistoryOptionCaps(t) })
 }
 
@@ -120,7 +124,11 @@ func assertHistoryBoundedProgress(t *testing.T, b storage.Engine, q storage.Hist
 	if err != nil { t.Fatal(err) }
 	page, err = q.QueryHistoryPage(ctx, cut, page.Next, storage.HistoryQueryOptions{Limit: 1})
 	if err != nil { t.Fatal(err) }
-	if len(page.Records) != 0 || !page.ScanIncomplete || page.Next.IsZero() { t.Fatalf("scan ceiling did not report empty progress: %+v", page) }
+	if len(page.Records) != 0 || !page.ScanIncomplete || !page.HasMore || page.Next.Position != 2001 { t.Fatalf("scan ceiling did not report empty progress: %+v", page) }
+	messageNext := page.Next
+	page, err = q.QueryHistoryPage(ctx, cut, messageNext, storage.HistoryQueryOptions{Limit: 1})
+	if err != nil { t.Fatal(err) }
+	if page.Next.Position != 2002 { t.Fatalf("scan ceiling cursor did not progress: %+v", page) }
 	byteSID := domain.SessionID("history-byte-budget")
 	createHistorySession(t, b, byteSID)
 	for i := 0; i < 600; i++ { appendHistoryMessage(t, b, byteSID, fmt.Sprintf("bytes-%04d", i), int64(i+1), strings.Repeat("b", 8<<10)) }
@@ -229,6 +237,16 @@ func assertHistoryRunEventCut(t *testing.T, b storage.Engine, q storage.HistoryQ
 	cut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{sid})
 	if err != nil { t.Fatal(err) }
 	if len(cut.Runs) != 1 || cut.Runs[0].Seq != 2 || cut.Runs[0].SessionID != sid { t.Fatalf("run cut = %+v", cut.Runs) }
+	recordLimited := domain.DefaultContinuityLimits()
+	recordLimited.CandidateRecords = 1
+	limitedFirst, err := q.QueryHistoryPage(ctx, cut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 2, Limits: recordLimited})
+	if err != nil || len(limitedFirst.Records) != 1 || limitedFirst.Next.Seq != 1 || !limitedFirst.HasMore || !limitedFirst.ScanIncomplete {
+		t.Fatalf("run-event record lookahead = %+v, %v", limitedFirst, err)
+	}
+	limitedSecond, err := q.QueryHistoryPage(ctx, cut, limitedFirst.Next, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 2, Limits: recordLimited})
+	if err != nil || len(limitedSecond.Records) != 1 || limitedSecond.Records[0].Ref.EventSeq != 2 || limitedSecond.Next == limitedFirst.Next {
+		t.Fatalf("run-event record continuation = %+v, %v", limitedSecond, err)
+	}
 	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{Type: domain.EventToolFinished, CreatedAt: 3, PayloadVersion: 1, Payload: []byte(`{"late":true}`)}}}); err != nil { t.Fatal(err) }
 	var seen []domain.EventSeq
 	var after storage.HistoryPosition
@@ -255,11 +273,12 @@ func assertHistoryRunEventCut(t *testing.T, b storage.Engine, q storage.HistoryQ
 	hiddenRunID := domain.RunID("history-events-hidden-run")
 	createHistorySession(t, b, hiddenSID)
 	if err := b.CreateRun(ctx, domain.Run{ID: hiddenRunID, SessionID: hiddenSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
-	if _, err := b.Append(ctx, storage.Commit{RunID: hiddenRunID, Events: []domain.RunEvent{{Type: domain.EventModelDelta, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{"hidden":true}`)}}}); err != nil { t.Fatal(err) }
-	if err := b.AppendMessage(ctx, domain.Message{ID: "history-events-hidden-message", SessionID: hiddenSID, RunID: hiddenRunID, Role: domain.RoleAssistant, CreatedAt: 1, Content: "hidden"}); err != nil { t.Fatal(err) }
+	if _, err := b.Append(ctx, storage.Commit{RunID: hiddenRunID, Events: []domain.RunEvent{{Type: domain.EventModelCompleted, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{"hidden":true}`)}}}); err != nil { t.Fatal(err) }
+	hiddenMessageID := fmt.Sprintf("msgp_%s_%020d_0", hiddenRunID, 1)
+	if err := b.AppendMessage(ctx, domain.Message{ID: hiddenMessageID, SessionID: hiddenSID, RunID: hiddenRunID, Role: domain.RoleAssistant, CreatedAt: 1, Content: "hidden"}); err != nil { t.Fatal(err) }
 	hiddenCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{hiddenSID})
 	if err != nil { t.Fatal(err) }
-	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: hiddenSID, CutoffMessageID: "history-events-hidden-message", TailMessageID: "history-events-hidden-message", Reason: storage.TruncationRewind, CreatedAt: 2}); err != nil { t.Fatal(err) }
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: hiddenSID, CutoffMessageID: hiddenMessageID, TailMessageID: hiddenMessageID, Reason: storage.TruncationRewind, CreatedAt: 2}); err != nil { t.Fatal(err) }
 	hiddenPage, err := q.QueryHistoryPage(ctx, hiddenCut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 1})
 	if err != nil || len(hiddenPage.Records) != 0 { t.Fatalf("rewound event page = %+v, %v", hiddenPage, err) }
 
@@ -267,9 +286,14 @@ func assertHistoryRunEventCut(t *testing.T, b storage.Engine, q storage.HistoryQ
 	budgetRunID := domain.RunID("history-events-budget-run")
 	createHistorySession(t, b, budgetSID)
 	if err := b.CreateRun(ctx, domain.Run{ID: budgetRunID, SessionID: budgetSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
+	invalidUTF8JSON := append([]byte(`{"invalid":"`), 0xff)
+	invalidUTF8JSON = append(invalidUTF8JSON, []byte(`"}`)...)
+	if !json.Valid(invalidUTF8JSON) || utf8.Valid(invalidUTF8JSON) { t.Fatalf("invalid UTF-8 JSON fixture is not selective: %q", invalidUTF8JSON) }
 	if _, err := b.Append(ctx, storage.Commit{RunID: budgetRunID, Events: []domain.RunEvent{
 		{Type: domain.EventToolFinished, CreatedAt: 1, PayloadVersion: 1, Payload: []byte("\x00" + strings.Repeat("e", storage.HistoryCandidateBytesMax+64))},
 		{Type: domain.EventModelDelta, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{"broken":`)},
+		{Type: domain.EventModelDelta, CreatedAt: 3, PayloadVersion: 1, Payload: invalidUTF8JSON},
+		{Type: domain.EventModelDelta, CreatedAt: 4, PayloadVersion: 1, Payload: []byte(`{"valid":true}`)},
 	}}); err != nil { t.Fatal(err) }
 	budgetCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{budgetSID})
 	if err != nil { t.Fatal(err) }
@@ -282,6 +306,95 @@ func assertHistoryRunEventCut(t *testing.T, b storage.Engine, q storage.HistoryQ
 	if err != nil { t.Fatal(err) }
 	if len(malformedPage.Records) != 1 || !malformedPage.Records[0].Unavailable || !malformedPage.Records[0].Truncated || malformedPage.Records[0].Text != "" || malformedPage.Records[0].Ref.EventSeq != 2 {
 		t.Fatalf("malformed event page = %+v", malformedPage)
+	}
+	invalidUTF8Page, err := q.QueryHistoryPage(ctx, budgetCut, malformedPage.Next, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 1})
+	if err != nil { t.Fatal(err) }
+	if len(invalidUTF8Page.Records) != 1 || !invalidUTF8Page.Records[0].Unavailable || !invalidUTF8Page.Records[0].Truncated || invalidUTF8Page.Records[0].Text != "" || invalidUTF8Page.Records[0].Ref.EventSeq != 3 || !invalidUTF8Page.HasMore {
+		t.Fatalf("invalid UTF-8 event page = %+v", invalidUTF8Page)
+	}
+	validPage, err := q.QueryHistoryPage(ctx, budgetCut, invalidUTF8Page.Next, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 1})
+	if err != nil { t.Fatal(err) }
+	if len(validPage.Records) != 1 || validPage.Records[0].Unavailable || validPage.Records[0].Truncated || validPage.Records[0].Text != `{"valid":true}` || validPage.Records[0].Ref.EventSeq != 4 {
+		t.Fatalf("valid event after invalid UTF-8 = %+v", validPage)
+	}
+}
+
+func assertHistoryRunEventVisibility(t *testing.T, b storage.Engine, q storage.HistoryQueryStore) {
+	t.Helper()
+	ctx := context.Background()
+	sid := domain.SessionID("history-event-visibility")
+	runID := domain.RunID("history-event-visibility-run")
+	createHistorySession(t, b, sid)
+	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: sid, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
+	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{
+		{Type: domain.EventToolRequested, CreatedAt: 10, PayloadVersion: 1, Payload: []byte(`{}`)},
+		{Type: domain.EventToolFinished, CreatedAt: 20, PayloadVersion: 1, Payload: []byte(`{}`)},
+		{Type: domain.EventModelCompleted, CreatedAt: 0, PayloadVersion: 1, Payload: []byte(`{}`)},
+		{Type: domain.EventModelDelta, CreatedAt: 30, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil { t.Fatal(err) }
+	projectedID := func(seq int, slot string) string { return fmt.Sprintf("msgp_%s_%020d_%s", runID, seq, slot) }
+	if err := b.AppendMessage(ctx, domain.Message{ID: projectedID(1, "1"), SessionID: sid, RunID: runID, Role: domain.RoleAssistant, CreatedAt: 10, Content: "visible request"}); err != nil { t.Fatal(err) }
+	hiddenID := projectedID(2, "0")
+	if err := b.AppendMessage(ctx, domain.Message{ID: hiddenID, SessionID: sid, RunID: runID, Role: domain.RoleTool, CreatedAt: 20, Content: "hidden result"}); err != nil { t.Fatal(err) }
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: sid, CutoffMessageID: hiddenID, TailMessageID: hiddenID, Reason: storage.TruncationRewind, CreatedAt: 21}); err != nil { t.Fatal(err) }
+	if err := b.AppendMessage(ctx, domain.Message{ID: projectedID(3, "0"), SessionID: sid, RunID: runID, Role: domain.RoleAssistant, CreatedAt: 0, Content: "post-tail completion"}); err != nil { t.Fatal(err) }
+	cut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{sid})
+	if err != nil { t.Fatal(err) }
+	page, err := q.QueryHistoryPage(ctx, cut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 10})
+	if err != nil { t.Fatal(err) }
+	var seqs []string
+	for _, record := range page.Records { seqs = append(seqs, fmt.Sprint(record.Ref.EventSeq)) }
+	if got := strings.Join(seqs, ","); got != "1,3,4" {
+		t.Fatalf("event-specific projection visibility = %s, records=%+v", got, page.Records)
+	}
+}
+
+func assertHistoryMetadataBounds(t *testing.T, b storage.Engine, q storage.HistoryQueryStore) {
+	t.Helper()
+	ctx := context.Background()
+	limits := domain.DefaultContinuityLimits()
+	limits.CandidateRecords = 1
+	hostile := strings.Repeat("x", 1<<20)
+
+	messageSID := domain.SessionID("history-message-metadata")
+	createHistorySession(t, b, messageSID)
+	appendHistoryMessage(t, b, messageSID, "metadata-safe", 1, "safe")
+	if err := b.AppendMessage(ctx, domain.Message{ID: "metadata-hostile", SessionID: messageSID, Role: domain.Role(hostile), CreatedAt: 2, Content: "safe"}); err != nil { t.Fatal(err) }
+	messageCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{messageSID})
+	if err != nil { t.Fatal(err) }
+	messageFirst, err := q.QueryHistoryPage(ctx, messageCut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Limit: 2, Limits: limits})
+	if err != nil || len(messageFirst.Records) != 1 || !messageFirst.HasMore || !messageFirst.ScanIncomplete || messageFirst.Next.Position != 1 {
+		t.Fatalf("message metadata lookahead = %+v, %v", messageFirst, err)
+	}
+	messageSecond, err := q.QueryHistoryPage(ctx, messageCut, messageFirst.Next, storage.HistoryQueryOptions{Limit: 2, Limits: limits})
+	if err != nil || len(messageSecond.Records) != 1 || !messageSecond.Records[0].Unavailable || !messageSecond.Records[0].Truncated || messageSecond.Records[0].Author != "" || messageSecond.Next.Position != 2 {
+		t.Fatalf("bounded message metadata = %+v, %v", messageSecond, err)
+	}
+
+	eventSID := domain.SessionID("history-event-metadata")
+	eventRunID := domain.RunID("history-event-metadata-run")
+	createHistorySession(t, b, eventSID)
+	if err := b.CreateRun(ctx, domain.Run{ID: eventRunID, SessionID: eventSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
+	if _, err := b.Append(ctx, storage.Commit{RunID: eventRunID, Events: []domain.RunEvent{
+		{Type: domain.EventModelDelta, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{}`)},
+		{Type: domain.EventType(hostile), CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil { t.Fatal(err) }
+	eventCut, err := q.CaptureHistoryCut(ctx, []domain.SessionID{eventSID})
+	if err != nil { t.Fatal(err) }
+	eventFirst, err := q.QueryHistoryPage(ctx, eventCut, storage.HistoryPosition{}, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 2, Limits: limits})
+	if err != nil || len(eventFirst.Records) != 1 || !eventFirst.HasMore || !eventFirst.ScanIncomplete || eventFirst.Next.Seq != 1 {
+		t.Fatalf("event metadata lookahead = %+v, %v", eventFirst, err)
+	}
+	eventSecond, err := q.QueryHistoryPage(ctx, eventCut, eventFirst.Next, storage.HistoryQueryOptions{Stream: storage.HistoryStreamRunEvent, Limit: 2, Limits: limits})
+	if err != nil || len(eventSecond.Records) != 1 || !eventSecond.Records[0].Unavailable || !eventSecond.Records[0].Truncated || eventSecond.Records[0].EventType != "" || eventSecond.Next.Seq != 2 {
+		t.Fatalf("bounded event metadata = %+v, %v", eventSecond, err)
+	}
+
+	runSID := domain.SessionID("history-run-metadata")
+	createHistorySession(t, b, runSID)
+	if err := b.CreateRun(ctx, domain.Run{ID: domain.RunID(hostile), SessionID: runSID, Status: domain.RunActive, CreatedAt: 1}); err != nil { t.Fatal(err) }
+	if _, err := q.CaptureHistoryCut(ctx, []domain.SessionID{runSID}); !errors.Is(err, storage.ErrHistoryMalformed) {
+		t.Fatalf("oversized captured run ID = %v, want ErrHistoryMalformed", err)
 	}
 }
 

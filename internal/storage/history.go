@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 )
@@ -14,11 +15,20 @@ import (
 // the error intentionally reveals no source payload.
 var ErrHistoryNarrowScope = errors.New("storage: history scope must be narrowed")
 
+// ErrHistoryMalformed reports retained history metadata which cannot be
+// represented without changing a durable identity or cursor key.
+var ErrHistoryMalformed = errors.New("storage: malformed history metadata")
+
 const (
 	HistoryCutSessionMax      = 100
 	HistoryCutRunMax          = 256
 	HistoryCandidateRecordMax = 2000
 	HistoryCandidateBytesMax  = 4 << 20
+	// Metadata is projected through SQL CASE expressions before it reaches a
+	// driver. At the 2,001-row lookahead ceiling these per-field limits keep
+	// enumeration bounded independently of payload budgets.
+	HistoryMetadataIdentityBytesMax = 512
+	HistoryMetadataLabelBytesMax    = 128
 )
 
 // HistoryStream is the durable source ordering represented by a cursor.
@@ -57,12 +67,12 @@ func (c HistoryCut) Validate() error {
 		return fmt.Errorf("storage: history cut has %d runs", len(c.Runs))
 	}
 	for i, item := range c.Sessions {
-		if item.SessionID == "" || item.Position < 0 || (i > 0 && c.Sessions[i-1].SessionID >= item.SessionID) {
+		if !validHistoryIdentity(string(item.SessionID), false) || item.Position < 0 || (i > 0 && c.Sessions[i-1].SessionID >= item.SessionID) {
 			return fmt.Errorf("storage: invalid history session cut")
 		}
 	}
 	for i, item := range c.Runs {
-		if item.RunID == "" || item.SessionID == "" || item.Seq < 0 || (i > 0 && c.Runs[i-1].RunID >= item.RunID) {
+		if !validHistoryIdentity(string(item.RunID), false) || !validHistoryIdentity(string(item.SessionID), false) || item.Seq < 0 || (i > 0 && c.Runs[i-1].RunID >= item.RunID) {
 			return fmt.Errorf("storage: invalid history run cut")
 		}
 		foundSession := false
@@ -124,9 +134,9 @@ func (p HistoryPosition) Validate() error {
 	if p.IsZero() { return nil }
 	switch p.Stream {
 	case HistoryStreamMessage:
-		if p.SessionID == "" || p.Position < 0 || p.RunID != "" || p.Seq != 0 { return fmt.Errorf("storage: invalid message history position") }
+		if !validHistoryIdentity(string(p.SessionID), false) || p.Position < 0 || p.RunID != "" || p.Seq != 0 { return fmt.Errorf("storage: invalid message history position") }
 	case HistoryStreamRunEvent:
-		if p.RunID == "" || p.Seq < 0 || p.SessionID != "" || p.Position != 0 { return fmt.Errorf("storage: invalid run-event history position") }
+		if !validHistoryIdentity(string(p.RunID), false) || p.Seq < 0 || p.SessionID != "" || p.Position != 0 { return fmt.Errorf("storage: invalid run-event history position") }
 	default:
 		return fmt.Errorf("storage: invalid history stream")
 	}
@@ -253,7 +263,14 @@ func CanonicalHistorySessions(ids []domain.SessionID) ([]domain.SessionID, error
 	out := append([]domain.SessionID(nil), ids...)
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	for i, id := range out {
-		if id == "" || (i > 0 && out[i-1] == id) { return nil, fmt.Errorf("storage: invalid history session selection") }
+		if !validHistoryIdentity(string(id), false) || (i > 0 && out[i-1] == id) { return nil, fmt.Errorf("storage: invalid history session selection") }
 	}
 	return out, nil
+}
+
+func validHistoryIdentity(value string, allowEmpty bool) bool {
+	if value == "" {
+		return allowEmpty
+	}
+	return len(value) <= HistoryMetadataIdentityBytesMax && utf8.ValidString(value)
 }
