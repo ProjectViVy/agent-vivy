@@ -102,8 +102,19 @@ func ValidateWorkMutation(mutation domain.WorkMutation) error {
 		}
 		return nil
 	}
-	if mutation.Admission != (domain.GoalRunAdmission{}) || mutation.Goal.ID == "" {
-		return ErrWorkInvalidMutation
+	switch mutation.Kind {
+	case domain.WorkEventPlanEntered,
+		domain.WorkEventPlanLeft,
+		domain.WorkEventPlanSubmitted,
+		domain.WorkEventPlanDecided:
+		if mutation.Admission != (domain.GoalRunAdmission{}) ||
+			mutation.Goal != (domain.GoalRef{}) {
+			return ErrWorkInvalidMutation
+		}
+	default:
+		if mutation.Admission != (domain.GoalRunAdmission{}) || mutation.Goal.ID == "" {
+			return ErrWorkInvalidMutation
+		}
 	}
 	return nil
 }
