@@ -15,13 +15,13 @@ import (
 var ErrHistoryNarrowScope = errors.New("storage: history scope must be narrowed")
 
 const (
-	HistoryCutSessionMax = 100
-	HistoryCutRunMax     = 256
+	HistoryCutSessionMax      = 100
+	HistoryCutRunMax          = 256
+	HistoryCandidateRecordMax = 2000
+	HistoryCandidateBytesMax  = 4 << 20
 )
 
 // HistoryStream is the durable source ordering represented by a cursor.
-// T2 currently queries message streams. The run-event form is deliberately
-// retained as the T4-compatible cursor seam, without implementing admission.
 type HistoryStream string
 
 const (
@@ -37,8 +37,9 @@ type HistorySessionCut struct {
 
 // HistoryRunCut freezes a run's journal sequence ceiling.
 type HistoryRunCut struct {
-	RunID domain.RunID
-	Seq   domain.EventSeq
+	RunID     domain.RunID
+	SessionID domain.SessionID
+	Seq       domain.EventSeq
 }
 
 // HistoryCut is captured atomically before paging. It is an internal storage
@@ -61,11 +62,36 @@ func (c HistoryCut) Validate() error {
 		}
 	}
 	for i, item := range c.Runs {
-		if item.RunID == "" || item.Seq < 0 || (i > 0 && c.Runs[i-1].RunID >= item.RunID) {
+		if item.RunID == "" || item.SessionID == "" || item.Seq < 0 || (i > 0 && c.Runs[i-1].RunID >= item.RunID) {
 			return fmt.Errorf("storage: invalid history run cut")
+		}
+		foundSession := false
+		for _, session := range c.Sessions {
+			if session.SessionID == item.SessionID {
+				foundSession = true
+				break
+			}
+		}
+		if !foundSession {
+			return fmt.Errorf("storage: history run cut is outside session cut")
 		}
 	}
 	return nil
+}
+
+func (c HistoryCut) ContainsRunEventPosition(p HistoryPosition) bool {
+	if p.IsZero() {
+		return true
+	}
+	if p.Stream != HistoryStreamRunEvent {
+		return false
+	}
+	for _, run := range c.Runs {
+		if run.RunID == p.RunID {
+			return p.Seq <= run.Seq
+		}
+	}
+	return false
 }
 
 // ContainsMessagePosition verifies that a decoded cursor remains inside its
@@ -85,7 +111,7 @@ func (c HistoryCut) ContainsMessagePosition(p HistoryPosition) bool {
 // scanned durable key, never a wall-clock timestamp, so an unavailable row
 // still advances pagination.
 type HistoryPosition struct {
-	Stream   HistoryStream
+	Stream    HistoryStream
 	SessionID domain.SessionID
 	RunID     domain.RunID
 	Position  int64
@@ -110,29 +136,96 @@ func (p HistoryPosition) Validate() error {
 // HistoryQueryOptions is intentionally storage-internal. T3 owns cursor
 // encoding and public filters; this layer owns only finite scan limits.
 type HistoryQueryOptions struct {
+	Stream HistoryStream
 	Limit  int
 	Limits domain.ContinuityLimits
 }
 
 // Effective validates the storage page request and applies T1's defaults.
 func (o HistoryQueryOptions) Effective() (int, domain.ContinuityLimits, error) {
-	limits := o.Limits.Effective(0)
-	if o.Limits == (domain.ContinuityLimits{}) { limits = domain.DefaultContinuityLimits() }
+	limits := o.Limits
+	defaults := domain.DefaultContinuityLimits()
+	if limits == (domain.ContinuityLimits{}) {
+		limits = defaults
+	}
+	if limits.ReadPageDefault == 0 {
+		limits.ReadPageDefault = defaults.ReadPageDefault
+	}
+	if limits.ReadPageMax == 0 {
+		limits.ReadPageMax = defaults.ReadPageMax
+	}
+	if limits.ResultItemBytes == 0 {
+		limits.ResultItemBytes = defaults.ResultItemBytes
+	}
+	if limits.CandidateRecords == 0 {
+		limits.CandidateRecords = defaults.CandidateRecords
+	}
+	if limits.CandidateBytes == 0 {
+		limits.CandidateBytes = defaults.CandidateBytes
+	}
+	if limits.ReadPageDefault < 0 || limits.ReadPageMax < 1 || limits.ResultItemBytes < 1 || limits.CandidateRecords < 1 || limits.CandidateBytes < 1 {
+		return 0, limits, fmt.Errorf("storage: history limits must be positive")
+	}
+	if limits.ReadPageMax > defaults.ReadPageMax {
+		limits.ReadPageMax = defaults.ReadPageMax
+	}
+	if limits.ReadPageDefault > defaults.ReadPageDefault {
+		limits.ReadPageDefault = defaults.ReadPageDefault
+	}
+	if limits.ReadPageDefault > limits.ReadPageMax {
+		limits.ReadPageDefault = limits.ReadPageMax
+	}
+	if limits.ResultItemBytes > defaults.ResultItemBytes {
+		limits.ResultItemBytes = defaults.ResultItemBytes
+	}
+	if limits.CandidateRecords > HistoryCandidateRecordMax {
+		limits.CandidateRecords = HistoryCandidateRecordMax
+	}
+	if limits.CandidateBytes > HistoryCandidateBytesMax {
+		limits.CandidateBytes = HistoryCandidateBytesMax
+	}
+	if o.Stream != "" && o.Stream != HistoryStreamMessage && o.Stream != HistoryStreamRunEvent {
+		return 0, limits, fmt.Errorf("storage: invalid history stream %q", o.Stream)
+	}
 	limit := o.Limit
-	if limit == 0 { limit = limits.ReadPageDefault }
-	if limit < 1 || limit > limits.ReadPageMax { return 0, limits, fmt.Errorf("storage: invalid history page limit %d", limit) }
+	if limit == 0 {
+		limit = limits.ReadPageDefault
+	}
+	if limit < 1 || limit > limits.ReadPageMax {
+		return 0, limits, fmt.Errorf("storage: invalid history page limit %d", limit)
+	}
 	return limit, limits, nil
 }
 
-// HistoryCandidate is a bounded typed projection ready for T3's redaction
-// and literal matching. Text is never a raw serialized event or an oversized
-// payload. Unavailable and Truncated deliberately remain independent flags.
+// ResolveStream applies the message-stream default and binds subsequent pages
+// to the stream encoded in their durable position.
+func (o HistoryQueryOptions) ResolveStream(after HistoryPosition) (HistoryStream, error) {
+	stream := o.Stream
+	if stream == "" {
+		if after.IsZero() {
+			return HistoryStreamMessage, nil
+		}
+		return after.Stream, nil
+	}
+	if !after.IsZero() && after.Stream != stream {
+		return "", fmt.Errorf("storage: history cursor stream %q does not match query stream %q", after.Stream, stream)
+	}
+	return stream, nil
+}
+
+// HistoryCandidate is a bounded storage-internal projection ready for T3's
+// field-aware sanitization, redaction, and literal matching. Event Text may
+// contain a bounded raw payload but an oversized or malformed payload is
+// represented only by unavailable metadata. Unavailable and Truncated remain
+// independent flags.
 type HistoryCandidate struct {
-	Ref         domain.SourceRef
-	Author      string
-	Text        string
-	Unavailable bool
-	Truncated   bool
+	Ref            domain.SourceRef
+	Author         string
+	Text           string
+	EventType      domain.EventType
+	PayloadVersion int
+	Unavailable    bool
+	Truncated      bool
 }
 
 // HistoryCandidates is one bounded storage page. Next is the last scanned
