@@ -25,19 +25,19 @@ func validDeliveryStatus(status string) bool {
 // Deliverable records an immutable fingerprint for one explicitly presented
 // workspace-relative file. It does not promise durable file bytes.
 type Deliverable struct {
-	ID               string `json:"id"`
+	ID               string    `json:"id"`
 	SessionID        SessionID `json:"session_id"`
-	RunID            RunID `json:"run_id"`
-	WorkspaceID      string `json:"workspace_id"`
-	Path             string `json:"path"`
-	Name             string `json:"name"`
-	Description      string `json:"description"`
-	Size             int64 `json:"size"`
-	SHA256           string `json:"sha256"`
-	MediaType        string `json:"media_type"`
-	CapturedAt       int64 `json:"captured_at"`
-	OriginToolCallID string `json:"origin_tool_call_id"`
-	FileVersionID    string `json:"file_version_id,omitempty"`
+	RunID            RunID     `json:"run_id"`
+	WorkspaceID      string    `json:"workspace_id"`
+	Path             string    `json:"path"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	Size             int64     `json:"size"`
+	SHA256           string    `json:"sha256"`
+	MediaType        string    `json:"media_type"`
+	CapturedAt       int64     `json:"captured_at"`
+	OriginToolCallID string    `json:"origin_tool_call_id"`
+	FileVersionID    string    `json:"file_version_id,omitempty"`
 }
 
 // Validate checks immutable metadata and its declared file-size ceiling. It
@@ -204,12 +204,12 @@ func (c DeliveryChunk) Validate(limits ContinuityLimits) error {
 }
 
 type ContinuityReceipt struct {
-	SessionID  SessionID `json:"session_id"`
-	RunID      RunID     `json:"run_id"`
-	Operation  string    `json:"operation"`
-	RequestID  string    `json:"request_id"`
-	InputHash  string    `json:"input_hash"`
-	EventSeq   EventSeq  `json:"event_seq"`
+	SessionID SessionID `json:"session_id"`
+	RunID     RunID     `json:"run_id"`
+	Operation string    `json:"operation"`
+	RequestID string    `json:"request_id"`
+	InputHash string    `json:"input_hash"`
+	EventSeq  EventSeq  `json:"event_seq"`
 }
 
 func validWorkspaceRelativePath(value string) bool {

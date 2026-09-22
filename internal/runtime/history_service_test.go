@@ -11,7 +11,7 @@ import (
 
 func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
 	candidate := storage.HistoryCandidate{
-		Ref: domain.SourceRef{SessionID: "B", MessageID: "msg-user", Kind: string(domain.SourceKindMessage), CreatedAt: 1},
+		Ref:    domain.SourceRef{SessionID: "B", MessageID: "msg-user", Kind: string(domain.SourceKindMessage), CreatedAt: 1},
 		Author: "user",
 		Text:   "safe context sk-live-abcdefghijkl and alice@example.com",
 	}

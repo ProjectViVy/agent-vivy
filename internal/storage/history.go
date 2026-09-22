@@ -109,10 +109,16 @@ func (c HistoryCut) ContainsRunEventPosition(p HistoryPosition) bool {
 // responsibility; this prevents a storage caller from silently changing the
 // cut's key range.
 func (c HistoryCut) ContainsMessagePosition(p HistoryPosition) bool {
-	if p.IsZero() { return true }
-	if p.Stream != HistoryStreamMessage { return false }
+	if p.IsZero() {
+		return true
+	}
+	if p.Stream != HistoryStreamMessage {
+		return false
+	}
 	for _, session := range c.Sessions {
-		if session.SessionID == p.SessionID { return p.Position <= session.Position }
+		if session.SessionID == p.SessionID {
+			return p.Position <= session.Position
+		}
 	}
 	return false
 }
@@ -131,12 +137,18 @@ type HistoryPosition struct {
 func (p HistoryPosition) IsZero() bool { return p.Stream == "" }
 
 func (p HistoryPosition) Validate() error {
-	if p.IsZero() { return nil }
+	if p.IsZero() {
+		return nil
+	}
 	switch p.Stream {
 	case HistoryStreamMessage:
-		if !validHistoryIdentity(string(p.SessionID), false) || p.Position < 0 || p.RunID != "" || p.Seq != 0 { return fmt.Errorf("storage: invalid message history position") }
+		if !validHistoryIdentity(string(p.SessionID), false) || p.Position < 0 || p.RunID != "" || p.Seq != 0 {
+			return fmt.Errorf("storage: invalid message history position")
+		}
 	case HistoryStreamRunEvent:
-		if !validHistoryIdentity(string(p.RunID), false) || p.Seq < 0 || p.SessionID != "" || p.Position != 0 { return fmt.Errorf("storage: invalid run-event history position") }
+		if !validHistoryIdentity(string(p.RunID), false) || p.Seq < 0 || p.SessionID != "" || p.Position != 0 {
+			return fmt.Errorf("storage: invalid run-event history position")
+		}
 	default:
 		return fmt.Errorf("storage: invalid history stream")
 	}
@@ -259,11 +271,15 @@ type HistoryQueryStore interface {
 // CanonicalHistorySessions validates and canonicalizes an authorized session
 // set before it is interpolated into bounded SQL placeholders.
 func CanonicalHistorySessions(ids []domain.SessionID) ([]domain.SessionID, error) {
-	if len(ids) == 0 || len(ids) > HistoryCutSessionMax { return nil, fmt.Errorf("storage: history session selection has %d entries", len(ids)) }
+	if len(ids) == 0 || len(ids) > HistoryCutSessionMax {
+		return nil, fmt.Errorf("storage: history session selection has %d entries", len(ids))
+	}
 	out := append([]domain.SessionID(nil), ids...)
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	for i, id := range out {
-		if !validHistoryIdentity(string(id), false) || (i > 0 && out[i-1] == id) { return nil, fmt.Errorf("storage: invalid history session selection") }
+		if !validHistoryIdentity(string(id), false) || (i > 0 && out[i-1] == id) {
+			return nil, fmt.Errorf("storage: invalid history session selection")
+		}
 	}
 	return out, nil
 }
