@@ -130,9 +130,9 @@ Shared SQLite/PostgreSQL conformance now covers:
   unprojected event and a post-tail projection with an earlier timestamp;
 - oversized, malformed JSON, and syntactically valid JSON containing invalid
   UTF-8 without exposed raw content, followed by successful continuation;
-- oversized message role/event type in cap+1 lookahead, bounded unavailable
-  progress on the next page, and bounded failure for an oversized captured
-  run identity;
+- a 1 MiB message role, a 129-byte event type, and a 513-byte captured run
+  identity in cap+1 lookahead, with bounded unavailable progress on the next
+  page and bounded failure for the oversized captured run identity;
 - message and run-event record-cap lookahead with both continuation flags and
   cursor progress asserted;
 - more than 256 runs, cancellation including an empty run-event stream,
