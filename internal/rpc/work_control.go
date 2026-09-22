@@ -146,26 +146,76 @@ func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Er
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if strings.TrimSpace(params.PlanSubmissionID) == "" {
+	submissionID := strings.TrimSpace(params.PlanSubmissionID)
+	if submissionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "submission_id is required"}
 	}
-	state, err := h.deps.Service.ReadWork(ctx, sessionID)
-	if err != nil {
-		return nil, workError(err)
+
+	var result workPlanResult
+	var found bool
+	currentSubmission := ""
+	planActive := false
+	after := domain.WorkVersion(0)
+	for {
+		events, err := h.deps.Work.ReplayWork(ctx, sessionID, after, workReplayPageSize)
+		if err != nil {
+			return nil, workError(err)
+		}
+		for _, event := range events {
+			after = domain.WorkVersion(event.Seq)
+			switch event.Kind {
+			case domain.WorkEventPlanEntered:
+				planActive = true
+				currentSubmission = ""
+			case domain.WorkEventPlanLeft:
+				if currentSubmission == submissionID && result.ReviewStatus == string(domain.PlanReviewPending) {
+					result.ReviewStatus = string(domain.PlanReviewCancelled)
+				}
+				planActive = false
+			case domain.WorkEventPlanSubmitted:
+				currentSubmission = event.Mutation.PlanSubmissionID
+				planActive = true
+				if currentSubmission == submissionID {
+					found = true
+					result = workPlanResult{
+						Active: currentSubmission == submissionID,
+						SubmissionID: currentSubmission,
+						Markdown: event.Mutation.PlanMarkdown,
+						ReviewStatus: string(domain.PlanReviewPending),
+						OriginRunID: string(event.Mutation.PlanOriginRunID),
+						OriginToolCallID: event.Mutation.PlanOriginToolCallID,
+					}
+				}
+			case domain.WorkEventPlanDecided:
+				if event.Mutation.PlanSubmissionID != submissionID || !found {
+					continue
+				}
+				switch event.Mutation.PlanAction {
+				case domain.PlanDecisionRevise:
+					result.ReviewStatus = string(domain.PlanReviewRejected)
+					result.Feedback = event.Mutation.PlanFeedback
+					planActive = true
+				case domain.PlanDecisionExecuteOnce, domain.PlanDecisionStartGoal:
+					result.ReviewStatus = string(domain.PlanReviewAccepted)
+					result.Feedback = event.Mutation.PlanFeedback
+					planActive = false
+				}
+			}
+			if found {
+				result.Active = currentSubmission == submissionID && planActive
+			}
+		}
+		if len(events) < workReplayPageSize {
+			break
+		}
 	}
-	if state.Plan.SubmissionID != params.PlanSubmissionID {
+	if !found {
 		return nil, &Error{Code: CodeNotFound, Message: "plan submission not found"}
 	}
-	status := state.Plan.ReviewStatus
-	if status == "" {
-		status = domain.PlanReviewNone
+	if result.ReviewStatus == "" {
+		result.ReviewStatus = string(domain.PlanReviewNone)
 	}
-	return workPlanResult{
-		Active: state.Plan.Active, SubmissionID: state.Plan.SubmissionID,
-		Markdown: state.Plan.Markdown, ReviewStatus: string(status),
-		Feedback: state.Plan.Feedback, OriginRunID: string(state.Plan.OriginRunID),
-		OriginToolCallID: state.Plan.OriginToolCallID,
-	}, nil
+	return result, nil
 }
 
 func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, request Request, kind domain.WorkEventKind) (any, *Error) {
