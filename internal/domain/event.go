@@ -41,6 +41,8 @@ const (
 	EventContextCompacted      EventType = "context.compacted"
 	EventSessionTruncated      EventType = "session.truncated"
 	EventSessionForked         EventType = "session.forked"
+	EventContextReferenceAttached EventType = "context.reference_attached"
+	EventDeliverablesPresented EventType = "deliverables.presented"
 	EventRunCompleted          EventType = "run.completed"
 	EventRunFailed             EventType = "run.failed"
 	EventRunCancelled          EventType = "run.cancelled"
@@ -83,6 +85,8 @@ var EventTypes = []EventType{
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,
+	EventContextReferenceAttached,
+	EventDeliverablesPresented,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

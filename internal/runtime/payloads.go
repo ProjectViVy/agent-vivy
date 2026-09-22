@@ -1,6 +1,10 @@
 package runtime
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"agent-vivy/internal/domain"
+)
 
 // Event payload structs. Field names and shapes mirror
 // schemas/events/payloads/*.json (A3) field for field. Most payloads remain
@@ -15,6 +19,21 @@ type payloadRunStarted struct {
 	PolicyHash     string `json:"policy_hash,omitempty"`
 	SandboxMode    string `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	// HistoryScope is accepted, host-resolved metadata. Its absence preserves
+	// legacy run.started encoding and means no continuity scope was admitted.
+	HistoryScope *domain.AcceptedHistoryScope `json:"history_scope,omitempty"`
+}
+
+// payloadContextReferenceAttached persists the destination-owned sanitized
+// snapshot only; it never contains browser-supplied source bodies.
+type payloadContextReferenceAttached struct {
+	Reference domain.ContextReference `json:"reference"`
+}
+
+// payloadDeliverablesPresented records immutable presentation metadata, not
+// delivered file bytes.
+type payloadDeliverablesPresented struct {
+	DeliverySet domain.DeliverySet `json:"delivery_set"`
 }
 
 type payloadModelDelta struct {
