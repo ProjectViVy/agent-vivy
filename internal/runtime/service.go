@@ -3071,8 +3071,10 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
-	if status == domain.RunCompleted && goalSession != "" {
-		s.WakeGoal(goalSession)
+	if goalSession != "" {
+		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status)
+		settleCancel()
 	}
 }
 
@@ -3092,6 +3094,10 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
 	delete(s.runSessions, runID)
+	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {
+		delete(s.goalRuns, goalSession)
+	}
+	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)

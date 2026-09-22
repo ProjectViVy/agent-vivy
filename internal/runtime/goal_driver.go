@@ -114,3 +114,37 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	})
 	return err
 }
+
+func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, status domain.RunStatus) {
+	if s == nil || s.deps.Work == nil || sessionID == "" || runID == "" {
+		return
+	}
+	state, err := s.deps.Work.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive {
+		return
+	}
+	if status == domain.RunCompleted && state.Goal.RoundsStarted < state.Goal.MaxRounds {
+		s.WakeGoal(sessionID)
+		return
+	}
+
+	reason := "goal round failed"
+	if status == domain.RunCancelled {
+		reason = "goal round cancelled"
+	} else if status == domain.RunCompleted {
+		reason = "goal round limit reached"
+	}
+	requestID := fmt.Sprintf("goal-settle-%s-%d", runID, state.Version)
+	hashInput := fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)
+	hash := sha256.Sum256([]byte(hashInput))
+	_, _ = s.CommitWork(ctx, domain.WorkMutation{
+		SessionID:       sessionID,
+		ExpectedVersion: state.Version,
+		RequestID:       requestID,
+		RequestHash:     hex.EncodeToString(hash[:]),
+		Kind:            domain.WorkEventGoalBlocked,
+		Goal:            state.Goal.Ref,
+		Reason:          reason,
+		EvidenceRunID:   runID,
+	})
+}

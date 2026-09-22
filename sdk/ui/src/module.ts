@@ -1529,6 +1529,8 @@ export interface FaceWorkGoal {
   readonly phase: "active" | "paused" | "blocked" | "completed";
   readonly max_rounds: number;
   readonly rounds_started: number;
+  readonly reason?: string;
+  readonly evidence_run_id?: string;
 }
 
 export interface FaceWorkPlan {
