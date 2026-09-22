@@ -167,6 +167,9 @@ func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (Accept
 	if err != nil {
 		return AcceptedHistoryScope{}, err
 	}
+	if len(canonical) == 0 {
+		return AcceptedHistoryScope{}, fmt.Errorf("accepted history scope requires at least one source session")
+	}
 	encoded, err := json.Marshal(struct {
 		DestinationSessionID SessionID   `json:"destination_session_id"`
 		SourceSessionIDs     []SessionID `json:"source_session_ids"`
@@ -185,11 +188,23 @@ func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (Accept
 // Validate verifies the accepted scope has its canonical, destination-bound
 // hash. It does not make an authorization decision.
 func (s AcceptedHistoryScope) Validate() error {
-	canonical, err := NewAcceptedHistoryScope(s.DestinationSessionID, s.SourceSessionIDs)
-	if err != nil {
-		return err
+	limits := DefaultContinuityLimits()
+	if s.DestinationSessionID == "" || !utf8.ValidString(string(s.DestinationSessionID)) {
+		return fmt.Errorf("accepted history scope destination session ID is invalid")
 	}
-	if s.ScopeHash != canonical.ScopeHash {
+	if len(s.SourceSessionIDs) == 0 || len(s.SourceSessionIDs) > limits.ExpandedSessions {
+		return fmt.Errorf("accepted history scope has %d source sessions; maximum is %d", len(s.SourceSessionIDs), limits.ExpandedSessions)
+	}
+	for i, id := range s.SourceSessionIDs {
+		if id == "" || !utf8.ValidString(string(id)) {
+			return fmt.Errorf("accepted history scope has an invalid source session ID")
+		}
+		if i > 0 && s.SourceSessionIDs[i-1] >= id {
+			return fmt.Errorf("accepted history scope source session IDs are not canonical")
+		}
+	}
+	canonical, err := NewAcceptedHistoryScope(s.DestinationSessionID, s.SourceSessionIDs)
+	if err != nil || s.ScopeHash != canonical.ScopeHash {
 		return fmt.Errorf("accepted history scope hash does not match canonical scope")
 	}
 	return nil
@@ -218,7 +233,7 @@ func (r SourceRef) Validate() error {
 	if r.EventSeq < 0 || r.CreatedAt < 0 {
 		return fmt.Errorf("source reference has negative bounds")
 	}
-	return nil
+	return validateUTF8Strings("source reference", string(r.RunID), r.MessageID)
 }
 
 // HistoryItem is a redacted, bounded projection. Redacted and Truncated are
@@ -230,6 +245,29 @@ type HistoryItem struct {
 	SourceRefs []SourceRef `json:"source_refs,omitempty"`
 	Redacted   bool        `json:"redacted"`
 	Truncated  bool        `json:"truncated"`
+}
+
+// Validate checks a bounded, public projection and its bounded provenance.
+func (i HistoryItem) Validate(limits ContinuityLimits) error {
+	limits = limits.Effective(0)
+	if err := i.Ref.Validate(); err != nil {
+		return err
+	}
+	if !validHistoryAuthor(i.Author) {
+		return fmt.Errorf("history item author %q is unknown", i.Author)
+	}
+	if err := validateUTF8Bounded("history item text", i.Text, limits.ResultItemBytes); err != nil {
+		return err
+	}
+	if len(i.SourceRefs) > limits.SelectionRefs {
+		return fmt.Errorf("history item has %d source refs; maximum is %d", len(i.SourceRefs), limits.SelectionRefs)
+	}
+	for _, ref := range i.SourceRefs {
+		if err := ref.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateJSONBytes("history item", i, limits.ResultItemBytes)
 }
 
 // HistoryRunRange is the event-range alternative in HistorySelection.
@@ -396,18 +434,30 @@ type HistoryPage struct {
 }
 
 func (p HistoryPage) Validate(limits ContinuityLimits) error {
+	limits = limits.Effective(0)
 	if !HistoryStatus(p.Status).Valid() {
 		return fmt.Errorf("history page status %q is unknown", p.Status)
 	}
+	if len(p.Items) > limits.ReadPageMax {
+		return fmt.Errorf("history page has %d items; maximum is %d", len(p.Items), limits.ReadPageMax)
+	}
 	for _, item := range p.Items {
-		if err := item.Ref.Validate(); err != nil {
+		if err := item.Validate(limits); err != nil {
 			return err
 		}
-		if !validHistoryAuthor(item.Author) || !utf8.ValidString(item.Text) {
-			return fmt.Errorf("history page item is invalid")
+	}
+	if err := validateUTF8Strings("history page", p.NextCursor, p.SelectionDigest); err != nil {
+		return err
+	}
+	for _, warning := range p.Warnings {
+		if !utf8.ValidString(warning) {
+			return fmt.Errorf("history page warning is not valid UTF-8")
 		}
 	}
-	return validateUTF8Strings("history page", p.NextCursor, p.SelectionDigest)
+	if p.Reason != nil && !utf8.ValidString(*p.Reason) {
+		return fmt.Errorf("history page reason is not valid UTF-8")
+	}
+	return validateJSONBytes("history page", p, limits.ResultPageBytes)
 }
 
 type ReferencePreview struct {
@@ -417,6 +467,25 @@ type ReferencePreview struct {
 	CapturedAt   int64            `json:"captured_at"`
 	ByteCount    int              `json:"byte_count"`
 	SourceStatus string           `json:"source_status"`
+}
+
+// Validate checks a preview is complete, bounded, and independently safe to
+// compare with an attachment request.
+func (p ReferencePreview) Validate(limits ContinuityLimits) error {
+	limits = limits.Effective(0)
+	if err := p.Selection.Validate(limits); err != nil {
+		return err
+	}
+	if p.Digest == "" || !utf8.ValidString(p.Digest) || p.CapturedAt < 0 || p.ByteCount < 0 || p.ByteCount > limits.ReferenceBytes {
+		return fmt.Errorf("reference preview metadata is invalid")
+	}
+	if !HistoryStatus(p.SourceStatus).Valid() {
+		return fmt.Errorf("reference preview source status %q is unknown", p.SourceStatus)
+	}
+	if err := validateHistoryItems(p.Items, limits, limits.ReferenceBytes); err != nil {
+		return err
+	}
+	return validateJSONBytes("reference preview", p, limits.ReferenceBytes)
 }
 
 type ContinuityInput struct {
@@ -439,6 +508,30 @@ func (i ContinuityInput) Validate(limits ContinuityLimits) error {
 	for _, reference := range i.References {
 		if err := reference.Validate(limits); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ValidateContextReferences enforces both per-reference and aggregate
+// persisted-snapshot budgets without inspecting source storage.
+func ValidateContextReferences(references []ContextReference, limits ContinuityLimits) error {
+	limits = limits.Effective(0)
+	if len(references) > limits.ReferencesPerTask {
+		return fmt.Errorf("context reference set has %d references; maximum is %d", len(references), limits.ReferencesPerTask)
+	}
+	total := 0
+	for _, reference := range references {
+		if err := reference.Validate(limits); err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(reference)
+		if err != nil {
+			return fmt.Errorf("encode context reference: %w", err)
+		}
+		total += len(encoded)
+		if total > limits.ReferencesTotalBytes {
+			return fmt.Errorf("context reference set exceeds %d bytes", limits.ReferencesTotalBytes)
 		}
 	}
 	return nil
@@ -496,6 +589,29 @@ func validateUTF8Strings(label string, values ...string) error {
 		if !utf8.ValidString(value) {
 			return fmt.Errorf("%s contains invalid UTF-8", label)
 		}
+	}
+	return nil
+}
+
+func validateHistoryItems(items []HistoryItem, limits ContinuityLimits, maximumBytes int) error {
+	if len(items) == 0 || len(items) > limits.SelectionRefs {
+		return fmt.Errorf("history item collection has %d items; maximum is %d", len(items), limits.SelectionRefs)
+	}
+	for _, item := range items {
+		if err := item.Validate(limits); err != nil {
+			return err
+		}
+	}
+	return validateJSONBytes("history item collection", items, maximumBytes)
+}
+
+func validateJSONBytes(label string, value any, maximum int) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", label, err)
+	}
+	if len(encoded) > maximum {
+		return fmt.Errorf("%s exceeds %d bytes", label, maximum)
 	}
 	return nil
 }
