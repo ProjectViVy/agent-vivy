@@ -1401,6 +1401,7 @@
       "workControl.completed",
       "workControl.create",
       "workControl.createGoal",
+      "workControl.currentRun",
       "workControl.disarmed",
       "workControl.enterPlan",
       "workControl.error",

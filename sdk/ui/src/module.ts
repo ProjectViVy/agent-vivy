@@ -1587,6 +1587,7 @@ export interface FaceClientAPI {
   deleteSession(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<FaceMessageList>;
   getSessionWork(sessionId: string): Promise<FaceWorkState>;
+  getPlan(sessionId: string, submissionId: string): Promise<FaceWorkPlan>;
   commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
   compactSession(sessionId: string): Promise<FaceCompactResult>;

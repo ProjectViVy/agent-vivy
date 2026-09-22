@@ -373,6 +373,7 @@ export const zh = {
     completed: '已完成',
     armed: '已激活',
     disarmed: '未激活',
+    currentRun: '当前 Run',
     rounds: '{{started}} / {{max}} 轮',
     planActive: 'Plan 已开启',
     planInactive: 'Plan 未开启',

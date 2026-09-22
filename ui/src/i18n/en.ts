@@ -375,6 +375,7 @@ export const en: Dictionary = {
     completed: 'Completed',
     armed: 'Armed',
     disarmed: 'Disarmed',
+    currentRun: 'Current run',
     rounds: '{{started}} / {{max}} rounds',
     planActive: 'Planning is active',
     planInactive: 'Planning is inactive',
