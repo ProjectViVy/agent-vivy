@@ -2,7 +2,7 @@
 
 Revision: PG-D1, 2026-09-21. Status: proposed engineering design, not implementation-ready.
 Product direction: [Issue #47 architecture addendum](https://github.com/ProjectViVy/agent-vivy/issues/47#issuecomment-5754532762).
-Baseline: aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+Baseline: a8d361b0244a1c40be513622bbdaebb5c9d40014.
 Delivery index: [Plan package](../plans/plan-goal/README.md).
 
 The issue remains the product-decision record. This document specifies engineering details beneath it; it does not repeat or supersede that record. Conflicts require a recorded correction before implementation. The user separately authorized publishing these documents directly to main and referencing them in Issue #47; this package does not authorize product implementation or release.

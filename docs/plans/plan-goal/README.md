@@ -1,7 +1,7 @@
 # Plan / Goal Pre-design Delivery Index
 
-Revision PG-D1, 2026-09-21. **Pre-design complete as a draft package; no production Story is Ready.**
-User authorization: detailed pre-design, direct publication of these documents to main, and a reference in Issue #47. Product implementation remains outside the authorized scope.
+Revision PG-D2-execution, 2026-09-22. **Implementation is authorized; downstream Stories remain gated by predecessor evidence.**
+User authorization: detailed pre-design was previously published; implementation on this branch is explicitly authorized by the maintainer on 2026-09-22.
 
 Read [shared engineering design](../../architecture/PLAN-GOAL-PREDESIGN.md), then the selected Story.
 Product decisions remain in [Issue #47](https://github.com/ProjectViVy/agent-vivy/issues/47#issuecomment-5754532762).
@@ -11,7 +11,7 @@ The issue is not duplicated here; this is the engineering refinement. Review sha
 
 | Story | Epic / requirements | Independently verifiable outcome | Immediate predecessors / required output | Plan | Status | Evidence or blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the three PG-D1 engineering blockers with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | Planned | Requires Go-equipped capability probe and review authorization before execution |
+| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the three PG-D1 engineering blockers with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | In progress | Runtime probe and contract decision are required before downstream release |
 | PG-1 | Foundation; R3, R6, R9 | Durably replay work state and atomically account ordinary Goal runs on both backends. | PG-0 accepted output | [PG-1](PG-1.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-2 | Plan collaboration; R1, R2, R5, R7, R9 | Plan uses guidance with independent permissions and exact human-reviewed transitions. | PG-1 accepted output | [PG-2](PG-2.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-3 | Goal continuation; R3, R4, R5, R6, R9 | At most one authorized continuation is admitted while human requests, cancellation and existing budgets remain authoritative. | PG-1 accepted output | [PG-3](PG-3.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
@@ -49,9 +49,9 @@ PG-4 owns application/RPC wiring of their completed contracts. PG-5 owns UI and 
 2. PG-D1 section 9 needs an exact durable message/work-event anchor and non-refundable usage semantics validated against existing fork/rewind.
 3. PG-3 host-queued human requests need an exact response/lifetime contract consistent with current callers. Resolve in PG-0/PG-D2; do not fabricate an accepted run ID before admission.
 4. Full product CI and PostgreSQL/browser/live evidence have not run.
-5. User has authorized pre-design, not implementation.
+5. Implementation is authorized, but downstream Story release still requires PG-0 evidence.
 
-PG-0 owns the first three engineering refinements. Update shared design and every affected consumer plan together before release. PG-0 can become Ready for its bounded investigation after toolchain availability and execution authorization; no production Story may be released while its consumed contract is unsettled.
+PG-0 owns the first three engineering refinements. Update shared design and every affected consumer plan together before release. PG-0 can become Ready for its bounded investigation after toolchain availability and accepted probe evidence; no production Story may be released while its consumed contract is unsettled.
 
 ## Coverage
 
