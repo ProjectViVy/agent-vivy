@@ -84,6 +84,54 @@ func TestWorkEventKindIsBounded(t *testing.T) {
 	}
 }
 
+func TestFoldWorkPlanReviewLifecycle(t *testing.T) {
+	state, err := FoldWork([]WorkEvent{
+		planEvent(1, WorkEventPlanEntered, WorkMutation{SessionID: "session-1"}),
+		planEvent(2, WorkEventPlanSubmitted, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanMarkdown: "# plan",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1",
+		}),
+		planEvent(3, WorkEventPlanDecided, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1",
+			PlanAction: PlanDecisionRevise, PlanFeedback: "clarify rollback",
+		}),
+		planEvent(4, WorkEventPlanSubmitted, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-2", PlanMarkdown: "# revised",
+		}),
+		planEvent(5, WorkEventPlanDecided, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-2",
+			PlanAction: PlanDecisionExecuteOnce,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("FoldWork() error = %v", err)
+	}
+	if state.Plan.Active || state.Plan.ReviewStatus != PlanReviewAccepted {
+		t.Fatalf("plan state = %+v, want inactive accepted plan", state.Plan)
+	}
+	if state.Plan.SubmissionID != "submission-2" || state.Plan.Markdown != "# revised" {
+		t.Fatalf("plan submission = %+v, want latest immutable submission", state.Plan)
+	}
+}
+
+func TestFoldWorkRejectsPlanWhileGoalActive(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	_, err := FoldWork([]WorkEvent{
+		goalEvent(1, WorkEventGoalCreated, ref, "ship it", 1),
+		planEvent(2, WorkEventPlanEntered, WorkMutation{SessionID: "session-1"}),
+	})
+	if !errors.Is(err, ErrStaleGoalReference) {
+		t.Fatalf("FoldWork() error = %v, want ErrStaleGoalReference", err)
+	}
+}
+
+func planEvent(seq WorkSeq, kind WorkEventKind, mutation WorkMutation) WorkEvent {
+	return WorkEvent{
+		SessionID: "session-1", Seq: seq, Kind: kind, PayloadVersion: WorkPayloadVersion,
+		Mutation: mutation,
+	}
+}
+
 func goalEvent(seq WorkSeq, kind WorkEventKind, ref GoalRef, objective string, maxRounds int) WorkEvent {
 	return WorkEvent{
 		SessionID:      "session-1",

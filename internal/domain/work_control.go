@@ -24,6 +24,10 @@ const WorkEventGoalCompleted WorkEventKind = "goal.completed"
 const WorkEventGoalBlocked WorkEventKind = "goal.blocked"
 const WorkEventGoalCleared WorkEventKind = "goal.cleared"
 const WorkEventGoalRoundAdmitted WorkEventKind = "goal.round_admitted"
+const WorkEventPlanEntered WorkEventKind = "plan.entered"
+const WorkEventPlanLeft WorkEventKind = "plan.left"
+const WorkEventPlanSubmitted WorkEventKind = "plan.submitted"
+const WorkEventPlanDecided WorkEventKind = "plan.decided"
 
 // Valid reports whether k is a supported work event kind.
 func (k WorkEventKind) Valid() bool {
@@ -35,7 +39,11 @@ func (k WorkEventKind) Valid() bool {
 		WorkEventGoalCompleted,
 		WorkEventGoalBlocked,
 		WorkEventGoalCleared,
-		WorkEventGoalRoundAdmitted:
+		WorkEventGoalRoundAdmitted,
+		WorkEventPlanEntered,
+		WorkEventPlanLeft,
+		WorkEventPlanSubmitted,
+		WorkEventPlanDecided:
 		return true
 	}
 	return false
@@ -64,25 +72,66 @@ type GoalState struct {
 	RoundsStarted int
 }
 
+// PlanReviewStatus is the durable state of the current plan submission.
+type PlanReviewStatus string
+
+const (
+	PlanReviewNone      PlanReviewStatus = "none"
+	PlanReviewPending   PlanReviewStatus = "pending"
+	PlanReviewAccepted  PlanReviewStatus = "accepted"
+	PlanReviewRejected  PlanReviewStatus = "rejected"
+	PlanReviewCancelled PlanReviewStatus = "cancelled"
+	PlanReviewExpired   PlanReviewStatus = "expired"
+)
+
+// PlanDecisionAction is the bounded human review vocabulary.
+type PlanDecisionAction string
+
+const (
+	PlanDecisionRevise      PlanDecisionAction = "revise"
+	PlanDecisionExecuteOnce PlanDecisionAction = "execute_once"
+	PlanDecisionStartGoal   PlanDecisionAction = "start_goal"
+)
+
+// PlanState is the current session collaboration state. The immutable
+// submission body is kept here for the current view and remains replayable
+// through the work event stream.
+type PlanState struct {
+	Active           bool
+	SubmissionID     string
+	Markdown         string
+	ReviewStatus     PlanReviewStatus
+	Feedback         string
+	OriginRunID      RunID
+	OriginToolCallID string
+}
+
 // WorkState is the pure reducer state for one session.
 type WorkState struct {
 	SessionID SessionID
 	Version   WorkVersion
 	Goal      *GoalState
+	Plan      PlanState
 }
 
 // WorkMutation is the versioned Goal lifecycle payload of a WorkEvent.
 type WorkMutation struct {
-	SessionID       SessionID
-	ExpectedVersion WorkVersion
-	RequestID       string
-	RequestHash     string
-	Kind            WorkEventKind
-	Goal            GoalRef
-	Objective       string
-	MaxRounds       int
-	Reason          string
-	Admission       GoalRunAdmission
+	SessionID            SessionID
+	ExpectedVersion      WorkVersion
+	RequestID            string
+	RequestHash          string
+	Kind                 WorkEventKind
+	Goal                 GoalRef
+	Objective            string
+	MaxRounds            int
+	Reason               string
+	Admission            GoalRunAdmission
+	PlanSubmissionID     string
+	PlanMarkdown         string
+	PlanAction           PlanDecisionAction
+	PlanFeedback         string
+	PlanOriginRunID      RunID
+	PlanOriginToolCallID string
 }
 
 // GoalRunAdmission records one atomically admitted Goal round.
@@ -170,8 +219,82 @@ func applyWorkEvent(state *WorkState, event WorkEvent) error {
 		return nil
 	case WorkEventGoalRoundAdmitted:
 		return admitGoalRound(state, event.Admission)
+	case WorkEventPlanEntered:
+		return enterPlan(state, event.Mutation)
+	case WorkEventPlanLeft:
+		return leavePlan(state, event.Mutation)
+	case WorkEventPlanSubmitted:
+		return submitPlan(state, event.Mutation)
+	case WorkEventPlanDecided:
+		return decidePlan(state, event.Mutation)
 	}
 	return fmt.Errorf("%w: %q", ErrUnsupportedWorkEventKind, event.Kind)
+}
+
+func enterPlan(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID {
+		return fmt.Errorf("%w: plan session %q", ErrStaleGoalReference, mutation.SessionID)
+	}
+	if state.Plan.Active {
+		return fmt.Errorf("%w: plan already active", ErrStaleGoalReference)
+	}
+	if state.Goal != nil && state.Goal.Phase == WorkPhaseActive {
+		return fmt.Errorf("%w: active Goal must be paused before Plan", ErrStaleGoalReference)
+	}
+	state.Plan = PlanState{Active: true, ReviewStatus: PlanReviewNone}
+	return nil
+}
+
+func leavePlan(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID || !state.Plan.Active {
+		return fmt.Errorf("%w: Plan is not active", ErrStaleGoalReference)
+	}
+	state.Plan.Active = false
+	if state.Plan.ReviewStatus == PlanReviewPending {
+		state.Plan.ReviewStatus = PlanReviewCancelled
+	}
+	return nil
+}
+
+func submitPlan(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID ||
+		!state.Plan.Active ||
+		mutation.PlanSubmissionID == "" ||
+		mutation.PlanMarkdown == "" {
+		return fmt.Errorf("%w: invalid plan submission", ErrStaleGoalReference)
+	}
+	if state.Plan.ReviewStatus == PlanReviewPending {
+		return fmt.Errorf("%w: plan review already pending", ErrStaleGoalReference)
+	}
+	state.Plan.SubmissionID = mutation.PlanSubmissionID
+	state.Plan.Markdown = mutation.PlanMarkdown
+	state.Plan.ReviewStatus = PlanReviewPending
+	state.Plan.Feedback = ""
+	state.Plan.OriginRunID = mutation.PlanOriginRunID
+	state.Plan.OriginToolCallID = mutation.PlanOriginToolCallID
+	return nil
+}
+
+func decidePlan(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID ||
+		!state.Plan.Active ||
+		state.Plan.ReviewStatus != PlanReviewPending ||
+		mutation.PlanSubmissionID == "" ||
+		mutation.PlanSubmissionID != state.Plan.SubmissionID {
+		return fmt.Errorf("%w: invalid plan decision", ErrStaleGoalReference)
+	}
+	switch mutation.PlanAction {
+	case PlanDecisionRevise:
+		state.Plan.ReviewStatus = PlanReviewRejected
+		state.Plan.Feedback = mutation.PlanFeedback
+	case PlanDecisionExecuteOnce, PlanDecisionStartGoal:
+		state.Plan.Active = false
+		state.Plan.ReviewStatus = PlanReviewAccepted
+		state.Plan.Feedback = mutation.PlanFeedback
+	default:
+		return fmt.Errorf("%w: unsupported plan decision %q", ErrStaleGoalReference, mutation.PlanAction)
+	}
+	return nil
 }
 
 func createGoal(state *WorkState, mutation WorkMutation) error {
