@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-
 func TestFoldWorkGoalCreationCarriesCreatorEvidence(t *testing.T) {
 	ref := GoalRef{ID: "goal-1", Revision: 1}
 	event := goalEvent(1, WorkEventGoalCreated, ref, "ship it", 2)

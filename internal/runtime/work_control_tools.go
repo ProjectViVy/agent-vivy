@@ -186,10 +186,10 @@ func (s *Service) CreateGoal(ctx context.Context, objective string, maxRounds in
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
 			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventGoalCreated,
-			Goal:           domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
-			Objective:      objective,
-			MaxRounds:      maxRounds,
-			EvidenceRunID:  runID,
+			Goal:          domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
+			Objective:     objective,
+			MaxRounds:     maxRounds,
+			EvidenceRunID: runID,
 		}
 	})
 	if err == nil {

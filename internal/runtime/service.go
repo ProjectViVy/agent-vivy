@@ -96,11 +96,11 @@ var (
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
-	Journal  storage.Journal
-	Work     storage.WorkStore
-	Runs     storage.RunStore
-	Messages storage.MessageStore
-	GoalRuns storage.GoalRunStore
+	Journal     storage.Journal
+	Work        storage.WorkStore
+	Runs        storage.RunStore
+	Messages    storage.MessageStore
+	GoalRuns    storage.GoalRunStore
 	PrimaryRuns storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
@@ -176,18 +176,18 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu              sync.Mutex
-	active          map[domain.RunID]context.CancelFunc
-	goalStarting    map[domain.SessionID]struct{}
-	goalRuns        map[domain.SessionID]domain.RunID
-	goalRunSessions map[domain.RunID]domain.SessionID
-	goalRunRefs     map[domain.RunID]domain.GoalRef
-	goalAdmissionMu sync.Mutex
+	mu               sync.Mutex
+	active           map[domain.RunID]context.CancelFunc
+	goalStarting     map[domain.SessionID]struct{}
+	goalRuns         map[domain.SessionID]domain.RunID
+	goalRunSessions  map[domain.RunID]domain.SessionID
+	goalRunRefs      map[domain.RunID]domain.GoalRef
+	goalAdmissionMu  sync.Mutex
 	admissionLocksMu sync.Mutex
 	admissionLocks   map[domain.SessionID]*sync.Mutex
-	goalWG          sync.WaitGroup
-	stopping        bool
-	humanPending    map[domain.SessionID]int
+	goalWG           sync.WaitGroup
+	stopping         bool
+	humanPending     map[domain.SessionID]int
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete

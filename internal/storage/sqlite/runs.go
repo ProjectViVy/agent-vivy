@@ -50,8 +50,6 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	return nil
 }
 
-
-
 // CommitPrimaryRun persists the user message, active primary run and
 // run.started event in one transaction. The session write lock is acquired
 // before checking active runs so concurrent backend handles serialize.

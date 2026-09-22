@@ -53,42 +53,41 @@ type GoalRunStore interface {
 	CommitGoalRun(ctx context.Context, admission GoalRunCommit) (GoalRunCommitResult, error)
 }
 
-
 // PrimaryRunCommit is the transaction boundary for an ordinary primary
 // run. The message, active run row, and run.started event are committed
 // together so a rejected concurrent admission cannot leave an orphan turn.
 type PrimaryRunCommit struct {
- Message domain.Message
- Run     domain.Run
- Started domain.RunEvent
+	Message domain.Message
+	Run     domain.Run
+	Started domain.RunEvent
 }
 
 // PrimaryRunStore atomically admits one ordinary primary run.
 type PrimaryRunStore interface {
- CommitPrimaryRun(ctx context.Context, admission PrimaryRunCommit) (domain.RunEvent, error)
+	CommitPrimaryRun(ctx context.Context, admission PrimaryRunCommit) (domain.RunEvent, error)
 }
 
 // ValidatePrimaryRunCommit checks the identity and lifecycle invariants for
 // the ordinary primary-run admission transaction.
 func ValidatePrimaryRunCommit(admission PrimaryRunCommit) error {
- if admission.Message.ID == "" ||
-  admission.Message.SessionID == "" ||
-  admission.Message.SessionID != admission.Run.SessionID ||
-  admission.Message.RunID != admission.Run.ID ||
-  admission.Message.Role != domain.RoleUser {
-  return ErrWorkInvalidMutation
- }
- if admission.Run.ID == "" ||
-  admission.Run.Status != domain.RunActive ||
-  (admission.Run.Kind != "" && admission.Run.Kind != domain.RunKindPrimary) {
-  return ErrWorkInvalidMutation
- }
- if admission.Started.RunID != admission.Run.ID ||
-  admission.Started.Type != domain.EventRunStarted ||
-  admission.Started.PayloadVersion <= 0 {
-  return ErrWorkInvalidMutation
- }
- return nil
+	if admission.Message.ID == "" ||
+		admission.Message.SessionID == "" ||
+		admission.Message.SessionID != admission.Run.SessionID ||
+		admission.Message.RunID != admission.Run.ID ||
+		admission.Message.Role != domain.RoleUser {
+		return ErrWorkInvalidMutation
+	}
+	if admission.Run.ID == "" ||
+		admission.Run.Status != domain.RunActive ||
+		(admission.Run.Kind != "" && admission.Run.Kind != domain.RunKindPrimary) {
+		return ErrWorkInvalidMutation
+	}
+	if admission.Started.RunID != admission.Run.ID ||
+		admission.Started.Type != domain.EventRunStarted ||
+		admission.Started.PayloadVersion <= 0 {
+		return ErrWorkInvalidMutation
+	}
+	return nil
 }
 
 // ValidateGoalRunCommit checks the cross-record identity invariants for an
