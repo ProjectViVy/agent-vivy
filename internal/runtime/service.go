@@ -180,7 +180,7 @@ type Service struct {
 	goalStarting    map[domain.SessionID]struct{}
 	goalRuns        map[domain.SessionID]domain.RunID
 	goalRunSessions map[domain.RunID]domain.SessionID
-	goalAdmissionMu  sync.Mutex
+	goalAdmissionMu sync.Mutex
 	goalWG          sync.WaitGroup
 	stopping        bool
 	// runSessions keeps the session identity for live/suspended runs so a
