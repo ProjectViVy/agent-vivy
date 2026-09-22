@@ -95,17 +95,20 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	if s == nil || s.deps.Work == nil || s.deps.GoalRuns == nil {
 		return ErrGoalDriverUnavailable
 	}
+	if strings.TrimSpace(string(sessionID)) == "" {
+		return ErrGoalSessionRequired
+	}
 	s.goalAdmissionMu.Lock()
 	defer s.goalAdmissionMu.Unlock()
+	sessionAdmission := s.sessionAdmission(sessionID)
+	sessionAdmission.Lock()
+	defer sessionAdmission.Unlock()
 	s.mu.Lock()
 	stopping := s.stopping
 	humanPending := s.humanPending[sessionID] > 0
 	s.mu.Unlock()
 	if stopping || humanPending {
 		return nil
-	}
-	if strings.TrimSpace(string(sessionID)) == "" {
-		return ErrGoalSessionRequired
 	}
 	state, err := s.deps.Work.ReadWork(ctx, sessionID)
 	if err != nil {
