@@ -349,17 +349,17 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-    CollaborationMode    string `json:"collaboration_mode,omitempty"`
-    CollaborationVersion int    `json:"collaboration_version,omitempty"`
-	SessionID       string           `json:"session_id"`
-	Text            string           `json:"text"`
-	Mode            string           `json:"mode,omitempty"`
-	Face            string           `json:"face,omitempty"`
-	PolicyProfile   string           `json:"policy_profile,omitempty"`
-	Thinking        string           `json:"thinking,omitempty"`
-	Attachments     []turnAttachment `json:"attachments,omitempty"`
-	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
-	ContextPaths    []string         `json:"context_paths,omitempty"`
+	CollaborationMode    string           `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int              `json:"collaboration_version,omitempty"`
+	SessionID            string           `json:"session_id"`
+	Text                 string           `json:"text"`
+	Mode                 string           `json:"mode,omitempty"`
+	Face                 string           `json:"face,omitempty"`
+	PolicyProfile        string           `json:"policy_profile,omitempty"`
+	Thinking             string           `json:"thinking,omitempty"`
+	Attachments          []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
+	ContextPaths         []string         `json:"context_paths,omitempty"`
 }
 
 // shellParams is intentionally smaller than turnParams. A direct shell
@@ -371,15 +371,15 @@ type shellParams struct {
 }
 
 type editSessionParams struct {
-    CollaborationMode    string `json:"collaboration_mode,omitempty"`
-    CollaborationVersion int    `json:"collaboration_version,omitempty"`
-	SessionID     string `json:"session_id"`
-	MessageID     string `json:"message_id"`
-	Text          string `json:"text"`
-	Mode          string `json:"mode,omitempty"`
-	Face          string `json:"face,omitempty"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
-	Thinking      string `json:"thinking,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	SessionID            string `json:"session_id"`
+	MessageID            string `json:"message_id"`
+	Text                 string `json:"text"`
+	Mode                 string `json:"mode,omitempty"`
+	Face                 string `json:"face,omitempty"`
+	PolicyProfile        string `json:"policy_profile,omitempty"`
+	Thinking             string `json:"thinking,omitempty"`
 }
 
 // turnAttachment carries one image on a turn/start call (VC-1g-2).

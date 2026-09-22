@@ -175,10 +175,10 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu     sync.Mutex
-	active map[domain.RunID]context.CancelFunc
-	goalStarting map[domain.SessionID]struct{}
-	goalRuns map[domain.SessionID]domain.RunID
+	mu              sync.Mutex
+	active          map[domain.RunID]context.CancelFunc
+	goalStarting    map[domain.SessionID]struct{}
+	goalRuns        map[domain.SessionID]domain.RunID
 	goalRunSessions map[domain.RunID]domain.SessionID
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the

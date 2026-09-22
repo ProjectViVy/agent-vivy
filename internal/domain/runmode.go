@@ -21,7 +21,7 @@ type CollaborationMode string
 const (
 	CollaborationModeNone CollaborationMode = "none"
 	CollaborationModePlan CollaborationMode = "plan"
-	CollaborationVersion = 1
+	CollaborationVersion                    = 1
 )
 
 // Valid reports whether the collaboration hint is supported.

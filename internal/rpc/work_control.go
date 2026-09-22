@@ -15,71 +15,71 @@ import (
 )
 
 const (
-	maxWorkRequestIDBytes = 128
+	maxWorkRequestIDBytes  = 128
 	maxWorkIdentifierBytes = 256
-	maxGoalObjectiveBytes = 8 << 10
-	maxPlanMarkdownBytes = 256 << 10
-	maxPlanFeedbackBytes = 8 << 10
-	maxWorkReasonBytes = 4 << 10
-	maxGoalRounds = 1000
+	maxGoalObjectiveBytes  = 8 << 10
+	maxPlanMarkdownBytes   = 256 << 10
+	maxPlanFeedbackBytes   = 8 << 10
+	maxWorkReasonBytes     = 4 << 10
+	maxGoalRounds          = 1000
 )
 
 type workParams struct {
-	SessionID string `json:"session_id"`
-	ExpectedVersion int64 `json:"expected_version"`
-	RequestID string `json:"request_id"`
-	GoalID string `json:"goal_id,omitempty"`
-	GoalRevision int64 `json:"goal_revision,omitempty"`
-	Objective string `json:"objective,omitempty"`
-	MaxRounds int `json:"max_rounds,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	PlanSubmissionID string `json:"submission_id,omitempty"`
-	PlanMarkdown string `json:"markdown,omitempty"`
-	PlanAction string `json:"action,omitempty"`
-	PlanFeedback string `json:"feedback,omitempty"`
-	PlanOriginRunID string `json:"origin_run_id,omitempty"`
+	SessionID            string `json:"session_id"`
+	ExpectedVersion      int64  `json:"expected_version"`
+	RequestID            string `json:"request_id"`
+	GoalID               string `json:"goal_id,omitempty"`
+	GoalRevision         int64  `json:"goal_revision,omitempty"`
+	Objective            string `json:"objective,omitempty"`
+	MaxRounds            int    `json:"max_rounds,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	PlanSubmissionID     string `json:"submission_id,omitempty"`
+	PlanMarkdown         string `json:"markdown,omitempty"`
+	PlanAction           string `json:"action,omitempty"`
+	PlanFeedback         string `json:"feedback,omitempty"`
+	PlanOriginRunID      string `json:"origin_run_id,omitempty"`
 	PlanOriginToolCallID string `json:"origin_tool_call_id,omitempty"`
 }
 
 type workGoalResult struct {
-	ID string `json:"id"`
-	Revision int64 `json:"revision"`
-	Objective string `json:"objective"`
-	Phase string `json:"phase"`
-	MaxRounds int `json:"max_rounds"`
-	RoundsStarted int `json:"rounds_started"`
+	ID            string `json:"id"`
+	Revision      int64  `json:"revision"`
+	Objective     string `json:"objective"`
+	Phase         string `json:"phase"`
+	MaxRounds     int    `json:"max_rounds"`
+	RoundsStarted int    `json:"rounds_started"`
 }
 
 type workPlanResult struct {
-	Active bool `json:"active"`
-	SubmissionID string `json:"submission_id,omitempty"`
-	Markdown string `json:"markdown,omitempty"`
-	ReviewStatus string `json:"review_status"`
-	Feedback string `json:"feedback,omitempty"`
-	OriginRunID string `json:"origin_run_id,omitempty"`
+	Active           bool   `json:"active"`
+	SubmissionID     string `json:"submission_id,omitempty"`
+	Markdown         string `json:"markdown,omitempty"`
+	ReviewStatus     string `json:"review_status"`
+	Feedback         string `json:"feedback,omitempty"`
+	OriginRunID      string `json:"origin_run_id,omitempty"`
 	OriginToolCallID string `json:"origin_tool_call_id,omitempty"`
 }
 
 type workStateResult struct {
-	SessionID string `json:"session_id"`
-	Version int64 `json:"version"`
-	Goal *workGoalResult `json:"goal,omitempty"`
-	Plan workPlanResult `json:"plan"`
-	Activation string `json:"activation"`
-	CurrentRunID string `json:"current_run_id,omitempty"`
+	SessionID    string          `json:"session_id"`
+	Version      int64           `json:"version"`
+	Goal         *workGoalResult `json:"goal,omitempty"`
+	Plan         workPlanResult  `json:"plan"`
+	Activation   string          `json:"activation"`
+	CurrentRunID string          `json:"current_run_id,omitempty"`
 }
 
 type workEventResult struct {
-	Seq int64 `json:"seq"`
-	Kind string `json:"kind"`
+	Seq       int64  `json:"seq"`
+	Kind      string `json:"kind"`
 	RequestID string `json:"request_id"`
-	CreatedAt int64 `json:"created_at"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 type workCommitResult struct {
-	Work workStateResult `json:"work"`
-	Event workEventResult `json:"event"`
-	Replayed bool `json:"replayed"`
+	Work     workStateResult `json:"work"`
+	Event    workEventResult `json:"event"`
+	Replayed bool            `json:"replayed"`
 }
 
 func workStateView(state domain.WorkState, activation string, currentRunID domain.RunID) workStateResult {
