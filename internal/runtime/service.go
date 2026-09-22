@@ -101,6 +101,7 @@ type ServiceDeps struct {
 	Runs     storage.RunStore
 	Messages storage.MessageStore
 	GoalRuns storage.GoalRunStore
+	PrimaryRuns storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -334,6 +335,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if !deps.PolicyDefaultProfile.Valid() {
 		deps.PolicyDefaultProfile = domain.PolicyProfileDefault
+	}
+	if deps.PrimaryRuns == nil {
+		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
 	}
 	return &Service{
 		engine:          eng,
@@ -785,19 +789,19 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 			s.deps.WorkSink.Publish(admitted.Work.Event)
 		}
 	} else {
-		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
-			return "", fmt.Errorf("runtime: append user message: %w", err)
+		if s.deps.PrimaryRuns == nil {
+			return "", errors.New("runtime: primary run admission store is not wired")
 		}
-		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
-			return "", fmt.Errorf("runtime: create run: %w", err)
-		}
-		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
-		if appendErr != nil {
-			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
-		}
-		started.Seq = seq
-		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
-			return "", fmt.Errorf("runtime: activate run: %w", err)
+		run.Status = domain.RunActive
+		run.Kind = domain.RunKindPrimary
+		run.RootID = runID
+		started, err = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+			Message: message,
+			Run:     run,
+			Started: started,
+		})
+		if err != nil {
+			return "", fmt.Errorf("runtime: commit primary run: %w", err)
 		}
 	}
 	s.publish(ctx, started)

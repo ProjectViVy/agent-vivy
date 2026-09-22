@@ -56,6 +56,95 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	return nil
 }
 
+
+
+// CommitPrimaryRun persists the user message, active primary run and
+// run.started event in one transaction. The session row lock serializes
+// backend handles before the active-run check.
+func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.PrimaryRunCommit) (domain.RunEvent, error) {
+	if err := storage.ValidatePrimaryRunCommit(admission); err != nil {
+		return domain.RunEvent{}, err
+	}
+	tx, err := b.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: begin primary run admission: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sessionID string
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE id = $1 FOR UPDATE", admission.Message.SessionID).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
+		return domain.RunEvent{}, storage.ErrNotFound
+	} else if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
+	}
+
+	var active int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM runs WHERE session_id = $1 AND kind = $2 AND status IN "+activeStatuses,
+		admission.Run.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: inspect active primary run: %w", err)
+	}
+	if active != 0 {
+		return domain.RunEvent{}, storage.ErrWorkRunConflict
+	}
+
+	message := admission.Message
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, message.Content,
+		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
+		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: append primary message: %w", err)
+	}
+	for position, attachment := range message.Attachments {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_attachments (message_id, position, name, mime_type, data) VALUES ($1, $2, $3, $4, $5)",
+			message.ID, position, attachment.Name, attachment.MimeType, attachment.Data); err != nil {
+			return domain.RunEvent{}, fmt.Errorf("storage: append primary attachment: %w", err)
+		}
+	}
+	for position, file := range message.FileContexts {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_file_contexts (message_id, position, path, name, size, content) VALUES ($1, $2, $3, $4, $5, $6)",
+			message.ID, position, file.Path, file.Name, file.Size, file.Content); err != nil {
+			return domain.RunEvent{}, fmt.Errorf("storage: append primary file context: %w", err)
+		}
+	}
+	at := messageActivityAt(message.CreatedAt)
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE sessions SET updated_at = CASE WHEN updated_at < $1 THEN $2 ELSE $2 END WHERE id = $3",
+		at, at, message.SessionID); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: touch primary session: %w", err)
+	}
+
+	run := admission.Run
+	kind := run.Kind
+	if !kind.Valid() {
+		kind = domain.RunKindPrimary
+	}
+	rootID := run.RootID
+	if rootID == "" {
+		rootID = run.ID
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+		run.ID, run.SessionID, string(run.Status), string(kind), run.ParentID, rootID, run.Depth); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: create primary run: %w", err)
+	}
+
+	started := admission.Started
+	started.Seq = 1
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload) VALUES ($1, $2, $3, $4, $5, $6)",
+		started.RunID, int64(started.Seq), string(started.Type), started.CreatedAt, started.PayloadVersion, started.Payload); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: append primary run.started: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: commit primary run admission: %w", err)
+	}
+	return started, nil
+}
+
 // GetRun loads one run; absent ids yield storage.ErrNotFound.
 func (b *Backend) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
 	var r domain.Run
