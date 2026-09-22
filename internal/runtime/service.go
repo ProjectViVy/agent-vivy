@@ -177,6 +177,9 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[domain.RunID]context.CancelFunc
+	goalStarting map[domain.SessionID]struct{}
+	goalRuns map[domain.SessionID]domain.RunID
+	goalRunSessions map[domain.RunID]domain.SessionID
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -330,6 +333,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		defaultProfile:  deps.PolicyDefaultProfile,
 		approvalSettle:  deps.ApprovalSettleTimeout,
 		active:          make(map[domain.RunID]context.CancelFunc),
+		goalStarting:    make(map[domain.SessionID]struct{}),
+		goalRuns:        make(map[domain.SessionID]domain.RunID),
+		goalRunSessions: make(map[domain.RunID]domain.SessionID),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
 		pending:         make(map[domain.RunID]pendingRun),
@@ -764,6 +770,10 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.runSessions[runID] = sessionID
+	if options.GoalRound != nil {
+		s.goalRuns[sessionID] = runID
+		s.goalRunSessions[runID] = sessionID
+	}
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.runTools[runID] = selectedToolSet
@@ -3010,9 +3020,9 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
 	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
 	if s.runSessionDeleted(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
+		s.projectionMu.Unlock()
 		return
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
@@ -3024,6 +3034,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
 		s.cleanupRunState(terminal.RunID)
+		s.projectionMu.Unlock()
 		return
 	}
 	terminal.Seq = seq
@@ -3039,6 +3050,12 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 
 	s.mu.Lock()
 	var shellStateRefToDelete string
+	var goalSession domain.SessionID
+	goalSession = s.goalRunSessions[terminal.RunID]
+	delete(s.goalRunSessions, terminal.RunID)
+	if goalSession != "" && s.goalRuns[goalSession] == terminal.RunID {
+		delete(s.goalRuns, goalSession)
+	}
 	if c, ok := s.active[terminal.RunID]; ok {
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
@@ -3053,6 +3070,10 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
+	s.projectionMu.Unlock()
+	if status == domain.RunCompleted && goalSession != "" {
+		s.WakeGoal(goalSession)
+	}
 }
 
 func (s *Service) cleanupRunState(runID domain.RunID) {
