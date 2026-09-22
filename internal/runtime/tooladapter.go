@@ -518,6 +518,12 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	return refusalToolResult(spec.Name, reason), nil
 }
 
+func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {
+	return !spec.Readonly &&
+		spec.Interaction != domain.ToolInteractionQuestion &&
+		approvalPolicy(ctx) == domain.ApprovalPolicyNever
+}
+
 func workRunTerminalFence(ctx context.Context) bool {
 	operations := tools.WorkControlFromContext(ctx)
 	fence, ok := operations.(interface {
@@ -530,6 +536,19 @@ func workRunTerminalFence(ctx context.Context) bool {
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
+	if operations := tools.WorkControlFromContext(ctx); operations != nil {
+		if gate, ok := operations.(interface {
+			WorkToolCall(context.Context, func() (string, error)) (string, error)
+		}); ok {
+			return gate.WorkToolCall(ctx, func() (string, error) {
+				return a.dispatchUngated(ctx, argumentsInJSON)
+			})
+		}
+	}
+	return a.dispatchUngated(ctx, argumentsInJSON)
+}
+
+func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
 	if workRunTerminalFence(ctx) {
 		return "", refuseCall("the Goal has already reached a terminal state; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash)
@@ -561,6 +580,10 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
+	}
+	if approvalPolicyDeniesEffectful(ctx, spec) {
+		evaluation.Decision = domain.PolicyDeny
+		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
 	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),

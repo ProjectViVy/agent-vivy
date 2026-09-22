@@ -53,7 +53,10 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 	if s == nil {
 		return false
 	}
-	runID := tools.RunIDFromContext(ctx)
+	runID := contextRunID(ctx)
+	if runID == "" {
+		runID = tools.RunIDFromContext(ctx)
+	}
 	if runID == "" {
 		return false
 	}
@@ -61,6 +64,29 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 	_, fenced := s.workFenced[runID]
 	s.mu.Unlock()
 	return fenced
+}
+
+// WorkToolCall serializes model tool admission and invocation for one live
+// run. The gate closes the check-to-invoke race around report_goal: if a
+// terminal report commits first, a sibling tool waits and is fenced before
+// reaching product code.
+func (s *Service) WorkToolCall(ctx context.Context, call func() (string, error)) (string, error) {
+	if s == nil || call == nil {
+		return "", errors.New("runtime: work tool gate is unavailable")
+	}
+	runID := contextRunID(ctx)
+	if runID == "" {
+		runID = tools.RunIDFromContext(ctx)
+	}
+	s.mu.Lock()
+	gate := s.workGates[runID]
+	s.mu.Unlock()
+	if gate == nil {
+		return call()
+	}
+	gate.Lock()
+	defer gate.Unlock()
+	return call()
 }
 
 func (s *Service) fenceWorkRun(runID domain.RunID) {

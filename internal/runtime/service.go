@@ -215,6 +215,7 @@ type Service struct {
 	// the process-wide registry again.
 	runTools   map[domain.RunID]map[string]struct{}
 	workFenced map[domain.RunID]struct{}
+	workGates  map[domain.RunID]*sync.Mutex
 	// contextViews memoizes each live run's committed Context View so resume
 	// paths skip a full Journal replay. Entries die with the run in
 	// cleanupRunState.
@@ -361,6 +362,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
 		runTools:        make(map[domain.RunID]map[string]struct{}),
 		workFenced:      make(map[domain.RunID]struct{}),
+		workGates:       make(map[domain.RunID]*sync.Mutex),
 		contextViews:    make(map[domain.RunID]string),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
@@ -826,6 +828,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.runTools[runID] = selectedToolSet
+	s.workGates[runID] = &sync.Mutex{}
 	s.mu.Unlock()
 
 	s.wg.Add(1)
@@ -1473,6 +1476,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		s.goalRunSessions[run.ID] = run.SessionID
 		s.goalRunRefs[run.ID] = goalRef
 	}
+	s.workGates[run.ID] = &sync.Mutex{}
 	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
@@ -1513,6 +1517,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		s.goalRunSessions[run.ID] = run.SessionID
 		s.goalRunRefs[run.ID] = goalRef
 	}
+	s.workGates[run.ID] = &sync.Mutex{}
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
@@ -3138,6 +3143,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.snapshots, terminal.RunID)
 	delete(s.runTools, terminal.RunID)
 	delete(s.workFenced, terminal.RunID)
+	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
@@ -3169,6 +3175,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
 	delete(s.workFenced, runID)
+	delete(s.workGates, runID)
 	delete(s.runSessions, runID)
 	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {
 		delete(s.goalRuns, goalSession)

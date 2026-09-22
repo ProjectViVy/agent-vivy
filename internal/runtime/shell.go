@@ -376,6 +376,10 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 	if err != nil {
 		return nil, err
 	}
+	if approvalPolicyDeniesEffectful(ctx, spec) {
+		evaluation.Decision = domain.PolicyDeny
+		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
+	}
 	emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason})
 	if evaluation.Decision == domain.PolicyDeny {
 		if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
