@@ -995,6 +995,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if _, ok := h.deps.Sessions.(storage.SessionWorkspaceStore); ok && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.set_workspace")
 		}
+		if h.deps.Work != nil && h.deps.Service != nil {
+			capabilities = append(capabilities, "session.work", "goal", "plan")
+		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
 			capabilities = append(capabilities, "commands.list", "commands.expand")
@@ -1045,6 +1048,34 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			bindPeerSessionResult(peer, result)
 		}
 		return result, rpcErr
+	case "session/work/get":
+		result, rpcErr := h.getWork(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "goal/create":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCreated)
+	case "goal/edit":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalEdited)
+	case "goal/pause":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalPaused)
+	case "goal/resume":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalResumed)
+	case "goal/complete":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCompleted)
+	case "goal/block":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalBlocked)
+	case "goal/clear":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCleared)
+	case "plan/enter":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanEntered)
+	case "plan/leave":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanLeft)
+	case "plan/submit":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanSubmitted)
+	case "plan/decide":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanDecided)
 	case "session/rename":
 		result, rpcErr := h.renameSession(ctx, request)
 		if rpcErr == nil {
