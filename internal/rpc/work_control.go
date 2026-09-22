@@ -193,7 +193,8 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 		h.bindPeerSessionRequest(ctx, peer, request)
 	}
 	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
-	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalResumed {
+	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalResumed ||
+		(kind == domain.WorkEventPlanDecided && params.PlanAction == string(domain.PlanDecisionStartGoal)) {
 		h.deps.Service.WakeGoal(sessionID)
 	}
 	if kind == domain.WorkEventGoalPaused || kind == domain.WorkEventGoalCleared {
@@ -228,6 +229,7 @@ func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (
 func buildWorkMutation(method string, kind domain.WorkEventKind, params workParams) (domain.WorkMutation, *Error) {
 	params.SessionID, params.RequestID = strings.TrimSpace(params.SessionID), strings.TrimSpace(params.RequestID)
 	params.GoalID, params.PlanSubmissionID = strings.TrimSpace(params.GoalID), strings.TrimSpace(params.PlanSubmissionID)
+	params.Objective = strings.TrimSpace(params.Objective)
 	params.PlanAction = strings.TrimSpace(params.PlanAction)
 	params.PlanOriginRunID, params.PlanOriginToolCallID = strings.TrimSpace(params.PlanOriginRunID), strings.TrimSpace(params.PlanOriginToolCallID)
 	params.Reason, params.PlanFeedback = strings.TrimSpace(params.Reason), strings.TrimSpace(params.PlanFeedback)
@@ -248,9 +250,6 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 	}
 	if !kind.Valid() || kind == domain.WorkEventGoalRoundAdmitted {
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "unsupported work operation"}
-	}
-	if kind == domain.WorkEventPlanDecided && params.PlanAction != string(domain.PlanDecisionRevise) {
-		return domain.WorkMutation{}, &Error{Code: CodeConflict, Message: "plan execution handoff is not available yet"}
 	}
 	mutation := domain.WorkMutation{
 		SessionID: domain.SessionID(params.SessionID), ExpectedVersion: domain.WorkVersion(params.ExpectedVersion),
@@ -292,7 +291,22 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		if params.PlanSubmissionID == "" || params.PlanAction == "" {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "submission_id and action are required"}
 		}
-		mutation.PlanSubmissionID, mutation.PlanAction, mutation.PlanFeedback = params.PlanSubmissionID, domain.PlanDecisionAction(params.PlanAction), params.PlanFeedback
+		action := domain.PlanDecisionAction(params.PlanAction)
+		if action != domain.PlanDecisionRevise && action != domain.PlanDecisionExecuteOnce && action != domain.PlanDecisionStartGoal {
+			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "unsupported plan action"}
+		}
+		mutation.PlanSubmissionID, mutation.PlanAction, mutation.PlanFeedback = params.PlanSubmissionID, action, params.PlanFeedback
+		if action == domain.PlanDecisionStartGoal {
+			if params.Objective == "" || params.MaxRounds <= 0 || params.MaxRounds > maxGoalRounds {
+				return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "start_goal requires objective and max_rounds"}
+			}
+			if params.GoalID == "" {
+				params.GoalID = deterministicWorkID("goal", params.RequestID)
+				mutation.RequestHash = hashWorkRequest(method, params)
+			}
+			mutation.Goal = domain.GoalRef{ID: params.GoalID, Revision: 1}
+			mutation.Objective, mutation.MaxRounds = params.Objective, params.MaxRounds
+		}
 	default:
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "unsupported work operation"}
 	}
