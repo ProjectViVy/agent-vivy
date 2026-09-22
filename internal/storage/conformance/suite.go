@@ -127,7 +127,6 @@ func cnSessionWorkspace(t *testing.T, h Harness) {
 	}
 }
 
-
 func cnSessionWork(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
