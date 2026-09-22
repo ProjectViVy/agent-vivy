@@ -738,6 +738,12 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 			return "", err
 		}
 	} else if options.GoalRound != nil {
+		s.mu.Lock()
+		humanPending := s.humanPending[sessionID] > 0
+		s.mu.Unlock()
+		if humanPending {
+			return "", storage.ErrWorkRunConflict
+		}
 		if s.deps.GoalRuns == nil {
 			return "", errors.New("runtime: goal admission store is not wired")
 		}

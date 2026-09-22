@@ -254,6 +254,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 
+	workStore, ok := backend.(storage.WorkStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement work store")
+	}
+	goalRunStore, ok := backend.(storage.GoalRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement Goal run store")
+	}
+
 	// Provider metadata is part of the binary: there is no bundle directory,
 	// no working-directory dependency, and nothing a running instance can be
 	// pointed at (PROV-P1, decision D3). The embedded data is reconciled
@@ -650,10 +661,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}()
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
-		Work:                  backend,
+		Work:                  workStore,
 		Runs:                  backend,
 		Messages:              backend,
-		GoalRuns:              backend,
+		GoalRuns:              goalRunStore,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
@@ -847,7 +858,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
-		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: backend, WorkBus: workBus,
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: workStore, WorkBus: workBus,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		ActionHost:     actionHost,
 		Marketplace:    marketplace,
