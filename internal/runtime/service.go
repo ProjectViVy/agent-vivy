@@ -731,6 +731,9 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		run = admitted.Run
 		runID = run.ID
 		started = admitted.Started
+		if s.deps.WorkSink != nil {
+			s.deps.WorkSink.Publish(admitted.Work.Event)
+		}
 	} else {
 		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
 			return "", fmt.Errorf("runtime: append user message: %w", err)
