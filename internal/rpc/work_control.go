@@ -25,60 +25,60 @@ const (
 )
 
 type workParams struct {
-	SessionID string Z`json:"session_id"`
-	ExpectedVersion int64 Z`json:"expected_version"`
-	RequestID string Z`json:"request_id"`
-	GoalID string Z`json:"goal_id,omitempty"`
-	GoalRevision int64 Z`json:"goal_revision,omitempty"`
-	Objective string Z`json:"objective,omitempty"`
-	MaxRounds int Z`json:"max_rounds,omitempty"`
-	Reason string Z`json:"reason,omitempty"`
-	PlanSubmissionID string Z`json:"submission_id,omitempty"`
-	PlanMarkdown string Z`json:"markdown,omitempty"`
-	PlanAction string Z`json:"action,omitempty"`
-	PlanFeedback string Z`json:"feedback,omitempty"`
-	PlanOriginRunID string Z`json:"origin_run_id,omitempty"`
-	PlanOriginToolCallID string Z`json:"origin_tool_call_id,omitempty"`
+	SessionID string `json:"session_id"`
+	ExpectedVersion int64 `json:"expected_version"`
+	RequestID string `json:"request_id"`
+	GoalID string `json:"goal_id,omitempty"`
+	GoalRevision int64 `json:"goal_revision,omitempty"`
+	Objective string `json:"objective,omitempty"`
+	MaxRounds int `json:"max_rounds,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	PlanSubmissionID string `json:"submission_id,omitempty"`
+	PlanMarkdown string `json:"markdown,omitempty"`
+	PlanAction string `json:"action,omitempty"`
+	PlanFeedback string `json:"feedback,omitempty"`
+	PlanOriginRunID string `json:"origin_run_id,omitempty"`
+	PlanOriginToolCallID string `json:"origin_tool_call_id,omitempty"`
 }
 
 type workGoalResult struct {
-	ID string Z`json:"id"`
-	Revision int64 Z`json:"revision"`
-	Objective string Z`json:"objective"`
-	Phase string Z`json:"phase"`
-	MaxRounds int Z`json:"max_rounds"`
-	RoundsStarted int Z`json:"rounds_started"`
+	ID string `json:"id"`
+	Revision int64 `json:"revision"`
+	Objective string `json:"objective"`
+	Phase string `json:"phase"`
+	MaxRounds int `json:"max_rounds"`
+	RoundsStarted int `json:"rounds_started"`
 }
 
 type workPlanResult struct {
-	Active bool Z`json:"active"`
-	SubmissionID string Z`json:"submission_id,omitempty"`
-	Markdown string Z`json:"markdown,omitempty"`
-	ReviewStatus string Z`json:"review_status"`
-	Feedback string Z`json:"feedback,omitempty"`
-	OriginRunID string Z`json:"origin_run_id,omitempty"`
-	OriginToolCallID string Z`json:"origin_tool_call_id,omitempty"`
+	Active bool `json:"active"`
+	SubmissionID string `json:"submission_id,omitempty"`
+	Markdown string `json:"markdown,omitempty"`
+	ReviewStatus string `json:"review_status"`
+	Feedback string `json:"feedback,omitempty"`
+	OriginRunID string `json:"origin_run_id,omitempty"`
+	OriginToolCallID string `json:"origin_tool_call_id,omitempty"`
 }
 
 type workStateResult struct {
-	SessionID string Z`json:"session_id"`
-	Version int64 Z`json:"version"`
-	Goal *workGoalResult Z`json:"goal,omitempty"`
-	Plan workPlanResult Z`json:"plan"`
-	Activation string Z`json:"activation"`
+	SessionID string `json:"session_id"`
+	Version int64 `json:"version"`
+	Goal *workGoalResult `json:"goal,omitempty"`
+	Plan workPlanResult `json:"plan"`
+	Activation string `json:"activation"`
 }
 
 type workEventResult struct {
-	Seq int64 Z`json:"seq"`
-	Kind string Z`json:"kind"`
-	RequestID string Z`json:"request_id"`
-	CreatedAt int64 Z`json:"created_at"`
+	Seq int64 `json:"seq"`
+	Kind string `json:"kind"`
+	RequestID string `json:"request_id"`
+	CreatedAt int64 `json:"created_at"`
 }
 
 type workCommitResult struct {
-	Work workStateResult Z`json:"work"`
-	Event workEventResult Z`json:"event"`
-	Replayed bool Z`json:"replayed"`
+	Work workStateResult `json:"work"`
+	Event workEventResult `json:"event"`
+	Replayed bool `json:"replayed"`
 }
 
 func workStateView(state domain.WorkState) workStateResult {
