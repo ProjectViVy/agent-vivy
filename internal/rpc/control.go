@@ -2954,7 +2954,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
-		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		Thinking:       domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true,
 	})
 	if err != nil {
