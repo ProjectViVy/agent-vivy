@@ -152,6 +152,9 @@ func (s *HistoryService) effectiveLimits() domain.ContinuityLimits {
 // Capabilities returns the effective model/RPC limits. It is deliberately a
 // value projection so callers cannot mutate the service's authority.
 func (s *HistoryService) Capabilities(context.Context) (tools.HistoryCapabilities, error) {
+	if s == nil {
+		return tools.HistoryCapabilities{}, errors.New("history service unavailable")
+	}
 	limits := s.effectiveLimits()
 	return tools.HistoryCapabilities{
 		Kinds: []string{
@@ -178,6 +181,9 @@ func (s *HistoryService) Capabilities(context.Context) (tools.HistoryCapabilitie
 
 // Search implements the HistoryOperations search boundary.
 func (s *HistoryService) Search(ctx context.Context, request domain.HistorySearchRequest) (domain.HistoryPage, error) {
+	if s == nil {
+		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
+	}
 	limits := s.effectiveLimits()
 	if err := request.Validate(limits); err != nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, err.Error()), nil
@@ -185,7 +191,7 @@ func (s *HistoryService) Search(ctx context.Context, request domain.HistorySearc
 	if request.ArtifactID != "" || request.TaskID != "" {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "unsupported_filter"), nil
 	}
-	if s == nil || s.query == nil {
+	if s.query == nil {
 		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
 	}
 	return s.runSearch(ctx, request, limits)
@@ -194,6 +200,9 @@ func (s *HistoryService) Search(ctx context.Context, request domain.HistorySearc
 // Read implements the bounded source-selection read boundary. Reference IDs
 // are intentionally not resolved by T3; T5 owns destination snapshots.
 func (s *HistoryService) Read(ctx context.Context, request domain.HistoryReadRequest) (domain.HistoryPage, error) {
+	if s == nil {
+		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
+	}
 	limits := s.effectiveLimits()
 	if err := request.Validate(limits); err != nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, err.Error()), nil
@@ -201,7 +210,7 @@ func (s *HistoryService) Read(ctx context.Context, request domain.HistoryReadReq
 	if request.ReferenceID != "" {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "reference_lookup_unavailable"), nil
 	}
-	if s == nil || s.query == nil || request.Selection == nil {
+	if s.query == nil || request.Selection == nil {
 		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
 	}
 	return s.runRead(ctx, request, limits)
@@ -210,6 +219,9 @@ func (s *HistoryService) Read(ctx context.Context, request domain.HistoryReadReq
 // Trace exposes only immediate source/provenance metadata. Recursive lookup
 // of references and future deliverables belongs to their owning stories.
 func (s *HistoryService) Trace(ctx context.Context, request domain.HistoryTraceRequest) (domain.HistoryPage, error) {
+	if s == nil {
+		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
+	}
 	limits := s.effectiveLimits()
 	if err := request.Validate(limits); err != nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, err.Error()), nil
@@ -219,6 +231,9 @@ func (s *HistoryService) Trace(ctx context.Context, request domain.HistoryTraceR
 	}
 	if request.SourceRef == nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "source_ref_required"), nil
+	}
+	if s.query == nil {
+		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
 	}
 	current := tools.SessionIDFromContext(ctx)
 	if current == "" {
@@ -425,7 +440,7 @@ func (s *HistoryService) scan(ctx context.Context, state historyCursorState, lim
 			return nil, state, false, false, false, nil, err
 		}
 		for _, candidate := range candidates.Records {
-			item, ok := projectHistoryCandidate(candidate)
+			item, ok := projectHistoryCandidateWithLimit(candidate, limits.ResultItemBytes)
 			if !ok {
 				continue
 			}
@@ -625,6 +640,10 @@ func (s *HistoryService) decodeCursor(encoded string) (historyCursorState, error
 }
 
 func projectHistoryCandidate(candidate storage.HistoryCandidate) (domain.HistoryItem, bool) {
+	return projectHistoryCandidateWithLimit(candidate, domain.DefaultContinuityLimits().ResultItemBytes)
+}
+
+func projectHistoryCandidateWithLimit(candidate storage.HistoryCandidate, maximum int) (domain.HistoryItem, bool) {
 	if candidate.Ref.SessionID == "" {
 		return domain.HistoryItem{}, false
 	}
@@ -642,17 +661,17 @@ func projectHistoryCandidate(candidate storage.HistoryCandidate) (domain.History
 		if candidate.Unavailable {
 			return domain.HistoryItem{Ref: candidate.Ref, Author: author, Truncated: true}, true
 		}
-		text, redacted, truncated := sanitizeHistoryText(candidate.Text, domain.DefaultContinuityLimits().ResultItemBytes)
+		text, redacted, truncated := sanitizeHistoryText(candidate.Text, maximum)
 		return domain.HistoryItem{Ref: candidate.Ref, Author: author, Text: text, Redacted: redacted, Truncated: truncated || candidate.Truncated}, true
 	}
 	if !historyEventAllowed(candidate.EventType) {
 		return domain.HistoryItem{}, false
 	}
-	item, ok := projectHistoryEvent(candidate)
+	item, ok := projectHistoryEvent(candidate, maximum)
 	return item, ok
 }
 
-func projectHistoryEvent(candidate storage.HistoryCandidate) (domain.HistoryItem, bool) {
+func projectHistoryEvent(candidate storage.HistoryCandidate, maximum int) (domain.HistoryItem, bool) {
 	author := domain.HistoryAuthorAssistant
 	kind := string(domain.SourceKindEvent)
 	switch candidate.EventType {
@@ -708,8 +727,20 @@ func projectHistoryEvent(candidate storage.HistoryCandidate) (domain.HistoryItem
 			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
 		}
 		text = fmt.Sprintf("compaction %s: %d -> %d tokens", payload.Mode, payload.BeforeTokens, payload.AfterTokens)
+	case domain.EventSessionTruncated:
+		var payload payloadSessionTruncated
+		if err := json.Unmarshal([]byte(text), &payload); err != nil {
+			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
+		}
+		text = fmt.Sprintf("session truncated at %s (%s)", payload.CutoffMessageID, payload.Reason)
+	case domain.EventSessionForked:
+		var payload payloadSessionForked
+		if err := json.Unmarshal([]byte(text), &payload); err != nil {
+			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
+		}
+		text = fmt.Sprintf("session forked from %s at %s", payload.ParentSessionID, payload.ForkPointMessageID)
 	}
-	safe, redacted, truncated := sanitizeHistoryText(text, domain.DefaultContinuityLimits().ResultItemBytes)
+	safe, redacted, truncated := sanitizeHistoryText(text, maximum)
 	return domain.HistoryItem{Ref: ref, Author: author, Text: safe, Redacted: redacted, Truncated: truncated || candidate.Truncated}, true
 }
 
@@ -815,6 +846,7 @@ func (s *HistoryService) boundPage(page domain.HistoryPage, limits domain.Contin
 		page.Items = page.Items[:len(page.Items)-1]
 		page.Truncated = true
 		page.Status = string(domain.HistoryStatusPartial)
+		page.SelectionDigest = ""
 		warning := "result_budget"
 		if !containsString(page.Warnings, warning) {
 			page.Warnings = append(page.Warnings, warning)
