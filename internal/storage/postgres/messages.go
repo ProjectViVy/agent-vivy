@@ -21,12 +21,14 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 		return fmt.Errorf("storage: begin append message %s: %w", m.ID, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
+	if err != nil { return err }
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs),
-		m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
+		m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 		return fmt.Errorf("storage: append message %s: %w", m.ID, err)
 	}
 	for position, attachment := range m.Attachments {
@@ -66,12 +68,24 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, fmt.Errorf("storage: begin projected message %s: %w", m.ID, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	var existingID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE id = $1`, m.ID).Scan(&existingID)
+	if err == nil {
+		if err := tx.Rollback(); err != nil { return false, err }
+		existing, err := b.projectedMessageByID(ctx, m.ID)
+		if err != nil { return false, err }
+		if !storage.SameProjectedMessage(existing, m) { return false, storage.ErrProjectionConflict }
+		return false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) { return false, fmt.Errorf("storage: check projected message %s: %w", m.ID, err) }
+	position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
+	if err != nil { return false, err }
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 ON CONFLICT (id) DO NOTHING`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
-		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID)
+		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position)
 	if err != nil {
 		return false, fmt.Errorf("storage: append projected message %s: %w", m.ID, err)
 	}
@@ -100,6 +114,14 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, storage.ErrProjectionConflict
 	}
 	return false, nil
+}
+
+func postgresNextMessagePosition(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (int64, error) {
+	var position int64
+	err := tx.QueryRowContext(ctx, `UPDATE sessions SET next_message_position = next_message_position + 1 WHERE id = $1 RETURNING next_message_position - 1`, sessionID).Scan(&position)
+	if errors.Is(err, sql.ErrNoRows) { return 0, storage.ErrNotFound }
+	if err != nil { return 0, fmt.Errorf("storage: allocate message position: %w", err) }
+	return position, nil
 }
 
 func messageActivityAt(at int64) int64 {

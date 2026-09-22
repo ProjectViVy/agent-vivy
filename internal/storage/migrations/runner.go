@@ -149,7 +149,7 @@ type postgresLegacyShape struct {
 }
 
 func legacyPostgresState(maxVersion int64, shape postgresLegacyShape) (int64, error) {
-	if maxVersion < 13 || maxVersion > 21 {
+	if maxVersion < 13 || maxVersion > 23 {
 		return 0, fmt.Errorf("storage migrations: unsupported legacy postgres migration version %d", maxVersion)
 	}
 	if shape.workspacePath && !shape.sessionUpdatedAt {
@@ -240,7 +240,7 @@ func legacyPostgresState(maxVersion int64, shape postgresLegacyShape) (int64, er
 		minimum = 16
 	case 17:
 		minimum = 18
-	case 18, 19, 20, 21:
+	case 18, 19, 20, 21, 22, 23:
 		minimum = 19
 	}
 	if state < minimum {

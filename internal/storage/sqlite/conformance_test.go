@@ -29,3 +29,8 @@ func TestBackendConformance(t *testing.T) {
 		},
 	})
 }
+
+func TestHistoryConformance(t *testing.T) {
+	b := openBackend(t)
+	conformance.RunHistoryQuerySuite(t, b)
+}
