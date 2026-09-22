@@ -184,6 +184,7 @@ interface RuntimeState {
 let initialization: Promise<void> | null = null;
 let subscription: RunSubscription | null = null;
 let workSubscription: WorkSubscription | null = null;
+let workSubscriptionSessionID: string | null = null;
 let sessionEpoch = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
@@ -232,7 +233,11 @@ function applySettingsError(error: unknown, operation: SettingsOperation | null)
 }
 
 function stopSubscription(): void { subscription?.close(); subscription = null; }
-function stopWorkSubscription(): void { workSubscription?.close(); workSubscription = null; }
+function stopWorkSubscription(): void {
+  workSubscription?.close();
+  workSubscription = null;
+  workSubscriptionSessionID = null;
+}
 function workRequestID(prefix: string): string {
   try { return `${prefix}-${crypto.randomUUID()}`; }
   catch { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
@@ -303,6 +308,7 @@ function handleWorkEvent(event: api.WorkEvent): void {
 
 function startWorkSubscription(sessionId: string, afterSeq: number): void {
   stopWorkSubscription();
+  workSubscriptionSessionID = sessionId;
   workSubscription = subscribeWork(sessionId, afterSeq, handleWorkEvent, (message) => {
     if (useVivyStore.getState().activeSessionId === sessionId) {
       useVivyStore.setState({ workError: message, workPhase: 'error' });
@@ -558,7 +564,10 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const epoch = sessionEpoch;
     set({ workPhase: get().work ? 'refreshing' : 'loading', workError: null });
     const work = await loadWorkIntoStore(sessionId, epoch);
-    if (work && epoch === sessionEpoch && get().activeSessionId === sessionId) startWorkSubscription(sessionId, work.version);
+    if (work && epoch === sessionEpoch && get().activeSessionId === sessionId
+      && (workSubscription === null || workSubscriptionSessionID !== sessionId)) {
+      startWorkSubscription(sessionId, work.version);
+    }
   },
   commitWork: async (method, fields = {}) => {
     const state = get();
