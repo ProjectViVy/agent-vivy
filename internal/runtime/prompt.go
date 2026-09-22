@@ -39,8 +39,7 @@ func composeRunPreamble(now time.Time, notesDigest string, hasEnabledTools bool,
 		b.WriteString("\n" + faceCodePreamble)
 	}
 	if softPlan {
-		b.WriteString("
-Planning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy.")
+		b.WriteString("\nPlanning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy.")
 	}
 	if !hasEnabledTools {
 		// Defensive: an empty active set is a legal configuration
