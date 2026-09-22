@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-27.
+// Run executes CN-01..CN-29.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -75,6 +75,7 @@ func Run(t *testing.T, h Harness) {
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
 		{"CN-28", "session work journal idempotence", cnSessionWork},
+		{"CN-29", "atomic Goal round admission", cnAtomicGoalRun},
 	}
 	if len(cases) != 28 {
 		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
@@ -208,6 +209,102 @@ func cnSessionWork(t *testing.T, h Harness) {
 	tail, err := work.ReplayWork(ctx, sessionID, 1, 10)
 	if err != nil || len(tail) != 1 || tail[0].Seq != 2 {
 		t.Fatalf("ReplayWork tail = %+v, %v; want round event", tail, err)
+	}
+}
+
+func cnAtomicGoalRun(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	work, ok := b.(storage.WorkStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkStore")
+	}
+	goalRuns, ok := b.(storage.GoalRunStore)
+	if !ok {
+		t.Fatal("backend does not implement GoalRunStore")
+	}
+	sessionID := domain.SessionID("sess-goal-atomic")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "goal", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	ref := domain.GoalRef{ID: "goal-atomic", Revision: 1}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, RequestID: "goal-create", RequestHash: "goal-create-hash",
+		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship", MaxRounds: 2,
+	}); err != nil {
+		t.Fatalf("create Goal: %v", err)
+	}
+	admission := storage.GoalRunCommit{
+		Mutation: domain.WorkMutation{
+			SessionID: sessionID, ExpectedVersion: 1,
+			RequestID: "goal-round-1", RequestHash: "goal-round-1-hash",
+			Kind:      domain.WorkEventGoalRoundAdmitted,
+			Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: 1, RunID: "run-goal-atomic"},
+		},
+		Message: domain.Message{
+			ID: "msg-goal-atomic", SessionID: sessionID, RunID: "run-goal-atomic",
+			Role: domain.RoleUser, CreatedAt: 2, Content: "continue",
+		},
+		Run: domain.Run{
+			ID: "run-goal-atomic", SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 2,
+		},
+		Started: domain.RunEvent{
+			RunID: "run-goal-atomic", Type: domain.EventRunStarted, CreatedAt: 2,
+			PayloadVersion: 1, Payload: []byte("{\"provider\":\"test\",\"model\":\"test\"}"),
+		},
+	}
+	first, err := goalRuns.CommitGoalRun(ctx, admission)
+	if err != nil {
+		t.Fatalf("CommitGoalRun: %v", err)
+	}
+	if first.Work.Event.Seq != 2 || first.Work.State.Goal == nil || first.Work.State.Goal.RoundsStarted != 1 {
+		t.Fatalf("first admission = %+v, want work seq 2 and one round", first)
+	}
+	messages, err := b.ListMessages(ctx, sessionID)
+	if err != nil || len(messages) != 1 || messages[0].ID != admission.Message.ID {
+		t.Fatalf("messages after admission = %+v, %v; want one user row", messages, err)
+	}
+	runs, err := b.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 1 || runs[0].Status != domain.RunActive {
+		t.Fatalf("runs after admission = %+v, %v; want one active run", runs, err)
+	}
+	started := replayAll(t, b, admission.Run.ID, 0)
+	if len(started) != 1 || started[0].Type != domain.EventRunStarted || started[0].Seq != 1 {
+		t.Fatalf("run journal after admission = %+v; want one run.started", started)
+	}
+
+	retry, err := goalRuns.CommitGoalRun(ctx, admission)
+	if err != nil {
+		t.Fatalf("CommitGoalRun retry: %v", err)
+	}
+	if !retry.Work.Replayed || retry.Run.ID != admission.Run.ID || retry.Started.Seq != 1 {
+		t.Fatalf("retry = %+v, want original run and event", retry)
+	}
+	runs, err = b.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("retry duplicated run rows = %+v, %v", runs, err)
+	}
+	stale := admission
+	stale.Mutation.RequestID = "goal-round-2"
+	stale.Mutation.RequestHash = "goal-round-2-hash"
+	stale.Mutation.ExpectedVersion = 2
+	stale.Mutation.Admission.Round = 2
+	stale.Mutation.Admission.RunID = "run-goal-atomic-2"
+	stale.Message.ID = "msg-goal-atomic-2"
+	stale.Message.RunID = stale.Mutation.Admission.RunID
+	stale.Run.ID = stale.Mutation.Admission.RunID
+	stale.Started.RunID = stale.Mutation.Admission.RunID
+	if _, err := goalRuns.CommitGoalRun(ctx, stale); !errors.Is(err, storage.ErrWorkRunConflict) {
+		t.Fatalf("active run admission = %v, want ErrWorkRunConflict", err)
+	}
+	state, err := work.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 2 || state.Goal == nil || state.Goal.RoundsStarted != 1 {
+		t.Fatalf("failed admission changed work state = %+v, %v", state, err)
+	}
+	messages, err = b.ListMessages(ctx, sessionID)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("failed admission changed messages = %+v, %v", messages, err)
 	}
 }
 
