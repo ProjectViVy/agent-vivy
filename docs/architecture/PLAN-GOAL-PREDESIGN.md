@@ -251,3 +251,32 @@ Plan payload limits, notification buffering and shutdown deadlines reuse establi
 Mandatory implementation gate: just ci, plus configured Postgres conformance (unset DSN is SKIPPED), split dev browser flow and one real coding walkthrough. Current environment lacks Go and has not run these checks.
 Design-only validation: local relative links, existing file references, dependency DAG, requirement coverage, git diff --check.
 No code, schema, dependency, rules or generated assembly changes are made by this pre-design.
+## 12. PG-D2 execution decisions (2026-09-22)
+
+This section records the accepted foundation decisions for implementation on the issue-47 branch. It does not claim runtime verification; the probe and CI evidence remain required.
+
+### Durable work ordering
+
+- Use a session-scoped `WorkSeq`/`WorkVersion` as the cross-record ordering key. Keep existing per-run `EventSeq` for run-local Journal replay.
+- Persist work-control events in one `session_work_events` stream keyed by `(session_id, work_seq)`. The stream stores event kind, schema version, request ID, request hash, timestamp, and bounded payload.
+- `(session_id, request_id)` is unique. Repeating the same request and payload hash returns the original committed result; the same request with a different hash is a conflict.
+- Sequence allocation, Goal-round admission, ordinary message/run startup records, and `goal.round_admitted` evidence commit in one transaction. Publication and engine drive happen only after commit.
+
+### History and authority
+
+- Rewind changes the visible context only and never refunds admitted Goal rounds. Historical work evidence remains replayable.
+- Fork copies visible context as new historical rows but transfers no Goal identity, pending review, approval, or host ticket authority. A copied source `RunID` is provenance only.
+- The existing Service, Journal, projection barrier, and policy engine remain the sole lifecycle owners. No second Journal, synthetic permanent Goal run, or independent execution loop is permitted.
+
+### Eino boundary
+
+- Eino v0.9.13 checkpoint/interrupt/resume/cancellation evidence remains verified only for the existing C6 spike.
+- Plan guidance, exact Plan submission identity, duplicate decision idempotency, and same-batch effect fencing are separate PG-D2 acceptance cases. Prompt instructions, `ExecuteSequentially`, `ReturnDirectly`, and cancellation alone are not evidence of the fence.
+- Until the deterministic probe passes, downstream Plan/Goal stories cannot claim the same-batch terminal invariant. Any production fence must be implemented at the existing Service/tool-adapter ownership boundary and must fail closed.
+
+### Human admission
+
+- Mutating work requests carry a host-authenticated stable `request_id`, `session_id`, expected `WorkVersion`, exact Goal/Plan reference where applicable, and a payload hash.
+- A host admission ticket is correlation/idempotency state, not authority. An uncommitted automatic candidate loses to a pending human request; a committed automatic admission cannot be undone by a later human request.
+
+These decisions supersede the earlier unresolved placeholders in sections 5 and 9 while retaining the requirement for executable probe and backend evidence.
