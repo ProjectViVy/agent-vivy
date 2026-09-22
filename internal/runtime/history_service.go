@@ -377,6 +377,10 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 	if len(items) == 0 && !incomplete && !truncated {
 		status = domain.HistoryStatusNotFound
 	}
+	if hasUnavailable(items) {
+		status = domain.HistoryStatusPartial
+		warnings = append(warnings, "unavailable_record")
+	}
 	if incomplete || truncated {
 		status = domain.HistoryStatusPartial
 	}
