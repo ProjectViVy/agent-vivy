@@ -629,6 +629,17 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if s.sessionDeleted(sessionID) {
 		return "", storage.ErrNotFound
 	}
+	if options.GoalRound == nil {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
+		}
+		for _, existing := range runs {
+			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
+				return "", storage.ErrWorkRunConflict
+			}
+		}
+	}
 	// A deferred settings-save engine rebuild applies here, while no run
 	// is registered.
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
