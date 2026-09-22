@@ -41,6 +41,20 @@ func TestBackendConformance(t *testing.T) {
 	})
 }
 
+func TestHistoryConformance(t *testing.T) {
+	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("VIVY_POSTGRES_TEST_DSN not set")
+	}
+	schema := fmt.Sprintf("history_%d_%d", time.Now().UnixNano(), schemaSeq.Add(1))
+	b, err := OpenSchema(context.Background(), dsn, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	conformance.RunHistoryQuerySuite(t, b)
+}
+
 func TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions(t *testing.T) {
 	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
 	if dsn == "" {

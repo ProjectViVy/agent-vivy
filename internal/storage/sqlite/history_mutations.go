@@ -42,7 +42,9 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 	if err := sqliteInsertMarker(ctx, tx, marker); err != nil {
 		return event, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
+	position, err := sqliteNextMessagePosition(ctx, tx, m.SessionID)
+	if err != nil { return event, err }
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 		return event, err
 	}
 	for i, a := range m.Attachments {
@@ -86,7 +88,9 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		return nil, fmt.Errorf("storage: create fork session: %w", err)
 	}
 	for _, m := range messages {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
+		position, err := sqliteNextMessagePosition(ctx, tx, m.SessionID)
+		if err != nil { return nil, err }
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
 		}
 		for i, a := range m.Attachments {
