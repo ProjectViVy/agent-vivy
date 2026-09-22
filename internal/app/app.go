@@ -264,6 +264,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, errors.New("app: storage backend does not implement Goal run store")
 	}
+	primaryRunStore, ok := backend.(storage.PrimaryRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement primary run store")
+	}
 
 	// Provider metadata is part of the binary: there is no bundle directory,
 	// no working-directory dependency, and nothing a running instance can be
@@ -665,6 +670,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Runs:                  backend,
 		Messages:              backend,
 		GoalRuns:              goalRunStore,
+		PrimaryRuns:            primaryRunStore,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
