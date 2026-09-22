@@ -48,7 +48,7 @@ func modelWorkIdentity(runID domain.RunID, operation string, input any) (string,
 	return "model-work-" + operation + "-" + hash[:24], hash, nil
 }
 
-func (s *Service) commitModelWork(ctx context.Context, sessionID, runID domain.SessionID, operation string, input any, build func(string, string, domain.WorkState) domain.WorkMutation) (domain.WorkState, error) {
+func (s *Service) commitModelWork(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, operation string, input any, build func(string, string, domain.WorkState) domain.WorkMutation) (domain.WorkState, error) {
 	requestID, requestHash, err := modelWorkIdentity(domain.RunID(runID), operation, input)
 	if err != nil {
 		return domain.WorkState{}, err
