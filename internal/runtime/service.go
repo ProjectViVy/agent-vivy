@@ -3176,9 +3176,9 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status, goalRef)
 		settleCancel()
-	} else if status == domain.RunCompleted && runSession != "" {
-		// A completed human turn releases the session for the next
-		// event-driven Goal candidate, if one is still durable and active.
+	} else if runSession != "" && (status == domain.RunCompleted || s.goalCreatedByRun(persistCtx, runSession, terminal.RunID)) {
+		// A completed human turn, or a failed/cancelled turn that created
+		// the current Goal, releases the session for the next candidate.
 		s.WakeGoal(runSession)
 	}
 }

@@ -161,6 +161,8 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	return err
 }
 
+const goalRecoveryPageSize = 1000
+
 // recoveredGoalRef finds the admitted Goal reference for a run after a
 // process restart. Goal admission is durable in the session work stream; the
 // process-local maps are intentionally rebuilt only for settlement/resume.
@@ -168,24 +170,50 @@ func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.
 	if s == nil || s.deps.Work == nil || run.ID == "" || run.SessionID == "" {
 		return domain.GoalRef{}, false
 	}
-	events, err := s.deps.Work.ReplayWork(ctx, run.SessionID, 0, 10000)
-	if err != nil {
-		slog.Warn("restart recovery: goal admission replay failed", "run", string(run.ID), "err", err)
-		return domain.GoalRef{}, false
+	after := domain.WorkVersion(0)
+	for {
+		events, err := s.deps.Work.ReplayWork(ctx, run.SessionID, after, goalRecoveryPageSize)
+		if err != nil {
+			slog.Warn("restart recovery: goal admission replay failed", "run", string(run.ID), "after", after, "err", err)
+			return domain.GoalRef{}, false
+		}
+		if len(events) == 0 {
+			return domain.GoalRef{}, false
+		}
+		for _, event := range events {
+			if event.Seq <= domain.WorkSeq(after) {
+				slog.Warn("restart recovery: goal admission replay made no progress", "run", string(run.ID), "after", after, "seq", event.Seq)
+				return domain.GoalRef{}, false
+			}
+			after = domain.WorkVersion(event.Seq)
+			if event.Kind != domain.WorkEventGoalRoundAdmitted {
+				continue
+			}
+			admission := event.Admission
+			if admission.RunID == "" {
+				admission = event.Mutation.Admission
+			}
+			if admission.RunID == run.ID && admission.Goal.ID != "" && admission.Goal.Revision > 0 {
+				return admission.Goal, true
+			}
+		}
+		if len(events) < goalRecoveryPageSize {
+			return domain.GoalRef{}, false
+		}
 	}
-	for _, event := range events {
-		if event.Kind != domain.WorkEventGoalRoundAdmitted {
-			continue
-		}
-		admission := event.Admission
-		if admission.RunID == "" {
-			admission = event.Mutation.Admission
-		}
-		if admission.RunID == run.ID && admission.Goal.ID != "" && admission.Goal.Revision > 0 {
-			return admission.Goal, true
-		}
+}
+
+func (s *Service) goalCreatedByRun(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) bool {
+	if s == nil || s.deps.Work == nil || sessionID == "" || runID == "" {
+		return false
 	}
-	return domain.GoalRef{}, false
+	state, err := s.deps.Work.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil {
+		return false
+	}
+	return state.Goal.Phase == domain.WorkPhaseActive &&
+		state.Goal.RoundsStarted == 0 &&
+		state.Goal.EvidenceRunID == runID
 }
 
 func (s *Service) rememberRecoveredGoalRun(ctx context.Context, run domain.Run) {
