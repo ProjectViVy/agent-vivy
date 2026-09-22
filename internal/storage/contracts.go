@@ -403,6 +403,11 @@ const (
 // of the union of all rewind/edit ranges; fork anchors never control it.
 type SessionTruncation struct {
 	SessionID       domain.SessionID
+	// RunID links an admission edit marker to the run that atomically created
+	// it. Historical rewind/fork markers leave this empty; only edit markers
+	// admitted with the run transaction need the association for idempotent
+	// retry comparison.
+	RunID           domain.RunID
 	CutoffMessageID string
 	TailMessageID   string // session's last message id at marker time
 	Reason          string // TruncationRewind / TruncationEdit / TruncationFork / TruncationForkedFrom

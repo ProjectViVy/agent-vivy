@@ -24,6 +24,17 @@ func normalizeFace(face domain.Face) (domain.Face, error) {
 	return "", errors.Join(ErrInvalidFace, errors.New("face must be web, tui, code, or headless"))
 }
 
+// FaceAvailable reports whether this service can accept a run for face. The
+// accepted face vocabulary is owned by normalizeFace; the engine check keeps
+// the capability projection false for an uncomposed service.
+func (s *Service) FaceAvailable(face domain.Face) bool {
+	if s == nil || s.engine == nil {
+		return false
+	}
+	_, err := normalizeFace(face)
+	return err == nil
+}
+
 type faceContextKey struct{}
 
 // withFace binds the run's serving face to the run context. The prompt

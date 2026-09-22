@@ -92,7 +92,9 @@ func TestSecretEnvReadsStayOutOfProvider(t *testing.T) {
 // Production sources must never contain a key-shaped literal. Test files
 // may keep negative fixtures (rejection tests) and are exempt.
 func TestNoHardcodedKeyLiterals(t *testing.T) {
-	literal := regexp.MustCompile(`sk-[A-Za-z0-9_-]{6,}`)
+	// Require a token boundary before the key prefix. Identifiers such as
+	// "mask-service" contain the substring "sk-service" but are not keys.
+	literal := regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])sk-[A-Za-z0-9_-]{6,}`)
 	var violations []string
 	walkGoSources(t, repoRoot(t), []string{"cmd", "internal"}, func(rel string, src []byte) {
 		if strings.HasSuffix(rel, "_test.go") {

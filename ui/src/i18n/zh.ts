@@ -376,6 +376,11 @@ export const zh = {
     readingConfig: '正在读取模型配置…',
     manageModelSettings: '管理模型设置',
   },
+  codeMode: {
+    enabled: '代码模式已开启',
+    disabled: '开启代码模式',
+    noSession: '请先选择一个会话',
+  },
   settingsModel: {
     searchPlaceholder: '搜索供应商',
     currentBadge: '当前',

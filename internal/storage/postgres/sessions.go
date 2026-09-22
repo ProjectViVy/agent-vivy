@@ -169,11 +169,13 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	for _, stmt := range []struct{ sql string }{
 		{`DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},
 		{`DELETE FROM run_events WHERE run_id IN (SELECT run_id FROM session_compactions WHERE session_id = ?)`},
+		{`DELETE FROM run_prompt_snapshots WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},
 		{`DELETE FROM runs WHERE session_id = ?`},
 		{`DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
 		{`DELETE FROM message_file_contexts WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
 		{`DELETE FROM messages WHERE session_id = ?`},
 		{`DELETE FROM session_compactions WHERE session_id = ?`},
+		{`DELETE FROM session_mask_selections WHERE session_id = ?`},
 		{`DELETE FROM session_truncations WHERE session_id = ?`},
 		{`DELETE FROM file_versions WHERE session_id = ?`},
 		{`DELETE FROM file_reads WHERE session_id = ?`},

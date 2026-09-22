@@ -78,6 +78,24 @@ func TestWorkspaceManagerExistingNeverCreates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManagerReleaseRemovesPrivateRunWorkspace(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sandboxes")
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := manager.Ensure(context.Background(), "run_release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Release(context.Background(), workspace); err != nil {
+		t.Fatalf("release workspace: %v", err)
+	}
+	if _, err := os.Stat(workspace.Path); !os.IsNotExist(err) {
+		t.Fatalf("released workspace still exists: %v", err)
+	}
+}
+
 func TestWorkspaceManagerRejectsTraversalAndSymlink(t *testing.T) {
 	root := t.TempDir()
 	m, err := NewWorkspaceManager(root)

@@ -67,6 +67,33 @@ func TestVersionedCheckpointStoreGenerationFlip(t *testing.T) {
 	}
 }
 
+func TestVersionedCheckpointStoreBindsPromptIdentity(t *testing.T) {
+	store, _ := newCheckpointFixture(t, "v0.9.13")
+	snapshot, err := buildPromptSnapshot(PromptInput{
+		RunID: "run_checkpoint_prompt", GenerationID: "generation-checkpoint",
+		Capture: promptCapture(nil), Face: "web",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := checkpointIDFor(snapshot.RunID)
+	ctx := withRunPrompt(context.Background(), snapshot)
+	if err := store.Set(ctx, id, []byte("opaque checkpoint")); err != nil {
+		t.Fatalf("set prompt-bound checkpoint: %v", err)
+	}
+	if _, ok, err := store.Get(ctx, id); err != nil || !ok {
+		t.Fatalf("get prompt-bound checkpoint: ok=%v err=%v", ok, err)
+	}
+	if _, _, err := store.Get(context.Background(), id); !errors.Is(err, ErrCheckpointPromptMismatch) {
+		t.Fatalf("unbound checkpoint read error = %v", err)
+	}
+	changed := snapshot
+	changed.GenerationID = "generation-other"
+	if _, _, err := store.Get(withRunPrompt(context.Background(), changed), id); !errors.Is(err, ErrCheckpointPromptMismatch) {
+		t.Fatalf("cross-generation checkpoint read error = %v", err)
+	}
+}
+
 func TestVersionedCheckpointStoreChecksumFailClosed(t *testing.T) {
 	store, blobs := newCheckpointFixture(t, "v0.9.13")
 	ctx := context.Background()

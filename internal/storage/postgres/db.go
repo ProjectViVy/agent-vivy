@@ -70,6 +70,10 @@ func (t *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *Ro
 	return &Row{row: t.SQL.QueryRowContext(ctx, rebind(query), args...)}
 }
 
+func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.SQL.QueryContext(ctx, rebind(query), args...)
+}
+
 // Row is *sql.Row plus a fence error that Scan surfaces.
 type Row struct {
 	err error
