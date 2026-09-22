@@ -178,11 +178,11 @@ func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Er
 				if currentSubmission == submissionID {
 					found = true
 					result = workPlanResult{
-						Active: currentSubmission == submissionID,
-						SubmissionID: currentSubmission,
-						Markdown: event.Mutation.PlanMarkdown,
-						ReviewStatus: string(domain.PlanReviewPending),
-						OriginRunID: string(event.Mutation.PlanOriginRunID),
+						Active:           currentSubmission == submissionID,
+						SubmissionID:     currentSubmission,
+						Markdown:         event.Mutation.PlanMarkdown,
+						ReviewStatus:     string(domain.PlanReviewPending),
+						OriginRunID:      string(event.Mutation.PlanOriginRunID),
 						OriginToolCallID: event.Mutation.PlanOriginToolCallID,
 					}
 				}

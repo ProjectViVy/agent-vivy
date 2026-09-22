@@ -1,171 +1,332 @@
-package runtime
+package tools
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/storage"
-	"agent-vivy/internal/tools"
 )
 
-const maxModelGoalRounds = 1000
-const maxModelPlanBytes = 256 << 10
+const (
+	EnterPlanModeName = "enter_plan_mode"
+	SubmitPlanName    = "submit_plan"
+	GetGoalName       = "get_goal"
+	CreateGoalName    = "create_goal"
+	ReportGoalName    = "report_goal"
 
-var _ tools.WorkControlOperations = (*Service)(nil)
+	modelPlanMaxBytes     = 256 << 10
+	modelGoalObjectiveMax = 8 << 10
+	modelGoalMaxRounds    = 1000
+)
 
-func (s *Service) modelWorkContext(ctx context.Context) (domain.SessionID, domain.RunID, error) {
-	if s == nil || s.deps.Work == nil || s.deps.Runs == nil {
-		return "", "", ErrWorkUnavailable
-	}
-	sessionID := tools.SessionIDFromContext(ctx)
-	runID := tools.RunIDFromContext(ctx)
-	if strings.TrimSpace(string(sessionID)) == "" || strings.TrimSpace(string(runID)) == "" {
-		return "", "", ErrWorkSessionRequired
-	}
-	run, err := s.deps.Runs.GetRun(ctx, runID)
-	if err != nil {
-		return "", "", err
-	}
-	if run.SessionID != sessionID || (run.Kind != "" && run.Kind != domain.RunKindPrimary) {
-		return "", "", fmt.Errorf("runtime: work tool run is not the session primary run")
-	}
-	return sessionID, runID, nil
+// WorkControlOperations is the run-scoped host capability exposed to the
+// model-facing work tools. The runtime binds it to the current primary run;
+// callers cannot provide session or run identities as tool arguments.
+type WorkControlOperations interface {
+	EnterPlanMode(context.Context) (domain.WorkState, error)
+	SubmitPlan(context.Context, string) (domain.WorkState, error)
+	GetGoal(context.Context) (*domain.GoalState, error)
+	CreateGoal(context.Context, string, int) (domain.WorkState, error)
+	ReportGoal(context.Context, string, int64, string, string) (domain.WorkState, error)
 }
 
-func modelWorkIdentity(runID domain.RunID, operation string, input any) (string, string, error) {
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return "", "", err
-	}
-	digest := sha256.Sum256(append([]byte("vivy:model-work:v1\x00"+string(runID)+"\x00"+operation+"\x00"), raw...))
-	hash := hex.EncodeToString(digest[:])
-	return "model-work-" + operation + "-" + hash[:24], hash, nil
+type workControlContextKey struct{}
+
+// WithWorkControl binds the runtime-owned work capability to one model run.
+func WithWorkControl(ctx context.Context, operations WorkControlOperations) context.Context {
+	return context.WithValue(ctx, workControlContextKey{}, operations)
 }
 
-func (s *Service) commitModelWork(ctx context.Context, sessionID, runID domain.SessionID, operation string, input any, build func(string, string, domain.WorkState) domain.WorkMutation) (domain.WorkState, error) {
-	requestID, requestHash, err := modelWorkIdentity(domain.RunID(runID), operation, input)
-	if err != nil {
-		return domain.WorkState{}, err
-	}
-	state, err := s.ReadWork(ctx, sessionID)
-	if err != nil {
-		return domain.WorkState{}, err
-	}
-	mutation := build(requestID, requestHash, state)
-	result, err := s.CommitWork(ctx, mutation)
-	if err != nil {
-		return domain.WorkState{}, err
-	}
-	return result.State, nil
+// WorkControlFromContext returns the runtime-owned work capability, if any.
+func WorkControlFromContext(ctx context.Context) WorkControlOperations {
+	operations, _ := ctx.Value(workControlContextKey{}).(WorkControlOperations)
+	return operations
 }
 
-func (s *Service) EnterPlanMode(ctx context.Context) (domain.WorkState, error) {
-	sessionID, runID, err := s.modelWorkContext(ctx)
-	if err != nil {
-		return domain.WorkState{}, err
+func requireWorkControl(ctx context.Context) (WorkControlOperations, error) {
+	if operations := WorkControlFromContext(ctx); operations != nil {
+		return operations, nil
 	}
-	return s.commitModelWork(ctx, sessionID, runID, "enter-plan", nil, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
-		return domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanEntered,
+	return nil, fmt.Errorf("tools: work control capability is not available")
+}
+
+type workGoalOutput struct {
+	ID            string `json:"id"`
+	Revision      int64  `json:"revision"`
+	Objective     string `json:"objective"`
+	Phase         string `json:"phase"`
+	MaxRounds     int    `json:"max_rounds"`
+	RoundsStarted int    `json:"rounds_started"`
+	Reason        string `json:"reason,omitempty"`
+	EvidenceRunID string `json:"evidence_run_id,omitempty"`
+}
+
+type workStateOutput struct {
+	SessionID string          `json:"session_id"`
+	Version   int64           `json:"version"`
+	Goal      *workGoalOutput `json:"goal,omitempty"`
+}
+
+func workStateOutputOf(state domain.WorkState) workStateOutput {
+	result := workStateOutput{SessionID: string(state.SessionID), Version: int64(state.Version)}
+	if state.Goal != nil {
+		result.Goal = &workGoalOutput{
+			ID:            state.Goal.Ref.ID,
+			Revision:      state.Goal.Ref.Revision,
+			Objective:     state.Goal.Objective,
+			Phase:         string(state.Goal.Phase),
+			MaxRounds:     state.Goal.MaxRounds,
+			RoundsStarted: state.Goal.RoundsStarted,
+			Reason:        state.Goal.Reason,
+			EvidenceRunID: string(state.Goal.EvidenceRunID),
 		}
-	})
+	}
+	return result
 }
 
-func (s *Service) SubmitPlan(ctx context.Context, markdown string) (domain.WorkState, error) {
-	sessionID, runID, err := s.modelWorkContext(ctx)
+func encodeWorkState(state domain.WorkState) (string, error) {
+	encoded, err := json.Marshal(workStateOutputOf(state))
 	if err != nil {
-		return domain.WorkState{}, err
+		return "", fmt.Errorf("tools: encode work state: %w", err)
 	}
-	markdown = strings.TrimSpace(markdown)
-	if markdown == "" || len([]byte(markdown)) > maxModelPlanBytes {
-		return domain.WorkState{}, fmt.Errorf("runtime: plan markdown is empty or too large")
-	}
-	return s.commitModelWork(ctx, sessionID, runID, "submit-plan", map[string]string{"markdown": markdown}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
-		return domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanSubmitted,
-			PlanSubmissionID: "submission-" + requestID[len("model-work-submit-plan-"):],
-			PlanMarkdown:     markdown, PlanOriginRunID: runID,
+	return string(encoded), nil
+}
+
+func encodeGoal(goal *domain.GoalState) (string, error) {
+	var output *workGoalOutput
+	if goal != nil {
+		output = &workGoalOutput{
+			ID:            goal.Ref.ID,
+			Revision:      goal.Ref.Revision,
+			Objective:     goal.Objective,
+			Phase:         string(goal.Phase),
+			MaxRounds:     goal.MaxRounds,
+			RoundsStarted: goal.RoundsStarted,
+			Reason:        goal.Reason,
+			EvidenceRunID: string(goal.EvidenceRunID),
 		}
-	})
+	}
+	encoded, err := json.Marshal(map[string]any{"goal": output})
+	if err != nil {
+		return "", fmt.Errorf("tools: encode Goal: %w", err)
+	}
+	return string(encoded), nil
 }
 
-func (s *Service) GetGoal(ctx context.Context) (*domain.GoalState, error) {
-	sessionID, _, err := s.modelWorkContext(ctx)
-	if err != nil {
-		return nil, err
+func decodeToolArgs(args json.RawMessage, target any) error {
+	trimmed := bytes.TrimSpace(args)
+	if len(trimmed) == 0 {
+		trimmed = []byte("{}")
 	}
-	state, err := s.ReadWork(ctx, sessionID)
-	if err != nil {
-		return nil, err
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return &ArgError{Field: "args", Reason: fmt.Sprintf("must be one JSON object: %v", err)}
 	}
-	if state.Goal == nil {
-		return nil, nil
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		return &ArgError{Field: "args", Reason: "must contain one JSON object"}
 	}
-	goal := *state.Goal
-	return &goal, nil
+	return nil
 }
 
-func (s *Service) CreateGoal(ctx context.Context, objective string, maxRounds int) (domain.WorkState, error) {
-	sessionID, runID, err := s.modelWorkContext(ctx)
-	if err != nil {
-		return domain.WorkState{}, err
-	}
-	objective = strings.TrimSpace(objective)
-	if objective == "" || len([]byte(objective)) > 8<<10 || maxRounds <= 0 || maxRounds > maxModelGoalRounds {
-		return domain.WorkState{}, fmt.Errorf("runtime: invalid Goal objective or round limit")
-	}
-	state, err := s.commitModelWork(ctx, sessionID, runID, "create-goal", map[string]any{"objective": objective, "max_rounds": maxRounds}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
-		return domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventGoalCreated,
-			Goal:      domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
-			Objective: objective, MaxRounds: maxRounds,
-		}
-	})
-	if err == nil {
-		s.WakeGoal(sessionID)
-	}
-	return state, err
+func emptyToolArgs(args json.RawMessage) error {
+	var target struct{}
+	return decodeToolArgs(args, &target)
 }
 
-func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64, status, reason string) (domain.WorkState, error) {
-	sessionID, runID, err := s.modelWorkContext(ctx)
+type enterPlanModeTool struct{}
+
+func NewEnterPlanMode() Tool { return enterPlanModeTool{} }
+
+func (enterPlanModeTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: EnterPlanModeName, Description: "Enter collaboration Plan mode for this session.", Readonly: true,
+		Keywords: []string{"plan", "planning", "design"},
+	}
+}
+
+func (enterPlanModeTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	if err := emptyToolArgs(args); err != nil {
+		return "", err
+	}
+	operations, err := requireWorkControl(ctx)
 	if err != nil {
-		return domain.WorkState{}, err
+		return "", err
 	}
-	s.mu.Lock()
-	owned := s.goalRuns[sessionID] == runID
-	s.mu.Unlock()
-	if !owned {
-		return domain.WorkState{}, errors.New("runtime: only the admitted Goal run may report Goal state")
+	state, err := operations.EnterPlanMode(ctx)
+	if err != nil {
+		return "", err
 	}
-	goalID, reason = strings.TrimSpace(goalID), strings.TrimSpace(reason)
-	if goalID == "" || revision <= 0 || (status != "completed" && status != "blocked") {
-		return domain.WorkState{}, errors.New("runtime: invalid Goal report")
+	return encodeWorkState(state)
+}
+
+type submitPlanArgs struct {
+	Markdown string `json:"markdown"`
+}
+
+type submitPlanTool struct{}
+
+func NewSubmitPlan() Tool { return submitPlanTool{} }
+
+func (submitPlanTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: SubmitPlanName, Description: "Submit a bounded Markdown Plan for human review.", Readonly: true,
+		Keywords: []string{"plan", "submit", "review"},
+		Params:   map[string]domain.ToolParam{"markdown": {Desc: "The Markdown plan to submit for review.", Required: true}},
 	}
-	kind := domain.WorkEventGoalCompleted
-	if status == "blocked" {
-		kind = domain.WorkEventGoalBlocked
+}
+
+func (submitPlanTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	var params submitPlanArgs
+	if err := decodeToolArgs(args, &params); err != nil {
+		return "", err
 	}
-	if reason == "" {
-		reason = "model reported " + status
+	params.Markdown = strings.TrimSpace(params.Markdown)
+	if params.Markdown == "" {
+		return "", &ArgError{Field: "markdown", Reason: "must not be empty"}
 	}
-	return s.commitModelWork(ctx, sessionID, runID, "report-goal", map[string]any{
-		"goal_id": goalID, "revision": revision, "status": status, "reason": reason,
-	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
-		return domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: kind,
-			Goal:   domain.GoalRef{ID: goalID, Revision: revision},
-			Reason: reason, EvidenceRunID: runID,
-		}
-	})
+	if len([]byte(params.Markdown)) > modelPlanMaxBytes {
+		return "", &ArgError{Field: "markdown", Reason: "exceeds the 256 KiB limit"}
+	}
+	operations, err := requireWorkControl(ctx)
+	if err != nil {
+		return "", err
+	}
+	state, err := operations.SubmitPlan(ctx, params.Markdown)
+	if err != nil {
+		return "", err
+	}
+	return encodeWorkState(state)
+}
+
+type getGoalTool struct{}
+
+func NewGetGoal() Tool { return getGoalTool{} }
+
+func (getGoalTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: GetGoalName, Description: "Inspect the current session Goal, including phase, progress, reason, and evidence.", Readonly: true,
+		Keywords: []string{"goal", "progress", "status"},
+	}
+}
+
+func (getGoalTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	if err := emptyToolArgs(args); err != nil {
+		return "", err
+	}
+	operations, err := requireWorkControl(ctx)
+	if err != nil {
+		return "", err
+	}
+	goal, err := operations.GetGoal(ctx)
+	if err != nil {
+		return "", err
+	}
+	return encodeGoal(goal)
+}
+
+type createGoalArgs struct {
+	Objective string `json:"objective"`
+	MaxRounds int    `json:"max_rounds"`
+}
+
+type createGoalTool struct{}
+
+func NewCreateGoal() Tool { return createGoalTool{} }
+
+func (createGoalTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: CreateGoalName, Description: "Create a bounded Goal for this session.", Readonly: false,
+		Keywords: []string{"goal", "create", "objective"},
+		Params: map[string]domain.ToolParam{
+			"objective":  {Desc: "The bounded objective for the Goal.", Required: true},
+			"max_rounds": {Desc: "Maximum number of continuation rounds.", Required: true, Type: "integer"},
+		},
+	}
+}
+
+func (createGoalTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	var params createGoalArgs
+	if err := decodeToolArgs(args, &params); err != nil {
+		return "", err
+	}
+	params.Objective = strings.TrimSpace(params.Objective)
+	if params.Objective == "" {
+		return "", &ArgError{Field: "objective", Reason: "must not be empty"}
+	}
+	if len([]byte(params.Objective)) > modelGoalObjectiveMax {
+		return "", &ArgError{Field: "objective", Reason: "exceeds the 8 KiB limit"}
+	}
+	if params.MaxRounds <= 0 || params.MaxRounds > modelGoalMaxRounds {
+		return "", &ArgError{Field: "max_rounds", Reason: "must be between 1 and 1000"}
+	}
+	operations, err := requireWorkControl(ctx)
+	if err != nil {
+		return "", err
+	}
+	state, err := operations.CreateGoal(ctx, params.Objective, params.MaxRounds)
+	if err != nil {
+		return "", err
+	}
+	return encodeWorkState(state)
+}
+
+type reportGoalArgs struct {
+	GoalID   string `json:"goal_id"`
+	Revision int64  `json:"revision"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
+}
+
+type reportGoalTool struct{}
+
+func NewReportGoal() Tool { return reportGoalTool{} }
+
+func (reportGoalTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: ReportGoalName, Description: "Report that the current Goal completed or is blocked, with a reason.", Readonly: true,
+		Keywords: []string{"goal", "complete", "blocked", "report"},
+		Params: map[string]domain.ToolParam{
+			"goal_id":  {Desc: "The current Goal id.", Required: true},
+			"revision": {Desc: "The current Goal revision.", Required: true, Type: "integer"},
+			"status":   {Desc: "Either completed or blocked.", Required: true},
+			"reason":   {Desc: "Why the Goal reached this terminal state."},
+		},
+	}
+}
+
+func (reportGoalTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	var params reportGoalArgs
+	if err := decodeToolArgs(args, &params); err != nil {
+		return "", err
+	}
+	params.GoalID, params.Status, params.Reason = strings.TrimSpace(params.GoalID), strings.TrimSpace(params.Status), strings.TrimSpace(params.Reason)
+	if params.GoalID == "" {
+		return "", &ArgError{Field: "goal_id", Reason: "must not be empty"}
+	}
+	if params.Revision <= 0 {
+		return "", &ArgError{Field: "revision", Reason: "must be positive"}
+	}
+	if params.Status != "completed" && params.Status != "blocked" {
+		return "", &ArgError{Field: "status", Reason: "must be completed or blocked"}
+	}
+	if params.Reason == "" {
+		return "", &ArgError{Field: "reason", Reason: "must not be empty"}
+	}
+	if len([]byte(params.Reason)) > 4<<10 {
+		return "", &ArgError{Field: "reason", Reason: "exceeds the 4 KiB limit"}
+	}
+	operations, err := requireWorkControl(ctx)
+	if err != nil {
+		return "", err
+	}
+	state, err := operations.ReportGoal(ctx, params.GoalID, params.Revision, params.Status, params.Reason)
+	if err != nil {
+		return "", err
+	}
+	return encodeWorkState(state)
 }
