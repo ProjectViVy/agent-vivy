@@ -88,10 +88,10 @@ type ContinuityLimits struct {
 	ResultItemBytes  int
 	ResultPageBytes  int
 
-	ReferencesPerTask   int
-	ReferenceBytes      int
+	ReferencesPerTask    int
+	ReferenceBytes       int
 	ReferencesTotalBytes int
-	SelectionRefs       int
+	SelectionRefs        int
 
 	PresentPaths     int
 	DescriptionBytes int

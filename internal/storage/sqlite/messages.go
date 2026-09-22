@@ -75,15 +75,25 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 	var existingID string
 	err = tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE id = ?`, m.ID).Scan(&existingID)
 	if err == nil {
-		if err := tx.Rollback(); err != nil { return false, err }
+		if err := tx.Rollback(); err != nil {
+			return false, err
+		}
 		existing, err := b.projectedMessageByID(ctx, m.ID)
-		if err != nil { return false, err }
-		if !storage.SameProjectedMessage(existing, m) { return false, storage.ErrProjectionConflict }
+		if err != nil {
+			return false, err
+		}
+		if !storage.SameProjectedMessage(existing, m) {
+			return false, storage.ErrProjectionConflict
+		}
 		return false, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) { return false, fmt.Errorf("storage: check projected message %s: %w", m.ID, err) }
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("storage: check projected message %s: %w", m.ID, err)
+	}
 	position, err := sqliteNextMessagePosition(ctx, tx, m.SessionID)
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	result, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -125,7 +135,9 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 func sqliteNextMessagePosition(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (int64, error) {
 	var position int64
 	if err := tx.QueryRowContext(ctx, `SELECT next_message_position FROM sessions WHERE id = ?`, sessionID).Scan(&position); err != nil {
-		if errors.Is(err, sql.ErrNoRows) { return 0, storage.ErrNotFound }
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, storage.ErrNotFound
+		}
 		return 0, fmt.Errorf("storage: read next message position: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET next_message_position = ? WHERE id = ?`, position+1, sessionID); err != nil {

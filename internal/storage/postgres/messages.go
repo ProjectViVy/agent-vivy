@@ -22,7 +22,9 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -71,15 +73,25 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 	var existingID string
 	err = tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE id = $1`, m.ID).Scan(&existingID)
 	if err == nil {
-		if err := tx.Rollback(); err != nil { return false, err }
+		if err := tx.Rollback(); err != nil {
+			return false, err
+		}
 		existing, err := b.projectedMessageByID(ctx, m.ID)
-		if err != nil { return false, err }
-		if !storage.SameProjectedMessage(existing, m) { return false, storage.ErrProjectionConflict }
+		if err != nil {
+			return false, err
+		}
+		if !storage.SameProjectedMessage(existing, m) {
+			return false, storage.ErrProjectionConflict
+		}
 		return false, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) { return false, fmt.Errorf("storage: check projected message %s: %w", m.ID, err) }
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("storage: check projected message %s: %w", m.ID, err)
+	}
 	position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	result, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -119,8 +131,12 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 func postgresNextMessagePosition(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (int64, error) {
 	var position int64
 	err := tx.QueryRowContext(ctx, `UPDATE sessions SET next_message_position = next_message_position + 1 WHERE id = $1 RETURNING next_message_position - 1`, sessionID).Scan(&position)
-	if errors.Is(err, sql.ErrNoRows) { return 0, storage.ErrNotFound }
-	if err != nil { return 0, fmt.Errorf("storage: allocate message position: %w", err) }
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, storage.ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("storage: allocate message position: %w", err)
+	}
 	return position, nil
 }
 

@@ -43,7 +43,9 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 		return event, err
 	}
 	position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
-	if err != nil { return event, err }
+	if err != nil {
+		return event, err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 		return event, err
 	}
@@ -89,7 +91,9 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	}
 	for _, m := range messages {
 		position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
 		}

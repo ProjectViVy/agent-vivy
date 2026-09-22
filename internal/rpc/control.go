@@ -91,13 +91,13 @@ type ControlDeps struct {
 	Truncations storage.TruncationStore
 	// History is the single runtime-owned bounded projection shared by model
 	// tools and operator inspection RPCs. Nil disables history/*.
-	History tools.HistoryOperations
-	Bus         *events.Bus
-	Service     *runtime.Service
-	Studio      *studio.Service
-	Live        studio.LiveView
-	Eval        eval.Starter
-	Children    ChildController
+	History  tools.HistoryOperations
+	Bus      *events.Bus
+	Service  *runtime.Service
+	Studio   *studio.Service
+	Live     studio.LiveView
+	Eval     eval.Starter
+	Children ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
