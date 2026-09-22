@@ -670,7 +670,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Runs:                  backend,
 		Messages:              backend,
 		GoalRuns:              goalRunStore,
-		PrimaryRuns:            primaryRunStore,
+		PrimaryRuns:           primaryRunStore,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,

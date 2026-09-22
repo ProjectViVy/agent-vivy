@@ -30,7 +30,6 @@ func (f *fakeWorkControlOperations) ReportGoal(context.Context, string, int64, s
 	return f.state, nil
 }
 
-
 func TestWorkControlToolsExposeExactReadonlyContract(t *testing.T) {
 	cases := []struct {
 		name     string
