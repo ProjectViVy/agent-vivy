@@ -117,6 +117,18 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if sessionID == "" {
 		return "", errors.New("runtime: shell session id is required")
 	}
+	s.mu.Lock()
+	s.humanPending[sessionID]++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if pending := s.humanPending[sessionID]; pending <= 1 {
+			delete(s.humanPending, sessionID)
+		} else {
+			s.humanPending[sessionID] = pending - 1
+		}
+		s.mu.Unlock()
+	}()
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	if s.sessionDeleted(sessionID) {

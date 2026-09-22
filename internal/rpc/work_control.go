@@ -243,7 +243,7 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 		h.bindPeerSessionRequest(ctx, peer, request)
 	}
 	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
-	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalResumed ||
+	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalEdited || kind == domain.WorkEventGoalResumed ||
 		(kind == domain.WorkEventPlanDecided && params.PlanAction == string(domain.PlanDecisionStartGoal)) {
 		h.deps.Service.WakeGoal(sessionID)
 	}

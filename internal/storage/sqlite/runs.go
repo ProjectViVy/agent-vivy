@@ -44,6 +44,9 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth); err != nil {
 		return fmt.Errorf("storage: create run %s: %w", r.ID, err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit create run %s: %w", r.ID, err)
+	}
 	return nil
 }
 
