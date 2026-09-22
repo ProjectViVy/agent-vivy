@@ -6,7 +6,7 @@
 **Architecture:** Follow PG-D1 shared ownership and transaction contracts. Keep this slice within existing Service / Journal / Policy ownership.
 **Tech Stack:** Go, pinned Eino v0.9.13, SQLite/PostgreSQL, React/TypeScript where applicable.
 **Spec:** [PG-D1](../../architecture/PLAN-GOAL-PREDESIGN.md).
-**Baseline:** aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+**Baseline:** a8d361b0244a1c40be513622bbdaebb5c9d40014.
 **Epic:** Composition. **Requirements:** R8, R2, R5.
 **Status and predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
 

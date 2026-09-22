@@ -6,16 +6,16 @@
 **Architecture:** Follow PG-D1 shared ownership and transaction contracts. Keep this slice within existing Service / Journal / Policy ownership.
 **Tech Stack:** Go, pinned Eino v0.9.13, SQLite/PostgreSQL, React/TypeScript where applicable.
 **Spec:** [PG-D1](../../architecture/PLAN-GOAL-PREDESIGN.md).
-**Baseline:** aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+**Baseline:** a8d361b0244a1c40be513622bbdaebb5c9d40014.
 **Epic:** Foundation. **Requirements:** R1, R2, R6, R7, R9.
-**Status and predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
+**Status:** In progress. **Predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
 
 ## Global Constraints
 
 - Soft Plan cannot expand independently configured permissions.
 - Armed Goal and effective Plan cannot coexist.
 - One Service / Journal / Policy path; Eino imports remain in runtime/provider.
-- No code, dependency, database or external tracker mutation is authorized merely by this pre-design.
+- Production implementation is authorized on this branch, but downstream Stories remain gated on accepted PG-0 evidence.
 - Preserve user-owned work. Rebase existing file locations and migration versions before execution.
 - Test commands below are future instructions; none are claimed passed.
 
