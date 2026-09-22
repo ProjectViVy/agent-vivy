@@ -64,7 +64,7 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptionID string, sessionID domain.SessionID, after domain.WorkVersion) {
 	ch, cancel := h.deps.WorkBus.Subscribe(sessionID)
 	defer cancel()
-	last := after
+	last := domain.WorkSeq(after)
 	send := func(event domain.WorkEvent) bool {
 		if event.Seq <= last {
 			return true
@@ -80,7 +80,7 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 	}
 	replay := func() error {
 		for {
-			events, err := h.deps.Work.ReplayWork(ctx, sessionID, last, workReplayPageSize)
+			events, err := h.deps.Work.ReplayWork(ctx, sessionID, domain.WorkVersion(last), workReplayPageSize)
 			if err != nil {
 				return err
 			}
