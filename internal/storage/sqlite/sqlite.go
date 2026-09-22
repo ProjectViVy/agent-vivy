@@ -70,6 +70,7 @@ var (
 	_ storage.BlobStore          = (*Blobs)(nil)
 	_ storage.Engine             = (*Backend)(nil)
 	_ storage.WorkStore          = (*Backend)(nil)
+	_ storage.GoalRunStore       = (*Backend)(nil)
 	_ storage.CheckpointOrphaner = (*Backend)(nil)
 )
 

@@ -201,3 +201,210 @@ func scanWorkEvent(scanner workScanner) (domain.WorkEvent, error) {
 		Admission:      decoded.Admission,
 	}, nil
 }
+
+// CommitGoalRun persists the user message, active run, run.started event and
+// goal.round_admitted event in one transaction. Publication and engine drive
+// happen only after this method returns successfully.
+func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCommit) (storage.GoalRunCommitResult, error) {
+	if err := storage.ValidateGoalRunCommit(admission); err != nil {
+		return storage.GoalRunCommitResult{}, err
+	}
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: begin goal run admission: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var sessionID string
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE id = ? FOR UPDATE", admission.Mutation.SessionID).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
+		return storage.GoalRunCommitResult{}, storage.ErrNotFound
+	} else if err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: lock goal session: %w", err)
+	}
+
+	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), admission.Mutation.SessionID)
+	if err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: read goal work in transaction: %w", err)
+	}
+	events, scanErr := scanWorkEvents(rows)
+	_ = rows.Close()
+	if scanErr != nil {
+		return storage.GoalRunCommitResult{}, scanErr
+	}
+	for i, event := range events {
+		if event.RequestID != admission.Mutation.RequestID {
+			continue
+		}
+		if event.RequestHash != admission.Mutation.RequestHash {
+			return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
+		}
+		state, err := domain.FoldWork(events[:i+1])
+		if err != nil {
+			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: fold replayed goal admission: %w", err)
+		}
+		run, err := readGoalRunTx(ctx, tx, event.Admission.RunID)
+		if err != nil {
+			return storage.GoalRunCommitResult{}, err
+		}
+		started, err := readGoalStartedTx(ctx, tx, event.Admission.RunID)
+		if err != nil {
+			return storage.GoalRunCommitResult{}, err
+		}
+		return storage.GoalRunCommitResult{
+			Work:    storage.WorkCommitResult{State: state, Event: event, Replayed: true},
+			Run:     run,
+			Started: started,
+		}, nil
+	}
+
+	state := domain.WorkState{SessionID: admission.Mutation.SessionID}
+	if len(events) > 0 {
+		state, err = domain.FoldWork(events)
+		if err != nil {
+			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: fold goal work: %w", err)
+		}
+	}
+	if state.Version != admission.Mutation.ExpectedVersion {
+		return storage.GoalRunCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	candidate := domain.WorkEvent{
+		SessionID:      admission.Mutation.SessionID,
+		Seq:            domain.WorkSeq(state.Version + 1),
+		Kind:           domain.WorkEventGoalRoundAdmitted,
+		PayloadVersion: domain.WorkPayloadVersion,
+		RequestID:      admission.Mutation.RequestID,
+		RequestHash:    admission.Mutation.RequestHash,
+		CreatedAt:      admission.Started.CreatedAt,
+		Mutation:       admission.Mutation,
+		Admission:      admission.Mutation.Admission,
+	}
+	if candidate.CreatedAt <= 0 {
+		candidate.CreatedAt = time.Now().UnixMilli()
+	}
+	next, err := domain.FoldWork(append(append([]domain.WorkEvent(nil), events...), candidate))
+	if err != nil {
+		return storage.GoalRunCommitResult{}, err
+	}
+
+	var active int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM runs WHERE session_id = ? AND kind = ? AND status IN "+activeStatuses,
+		admission.Mutation.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: inspect active goal run: %w", err)
+	}
+	if active != 0 {
+		return storage.GoalRunCommitResult{}, storage.ErrWorkRunConflict
+	}
+
+	message := admission.Message
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, message.Content,
+		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
+		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: append goal message: %w", err)
+	}
+	for position, attachment := range message.Attachments {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_attachments (message_id, position, name, mime_type, data) VALUES (?, ?, ?, ?, ?)",
+			message.ID, position, attachment.Name, attachment.MimeType, attachment.Data); err != nil {
+			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: append goal attachment: %w", err)
+		}
+	}
+	for position, file := range message.FileContexts {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_file_contexts (message_id, position, path, name, size, content) VALUES (?, ?, ?, ?, ?, ?)",
+			message.ID, position, file.Path, file.Name, file.Size, file.Content); err != nil {
+			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: append goal file context: %w", err)
+		}
+	}
+	at := messageActivityAt(message.CreatedAt)
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?",
+		at, at, message.SessionID); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: touch goal session: %w", err)
+	}
+
+	run := admission.Run
+	kind := run.Kind
+	if !kind.Valid() {
+		kind = domain.RunKindPrimary
+	}
+	rootID := run.RootID
+	if rootID == "" {
+		rootID = run.ID
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		run.ID, run.SessionID, string(run.Status), run.CreatedAt, string(kind), run.ParentID, rootID, run.Depth); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: create goal run: %w", err)
+	}
+
+	started := admission.Started
+	started.Seq = 1
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?)",
+		started.RunID, int64(started.Seq), string(started.Type), started.CreatedAt, started.PayloadVersion, started.Payload); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: append goal run.started: %w", err)
+	}
+
+	payload, err := json.Marshal(workPayload{Mutation: candidate.Mutation, Admission: candidate.Admission})
+	if err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: encode goal admission: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		candidate.SessionID, int64(candidate.Seq), string(candidate.Kind), candidate.PayloadVersion,
+		candidate.RequestID, candidate.RequestHash, candidate.CreatedAt, payload); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: insert goal admission: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: commit goal run admission: %w", err)
+	}
+	run.Kind = kind
+	run.RootID = rootID
+	return storage.GoalRunCommitResult{
+		Work:    storage.WorkCommitResult{State: next, Event: candidate},
+		Run:     run,
+		Started: started,
+	}, nil
+}
+
+func readGoalRunTx(ctx context.Context, tx *Tx, id domain.RunID) (domain.Run, error) {
+	var run domain.Run
+	var runID, sessionID, status, kind, parentID, rootID string
+	err := tx.QueryRowContext(ctx,
+		"SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth FROM runs WHERE id = ?", id).
+		Scan(&runID, &sessionID, &status, &run.CreatedAt, &kind, &parentID, &rootID, &run.Depth)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Run{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("storage: read admitted run: %w", err)
+	}
+	run.ID, run.SessionID, run.Status = domain.RunID(runID), domain.SessionID(sessionID), domain.RunStatus(status)
+	run.Kind, run.ParentID, run.RootID = domain.RunKind(kind), domain.RunID(parentID), domain.RunID(rootID)
+	return run, nil
+}
+
+func readGoalStartedTx(ctx context.Context, tx *Tx, id domain.RunID) (domain.RunEvent, error) {
+	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT run_id, seq, type, created_at, payload_version, payload FROM run_events WHERE run_id = ? ORDER BY seq LIMIT 1"), id)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: read admitted run.started: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return domain.RunEvent{}, err
+		}
+		return domain.RunEvent{}, storage.ErrWorkEventCorrupt
+	}
+	var event domain.RunEvent
+	var runID, typ string
+	var seq int64
+	if err := rows.Scan(&runID, &seq, &typ, &event.CreatedAt, &event.PayloadVersion, &event.Payload); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: scan admitted run.started: %w", err)
+	}
+	event.RunID, event.Seq, event.Type = domain.RunID(runID), domain.EventSeq(seq), domain.EventType(typ)
+	return event, nil
+}
