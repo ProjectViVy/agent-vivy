@@ -301,6 +301,9 @@ func createGoal(state *WorkState, mutation WorkMutation) error {
 	if state.Goal != nil {
 		return fmt.Errorf("%w: goal already exists", ErrStaleGoalReference)
 	}
+	if state.Plan.Active {
+		return fmt.Errorf("%w: Plan is active", ErrStaleGoalReference)
+	}
 	if mutation.SessionID != state.SessionID ||
 		mutation.Goal.ID == "" ||
 		mutation.Goal.Revision != 1 ||
@@ -346,6 +349,9 @@ func transitionGoal(state *WorkState, mutation WorkMutation, phase WorkPhase) er
 	}
 	if phase == WorkPhaseActive && state.Goal.Phase != WorkPhasePaused {
 		return fmt.Errorf("%w: goal phase %q", ErrStaleGoalReference, state.Goal.Phase)
+	}
+	if phase == WorkPhaseActive && state.Plan.Active {
+		return fmt.Errorf("%w: Plan is active", ErrStaleGoalReference)
 	}
 	state.Goal.Phase = phase
 	return nil

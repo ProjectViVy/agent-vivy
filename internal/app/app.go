@@ -649,6 +649,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}()
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
+		Work:                  backend,
 		Runs:                  backend,
 		Messages:              backend,
 		GoalRuns:              backend,
@@ -845,7 +846,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
-		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		ActionHost:     actionHost,
 		Marketplace:    marketplace,
