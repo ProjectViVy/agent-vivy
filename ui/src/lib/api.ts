@@ -4,7 +4,7 @@ export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/work/get', 'session/work/subscribe', 'session/work/unsubscribe',
   'goal/create', 'goal/edit', 'goal/pause', 'goal/resume', 'goal/complete', 'goal/block', 'goal/clear',
-  'plan/enter', 'plan/leave', 'plan/submit', 'plan/decide',
+  'plan/get', 'plan/enter', 'plan/leave', 'plan/submit', 'plan/decide',
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',

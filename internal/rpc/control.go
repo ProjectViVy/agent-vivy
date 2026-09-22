@@ -1001,7 +1001,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, "session.set_workspace")
 		}
 		if h.deps.Work != nil && h.deps.Service != nil {
-			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan")
+			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
 		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
@@ -1079,6 +1079,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalBlocked)
 	case "goal/clear":
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCleared)
+	case "plan/get":
+		result, rpcErr := h.getPlan(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "plan/enter":
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanEntered)
 	case "plan/leave":
