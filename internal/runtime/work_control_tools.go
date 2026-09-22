@@ -92,7 +92,7 @@ func (s *Service) SubmitPlan(ctx context.Context, markdown string) (domain.WorkS
 			SessionID: sessionID, ExpectedVersion: state.Version,
 			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanSubmitted,
 			PlanSubmissionID: "submission-" + requestID[len("model-work-submit-plan-"):],
-			PlanMarkdown: markdown, PlanOriginRunID: runID,
+			PlanMarkdown:     markdown, PlanOriginRunID: runID,
 		}
 	})
 }
@@ -126,7 +126,7 @@ func (s *Service) CreateGoal(ctx context.Context, objective string, maxRounds in
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
 			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventGoalCreated,
-			Goal: domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
+			Goal:      domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
 			Objective: objective, MaxRounds: maxRounds,
 		}
 	})
@@ -164,7 +164,7 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
 			RequestID: requestID, RequestHash: requestHash, Kind: kind,
-			Goal: domain.GoalRef{ID: goalID, Revision: revision},
+			Goal:   domain.GoalRef{ID: goalID, Revision: revision},
 			Reason: reason, EvidenceRunID: runID,
 		}
 	})
