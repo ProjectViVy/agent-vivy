@@ -329,10 +329,11 @@ func createGoal(state *WorkState, mutation WorkMutation) error {
 		return fmt.Errorf("%w: invalid goal creation", ErrStaleGoalReference)
 	}
 	state.Goal = &GoalState{
-		Ref:       mutation.Goal,
-		Objective: mutation.Objective,
-		Phase:     WorkPhaseActive,
-		MaxRounds: mutation.MaxRounds,
+		Ref:           mutation.Goal,
+		Objective:     mutation.Objective,
+		Phase:         WorkPhaseActive,
+		MaxRounds:     mutation.MaxRounds,
+		EvidenceRunID: mutation.EvidenceRunID,
 	}
 	return nil
 }

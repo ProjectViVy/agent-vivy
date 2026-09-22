@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+
+func TestFoldWorkGoalCreationCarriesCreatorEvidence(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	event := goalEvent(1, WorkEventGoalCreated, ref, "ship it", 2)
+	event.Mutation.EvidenceRunID = "run-creator"
+
+	state, err := FoldWork([]WorkEvent{event})
+	if err != nil {
+		t.Fatalf("FoldWork() error = %v", err)
+	}
+	if state.Goal == nil || state.Goal.EvidenceRunID != "run-creator" {
+		t.Fatalf("goal evidence = %#v, want creator run", state.Goal)
+	}
+}
+
 func TestFoldWorkAcceptsGoalAndRoundAdmission(t *testing.T) {
 	ref := GoalRef{ID: "goal-1", Revision: 1}
 	state, err := FoldWork([]WorkEvent{

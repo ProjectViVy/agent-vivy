@@ -30,6 +30,28 @@ func (f *fakeWorkControlOperations) ReportGoal(context.Context, string, int64, s
 	return f.state, nil
 }
 
+
+func TestWorkControlToolsExposeExactReadonlyContract(t *testing.T) {
+	cases := []struct {
+		name     string
+		tool     Tool
+		readonly bool
+	}{
+		{name: EnterPlanModeName, tool: NewEnterPlanMode(), readonly: false},
+		{name: SubmitPlanName, tool: NewSubmitPlan(), readonly: false},
+		{name: GetGoalName, tool: NewGetGoal(), readonly: true},
+		{name: CreateGoalName, tool: NewCreateGoal(), readonly: false},
+		{name: ReportGoalName, tool: NewReportGoal(), readonly: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.tool.Spec().Readonly; got != tc.readonly {
+				t.Fatalf("%s readonly = %v, want %v", tc.name, got, tc.readonly)
+			}
+		})
+	}
+}
+
 func TestWorkControlToolsRequireRuntimeCapability(t *testing.T) {
 	if _, err := NewGetGoal().InvokableRun(context.Background(), json.RawMessage(`{}`)); err == nil {
 		t.Fatal("get_goal without runtime capability must fail closed")
