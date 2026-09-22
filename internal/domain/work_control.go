@@ -128,7 +128,7 @@ type WorkMutation struct {
 	MaxRounds            int
 	Reason               string
 	EvidenceRunID        RunID
-	Admission             GoalRunAdmission
+	Admission            GoalRunAdmission
 	PlanSubmissionID     string
 	PlanMarkdown         string
 	PlanAction           PlanDecisionAction
