@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -13,26 +14,23 @@ func TestContinuityLimitsExactBounds(t *testing.T) {
 	if err := (HistorySearchRequest{Query: strings.Repeat("q", limits.SearchQueryBytes+1)}).Validate(limits); err == nil {
 		t.Fatal("accepted oversized query")
 	}
-	refs := make([]SourceRef, limits.SelectionRefs)
-	for i := range refs {
-		refs[i] = SourceRef{SessionID: "source", Kind: SourceKindMessage}
+	if err := (HistoryReadRequest{ReferenceID: "reference", Limit: limits.ReadPageMax}).Validate(limits); err != nil {
+		t.Fatalf("read at exact maximum: %v", err)
 	}
-	if err := (HistorySelection{SourceSessionID: "source", Refs: refs}).Validate(limits); err != nil {
-		t.Fatalf("selection at exact maximum: %v", err)
+	if err := (HistoryReadRequest{ReferenceID: "reference", Limit: limits.ReadPageMax + 1}).Validate(limits); err == nil {
+		t.Fatal("accepted oversized read page")
 	}
-	refs = append(refs, SourceRef{SessionID: "source", Kind: SourceKindMessage})
-	if err := (HistorySelection{SourceSessionID: "source", Refs: refs}).Validate(limits); err == nil {
-		t.Fatal("accepted too many references")
+	if err := (PresentRequest{Files: []PresentFile{{Path: "a", Description: strings.Repeat("d", limits.DescriptionBytes)}}}).Validate(limits); err != nil {
+		t.Fatalf("description at exact maximum: %v", err)
 	}
-	files := make([]PresentFile, limits.PresentPaths)
-	for i := range files {
-		files[i] = PresentFile{Path: "a"}
+	if err := (PresentRequest{Files: []PresentFile{{Path: "a", Description: strings.Repeat("d", limits.DescriptionBytes+1)}}}).Validate(limits); err == nil {
+		t.Fatal("accepted oversized description")
 	}
-	if err := (PresentRequest{Files: files}).Validate(limits); err != nil {
-		t.Fatalf("present set at exact maximum: %v", err)
+	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes}).Validate(limits); err != nil {
+		t.Fatalf("binary page at exact maximum: %v", err)
 	}
-	if err := (PresentRequest{Files: append(files, PresentFile{Path: "b"})}).Validate(limits); err == nil {
-		t.Fatal("accepted too many present paths")
+	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes + 1}).Validate(limits); err == nil {
+		t.Fatal("accepted oversized binary page")
 	}
 }
 
@@ -67,48 +65,111 @@ func TestContinuityRejectsInvalidUTF8AndUnknownValues(t *testing.T) {
 	}
 }
 
-func TestCanonicalHistoryScopeHashStable(t *testing.T) {
-	first, err := NewAcceptedHistoryScope("destination", []SessionID{"b", "a", "b"})
+func TestContinuityCanonicalHistoryScopeHash(t *testing.T) {
+	accepted, err := NewAcceptedHistoryScope("destination", []SessionID{"b", "a", "b"})
 	if err != nil {
-		t.Fatalf("first scope: %v", err)
+		t.Fatalf("new scope: %v", err)
 	}
-	second, err := NewAcceptedHistoryScope("destination", []SessionID{"a", "b"})
-	if err != nil {
-		t.Fatalf("second scope: %v", err)
+	if got, want := accepted.ScopeHash, "6d9aef6d4fca8bc36a3ac48914ebc16f64ba3b6d2cf8624019f3e436a45ed45e"; got != want {
+		t.Fatalf("scope hash = %q, want %q", got, want)
 	}
-	if first.ScopeHash != second.ScopeHash || strings.Join(sessionIDsToStrings(first.SourceSessionIDs), ",") != "a,b" {
-		t.Fatalf("unstable canonical scope: %#v %#v", first, second)
+	if err := accepted.Validate(); err != nil {
+		t.Fatalf("canonical scope rejected: %v", err)
+	}
+	unsorted := accepted
+	unsorted.SourceSessionIDs = []SessionID{"b", "a"}
+	if err := unsorted.Validate(); err == nil {
+		t.Fatal("accepted non-canonical source session order")
+	}
+	duplicate := accepted
+	duplicate.SourceSessionIDs = []SessionID{"a", "a"}
+	if err := duplicate.Validate(); err == nil {
+		t.Fatal("accepted duplicate source session ID")
 	}
 }
 
-func TestHistoryPageKeepsRedactionAndTruncationIndependent(t *testing.T) {
-	page := HistoryPage{
-		Status:    HistoryStatusPartial,
-		Redacted:  true,
-		Truncated: true,
-		Items: []HistoryItem{{
-			Ref:       SourceRef{SessionID: "source", Kind: SourceKindMessage},
-			Author:    HistoryAuthorUser,
-			Text:      "safe",
-			Redacted:  true,
-			Truncated: true,
-		}},
-	}
-	if err := page.Validate(DefaultContinuityLimits()); err != nil {
-		t.Fatalf("mixed redaction/truncation page: %v", err)
+func TestContinuityHistoryPageRedactionAndTruncationIndependent(t *testing.T) {
+	for _, flags := range []struct {
+		name                string
+		redacted, truncated bool
+	}{
+		{"neither", false, false},
+		{"redacted", true, false},
+		{"truncated", false, true},
+		{"both", true, true},
+	} {
+		t.Run(flags.name, func(t *testing.T) {
+			page := HistoryPage{
+				Status: HistoryStatusPartial, Redacted: flags.redacted, Truncated: flags.truncated,
+				Items: []HistoryItem{{
+					Ref: SourceRef{SessionID: "source", Kind: SourceKindMessage}, Author: HistoryAuthorUser, Text: "safe",
+					Redacted: flags.redacted, Truncated: flags.truncated,
+				}},
+			}
+			if err := page.Validate(DefaultContinuityLimits()); err != nil {
+				t.Fatalf("page rejected: %v", err)
+			}
+		})
 	}
 }
 
-func TestEffectiveContinuityBudgetDoesNotExceedWireFrame(t *testing.T) {
+func TestContinuityAggregateLimits(t *testing.T) {
+	limits := DefaultContinuityLimits()
+	references := make([]ContextReference, limits.ReferencesPerTask)
+	for i := range references {
+		references[i] = validContextReference(string(rune('a' + i)), strings.Repeat("x", 8000))
+	}
+	if err := ValidateContextReferences(references[:limits.ReferencesPerTask-1], limits); err != nil {
+		t.Fatalf("reference aggregate at bounded size: %v", err)
+	}
+	if err := ValidateContextReferences(references, limits); err == nil {
+		t.Fatal("accepted oversized reference aggregate")
+	}
+
+	files := make([]Deliverable, 4)
+	for i := range files {
+		files[i] = validDeliverable(string(rune('a' + i)), limits.PresentFileBytes)
+	}
+	set := DeliverySet{ID: "set", SessionID: "session", RunID: "run", ToolCallID: "call", Items: files, Status: DeliveryStatusOK}
+	if err := set.Validate(limits); err != nil {
+		t.Fatalf("delivery aggregate at exact maximum: %v", err)
+	}
+	set.Items = append(set.Items, validDeliverable("e", 1))
+	if err := set.Validate(limits); err == nil {
+		t.Fatal("accepted oversized delivery aggregate")
+	}
+}
+
+func TestContinuityDeliveryChunkPageBound(t *testing.T) {
+	limits := DefaultContinuityLimits()
+	data := strings.Repeat("x", limits.BinaryPageBytes)
+	chunk := DeliveryChunk{TransferID: "transfer", ItemID: "item", Digest: "digest", DataBase64: base64.StdEncoding.EncodeToString([]byte(data))}
+	if err := chunk.Validate(limits); err != nil {
+		t.Fatalf("chunk at exact maximum: %v", err)
+	}
+	chunk.DataBase64 = base64.StdEncoding.EncodeToString([]byte(data + "x"))
+	if err := chunk.Validate(limits); err == nil {
+		t.Fatal("accepted oversized chunk")
+	}
+}
+
+func TestContinuityEffectiveBudgetDoesNotExceedWireFrame(t *testing.T) {
 	if got := DefaultContinuityLimits().Effective(4096).ResultPageBytes; got > 4096 {
 		t.Fatalf("effective result budget %d exceeds wire frame", got)
 	}
 }
 
-func sessionIDsToStrings(ids []SessionID) []string {
-	values := make([]string, len(ids))
-	for i := range ids {
-		values[i] = string(ids[i])
+func validContextReference(id, text string) ContextReference {
+	return ContextReference{
+		ID: id, DestinationSessionID: "destination", DestinationRunID: "run", SourceSessionID: "source",
+		SourceWorkspace: "workspace", Digest: "digest", Origin: "user_selection",
+		Items: []HistoryItem{{Ref: SourceRef{SessionID: "source", Kind: SourceKindMessage}, Author: HistoryAuthorUser, Text: text}},
 	}
-	return values
+}
+
+func validDeliverable(path string, size int64) Deliverable {
+	return Deliverable{
+		ID: path, SessionID: "session", RunID: "run", WorkspaceID: "workspace", Path: path, Name: path,
+		SHA256: "digest", MediaType: "text/plain", Size: size, OriginToolCallID: "call",
+	}
 }

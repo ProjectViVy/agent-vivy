@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 )
@@ -12,7 +13,7 @@ import (
 // Empty selection grants only the current session when policy allows it.
 func ResolveHistoryScope(current domain.SessionID, selected []domain.SessionID, policyAllowed []domain.SessionID) ([]domain.SessionID, error) {
 	limits := domain.DefaultContinuityLimits()
-	if current == "" {
+	if current == "" || !utf8.ValidString(string(current)) {
 		return nil, fmt.Errorf("history scope current session is required")
 	}
 	if len(selected) > limits.ExplicitSessions {
@@ -24,8 +25,11 @@ func ResolveHistoryScope(current domain.SessionID, selected []domain.SessionID, 
 
 	allowed := make(map[domain.SessionID]struct{}, len(policyAllowed))
 	for _, id := range policyAllowed {
-		if id == "" {
+		if id == "" || !utf8.ValidString(string(id)) {
 			return nil, fmt.Errorf("history policy contains an invalid session ID")
+		}
+		if _, duplicate := allowed[id]; duplicate {
+			return nil, fmt.Errorf("history policy contains a duplicate session ID")
 		}
 		allowed[id] = struct{}{}
 	}
@@ -39,7 +43,7 @@ func ResolveHistoryScope(current domain.SessionID, selected []domain.SessionID, 
 
 	resolved := make(map[domain.SessionID]struct{}, len(selected)+1)
 	for _, id := range selected {
-		if id == "" {
+		if id == "" || !utf8.ValidString(string(id)) {
 			return nil, fmt.Errorf("history scope contains an invalid session ID")
 		}
 		if _, duplicate := resolved[id]; duplicate {
