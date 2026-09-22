@@ -15,6 +15,11 @@ type payloadRunStarted struct {
 	PolicyHash     string `json:"policy_hash,omitempty"`
 	SandboxMode    string `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	// PromptSchema and PromptDigest identify the immutable prompt admitted
+	// beside this run. They are omitted for legacy embedders that do not wire
+	// RunAdmissionStore, preserving the v1 event shape on that path.
+	PromptSchema int    `json:"prompt_schema,omitempty"`
+	PromptDigest string `json:"prompt_digest,omitempty"`
 }
 
 type payloadModelDelta struct {

@@ -42,6 +42,9 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 	for _, moduleID := range assembly.Manifest.Modules {
 		compiledModules[moduleID] = true
 	}
+	if err := validateMaskFactoryBinding(assembly, compiledModules["vivy/masks"]); err != nil {
+		return err
+	}
 	contextSources, err := generatedContextSources(assembly)
 	if err != nil {
 		return fmt.Errorf("app: generated ContextSource inventory: %w", err)
@@ -237,6 +240,25 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 		}
 	}
 	return validateGrantKeys("Channel", assembly.ChannelGrants, assembly.Manifest.Channels, true)
+}
+
+// maskFactoryBinding is emitted by newer generated Assemblies. Keeping the
+// check behind this tiny optional interface lets an older omitted-mask
+// generated file remain valid while still rejecting a selected mask service
+// whose typed factory was not sealed into the Assembly.
+type maskFactoryBinding interface {
+	HasMaskFactory() bool
+}
+
+func validateMaskFactoryBinding(assembly genassembly.RuntimeAssembly, selected bool) error {
+	binding, emitted := any(&assembly).(maskFactoryBinding)
+	if selected && (!emitted || !binding.HasMaskFactory()) {
+		return fmt.Errorf("app: compiled vivy/masks has no generated MaskFactory")
+	}
+	if !selected && emitted && binding.HasMaskFactory() {
+		return fmt.Errorf("app: generated MaskFactory is present without compiled vivy/masks")
+	}
+	return nil
 }
 
 func actionDefinition(provider actionport.Provider) (definition actionport.Definition, err error) {

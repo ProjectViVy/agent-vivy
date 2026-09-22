@@ -95,7 +95,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			pin, ok := recipe.Sources[moduleID]
 			if !ok {
 				diagnostics = append(diagnostics, "missing authoritative source pin for "+moduleID)
-			} else if pin.Ref != record.Ref {
+			} else if pin.Ref != record.Ref || pin != record.Descriptor.Source {
 				diagnostics = append(diagnostics, "source pin mismatch for "+moduleID)
 			}
 		}
@@ -151,6 +151,9 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		}
 	}
 	if _, productionCatalog := c.Sources.records["vivy/storage"]; productionCatalog {
+		if _, selectedMask := selected["vivy/masks"]; selectedMask {
+			diagnostics = append(diagnostics, "core/mask-service@v1 is SPECIFIED and cannot be selected")
+		}
 		diagnostics = append(diagnostics, validateClosedInternalSelection(selected, providers)...)
 	}
 	for _, record := range selected {

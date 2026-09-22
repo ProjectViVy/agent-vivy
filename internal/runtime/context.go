@@ -23,6 +23,12 @@ type ContextPolicy struct {
 	// means unbounded for direct runtime tests; the current user message is
 	// always retained separately.
 	MaxHistoryMessages int
+	// ReservedBytes is a fixed portion of the final model input that is
+	// supplied outside this transcript, such as an admitted authoritative
+	// instruction. History selection deducts it before choosing rows, so the
+	// model-boundary budget check does not reject a context that could have
+	// fit by dropping older history.
+	ReservedBytes int
 }
 
 // ContextStats describes how the policy shaped one run's context.
@@ -75,7 +81,7 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 }
 
 func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
-	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 {
+	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 || policy.ReservedBytes < 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: policy values must not be negative", ErrContextBudgetExceeded)
 	}
 
@@ -97,7 +103,7 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 	history := transcript[:len(transcript)-1]
 
 	stats := ContextStats{OriginalHistoryMessages: len(history)}
-	baseBytes := messageCost(preamble, "system") + messageCostForMessage(current)
+	baseBytes := policy.ReservedBytes + messageCost(preamble, "system") + messageCostForMessage(current)
 	if policy.MaxBytes > 0 && baseBytes > policy.MaxBytes {
 		return nil, stats, fmt.Errorf("%w: preamble and current request require %d bytes; budget is %d", ErrContextBudgetExceeded, baseBytes, policy.MaxBytes)
 	}
@@ -125,7 +131,7 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 	stats.DroppedHistoryMessages = len(history) - stats.IncludedHistoryMessages
 
 	msgs := make([]*schema.Message, 0, len(selected)+2)
-	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes}
+	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes, used: policy.ReservedBytes}
 	preambleMessage := schema.SystemMessage(preamble)
 	msgs = append(msgs, preambleMessage)
 	projectionBudget.add(preambleMessage)
@@ -139,9 +145,9 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 		return nil, stats, err
 	}
 	msgs = append(msgs, currentMessage)
-	stats.Bytes = projectionBudget.used
-	if policy.MaxBytes > 0 && stats.Bytes > policy.MaxBytes {
-		return nil, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, stats.Bytes, policy.MaxBytes)
+	stats.Bytes = projectionBudget.used - policy.ReservedBytes
+	if policy.MaxBytes > 0 && projectionBudget.used > policy.MaxBytes {
+		return nil, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectionBudget.used, policy.MaxBytes)
 	}
 	return msgs, stats, nil
 }

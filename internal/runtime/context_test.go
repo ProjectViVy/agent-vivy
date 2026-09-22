@@ -158,6 +158,31 @@ func TestBuildRunContextEnforcesByteBudget(t *testing.T) {
 	}
 }
 
+func TestBuildRunContextReservesAuthoritativeInstructionBytes(t *testing.T) {
+	base := messageCost("preamble", "system") + messageCost("current", string(domain.RoleUser))
+	latest := messageCost("latest", string(domain.RoleAssistant))
+	instruction := projectedContextBytes([]*schema.Message{schema.SystemMessage("admitted instruction")})
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "old"},
+		{Role: domain.RoleAssistant, Content: "latest"},
+		{Role: domain.RoleUser, Content: "current"},
+	}
+
+	msgs, stats, err := buildRunContext(ContextPolicy{
+		MaxBytes:      base + latest + instruction,
+		ReservedBytes: instruction,
+	}, "preamble", stored, "current")
+	if err != nil {
+		t.Fatalf("build context with reserved instruction: %v", err)
+	}
+	if stats.IncludedHistoryMessages != 1 || stats.DroppedHistoryMessages != 1 {
+		t.Fatalf("history selection ignored reserved instruction: %+v", stats)
+	}
+	if len(msgs) != 3 || msgs[1].Content != "latest" {
+		t.Fatalf("reserved context = %+v", msgs)
+	}
+}
+
 func TestBuildRunContextRejectsMandatoryOverflow(t *testing.T) {
 	_, _, err := buildRunContext(ContextPolicy{MaxBytes: 1}, "preamble", nil, "current")
 	if err == nil || !strings.Contains(err.Error(), ErrContextBudgetExceeded.Error()) {
@@ -311,8 +336,12 @@ func TestRunMessagesFailsRequiredSourceWhenBaseInputConsumesBudget(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	reserved, err := promptInstructionReservation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("must not run", nil)), ts, EngineConfig{
-		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: projectedContextBytes(base),
+		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: projectedContextBytes(base) + reserved,
 	})
 	if err != nil {
 		t.Fatal(err)

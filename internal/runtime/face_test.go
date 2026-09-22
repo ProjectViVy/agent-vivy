@@ -39,3 +39,19 @@ func TestRunFaceContextDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("bound context face = %q, want code", got)
 	}
 }
+
+func TestFaceAvailableUsesCanonicalFaceValidation(t *testing.T) {
+	service := &Service{engine: &Engine{}}
+	for _, face := range []domain.Face{domain.FaceWeb, domain.FaceTui, domain.FaceCode, domain.FaceHeadless} {
+		if !service.FaceAvailable(face) {
+			t.Fatalf("FaceAvailable(%q) = false, want true", face)
+		}
+	}
+	if service.FaceAvailable(domain.Face("unknown")) {
+		t.Fatal("FaceAvailable(unknown) = true, want false")
+	}
+	var uncomposed *Service
+	if uncomposed.FaceAvailable(domain.FaceCode) {
+		t.Fatal("nil service FaceAvailable(code) = true, want false")
+	}
+}

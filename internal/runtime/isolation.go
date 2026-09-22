@@ -134,6 +134,44 @@ func (m *WorkspaceManager) Ensure(ctx context.Context, runID domain.RunID) (Work
 	return Workspace{ID: name, Path: path}, nil
 }
 
+// Release removes only a private per-run workspace allocated beneath this
+// manager's root. Local and selected project workspaces are shared resources
+// and therefore remain untouched. The runtime calls this only before an
+// admission commit, so a failed startup cannot strand an unowned directory.
+func (m *WorkspaceManager) Release(ctx context.Context, workspace Workspace) error {
+	if m == nil || m.root == "" || workspace.ID == "" || workspace.Path == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.local || !validWorkspaceName(workspace.ID) {
+		return nil
+	}
+	expected := filepath.Join(m.root, workspace.ID)
+	if filepath.Clean(workspace.Path) != filepath.Clean(expected) {
+		// A selected project workspace does not have the private per-run shape.
+		return nil
+	}
+	if err := m.ensureUnderRoot(expected); err != nil {
+		return err
+	}
+	info, err := os.Lstat(expected)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("runtime: inspect workspace for release: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("runtime: refusing to release a non-private workspace")
+	}
+	if err := os.RemoveAll(expected); err != nil {
+		return fmt.Errorf("runtime: release workspace: %w", err)
+	}
+	return nil
+}
+
 // Existing resolves a run workspace only when it already exists. Unlike
 // Ensure it never creates filesystem state, which makes it safe for status
 // and inspection paths.
