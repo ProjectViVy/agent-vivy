@@ -63,6 +63,7 @@ type ControlDeps struct {
 	Runs      storage.RunStore
 	Journal   storage.Journal
 	Work      storage.WorkStore
+	WorkBus   *events.WorkBus
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
@@ -1000,7 +1001,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, "session.set_workspace")
 		}
 		if h.deps.Work != nil && h.deps.Service != nil {
-			capabilities = append(capabilities, "session.work", "goal", "plan")
+			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan")
 		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
@@ -1054,6 +1055,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "session/work/get":
 		result, rpcErr := h.getWork(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "session/work/subscribe":
+		result, rpcErr := h.subscribeWork(ctx, peer, request)
 		if rpcErr == nil {
 			h.bindPeerSessionRequest(ctx, peer, request)
 		}
@@ -1182,7 +1189,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerRunResult(ctx, peer, result)
 		}
 		return result, rpcErr
-	case "run/unsubscribe":
+	case "run/unsubscribe", "session/work/unsubscribe":
 		return h.unsubscribe(request)
 	case "run/log":
 		return h.runLog(ctx, request)

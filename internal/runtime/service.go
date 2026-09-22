@@ -34,6 +34,13 @@ type EventSink interface {
 	Publish(domain.RunEvent)
 }
 
+// WorkEventSink receives committed session work events for live fan-out.
+// Durable work storage remains the source of truth; this is only a wake-up
+// optimization for connected control-plane clients.
+type WorkEventSink interface {
+	Publish(domain.WorkEvent)
+}
+
 // RunHook observes durable lifecycle events after they are handed to the
 // live sink. Hooks are advisory and cannot change run state.
 type RunHook interface {
@@ -122,6 +129,7 @@ type ServiceDeps struct {
 	PolicyDefaultProfile domain.PolicyProfile
 	Hooks                []RunHook
 	Sink                 EventSink
+	WorkSink             WorkEventSink
 	ChildApprovals       ChildApprovalRouter
 	ChildRuns            ChildRunCanceller
 	// Compactions persists session-level durable compaction summaries
