@@ -26,7 +26,7 @@ Revision SC-P5, 2026-09-22. Planning package baseline refreshed; product impleme
 
 | Story / plan | Epic | Requirements | Immediate predecessors and required output | Outcome | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| [T0](T0.md) | Core-0 | R0 | None | Reconcile baseline and validation prerequisites | Planned | Read-only audit can be selected after plan review; no implementation baseline gate passed. |
+| [T0](T0.md) | Core-0 | R0 | None | Reconcile baseline and validation prerequisites | Accepted | SC-P5/SC-D4 documentation baseline refresh and its evidence log were reviewed and accepted; `just ci` remains unverified (exit 127: `just` not found). |
 | [T1](T1.md) | Core-0 | R0,R1,R2,R3 | T0: baseline revision, migration owner and environment evidence | Domain, JSON schemas, limits and task authority | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
 | [T2](T2.md) | Core-1 | R1,R4 | T1: domain DTOs, schemas, effective limits and authority helper | Stable, bounded history storage on both backends | Planned | The migration owner is available; remain non-Ready until T1 implementation and verification evidence is accepted. |
 | [T3](T3.md) | Core-1 | R1 | T2: stable HistoryQueryStore cuts and backend parity | Governed history projection, tools and inspection RPC | Planned | No accepted implementation evidence yet; predecessor acceptance and execution authorization required. |
