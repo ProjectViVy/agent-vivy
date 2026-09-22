@@ -180,6 +180,7 @@ type Service struct {
 	goalStarting    map[domain.SessionID]struct{}
 	goalRuns        map[domain.SessionID]domain.RunID
 	goalRunSessions map[domain.RunID]domain.SessionID
+	goalRunRefs     map[domain.RunID]domain.GoalRef
 	goalAdmissionMu sync.Mutex
 	goalWG          sync.WaitGroup
 	stopping        bool
@@ -211,7 +212,8 @@ type Service struct {
 	// runTools pins the compiler/runtime-selected ToolHost surface for each
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
-	runTools map[domain.RunID]map[string]struct{}
+	runTools   map[domain.RunID]map[string]struct{}
+	workFenced map[domain.RunID]struct{}
 	// contextViews memoizes each live run's committed Context View so resume
 	// paths skip a full Journal replay. Entries die with the run in
 	// cleanupRunState.
@@ -344,6 +346,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalStarting:    make(map[domain.SessionID]struct{}),
 		goalRuns:        make(map[domain.SessionID]domain.RunID),
 		goalRunSessions: make(map[domain.RunID]domain.SessionID),
+		goalRunRefs:     make(map[domain.RunID]domain.GoalRef),
 		humanPending:    make(map[domain.SessionID]int),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
@@ -353,6 +356,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		ledgers:         make(map[domain.RunID]*BudgetLedger),
 		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
 		runTools:        make(map[domain.RunID]map[string]struct{}),
+		workFenced:      make(map[domain.RunID]struct{}),
 		contextViews:    make(map[domain.RunID]string),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
@@ -813,6 +817,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if options.GoalRound != nil {
 		s.goalRuns[sessionID] = runID
 		s.goalRunSessions[runID] = sessionID
+		s.goalRunRefs[runID] = options.GoalRound.Goal
 	}
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
@@ -1115,6 +1120,7 @@ func (s *Service) recover(ctx context.Context) error {
 
 	now := time.Now().UnixMilli()
 	for _, run := range runs {
+		s.rememberRecoveredGoalRun(ctx, run)
 		// Child processes are intentionally not re-executed after restart:
 		// replaying a side-effecting child could duplicate an external action.
 		// Close it before considering approvals or checkpoints.
@@ -1452,11 +1458,17 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		// recoverable, but only the interrupted tool is allowed on resume.
 		selectedTools = []string{toolName}
 	}
+	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
 	m.registerOpenCall(openToolCall{
 		id:   approval.ToolCallID,
 		name: toolName,
 	})
 	s.mu.Lock()
+	if isGoalRun {
+		s.goalRuns[run.SessionID] = run.ID
+		s.goalRunSessions[run.ID] = run.SessionID
+		s.goalRunRefs[run.ID] = goalRef
+	}
 	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
@@ -1489,8 +1501,14 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	m.setContextViewID(s.contextViewForRun(ctx, run.ID))
 	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
+	if isGoalRun {
+		s.goalRuns[run.SessionID] = run.ID
+		s.goalRunSessions[run.ID] = run.SessionID
+		s.goalRunRefs[run.ID] = goalRef
+	}
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
@@ -3094,10 +3112,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	s.mu.Lock()
 	var shellStateRefToDelete string
 	var goalSession domain.SessionID
+	var goalRef domain.GoalRef
 	var runSession domain.SessionID
 	goalSession = s.goalRunSessions[terminal.RunID]
+	goalRef = s.goalRunRefs[terminal.RunID]
 	runSession = s.runSessions[terminal.RunID]
 	delete(s.goalRunSessions, terminal.RunID)
+	delete(s.goalRunRefs, terminal.RunID)
 	if goalSession != "" && s.goalRuns[goalSession] == terminal.RunID {
 		delete(s.goalRuns, goalSession)
 	}
@@ -3112,13 +3133,14 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
 	delete(s.runTools, terminal.RunID)
+	delete(s.workFenced, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
 	if goalSession != "" {
 		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
-		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status)
+		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status, goalRef)
 		settleCancel()
 	} else if status == domain.RunCompleted && runSession != "" {
 		// A completed human turn releases the session for the next
@@ -3142,6 +3164,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.ledgers, runID)
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
+	delete(s.workFenced, runID)
 	delete(s.runSessions, runID)
 	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {
 		delete(s.goalRuns, goalSession)

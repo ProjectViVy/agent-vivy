@@ -12,6 +12,8 @@ import (
 var (
 	ErrWorkUnavailable     = errors.New("runtime: work control is unavailable")
 	ErrWorkSessionRequired = errors.New("runtime: work session is required")
+	ErrWorkRunUnavailable  = errors.New("runtime: work run is unavailable")
+	ErrWorkRunTerminal     = errors.New("runtime: work run has reached a terminal work state")
 )
 
 func (s *Service) ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error) {

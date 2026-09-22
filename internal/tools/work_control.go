@@ -65,14 +65,29 @@ type workGoalOutput struct {
 	EvidenceRunID string `json:"evidence_run_id,omitempty"`
 }
 
+type workPlanOutput struct {
+	Active       bool   `json:"active"`
+	SubmissionID string `json:"submission_id,omitempty"`
+	ReviewStatus string `json:"review_status"`
+}
+
 type workStateOutput struct {
 	SessionID string          `json:"session_id"`
 	Version   int64           `json:"version"`
 	Goal      *workGoalOutput `json:"goal,omitempty"`
+	Plan      workPlanOutput  `json:"plan"`
 }
 
 func workStateOutputOf(state domain.WorkState) workStateOutput {
-	result := workStateOutput{SessionID: string(state.SessionID), Version: int64(state.Version)}
+	result := workStateOutput{
+		SessionID: string(state.SessionID),
+		Version:   int64(state.Version),
+		Plan: workPlanOutput{
+			Active:       state.Plan.Active,
+			SubmissionID: state.Plan.SubmissionID,
+			ReviewStatus: string(state.Plan.ReviewStatus),
+		},
+	}
 	if state.Goal != nil {
 		result.Goal = &workGoalOutput{
 			ID:            state.Goal.Ref.ID,
@@ -148,7 +163,7 @@ func NewEnterPlanMode() Tool { return enterPlanModeTool{} }
 
 func (enterPlanModeTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: EnterPlanModeName, Description: "Enter collaboration Plan mode for this session.", Readonly: true,
+		Name: EnterPlanModeName, Description: "Enter collaboration Plan mode for this session.", Readonly: false,
 		Keywords: []string{"plan", "planning", "design"},
 	}
 }
@@ -178,7 +193,7 @@ func NewSubmitPlan() Tool { return submitPlanTool{} }
 
 func (submitPlanTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: SubmitPlanName, Description: "Submit a bounded Markdown Plan for human review.", Readonly: true,
+		Name: SubmitPlanName, Description: "Submit a bounded Markdown Plan for human review.", Readonly: false,
 		Keywords: []string{"plan", "submit", "review"},
 		Params:   map[string]domain.ToolParam{"markdown": {Desc: "The Markdown plan to submit for review.", Required: true}},
 	}
@@ -292,12 +307,12 @@ func NewReportGoal() Tool { return reportGoalTool{} }
 
 func (reportGoalTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: ReportGoalName, Description: "Report that the current Goal completed or is blocked, with a reason.", Readonly: true,
+		Name: ReportGoalName, Description: "Report that the current Goal completed or is blocked, with a reason.", Readonly: false,
 		Keywords: []string{"goal", "complete", "blocked", "report"},
 		Params: map[string]domain.ToolParam{
 			"goal_id":  {Desc: "The current Goal id.", Required: true},
 			"revision": {Desc: "The current Goal revision.", Required: true, Type: "integer"},
-			"status":   {Desc: "Either completed or blocked.", Required: true},
+			"status":   {Desc: "Either completed or blocked.", Required: true, Enum: []string{"completed", "blocked"}},
 			"reason":   {Desc: "Why the Goal reached this terminal state."},
 		},
 	}

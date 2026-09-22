@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/sha256"
+	"log/slog"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -157,12 +158,50 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	return err
 }
 
-func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, status domain.RunStatus) {
-	if s == nil || s.deps.Work == nil || sessionID == "" || runID == "" {
+// recoveredGoalRef finds the admitted Goal reference for a run after a
+// process restart. Goal admission is durable in the session work stream; the
+// process-local maps are intentionally rebuilt only for settlement/resume.
+func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.GoalRef, bool) {
+	if s == nil || s.deps.Work == nil || run.ID == "" || run.SessionID == "" {
+		return domain.GoalRef{}, false
+	}
+	events, err := s.deps.Work.ReplayWork(ctx, run.SessionID, 0, 10000)
+	if err != nil {
+		slog.Warn("restart recovery: goal admission replay failed", "run", string(run.ID), "err", err)
+		return domain.GoalRef{}, false
+	}
+	for _, event := range events {
+		if event.Kind != domain.WorkEventGoalRoundAdmitted {
+			continue
+		}
+		admission := event.Admission
+		if admission.RunID == "" {
+			admission = event.Mutation.Admission
+		}
+		if admission.RunID == run.ID && admission.Goal.ID != "" && admission.Goal.Revision > 0 {
+			return admission.Goal, true
+		}
+	}
+	return domain.GoalRef{}, false
+}
+
+func (s *Service) rememberRecoveredGoalRun(ctx context.Context, run domain.Run) {
+	goalRef, ok := s.recoveredGoalRef(ctx, run)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	s.goalRunSessions[run.ID] = run.SessionID
+	s.goalRunRefs[run.ID] = goalRef
+	s.mu.Unlock()
+}
+
+func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, status domain.RunStatus, goalRef domain.GoalRef) {
+	if s == nil || s.deps.Work == nil || sessionID == "" || runID == "" || goalRef.ID == "" || goalRef.Revision <= 0 {
 		return
 	}
 	state, err := s.deps.Work.ReadWork(ctx, sessionID)
-	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive {
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive || state.Goal.Ref != goalRef {
 		return
 	}
 	if status == domain.RunCompleted && state.Goal.RoundsStarted < state.Goal.MaxRounds {
@@ -179,7 +218,7 @@ func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionI
 	requestID := fmt.Sprintf("goal-settle-%s-%d", runID, state.Version)
 	hashInput := fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)
 	hash := sha256.Sum256([]byte(hashInput))
-	_, _ = s.CommitWork(ctx, domain.WorkMutation{
+	if _, err := s.CommitWork(ctx, domain.WorkMutation{
 		SessionID:       sessionID,
 		ExpectedVersion: state.Version,
 		RequestID:       requestID,
@@ -188,5 +227,7 @@ func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionI
 		Goal:            state.Goal.Ref,
 		Reason:          reason,
 		EvidenceRunID:   runID,
-	})
+	}); err != nil {
+		slog.Error("goal round settlement failed", "session", string(sessionID), "run", string(runID), "goal", string(state.Goal.Ref.ID), "err", err)
+	}
 }

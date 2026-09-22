@@ -16,6 +16,7 @@ import (
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -185,7 +186,12 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 	if errors.As(err, &refusal) {
 		return refusal, true
 	}
-	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) {
+	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) ||
+		errors.Is(err, ErrWorkUnavailable) || errors.Is(err, ErrWorkSessionRequired) ||
+		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
+		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
+		errors.Is(err, storage.ErrWorkInvalidMutation) || errors.Is(err, storage.ErrWorkRunConflict) ||
+		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrWorkRoundLimit) {
 		return &toolRefusal{cause: err, reason: publicRefusalReason(err)}, true
 	}
 	return nil, false
@@ -512,11 +518,22 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	return refusalToolResult(spec.Name, reason), nil
 }
 
+func workRunTerminalFence(ctx context.Context) bool {
+	operations := tools.WorkControlFromContext(ctx)
+	fence, ok := operations.(interface {
+		WorkRunFenced(context.Context) bool
+	})
+	return ok && fence.WorkRunFenced(ctx)
+}
+
 // dispatch performs one governed call. Every per-call refusal leaves it as a
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
+	if workRunTerminalFence(ctx) {
+		return "", refuseCall("the Goal has already reached a terminal state; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash)
+	}
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
 		// A skill_view mount extends the selected surface for the rest of
@@ -644,7 +661,8 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval {
+	forceHumanApproval := spec.Name == tools.CreateGoalName && approvalPolicy(ctx) != domain.ApprovalPolicyNever
+	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
@@ -661,7 +679,12 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
 			}
 		} else {
-			approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			var approvalEval ApprovalEvaluation
+			if forceHumanApproval {
+				approvalEval = ApprovalEvaluation{ShouldAsk: true, Reason: "human authorization is required to create a Goal"}
+			} else {
+				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			}
 			if approvalEval.AutoApprove {
 				return a.run(ctx, string(args))
 			}
