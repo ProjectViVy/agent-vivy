@@ -16,16 +16,14 @@ const WorkPayloadVersion = 1
 // WorkEventKind is the bounded vocabulary of session work events.
 type WorkEventKind string
 
-const (
-	WorkEventGoalCreated        WorkEventKind = "goal.created"
-	WorkEventGoalEdited         WorkEventKind = "goal.edited"
-	WorkEventGoalPaused         WorkEventKind = "goal.paused"
-	WorkEventGoalResumed        WorkEventKind = "goal.resumed"
-	WorkEventGoalCompleted      WorkEventKind = "goal.completed"
-	WorkEventGoalBlocked        WorkEventKind = "goal.blocked"
-	WorkEventGoalCleared        WorkEventKind = "goal.cleared"
-	WorkEventGoalRoundAdmitted  WorkEventKind = "goal.round_admitted"
-)
+const WorkEventGoalCreated WorkEventKind = "goal.created"
+const WorkEventGoalEdited WorkEventKind = "goal.edited"
+const WorkEventGoalPaused WorkEventKind = "goal.paused"
+const WorkEventGoalResumed WorkEventKind = "goal.resumed"
+const WorkEventGoalCompleted WorkEventKind = "goal.completed"
+const WorkEventGoalBlocked WorkEventKind = "goal.blocked"
+const WorkEventGoalCleared WorkEventKind = "goal.cleared"
+const WorkEventGoalRoundAdmitted WorkEventKind = "goal.round_admitted"
 
 // Valid reports whether k is a supported work event kind.
 func (k WorkEventKind) Valid() bool {
@@ -46,12 +44,10 @@ func (k WorkEventKind) Valid() bool {
 // WorkPhase is the durable lifecycle phase of a Goal.
 type WorkPhase string
 
-const (
-	WorkPhaseActive    WorkPhase = "active"
-	WorkPhasePaused    WorkPhase = "paused"
-	WorkPhaseBlocked   WorkPhase = "blocked"
-	WorkPhaseCompleted WorkPhase = "completed"
-)
+const WorkPhaseActive WorkPhase = "active"
+const WorkPhasePaused WorkPhase = "paused"
+const WorkPhaseBlocked WorkPhase = "blocked"
+const WorkPhaseCompleted WorkPhase = "completed"
 
 // GoalRef identifies one revision of a session Goal.
 type GoalRef struct {
@@ -102,13 +98,11 @@ type WorkEvent struct {
 	Admission      GoalRunAdmission
 }
 
-var (
-	ErrNonContiguousWorkSeq       = errors.New("non-contiguous work sequence")
-	ErrUnsupportedWorkPayloadVersion = errors.New("unsupported work payload version")
-	ErrUnsupportedWorkEventKind    = errors.New("unsupported work event kind")
-	ErrStaleGoalReference          = errors.New("stale goal reference")
-	ErrWorkRoundLimit              = errors.New("work round limit exceeded")
-)
+var ErrNonContiguousWorkSeq = errors.New("non-contiguous work sequence")
+var ErrUnsupportedWorkPayloadVersion = errors.New("unsupported work payload version")
+var ErrUnsupportedWorkEventKind = errors.New("unsupported work event kind")
+var ErrStaleGoalReference = errors.New("stale goal reference")
+var ErrWorkRoundLimit = errors.New("work round limit exceeded")
 
 // FoldWork strictly reduces events into session work state.
 func FoldWork(events []WorkEvent) (WorkState, error) {
