@@ -73,11 +73,16 @@ type WorkState struct {
 
 // WorkMutation is the versioned Goal lifecycle payload of a WorkEvent.
 type WorkMutation struct {
-	SessionID SessionID
-	Goal      GoalRef
-	Objective string
-	MaxRounds int
-	Reason    string
+	SessionID       SessionID
+	ExpectedVersion WorkVersion
+	RequestID       string
+	RequestHash     string
+	Kind            WorkEventKind
+	Goal            GoalRef
+	Objective       string
+	MaxRounds       int
+	Reason          string
+	Admission       GoalRunAdmission
 }
 
 // GoalRunAdmission records one atomically admitted Goal round.
@@ -94,6 +99,9 @@ type WorkEvent struct {
 	Seq            WorkSeq
 	Kind           WorkEventKind
 	PayloadVersion int
+	RequestID      string
+	RequestHash    string
+	CreatedAt      int64
 	Mutation       WorkMutation
 	Admission      GoalRunAdmission
 }
@@ -108,6 +116,9 @@ var ErrWorkRoundLimit = errors.New("work round limit exceeded")
 func FoldWork(events []WorkEvent) (WorkState, error) {
 	var state WorkState
 	for _, event := range events {
+		if event.SessionID == "" {
+			return WorkState{}, fmt.Errorf("%w: empty event session", ErrStaleGoalReference)
+		}
 		if event.Seq != WorkSeq(state.Version)+1 {
 			return WorkState{}, fmt.Errorf("%w: got %d after %d", ErrNonContiguousWorkSeq, event.Seq, state.Version)
 		}
@@ -149,6 +160,9 @@ func applyWorkEvent(state *WorkState, event WorkEvent) error {
 	case WorkEventGoalBlocked:
 		return transitionGoal(state, event.Mutation, WorkPhaseBlocked)
 	case WorkEventGoalCleared:
+		if event.Mutation.SessionID != state.SessionID {
+			return fmt.Errorf("%w: mutation session %q", ErrStaleGoalReference, event.Mutation.SessionID)
+		}
 		if err := requireGoal(state, event.Mutation.Goal); err != nil {
 			return err
 		}
@@ -187,6 +201,7 @@ func editGoal(state *WorkState, mutation WorkMutation) error {
 	if mutation.SessionID != state.SessionID ||
 		mutation.Goal.Revision != state.Goal.Ref.Revision+1 ||
 		mutation.Objective == "" ||
+		mutation.MaxRounds < state.Goal.RoundsStarted ||
 		mutation.MaxRounds <= 0 {
 		return fmt.Errorf("%w: invalid goal edit", ErrStaleGoalReference)
 	}

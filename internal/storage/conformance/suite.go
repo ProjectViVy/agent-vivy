@@ -74,9 +74,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
+		{"CN-28", "session work journal idempotence", cnSessionWork},
 	}
-	if len(cases) != 27 {
-		t.Fatalf("conformance suite must carry exactly 27 cases, got %d", len(cases))
+	if len(cases) != 28 {
+		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -123,6 +124,91 @@ func cnSessionWorkspace(t *testing.T, h Harness) {
 	}
 	if err := workspaceStore.UpdateSessionWorkspace(ctx, "sess-missing", "/projects/nope"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("unknown session workspace update = %v, want ErrNotFound", err)
+	}
+}
+
+
+func cnSessionWork(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	work, ok := b.(storage.WorkStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkStore")
+	}
+	sessionID := domain.SessionID("sess-work")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "work", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	ref := domain.GoalRef{ID: "goal-1", Revision: 1}
+	create := domain.WorkMutation{
+		SessionID:       sessionID,
+		ExpectedVersion: 0,
+		RequestID:       "work-create-1",
+		RequestHash:     "hash-create-1",
+		Kind:            domain.WorkEventGoalCreated,
+		Goal:            ref,
+		Objective:       "ship it",
+		MaxRounds:       2,
+	}
+	first, err := work.CommitWork(ctx, create)
+	if err != nil {
+		t.Fatalf("CommitWork create: %v", err)
+	}
+	if first.Event.Seq != 1 || first.State.Version != 1 || first.Replayed {
+		t.Fatalf("first commit = %+v, want seq/version 1 and fresh", first)
+	}
+	retry, err := work.CommitWork(ctx, create)
+	if err != nil {
+		t.Fatalf("CommitWork identical retry: %v", err)
+	}
+	if !retry.Replayed || retry.Event.Seq != first.Event.Seq {
+		t.Fatalf("identical retry = %+v, want original event", retry)
+	}
+	conflict := create
+	conflict.RequestHash = "hash-create-other"
+	if _, err := work.CommitWork(ctx, conflict); !errors.Is(err, storage.ErrWorkRequestConflict) {
+		t.Fatalf("request hash divergence = %v, want ErrWorkRequestConflict", err)
+	}
+	admit := domain.WorkMutation{
+		SessionID:       sessionID,
+		ExpectedVersion: 1,
+		RequestID:       "work-round-1",
+		RequestHash:     "hash-round-1",
+		Kind:            domain.WorkEventGoalRoundAdmitted,
+		Admission: domain.GoalRunAdmission{
+			SessionID: sessionID,
+			Goal:      ref,
+			Round:     1,
+			RunID:     "run-goal-1",
+		},
+	}
+	second, err := work.CommitWork(ctx, admit)
+	if err != nil {
+		t.Fatalf("CommitWork round: %v", err)
+	}
+	if second.Event.Seq != 2 || second.State.Goal == nil || second.State.Goal.RoundsStarted != 1 {
+		t.Fatalf("round commit = %+v, want seq 2 and one spent round", second)
+	}
+	stale := admit
+	stale.RequestID = "work-round-stale"
+	stale.ExpectedVersion = 1
+	if _, err := work.CommitWork(ctx, stale); !errors.Is(err, storage.ErrWorkVersionConflict) {
+		t.Fatalf("stale round = %v, want ErrWorkVersionConflict", err)
+	}
+	state, err := work.ReadWork(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ReadWork: %v", err)
+	}
+	if state.Version != 2 || state.Goal == nil || state.Goal.RoundsStarted != 1 {
+		t.Fatalf("ReadWork = %+v, want version 2/one round", state)
+	}
+	events, err := work.ReplayWork(ctx, sessionID, 0, 10)
+	if err != nil || len(events) != 2 || events[0].Seq != 1 || events[1].Seq != 2 {
+		t.Fatalf("ReplayWork = %+v, %v; want two contiguous events", events, err)
+	}
+	tail, err := work.ReplayWork(ctx, sessionID, 1, 10)
+	if err != nil || len(tail) != 1 || tail[0].Seq != 2 {
+		t.Fatalf("ReplayWork tail = %+v, %v; want round event", tail, err)
 	}
 }
 
