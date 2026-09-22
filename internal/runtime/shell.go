@@ -108,14 +108,17 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if s == nil || s.engine == nil {
 		return "", errors.New("runtime: service not wired")
 	}
+	if sessionID == "" {
+		return "", errors.New("runtime: shell session id is required")
+	}
+	sessionAdmission := s.sessionAdmission(sessionID)
+	sessionAdmission.Lock()
+	defer sessionAdmission.Unlock()
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
 		return "", err
 	}
 	if !s.ShellAvailable() {
 		return "", ErrShellUnavailable
-	}
-	if sessionID == "" {
-		return "", errors.New("runtime: shell session id is required")
 	}
 	s.mu.Lock()
 	s.humanPending[sessionID]++

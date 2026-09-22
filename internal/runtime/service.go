@@ -183,6 +183,8 @@ type Service struct {
 	goalRunSessions map[domain.RunID]domain.SessionID
 	goalRunRefs     map[domain.RunID]domain.GoalRef
 	goalAdmissionMu sync.Mutex
+	admissionLocksMu sync.Mutex
+	admissionLocks   map[domain.SessionID]*sync.Mutex
 	goalWG          sync.WaitGroup
 	stopping        bool
 	humanPending    map[domain.SessionID]int
@@ -352,6 +354,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalRuns:        make(map[domain.SessionID]domain.RunID),
 		goalRunSessions: make(map[domain.RunID]domain.SessionID),
 		goalRunRefs:     make(map[domain.RunID]domain.GoalRef),
+		admissionLocks:  make(map[domain.SessionID]*sync.Mutex),
 		humanPending:    make(map[domain.SessionID]int),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
@@ -366,6 +369,23 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		contextViews:    make(map[domain.RunID]string),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
+}
+
+// sessionAdmission returns the process-local startup gate for one session.
+// It serializes human and automatic primary admissions without blocking
+// unrelated sessions.
+func (s *Service) sessionAdmission(sessionID domain.SessionID) *sync.Mutex {
+	s.admissionLocksMu.Lock()
+	defer s.admissionLocksMu.Unlock()
+	if s.admissionLocks == nil {
+		s.admissionLocks = make(map[domain.SessionID]*sync.Mutex)
+	}
+	gate := s.admissionLocks[sessionID]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		s.admissionLocks[sessionID] = gate
+	}
+	return gate
 }
 
 // SetChildApprovalRouter wires the app-owned live worker registry after the
@@ -617,7 +637,11 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
 	}
+	var sessionAdmission *sync.Mutex
 	if options.HumanAdmission && options.GoalRound == nil {
+		sessionAdmission = s.sessionAdmission(sessionID)
+		sessionAdmission.Lock()
+		defer sessionAdmission.Unlock()
 		s.mu.Lock()
 		s.humanPending[sessionID]++
 		s.mu.Unlock()
