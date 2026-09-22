@@ -144,7 +144,7 @@ interface RuntimeState {
   clearGoal: () => Promise<api.WorkCommitResult>;
   enterPlan: () => Promise<api.WorkCommitResult>;
   leavePlan: () => Promise<api.WorkCommitResult>;
-  decidePlan: (action: api.PlanAction, feedback?: string) => Promise<api.WorkCommitResult>;
+  decidePlan: (action: api.PlanAction, feedback?: string, objective?: string, maxRounds?: number) => Promise<api.WorkCommitResult>;
   loadBackgroundRuns: () => Promise<void>;
   attachBackgroundRun: (runId: string) => Promise<void>;
   loadChildren: (parentRunId?: string) => Promise<void>;
@@ -614,10 +614,15 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   enterPlan: () => get().commitWork('plan/enter'),
   leavePlan: () => get().commitWork('plan/leave'),
-  decidePlan: (action, feedback = '') => {
+  decidePlan: (action, feedback = '', objective = '', maxRounds = 0) => {
     const submissionID = get().work?.plan.submission_id;
     if (!submissionID) return Promise.reject(new Error(t('workControl.noPlan')));
-    return get().commitWork('plan/decide', { submission_id: submissionID, action, feedback });
+    const fields: Record<string, unknown> = { submission_id: submissionID, action, feedback };
+    if (action === 'start_goal') {
+      fields.objective = objective;
+      fields.max_rounds = maxRounds;
+    }
+    return get().commitWork('plan/decide', fields);
   },
   loadTodos: async (sessionId = get().activeSessionId ?? undefined) => {
     if (!sessionId) return;

@@ -1803,7 +1803,7 @@ export interface FaceStoreState {
   clearGoal(): Promise<FaceWorkCommitResult>;
   enterPlan(): Promise<FaceWorkCommitResult>;
   leavePlan(): Promise<FaceWorkCommitResult>;
-  decidePlan(action: "revise" | "execute_once" | "start_goal", feedback?: string): Promise<FaceWorkCommitResult>;
+  decidePlan(action: "revise" | "execute_once" | "start_goal", feedback?: string, objective?: string, maxRounds?: number): Promise<FaceWorkCommitResult>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;

@@ -38,8 +38,8 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
       setCreating(false);
     });
   };
-  const handlePlanDecision = async (action: PlanAction, feedback?: string) => {
-    await runAction(() => decidePlan(action, feedback));
+  const handlePlanDecision = async (action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => {
+    await runAction(() => decidePlan(action, feedback, objective, maxRounds));
   };
   if (phase === 'loading' && !work) return <div className="border-b px-4 py-2 text-xs text-muted-foreground">{t('workControl.title')}…</div>;
   if (!work) return null;
