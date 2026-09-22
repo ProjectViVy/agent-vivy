@@ -348,6 +348,8 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
+    CollaborationMode    string Z`json:"collaboration_mode,omitempty"`
+    CollaborationVersion int    Z`json:"collaboration_version,omitempty"`
 	SessionID       string           `json:"session_id"`
 	Text            string           `json:"text"`
 	Mode            string           `json:"mode,omitempty"`
@@ -368,6 +370,8 @@ type shellParams struct {
 }
 
 type editSessionParams struct {
+    CollaborationMode    string Z`json:"collaboration_mode,omitempty"`
+    CollaborationVersion int    Z`json:"collaboration_version,omitempty"`
 	SessionID     string `json:"session_id"`
 	MessageID     string `json:"message_id"`
 	Text          string `json:"text"`
@@ -2936,6 +2940,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 	})
 	if err != nil {
@@ -2971,7 +2976,9 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 		return nil, &Error{Code: InvalidParams, Message: "session_id, message_id and text are required"}
 	}
 	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile), Thinking: domain.ThinkingMode(params.Thinking),
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
+		Thinking: domain.ThinkingMode(params.Thinking),
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -5854,7 +5861,7 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidCollaborationMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

@@ -7,6 +7,8 @@ import "encoding/json"
 // v1; model.completed v2 commits its preceding bounded delta sequence.
 
 type payloadRunStarted struct {
+    CollaborationMode    string Z`json:"collaboration_mode,omitempty"`
+    CollaborationVersion int    Z`json:"collaboration_version,omitempty"`
 	Provider       string `json:"provider"`
 	Model          string `json:"model"`
 	Mode           string `json:"mode"`
