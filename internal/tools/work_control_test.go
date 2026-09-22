@@ -55,7 +55,7 @@ func TestWorkControlToolsUseHostBoundCapability(t *testing.T) {
 	goal := &domain.GoalState{Ref: domain.GoalRef{ID: "goal-1", Revision: 1}, Objective: "bounded", Phase: domain.WorkPhaseActive, MaxRounds: 2}
 	ops := &fakeWorkControlOperations{
 		state: domain.WorkState{SessionID: "session-1", Version: 4, Goal: goal},
-		goal: goal,
+		goal:  goal,
 	}
 	ctx := WithWorkControl(context.Background(), ops)
 
