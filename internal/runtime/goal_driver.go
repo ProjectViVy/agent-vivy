@@ -3,10 +3,10 @@ package runtime
 import (
 	"context"
 	"crypto/sha256"
-	"log/slog"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"agent-vivy/internal/domain"
