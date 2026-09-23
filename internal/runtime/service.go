@@ -1731,6 +1731,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	state := newNudgeState()
 	m.setNudgeState(state)
 	runCtx = withNudgeState(runCtx, state)
+	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state)
 }
@@ -1760,6 +1761,27 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 			return nil
 		},
 	})
+}
+
+// nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
+// the boundary middleware delegates persistence to the Service — one
+// audited event per scheduled reminder, journaled and published through
+// the normal path. A failed append aborts the model call rather than
+// degrading the reminder into an unrecorded injection.
+func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudgeEmitter {
+	return func(ctx context.Context, notice nudgeNotice) error {
+		re := m.build(domain.EventToolNudge, payloadToolNudge{
+			ToolCallID:      notice.CallID,
+			ToolName:        notice.ToolName,
+			Reason:          notice.Reason,
+			RepeatCount:     notice.Count,
+			TemplateVersion: notice.TemplateVersion,
+		})
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: nudge scheduling event could not be journaled")
+		}
+		return nil
+	}
 }
 
 // runMessages rebuilds the session transcript for the engine (ADR-010):
@@ -2849,6 +2871,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	state := newNudgeState()
 	m.setNudgeState(state)
 	ctx = withNudgeState(ctx, state)
+	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},

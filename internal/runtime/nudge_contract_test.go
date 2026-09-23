@@ -295,26 +295,6 @@ func (w *contractWrappedModel) prepare(ctx context.Context, input []*schema.Mess
 	return append(out, schema.UserMessage(notice.text)), nil
 }
 
-// trailingToolCallIDs returns the call ids of the contiguous tool-result
-// messages at the input tail — the batch that just settled and must be
-// durable before the inner model may run. Keying on the input (not on "the
-// latest registered batch") matters: the engine can reach the next model
-// call before the consumer finishes journaling the request events.
-func trailingToolCallIDs(input []*schema.Message) []string {
-	var ids []string
-	for i := len(input) - 1; i >= 0; i-- {
-		msg := input[i]
-		if msg == nil || msg.Role != schema.Tool || msg.ToolCallID == "" {
-			break
-		}
-		ids = append(ids, msg.ToolCallID)
-	}
-	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
-		ids[i], ids[j] = ids[j], ids[i]
-	}
-	return ids
-}
-
 // ---------------------------------------------------------------------------
 // journal decorator: feeds the state from durable events, with hooks to
 // pause/fail appends and withhold seals
@@ -613,6 +593,9 @@ type contractHarnessOpts struct {
 	extraTools  []tools.Tool
 	autoApprove []string
 	failures    map[int]error
+	// prodNudge installs the production ND-3 boundary middleware instead
+	// of the contract probe (which noBarrier removes).
+	prodNudge bool
 }
 
 type contractHarness struct {
@@ -687,6 +670,9 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 	handlers := []adk.ChatModelAgentMiddleware{}
 	if !opts.noBarrier {
 		handlers = append(handlers, h.barrier)
+	}
+	if opts.prodNudge {
+		handlers = append(handlers, newNudgeMiddleware(1<<20))
 	}
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:             "contract-agent",

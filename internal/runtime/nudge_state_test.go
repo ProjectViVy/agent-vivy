@@ -75,7 +75,7 @@ func TestNudgeStateRepetitionReminders(t *testing.T) {
 		if s.terminalErr() != nil {
 			break
 		}
-		notice, err := s.Take(ctx)
+		notice, _, err := s.Take(ctx, []string{id})
 		if err != nil {
 			t.Fatalf("take after batch %d: %v", i, err)
 		}
@@ -100,7 +100,7 @@ func TestNudgeStateRepetitionReminders(t *testing.T) {
 	if err := s.terminalErr(); !errors.Is(err, errLoopDetected) {
 		t.Fatalf("terminal = %v, want errLoopDetected", err)
 	}
-	if _, err := s.Take(ctx); !errors.Is(err, errLoopDetected) {
+	if _, _, err := s.Take(ctx, []string{"call-6"}); !errors.Is(err, errLoopDetected) {
 		t.Fatalf("take after stop = %v, want errLoopDetected", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestNudgeStateSuccessCountsTowardStopOnly(t *testing.T) {
 		if s.terminalErr() != nil {
 			break
 		}
-		notice, err := s.Take(ctx)
+		notice, _, err := s.Take(ctx, []string{fmt.Sprintf("call-%d", i)})
 		if err != nil {
 			t.Fatalf("take after batch %d: %v", i, err)
 		}
@@ -151,7 +151,7 @@ func TestNudgeStateCanonicalArgsIdentity(t *testing.T) {
 		call.ArgsJSON = string(argsA)
 		settleBatch(t, s, call)
 	}
-	notice, err := s.Take(context.Background())
+	notice, _, err := s.Take(context.Background(), []string{"call-3"})
 	if err != nil || notice == nil || notice.Count != 3 {
 		t.Fatalf("notice = %+v, err = %v; want count-3 reminder", notice, err)
 	}
@@ -168,7 +168,7 @@ func TestNudgeStateSignatureChanges(t *testing.T) {
 		call.Result = res
 		settleBatch(t, s, call)
 	}
-	if notice, err := s.Take(ctx); err != nil || notice != nil {
+	if notice, _, err := s.Take(ctx, []string{"res-2"}); err != nil || notice != nil {
 		t.Fatalf("changed results produced notice %+v err %v", notice, err)
 	}
 	args := []string{`{"text":"a"}`, `{"text":"b"}`, `{"text":"c"}`}
@@ -177,7 +177,7 @@ func TestNudgeStateSignatureChanges(t *testing.T) {
 		call.ArgsJSON = arg
 		settleBatch(t, s, call)
 	}
-	if notice, err := s.Take(ctx); err != nil || notice != nil {
+	if notice, _, err := s.Take(ctx, []string{"arg-2"}); err != nil || notice != nil {
 		t.Fatalf("changed arguments produced notice %+v err %v", notice, err)
 	}
 }
@@ -214,7 +214,7 @@ func TestNudgeStateSealEvaluatesRequestOrder(t *testing.T) {
 		t.Fatalf("complete a5: %v", err)
 	}
 	s.Seal(nil)
-	notice, err := s.Take(ctx)
+	notice, _, err := s.Take(ctx, []string{"a5", "b5"})
 	if err != nil {
 		t.Fatalf("take: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestNudgeStateTakeWaitsForSeal(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.Take(context.Background())
+		_, _, err := s.Take(context.Background(), []string{"a", "b"})
 		done <- err
 	}()
 	select {
@@ -331,7 +331,7 @@ func TestNudgeStateTakeWaitsForSeal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done2 := make(chan error, 1)
 	go func() {
-		_, err := s2.Take(ctx)
+		_, _, err := s2.Take(ctx, []string{"a"})
 		done2 <- err
 	}()
 	cancel()
@@ -351,7 +351,7 @@ func TestNudgeStateTakeWaitsForSeal(t *testing.T) {
 	}
 	done3 := make(chan error, 1)
 	go func() {
-		_, err := s3.Take(context.Background())
+		_, _, err := s3.Take(context.Background(), []string{"a"})
 		done3 <- err
 	}()
 	cause := errors.New("journal write failed")
@@ -364,37 +364,39 @@ func TestNudgeStateTakeWaitsForSeal(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("abort did not release take")
 	}
-	if _, err := s3.Take(context.Background()); !errors.Is(err, cause) {
+	if _, _, err := s3.Take(context.Background(), []string{"a"}); !errors.Is(err, cause) {
 		t.Fatalf("take after abort = %v, want %v", err, cause)
 	}
 }
 
-// One prepared notice per sealed batch: a second Take without a new
-// batch returns nothing.
+// One scheduling signal per sealed batch: a second Take sees the same
+// notice (a provider retry must observe the identical request) but
+// reports first=false, so the journal emitter fires only once.
 func TestNudgeStateTakeOncePerBatch(t *testing.T) {
 	s := newNudgeState()
 	for i := 1; i <= 3; i++ {
 		settleBatch(t, s, nudgeFailedCall(fmt.Sprintf("call-%d", i)))
 	}
 	ctx := context.Background()
-	first, err := s.Take(ctx)
-	if err != nil || first == nil {
-		t.Fatalf("first take = %+v, %v; want the count-3 notice", first, err)
+	first, firstHandout, err := s.Take(ctx, []string{"call-3"})
+	if err != nil || first == nil || !firstHandout {
+		t.Fatalf("first take = %+v first=%v err=%v; want the count-3 notice scheduled", first, firstHandout, err)
 	}
-	second, err := s.Take(ctx)
+	second, secondHandout, err := s.Take(ctx, []string{"call-3"})
 	if err != nil {
 		t.Fatalf("second take: %v", err)
 	}
-	if second != nil {
-		t.Fatalf("second take handed out %+v without a new batch", second)
+	if second == nil || second.CallID != first.CallID || secondHandout {
+		t.Fatalf("second take = %+v first=%v; want the same notice without a new scheduling signal", second, secondHandout)
 	}
 }
 
 // A resume leg starts with an empty window and no pending notice: a
-// fresh state answers Take immediately.
+// fresh state answers a barrier-free Take (no trailing results)
+// immediately.
 func TestNudgeStateFreshResumeLeg(t *testing.T) {
 	s := newNudgeState()
-	notice, err := s.Take(context.Background())
+	notice, _, err := s.Take(context.Background(), nil)
 	if err != nil || notice != nil {
 		t.Fatalf("fresh state take = %+v, %v; want nil notice", notice, err)
 	}

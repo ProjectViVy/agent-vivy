@@ -29,9 +29,12 @@ type completedCall struct {
 // audit event and the fixed template need — never arguments or
 // diagnostic text.
 type nudgeNotice struct {
-	CallID          string
-	ToolName        string
-	Reason          string
+	CallID   string
+	ToolName string
+	Reason   string
+	// Status selects the fixed template variant: refusals get the
+	// respect-the-decision text, recoverable failures the corrective one.
+	Status          string
 	Count           int
 	TemplateVersion string
 }
@@ -65,6 +68,7 @@ type nudgeState struct {
 
 	notice      *nudgeNotice
 	noticeTaken bool
+	sealedIDs   map[string]struct{}
 
 	terminal error
 }
@@ -234,6 +238,7 @@ func (s *nudgeState) Seal(err error) {
 				CallID:          call.ID,
 				ToolName:        call.Name,
 				Reason:          call.Failure.Reason,
+				Status:          call.Failure.Status,
 				Count:           count,
 				TemplateVersion: nudgeTemplateVersion,
 			}
@@ -241,39 +246,61 @@ func (s *nudgeState) Seal(err error) {
 	}
 	s.notice = best
 	s.noticeTaken = false
+	s.sealedIDs = make(map[string]struct{}, len(batch.ids))
 	for _, id := range batch.ids {
+		s.sealedIDs[id] = struct{}{}
 		delete(s.marks, id)
 	}
 	s.batch = nil
 	s.broadcastLocked()
 }
 
-// Take is the model boundary's only blocking API: it waits until no
-// outstanding batch remains unsealed (or the context is cancelled),
-// returns the terminal error when one is set, and consumes at most one
-// prepared notice — a second Take without a new batch returns no notice.
-func (s *nudgeState) Take(ctx context.Context) (*nudgeNotice, error) {
+// Take is the model boundary's only blocking API: it waits until a
+// batch covering ids — the tool results at the input tail — has been
+// registered and sealed (or the context is cancelled), returns the
+// terminal error when one is set, and yields the sealed batch's
+// prepared notice. Keying on ids matters: the engine can reach the
+// next model call before the consumer registers the batch, so
+// batch==nil alone cannot distinguish "not yet durable" from
+// "sealed without a reminder". The same notice is returned on every
+// Take while the batch stays current — a provider retry must observe
+// the identical request — but first=true exactly once, which is the
+// single scheduling signal for the journal emitter.
+func (s *nudgeState) Take(ctx context.Context, ids []string) (*nudgeNotice, bool, error) {
+	if len(ids) == 0 {
+		return nil, false, nil
+	}
 	for {
 		s.mu.Lock()
 		if s.terminal != nil {
 			err := s.terminal
 			s.mu.Unlock()
-			return nil, err
+			return nil, false, err
 		}
-		if s.batch == nil {
-			var notice *nudgeNotice
-			if s.notice != nil && !s.noticeTaken {
-				s.noticeTaken = true
-				notice = s.notice
+		if s.batch == nil && s.sealedIDs != nil {
+			covered := true
+			for _, id := range ids {
+				if _, ok := s.sealedIDs[id]; !ok {
+					covered = false
+					break
+				}
 			}
-			s.mu.Unlock()
-			return notice, nil
+			if covered {
+				notice := s.notice
+				first := false
+				if notice != nil && !s.noticeTaken {
+					s.noticeTaken = true
+					first = true
+				}
+				s.mu.Unlock()
+				return notice, first, nil
+			}
 		}
 		wait := s.changed
 		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		case <-wait:
 		}
 	}
