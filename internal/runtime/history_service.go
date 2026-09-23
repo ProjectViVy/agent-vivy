@@ -254,7 +254,7 @@ func (s *HistoryService) Trace(ctx context.Context, request domain.HistoryTraceR
 	if err != nil {
 		return domain.HistoryPage{}, err
 	}
-	if page.Status == string(domain.HistoryStatusOK) && len(page.Items) == 1 {
+	if len(page.Items) == 1 && (page.Status == string(domain.HistoryStatusOK) || page.Status == string(domain.HistoryStatusPartial)) {
 		page.Warnings = append(page.Warnings, "immediate_provenance_only")
 		return s.boundPage(page, limits), nil
 	}
