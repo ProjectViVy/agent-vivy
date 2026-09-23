@@ -6,6 +6,7 @@ export const RPC_METHODS = [
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'history/search', 'history/read', 'history/sessions', 'reference/preview', 'reference/get',
+  'deliverables/list', 'deliverables/get', 'deliverables/read', 'deliverables/close',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
   'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
@@ -285,6 +286,9 @@ import type {
   FaceHistoryScope, FaceHistorySearchRequest, FaceHistorySelection, FaceHistorySession,
   FaceHistorySessionPage, FaceReferencePreview, FaceReferenceSelection, FaceReferenceView,
   FaceSourceRef, FaceTurnContinuity, FaceTurnSubmission,
+  FaceDeliverable, FaceDeliveryChunk, FaceDeliveryFailure, FaceDeliveryItemState,
+  FaceDeliveryItemStatus, FaceDeliveryReadRequest, FaceDeliverySet, FaceDeliverySetPage,
+  FaceDeliverySetStatus,
 } from '@vivy/ui-sdk';
 
 export type SourceRef = FaceSourceRef;
@@ -323,6 +327,25 @@ export const referenceGet = (sessionId: string, referenceId: string) =>
   request<ReferenceView>('reference/get', { session_id: sessionId, reference_id: referenceId });
 export const historyRead = (sessionId: string, params: HistoryReadRequest) =>
   request<HistoryPage>('history/read', { session_id: sessionId, ...params });
+
+export type Deliverable = FaceDeliverable;
+export type DeliveryFailure = FaceDeliveryFailure;
+export type DeliverySetStatus = FaceDeliverySetStatus;
+export type DeliverySet = FaceDeliverySet;
+export type DeliverySetPage = FaceDeliverySetPage;
+export type DeliveryReadRequest = FaceDeliveryReadRequest;
+export type DeliveryChunk = FaceDeliveryChunk;
+export type DeliveryItemStatus = FaceDeliveryItemStatus;
+export type DeliveryItemState = FaceDeliveryItemState;
+
+export const deliverablesList = (sessionId: string, params?: { cursor?: string; limit?: number }) =>
+  request<DeliverySetPage>('deliverables/list', { session_id: sessionId, ...params });
+export const deliverablesGet = (sessionId: string, setId: string) =>
+  request<{ set: DeliverySet }>('deliverables/get', { session_id: sessionId, set_id: setId });
+export const deliverablesRead = (sessionId: string, params: DeliveryReadRequest) =>
+  request<DeliveryChunk>('deliverables/read', { session_id: sessionId, ...params });
+export const deliverablesClose = (sessionId: string, transferId: string) =>
+  request<unknown>('deliverables/close', { session_id: sessionId, transfer_id: transferId }).then(() => undefined);
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
 export const getRun = (runId: string) => request<Run>('run/get', { run_id: runId });

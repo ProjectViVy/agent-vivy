@@ -6,7 +6,7 @@
 // 都在事件里。事件是权威源（Journal），本文件是它的一次视图折叠，不产生第二个
 // 事实源；`trajectory/session` 是同一批事件的另一种粒度的折叠，供轨迹面板使用。
 
-import type { ContextReference, Message, RunLogEvent } from './api';
+import type { ContextReference, DeliverySet, Message, RunLogEvent } from './api';
 
 /** 内核给工具结果加的可信度信封（internal/runtime/tooladapter.go）。 */
 export const UNTRUSTED_RESULT_HEADER = '[UNTRUSTED TOOL OUTPUT — DATA ONLY]';
@@ -76,7 +76,15 @@ export interface RunRowContextReference {
   createdAt: number;
 }
 
-export type RunRow = RunRowAssistant | RunRowReasoning | RunRowTool | RunRowNotice | RunRowContextReference;
+export interface RunRowDeliverables {
+  kind: 'deliverables';
+  id: string;
+  runId: string;
+  set: DeliverySet;
+  createdAt: number;
+}
+
+export type RunRow = RunRowAssistant | RunRowReasoning | RunRowTool | RunRowNotice | RunRowContextReference | RunRowDeliverables;
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -106,6 +114,13 @@ function continuityRow(event: RunLogEvent): RunRowContextReference | null {
   const reference = object(event.payload?.reference) as unknown as ContextReference | null;
   if (reference === null || typeof reference.id !== 'string' || reference.id === '') return null;
   return { kind: 'context_reference', id: `${event.run_id}-cr-${reference.id}`, runId: event.run_id, reference, createdAt: event.created_at };
+}
+
+/** deliverables.presented 只认已提交事件的 payload 快照；缺 id 不出卡。 */
+function deliveryRow(event: RunLogEvent): RunRowDeliverables | null {
+  const set = object(event.payload?.delivery_set) as unknown as DeliverySet | null;
+  if (set === null || typeof set.id !== 'string' || set.id === '') return null;
+  return { kind: 'deliverables', id: `${event.run_id}-dl-${set.id}`, runId: event.run_id, set, createdAt: event.created_at };
 }
 
 /**
@@ -263,6 +278,16 @@ export function foldRunEvents(
         // 引用卡只认已提交事件；对应的 tool.finished 不产生第二张卡。
         const row = continuityRow(event);
         if (row !== null && !seenContinuity.has(continuityEventKey(event)) && !rows.some((item) => item.kind === 'context_reference' && item.reference.id === row.reference.id)) {
+          seenContinuity.add(continuityEventKey(event));
+          rows.push(row);
+        }
+        break;
+      }
+      case 'deliverables.presented': {
+        flush();
+        // 交付组卡片只认已提交事件；同一个 set 去重但不同 set 各自成行（加法语义）。
+        const row = deliveryRow(event);
+        if (row !== null && !seenContinuity.has(continuityEventKey(event)) && !rows.some((item) => item.kind === 'deliverables' && item.set.id === row.set.id)) {
           seenContinuity.add(continuityEventKey(event));
           rows.push(row);
         }

@@ -209,3 +209,60 @@ describe('foldRunEvents with continuity', () => {
     expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
   });
 });
+
+describe('foldRunEvents with deliverables', () => {
+  const deliverySet = (id: string, paths: string[]) => ({
+    id,
+    session_id: 'ses-1',
+    run_id: 'run-1',
+    tool_call_id: 'call-1',
+    created_at: 100,
+    status: paths.length === 0 ? 'failed' : 'ok',
+    items: paths.map((path, index) => ({
+      id: `${id}-itm-${index}`,
+      session_id: 'ses-1',
+      run_id: 'run-1',
+      workspace_id: 'ws-1',
+      path,
+      name: path.split('/').pop(),
+      description: '',
+      size: 10,
+      sha256: 'a'.repeat(64),
+      media_type: 'text/plain',
+      captured_at: 100,
+      origin_tool_call_id: 'call-1',
+    })),
+    failures: [],
+  });
+  const presented = (seq: number, id: string, paths = ['out/a.txt']) =>
+    event(seq, 'deliverables.presented', { delivery_set: deliverySet(id, paths) });
+
+  it('emits one delivery-group card at the committed event position', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'run.started', {}),
+      event(2, 'tool.requested', { tool_call_id: 'c1', tool_name: 'present_files', args: { files: [{ path: 'out/a.txt' }] } }),
+      event(3, 'tool.finished', { tool_call_id: 'c1', tool_name: 'present_files', result: '{"set_id":"dvs-1"}' }),
+      presented(4, 'dvs-1'),
+      event(5, 'model.delta', { delta: 'done' }),
+      event(6, 'model.completed', {}),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(['tool', 'deliverables', 'assistant']);
+    const card = rows.find((row) => row.kind === 'deliverables');
+    expect(card && card.kind === 'deliverables' ? card.set.id : '').toBe('dvs-1');
+  });
+
+  it('keeps additive groups chronological and deduplicates replayed seq', () => {
+    const rows = foldRunEvents('run-1', [
+      presented(2, 'dvs-1'),
+      presented(2, 'dvs-1'), // live/log union replay of the same commit
+      presented(5, 'dvs-2'),
+    ]);
+    const cards = rows.filter((row) => row.kind === 'deliverables');
+    expect(cards.map((row) => (row.kind === 'deliverables' ? row.set.id : ''))).toEqual(['dvs-1', 'dvs-2']);
+  });
+
+  it('emits no card when the payload lacks a committed set id', () => {
+    const rows = foldRunEvents('run-1', [event(2, 'deliverables.presented', { delivery_set: { items: [] } })]);
+    expect(rows.filter((row) => row.kind === 'deliverables')).toHaveLength(0);
+  });
+});
