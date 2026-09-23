@@ -8,9 +8,10 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-// ResolveHistoryScope is a pure task-admission helper. Storage/workspace
-// expansion and policy derivation must happen before this function is called.
-// Empty selection grants only the current session when policy allows it.
+// ResolveHistoryScope is a pure admission helper for history tasks. Storage/
+// workspace expansion and policy derivation must happen before this function
+// is called. Empty selection grants only the current session when policy
+// allows it.
 func ResolveHistoryScope(current domain.SessionID, selected []domain.SessionID, policyAllowed []domain.SessionID) ([]domain.SessionID, error) {
 	limits := domain.DefaultContinuityLimits()
 	if current == "" || !utf8.ValidString(string(current)) {
