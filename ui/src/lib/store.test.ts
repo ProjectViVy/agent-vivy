@@ -4,6 +4,7 @@ const api = vi.hoisted(() => ({
 	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
+  historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -639,5 +640,43 @@ describe('Vivy store integrity', () => {
     await expect(useVivyStore.getState().editSession('s2', 'm1', 'new content')).rejects.toThrow();
     expect(api.startTurn).not.toHaveBeenCalled();
     expect(useVivyStore.getState().runError).toBeTruthy();
+  });
+
+
+  it('loads and caches a reference view per committed reference id', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+    const view = { reference: { id: 'ref-1' }, source_status: 'ok', feed_status: 'included' };
+    api.referenceGet.mockResolvedValue(view);
+
+    await useVivyStore.getState().loadReferenceView('ref-1');
+    await useVivyStore.getState().loadReferenceView('ref-1');
+
+    expect(api.referenceGet).toHaveBeenCalledTimes(1);
+    expect(api.referenceGet).toHaveBeenCalledWith('s1', 'ref-1');
+    expect(useVivyStore.getState().referenceViews['ref-1']).toEqual(view);
+  });
+
+  it('records a failed reference view as null without dropping the snapshot', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+    api.referenceGet.mockRejectedValue(new api.ApiError(500, 'unavailable', 'gone'));
+
+    await useVivyStore.getState().loadReferenceView('ref-9');
+
+    expect(useVivyStore.getState().referenceViews['ref-9']).toBeNull();
+  });
+
+  it('clears reference views when the active session changes', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+    api.referenceGet.mockResolvedValue({ reference: { id: 'ref-1' }, source_status: 'ok', feed_status: 'included' });
+    await useVivyStore.getState().loadReferenceView('ref-1');
+    expect(useVivyStore.getState().referenceViews['ref-1']).toBeDefined();
+
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s2');
+
+    expect(useVivyStore.getState().referenceViews).toEqual({});
   });
 });

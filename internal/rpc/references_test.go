@@ -14,6 +14,9 @@ type fakeReferenceOps struct {
 	preview   domain.ReferencePreview
 	previewOf domain.HistorySelection
 	reference domain.ContextReference
+	view      domain.ReferenceView
+	got       domain.SessionID
+	gotRef    string
 	err       error
 }
 
@@ -27,8 +30,10 @@ func (f *fakeReferenceOps) Attach(_ context.Context, selection domain.ReferenceS
 	return f.reference, f.err
 }
 
-func (f *fakeReferenceOps) Get(_ context.Context, _ domain.SessionID, _ string) (domain.ReferenceView, error) {
-	return domain.ReferenceView{}, f.err
+func (f *fakeReferenceOps) Get(_ context.Context, session domain.SessionID, referenceID string) (domain.ReferenceView, error) {
+	f.got = session
+	f.gotRef = referenceID
+	return f.view, f.err
 }
 
 type fakeHistoryOps struct{}
@@ -179,6 +184,65 @@ func TestTurnContinuityRejectsForgedBodies(t *testing.T) {
 		if rpcErr == nil {
 			t.Fatalf("forged body accepted: %s -> %#v", body, params.continuity)
 		}
+	}
+}
+
+func TestReferenceGetRoutedWithOperatorAuthority(t *testing.T) {
+	ops := &fakeReferenceOps{view: domain.ReferenceView{
+		Reference:    domain.ContextReference{ID: "ref-1", DestinationSessionID: "B", DestinationRunID: "run-1", SourceSessionID: "A", CapturedAt: 1, Digest: "d1", Origin: "user_selection"},
+		SourceStatus: "ok",
+		FeedStatus:   "included",
+	}}
+	env := newReferenceTestEnv(t, ops)
+
+	result, rpcErr := callControl(t, env.handler, "reference/get", map[string]any{
+		"session_id":   "B",
+		"reference_id": "ref-1",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if ops.got != "B" || ops.gotRef != "ref-1" {
+		t.Fatalf("get routed to (%q, %q)", ops.got, ops.gotRef)
+	}
+	resultJSON, _ := json.Marshal(result)
+	var view domain.ReferenceView
+	if err := json.Unmarshal(resultJSON, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Reference.ID != "ref-1" || view.SourceStatus != "ok" || view.FeedStatus != "included" {
+		t.Fatalf("view = %#v", view)
+	}
+}
+
+func TestReferenceGetRejectsSpoofedAndMissingFields(t *testing.T) {
+	ops := &fakeReferenceOps{}
+	env := newReferenceTestEnv(t, ops)
+	for _, params := range []map[string]any{
+		{"session_id": "B"},
+		{"reference_id": "ref-1"},
+		{"session_id": "B", "reference_id": "ref-1", "actor": "browser"},
+		{"session_id": "B", "reference_id": "ref-1", "bogus": 1},
+	} {
+		if _, rpcErr := callControl(t, env.handler, "reference/get", params); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("params %v: error = %v, want InvalidParams", params, rpcErr)
+		}
+	}
+	if ops.got != "" || ops.gotRef != "" {
+		t.Fatal("forged request reached reference service")
+	}
+	if _, rpcErr := callControl(t, env.handler, "reference/get", map[string]any{"session_id": "missing", "reference_id": "ref-1"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown session: %v", rpcErr)
+	}
+	if ops.got != "" {
+		t.Fatal("unknown session reached reference service")
+	}
+}
+
+func TestReferenceGetHiddenWithoutService(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.History = fakeHistoryOps{} })
+	if _, rpcErr := callControl(t, env.handler, "reference/get", map[string]any{"session_id": "B", "reference_id": "ref-1"}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("get without service: %v", rpcErr)
 	}
 }
 

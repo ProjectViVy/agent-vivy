@@ -9,6 +9,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 )
 
 // referencePreviewParams carries exactly the operator-declared inputs of
@@ -65,6 +66,15 @@ func (h *controlHandler) referenceGet(ctx context.Context, request Request) (any
 	}
 	if params.SessionID == "" || params.ReferenceID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and reference_id are required"}
+	}
+	if h.deps.Sessions == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "session store is not configured"}
+	}
+	if _, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(params.SessionID)); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+		}
+		return nil, internalError(err)
 	}
 	view, err := h.deps.References.Get(ctx, domain.SessionID(params.SessionID), params.ReferenceID)
 	if err != nil {

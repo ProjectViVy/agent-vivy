@@ -166,6 +166,8 @@ interface RuntimeState {
   removeDraftReference: (id: string) => void;
   setDraftScope: (scope: api.HistoryScope | null) => void;
   clearDraftContext: () => void;
+  referenceViews: Record<string, api.ReferenceView | null>;
+  loadReferenceView: (referenceId: string) => Promise<void>;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
@@ -519,7 +521,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -528,7 +530,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {} });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -683,6 +685,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   }),
   setDraftScope: (scope) => set({ draftScope: scope }),
   clearDraftContext: () => set({ draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() }),
+  referenceViews: {},
+  // 已提交引用的活状态按 id 缓存；失败记为 null，快照本身仍可读。
+  loadReferenceView: async (referenceId) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || get().referenceViews[referenceId] !== undefined) return;
+    try {
+      const view = await api.referenceGet(sessionId, referenceId);
+      set((state) => state.referenceViews[referenceId] === undefined ? { referenceViews: { ...state.referenceViews, [referenceId]: view } } : {});
+    } catch {
+      set((state) => state.referenceViews[referenceId] === undefined ? { referenceViews: { ...state.referenceViews, [referenceId]: null } } : {});
+    }
+  },
   // 移除队首（如陈旧引用冲突项）后在空闲时放行后续排队项。
   removeQueuedMessage: (id) => {
     set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) }));
