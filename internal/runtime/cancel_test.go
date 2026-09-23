@@ -103,6 +103,7 @@ func TestServiceCancelMidTool(t *testing.T) {
 	svc, backend := newCancelService(t, wait)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "wait for me")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -131,6 +132,7 @@ func TestServiceCancelMidTool(t *testing.T) {
 // close it as cancelled (no model output can land first).
 func TestServiceCancelPreStart(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "cancel me instantly")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -152,6 +154,7 @@ func TestServiceCancelPreStart(t *testing.T) {
 // exactly one terminal no matter how many callers win the map (D-008).
 func TestServiceCancelConcurrentIdempotent(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "race the cancel")
 	if err != nil {
 		t.Fatalf("run: %v", err)

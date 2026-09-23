@@ -45,6 +45,7 @@ func TestSecretsNeverReachStorage(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-leak")
 	runID, err := svc.Run(ctx, "sess-leak", "audit turn")
 	if err != nil {
 		t.Fatalf("run: %v", err)

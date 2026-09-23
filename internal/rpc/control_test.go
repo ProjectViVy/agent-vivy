@@ -4165,6 +4165,9 @@ func TestTrajectorySessionRoute(t *testing.T) {
 
 	sessionID := domain.SessionID("sess-traj")
 	runID := domain.RunID("run-traj")
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1000}); err != nil {
 		t.Fatal(err)
 	}

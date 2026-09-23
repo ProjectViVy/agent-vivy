@@ -14,6 +14,7 @@ import (
 // and the run.started payload stays provenance-free (contract §12).
 func TestRunWithChannelProvenance(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	mustCreateSession(t, backend, "sess-ch-1")
 	runID, err := svc.RunWithOptions(context.Background(), "sess-ch-1", "hello vivy", RunOptions{
 		Provenance: &domain.Provenance{Source: "channel", Channel: "fake", ChatID: "chat-1", ChannelMessageID: "m-1"},
 	})
@@ -64,6 +65,7 @@ func TestRunWithChannelProvenance(t *testing.T) {
 // Provenance stamps Source "ui" and leaves the channel fields empty.
 func TestRunWithoutProvenanceKeepsUISource(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	mustCreateSession(t, backend, "sess-ui-1")
 	runID, err := svc.Run(context.Background(), "sess-ui-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)

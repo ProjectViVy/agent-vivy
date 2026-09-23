@@ -30,6 +30,7 @@ func TestServiceToolLoopDetected(t *testing.T) {
 	// Turn cap kept above the 6 repeats the detector needs, so the
 	// repetition guard - not MaxIterations - stops the run.
 	svc, backend, _ := newLoopGuardService(t, 20, loopCallScript(8))
+	mustCreateSession(t, backend, "sess-loop-repeat")
 
 	runID, err := svc.Run(context.Background(), "sess-loop-repeat", "echo the same thing")
 	if err != nil {
@@ -68,6 +69,7 @@ func TestServiceToolLoopDetected(t *testing.T) {
 func TestServiceToolLoopWithinLimit(t *testing.T) {
 	script := append(loopCallScript(5), schema.AssistantMessage("Done repeating.", nil))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
+	mustCreateSession(t, backend, "sess-loop-ok")
 
 	runID, err := svc.Run(context.Background(), "sess-loop-ok", "echo five times")
 	if err != nil {

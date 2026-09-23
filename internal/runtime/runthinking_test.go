@@ -73,6 +73,8 @@ func TestRunWithOptionsCarriesThinkingModeToTheModel(t *testing.T) {
 	svc, capture, backend := newThinkingCaptureService(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	mustCreateSession(t, backend, "sess-think-on")
+	mustCreateSession(t, backend, "sess-think-auto")
 
 	assertNextMode := func(t *testing.T, want domain.ThinkingMode) {
 		t.Helper()

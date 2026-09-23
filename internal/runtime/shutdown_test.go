@@ -16,6 +16,7 @@ func TestServiceWaitIdleDrains(t *testing.T) {
 	wait := &blockingTool{entered: make(chan struct{})}
 	svc, backend := newCancelService(t, wait)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-1")
 
 	runID, err := svc.Run(ctx, "sess-1", "wait for me")
 	if err != nil {
@@ -42,6 +43,7 @@ func TestServiceWaitIdleTimesOut(t *testing.T) {
 	wait := &blockingTool{entered: make(chan struct{})}
 	svc, backend := newCancelService(t, wait)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-1")
 
 	runID, err := svc.Run(ctx, "sess-1", "wait for me")
 	if err != nil {

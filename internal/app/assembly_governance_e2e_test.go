@@ -447,6 +447,9 @@ func TestProductionMCPGovernancePathUsesToolHostOrder(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-governance", Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	runID, err := service.Run(context.Background(), "session-governance", "write the document")
 	if err != nil {
 		t.Fatal(err)
@@ -539,6 +542,9 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 	})
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-drift", Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	runID, err := service.Run(context.Background(), "session-p3-drift", "write the document")
 	if err != nil {
 		t.Fatal(err)
@@ -635,6 +641,9 @@ func TestToolApprovalBindingCannotBeBypassedWhenResumeBecomesAllowed(t *testing.
 			service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
 				Journal: backend, Runs: backend, Messages: backend, Approvals: approvals, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 			})
+			if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-allow-bypass", Title: "fixture", CreatedAt: 1}); err != nil {
+				t.Fatalf("create session: %v", err)
+			}
 			runID, err := service.Run(context.Background(), "session-p3-allow-bypass", "write the document")
 			if err != nil {
 				t.Fatal(err)
@@ -694,6 +703,9 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 	})
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-secret", Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	runID, err := service.Run(context.Background(), "session-p3-secret", "write the document")
 	if err != nil {
 		t.Fatal(err)
@@ -781,6 +793,9 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-production-mcp", Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	runID, err := service.Run(context.Background(), "session-production-mcp", "write the document")
 	if err != nil {
 		t.Fatal(err)
@@ -1008,6 +1023,9 @@ func assertGovernedToolEnvelope(t *testing.T, registry *tools.Registry, toolID s
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-envelope", Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	runID, err := service.Run(context.Background(), "session-p3-envelope", "write the document")
 	if err != nil {
 		t.Fatal(err)

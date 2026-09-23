@@ -65,6 +65,7 @@ func waitForPendingQuestion(t *testing.T, backend *sqlite.Backend, runID domain.
 func TestServiceQuestionSuspendAnswerAndResume(t *testing.T) {
 	svc, backend, _ := newQuestionService(t)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-question")
 	runID, err := svc.Run(ctx, "sess-question", "ask me for a color")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -126,6 +127,7 @@ func restartQuestionService(t *testing.T, backend *sqlite.Backend) *Service {
 
 func TestServiceQuestionRecoveryKeepsQuestionDistinct(t *testing.T) {
 	initial, backend, _ := newQuestionService(t)
+	mustCreateSession(t, backend, "sess-recover-question")
 	runID, err := initial.Run(context.Background(), "sess-recover-question", "ask me for a color")
 	if err != nil {
 		t.Fatalf("run: %v", err)

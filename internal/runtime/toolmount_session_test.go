@@ -62,6 +62,7 @@ func TestServiceSessionPinRestoresSkillMountedTools(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-pin")
 	run1, err := svc.Run(ctx, "sess-pin", "view the writer skill")
 	if err != nil {
 		t.Fatalf("run 1: %v", err)
@@ -137,6 +138,7 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-pin-src")
 	run1, err := svc.Run(ctx, "sess-pin-src", "view the writer skill")
 	if err != nil {
 		t.Fatalf("run 1: %v", err)
@@ -164,6 +166,7 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-other")
 	run2, err := svc2.Run(ctx, "sess-other", "echo without any skill in this session")
 	if err != nil {
 		t.Fatalf("run 2: %v", err)

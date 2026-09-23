@@ -93,6 +93,7 @@ func TestServiceRecoverResumableApproval(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -137,6 +138,7 @@ func TestServiceRecoverExpiredApprovalFails(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, time.Millisecond)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -194,6 +196,7 @@ func TestServiceRecoverNothingToDo(t *testing.T) {
 	// The scripted model suspends the run on an approval; nothing else is
 	// in flight. Recovery on live process state must not close the run or
 	// append events (it only rebuilds the pending registration).
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
