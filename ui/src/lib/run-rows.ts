@@ -116,10 +116,16 @@ function continuityRow(event: RunLogEvent): RunRowContextReference | null {
   return { kind: 'context_reference', id: `${event.run_id}-cr-${reference.id}`, runId: event.run_id, reference, createdAt: event.created_at };
 }
 
-/** deliverables.presented 只认已提交事件的 payload 快照；缺 id 不出卡。 */
+/** deliverables.presented 只认已提交事件的 payload 快照；缺 id 不出卡。
+    nil 列表在 wire 上是 null，折叠时归一化为空数组。 */
 function deliveryRow(event: RunLogEvent): RunRowDeliverables | null {
-  const set = object(event.payload?.delivery_set) as unknown as DeliverySet | null;
-  if (set === null || typeof set.id !== 'string' || set.id === '') return null;
+  const raw = object(event.payload?.delivery_set) as unknown as DeliverySet | null;
+  if (raw === null || typeof raw.id !== 'string' || raw.id === '') return null;
+  const set: DeliverySet = {
+    ...raw,
+    items: Array.isArray(raw.items) ? raw.items : [],
+    failures: Array.isArray(raw.failures) ? raw.failures : [],
+  };
   return { kind: 'deliverables', id: `${event.run_id}-dl-${set.id}`, runId: event.run_id, set, createdAt: event.created_at };
 }
 

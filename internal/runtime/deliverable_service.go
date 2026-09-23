@@ -193,6 +193,9 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 	if !result.NewlyCommitted {
 		return decodeDeliverySetEvents(result.Events)
 	}
+	for _, committed := range result.Events {
+		publishCommittedRunEvent(ctx, committed)
+	}
 	return set, nil
 }
 
