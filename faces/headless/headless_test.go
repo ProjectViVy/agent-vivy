@@ -167,8 +167,8 @@ func TestCompletedRunStreamsAndReturnsStatus(t *testing.T) {
 	}
 }
 
-func TestUnstreamedCompletedPrintsContent(t *testing.T) {
-	f, out, _ := newFace(t, "say hi", false)
+func TestLegacyUnstreamedCompletionFailsClosed(t *testing.T) {
+	f, out, errw := newFace(t, "say hi", false)
 	env := &fakeEnv{}
 	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
@@ -176,8 +176,11 @@ func TestUnstreamedCompletedPrintsContent(t *testing.T) {
 	env.deliverVersion("model.completed", `{"content":"plain"}`, 1)
 	env.deliver("run.completed", `{}`)
 	<-done
-	if got := out.String(); got != "plain\n" {
-		t.Fatalf("out = %q, want %q", got, "plain\n")
+	if out.String() != "" {
+		t.Fatalf("out = %q, want no legacy content", out.String())
+	}
+	if !strings.Contains(errw.String(), "unsupported model.completed payload version 1") {
+		t.Fatalf("err = %q, want protocol diagnostic", errw.String())
 	}
 }
 

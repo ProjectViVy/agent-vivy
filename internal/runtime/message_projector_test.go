@@ -208,7 +208,7 @@ func TestMessageProjectorPreservesToolPreambleAndFinalOrder(t *testing.T) {
 	}
 }
 
-func TestMessageProjectorReadsLegacyV1CompletionOnly(t *testing.T) {
+func TestMessageProjectorRejectsLegacyV1Completion(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
 	sessionID := domain.SessionID("sess-projector-v1")
@@ -221,13 +221,18 @@ func TestMessageProjectorReadsLegacyV1CompletionOnly(t *testing.T) {
 	}
 	trajCommit(t, ctx, svc.deps.Journal, runID,
 		trajEvent(domain.EventModelRequest, 10, payloadModelRequest{}),
-		trajEvent(domain.EventModelCompleted, 20, payloadModelCompleted{Content: "legacy completion"}),
+		trajEventVersion(domain.EventModelCompleted, 20, map[string]string{"content": "legacy completion"}, 1),
 	)
-	if err := svc.ReconcileSessionMessages(ctx, sessionID); err != nil {
-		t.Fatal(err)
+	if err := svc.ReconcileSessionMessages(ctx, sessionID); err == nil {
+		t.Fatal("legacy v1 completion was projected")
 	}
 	got, err := backend.ListMessages(ctx, sessionID)
-	if err != nil || len(got) != 1 || got[0].Content != "legacy completion" {
-		t.Fatalf("legacy projection = %+v, err=%v", got, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range got {
+		if msg.Content == "legacy completion" {
+			t.Fatalf("legacy v1 content was persisted: %+v", msg)
+		}
 	}
 }

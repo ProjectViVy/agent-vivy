@@ -189,15 +189,10 @@ func (f *face) onEvent(params json.RawMessage, runID string, env faceport.Host, 
 		f.stateMu.Lock()
 		streamed := f.streamed.Swap(false)
 		if f.protocolErr == "" {
-			content, err := f.completeModelLocked(wire.Event.PayloadVersion, payload)
-			if err != nil {
+			if err := f.completeModelLocked(wire.Event.PayloadVersion, payload); err != nil {
 				f.failProtocolLocked(err)
 			} else if streamed {
 				_, _ = fmt.Fprintln(f.opts.Out)
-			} else if wire.Event.PayloadVersion == 0 || wire.Event.PayloadVersion == 1 {
-				if strings.TrimSpace(content) != "" {
-					_, _ = fmt.Fprintln(f.opts.Out, content)
-				}
 			}
 		}
 		f.stateMu.Unlock()
@@ -275,50 +270,33 @@ func parseDelta(payload json.RawMessage) (string, error) {
 	return delta, nil
 }
 
-func (f *face) completeModelLocked(version int, payload json.RawMessage) (string, error) {
+func (f *face) completeModelLocked(version int, payload json.RawMessage) error {
+	if version != 2 {
+		return fmt.Errorf("unsupported model.completed payload version %d", version)
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
-		return "", fmt.Errorf("invalid model.completed payload")
-	}
-	if version == 0 {
-		if _, ok := fields["content"]; ok {
-			version = 1
-		}
-	}
-	if version == 1 {
-		raw, ok := fields["content"]
-		if !ok {
-			return "", fmt.Errorf("model.completed v1: missing content")
-		}
-		var content string
-		if err := json.Unmarshal(raw, &content); err != nil {
-			return "", fmt.Errorf("model.completed v1: content must be a string")
-		}
-		f.resetCompletionLocked()
-		return content, nil
-	}
-	if version != 2 {
-		return "", fmt.Errorf("unsupported model.completed payload version %d", version)
+		return fmt.Errorf("invalid model.completed payload")
 	}
 	if len(fields) != 2 {
-		return "", fmt.Errorf("model.completed v2: invalid fields")
+		return fmt.Errorf("model.completed v2: invalid fields")
 	}
 	var digest string
 	if raw, ok := fields["content_sha256"]; !ok || json.Unmarshal(raw, &digest) != nil || len(digest) != 64 || strings.ToLower(digest) != digest {
-		return "", fmt.Errorf("model.completed v2: invalid content_sha256")
+		return fmt.Errorf("model.completed v2: invalid content_sha256")
 	}
 	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("model.completed v2: invalid content_sha256")
+		return fmt.Errorf("model.completed v2: invalid content_sha256")
 	}
 	var byteLen int
 	if raw, ok := fields["byte_len"]; !ok || json.Unmarshal(raw, &byteLen) != nil || byteLen < 0 {
-		return "", fmt.Errorf("model.completed v2: invalid byte_len")
+		return fmt.Errorf("model.completed v2: invalid byte_len")
 	}
 	if byteLen != f.completionLen || digest != hex.EncodeToString(f.completionHash.Sum(nil)) {
-		return "", fmt.Errorf("model.completed v2: content integrity mismatch")
+		return fmt.Errorf("model.completed v2: content integrity mismatch")
 	}
 	f.resetCompletionLocked()
-	return "", nil
+	return nil
 }
 
 func (f *face) failProtocolLocked(err error) {

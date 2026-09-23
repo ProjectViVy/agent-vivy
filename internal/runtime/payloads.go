@@ -80,12 +80,9 @@ type payloadProviderStall struct {
 	ElapsedMs int64 `json:"elapsed_ms"`
 }
 
-type payloadModelCompleted struct {
-	Content string `json:"content"`
-}
-
 // payloadModelCompletedV2 commits the preceding bounded model.delta sequence.
-// Keeping it distinct prevents legacy v1 encoders from leaking v2 fields.
+// It is the only accepted model.completed payload shape; the pre-2026-09-05
+// content-bearing form is no longer readable.
 type payloadModelCompletedV2 struct {
 	ContentSHA256 string `json:"content_sha256"`
 	ByteLen       int    `json:"byte_len"`

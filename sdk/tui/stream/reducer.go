@@ -59,33 +59,14 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		if notice.ProtocolError != "" {
 			return p.failProtocol(notice.ProtocolError, nextID)
 		}
-		if !notice.CompletedAuthoritative {
-			if notice.Completion == nil {
-				return p.failProtocol("model.completed v2: missing validated metadata", nextID)
-			}
-			if err := VerifyModelCompletedV2Metadata(*notice.Completion, p.streamingAnswerContent()); err != nil {
-				return p.failProtocol(err.Error(), nextID)
-			}
-			p.FinishStreaming()
-			return false
+		if notice.Completion == nil {
+			return p.failProtocol("model.completed v2: missing validated metadata", nextID)
 		}
-		found := false
-		for i := len(p.Messages) - 1; i >= 0; i-- {
-			if p.Messages[i].Role == surface.RoleAssistant && p.Messages[i].Streaming && !p.Messages[i].Reasoning {
-				// completed.content is authoritative for this model round,
-				// including an explicitly empty completion.
-				p.Messages[i].Content = notice.Completed
-				found = true
-				break
-			}
-		}
-		if !found && notice.Completed != "" {
-			p.Messages = append(p.Messages, surface.Message{
-				ID: nextID("asst"), Role: surface.RoleAssistant,
-				Content: notice.Completed, Streaming: true,
-			})
+		if err := VerifyModelCompletedV2Metadata(*notice.Completion, p.streamingAnswerContent()); err != nil {
+			return p.failProtocol(err.Error(), nextID)
 		}
 		p.FinishStreaming()
+		return false
 	case "tool_requested":
 		p.FinishStreaming()
 		p.Messages = append(p.Messages, surface.Message{

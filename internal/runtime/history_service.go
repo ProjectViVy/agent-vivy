@@ -774,11 +774,11 @@ func historyEventAllowed(eventType domain.EventType) bool {
 }
 
 func knownHistoryPayloadVersion(eventType domain.EventType, version int) bool {
+	if eventType == domain.EventModelCompleted {
+		return version == 2
+	}
 	if version == 0 {
 		return true
-	}
-	if eventType == domain.EventModelCompleted {
-		return version == 1 || version == 2
 	}
 	return version == 1
 }

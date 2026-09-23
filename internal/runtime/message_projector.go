@@ -146,28 +146,14 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 }
 
 func completedProjectionContent(re domain.RunEvent, deltas string) (string, error) {
+	if re.PayloadVersion != 2 {
+		return "", fmt.Errorf("model.completed seq %d unsupported payload version %d", re.Seq, re.PayloadVersion)
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(re.Payload, &fields); err != nil {
 		return "", fmt.Errorf("decode model.completed seq %d: %w", re.Seq, err)
 	}
-	raw, hasContent := fields["content"]
-	if re.PayloadVersion == 0 && hasContent {
-		re.PayloadVersion = 1
-	}
-	if re.PayloadVersion == 1 {
-		if !hasContent {
-			return "", fmt.Errorf("model.completed seq %d missing v1 content", re.Seq)
-		}
-		var content string
-		if err := json.Unmarshal(raw, &content); err != nil {
-			return "", fmt.Errorf("decode model.completed content seq %d: %w", re.Seq, err)
-		}
-		return content, nil
-	}
-	if re.PayloadVersion != 2 {
-		return "", fmt.Errorf("model.completed seq %d unsupported payload version %d", re.Seq, re.PayloadVersion)
-	}
-	if hasContent {
+	if _, hasContent := fields["content"]; hasContent {
 		return "", fmt.Errorf("model.completed seq %d v2 must not contain content", re.Seq)
 	}
 	if len(fields) != 2 {

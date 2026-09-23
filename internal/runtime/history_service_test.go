@@ -54,23 +54,23 @@ func TestHistoryProjectionSkipsProjectedToolRowAndCompletionEvent(t *testing.T) 
 	}, domain.DefaultContinuityLimits().ResultItemBytes); ok || item.Ref.MessageID != "" {
 		t.Fatalf("projected tool row was emitted: %#v, ok=%v", item, ok)
 	}
-	for _, version := range []int{1, 2} {
+	if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
+		Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 1, Kind: string(domain.SourceKindEvent)},
+		EventType:      domain.EventModelCompleted,
+		PayloadVersion: 2,
+		Text:           `{"content_sha256":"5ad22b086f5e65092aade531368f2c3430403b02ea171ff146771f23caf59f5f","byte_len":29}`,
+	}, domain.DefaultContinuityLimits().ResultItemBytes); ok || item.Ref.RunID != "" {
+		t.Fatalf("model.completed v2 duplicated its projected row: %#v, ok=%v", item, ok)
+	}
+	for _, version := range []int{1, 3} {
 		if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
-			Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 1, Kind: string(domain.SourceKindEvent)},
+			Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 9, Kind: string(domain.SourceKindEvent)},
 			EventType:      domain.EventModelCompleted,
 			PayloadVersion: version,
-			Text:           `{"content":"assistant summary text"}`,
-		}, domain.DefaultContinuityLimits().ResultItemBytes); ok || item.Ref.RunID != "" {
-			t.Fatalf("model.completed v%d duplicated its projected row: %#v, ok=%v", version, item, ok)
+			Text:           `{"content":"legacy or unknown body"}`,
+		}, domain.DefaultContinuityLimits().ResultItemBytes); !ok || !item.Truncated || item.Text != "" {
+			t.Fatalf("non-v2 completion version %d lost its honest placeholder: %#v, ok=%v", version, item, ok)
 		}
-	}
-	if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
-		Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 9, Kind: string(domain.SourceKindEvent)},
-		EventType:      domain.EventModelCompleted,
-		PayloadVersion: 3,
-		Text:           `{"content":"unknown version body"}`,
-	}, domain.DefaultContinuityLimits().ResultItemBytes); !ok || !item.Truncated || item.Text != "" {
-		t.Fatalf("unknown completion version lost its honest placeholder: %#v, ok=%v", item, ok)
 	}
 }
 
