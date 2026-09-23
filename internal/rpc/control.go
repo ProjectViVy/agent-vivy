@@ -96,12 +96,15 @@ type ControlDeps struct {
 	// method; turn/start reference fields still decode and validate but the
 	// submission fails unavailable at admission.
 	References tools.ReferenceOperations
-	Bus        *events.Bus
-	Service    *runtime.Service
-	Studio     *studio.Service
-	Live       studio.LiveView
-	Eval       eval.Starter
-	Children   ChildController
+	// Deliverables owns deliverables/list|get|read|close against trusted
+	// connection identity. Nil hides the method family and capability.
+	Deliverables tools.DeliverableOperations
+	Bus          *events.Bus
+	Service      *runtime.Service
+	Studio       *studio.Service
+	Live         studio.LiveView
+	Eval         eval.Starter
+	Children     ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -1035,6 +1038,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.References != nil {
 			capabilities = append(capabilities, "reference/preview", "reference/get")
 		}
+		if h.deps.Deliverables != nil {
+			capabilities = append(capabilities, "deliverables/list", "deliverables/get", "deliverables/read", "deliverables/close")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -1093,6 +1099,14 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.referencePreview(ctx, request)
 	case "reference/get":
 		return h.referenceGet(ctx, request)
+	case "deliverables/list":
+		return h.deliverablesList(ctx, request)
+	case "deliverables/get":
+		return h.deliverablesGet(ctx, request)
+	case "deliverables/read":
+		return h.deliverablesRead(ctx, request)
+	case "deliverables/close":
+		return h.deliverablesClose(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {

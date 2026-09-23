@@ -385,6 +385,25 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	referenceService := runtime.NewReferenceService(historyService, backend, backend, backend, continuityStore)
 	referenceService.SetViewStores(backend, backend)
 	historyService.SetReferenceLookup(referenceService.Lookup)
+	// Deliverable presentation shares the WorkspaceManager's trusted run
+	// root, the Journal and the T4 receipt seam; transfer snapshots live in
+	// a dedicated scratch that startup purges and nothing else touches.
+	var deliverableOps tools.DeliverableOperations
+	var deliverableService *runtime.DeliverableService
+	if workspaceManager != nil {
+		scratch := filepath.Join(dataRoot, "transfers")
+		if mkErr := os.MkdirAll(scratch, 0o700); mkErr != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: create transfer scratch: %w", mkErr)
+		}
+		deliverableService, err = runtime.NewDeliverableService(workspaceManager, backend, backend, continuityStore, scratch)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build deliverable service: %w", err)
+		}
+		deliverableService.SetViewStores(backend, backend)
+		deliverableOps = deliverableService
+	}
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
@@ -456,7 +475,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if stageErr != nil {
 			return stageErr
 		}
-		next := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps).WithHistory(historyService).WithReferences(referenceService)
+		next := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
 		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
 		if stageErr != nil {
@@ -679,11 +698,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// A backend without the atomic ContinuityStore seam leaves the dep
 		// nil; continuity submissions then fail unavailable rather than
 		// degrading to a non-atomic write (SC-D4).
-		Continuity: func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
-		References: referenceService,
-		Crons:      backend,
-		Channels:   channelHost,
-		Titles:     provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		Continuity:   func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
+		References:   referenceService,
+		Deliverables: deliverableService,
+		Crons:        backend,
+		Channels:     channelHost,
+		Titles:       provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -858,7 +878,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc, History: historyService, References: referenceService,
+		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc, History: historyService, References: referenceService, Deliverables: deliverableService,
 		ActionHost:     actionHost,
 		Marketplace:    marketplace,
 		SkillRevisions: backend,

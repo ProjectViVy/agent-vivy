@@ -154,6 +154,12 @@ func (s DeliverySet) Validate(limits ContinuityLimits) error {
 	return nil
 }
 
+// DeliverySetPage is the paged set envelope returned by deliverable listing.
+type DeliverySetPage struct {
+	Items      []DeliverySet `json:"items"`
+	NextCursor string        `json:"next_cursor,omitempty"`
+}
+
 type DeliveryReadRequest struct {
 	ItemID         string `json:"item_id"`
 	ExpectedDigest string `json:"expected_digest"`

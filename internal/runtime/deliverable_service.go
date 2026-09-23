@@ -56,12 +56,6 @@ type SessionTransferCloser interface {
 	CloseSessionTransfers(sessionID domain.SessionID)
 }
 
-// DeliverySetPage is the paged set envelope returned by List.
-type DeliverySetPage struct {
-	Items      []domain.DeliverySet `json:"items"`
-	NextCursor string               `json:"next_cursor,omitempty"`
-}
-
 // DeliverableService presents workspace files as immutable delivery sets and
 // serves their verified bytes through short-lived transfer snapshots. It
 // never accepts caller-supplied workspace roots: every file resolves inside
@@ -75,6 +69,11 @@ type DeliverableService struct {
 	transfers  *transferManager
 	limits     domain.ContinuityLimits
 	now        func() time.Time
+
+	// messages and truncations resolve whether a set's owning turn is
+	// hidden by a rewind/edit marker; hidden sets leave every listing.
+	messages    storage.MessageStore
+	truncations storage.TruncationStore
 
 	// postReadHook is a test seam executed after hashing a file and before
 	// the identity recheck; it simulates a path swap mid-read.
@@ -95,6 +94,14 @@ func NewDeliverableService(manager *WorkspaceManager, runs storage.RunStore, jou
 	}
 	s.transfers = transfers
 	return s, nil
+}
+
+// SetViewStores lets List/Get exclude sets whose committing turn was
+// hidden by a rewind marker, mirroring reference feed status. Nil stores
+// leave every set visible.
+func (s *DeliverableService) SetViewStores(messages storage.MessageStore, truncations storage.TruncationStore) {
+	s.messages = messages
+	s.truncations = truncations
 }
 
 // SetLimits narrows the effective continuity limits; a zero value restores
@@ -262,28 +269,28 @@ func (s *DeliverableService) fingerprint(ctx context.Context, workspace Workspac
 // List folds the session's committed deliverables.presented events into one
 // keyset page ordered by (created_at, id). It reads domain events only; no
 // mutable delivery table exists.
-func (s *DeliverableService) List(ctx context.Context, sessionID domain.SessionID, cursor string, limit int) (DeliverySetPage, error) {
+func (s *DeliverableService) List(ctx context.Context, sessionID domain.SessionID, cursor string, limit int) (domain.DeliverySetPage, error) {
 	if owner := tools.SessionIDFromContext(ctx); owner == "" || owner != sessionID {
-		return DeliverySetPage{}, DeliverableError{Status: string(domain.HistoryStatusForbidden), Reason: "list requires the owning session"}
+		return domain.DeliverySetPage{}, DeliverableError{Status: string(domain.HistoryStatusForbidden), Reason: "list requires the owning session"}
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	sets, err := s.sessionDeliverySets(ctx, sessionID)
 	if err != nil {
-		return DeliverySetPage{}, err
+		return domain.DeliverySetPage{}, err
 	}
 	start := 0
 	if cursor != "" {
 		key, err := decodeDeliveryCursor(cursor)
 		if err != nil {
-			return DeliverySetPage{}, DeliverableError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "cursor is invalid"}
+			return domain.DeliverySetPage{}, DeliverableError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "cursor is invalid"}
 		}
 		start = sort.Search(len(sets), func(i int) bool {
 			return sets[i].CreatedAt > key.at || (sets[i].CreatedAt == key.at && sets[i].ID > key.id)
 		})
 	}
-	page := DeliverySetPage{Items: []domain.DeliverySet{}}
+	page := domain.DeliverySetPage{Items: []domain.DeliverySet{}}
 	end := start + limit
 	if end > len(sets) {
 		end = len(sets)
@@ -489,7 +496,44 @@ func (s *DeliverableService) sessionDeliverySets(ctx context.Context, sessionID 
 		}
 		return sets[i].ID < sets[j].ID
 	})
-	return sets, nil
+	return s.dropHiddenSets(ctx, sessionID, sets)
+}
+
+// dropHiddenSets removes sets committed by turns a rewind/edit marker hid
+// from the session's effective view. Runs without an owning user message
+// stay listed — they cannot be proven hidden.
+func (s *DeliverableService) dropHiddenSets(ctx context.Context, sessionID domain.SessionID, sets []domain.DeliverySet) ([]domain.DeliverySet, error) {
+	if s.messages == nil || s.truncations == nil || len(sets) == 0 {
+		return sets, nil
+	}
+	stored, err := s.messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	markers, err := s.truncations.ListViewTruncations(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	owned := make(map[domain.RunID]bool, len(sets))
+	for _, message := range stored {
+		if message.Role == domain.RoleUser {
+			owned[message.RunID] = true
+		}
+	}
+	visible := make(map[domain.RunID]bool, len(sets))
+	for _, message := range storage.ApplySessionTruncations(stored, markers) {
+		if message.Role == domain.RoleUser {
+			visible[message.RunID] = true
+		}
+	}
+	kept := sets[:0]
+	for _, set := range sets {
+		if owned[set.RunID] && !visible[set.RunID] {
+			continue
+		}
+		kept = append(kept, set)
+	}
+	return kept, nil
 }
 
 func (s *DeliverableService) findSet(ctx context.Context, sessionID domain.SessionID, setID string) (*domain.DeliverySet, error) {
