@@ -152,6 +152,9 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 	if !result.NewlyCommitted {
 		return decodeReferenceEvents(result.Events)
 	}
+	for _, committed := range result.Events {
+		publishCommittedRunEvent(ctx, committed)
+	}
 	return reference, nil
 }
 

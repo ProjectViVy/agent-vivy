@@ -338,10 +338,22 @@ export type DeliveryChunk = FaceDeliveryChunk;
 export type DeliveryItemStatus = FaceDeliveryItemStatus;
 export type DeliveryItemState = FaceDeliveryItemState;
 
+// Wire payloads carry null where the contract declares a list (Go nil
+// slices serialize as null); normalize at the boundary before consumers
+// iterate items/failures.
+const normalizeDeliverySet = (set: DeliverySet): DeliverySet => ({
+  ...set,
+  items: Array.isArray(set.items) ? set.items : [],
+  failures: Array.isArray(set.failures) ? set.failures : [],
+});
+
 export const deliverablesList = (sessionId: string, params?: { cursor?: string; limit?: number }) =>
-  request<DeliverySetPage>('deliverables/list', { session_id: sessionId, ...params });
+  request<DeliverySetPage>('deliverables/list', { session_id: sessionId, ...params }).then((page) => ({
+    ...page,
+    items: Array.isArray(page.items) ? page.items.map(normalizeDeliverySet) : [],
+  }));
 export const deliverablesGet = (sessionId: string, setId: string) =>
-  request<{ set: DeliverySet }>('deliverables/get', { session_id: sessionId, set_id: setId });
+  request<{ set: DeliverySet }>('deliverables/get', { session_id: sessionId, set_id: setId }).then((res) => ({ set: normalizeDeliverySet(res.set) }));
 export const deliverablesRead = (sessionId: string, params: DeliveryReadRequest) =>
   request<DeliveryChunk>('deliverables/read', { session_id: sessionId, ...params });
 export const deliverablesClose = (sessionId: string, transferId: string) =>

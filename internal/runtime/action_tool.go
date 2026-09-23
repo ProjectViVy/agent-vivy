@@ -115,6 +115,7 @@ func (s *Service) InvokeActionTool(ctx context.Context, sessionID domain.Session
 	toolCtx = withSessionID(toolCtx, sessionID)
 	toolCtx = withSessionSandbox(toolCtx, sandboxMode, approvalPolicy)
 	toolCtx = withGovernanceEventSink(toolCtx, s.governanceSink(mapper, sessionID, ledger))
+	toolCtx = withRunEventPublisher(toolCtx, s.deps.Sink)
 	adapter := newToolAdapter(tool, eng.cfg.MaxToolResultBytes, eng.cfg.Policy, eng.cfg.ToolHooks, eng.cfg.AutoApproveTools)
 	result, invokeErr := adapter.InvokableRun(toolCtx, string(args))
 	if invokeErr != nil {

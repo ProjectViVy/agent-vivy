@@ -1957,6 +1957,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		runCtx = WithHistoryScope(runCtx, *historyScope)
 	}
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
+	runCtx = withRunEventPublisher(runCtx, s.deps.Sink)
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
@@ -2991,6 +2992,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		})
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
+	ctx = withRunEventPublisher(ctx, s.deps.Sink)
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
