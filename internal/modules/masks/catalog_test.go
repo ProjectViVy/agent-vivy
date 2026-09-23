@@ -88,9 +88,9 @@ func TestMaskCatalogResolverAndOwnedReturns(t *testing.T) {
 
 func TestMaskCatalogMissingAssetFailsClosed(t *testing.T) {
 	assets := fstest.MapFS{
-		"prompts/mask-frame.md":  &fstest.MapFile{Data: []byte("frame")},
-		"prompts/programmer.md":  &fstest.MapFile{Data: []byte("programmer")},
-		"prompts/researcher.md":  &fstest.MapFile{Data: []byte("researcher")},
+		"prompts/mask-frame.md": &fstest.MapFile{Data: []byte("frame")},
+		"prompts/programmer.md": &fstest.MapFile{Data: []byte("programmer")},
+		"prompts/researcher.md": &fstest.MapFile{Data: []byte("researcher")},
 	}
 	if _, err := loadCatalog(assets, "generation-test"); err == nil {
 		t.Fatal("missing writer asset was accepted")

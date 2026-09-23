@@ -307,7 +307,7 @@ func (b *Backend) SetMaskSelection(ctx context.Context, in mask.SetSelectionRequ
 }
 
 type sqliteOperationResult struct {
-	definition   mask.Definition
+	definition    mask.Definition
 	requestDigest string
 }
 

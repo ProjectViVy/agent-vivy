@@ -89,3 +89,23 @@ func formatNotesDigest(notes []domain.Note) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+// Nudge reminder templates (NUDGE-DESIGN §7). The reminder names no tool
+// arguments, diagnostics, or results — it carries only the repetition
+// count and the fixed guidance. The refusal variant names the decision
+// source and forbids bypass; the failure variant warns that a failed
+// call may already have caused effects.
+const (
+	nudgeFailureTemplate = "Runtime reminder: this unsuccessful tool call has repeated %d times. Inspect the previous result, correct the arguments or choose another permitted approach. If blocked, report the blocker. A failed call may already have caused effects; inspect state before repeating a mutation."
+	nudgeRefusalTemplate = "Runtime reminder: this refused call has repeated %d times. Respect the policy or user decision. Do not bypass it through another tool. Continue only within existing authorization, or report the blocker."
+)
+
+// renderNudge builds the fixed reminder for a sealed notice (§7). The
+// template is selected by the sealed failure's status, not by text
+// matching on the refusal reason.
+func renderNudge(n nudgeNotice) string {
+	if n.Status == toolFailureStatusRefused {
+		return fmt.Sprintf(nudgeRefusalTemplate, n.Count)
+	}
+	return fmt.Sprintf(nudgeFailureTemplate, n.Count)
+}

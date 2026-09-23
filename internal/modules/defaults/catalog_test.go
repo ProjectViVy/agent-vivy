@@ -34,7 +34,7 @@ func TestDefaultCatalogUsesCanonicalInternalOwners(t *testing.T) {
 		"core/tool-host@v1": "vivy/tool-host", "core/storage-engine@v1": "vivy/storage",
 		"core/checkpoint-store@v1": "vivy/checkpoint", "core/credential-resolver@v1": "vivy/credential",
 		"core/sandbox-backend@v1": "vivy/sandbox",
-		"core/mask-service@v1": "vivy/masks",
+		"core/mask-service@v1":    "vivy/masks",
 	}
 	for _, record := range records {
 		for _, provided := range record.Descriptor.Provides {

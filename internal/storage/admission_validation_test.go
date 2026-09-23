@@ -28,9 +28,9 @@ func validAdmissionFixture(t *testing.T) RunAdmission {
 	}
 	return RunAdmission{
 		Message: domain.Message{ID: "message-admission-test", SessionID: sessionID, RunID: runID, Role: domain.RoleUser},
-		Run: domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunAccepted, Kind: domain.RunKindPrimary},
+		Run:     domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunAccepted, Kind: domain.RunKindPrimary},
 		Started: domain.RunEvent{RunID: runID, Type: domain.EventRunStarted, PayloadVersion: 1, Payload: marker},
-		Prompt: snapshot,
+		Prompt:  snapshot,
 	}
 }
 

@@ -312,17 +312,22 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
-	// Keep this handler last. Eino's first registered WrapModel handler is the
-	// outermost layer; the prompt middleware must see the final input after all
-	// compaction, skill, AGENTS.md, dynamic-tool, and mount projections.
+	// Eino's first registered WrapModel handler is the outermost layer; the
+	// prompt middleware must see the final input after all compaction, skill,
+	// AGENTS.md, dynamic-tool, and mount projections.
 	handlers = append(handlers, newPromptMiddleware(cfg.MaxContextBytes))
+	// ND-3 (NUDGE-DESIGN §6/§7): the reminder boundary is registered last
+	// so its WrapModel sits innermost — after compaction, tool search and
+	// the mount projection — and sees only the final shaped input. Its
+	// injected message is transient, never visible to the other handlers.
+	handlers = append(handlers, newNudgeMiddleware(cfg.MaxContextBytes))
 	agentCfg := &adk.ChatModelAgentConfig{
-		Name:        "vivy",
-		Description: "Vivy, a precise personal assistant.",
-		Instruction: composeStaticInstruction(),
+		Name:          "vivy",
+		Description:   "Vivy, a precise personal assistant.",
+		Instruction:   composeStaticInstruction(),
 		GenModelInput: literalGenModelInput,
-		Model:       observeModelStreams(m),
-		Handlers:    handlers,
+		Model:         observeModelStreams(m),
+		Handlers:      handlers,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools},
 		},

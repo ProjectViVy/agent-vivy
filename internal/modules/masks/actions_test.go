@@ -15,11 +15,11 @@ type actionHostFixture struct {
 	manager maskcontract.Manager
 }
 
-func (host actionHostFixture) ModuleID() string { return ID }
-func (host actionHostFixture) Grant(controlaction.Grant) error { return nil }
+func (host actionHostFixture) ModuleID() string                  { return ID }
+func (host actionHostFixture) Grant(controlaction.Grant) error   { return nil }
 func (host actionHostFixture) HasGrant(controlaction.Grant) bool { return true }
-func (host actionHostFixture) Secret(string) (string, error) { return "", errors.New("not available") }
-func (host actionHostFixture) Settings() json.RawMessage { return json.RawMessage(`{}`) }
+func (host actionHostFixture) Secret(string) (string, error)     { return "", errors.New("not available") }
+func (host actionHostFixture) Settings() json.RawMessage         { return json.RawMessage(`{}`) }
 func (host actionHostFixture) StartRun(context.Context, controlaction.RunRequest) (controlaction.RunResult, error) {
 	return controlaction.RunResult{}, errors.New("not available")
 }

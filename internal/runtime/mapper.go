@@ -71,9 +71,17 @@ type eventMapper struct {
 	// have not arrived yet, in request order.
 	openCalls []openToolCall
 
-	// loop watches completed tool calls for repetition (VC-2 tool-loop
-	// guardrail); state is per run and resets on approval resume.
-	loop loopWindow
+	// nudge is the leg's run-local detector: it owns the loop window
+	// (VC-2 tool-loop guardrail, ND-2) and the typed failure side
+	// channel. Service attaches one fresh state per drive/resume leg;
+	// nil outside those legs.
+	nudge *nudgeState
+
+	// completions retains the bounded outcome records behind each
+	// mapped tool.finished until the consuming service confirms the
+	// append is durable (ND-2: completion is recorded on persist
+	// success, not at event construction).
+	completions map[string]completedCall
 
 	// interrupt holds the details of the latest interrupt action; set
 	// together with the errRunInterrupted sentinel.
@@ -98,7 +106,7 @@ type openToolCall struct {
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
 	settled := make(chan struct{})
 	close(settled)
-	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled}
+	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled, completions: map[string]completedCall{}}
 }
 
 func (m *eventMapper) setUsageRoutes(provider, model, summaryModel string) {
@@ -535,7 +543,12 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 
 // toolResultEvents emits tool.started immediately followed by
 // tool.finished: the engine delivers tool results as a single event, so
-// the start boundary is reconstructed at result time.
+// the start boundary is reconstructed at result time. The bounded
+// outcome record is parked for the consuming service, which records
+// completion in the leg's nudge detector only after the append lands
+// (ND-2); the typed failure mark, when present, supplies the optional
+// outcome metadata and keeps error non-empty even where Eino received
+// a nil error.
 func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) ([]domain.RunEvent, error) {
 	argsJSON := m.argsJSONFor(callID, toolName)
 	resolvedID, resolvedName := m.popOpenCall(callID, toolName)
@@ -545,15 +558,54 @@ func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, par
 	if toolName == "" {
 		toolName = resolvedName
 	}
-	// The loop detector sees every completed call; exceeding the repeat
-	// limit fails the run from here (the service emits the terminal).
-	if err := m.loop.record(toolName, argsJSON, result, errMsg); err != nil {
-		return nil, err
+	call := completedCall{ID: callID, Name: toolName, ArgsJSON: argsJSON, Result: result, Error: errMsg}
+	finished := payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}
+	if m.nudge != nil {
+		if failure, ok := m.nudge.Failure(callID); ok {
+			failure := failure
+			call.Failure = &failure
+			finished.Outcome = failure.Status
+			finished.Reason = failure.Reason
+			finished.Effects = failure.Effects
+			// The journal row of a failed invocation keeps a non-empty
+			// error even where Eino received a nil error (ND-2): the
+			// bounded diagnostic stands in, never raw output.
+			if call.Error == "" {
+				call.Error = failure.Diagnostic
+				finished.Error = failure.Diagnostic
+			}
+		}
 	}
+	m.storeCompletion(call)
 	return []domain.RunEvent{
 		m.build(domain.EventToolStarted, payloadToolStarted{ToolCallID: callID, ToolName: toolName}),
-		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}),
+		m.build(domain.EventToolFinished, finished),
 	}, nil
+}
+
+// storeCompletion parks the outcome record until its tool.finished is
+// durably journaled; takeCompletion releases it to the consuming
+// service.
+func (m *eventMapper) storeCompletion(call completedCall) {
+	m.toolMu.Lock()
+	defer m.toolMu.Unlock()
+	m.completions[call.ID] = call
+}
+
+func (m *eventMapper) takeCompletion(callID string) (completedCall, bool) {
+	m.toolMu.Lock()
+	defer m.toolMu.Unlock()
+	call, ok := m.completions[callID]
+	if ok {
+		delete(m.completions, callID)
+	}
+	return call, ok
+}
+
+// setNudgeState shares the leg's detector with the mapper so typed
+// failure marks resolve into tool.finished metadata.
+func (m *eventMapper) setNudgeState(state *nudgeState) {
+	m.nudge = state
 }
 
 // argsJSONFor resolves the canonical arguments of a tracked open call by
