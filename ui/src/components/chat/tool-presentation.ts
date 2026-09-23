@@ -3,13 +3,13 @@
 // 纯函数 + 常量表；组件只负责渲染，不在这里做 IO。
 
 import {
-  FilePlus2, FileText, Globe, ListChecks, MessageCircleQuestion, PenLine, Search, Terminal, Wrench, type LucideIcon,
+  BookMarked, FilePlus2, FileText, Globe, ListChecks, MessageCircleQuestion, PenLine, Search, Terminal, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { parseToolResultDiff, parseUnifiedDiff } from '@/lib/diff';
 import type { FoldedToolCall } from '@/lib/run-rows';
 
 /** 工具体裁（对照 DSH 的 tool variant 集合，按 Vivy 的线名归类）。 */
-export type ToolVariant = 'read' | 'write' | 'edit' | 'search' | 'shell' | 'web' | 'todo' | 'ask' | 'generic';
+export type ToolVariant = 'read' | 'write' | 'edit' | 'search' | 'shell' | 'web' | 'todo' | 'ask' | 'history' | 'generic';
 
 const TOOL_VARIANTS: Record<string, ToolVariant> = {
   read_file: 'read',
@@ -40,6 +40,10 @@ const TOOL_VARIANTS: Record<string, ToolVariant> = {
   task_update: 'todo',
   task_list: 'todo',
   ask_user: 'ask',
+  history_search: 'history',
+  history_read: 'history',
+  history_trace: 'history',
+  reference_preview: 'history',
 };
 
 const VARIANT_TITLE: Record<ToolVariant, string> = {
@@ -51,6 +55,7 @@ const VARIANT_TITLE: Record<ToolVariant, string> = {
   web: 'chat.toolTitleWeb',
   todo: 'chat.toolTitleTodo',
   ask: 'chat.toolTitleAsk',
+  history: 'chat.toolTitleHistory',
   generic: 'chat.toolTitleGeneric',
 };
 
@@ -63,6 +68,7 @@ const VARIANT_ICON: Record<ToolVariant, LucideIcon> = {
   web: Globe,
   todo: ListChecks,
   ask: MessageCircleQuestion,
+  history: BookMarked,
   generic: Wrench,
 };
 
@@ -76,6 +82,7 @@ const SUMMARY_KEYS: Record<ToolVariant, readonly string[]> = {
   web: ['query', 'q', 'url', 'urls'],
   todo: ['subject', 'title', 'action', 'task_id', 'id'],
   ask: ['question', 'prompt'],
+  history: ['query', 'pattern', 'reference_id', 'session_id'],
   generic: [],
 };
 

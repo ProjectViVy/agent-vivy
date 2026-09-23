@@ -11,6 +11,7 @@ import { useTranslation } from '@/i18n';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MessageBubble } from './MessageBubble';
 import { ReasoningRow } from './ReasoningRow';
+import { ReferenceDetail } from './ReferenceDetail';
 import { ToolRow } from './ToolRow';
 import { ChatInput } from './ChatInput';
 import { TodoProgressStrip } from './TodoProgressStrip';
@@ -149,6 +150,7 @@ function RunRowView({ row }: { row: RunRow }) {
   const { t } = useTranslation();
   if (row.kind === 'reasoning') return <ReasoningRow text={row.text} running={row.running} />;
   if (row.kind === 'tool') return <ToolRow call={row.call} />;
+  if (row.kind === 'context_reference') return <ReferenceDetail reference={row.reference} />;
   if (row.kind === 'assistant') return null;
   return (
     <div className="my-2 text-center text-[11px] text-muted-foreground">

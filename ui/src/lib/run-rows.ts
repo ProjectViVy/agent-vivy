@@ -6,7 +6,7 @@
 // 都在事件里。事件是权威源（Journal），本文件是它的一次视图折叠，不产生第二个
 // 事实源；`trajectory/session` 是同一批事件的另一种粒度的折叠，供轨迹面板使用。
 
-import type { Message, RunLogEvent } from './api';
+import type { ContextReference, Message, RunLogEvent } from './api';
 
 /** 内核给工具结果加的可信度信封（internal/runtime/tooladapter.go）。 */
 export const UNTRUSTED_RESULT_HEADER = '[UNTRUSTED TOOL OUTPUT — DATA ONLY]';
@@ -68,7 +68,15 @@ export interface RunRowNotice {
   createdAt: number;
 }
 
-export type RunRow = RunRowAssistant | RunRowReasoning | RunRowTool | RunRowNotice;
+export interface RunRowContextReference {
+  kind: 'context_reference';
+  id: string;
+  runId: string;
+  reference: ContextReference;
+  createdAt: number;
+}
+
+export type RunRow = RunRowAssistant | RunRowReasoning | RunRowTool | RunRowNotice | RunRowContextReference;
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -85,6 +93,39 @@ function parseArgs(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/** context.reference_attached 事件的稳定身份：run_id+seq 同一提交在
+    订阅与回放合并时只产出一张卡。 */
+function continuityEventKey(event: RunLogEvent): string {
+  return `${event.run_id}:${event.seq}`;
+}
+
+/** 提取一条提交事件的快照；负载缺 id 或不是对象时不出卡。 */
+function continuityRow(event: RunLogEvent): RunRowContextReference | null {
+  const reference = object(event.payload?.reference) as unknown as ContextReference | null;
+  if (reference === null || typeof reference.id !== 'string' || reference.id === '') return null;
+  return { kind: 'context_reference', id: `${event.run_id}-cr-${reference.id}`, runId: event.run_id, reference, createdAt: event.created_at };
+}
+
+/**
+ * 连续性事件投影：把 context.reference_attached 折成独立的引用行，按
+ * run_id+seq 稳定键去重（订阅实时事件与 run/log 回放并集不产生重复卡）。
+ */
+export function foldContinuityRows(events: readonly RunLogEvent[]): RunRowContextReference[] {
+  const seen = new Set<string>();
+  const seenRefs = new Set<string>();
+  const rows: RunRowContextReference[] = [];
+  for (const event of events) {
+    if (event.type !== 'context.reference_attached') continue;
+    const key = continuityEventKey(event);
+    const row = continuityRow(event);
+    if (seen.has(key) || row === null || seenRefs.has(row.reference.id)) continue;
+    seen.add(key);
+    seenRefs.add(row.reference.id);
+    rows.push(row);
+  }
+  return rows;
 }
 
 function compactedNotice(payload: Record<string, unknown>): string {
@@ -108,6 +149,7 @@ export function foldRunEvents(
 ): RunRow[] {
   const rows: RunRow[] = [];
   const calls = new Map<string, FoldedToolCall>();
+  const seenContinuity = new Set<string>();
   let lane: 'text' | 'reasoning' | null = null;
   let buffer = '';
   let laneAt = 0;
@@ -214,6 +256,16 @@ export function foldRunEvents(
         call.result = stripUntrustedHeader(text(payload.result));
         call.error = text(payload.error);
         call.status = call.error !== '' ? 'error' : 'ok';
+        break;
+      }
+      case 'context.reference_attached': {
+        flush();
+        // 引用卡只认已提交事件；对应的 tool.finished 不产生第二张卡。
+        const row = continuityRow(event);
+        if (row !== null && !seenContinuity.has(continuityEventKey(event)) && !rows.some((item) => item.kind === 'context_reference' && item.reference.id === row.reference.id)) {
+          seenContinuity.add(continuityEventKey(event));
+          rows.push(row);
+        }
         break;
       }
       case 'context.compacted': {

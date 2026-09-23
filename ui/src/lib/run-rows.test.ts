@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message, RunLogEvent } from './api';
-import { UNTRUSTED_RESULT_HEADER, buildTranscriptRows, foldRunEvents, recentRunIds } from './run-rows';
+import { UNTRUSTED_RESULT_HEADER, buildTranscriptRows, foldContinuityRows, foldRunEvents, recentRunIds } from './run-rows';
 
 function event(seq: number, type: string, payload: Record<string, unknown>, createdAt = seq): RunLogEvent {
   return { run_id: 'run-1', seq, type, created_at: createdAt, payload_version: 2, payload };
@@ -138,5 +138,74 @@ describe('recentRunIds', () => {
       message({ id: '4', run_id: 'run-c' }),
     ], 2);
     expect(ids).toEqual(['run-c', 'run-a']);
+  });
+});
+
+const refSnapshot = (id: string, text = 'saved item') => ({
+  id,
+  destination_session_id: 'dest-1',
+  destination_run_id: 'run-1',
+  source_session_id: 'src-1',
+  source_workspace: 'ws',
+  captured_at: 100,
+  items: [{ ref: { session_id: 'src-1', kind: 'message', message_id: 'm1', created_at: 1 }, author: 'user', text, redacted: false, truncated: false }],
+  digest: 'd1',
+  origin: 'user_selection',
+});
+
+const attached = (seq: number, id = 'ref-1'): RunLogEvent =>
+  event(seq, 'context.reference_attached', { reference: refSnapshot(id) });
+
+describe('foldContinuityRows', () => {
+  it('deduplicates the same committed event replayed through live and log union', () => {
+    const rows = foldContinuityRows([attached(2), attached(2)]);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
+  });
+
+  it('keeps distinct committed references in event order', () => {
+    const rows = foldContinuityRows([attached(2, 'ref-1'), attached(4, 'ref-2')]);
+    expect(rows.map((row) => row.kind)).toEqual(['context_reference', 'context_reference']);
+    expect(rows[0]).toMatchObject({ reference: { id: 'ref-1', source_session_id: 'src-1', digest: 'd1', origin: 'user_selection' } });
+    expect(rows[1]).toMatchObject({ reference: { id: 'ref-2' } });
+    const first = rows[0];
+    if (first?.kind !== 'context_reference') throw new Error('expected a reference row');
+    expect(first.reference.items).toHaveLength(1);
+    expect(first.reference.items[0]?.text).toBe('saved item');
+  });
+
+  it('skips reference events whose snapshot is missing or malformed', () => {
+    const rows = foldContinuityRows([
+      event(2, 'context.reference_attached', {}),
+      event(3, 'context.reference_attached', { reference: { source_session_id: 'src-1' } }),
+      event(4, 'context.reference_attached', { reference: 'bogus' }),
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe('foldRunEvents with continuity', () => {
+  it('emits one reference card at its event position and none from the tool result', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'run.started', {}),
+      attached(2),
+      event(3, 'model.request', {}),
+      event(4, 'tool.requested', { tool_call_id: 'c1', tool_name: 'reference_preview', args: { selection: 'x' } }),
+      event(5, 'tool.finished', { tool_call_id: 'c1', tool_name: 'reference_preview', result: 'preview body' }),
+      event(6, 'model.delta', { delta: 'done' }),
+      event(7, 'model.completed', {}),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(['context_reference', 'tool', 'assistant']);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
+  });
+
+  it('survives replay/live union where the same seq arrives twice', () => {
+    const events = [
+      event(1, 'run.started', {}),
+      attached(2),
+      attached(2), // live event replayed after log fetch
+      event(3, 'model.delta', { delta: 'x' }),
+    ].sort((a, b) => a.seq - b.seq);
+    const rows = foldRunEvents('run-1', events);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
   });
 });

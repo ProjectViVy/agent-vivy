@@ -729,6 +729,34 @@ export interface FaceReferenceDraft {
   readonly selection: FaceReferenceSelection;
 }
 
+/** Destination-owned sanitized snapshot committed by context.reference_attached. */
+export interface FaceContextReference {
+  readonly id: string;
+  readonly destination_session_id: string;
+  readonly destination_run_id: string;
+  readonly source_session_id: string;
+  readonly source_workspace: string;
+  readonly captured_at: number;
+  readonly items: FaceHistoryItem[];
+  readonly digest: string;
+  readonly origin: string;
+}
+
+/** reference/get result: the saved copy plus live source and feed status. */
+export interface FaceReferenceView {
+  readonly reference: FaceContextReference;
+  readonly source_status: string;
+  readonly feed_status: string;
+}
+
+/** history/read request: exactly one of selection or reference_id. */
+export interface FaceHistoryReadRequest {
+  readonly selection?: FaceHistorySelection;
+  readonly reference_id?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
 export type FaceRunStatus = "accepted" | "queued" | "active" | "completed" | "failed" | "cancelled";
 
 /** Core run data returned by the existing Web Face API. */
@@ -1671,6 +1699,8 @@ export interface FaceClientAPI {
   historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
   historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
   previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
+  referenceGet(sessionId: string, referenceId: string): Promise<FaceReferenceView>;
+  historyRead(sessionId: string, request: FaceHistoryReadRequest): Promise<FaceHistoryPage>;
   interruptRun(runId: string): Promise<FaceRunInterruptResult>;
   cancelRun(runId: string): Promise<FaceRunInterruptResult>;
   getRun(runId: string): Promise<FaceRun>;
@@ -1799,6 +1829,9 @@ export interface FaceStoreState {
   readonly draftScope: FaceHistoryScope | null;
   /** Stable client request id for the current draft continuity context. */
   readonly draftRequestId: string;
+  /** Live reference/get views for committed references, keyed by reference id;
+   * null marks a failed read while the committed snapshot stays readable. */
+  readonly referenceViews: Readonly<Record<string, FaceReferenceView | null>>;
   readonly backgroundRuns: FaceBackgroundRun[];
   readonly backgroundPhase: FacePhase;
   readonly backgroundError: string | null;
@@ -1852,6 +1885,7 @@ export interface FaceStoreState {
   removeDraftReference(id: string): void;
   setDraftScope(scope: FaceHistoryScope | null): void;
   clearDraftContext(): void;
+  loadReferenceView(referenceId: string): Promise<void>;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
