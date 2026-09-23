@@ -150,6 +150,9 @@ type ServiceDeps struct {
 	// unavailable; ordinary runs and model-side preview/attach are
 	// unaffected by this dep.
 	References *ReferenceService
+	// Deliverables closes live verified-download transfers when a session is
+	// deleted (SC-D4 §8/§9). Nil leaves delivery presentation unwired.
+	Deliverables SessionTransferCloser
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -516,6 +519,9 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		// sealed so a partial backend failure cannot revive producers after
 		// their in-memory authority has been removed; deletion may be retried.
 		return err
+	}
+	if s.deps.Deliverables != nil {
+		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
 	return nil
 }
