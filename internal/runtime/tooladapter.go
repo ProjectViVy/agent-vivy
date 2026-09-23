@@ -532,7 +532,7 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 }
 
 func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {
-	return !spec.Readonly &&
+	return spec.Name != tools.CreateGoalName && !spec.Readonly &&
 		spec.Interaction != domain.ToolInteractionQuestion &&
 		approvalPolicy(ctx) == domain.ApprovalPolicyNever
 }
@@ -702,7 +702,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	forceHumanApproval := spec.Name == tools.CreateGoalName && approvalPolicy(ctx) != domain.ApprovalPolicyNever
+	forceHumanApproval := spec.Name == tools.CreateGoalName
 	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)

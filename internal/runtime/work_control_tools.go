@@ -97,18 +97,23 @@ func (s *Service) fenceWorkRun(runID domain.RunID) {
 	s.mu.Unlock()
 }
 
-func modelWorkIdentity(runID domain.RunID, operation string, input any) (string, string, error) {
+func modelWorkIdentity(runID domain.RunID, operation, toolCallID string, input any) (string, string, error) {
 	raw, err := json.Marshal(input)
 	if err != nil {
 		return "", "", err
 	}
-	digest := sha256.Sum256(append([]byte("vivy:model-work:v1\x00"+string(runID)+"\x00"+operation+"\x00"), raw...))
-	hash := hex.EncodeToString(digest[:])
-	return "model-work-" + operation + "-" + hash[:24], hash, nil
+	identity := []byte("vivy:model-work:v2\x00" + string(runID) + "\x00" + operation + "\x00" + toolCallID)
+	idDigest := sha256.Sum256(identity)
+	requestHash := sha256.Sum256(append(append(identity, 0), raw...))
+	return "model-work-" + operation + "-" + hex.EncodeToString(idDigest[:12]), hex.EncodeToString(requestHash[:]), nil
 }
 
 func (s *Service) commitModelWork(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, operation string, input any, build func(string, string, domain.WorkState) domain.WorkMutation) (domain.WorkState, error) {
-	requestID, requestHash, err := modelWorkIdentity(domain.RunID(runID), operation, input)
+	toolCallID := compose.GetToolCallID(ctx)
+	if toolCallID == "" {
+		return domain.WorkState{}, errors.New("runtime: model work tool call ID is required")
+	}
+	requestID, requestHash, err := modelWorkIdentity(runID, operation, toolCallID, input)
 	if err != nil {
 		return domain.WorkState{}, err
 	}
@@ -151,7 +156,7 @@ func (s *Service) SubmitPlan(ctx context.Context, markdown string) (domain.WorkS
 		return domain.WorkState{}, ErrPlanReviewUnavailable
 	}
 	state, err := s.commitModelWork(ctx, sessionID, runID, "submit-plan", map[string]string{
-		"markdown": markdown, "tool_call_id": toolCallID,
+		"markdown": markdown,
 	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,

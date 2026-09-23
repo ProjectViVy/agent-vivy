@@ -346,7 +346,7 @@ func (s *Service) cancelPlanReviewForRun(ctx context.Context, sessionID domain.S
 	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.OriginRunID != runID {
 		return
 	}
-	requestID, requestHash, err := modelWorkIdentity(runID, "cancel-plan-review", map[string]string{
+	requestID, requestHash, err := modelWorkIdentity(runID, "cancel-plan-review", state.Plan.OriginToolCallID, map[string]string{
 		"submission_id": state.Plan.SubmissionID,
 	})
 	if err != nil {
