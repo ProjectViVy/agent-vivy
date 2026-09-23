@@ -17,6 +17,7 @@ Read repository `AGENTS.md`, the architecture, this index, then the Story; read 
 | R5 | Eino Workflow executes dependency fanout/join with stable Run mapping, restart, cancel, no repeated side effect | G0, G2 |
 | R6 | Journal and host projection explain child/workflow lifecycle; opaque Eino checkpoint is execution-only | G0–G3 |
 | R7 | Full SQL, runtime, RPC, UI and release verification recorded | G4 |
+| R8 | Disposition bounded direct parent-child messaging before claiming child messaging complete; if selected, prove authorization, ordering, delivery and restart/interruption behavior | D8 before ORCH-04 messaging scope |
 
 ## Epic / Story graph
 
@@ -25,13 +26,13 @@ Read repository `AGENTS.md`, the architecture, this index, then the Story; read 
 | ORCH-01 | Native proof | R1,R5,R6 | Standalone integrated Service/Eino proof; none | [01](ORCH-01.md) | Planned · review gate | G0 unverified; Go toolchain absent in this planning workspace. |
 | ORCH-02 | Child foundation | R1,R2,R6 | Durable child Session/Run/admission binding and SQL conformance; 01: verified runtime semantics | [02](ORCH-02.md) | Planned · blocked by 01 | G1 schema/lifecycle review. |
 | ORCH-03 | Child execution | R1,R2,R6 | Production native agent activation through Service; 02: durable binding, idempotent admission | [03](ORCH-03.md) | Planned · blocked by 02 | G1 parity and rollback. |
-| ORCH-04 | Child controls | R2,R3,R6 | Host RPC/UI continuation and interrupt with durable wait; 03: native child runs | [04](ORCH-04.md) | Planned · blocked by 03 | G1/G3 end-to-end. |
+| ORCH-04 | Child controls | R2,R3,R6,R8 | Host RPC/UI continuation and interrupt with durable wait; direct parent-child mailbox is a separate unresolved contract; 03: native child runs | [04](ORCH-04.md) | Planned · blocked by 03 and D8 scope disposition | G1/G3; do not treat later-Run follow-up as in-flight message delivery. |
 | ORCH-05 | Graph foundation | R4,R6 | Validated immutable descriptor and durable revision admission; 02: SQL child binding conventions | [05](ORCH-05.md) | Planned · blocked by 02 | G2 validation/idempotency. |
 | ORCH-06 | Graph execution | R1,R4,R5,R6 | Eino Workflow graph Run with governed node children; 03: native child invoker, 05: revision/validator | [06](ORCH-06.md) | Planned · blocked by 03,05 | G0 finding must still hold in production path. |
 | ORCH-07 | Graph product surface | R3,R4,R6 | Host proposal/start/read/cancel and UI inspection; 04: child controls, 06: graph execution | [07](ORCH-07.md) | Planned · blocked by 04,06 | G3 real controls/locales. |
 | ORCH-08 | Integrated acceptance | R1–R7 | Recovery/side-effect/SQL/UI integration and release evidence; 07: completed surface | [08](ORCH-08.md) | Planned · blocked by 07 | G1–G4 required before closure. |
 
-The table is the **only** maintained dependency DAG. Derived waves: `{01}`, `{02}`, `{03,05}`, `{04,06}`, `{07}`, `{08}`. `03` and `05` can have independent owners after 02; `04` and `06` both touch App/Service and must coordinate shared edits or execute serially. No date/velocity forecast is asserted. The technical path G0 → G1 → G2 → G3 → G4 is a delivery gate, not a claim that every wave has passed. ORCH-01 is proof work only; no user-visible feature is released from the first wave.
+The table is the **only** maintained dependency DAG. Derived waves: `{01}`, `{02}`, `{03,05}`, `{04,06}`, `{07}`, `{08}`. `03` and `05` can have independent owners after 02; `04` and `06` both touch App/Service and must coordinate shared edits or execute serially. No date/velocity forecast is asserted. The technical path G0 → G1 → G2 → G3 → G4 is a delivery gate, not a claim that every wave has passed. ORCH-01 is proof work only; no user-visible feature is released from the first wave. D8 is a product-scope gate rather than an execution dependency: the maintainer must disposition the previously identified parent-child messaging gap before ORCH-04 adds or excludes any mailbox behavior. Peer/swarm messaging remains separately deferred under D5.
 
 ## Coordination and source ownership
 
