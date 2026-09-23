@@ -351,7 +351,7 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Journal: backend, Work: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	liveTools := make([]domain.ToolSpec, 0, len(ts))

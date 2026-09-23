@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -25,37 +26,63 @@ func TestBuildGoalEditMutationCarriesCurrentReference(t *testing.T) {
 	}
 }
 
-func TestBuildPlanSubmitRequiresOriginRunAndToolCall(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		params workParams
-	}{
-		{
-			name: "both missing",
-			params: workParams{
-				SessionID: "session-1", RequestID: "submit-no-origin", PlanMarkdown: "# plan",
-			},
-		},
-		{
-			name: "run missing",
-			params: workParams{
-				SessionID: "session-1", RequestID: "submit-no-run", PlanMarkdown: "# plan",
-				PlanOriginToolCallID: "tool-1",
-			},
-		},
-		{
-			name: "tool call missing",
-			params: workParams{
-				SessionID: "session-1", RequestID: "submit-no-tool-call", PlanMarkdown: "# plan",
-				PlanOriginRunID: "run-1",
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, rpcErr := buildWorkMutation("plan/submit", domain.WorkEventPlanSubmitted, tc.params); rpcErr == nil || rpcErr.Code != InvalidParams {
-				t.Fatalf("buildWorkMutation PlanSubmitted error = %v, want invalid params", rpcErr)
-			}
-		})
+func TestBuildWorkMutationRejectsModelOnlyPlanSubmit(t *testing.T) {
+	if _, rpcErr := buildWorkMutation("plan/submit", domain.WorkEventPlanSubmitted, workParams{
+		SessionID: "session-1", RequestID: "model-only-submit",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("buildWorkMutation PlanSubmitted error = %v, want invalid params", rpcErr)
+	}
+}
+
+func TestPublicPlanSubmitRejectsCallerOriginWithoutMutation(t *testing.T) {
+	ctx := context.Background()
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.Work = deps.Sessions.(storage.WorkStore)
+	})
+	const sessionID domain.SessionID = "sess-plan-submit-origin"
+	const runID domain.RunID = "run-plan-submit-origin"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := env.backend.CreateRun(ctx, domain.Run{
+		ID: runID, SessionID: sessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "plan/enter", map[string]any{
+		"session_id": string(sessionID), "request_id": "enter-plan", "expected_version": 0,
+	}); rpcErr != nil {
+		t.Fatalf("plan/enter: %v", rpcErr)
+	}
+	beforeState, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ReadWork before submit: %v", err)
+	}
+	beforeReplay, _, err := env.backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 100)
+	if err != nil {
+		t.Fatalf("ReplayWork before submit: %v", err)
+	}
+	_, rpcErr := callControl(t, env.handler, "plan/submit", map[string]any{
+		"session_id": string(sessionID), "request_id": "forged-submit", "expected_version": int64(beforeState.Version),
+		"submission_id": "forged-submission", "markdown": "# forged plan",
+		"origin_run_id": string(runID), "origin_tool_call_id": "forged-tool-call",
+	})
+	if rpcErr == nil || rpcErr.Code != MethodNotFound || rpcErr.Message != "method not found: plan/submit" {
+		t.Fatalf("plan/submit error = %v, want an unregistered model-only operation", rpcErr)
+	}
+	afterState, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ReadWork after submit: %v", err)
+	}
+	afterReplay, _, err := env.backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 100)
+	if err != nil {
+		t.Fatalf("ReplayWork after submit: %v", err)
+	}
+	if !reflect.DeepEqual(afterState, beforeState) {
+		t.Fatalf("work state changed after rejected plan/submit: before=%+v after=%+v", beforeState, afterState)
+	}
+	if !reflect.DeepEqual(afterReplay, beforeReplay) {
+		t.Fatalf("work replay changed after rejected plan/submit: before=%+v after=%+v", beforeReplay, afterReplay)
 	}
 }
 
