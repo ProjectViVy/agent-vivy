@@ -89,6 +89,42 @@ func TestFoldWorkRejectsRoundCapOverflow(t *testing.T) {
 	}
 }
 
+func TestFoldWorkRejectsRoundAdmissionUnlessGoalActive(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	for _, phase := range []struct {
+		name string
+		kind WorkEventKind
+	}{
+		{"paused", WorkEventGoalPaused},
+		{"blocked", WorkEventGoalBlocked},
+		{"completed", WorkEventGoalCompleted},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			_, err := FoldWork([]WorkEvent{
+				goalEvent(1, WorkEventGoalCreated, ref, "ship it", 2),
+				goalEvent(2, phase.kind, ref, "", 0),
+				admissionEvent(3, ref, 1),
+			})
+			if !errors.Is(err, ErrStaleGoalReference) {
+				t.Fatalf("FoldWork() error = %v, want inactive Goal rejected", err)
+			}
+		})
+	}
+}
+
+func TestFoldWorkRejectsCrossSessionRoundAdmission(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	admission := admissionEvent(2, ref, 1)
+	admission.Admission.SessionID = "other-session"
+	_, err := FoldWork([]WorkEvent{
+		goalEvent(1, WorkEventGoalCreated, ref, "ship it", 2),
+		admission,
+	})
+	if !errors.Is(err, ErrStaleGoalReference) {
+		t.Fatalf("FoldWork() error = %v, want cross-session admission rejected", err)
+	}
+}
+
 func TestWorkEventKindIsBounded(t *testing.T) {
 	event := goalEvent(1, WorkEventKind("goal.deleted"), GoalRef{ID: "goal-1", Revision: 1}, "ship it", 1)
 

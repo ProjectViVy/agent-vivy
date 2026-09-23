@@ -43,6 +43,9 @@ func (b *Backend) ReplayWork(ctx context.Context, sessionID domain.SessionID, af
 	if limit <= 0 {
 		return []domain.WorkEvent{}, nil
 	}
+	if _, err := b.ReadWork(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	events, err := b.readWorkEvents(ctx, sessionID, domain.WorkSeq(after), limit)
 	if err != nil {
 		return nil, err

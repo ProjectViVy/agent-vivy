@@ -440,6 +440,9 @@ func admitGoalRound(state *WorkState, admission GoalRunAdmission) error {
 	if err := requireGoal(state, admission.Goal); err != nil {
 		return err
 	}
+	if state.Goal.Phase != WorkPhaseActive {
+		return fmt.Errorf("%w: goal phase %q", ErrStaleGoalReference, state.Goal.Phase)
+	}
 	if admission.SessionID != state.SessionID ||
 		admission.RunID == "" ||
 		admission.Round != state.Goal.RoundsStarted+1 {
