@@ -175,8 +175,7 @@ export function foldRunEvents(
         break;
       }
       case 'model.completed': {
-        // payload v1 的 content 是权威全文；delta 为空（v2 摘要）时用它兜底。
-        if (lane === 'text' && buffer === '') buffer = text(payload.content);
+        // v2 完成事件只是提交标记；正文以累计的 model.delta 为准。
         flush();
         break;
       }

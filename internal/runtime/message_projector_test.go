@@ -208,7 +208,7 @@ func TestMessageProjectorPreservesToolPreambleAndFinalOrder(t *testing.T) {
 	}
 }
 
-func TestMessageProjectorRejectsLegacyV1Completion(t *testing.T) {
+func TestMessageProjectorToleratesLegacyV1Run(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
 	sessionID := domain.SessionID("sess-projector-v1")
@@ -223,16 +223,23 @@ func TestMessageProjectorRejectsLegacyV1Completion(t *testing.T) {
 		trajEvent(domain.EventModelRequest, 10, payloadModelRequest{}),
 		trajEventVersion(domain.EventModelCompleted, 20, map[string]string{"content": "legacy completion"}, 1),
 	)
-	if err := svc.ReconcileSessionMessages(ctx, sessionID); err == nil {
-		t.Fatal("legacy v1 completion was projected")
+	// A projection persisted by the pre-v2 writer stays readable: reconcile
+	// skips the legacy run instead of failing the whole session.
+	persisted := domain.Message{
+		ID: projectedMessageID(runID, 20, "0"), SessionID: sessionID, RunID: runID,
+		Role: domain.RoleAssistant, CreatedAt: 1, Content: "old projected text",
+	}
+	if err := backend.AppendMessage(ctx, persisted); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ReconcileSessionMessages(ctx, sessionID); err != nil {
+		t.Fatalf("legacy v1 run made the session unreadable: %v", err)
 	}
 	got, err := backend.ListMessages(ctx, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, msg := range got {
-		if msg.Content == "legacy completion" {
-			t.Fatalf("legacy v1 content was persisted: %+v", msg)
-		}
+	if len(got) != 1 || got[0].Content != "old projected text" {
+		t.Fatalf("legacy run projection = %+v, want the persisted row untouched", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -145,9 +146,16 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 	return out, nil
 }
 
+// errUnsupportedCompletedVersion marks model.completed events that predate
+// the v2 hash-commit shape. Reconcile must not hard-fail a whole session on
+// them: the legacy run is skipped and whatever projection was persisted by
+// the old writer stays readable. Fresh runs are v2-only, so the run
+// completion path still fails closed on this error.
+var errUnsupportedCompletedVersion = errors.New("unsupported model.completed payload version")
+
 func completedProjectionContent(re domain.RunEvent, deltas string) (string, error) {
 	if re.PayloadVersion != 2 {
-		return "", fmt.Errorf("model.completed seq %d unsupported payload version %d", re.Seq, re.PayloadVersion)
+		return "", fmt.Errorf("%w %d at seq %d", errUnsupportedCompletedVersion, re.PayloadVersion, re.Seq)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(re.Payload, &fields); err != nil {
@@ -208,6 +216,9 @@ func (s *Service) reconcileSessionMessageProjection(ctx context.Context, session
 	}
 	for _, run := range runs {
 		desired, err := s.projectedMessages(ctx, sessionID, run.ID)
+		if errors.Is(err, errUnsupportedCompletedVersion) {
+			continue
+		}
 		if err != nil {
 			return err
 		}

@@ -176,9 +176,10 @@ func newHistoryFixture(t *testing.T) *historyFixture {
 	}}); err != nil {
 		t.Fatalf("append events: %v", err)
 	}
-	// The message projector persists deterministic msgp_ assistant rows for
-	// both completion payload versions; history projection treats those rows
-	// as the canonical modern assistant text.
+	// The current message projector persists deterministic msgp_ assistant
+	// rows from v2 completions; the v1-era row below stands for a projection
+	// a pre-v2 writer already persisted. History projection treats both as
+	// canonical assistant text.
 	appendMessage(domain.Message{ID: "msgp_run-b1_00000000000000000001_0", SessionID: "B", Role: domain.RoleAssistant, CreatedAt: 22, Content: "assistant summary text"})
 	appendMessage(domain.Message{ID: "msgp_run-b1_00000000000000000005_0", SessionID: "B", Role: domain.RoleAssistant, CreatedAt: 23, Content: "hash verified completion text"})
 	scope, err := domain.NewAcceptedHistoryScope("B", []domain.SessionID{"A"})
