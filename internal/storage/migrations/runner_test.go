@@ -22,16 +22,16 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 23 {
-		t.Fatalf("migration count = %d, want 23", count)
+	if count != 25 {
+		t.Fatalf("migration count = %d, want 25", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 23`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 23: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 25: %v", err)
 	}
-	if name != "workspace_path" || len(checksum) != 64 {
-		t.Fatalf("migration 23 metadata = %q/%q", name, checksum)
+	if name != "history_work_anchors" || len(checksum) != 64 {
+		t.Fatalf("migration 25 metadata = %q/%q", name, checksum)
 	}
 
 	if err := Apply(ctx, db, SQLite); err != nil {

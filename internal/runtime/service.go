@@ -185,6 +185,7 @@ type Service struct {
 	goalAdmissionMu  sync.Mutex
 	admissionLocksMu sync.Mutex
 	admissionLocks   map[domain.SessionID]*sync.Mutex
+	humanIntentLocks map[domain.SessionID]*sync.Mutex
 	goalWG           sync.WaitGroup
 	stopping         bool
 	humanPending     map[domain.SessionID]int
@@ -194,9 +195,9 @@ type Service struct {
 	// starts, no later event or projection may resurrect that session.
 	runSessions     map[domain.RunID]domain.SessionID
 	deletedSessions map[domain.SessionID]struct{}
-	// pending tracks runs suspended on an approval: no engine work is in
-	// flight, the checkpoint is durable, and the run row stays active
-	// until a decision resumes it or Cancel closes it (C6).
+	// pending tracks runs suspended on a review or question: no engine work is
+	// in flight, the checkpoint is durable, and the run row stays active until
+	// a response resumes it or Cancel closes it.
 	pending map[domain.RunID]pendingRun
 	// shellPending tracks direct governed-shell runs suspended on a durable
 	// approval. It is intentionally separate from Eino pending state: shell
@@ -218,6 +219,11 @@ type Service struct {
 	runTools   map[domain.RunID]map[string]struct{}
 	workFenced map[domain.RunID]struct{}
 	workGates  map[domain.RunID]*sync.Mutex
+	// workBlockedCalls records the sibling tool-call IDs from a model batch
+	// interrupted by submit_plan. Fresh model calls remain eligible after the
+	// human decision, while unreviewed siblings from the original batch stay
+	// fenced for the rest of that run.
+	workBlockedCalls map[domain.RunID]map[string]struct{}
 	// contextViews memoizes each live run's committed Context View so resume
 	// paths skip a full Journal replay. Entries die with the run in
 	// cleanupRunState.
@@ -263,15 +269,18 @@ type pendingRun struct {
 	// mounted is the run's skill-mount registry captured at suspend time.
 	// Restart recovery rebuilds it from the journal's tool.mounted events
 	// (recoveredMounts); nil means the run mounted nothing.
-	mounted        *tools.MountedTools
-	mode           domain.RunMode
-	profile        domain.PolicyProfile
-	snapshot       domain.PolicySnapshot
-	sandboxMode    domain.SandboxMode
-	approvalPolicy domain.ApprovalPolicy
-	face           domain.Face
-	questionID     string
-	ledger         *BudgetLedger
+	mounted          *tools.MountedTools
+	mode             domain.RunMode
+	profile          domain.PolicyProfile
+	snapshot         domain.PolicySnapshot
+	sandboxMode      domain.SandboxMode
+	approvalPolicy   domain.ApprovalPolicy
+	face             domain.Face
+	questionID       string
+	planSubmissionID string
+	planToolCallID   string
+	planResumeTarget string
+	ledger           *BudgetLedger
 }
 
 // RunOptions controls the physical policy applied to one run.
@@ -319,9 +328,9 @@ type RunOptions struct {
 	// GoalRound requests the atomic Goal admission path. Ordinary callers
 	// leave it nil and retain the legacy startup sequence.
 	GoalRound *GoalRoundAdmission
-	// HumanAdmission registers a host-originated request before it competes
-	// with an uncommitted automatic Goal candidate. It is set only by the
-	// authenticated control plane, never by model/tool JSON.
+	// HumanAdmission registers a process-local startup intent before it waits
+	// on the session gate. It is set only by the authenticated control plane,
+	// never by model/tool JSON; it is not a durable queued Run or ticket.
 	HumanAdmission bool
 }
 
@@ -343,31 +352,33 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
 	}
 	return &Service{
-		engine:          eng,
-		deps:            deps,
-		provider:        provider,
-		modelID:         modelID,
-		defaultProfile:  deps.PolicyDefaultProfile,
-		approvalSettle:  deps.ApprovalSettleTimeout,
-		active:          make(map[domain.RunID]context.CancelFunc),
-		goalStarting:    make(map[domain.SessionID]struct{}),
-		goalRuns:        make(map[domain.SessionID]domain.RunID),
-		goalRunSessions: make(map[domain.RunID]domain.SessionID),
-		goalRunRefs:     make(map[domain.RunID]domain.GoalRef),
-		admissionLocks:  make(map[domain.SessionID]*sync.Mutex),
-		humanPending:    make(map[domain.SessionID]int),
-		runSessions:     make(map[domain.RunID]domain.SessionID),
-		deletedSessions: make(map[domain.SessionID]struct{}),
-		pending:         make(map[domain.RunID]pendingRun),
-		shellPending:    make(map[domain.RunID]shellPendingRun),
-		shellStates:     make(map[string]shellState),
-		ledgers:         make(map[domain.RunID]*BudgetLedger),
-		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
-		runTools:        make(map[domain.RunID]map[string]struct{}),
-		workFenced:      make(map[domain.RunID]struct{}),
-		workGates:       make(map[domain.RunID]*sync.Mutex),
-		contextViews:    make(map[domain.RunID]string),
-		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
+		engine:           eng,
+		deps:             deps,
+		provider:         provider,
+		modelID:          modelID,
+		defaultProfile:   deps.PolicyDefaultProfile,
+		approvalSettle:   deps.ApprovalSettleTimeout,
+		active:           make(map[domain.RunID]context.CancelFunc),
+		goalStarting:     make(map[domain.SessionID]struct{}),
+		goalRuns:         make(map[domain.SessionID]domain.RunID),
+		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
+		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
+		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
+		humanIntentLocks: make(map[domain.SessionID]*sync.Mutex),
+		humanPending:     make(map[domain.SessionID]int),
+		runSessions:      make(map[domain.RunID]domain.SessionID),
+		deletedSessions:  make(map[domain.SessionID]struct{}),
+		pending:          make(map[domain.RunID]pendingRun),
+		shellPending:     make(map[domain.RunID]shellPendingRun),
+		shellStates:      make(map[string]shellState),
+		ledgers:          make(map[domain.RunID]*BudgetLedger),
+		snapshots:        make(map[domain.RunID]domain.PolicySnapshot),
+		runTools:         make(map[domain.RunID]map[string]struct{}),
+		workFenced:       make(map[domain.RunID]struct{}),
+		workGates:        make(map[domain.RunID]*sync.Mutex),
+		workBlockedCalls: make(map[domain.RunID]map[string]struct{}),
+		contextViews:     make(map[domain.RunID]string),
+		lastCompaction:   make(map[domain.SessionID]*LastCompaction),
 	}
 }
 
@@ -384,6 +395,20 @@ func (s *Service) sessionAdmission(sessionID domain.SessionID) *sync.Mutex {
 	if gate == nil {
 		gate = &sync.Mutex{}
 		s.admissionLocks[sessionID] = gate
+	}
+	return gate
+}
+
+// humanIntentGate linearizes human intent registration against the final
+// Goal-round commit. It is separate from the startup gate so a human request
+// can register while an uncommitted Goal candidate owns session admission.
+func (s *Service) humanIntentGate(sessionID domain.SessionID) *sync.Mutex {
+	s.admissionLocksMu.Lock()
+	defer s.admissionLocksMu.Unlock()
+	gate := s.humanIntentLocks[sessionID]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		s.humanIntentLocks[sessionID] = gate
 	}
 	return gate
 }
@@ -639,13 +664,19 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 	var sessionAdmission *sync.Mutex
 	if options.HumanAdmission && options.GoalRound == nil {
-		sessionAdmission = s.sessionAdmission(sessionID)
-		sessionAdmission.Lock()
-		defer sessionAdmission.Unlock()
+		intentGate := s.humanIntentGate(sessionID)
+		intentGate.Lock()
 		s.mu.Lock()
 		s.humanPending[sessionID]++
 		s.mu.Unlock()
+		intentGate.Unlock()
+
+		sessionAdmission = s.sessionAdmission(sessionID)
+		sessionAdmission.Lock()
+		defer sessionAdmission.Unlock()
 		defer func() {
+			intentGate.Lock()
+			defer intentGate.Unlock()
 			s.mu.Lock()
 			if pending := s.humanPending[sessionID]; pending <= 1 {
 				delete(s.humanPending, sessionID)
@@ -654,6 +685,9 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 			}
 			s.mu.Unlock()
 		}()
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 	}
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
@@ -796,12 +830,22 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 				RunID:     runID,
 			},
 		}
+		intentGate := s.humanIntentGate(sessionID)
+		intentGate.Lock()
+		s.mu.Lock()
+		humanPending = s.humanPending[sessionID] > 0
+		s.mu.Unlock()
+		if humanPending {
+			intentGate.Unlock()
+			return "", storage.ErrWorkRunConflict
+		}
 		admitted, err := s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
 			Mutation: mutation,
 			Message:  message,
 			Run:      run,
 			Started:  started,
 		})
+		intentGate.Unlock()
 		if err != nil {
 			return "", fmt.Errorf("runtime: admit goal round: %w", err)
 		}
@@ -1170,8 +1214,21 @@ func (s *Service) recover(ctx context.Context) error {
 		}
 		approval, hasApproval := pendingByRun[run.ID]
 		question, hasQuestion := pendingQuestionsByRun[run.ID]
+		var planReview domain.PlanState
+		hasPlanReview := false
+		if !hasApproval && !hasQuestion && s.deps.Work != nil {
+			workState, workErr := s.deps.Work.ReadWork(ctx, run.SessionID)
+			if workErr != nil && !errors.Is(workErr, storage.ErrNotFound) {
+				slog.Warn("restart recovery: read Plan review state failed", "run", string(run.ID), "err", workErr)
+				s.failUnrecoverable(ctx, run.ID, "Plan review state unavailable")
+				continue
+			}
+			planReview = workState.Plan
+			hasPlanReview = workErr == nil && planReview.ReviewStatus == domain.PlanReviewPending &&
+				planReview.OriginRunID == run.ID && planReview.OriginToolCallID != "" && planReview.ResumeTarget != ""
+		}
 		switch {
-		case hasApproval && hasQuestion:
+		case (hasApproval && hasQuestion) || ((hasApproval || hasQuestion) && hasPlanReview):
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
 		case hasApproval && approval.ExpiresAt <= now:
 			if isShellApproval(approval) {
@@ -1201,6 +1258,10 @@ func (s *Service) recover(ctx context.Context) error {
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
 			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+		case hasPlanReview && !s.checkpointReadable(ctx, run.ID):
+			s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+		case hasPlanReview:
+			s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
@@ -2195,14 +2256,16 @@ func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 	return nil
 }
 
-// handleInterrupt suspends the run on a server-side approval (D-029 write
-// order): verify the checkpoint is readable, persist the pending approval
-// row, commit the single tool.approval_required event, publish it, and
-// register the run as pending. The run row stays active and no terminal
-// event is emitted; DecideApproval (or Cancel) closes it later.
+// handleInterrupt routes one exact Eino checkpoint target to its durable
+// human-interaction lifecycle. Suspended runs remain active without a
+// terminal event until a response resumes them or Cancel closes them.
 func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
 	if m.interrupt != nil && m.interrupt.ToolName == tools.AskUserName {
 		s.handleQuestionInterrupt(ctx, m, sessionID, selectedTools, mode)
+		return
+	}
+	if m.interrupt != nil && m.interrupt.PlanSubmissionID != "" {
+		s.handlePlanReviewInterrupt(ctx, m, sessionID, selectedTools, mode)
 		return
 	}
 	runID := m.runID
@@ -2872,7 +2935,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 	return s.ledgers[runID]
 }
 
-// resumeRun feeds the decision back into the engine and maps the resumed
+// resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
 func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	s.mu.Lock()
@@ -3167,11 +3230,15 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.snapshots, terminal.RunID)
 	delete(s.runTools, terminal.RunID)
 	delete(s.workFenced, terminal.RunID)
+	delete(s.workBlockedCalls, terminal.RunID)
 	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
+	if runSession != "" {
+		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)
+	}
 	if goalSession != "" {
 		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status, goalRef)
@@ -3199,6 +3266,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
 	delete(s.workFenced, runID)
+	delete(s.workBlockedCalls, runID)
 	delete(s.workGates, runID)
 	delete(s.runSessions, runID)
 	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {

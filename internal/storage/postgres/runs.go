@@ -36,7 +36,7 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	if kind == domain.RunKindPrimary && (r.Status == domain.RunAccepted || r.Status == domain.RunQueued || r.Status == domain.RunActive) {
 		var active int
 		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM runs WHERE session_id = $1 AND kind = $2 AND status IN `+activeStatuses,
+			`SELECT COUNT(*) FROM runs WHERE session_id = $1 AND kind = $2 AND status IN ('queued','active')`,
 			r.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
 			return fmt.Errorf("storage: inspect active run for %s: %w", r.ID, err)
 		}
@@ -69,11 +69,22 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	createdAt := admission.Message.CreatedAt
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO sessions (id, title, created_at) VALUES ($1, '', $2) ON CONFLICT (id) DO NOTHING`,
+		admission.Message.SessionID, createdAt); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: ensure primary session: %w", err)
+	}
 	var sessionID string
 	if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE id = $1 FOR UPDATE", admission.Message.SessionID).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
 		return domain.RunEvent{}, storage.ErrNotFound
 	} else if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
+	}
+	message := admission.Message
+	message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
+	if err != nil {
+		return domain.RunEvent{}, err
 	}
 
 	var active int
@@ -86,10 +97,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		return domain.RunEvent{}, storage.ErrWorkRunConflict
 	}
 
-	message := admission.Message
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
-		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, message.Content,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, int64(message.WorkSeq), message.Content,
 		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
 		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: append primary message: %w", err)

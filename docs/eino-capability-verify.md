@@ -168,8 +168,12 @@ cd diva-go/agent-vivy
 ```
 
 No API keys, no network at runtime (module already in cache via goproxy.cn).
-## 6. PG-D2 probe status (2026-09-22)
+## 6. PG-D2 probe status (2026-09-23)
 
-The first focused sibling-fence probe was attempted against the pinned v0.9.13 APIs. It did not produce accepted evidence: the expected sibling interrupt context was not observed, and the probe was not committed because it was unformatted and failed its focused assertion. This is evidence of an unresolved boundary, not a pass.
+The earlier sibling-fence attempt recorded on 2026-09-22 was not accepted evidence. The executable PG-0 probes now exercise the pinned v0.9.13 APIs through the production adapter and Service boundary.
 
-Therefore the verified scope remains C6 only. Plan guidance exactly-once behavior, duplicate review idempotency, and same-batch effect fencing remain unverified and continue to block PG-2/PG-3 release. The next probe must isolate one claim per test and must report a deterministic failure when the Eino boundary cannot guarantee the invariant.
+`internal/runtime/plan_goal_probe_test.go` verifies that persisted Plan guidance appears once before the next model request; `submit_plan` leaves the run active until a human decision; the session work stream persists the originating run, exact `tool_call_id`, opaque root-cause resume target and same-batch sibling IDs; an effectful sibling reaches product code zero times; restart reconstructs the review only when the checkpoint is readable; and the decision resumes the exact interrupted call once. Replaying the same decision request returns its original Work result and does not create another model call. The same file verifies that `report_goal` fences its same-batch effectful sibling.
+
+Eino may visit already-emitted sibling calls before Service consumes the interrupt, so the adapter fences the run immediately after the durable submission. The event mapper retains the complete tool batch even when a sibling result has already been returned. After suspension commits, the runtime drops the broad fence and keeps a durable per-call sibling fence; newly issued calls can run after the review. The behavioral tests, including restart recovery, are the evidence for this boundary.
+
+These probes settle the bounded Eino adapter choice. The host-queued human request ticket/lifetime contract and full PostgreSQL, browser and live-coding gates remain open; PG-2/PG-3 release is still blocked on those shared items.

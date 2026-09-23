@@ -404,10 +404,11 @@ const (
 type SessionTruncation struct {
 	SessionID       domain.SessionID
 	CutoffMessageID string
-	TailMessageID   string // session's last message id at marker time
-	Reason          string // TruncationRewind / TruncationEdit / TruncationFork / TruncationForkedFrom
-	ForkSessionID   string // set for fork / forked-from rows
-	CreatedAt       int64  // unix milli
+	TailMessageID   string         // session's last message id at marker time
+	WorkSeq         domain.WorkSeq // work-state anchor captured by the cutoff message
+	Reason          string         // TruncationRewind / TruncationEdit / TruncationFork / TruncationForkedFrom
+	ForkSessionID   string         // set for fork / forked-from rows
+	CreatedAt       int64          // unix milli
 }
 
 // TruncationStore persists session truncation markers. Rows are never

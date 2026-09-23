@@ -18,9 +18,6 @@ const (
 	CreateGoalName    = "create_goal"
 	ReportGoalName    = "report_goal"
 
-	modelPlanMaxBytes     = 256 << 10
-	modelGoalObjectiveMax = 8 << 10
-	modelGoalMaxRounds    = 1000
 )
 
 // WorkControlOperations is the run-scoped host capability exposed to the
@@ -208,7 +205,7 @@ func (submitPlanTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 	if params.Markdown == "" {
 		return "", &ArgError{Field: "markdown", Reason: "must not be empty"}
 	}
-	if len([]byte(params.Markdown)) > modelPlanMaxBytes {
+	if len([]byte(params.Markdown)) > domain.MaxPlanMarkdownBytes {
 		return "", &ArgError{Field: "markdown", Reason: "exceeds the 256 KiB limit"}
 	}
 	operations, err := requireWorkControl(ctx)
@@ -277,10 +274,10 @@ func (createGoalTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 	if params.Objective == "" {
 		return "", &ArgError{Field: "objective", Reason: "must not be empty"}
 	}
-	if len([]byte(params.Objective)) > modelGoalObjectiveMax {
+	if len([]byte(params.Objective)) > domain.MaxGoalObjectiveBytes {
 		return "", &ArgError{Field: "objective", Reason: "exceeds the 8 KiB limit"}
 	}
-	if params.MaxRounds <= 0 || params.MaxRounds > modelGoalMaxRounds {
+	if params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 		return "", &ArgError{Field: "max_rounds", Reason: "must be between 1 and 1000"}
 	}
 	operations, err := requireWorkControl(ctx)

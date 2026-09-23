@@ -148,6 +148,19 @@ func ValidateWorkMutation(mutation domain.WorkMutation) error {
 			mutation.Goal != (domain.GoalRef{}) {
 			return ErrWorkInvalidMutation
 		}
+	case domain.WorkEventPlanReviewSuspended:
+		if mutation.Admission != (domain.GoalRunAdmission{}) ||
+			mutation.Goal != (domain.GoalRef{}) ||
+			mutation.PlanSubmissionID == "" || mutation.PlanOriginRunID == "" ||
+			mutation.PlanOriginToolCallID == "" || mutation.PlanResumeTarget == "" {
+			return ErrWorkInvalidMutation
+		}
+	case domain.WorkEventPlanReviewCancelled:
+		if mutation.Admission != (domain.GoalRunAdmission{}) ||
+			mutation.Goal != (domain.GoalRef{}) || mutation.PlanSubmissionID == "" ||
+			mutation.PlanOriginRunID == "" {
+			return ErrWorkInvalidMutation
+		}
 	case domain.WorkEventPlanDecided:
 		switch mutation.PlanAction {
 		case domain.PlanDecisionRevise, domain.PlanDecisionExecuteOnce:

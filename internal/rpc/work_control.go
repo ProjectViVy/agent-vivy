@@ -17,11 +17,8 @@ import (
 const (
 	maxWorkRequestIDBytes  = 128
 	maxWorkIdentifierBytes = 256
-	maxGoalObjectiveBytes  = 8 << 10
-	maxPlanMarkdownBytes   = 256 << 10
 	maxPlanFeedbackBytes   = 8 << 10
 	maxWorkReasonBytes     = 4 << 10
-	maxGoalRounds          = 1000
 )
 
 type workParams struct {
@@ -235,7 +232,13 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	result, err := h.deps.Service.CommitWork(ctx, mutation)
+	var result storage.WorkCommitResult
+	var err error
+	if kind == domain.WorkEventPlanDecided {
+		result, err = h.deps.Service.DecidePlan(ctx, mutation)
+	} else {
+		result, err = h.deps.Service.CommitWork(ctx, mutation)
+	}
 	if err != nil {
 		return nil, workError(err)
 	}
@@ -249,6 +252,9 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	}
 	if kind == domain.WorkEventGoalPaused || kind == domain.WorkEventGoalCleared {
 		h.deps.Service.CancelGoal(sessionID)
+	}
+	if kind == domain.WorkEventPlanLeft {
+		h.deps.Service.CancelPlanReview(sessionID)
 	}
 	return workCommitResult{Work: workStateView(result.State, activation, currentRunID), Event: workEventView(result.Event), Replayed: result.Replayed}, nil
 }
@@ -295,7 +301,7 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "work identifier is invalid"}
 	}
 	if len(params.Reason) > maxWorkReasonBytes || len(params.PlanFeedback) > maxPlanFeedbackBytes ||
-		len(params.Objective) > maxGoalObjectiveBytes || len(params.PlanMarkdown) > maxPlanMarkdownBytes {
+		len(params.Objective) > domain.MaxGoalObjectiveBytes || len(params.PlanMarkdown) > domain.MaxPlanMarkdownBytes {
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "work text exceeds its limit"}
 	}
 	if !kind.Valid() || kind == domain.WorkEventGoalRoundAdmitted {
@@ -311,13 +317,13 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 			params.GoalID = deterministicWorkID("goal", params.RequestID)
 			mutation.RequestHash = hashWorkRequest(method, params)
 		}
-		if strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > maxGoalRounds {
+		if strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "objective and max_rounds are required"}
 		}
 		mutation.Goal, mutation.Objective, mutation.MaxRounds = domain.GoalRef{ID: params.GoalID, Revision: 1}, strings.TrimSpace(params.Objective), params.MaxRounds
 	case domain.WorkEventGoalEdited:
 		if params.GoalID == "" || params.GoalRevision <= 0 || params.GoalRevision >= 1<<62 ||
-			strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > maxGoalRounds {
+			strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "goal_id, goal_revision, objective and max_rounds are required"}
 		}
 		mutation.Goal, mutation.Objective, mutation.MaxRounds = domain.GoalRef{ID: params.GoalID, Revision: params.GoalRevision + 1}, strings.TrimSpace(params.Objective), params.MaxRounds
@@ -347,7 +353,7 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		}
 		mutation.PlanSubmissionID, mutation.PlanAction, mutation.PlanFeedback = params.PlanSubmissionID, action, params.PlanFeedback
 		if action == domain.PlanDecisionStartGoal {
-			if params.Objective == "" || params.MaxRounds <= 0 || params.MaxRounds > maxGoalRounds {
+			if params.Objective == "" || params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 				return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "start_goal requires objective and max_rounds"}
 			}
 			if params.GoalID == "" {
@@ -394,6 +400,8 @@ func workError(err error) *Error {
 		return &Error{Code: CodeConflict, Message: "session has an active primary run"}
 	case errors.Is(err, storage.ErrWorkInvalidMutation):
 		return &Error{Code: InvalidParams, Message: "invalid work mutation"}
+	case errors.Is(err, runtime.ErrPlanReviewUnavailable):
+		return &Error{Code: CodeConflict, Message: "the originating Plan review is no longer resumable"}
 	case errors.Is(err, domain.ErrStaleGoalReference):
 		return &Error{Code: CodeConflict, Message: "stale or invalid work reference"}
 	case errors.Is(err, domain.ErrWorkRoundLimit):

@@ -273,7 +273,7 @@ func TestChildToolBrokerApprovalResumesAndExecutes(t *testing.T) {
 }
 
 func TestChildStartRejectsDepthAndConcurrencyBeforeSpawning(t *testing.T) {
-	manager, _, root, _ := newChildBrokerTest(t)
+	manager, backend, root, _ := newChildBrokerTest(t)
 	ctx := context.Background()
 	manager.parentCounts[root.ID] = maxChildrenPerParent
 	if _, err := manager.StartChild(ctx, controlrpc.ChildRequest{ParentRunID: string(root.ID), Text: "blocked"}); err == nil {
@@ -282,8 +282,12 @@ func TestChildStartRejectsDepthAndConcurrencyBeforeSpawning(t *testing.T) {
 	manager.parentCounts[root.ID] = 0
 	depthRoot := root
 	depthRoot.ID = "run-depth"
+	depthRoot.SessionID = "sess-depth"
 	depthRoot.Depth = maxChildDepth
 	depthRoot.RootID = depthRoot.ID
+	if err := backend.CreateSession(ctx, domain.Session{ID: depthRoot.SessionID, Title: "depth", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 	if err := manager.runs.CreateRun(ctx, depthRoot); err != nil {
 		t.Fatal(err)
 	}

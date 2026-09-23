@@ -105,14 +105,18 @@ func TestFoldWorkPlanReviewLifecycle(t *testing.T) {
 			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanMarkdown: "# plan",
 			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1",
 		}),
-		planEvent(3, WorkEventPlanDecided, WorkMutation{
+		planEvent(3, WorkEventPlanReviewSuspended, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1", PlanResumeTarget: "resume-1",
+		}),
+		planEvent(4, WorkEventPlanDecided, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-1",
 			PlanAction: PlanDecisionRevise, PlanFeedback: "clarify rollback",
 		}),
-		planEvent(4, WorkEventPlanSubmitted, WorkMutation{
+		planEvent(5, WorkEventPlanSubmitted, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-2", PlanMarkdown: "# revised",
 		}),
-		planEvent(5, WorkEventPlanDecided, WorkMutation{
+		planEvent(6, WorkEventPlanDecided, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-2",
 			PlanAction: PlanDecisionExecuteOnce,
 		}),
@@ -125,6 +129,29 @@ func TestFoldWorkPlanReviewLifecycle(t *testing.T) {
 	}
 	if state.Plan.SubmissionID != "submission-2" || state.Plan.Markdown != "# revised" {
 		t.Fatalf("plan submission = %+v, want latest immutable submission", state.Plan)
+	}
+}
+
+func TestFoldWorkPlanReviewCancellationLeavesPlanActive(t *testing.T) {
+	state, err := FoldWork([]WorkEvent{
+		planEvent(1, WorkEventPlanEntered, WorkMutation{SessionID: "session-1"}),
+		planEvent(2, WorkEventPlanSubmitted, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanMarkdown: "# plan",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1",
+		}),
+		planEvent(3, WorkEventPlanReviewSuspended, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1", PlanResumeTarget: "resume-1",
+		}),
+		planEvent(4, WorkEventPlanReviewCancelled, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanOriginRunID: "run-1",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("FoldWork() error = %v", err)
+	}
+	if !state.Plan.Active || state.Plan.ReviewStatus != PlanReviewCancelled {
+		t.Fatalf("plan state = %+v, want active Plan with cancelled review", state.Plan)
 	}
 }
 

@@ -24,24 +24,25 @@ import (
 // the service turns it into a run.cancelled terminal event.
 var errRunCancelled = errors.New("runtime: run cancelled")
 
-// errRunInterrupted is the mapper's sentinel for an approval interrupt:
-// the service suspends the run on an approval instead of closing it.
+// errRunInterrupted is the mapper's sentinel for a review or question
+// interrupt: the service persists the matching host-owned interaction.
 // The details live on the mapper (m.interrupt).
 var errRunInterrupted = errors.New("runtime: run interrupted for approval")
 
 const defaultProviderStallThreshold = 15 * time.Second
 
 // interruptDetails carries what the service needs to surface and later
-// resume an approval-gated tool call (C6).
+// resume an interrupted tool call (C6 / PG-0).
 type interruptDetails struct {
 	// ResumeTarget is the root-cause interrupt id: the key ResumeWithParams
 	// targets (docs/eino-capability-verify.md §2.4).
-	ResumeTarget  string
-	ToolCallID    string
-	ToolName      string
-	Args          map[string]any
-	ArgumentsHash string
-	Message       string
+	ResumeTarget     string
+	ToolCallID       string
+	ToolName         string
+	Args             map[string]any
+	ArgumentsHash    string
+	Message          string
+	PlanSubmissionID string
 }
 
 // eventMapper converts Eino AgentEvents into Vivy domain.RunEvents
@@ -70,6 +71,9 @@ type eventMapper struct {
 	// openCalls tracks tool calls requested by the model whose results
 	// have not arrived yet, in request order.
 	openCalls []openToolCall
+	// toolBatch retains the most recently requested sibling set even after
+	// a fenced sibling returns its refusal before an interrupt is surfaced.
+	toolBatch []openToolCall
 
 	// loop watches completed tool calls for repetition (VC-2 tool-loop
 	// guardrail); state is per run and resets on approval resume.
@@ -460,6 +464,7 @@ func (m *eventMapper) resetPending() {
 
 func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 	var out []domain.RunEvent
+	m.toolBatch = m.toolBatch[:0]
 	for _, tc := range msg.ToolCalls {
 		args := map[string]any{}
 		if tc.Function.Arguments != "" {
@@ -476,7 +481,9 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 			ToolName:   tc.Function.Name,
 			Args:       args,
 		}))
-		m.registerOpenCall(openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)})
+		call := openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)}
+		m.toolBatch = append(m.toolBatch, call)
+		m.registerOpenCall(call)
 	}
 	return out
 }
@@ -506,6 +513,9 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 			d.Args = args
 			d.ArgumentsHash = argumentsHash
 			d.Message = message
+		}
+		if submissionID, ok := decodePlanReviewInterrupt(c.Info); ok {
+			d.PlanSubmissionID = submissionID
 		}
 		break
 	}
