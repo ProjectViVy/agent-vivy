@@ -49,6 +49,13 @@ func Verify(dir string) (VerifyReport, error) {
 	if err != nil {
 		return VerifyReport{}, err
 	}
+	digest, err := assemblyv1.HashSourceTree(dir, descriptor.Source.SHA256)
+	if err != nil {
+		return VerifyReport{}, err
+	}
+	if digest != descriptor.Source.SHA256 {
+		return VerifyReport{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", descriptor.Module.ID, digest, descriptor.Source.SHA256)
+	}
 	if _, err := loadCatalog(dir, descriptor); err != nil {
 		return VerifyReport{}, err
 	}

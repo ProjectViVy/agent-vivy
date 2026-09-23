@@ -16,7 +16,7 @@ const (
 	ProviderID      = "vivy.masks-ui.sidebar"
 	UIExtensionPort = "std/ui-extension@v1"
 	SourceRef       = "repo:plugins/vivy-masks-ui"
-	SourceSHA256    = "91fe71c3bdfd0adadd3e9ad20eb310ef2448f9d235287d9e8287c2349e46c82b"
+	SourceSHA256    = "0275a4a482ee5e8c93dca22d0c09ff1143a49fc8b677c3c8212c448d80365711"
 )
 
 type owner struct{}
