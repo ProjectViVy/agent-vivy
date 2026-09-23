@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"agent-vivy/internal/domain"
 )
@@ -14,6 +15,16 @@ var (
 	ErrWorkEventCorrupt    = errors.New("storage: corrupt work event")
 	ErrWorkRunConflict     = errors.New("storage: active run conflict")
 )
+
+// SameWorkRequest checks the durable payload as well as the caller's digest.
+// A request ID cannot be reused to change work even if an internal caller
+// accidentally reuses its hash.
+func SameWorkRequest(committed domain.WorkEvent, requested domain.WorkMutation) bool {
+	return committed.RequestHash == requested.RequestHash &&
+		committed.Kind == requested.Kind &&
+		reflect.DeepEqual(committed.Mutation, requested) &&
+		reflect.DeepEqual(committed.Admission, requested.Admission)
+}
 
 // WorkCommitResult is the durable result of one work mutation. Replayed results
 // return the original event and the state immediately after that event.

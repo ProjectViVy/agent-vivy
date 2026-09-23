@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -83,12 +84,16 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var lockedSession string
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE id = ?",
-		mutation.SessionID).Scan(&lockedSession); errors.Is(err, sql.ErrNoRows) {
-		return storage.WorkCommitResult{}, storage.ErrNotFound
-	} else if err != nil {
+	locked, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = updated_at WHERE id = ?", mutation.SessionID)
+	if err != nil {
 		return storage.WorkCommitResult{}, fmt.Errorf("storage: lock work session: %w", err)
+	}
+	affected, err := locked.RowsAffected()
+	if err != nil {
+		return storage.WorkCommitResult{}, fmt.Errorf("storage: inspect work session lock: %w", err)
+	}
+	if affected == 0 {
+		return storage.WorkCommitResult{}, storage.ErrNotFound
 	}
 
 	events, err := readWorkEventsTx(ctx, tx, mutation.SessionID)
@@ -99,7 +104,7 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		if event.RequestID != mutation.RequestID {
 			continue
 		}
-		if event.RequestHash != mutation.RequestHash {
+		if !storage.SameWorkRequest(event, mutation) {
 			return storage.WorkCommitResult{}, storage.ErrWorkRequestConflict
 		}
 		state, err := domain.FoldWork(events[:i+1])
@@ -118,6 +123,11 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	}
 	if state.Version != mutation.ExpectedVersion {
 		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	if mutation.Kind == domain.WorkEventPlanDecided && state.Plan.OriginRunID != "" {
+		if err := validatePlanOriginRunTx(ctx, tx, mutation.SessionID, state.Plan.OriginRunID); err != nil {
+			return storage.WorkCommitResult{}, err
+		}
 	}
 
 	event := domain.WorkEvent{
@@ -237,11 +247,16 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var sessionID string
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE id = ?", admission.Mutation.SessionID).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
-		return storage.GoalRunCommitResult{}, storage.ErrNotFound
-	} else if err != nil {
+	locked, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = updated_at WHERE id = ?", admission.Mutation.SessionID)
+	if err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: lock goal session: %w", err)
+	}
+	affected, err := locked.RowsAffected()
+	if err != nil {
+		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: inspect goal session lock: %w", err)
+	}
+	if affected == 0 {
+		return storage.GoalRunCommitResult{}, storage.ErrNotFound
 	}
 
 	events, err := readWorkEventsTx(ctx, tx, admission.Mutation.SessionID)
@@ -252,12 +267,28 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		if event.RequestID != admission.Mutation.RequestID {
 			continue
 		}
-		if event.RequestHash != admission.Mutation.RequestHash {
+		if !storage.SameWorkRequest(event, admission.Mutation) {
 			return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
 		}
 		state, err := domain.FoldWork(events[:i+1])
 		if err != nil {
 			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: fold replayed goal admission: %w", err)
+		}
+		existing, found, err := sqliteReadAdmissionRun(ctx, tx, event.Admission.RunID)
+		if err != nil {
+			return storage.GoalRunCommitResult{}, err
+		}
+		if !found {
+			return storage.GoalRunCommitResult{}, storage.ErrWorkEventCorrupt
+		}
+		if err := sqliteCompareAdmission(ctx, tx, storage.RunAdmission{
+			Message: admission.Message, Run: admission.Run, Started: admission.Started, Prompt: admission.Prompt,
+		}, existing); err != nil {
+			var conflict *maskcontract.Error
+			if errors.As(err, &conflict) && conflict.Code == maskcontract.CodeRevisionConflict {
+				return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
+			}
+			return storage.GoalRunCommitResult{}, err
 		}
 		run, err := readGoalRunTx(ctx, tx, event.Admission.RunID)
 		if err != nil {
@@ -428,4 +459,20 @@ func readGoalStartedTx(ctx context.Context, tx *sql.Tx, id domain.RunID) (domain
 	}
 	event.RunID, event.Seq, event.Type = domain.RunID(runID), domain.EventSeq(seq), domain.EventType(typ)
 	return event, nil
+}
+
+func validatePlanOriginRunTx(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID, runID domain.RunID) error {
+	var owner, kind, status string
+	err := tx.QueryRowContext(ctx, "SELECT session_id, kind, status FROM runs WHERE id = ?", runID).
+		Scan(&owner, &kind, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrWorkRunConflict
+	}
+	if err != nil {
+		return fmt.Errorf("storage: inspect Plan origin run: %w", err)
+	}
+	if owner != string(sessionID) || kind != string(domain.RunKindPrimary) || status != string(domain.RunActive) {
+		return storage.ErrWorkRunConflict
+	}
+	return nil
 }
