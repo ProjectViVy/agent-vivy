@@ -20,7 +20,7 @@ func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
 		Author: "user",
 		Text:   "safe context sk-live-abcdefghijkl and alice@example.com",
 	}
-	item, ok := projectHistoryCandidate(candidate)
+	item, ok := projectHistoryCandidateWithLimit(candidate, domain.DefaultContinuityLimits().ResultItemBytes)
 	if !ok {
 		t.Fatal("message candidate was not projected")
 	}
@@ -35,14 +35,42 @@ func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
 	}
 }
 
-func TestHistoryProjectionSkipsModernProjectedMessage(t *testing.T) {
-	item, ok := projectHistoryCandidate(storage.HistoryCandidate{
+func TestHistoryProjectionProjectsModernAssistantRow(t *testing.T) {
+	item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
 		Ref:    domain.SourceRef{SessionID: "B", RunID: "run", MessageID: "msgp_run_00000000000000000001_0", Kind: string(domain.SourceKindMessage)},
 		Author: "assistant",
 		Text:   "derived assistant row",
-	})
-	if ok || item.Ref.MessageID != "" {
-		t.Fatalf("modern projected row was emitted: %#v, ok=%v", item, ok)
+	}, domain.DefaultContinuityLimits().ResultItemBytes)
+	if !ok || item.Text != "derived assistant row" || item.Author != domain.HistoryAuthorAssistant {
+		t.Fatalf("modern assistant row was not projected: %#v, ok=%v", item, ok)
+	}
+}
+
+func TestHistoryProjectionSkipsProjectedToolRowAndCompletionEvent(t *testing.T) {
+	if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
+		Ref:    domain.SourceRef{SessionID: "B", RunID: "run", MessageID: "msgp_run_00000000000000000002_0", Kind: string(domain.SourceKindMessage)},
+		Author: "tool",
+		Text:   "derived tool row",
+	}, domain.DefaultContinuityLimits().ResultItemBytes); ok || item.Ref.MessageID != "" {
+		t.Fatalf("projected tool row was emitted: %#v, ok=%v", item, ok)
+	}
+	for _, version := range []int{1, 2} {
+		if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
+			Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 1, Kind: string(domain.SourceKindEvent)},
+			EventType:      domain.EventModelCompleted,
+			PayloadVersion: version,
+			Text:           `{"content":"assistant summary text"}`,
+		}, domain.DefaultContinuityLimits().ResultItemBytes); ok || item.Ref.RunID != "" {
+			t.Fatalf("model.completed v%d duplicated its projected row: %#v, ok=%v", version, item, ok)
+		}
+	}
+	if item, ok := projectHistoryCandidateWithLimit(storage.HistoryCandidate{
+		Ref:            domain.SourceRef{SessionID: "B", RunID: "run", EventSeq: 9, Kind: string(domain.SourceKindEvent)},
+		EventType:      domain.EventModelCompleted,
+		PayloadVersion: 3,
+		Text:           `{"content":"unknown version body"}`,
+	}, domain.DefaultContinuityLimits().ResultItemBytes); !ok || !item.Truncated || item.Text != "" {
+		t.Fatalf("unknown completion version lost its honest placeholder: %#v, ok=%v", item, ok)
 	}
 }
 
@@ -53,7 +81,7 @@ func TestHistoryToolEventProjectionUsesSafeFields(t *testing.T) {
 		PayloadVersion: 1,
 		Text:           `{"tool_call_id":"call","tool_name":"read_file","args":{"path":"README.md","token":"sk-live-abcdefghijkl"}}`,
 	}
-	item, ok := projectHistoryCandidate(candidate)
+	item, ok := projectHistoryCandidateWithLimit(candidate, domain.DefaultContinuityLimits().ResultItemBytes)
 	if !ok || item.Ref.Kind != string(domain.SourceKindToolCall) {
 		t.Fatalf("tool event projection = %#v, ok=%v", item, ok)
 	}
@@ -143,9 +171,16 @@ func newHistoryFixture(t *testing.T) *historyFixture {
 		{RunID: "run-b1", Seq: 2, Type: domain.EventToolRequested, CreatedAt: 17, PayloadVersion: 1, Payload: []byte(`{"tool_call_id":"call-1","tool_name":"read_file","args":{"path":"notes.md","api_key":"` + historySecretToken + `"}}`)},
 		{RunID: "run-b1", Seq: 3, Type: domain.EventContextCompacted, CreatedAt: 18, PayloadVersion: 1, Payload: []byte(`{"mode":"summary","before_tokens":120,"after_tokens":30}`)},
 		{RunID: "run-b1", Seq: 4, Type: domain.EventModelCompleted, CreatedAt: 19, PayloadVersion: 3, Payload: []byte(`{"content":"unknown version body"}`)},
+		{RunID: "run-b1", Seq: 5, Type: domain.EventModelCompleted, CreatedAt: 20, PayloadVersion: 2, Payload: []byte(`{"content_sha256":"5ad22b086f5e65092aade531368f2c3430403b02ea171ff146771f23caf59f5f","byte_len":29}`)},
+		{RunID: "run-b1", Seq: 6, Type: domain.EventContextCompacted, CreatedAt: 21, PayloadVersion: 1, Payload: []byte(`{"mode":"trim"}`)},
 	}}); err != nil {
 		t.Fatalf("append events: %v", err)
 	}
+	// The message projector persists deterministic msgp_ assistant rows for
+	// both completion payload versions; history projection treats those rows
+	// as the canonical modern assistant text.
+	appendMessage(domain.Message{ID: "msgp_run-b1_00000000000000000001_0", SessionID: "B", Role: domain.RoleAssistant, CreatedAt: 22, Content: "assistant summary text"})
+	appendMessage(domain.Message{ID: "msgp_run-b1_00000000000000000005_0", SessionID: "B", Role: domain.RoleAssistant, CreatedAt: 23, Content: "hash verified completion text"})
 	scope, err := domain.NewAcceptedHistoryScope("B", []domain.SessionID{"A"})
 	if err != nil {
 		t.Fatalf("accepted scope: %v", err)
@@ -225,6 +260,13 @@ func TestHistoryFixtureEventProjectionIsSanitized(t *testing.T) {
 	if len(page.Items) != 1 || page.Items[0].Text != "assistant summary text" || page.Items[0].Author != domain.HistoryAuthorAssistant {
 		t.Fatalf("model.completed projection = %#v", page.Items)
 	}
+	if page.Items[0].Ref.Kind != string(domain.SourceKindMessage) || page.Items[0].Ref.MessageID != "msgp_run-b1_00000000000000000001_0" {
+		t.Fatalf("v1 completion text did not use its canonical projected row: %#v", page.Items[0].Ref)
+	}
+	page = search("hash verified completion text")
+	if len(page.Items) != 1 || page.Items[0].Ref.MessageID != "msgp_run-b1_00000000000000000005_0" {
+		t.Fatalf("v2 completion text was unreachable or duplicated: %#v", page.Items)
+	}
 	page = search("read_file")
 	if len(page.Items) != 1 {
 		t.Fatalf("tool.requested projection = %#v", page.Items)
@@ -233,9 +275,16 @@ func TestHistoryFixtureEventProjectionIsSanitized(t *testing.T) {
 	if toolCall.Ref.Kind != string(domain.SourceKindToolCall) || !toolCall.Redacted || strings.Contains(toolCall.Text, historySecretToken) {
 		t.Fatalf("tool arguments were not sanitized: %#v", toolCall)
 	}
-	page = search("compaction")
+	page = search("compaction summary")
 	if len(page.Items) != 1 || page.Items[0].Text != "compaction summary: 120 -> 30 tokens" {
 		t.Fatalf("compaction precision = %#v", page.Items)
+	}
+	page = search("compaction trim")
+	if len(page.Items) != 1 || page.Items[0].Text != "compaction trim (legacy record; token counts unavailable)" {
+		t.Fatalf("legacy compaction precision = %#v", page.Items)
+	}
+	if strings.Contains(page.Items[0].Text, "0 -> 0") {
+		t.Fatalf("legacy compaction fabricated token counts: %#v", page.Items[0])
 	}
 	page = search(historySecretToken)
 	if len(page.Items) != 0 {

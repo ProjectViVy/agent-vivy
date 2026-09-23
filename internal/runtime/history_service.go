@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -646,23 +645,19 @@ func (s *HistoryService) decodeCursor(encoded string) (historyCursorState, error
 	return cursor, nil
 }
 
-func projectHistoryCandidate(candidate storage.HistoryCandidate) (domain.HistoryItem, bool) {
-	return projectHistoryCandidateWithLimit(candidate, domain.DefaultContinuityLimits().ResultItemBytes)
-}
-
 func projectHistoryCandidateWithLimit(candidate storage.HistoryCandidate, maximum int) (domain.HistoryItem, bool) {
 	if candidate.Ref.SessionID == "" {
 		return domain.HistoryItem{}, false
 	}
 	if candidate.Ref.Kind == string(domain.SourceKindMessage) {
-		// Modern assistant/tool rows are deterministic projections of their
-		// journal events. Their event forms are canonical; only ordinary user
-		// messages and legacy non-projected rows are emitted here.
-		if strings.HasPrefix(candidate.Ref.MessageID, "msgp_") {
-			return domain.HistoryItem{}, false
-		}
 		author := candidate.Author
 		if author != domain.HistoryAuthorUser && author != domain.HistoryAuthorAssistant && author != domain.HistoryAuthorTool {
+			return domain.HistoryItem{}, false
+		}
+		// msgp_ assistant rows are the canonical text of modern model.completed
+		// events (the events themselves are suppressed below). msgp_ tool rows
+		// would duplicate the canonical tool.finished event form and stay skipped.
+		if strings.HasPrefix(candidate.Ref.MessageID, "msgp_") && author != domain.HistoryAuthorAssistant {
 			return domain.HistoryItem{}, false
 		}
 		if candidate.Unavailable {
@@ -720,20 +715,24 @@ func projectHistoryEvent(candidate storage.HistoryCandidate, maximum int) (domai
 			text = payload.Result
 		}
 	case domain.EventModelCompleted:
-		if candidate.PayloadVersion == 2 {
-			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
-		}
-		var payload payloadModelCompleted
-		if err := json.Unmarshal([]byte(text), &payload); err != nil {
-			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
-		}
-		text = payload.Content
+		// Known-version completions persist their verified text as the
+		// projected msgp_ assistant message row, which is canonical here.
+		// Emitting the event too would duplicate the same assistant turn.
+		return domain.HistoryItem{}, false
 	case domain.EventContextCompacted:
-		var payload payloadContextCompacted
+		var payload struct {
+			Mode         string `json:"mode"`
+			BeforeTokens *int   `json:"before_tokens"`
+			AfterTokens  *int   `json:"after_tokens"`
+		}
 		if err := json.Unmarshal([]byte(text), &payload); err != nil {
 			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
 		}
-		text = fmt.Sprintf("compaction %s: %d -> %d tokens", payload.Mode, payload.BeforeTokens, payload.AfterTokens)
+		if payload.BeforeTokens != nil && payload.AfterTokens != nil {
+			text = fmt.Sprintf("compaction %s: %d -> %d tokens", payload.Mode, *payload.BeforeTokens, *payload.AfterTokens)
+		} else {
+			text = fmt.Sprintf("compaction %s (legacy record; token counts unavailable)", payload.Mode)
+		}
 	case domain.EventSessionTruncated:
 		var payload payloadSessionTruncated
 		if err := json.Unmarshal([]byte(text), &payload); err != nil {
@@ -900,19 +899,4 @@ func CanonicalHistorySelectionDigest(items []domain.HistoryItem) string {
 	}{Version: 1, Items: canonical})
 	digest := sha256.Sum256(encoded)
 	return fmt.Sprintf("%x", digest[:])
-}
-
-func sortHistoryItems(items []domain.HistoryItem) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Ref.SessionID != items[j].Ref.SessionID {
-			return items[i].Ref.SessionID < items[j].Ref.SessionID
-		}
-		if items[i].Ref.RunID != items[j].Ref.RunID {
-			return items[i].Ref.RunID < items[j].Ref.RunID
-		}
-		if items[i].Ref.EventSeq != items[j].Ref.EventSeq {
-			return items[i].Ref.EventSeq < items[j].Ref.EventSeq
-		}
-		return items[i].Ref.MessageID < items[j].Ref.MessageID
-	})
 }
