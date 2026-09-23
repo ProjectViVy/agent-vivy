@@ -25,23 +25,59 @@ func (s *Service) WakeGoal(sessionID domain.SessionID) {
 	if s == nil || strings.TrimSpace(string(sessionID)) == "" {
 		return
 	}
-	s.goalAdmissionMu.Lock()
 	s.mu.Lock()
 	if s.stopping {
 		s.mu.Unlock()
-		s.goalAdmissionMu.Unlock()
 		return
 	}
+	if s.goalWakeRunning == nil {
+		s.goalWakeRunning = make(map[domain.SessionID]struct{})
+	}
+	if s.goalWakePending == nil {
+		s.goalWakePending = make(map[domain.SessionID]struct{})
+	}
+	if _, running := s.goalWakeRunning[sessionID]; running {
+		s.goalWakePending[sessionID] = struct{}{}
+		s.mu.Unlock()
+		return
+	}
+	s.goalWakeRunning[sessionID] = struct{}{}
 	s.goalWG.Add(1)
 	s.mu.Unlock()
-	s.goalAdmissionMu.Unlock()
 	go func() {
 		defer s.goalWG.Done()
-		if err := s.admitGoalRound(context.Background(), sessionID); err != nil && !errors.Is(err, storage.ErrWorkRunConflict) {
-			// A failed admission leaves the Goal durable and disarmed. The
-			// next explicit human action can retry it; there is no outer retry.
+		for {
+			s.mu.Lock()
+			delete(s.goalWakePending, sessionID)
+			stopping := s.stopping
+			s.mu.Unlock()
+			if stopping {
+				s.finishGoalWake(sessionID)
+				return
+			}
+			if err := s.admitGoalRound(context.Background(), sessionID); err != nil && !errors.Is(err, storage.ErrWorkRunConflict) {
+				// A failed admission leaves the Goal durable and disarmed. The
+				// next explicit human action can retry it; there is no outer retry.
+			}
+			s.mu.Lock()
+			_, pending := s.goalWakePending[sessionID]
+			stopping = s.stopping
+			if !pending || stopping {
+				delete(s.goalWakeRunning, sessionID)
+				delete(s.goalWakePending, sessionID)
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Unlock()
 		}
 	}()
+}
+
+func (s *Service) finishGoalWake(sessionID domain.SessionID) {
+	s.mu.Lock()
+	delete(s.goalWakeRunning, sessionID)
+	delete(s.goalWakePending, sessionID)
+	s.mu.Unlock()
 }
 
 // CancelGoal cancels the process-local run currently owned by a Goal. Durable
@@ -54,11 +90,10 @@ func (s *Service) StopAutomaticWork() {
 	if s == nil {
 		return
 	}
-	s.goalAdmissionMu.Lock()
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
-	s.goalAdmissionMu.Unlock()
+	s.goalWG.Wait()
 }
 
 func (s *Service) CancelGoal(sessionID domain.SessionID) {
@@ -98,8 +133,6 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	if strings.TrimSpace(string(sessionID)) == "" {
 		return ErrGoalSessionRequired
 	}
-	s.goalAdmissionMu.Lock()
-	defer s.goalAdmissionMu.Unlock()
 	sessionAdmission := s.sessionAdmission(sessionID)
 	sessionAdmission.Lock()
 	defer sessionAdmission.Unlock()
@@ -149,7 +182,7 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	requestID := fmt.Sprintf("goal-round-%s-%d-%d", state.Goal.Ref.ID, state.Goal.Ref.Revision, round)
 	hashInput := fmt.Sprintf("%s\x00%d\x00%d\x00%s", state.Goal.Ref.ID, state.Goal.Ref.Revision, round, state.Goal.Objective)
 	hash := sha256.Sum256([]byte(hashInput))
-	_, err = s.RunWithOptions(ctx, sessionID, state.Goal.Objective, RunOptions{
+	_, err = s.runWithAdmissionGate(ctx, sessionID, state.Goal.Objective, RunOptions{
 		GoalRound: &GoalRoundAdmission{
 			ExpectedVersion: state.Version,
 			RequestID:       requestID,
@@ -157,7 +190,7 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 			Goal:            state.Goal.Ref,
 			Round:           round,
 		},
-	})
+	}, nil, true)
 	return err
 }
 

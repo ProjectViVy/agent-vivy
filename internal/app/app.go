@@ -638,7 +638,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov, HumanAdmission: true})
 			},
 			Channels:    channelPlugins,
 			Config:      cfg.Channels,
@@ -827,7 +827,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if !ok || identity.SessionID == "" || strings.TrimSpace(request.SessionID) != identity.SessionID {
 					return actionport.RunResult{}, actionport.ErrUnauthenticated
 				}
-				id, runErr := svc.Run(ctx, domain.SessionID(identity.SessionID), request.Text)
+				id, runErr := svc.RunWithOptions(ctx, domain.SessionID(identity.SessionID), request.Text, runtime.RunOptions{HumanAdmission: true})
 				if runErr != nil {
 					return actionport.RunResult{}, actionport.ErrRunDenied
 				}

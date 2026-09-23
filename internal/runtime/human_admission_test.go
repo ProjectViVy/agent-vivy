@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 )
 
@@ -31,7 +32,11 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create Goal: %v", err)
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("Human request completed.", nil)), nil, EngineConfig{
+	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
+	engine, err := NewEngine(ctx, NewScriptedModel(
+		schema.AssistantMessage("Human request completed.", nil),
+		schema.AssistantMessage("The one Goal round completed.", nil),
+	), nil, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
@@ -39,7 +44,7 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 	}
 	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
-		PrimaryRuns: backend, GoalRuns: backend, Work: backend, Sink: newTestSink(),
+		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Sink: newTestSink(),
 	})
 	svcCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
@@ -57,16 +62,7 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 		finished <- err
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		svc.mu.Lock()
-		pending := svc.humanPending[sessionID]
-		svc.mu.Unlock()
-		if pending > 0 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	waitForHumanIntent(t, svc, sessionID)
 	svc.mu.Lock()
 	pending := svc.humanPending[sessionID]
 	svc.mu.Unlock()
@@ -104,6 +100,13 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 		t.Fatalf("Goal state = %+v, want no round admitted ahead of the registered human request", state.Goal)
 	}
 	waitForRunStatus(t, backend, runs[0].ID, domain.RunCompleted)
+	var goalRun storage.GoalRunCommitResult
+	select {
+	case goalRun = <-goalRuns.committed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminal human turn did not wake the eligible Goal")
+	}
+	waitForRunStatus(t, backend, goalRun.Run.ID, domain.RunCompleted)
 	if !svc.WaitIdle(context.Background()) {
 		t.Fatal("service did not become idle")
 	}
@@ -138,16 +141,7 @@ func TestCancelledHumanAdmissionLeavesNoRunOrMessage(t *testing.T) {
 		_, err := svc.RunWithOptions(runCtx, sessionID, "cancel before admission", RunOptions{HumanAdmission: true})
 		finished <- err
 	}()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		svc.mu.Lock()
-		pending := svc.humanPending[sessionID]
-		svc.mu.Unlock()
-		if pending > 0 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	waitForHumanIntent(t, svc, sessionID)
 	cancel()
 	gate.Unlock()
 	select {

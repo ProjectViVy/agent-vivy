@@ -130,8 +130,9 @@ func newHeadlessSessionID() (domain.SessionID, error) {
 func runHeadlessTurn(ctx context.Context, svc *runtime.Service, sessionID domain.SessionID, prompt string, sink *headlessSink) (HeadlessResult, error) {
 	result := HeadlessResult{SessionID: sessionID}
 	runID, err := svc.RunWithOptions(ctx, sessionID, prompt, runtime.RunOptions{
-		Face:       domain.FaceHeadless,
-		Provenance: &domain.Provenance{Source: "headless"},
+		Face:           domain.FaceHeadless,
+		Provenance:     &domain.Provenance{Source: "headless"},
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return result, err
