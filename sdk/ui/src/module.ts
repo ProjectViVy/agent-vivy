@@ -1681,6 +1681,10 @@ export interface FaceStoreState {
   readonly initialized: boolean;
   readonly initializationError: string | null;
   readonly capabilities: string[];
+  /** Backend-advertised ability to submit runs with the code Face. */
+  readonly codeModeAvailable: boolean;
+  /** Per-face-session code mode toggle; mask selection never owns this state. */
+  readonly codeMode: boolean;
   readonly connection: FaceConnectionState;
   readonly sessions: FaceSession[];
   readonly sessionsPhase: FacePhase;
@@ -1744,6 +1748,7 @@ export interface FaceStoreState {
   readonly lifecycleBusy: boolean;
   initialize(): Promise<void>;
   retryInitialize(): Promise<void>;
+  setCodeMode(enabled: boolean): void;
   loadSessions(): Promise<void>;
   createSession(title?: string, workspacePath?: string): Promise<FaceSession>;
 	chooseWorkspace(workspacePath: string): Promise<FaceSession>;
