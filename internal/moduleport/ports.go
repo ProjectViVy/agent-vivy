@@ -57,6 +57,7 @@ func Catalog() Registry {
 		closed("core/chat-model-host@v1", "vivy/model", CardinalityExactlyOne, RequirementAgent),
 		closed("core/tool-host@v1", "vivy/tool-host", CardinalityExactlyOne, RequirementDefault),
 		closed("core/storage-engine@v1", "vivy/storage", CardinalityExactlyOne, RequirementAlways),
+		closed("core/mask-service@v1", "vivy/masks", CardinalityAtMostOne, RequirementConditional),
 		closed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		closed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),
 		closed("core/sandbox-backend@v1", "vivy/sandbox", CardinalityExactlyOne, RequirementAgent),

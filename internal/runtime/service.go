@@ -17,6 +17,7 @@ import (
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -51,6 +52,14 @@ type RunHook interface {
 // The runtime never executes filesystem commands through this interface.
 type WorkspaceAllocator interface {
 	Ensure(context.Context, domain.RunID) (Workspace, error)
+}
+
+// WorkspaceReleaser is an optional rollback seam for allocators that create
+// filesystem state during Ensure. Admission failures must not leave an
+// unowned per-run directory behind; selected project and local workspaces may
+// implement this as a no-op.
+type WorkspaceReleaser interface {
+	Release(context.Context, Workspace) error
 }
 
 // ChildApprovalRouter receives a durable decision for an approval owned by a
@@ -146,6 +155,19 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// Admission is the optional atomic primary-run boundary. First-party App
+	// wiring supplies it when prompt snapshots are enabled; legacy embedders
+	// retain the existing sequential path when it is absent.
+	Admission storage.RunAdmissionStore
+	// MaskResolver is the selected generation's narrow runtime-facing mask
+	// seam. Runtime never holds the provider's control-plane Manager.
+	MaskResolver maskcontract.Resolver
+	// MaskFrame and MaskFrameDigest are immutable provider assets copied by the
+	// composition root. Keeping them separate prevents runtime from reaching
+	// through the control-plane service for prompt data.
+	MaskFrame       string
+	MaskFrameDigest string
+	GenerationID    string
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -280,6 +302,7 @@ type pendingRun struct {
 	planSubmissionID string
 	planToolCallID   string
 	planResumeTarget string
+	planBlockedCalls []string
 	ledger           *BudgetLedger
 }
 
@@ -656,7 +679,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	return s.runWithOptions(ctx, sessionID, userText, options, nil)
 }
 
-type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.RunEvent, error)
+type runPersistence func(storage.RunAdmission) (domain.RunEvent, error)
 
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
@@ -758,12 +781,58 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if options.GoalRound != nil && options.GoalRound.RunID != "" {
 		runID = options.GoalRound.RunID
 	}
+	var capture maskcontract.Capture
+	var prompt *storage.RunPromptSnapshot
+	var expectedMask *storage.MaskCaptureCheck
+	if s.deps.Admission != nil {
+		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
+		if s.deps.MaskResolver != nil {
+			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: capture session mask: %w", err)
+			}
+			if capture.Selection.SessionID != sessionID {
+				return "", maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask capture belongs to another session"))
+			}
+			expectedMask = &storage.MaskCaptureCheck{
+				SessionID: sessionID, SelectionRevision: capture.Selection.Revision,
+				MaskID: capture.Selection.MaskID,
+			}
+			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
+				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
+				expectedMask.DefinitionDigest = capture.Mask.Digest
+			}
+		}
+		built, buildErr := buildPromptSnapshot(PromptInput{
+			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
+			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+		})
+		if buildErr != nil {
+			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
+		}
+		prompt = &built
+	}
 	workspaceID := ""
+	var workspace Workspace
+	workspaceReady := false
+	releaseWorkspace := func() {
+		if !workspaceReady || s.deps.Workspaces == nil {
+			return
+		}
+		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
+			if err := releaser.Release(context.WithoutCancel(ctx), workspace); err != nil {
+				slog.Warn("run admission rollback could not release workspace", "run", string(runID), "err", err)
+			}
+		}
+		workspaceReady = false
+	}
 	if s.deps.Workspaces != nil {
-		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
+		var err error
+		workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
 		if err != nil {
 			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 		}
+		workspaceReady = true
 		workspaceID = workspace.ID
 	}
 	now := time.Now().UnixMilli()
@@ -791,18 +860,25 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
 	collaborationPayloadMode, collaborationPayloadVersion := collaborationPayload(collaborationMode, collaborationVersion)
+	promptSchema, promptDigest := 0, ""
+	if prompt != nil {
+		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+	}
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		CollaborationMode: collaborationPayloadMode, CollaborationVersion: collaborationPayloadVersion,
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
+	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	if persist != nil {
 		if options.GoalRound != nil {
 			return "", errors.New("runtime: goal admission cannot use custom persistence")
 		}
-		started, err = persist(message, run, started)
+		started, err = persist(admission)
 		if err != nil {
+			releaseWorkspace()
 			return "", err
 		}
 	} else if options.GoalRound != nil {
@@ -810,9 +886,11 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		humanPending := s.humanPending[sessionID] > 0
 		s.mu.Unlock()
 		if humanPending {
+			releaseWorkspace()
 			return "", storage.ErrWorkRunConflict
 		}
 		if s.deps.GoalRuns == nil {
+			releaseWorkspace()
 			return "", errors.New("runtime: goal admission store is not wired")
 		}
 		goal := options.GoalRound
@@ -837,16 +915,20 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		s.mu.Unlock()
 		if humanPending {
 			intentGate.Unlock()
+			releaseWorkspace()
 			return "", storage.ErrWorkRunConflict
 		}
 		admitted, err := s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
-			Mutation: mutation,
-			Message:  message,
-			Run:      run,
-			Started:  started,
+			Mutation:     mutation,
+			Message:      message,
+			Run:          run,
+			Started:      started,
+			Prompt:       prompt,
+			ExpectedMask: expectedMask,
 		})
 		intentGate.Unlock()
 		if err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: admit goal round: %w", err)
 		}
 		if admitted.Work.Replayed {
@@ -858,20 +940,45 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		if s.deps.WorkSink != nil {
 			s.deps.WorkSink.Publish(admitted.Work.Event)
 		}
-	} else {
-		if s.deps.PrimaryRuns == nil {
-			return "", errors.New("runtime: primary run admission store is not wired")
-		}
+	} else if s.deps.PrimaryRuns != nil {
 		run.Status = domain.RunActive
 		run.Kind = domain.RunKindPrimary
 		run.RootID = runID
 		started, err = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
-			Message: message,
-			Run:     run,
-			Started: started,
+			Message:      message,
+			Run:          run,
+			Started:      started,
+			Prompt:       prompt,
+			ExpectedMask: expectedMask,
 		})
 		if err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: commit primary run: %w", err)
+		}
+	} else if s.deps.Admission != nil {
+		started, err = s.deps.Admission.CommitRunAdmission(ctx, admission)
+		if err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: commit run admission: %w", err)
+		}
+	} else {
+		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: append user message: %w", err)
+		}
+		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: create run: %w", err)
+		}
+		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
+		if appendErr != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
+		}
+		started.Seq = seq
+		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: activate run: %w", err)
 		}
 	}
 	s.publish(ctx, started)
@@ -1245,23 +1352,45 @@ func (s *Service) recover(ctx context.Context) error {
 				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
 				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
-		case hasApproval && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
-			s.rebuildPending(ctx, run, approval, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				// Keep the review row and in-memory suspension visible while this
+				// process lacks the immutable prompt needed to resume it. A later
+				// generation/module restore can retry recovery; no model or tool is
+				// allowed to consume the opaque checkpoint in the meantime.
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			}
 		case hasQuestion && question.ExpiresAt <= now:
 			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
 				s.failUnrecoverable(ctx, run.ID, "question expiry could not be persisted")
 			}
-		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
-			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
-		case hasPlanReview && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			}
 		case hasPlanReview:
-			s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+			} else {
+				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
+			}
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
@@ -1526,8 +1655,119 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 	if s.engine.cfg.Checkpoints == nil {
 		return false
 	}
-	_, ok, err := s.engine.cfg.Checkpoints.Get(ctx, checkpointIDFor(runID))
+	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return false
+	}
+	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
 	return err == nil && ok
+}
+
+// promptBlocksRecovery distinguishes a recoverable prompt incompatibility
+// from an unreadable Eino checkpoint. The former keeps the approval/question
+// pending so a compatible generation can retry; the latter is an unrecoverable
+// lost continuation and is closed by the existing recovery policy.
+func (s *Service) promptBlocksRecovery(ctx context.Context, runID domain.RunID) (bool, error) {
+	_, _, err := s.promptSnapshotContext(ctx, runID)
+	if err == nil {
+		return false, nil
+	}
+	var typed *maskcontract.Error
+	if !errors.As(err, &typed) {
+		return false, err
+	}
+	switch typed.Code {
+	case maskcontract.CodeSnapshotMissing, maskcontract.CodeSnapshotCorrupt,
+		maskcontract.CodeIncompatiblePrompt, maskcontract.CodeMaskUnavailable:
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+// promptSnapshotContext loads the durable prompt marker and snapshot before
+// any Eino checkpoint is read. Legacy runs have no marker and retain their
+// historical static instruction; a new-format run must have a matching,
+// same-generation snapshot or it is rejected fail-closed.
+func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID) (context.Context, bool, error) {
+	if s.deps.Admission == nil {
+		return ctx, false, nil
+	}
+	schemaVersion, digest, marked, err := s.runPromptMarker(ctx, runID)
+	if err != nil {
+		return ctx, false, err
+	}
+	if !marked {
+		return ctx, false, nil
+	}
+	snapshot, err := s.deps.Admission.LoadRunPrompt(ctx, runID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotMissing, err)
+		}
+		return ctx, false, fmt.Errorf("runtime: load run prompt snapshot: %w", err)
+	}
+	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion || snapshot.PayloadSHA256 != digest {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run prompt marker does not match snapshot"))
+	}
+	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt belongs to another generation"))
+	}
+	if snapshot.ComposerVersion != promptComposerVersion {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt was composed by an unsupported version"))
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil {
+		return ctx, false, err
+	}
+	if payload.Mask != nil && s.deps.MaskResolver == nil {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeMaskUnavailable, errors.New("the mask provider is not present for this run"))
+	}
+	return withRunPrompt(ctx, snapshot), true, nil
+}
+
+func (s *Service) promptSnapshotForRun(ctx context.Context, runID domain.RunID) (storage.RunPromptSnapshot, bool, error) {
+	promptCtx, hasPrompt, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return storage.RunPromptSnapshot{}, false, err
+	}
+	if !hasPrompt {
+		return storage.RunPromptSnapshot{}, false, nil
+	}
+	snapshot, _ := runPrompt(promptCtx)
+	return snapshot, true, nil
+}
+
+func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, digest string, marked bool, err error) {
+	if s.deps.Journal == nil {
+		return 0, "", false, errors.New("runtime: journal not wired")
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventRunStarted {
+			continue
+		}
+		var payload payloadRunStarted
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return 0, "", false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
+		}
+		if payload.PromptSchema == 0 && payload.PromptDigest == "" {
+			return 0, "", false, nil
+		}
+		if payload.PromptSchema <= 0 || strings.TrimSpace(payload.PromptDigest) == "" {
+			return 0, "", false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
+		}
+		return payload.PromptSchema, payload.PromptDigest, true, nil
+	}
+	if err := it.Err(); err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	return 0, "", false, storage.ErrNotFound
 }
 
 // rebuildPending restores the in-memory suspend state of one run so the
@@ -1934,6 +2174,16 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
+	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
+	if promptErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		// Bind before history selection so the admitted instruction is reserved
+		// from the same byte budget that chooses transcript rows.
+		ctx = withRunPrompt(ctx, promptSnapshot)
+	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	msgs, selection, stats, err := s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, collaboration)
 	if err != nil {
@@ -1949,6 +2199,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
+	if hasPrompt {
+		runCtx = withRunPrompt(runCtx, promptSnapshot)
+	}
 	// Per-run mount registry: skill_view records declared tools here so the
 	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
@@ -1965,8 +2218,15 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
+	// One fresh detector per drive leg (ND-2): the consume loop drives it
+	// from the durable journal stream; the same pointer travels on the
+	// context so in-context seams share exactly this instance.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	runCtx = withNudgeState(runCtx, state)
+	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state)
 }
 
 // withLiveModelStreamObserver installs the producer-path stream seam used by
@@ -1996,6 +2256,27 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 	})
 }
 
+// nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
+// the boundary middleware delegates persistence to the Service — one
+// audited event per scheduled reminder, journaled and published through
+// the normal path. A failed append aborts the model call rather than
+// degrading the reminder into an unrecorded injection.
+func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudgeEmitter {
+	return func(ctx context.Context, notice nudgeNotice) error {
+		re := m.build(domain.EventToolNudge, payloadToolNudge{
+			ToolCallID:      notice.CallID,
+			ToolName:        notice.ToolName,
+			Reason:          notice.Reason,
+			RepeatCount:     notice.Count,
+			TemplateVersion: notice.TemplateVersion,
+		})
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: nudge scheduling event could not be journaled")
+		}
+		return nil
+	}
+}
+
 // runMessages rebuilds the session transcript for the engine (ADR-010):
 // user, assistant, and paired tool turns in store order, with the current
 // turn's user message last (Run persists it before driving, so the store
@@ -2012,6 +2293,10 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 
 func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string, collaboration domain.CollaborationMode) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
+	reservedPromptBytes, err := promptInstructionReservation(ctx)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
 	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
@@ -2035,6 +2320,7 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
+		ReservedBytes:      reservedPromptBytes,
 	}, preamble, folded, userText)
 	if err != nil {
 		return nil, selection, stats, err
@@ -2042,7 +2328,7 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
 		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sessionID), WorkspaceID: workspaceID}
 		if eng.cfg.MaxContextBytes > 0 {
-			used := projectedContextBytes(msgs)
+			used := projectedContextBytes(msgs) + reservedPromptBytes
 			request.EnforceByteBudget = true
 			request.ByteBudget = max(0, eng.cfg.MaxContextBytes-used)
 			// Keep the Host's token bound coupled to the same final
@@ -2069,8 +2355,9 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 			}
 		}
 	}
-	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs) > eng.cfg.MaxContextBytes {
-		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectedContextBytes(msgs), eng.cfg.MaxContextBytes)
+	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs)+reservedPromptBytes > eng.cfg.MaxContextBytes {
+		used := projectedContextBytes(msgs) + reservedPromptBytes
+		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, used, eng.cfg.MaxContextBytes)
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -2160,15 +2447,32 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+//
+// The leg's nudge detector is driven from this loop in journal order
+// (ND-2): a turn's tool.requested batch registers after its events are
+// durably appended, each tool.finished records completion on append
+// success, and the batch seals only once every one of its results is
+// durable — so the detector can never release a model handoff ahead of
+// the Journal. Any exit aborts the waiters the terminal transition
+// leaves behind.
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
 		}
 	}
+	if state != nil {
+		// Every exit path releases a waiting model boundary with the
+		// leg's last cause, even when the consume loop itself stranded.
+		defer state.Abort(context.Canceled)
+	}
+	var outstanding map[string]struct{}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -2179,22 +2483,77 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if err := reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
+			var requested []string
 			for _, re := range events {
 				if !s.persistAndPublish(ctx, sessionID, re) {
 					persistStopped = true
 					return context.Canceled
 				}
+				if state == nil {
+					continue
+				}
+				switch re.Type {
+				case domain.EventToolRequested:
+					var p payloadToolRequested
+					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
+						requested = append(requested, p.ToolCallID)
+					}
+				case domain.EventToolFinished:
+					var p payloadToolFinished
+					if err := json.Unmarshal(re.Payload, &p); err != nil {
+						return fmt.Errorf("runtime: decode tool.finished payload: %w", err)
+					}
+					call, ok := m.takeCompletion(p.ToolCallID)
+					if !ok {
+						// Resume legs replay the decided call without a
+						// parked record; rebuild the outcome from the
+						// journaled payload instead.
+						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
+					}
+					if err := state.Complete(call); err != nil {
+						return err
+					}
+					if _, tracked := outstanding[p.ToolCallID]; tracked {
+						delete(outstanding, p.ToolCallID)
+						if len(outstanding) == 0 {
+							state.Seal(nil)
+							if cause := state.terminalErr(); cause != nil {
+								return cause
+							}
+						}
+					}
+				}
+			}
+			if state != nil && len(requested) > 0 {
+				if err := state.Register(requested); err != nil {
+					return err
+				}
+				if outstanding == nil {
+					outstanding = map[string]struct{}{}
+				}
+				for _, id := range requested {
+					outstanding[id] = struct{}{}
+				}
 			}
 			return nil
 		})
 		if persistStopped {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			if state != nil {
+				state.Abort(errRunInterrupted)
+			}
 			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
 		}
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			// A failed first exchange still leaves a user message worth a
 			// title; the generator's truncation fallback names it when no
@@ -2206,11 +2565,17 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 
 	turnEnd := m.onTurnEnd()
 	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+		if state != nil {
+			state.Abort(err)
+		}
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
 	for _, re := range turnEnd {
 		if !s.persistAndPublish(ctx, sessionID, re) {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 	}
@@ -2535,6 +2900,14 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	if approval.Kind != domain.ApprovalKindChild && !isShellApproval(approval) {
+		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
+			// Validate before first-writer settlement. A corrupt or incompatible
+			// snapshot leaves the review pending, so recovery can surface the
+			// same fail-closed state without losing the user's decision slot.
+			return fmt.Errorf("runtime: approval resume rejected by prompt snapshot: %w", err)
+		}
+	}
 	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
@@ -2609,7 +2982,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
-			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID, nil)
 	}()
 	return nil
 }
@@ -2837,6 +3210,12 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if time.Now().UnixMilli() >= question.ExpiresAt {
 		return ErrQuestionExpired
 	}
+	if _, _, err := s.promptSnapshotContext(ctx, question.RunID); err != nil {
+		// Keep the durable question pending when the immutable prompt cannot be
+		// reconstructed. Answering it would otherwise consume the only resume
+		// opportunity while no model/tool call is allowed to proceed.
+		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
+	}
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
@@ -2872,7 +3251,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
-			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
 	}()
 	return nil
 }
@@ -2937,7 +3316,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -2971,6 +3350,19 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		mounts = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
+	promptCtx, hasPrompt, promptErr := s.promptSnapshotContext(ctx, runID)
+	if promptErr != nil {
+		// Validate the immutable prompt before consuming proposal bytes or
+		// handing a durable approval/question to Eino. The decision has already
+		// been recorded by the caller, so close the run visibly if recovery is
+		// no longer possible instead of leaving an active dangling run.
+		slog.Warn("resume rejected prompt snapshot", "run", string(runID), "err", promptErr)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		ctx = promptCtx
+	}
 	approvedArgumentsHash := ""
 	if approvalID != "" {
 		var unbindErr error
@@ -3003,6 +3395,17 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
+	// window state carries over from the suspended leg.
+	state := newNudgeState()
+	if err := s.restoreResumeNudgeBatch(context.Background(), state, runID, toolCallID, resumeBatchIDs); err != nil {
+		slog.Warn("resume could not restore tool result barrier", "run", string(runID), "err", err)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+		return
+	}
+	m.setNudgeState(state)
+	ctx = withNudgeState(ctx, state)
+	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})
@@ -3014,7 +3417,61 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter)
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state)
+}
+
+func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState, runID domain.RunID, toolCallID string, batchIDs []string) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	containsTarget := false
+	siblings := make(map[string]struct{}, len(batchIDs))
+	for _, id := range batchIDs {
+		if id == toolCallID {
+			containsTarget = true
+			continue
+		}
+		siblings[id] = struct{}{}
+	}
+	if !containsTarget {
+		return errors.New("runtime: resume tool batch does not contain its interrupted call")
+	}
+	if err := state.Register(batchIDs); err != nil {
+		return err
+	}
+	if len(siblings) == 0 {
+		return nil
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	settled := make(map[string]struct{}, len(siblings))
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var finished payloadToolFinished
+		if err := json.Unmarshal(event.Payload, &finished); err != nil {
+			return fmt.Errorf("runtime: decode resumed tool result: %w", err)
+		}
+		if _, ok := siblings[finished.ToolCallID]; !ok {
+			continue
+		}
+		if _, done := settled[finished.ToolCallID]; done {
+			continue
+		}
+		if err := state.SatisfyDurable(finished.ToolCallID); err != nil {
+			return err
+		}
+		settled[finished.ToolCallID] = struct{}{}
+	}
+	if err := it.Err(); err != nil {
+		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+	}
+	return nil
 }
 
 // terminalEvent classifies the failure path: context cancellation and

@@ -21,9 +21,9 @@ type SourceRecord struct {
 	Binding    GoBinding
 	Root       string
 	Ref        string
-	// RootlessFixture admits a T2 record without a source root for compiler test
-	// fixtures only. Production pack operations must provide a root before
-	// source provenance can be sealed.
+	// RootlessFixture admits a T2 record without a verified source root for
+	// compiler test fixtures only. Production catalogs must never set it: a
+	// real T2 Module always enters through a hashed, pinned Root.
 	RootlessFixture bool
 }
 
@@ -35,6 +35,7 @@ type GoBinding struct {
 	Constructor                  string
 	ProviderConstructor          string
 	ProviderCollection           bool
+	MaskFactory                  string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool
@@ -74,6 +75,13 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 			if record.Descriptor.Source.Ref != record.Ref {
 				return SourceCatalog{}, fmt.Errorf("source ref mismatch for %s: got %s, want %s", id, record.Descriptor.Source.Ref, record.Ref)
 			}
+			digest, err := HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
+			if err != nil {
+				return SourceCatalog{}, fmt.Errorf("verify source for %s: %w", id, err)
+			}
+			if digest != record.Descriptor.Source.SHA256 {
+				return SourceCatalog{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", id, digest, record.Descriptor.Source.SHA256)
+			}
 		}
 		if _, exists := catalog.records[id]; exists {
 			return SourceCatalog{}, fmt.Errorf("ambiguous source for module %s", id)
@@ -88,54 +96,6 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 // address without introducing a circular hash dependency.
 func HashSourceTree(root, declaredDigest string) (string, error) {
 	return sourcehash.Tree(root, declaredDigest)
-}
-
-// BindSourceHashes derives source provenance from the exact roots selected for
-// a pack operation. Descriptors may carry a legacy digest for circular-content
-// normalization, but that value is never trusted as an input or compared by
-// the compiler.
-func BindSourceHashes(plan *AssemblyPlan, catalog SourceCatalog) error {
-	if plan == nil {
-		return fmt.Errorf("source hash binding requires a plan")
-	}
-	for index := range plan.Modules {
-		resolved := &plan.Modules[index]
-		record, err := catalog.Resolve(resolved.Descriptor.Module.ID)
-		if err != nil {
-			return err
-		}
-		if record.Root == "" {
-			return fmt.Errorf("source root is required to bind hash for %s", resolved.Descriptor.Module.ID)
-		}
-		digest, err := HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
-		if err != nil {
-			return fmt.Errorf("hash source for %s: %w", resolved.Descriptor.Module.ID, err)
-		}
-		resolved.Descriptor.Source.SHA256 = digest
-	}
-	return nil
-}
-
-// VerifyBoundSourceHashes detects source mutation after pack provenance was
-// bound. It is a pack consistency check, not a compile-time package gate.
-func VerifyBoundSourceHashes(plan AssemblyPlan, catalog SourceCatalog) error {
-	for _, resolved := range plan.Modules {
-		record, err := catalog.Resolve(resolved.Descriptor.Module.ID)
-		if err != nil {
-			return err
-		}
-		if record.Root == "" {
-			return fmt.Errorf("source root is required to verify hash for %s", resolved.Descriptor.Module.ID)
-		}
-		actual, err := HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
-		if err != nil {
-			return fmt.Errorf("verify source for %s: %w", resolved.Descriptor.Module.ID, err)
-		}
-		if actual != resolved.Descriptor.Source.SHA256 {
-			return fmt.Errorf("source changed during pack for %s: got %s, want %s", resolved.Descriptor.Module.ID, actual, resolved.Descriptor.Source.SHA256)
-		}
-	}
-	return nil
 }
 
 func (catalog SourceCatalog) Resolve(moduleID string) (SourceRecord, error) {

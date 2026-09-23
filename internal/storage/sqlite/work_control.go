@@ -258,6 +258,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		}, nil
 	}
 
+	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+		return storage.GoalRunCommitResult{}, err
+	}
 	state := domain.WorkState{SessionID: admission.Mutation.SessionID}
 	if len(events) > 0 {
 		state, err = domain.FoldWork(events)
@@ -340,6 +343,11 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		run.ID, run.SessionID, string(run.Status), run.CreatedAt, string(kind), run.ParentID, rootID, run.Depth); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: create goal run: %w", err)
+	}
+	if admission.Prompt != nil {
+		if err := sqliteInsertAdmissionPrompt(ctx, tx, *admission.Prompt); err != nil {
+			return storage.GoalRunCommitResult{}, err
+		}
 	}
 
 	started := admission.Started

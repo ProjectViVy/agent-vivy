@@ -64,3 +64,5 @@ meoo_zip_*.zip
 .vscode/
 .DS_Store
 Thumbs.db
+
+.worktrees/

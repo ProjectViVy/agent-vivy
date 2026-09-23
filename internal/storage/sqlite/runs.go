@@ -80,6 +80,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	if affected == 0 {
 		return domain.RunEvent{}, storage.ErrNotFound
 	}
+	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+		return domain.RunEvent{}, err
+	}
 	message := admission.Message
 	message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
 	if err != nil {
@@ -137,6 +140,11 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		run.ID, run.SessionID, string(run.Status), run.CreatedAt, string(kind), run.ParentID, rootID, run.Depth); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: create primary run: %w", err)
+	}
+	if admission.Prompt != nil {
+		if err := sqliteInsertAdmissionPrompt(ctx, tx, *admission.Prompt); err != nil {
+			return domain.RunEvent{}, err
+		}
 	}
 
 	started := admission.Started

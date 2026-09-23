@@ -46,11 +46,21 @@ func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, m
 	if err != nil {
 		return "", err
 	}
-	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, WorkSeq: effective[cutoffIdx].WorkSeq, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
-	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
-		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, event)
+	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
+	return s.runWithOptions(ctx, sessionID, text, options, func(admission storage.RunAdmission) (domain.RunEvent, error) {
+		marker.WorkSeq = effective[cutoffIdx].WorkSeq
+		if s.deps.Admission != nil {
+			marker.RunID = admission.Run.ID
+			admission.Edit = &marker
+			committed, err := s.deps.Admission.CommitRunAdmission(ctx, admission)
+			if err != nil {
+				return admission.Started, fmt.Errorf("runtime: commit session edit admission: %w", err)
+			}
+			return committed, nil
+		}
+		committed, err := mutations.CommitSessionEdit(ctx, marker, admission.Message, admission.Run, admission.Started)
 		if err != nil {
-			return event, fmt.Errorf("runtime: commit session edit: %w", err)
+			return admission.Started, fmt.Errorf("runtime: commit session edit: %w", err)
 		}
 		return committed, nil
 	})

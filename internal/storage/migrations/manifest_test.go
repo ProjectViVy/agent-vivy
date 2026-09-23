@@ -36,11 +36,11 @@ func TestEmbeddedManifestHasCanonicalPairs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Embedded: %v", err)
 	}
-	if got := len(manifest.Migrations(SQLite)); got != 25 {
-		t.Fatalf("embedded SQLite migration count = %d, want 25", got)
+	if got := len(manifest.Migrations(SQLite)); got != 27 {
+		t.Fatalf("embedded SQLite migration count = %d, want 27", got)
 	}
-	if got := len(manifest.Migrations(Postgres)); got != 25 {
-		t.Fatalf("embedded PostgreSQL migration count = %d, want 25", got)
+	if got := len(manifest.Migrations(Postgres)); got != 27 {
+		t.Fatalf("embedded PostgreSQL migration count = %d, want 27", got)
 	}
 	for i, migration := range manifest.Migrations(SQLite) {
 		postgres := manifest.Migrations(Postgres)[i]
