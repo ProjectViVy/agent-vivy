@@ -25,7 +25,7 @@ func promptCapture(mask *maskcontract.Snapshot) maskcontract.Capture {
 func TestBuildPromptSnapshotUsesOnePersonaAndLiteralMaskData(t *testing.T) {
 	mask := &maskcontract.Snapshot{
 		ID: "custom/00000000-0000-4000-8000-000000000001", Name: "quoted \"mask\"",
-		Body: "{system}\n{{persona}}\n\\literal",
+		Body:               "{system}\n{{persona}}\n\\literal",
 		DefinitionRevision: 2, SelectionRevision: 3,
 	}
 	mask.Digest = maskcontract.DefinitionDigest(mask.ID, mask.Name, mask.Body)

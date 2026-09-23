@@ -37,7 +37,7 @@ func TestMaskStoreCRUDAndSelection(t *testing.T) {
 	}
 	request := mask.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000001",
-		Name: "Postgres Mask", Description: "test", Body: "Use a concise testing voice.",
+		Name:        "Postgres Mask", Description: "test", Body: "Use a concise testing voice.",
 	}
 	created, err := store.CreateCustomMask(ctx, request)
 	if err != nil || created.ID == "" || created.Revision != 1 || created.BuiltIn {
@@ -126,7 +126,7 @@ func TestMaskSelectionSerializesAfterDedicatedDelete(t *testing.T) {
 	}
 	created, err := b.CreateCustomMask(ctx, mask.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000021",
-		Name: "delete ordering", Body: "definition selected concurrently",
+		Name:        "delete ordering", Body: "definition selected concurrently",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestReadMaskCaptureSeesOneCommittedDefinitionVersion(t *testing.T) {
 	}
 	created, err := b.CreateCustomMask(ctx, mask.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000022",
-		Name: "before", Body: "before body",
+		Name:        "before", Body: "before body",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestCommitSessionForkRollsBackCopiedMaskSelectionAfterLaterFailure(t *testi
 	}
 	created, err := b.CreateCustomMask(ctx, mask.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000023",
-		Name: "fork rollback", Body: "selection must roll back",
+		Name:        "fork rollback", Body: "selection must roll back",
 	})
 	if err != nil {
 		t.Fatal(err)

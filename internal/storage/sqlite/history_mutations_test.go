@@ -36,7 +36,7 @@ func TestCommitSessionForkRollsBackChildWhenEventFails(t *testing.T) {
 	}
 	definition, err := b.CreateCustomMask(ctx, mask.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000091",
-		Name: "rollback mask", Body: "copied before the injected failure",
+		Name:        "rollback mask", Body: "copied before the injected failure",
 	})
 	if err != nil {
 		t.Fatal(err)

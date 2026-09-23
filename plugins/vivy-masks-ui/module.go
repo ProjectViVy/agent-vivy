@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	ModuleID       = "vivy/masks-ui"
-	ProviderID     = "vivy.masks-ui.sidebar"
+	ModuleID        = "vivy/masks-ui"
+	ProviderID      = "vivy.masks-ui.sidebar"
 	UIExtensionPort = "std/ui-extension@v1"
-	SourceRef      = "repo:plugins/vivy-masks-ui"
-	SourceSHA256   = "91fe71c3bdfd0adadd3e9ad20eb310ef2448f9d235287d9e8287c2349e46c82b"
+	SourceRef       = "repo:plugins/vivy-masks-ui"
+	SourceSHA256    = "91fe71c3bdfd0adadd3e9ad20eb310ef2448f9d235287d9e8287c2349e46c82b"
 )
 
 type owner struct{}
@@ -24,17 +24,17 @@ type instance struct{}
 
 type provider struct{}
 
-func New() module.Module { return owner{} }
+func New() module.Module    { return owner{} }
 func NewProvider() provider { return provider{} }
 
 func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
-		Module: module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source: module.Source{Ref: SourceRef, SHA256: SourceSHA256},
-		Provides: []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
-		I18N: &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
-		Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration},
+		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
+		Source:     module.Source{Ref: SourceRef, SHA256: SourceSHA256},
+		Provides:   []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
+		I18N:       &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
+		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},
 	}
 }
 

@@ -96,10 +96,10 @@ type ControlDeps struct {
 	// It is a capability of this composed control plane, independent of the
 	// selected mask catalog or any browser-side mask state.
 	CodeModeAvailable bool
-	Studio      *studio.Service
-	Live        studio.LiveView
-	Eval        eval.Starter
-	Children    ChildController
+	Studio            *studio.Service
+	Live              studio.LiveView
+	Eval              eval.Starter
+	Children          ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -1046,8 +1046,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
 		return map[string]any{
-			"protocol_version": ProtocolVersion,
-			"capabilities":     capabilities,
+			"protocol_version":    ProtocolVersion,
+			"capabilities":        capabilities,
 			"code_mode_available": h.deps.CodeModeAvailable,
 		}, nil
 	case "session/create":

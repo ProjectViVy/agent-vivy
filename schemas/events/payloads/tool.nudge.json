@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.nudge.json",
+  "title": "tool.nudge payload (v1)",
+  "description": "Durable record of one scheduled reminder for the next model invocation (NUDGE-DESIGN §7). Denotes scheduling inside this run, not remote receipt; the reminder text itself is rendered from the fixed template and never stored.",
+  "type": "object",
+  "properties": {
+    "tool_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Typed failure reason vocabulary of the repeated call."
+    },
+    "repeat_count": {
+      "type": "integer",
+      "enum": [3, 5],
+      "description": "Occurrence count of the canonical identical-call signature inside the 10-call window at seal time."
+    },
+    "template_version": {
+      "type": "string",
+      "const": "nudge-v1"
+    }
+  },
+  "required": ["tool_call_id", "tool_name", "reason", "repeat_count", "template_version"],
+  "additionalProperties": false
+}
