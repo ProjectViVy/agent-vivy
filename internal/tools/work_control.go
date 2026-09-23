@@ -17,7 +17,6 @@ const (
 	GetGoalName       = "get_goal"
 	CreateGoalName    = "create_goal"
 	ReportGoalName    = "report_goal"
-
 )
 
 // WorkControlOperations is the run-scoped host capability exposed to the

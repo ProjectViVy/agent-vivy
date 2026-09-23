@@ -35,4 +35,24 @@ Branch: `feat/issue-47-goal-plan-foundation`
 | Live PostgreSQL test | Not run: `VIVY_POSTGRES_TEST_DSN` is unset |
 | Browser E2E and real coding walkthrough | Not run in this continuation; no UI source behavior changed |
 
-The container does not have `just`; its `ci` gates were run in recipe order as direct commands and passed. Live PostgreSQL, browser integration and a real coding walkthrough remain as broader acceptance gates.
+The earlier container did not have `just`; its `ci` gates were run in recipe order as direct commands. Those results are historical and do not establish a green gate for the later Windows worktree. Live PostgreSQL, browser integration and a real coding walkthrough remain as broader acceptance gates.
+
+## Isolated Windows gate repair (2026-09-23)
+
+Worktree: `codex/issue-47-pg0-gates` at baseline `332e3adc3c658f982c32047b0d2389cd7ae7462b`. Go is `go1.26.4 windows/amd64` from `C:\Program Files\Go\bin`; the commands below put that directory on `PATH`. No runtime behavior was changed. `gofmt -l internal/tools/work_control.go` identified one extra blank line, and `gofmt -w internal/tools/work_control.go` removed it.
+
+| Command | Actual result |
+| --- | --- |
+| `go run ./sdk/internal/cmd/source-hash internal ''` | Produced `6ba01d9588e44f140e6f13e35ded8343b7465eb3430c1ece134e81c2350ce452`; this is the canonical `internal/` source-tree digest. |
+| `go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` before refreshing evidence | Failed as expected: computed `6ba01d9588e44f140e6f13e35ded8343b7465eb3430c1ece134e81c2350ce452`, checked-in `7c56dd9930bfb5ee54eee85512f0334597ade16e6aa63bfde80a9e3cdce47818`. |
+| `go test ./sdk/internal/conformance -run 'TestGeneration(FailureMatrixEvidence\|RollbackRestoresCatalogAndLocaleIdentity)' -count=1` | Passed. |
+| `go test ./sdk/internal -run 'Test(GenerationFailureMatrixExecutesEveryCase\|MinimalArtifactPhysicallyOmitsOptionalModules)' -count=1` | First attempt failed because `ui/dist` and `ui/node_modules` were absent. After the `just ci` UI build and install, passed in 169.807s. |
+| `go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures\|StartFailureRollsBackEveryConstructedOwner)' -count=1` | First attempt could not compile without `ui/dist`; after the UI build, passed. |
+| `go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed\|PanicAndInvalidDecisionFailClosed)' -count=1` | Passed. |
+| `go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` after refreshing exactly five `internal/` `sourceSha256` values | Passed in 183.230s; the executed provider and host suites match the checked-in result bundle. |
+| `just ci` | Exit 1. `fmt-check`, UI typecheck, 49 test files / 400 tests, UI build, i18n checks, and `go vet ./...` passed. Full Go tests failed in untouched `internal/modules/masks` and in `sdk/internal/conformance`. The latter Go package began before the digest refresh and compared the newly computed `6ba01d…` with its already embedded old `7c56dd…`; the separate post-refresh reproduction command above passed. |
+| `git diff --check` | Exit 0. |
+
+The six mask failures were `TestMaskCatalogEmbedsCanonicalBuiltIns`, `TestMaskCatalogResolverAndOwnedReturns`, `TestMaskCatalogDuplicateIDsFailClosed`, `TestServiceListMergesBuiltinsAndCustoms`, `TestServiceCaptureResolvesBuiltinsAndOwnsCopies`, and `TestServiceSelectionUsesResolvedCaptureAndRejectsReservedLookup`. Each reported `mask catalog: validate builtin/programmer: definition body is not normalized` (the duplicate-ID assertion instead reported that error where it expected a duplicate-ID error). This task made no mask changes. The first full CI run is not a pass; no later complete CI result is claimed. A second `just ci` was started after the digest refresh, then canceled before completing on supervisor instruction because the focused reproduction had passed and the unrelated mask failure was already recorded.
+
+`VIVY_POSTGRES_TEST_DSN` was unset in this worktree. The `internal/storage/postgres` package's no-service test result is not live PostgreSQL acceptance evidence. Browser E2E and a real coding walkthrough were not run in this gate repair.
