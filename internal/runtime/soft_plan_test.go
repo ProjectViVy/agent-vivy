@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -64,6 +66,26 @@ func TestPlanGuidanceUsesEmbeddedMarkdownSource(t *testing.T) {
 	messages := reconcilePlanGuidance(nil, true)
 	if len(messages) != 1 || messages[0].Content != guidance {
 		t.Fatalf("middleware guidance = %+v, want one message from plan.md", messages)
+	}
+}
+
+func TestPlanGuidanceDeduplicatesActiveMessages(t *testing.T) {
+	messages := reconcilePlanGuidance([]*schema.Message{
+		schema.SystemMessage("Keep this unrelated system text."),
+		schema.SystemMessage(planGuidanceText),
+		schema.SystemMessage(planGuidanceText),
+	}, true)
+	var content strings.Builder
+	for _, message := range messages {
+		if message != nil {
+			content.WriteString(message.Content)
+		}
+	}
+	if got := strings.Count(content.String(), planGuidanceText); got != 1 {
+		t.Fatalf("active Plan guidance occurrences = %d, want 1: %+v", got, messages)
+	}
+	if !strings.Contains(content.String(), "Keep this unrelated system text.") {
+		t.Fatalf("unrelated system text was removed: %+v", messages)
 	}
 }
 
