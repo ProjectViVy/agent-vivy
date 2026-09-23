@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	einotool "github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	jsonschema "github.com/eino-contrib/jsonschema"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
@@ -720,6 +721,11 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
+	// The stable tool_call identity crosses the Eino boundary so effectful
+	// tools can receipt-key their committed operation.
+	if callID := compose.GetToolCallID(ctx); callID != "" {
+		toolCtx = tools.WithToolCallID(toolCtx, callID)
+	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	err = redactToolError(err)

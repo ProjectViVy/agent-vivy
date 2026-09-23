@@ -68,6 +68,10 @@ type HistoryService struct {
 	limits   domain.ContinuityLimits
 	key      []byte
 	keyMu    sync.RWMutex
+	// referenceLookup resolves the destination-owned snapshot copy behind a
+	// reference_id read. Nil keeps reference-id reads unavailable; the
+	// composition root wires it once ReferenceService exists (SC-D4 §7).
+	referenceLookup func(ctx context.Context, sessionID domain.SessionID, referenceID string) (domain.ContextReference, error)
 }
 
 type HistoryOperations = tools.HistoryOperations
@@ -95,6 +99,12 @@ func NewHistoryService(query storage.HistoryQueryStore, sessionStores ...storage
 		limits:   domain.DefaultContinuityLimits(),
 		key:      key,
 	}
+}
+
+// SetReferenceLookup wires the reference snapshot authority. It is set
+// once at composition time, before the service serves traffic.
+func (s *HistoryService) SetReferenceLookup(lookup func(ctx context.Context, sessionID domain.SessionID, referenceID string) (domain.ContextReference, error)) {
+	s.referenceLookup = lookup
 }
 
 // SetLimits is intended for a composition root that has a narrower effective
@@ -210,16 +220,39 @@ func (s *HistoryService) Read(ctx context.Context, request domain.HistoryReadReq
 	if err := request.Validate(limits); err != nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, err.Error()), nil
 	}
-	if request.ReferenceID != "" {
-		return historyStatusPage(domain.HistoryStatusInvalidArgument, "reference_lookup_unavailable"), nil
-	}
 	if tools.SessionIDFromContext(ctx) == "" {
 		return historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
+	}
+	if request.ReferenceID != "" {
+		return s.runReferenceRead(ctx, request.ReferenceID, limits)
 	}
 	if s.query == nil || request.Selection == nil {
 		return historyStatusPage(domain.HistoryStatusUnavailable, "history_unavailable"), nil
 	}
 	return s.runRead(ctx, request, limits)
+}
+
+// runReferenceRead returns the destination-owned captured copy behind a
+// reference id. The source session is never consulted, so the read cannot
+// broaden the caller's scope.
+func (s *HistoryService) runReferenceRead(ctx context.Context, referenceID string, limits domain.ContinuityLimits) (domain.HistoryPage, error) {
+	current := tools.SessionIDFromContext(ctx)
+	if s.referenceLookup == nil {
+		return historyStatusPage(domain.HistoryStatusInvalidArgument, "reference_lookup_unavailable"), nil
+	}
+	reference, err := s.referenceLookup(ctx, current, referenceID)
+	if err != nil {
+		var refErr ReferenceError
+		if errors.As(err, &refErr) {
+			reason := refErr.Reason
+			return domain.HistoryPage{Status: refErr.Status, Reason: &reason}, nil
+		}
+		return domain.HistoryPage{}, err
+	}
+	if reference.DestinationSessionID != current {
+		return historyStatusPage(domain.HistoryStatusForbidden, "out_of_scope"), nil
+	}
+	return s.boundPage(domain.HistoryPage{Status: string(domain.HistoryStatusOK), Items: reference.Items}, limits), nil
 }
 
 // Trace exposes only immediate source/provenance metadata. Recursive lookup

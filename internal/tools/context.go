@@ -84,3 +84,20 @@ func WorkspaceIDFromContext(ctx context.Context) string {
 	workspaceID, _ := ctx.Value(workspaceIDContextKey{}).(string)
 	return workspaceID
 }
+
+type toolCallIDContextKey struct{}
+
+// WithToolCallID binds the stable Eino tool_call identity of the invocation
+// being executed. Effectful tools fold it into their operation receipt so a
+// checkpoint resume that re-executes the call replays its committed result
+// instead of committing a duplicate effect.
+func WithToolCallID(ctx context.Context, callID string) context.Context {
+	return context.WithValue(ctx, toolCallIDContextKey{}, callID)
+}
+
+// ToolCallIDFromContext returns the tool_call identity, or empty when the
+// caller is not a model tool invocation.
+func ToolCallIDFromContext(ctx context.Context) string {
+	callID, _ := ctx.Value(toolCallIDContextKey{}).(string)
+	return callID
+}
