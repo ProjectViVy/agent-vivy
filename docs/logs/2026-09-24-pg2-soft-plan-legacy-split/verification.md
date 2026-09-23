@@ -16,3 +16,11 @@
 - Focused Plan/legacy suite: `go test ./internal/runtime -run 'Test(Plan|LegacyPlan)' -count=1` passed (`ok agent-vivy/internal/runtime`, 5.354s).
 - Internal source hash was refreshed with `go run ./sdk/internal/cmd/source-hash internal ''`: `b2d08e7fee9fa8ee64c88cb7e5f607bf193deea52c49a1d9e3b845d313b5e687`. The five matching entries in `sdk/internal/assembly/conformance_results.json` were updated.
 - Final full gate: `$env:PATH = 'C:\Program Files\Go\bin;' + $env:PATH; just ci` passed with exit 0. It passed UI typecheck, 400 UI tests, UI build and localization checks; `go vet ./...`; `go test -timeout 20m ./...` (including `internal/runtime` in 486.498s, `sdk/internal` in 854.301s, and `sdk/internal/conformance` in 307.298s); headless compile; and plugin CI. Complete output: `C:\Users\Administrator\AppData\Local\Temp\1\issue47-pg2-task1-review-fix-ci.log`.
+
+## Post-review correction 2: deduplicate active guidance
+
+- TDD RED: `go test ./internal/runtime -run '^TestPlanGuidanceDeduplicatesActiveMessages$' -count=1` failed: two exact standalone system guidance messages remained active (2 occurrences, expected 1); unrelated system text was retained.
+- GREEN: `go test ./internal/runtime -run '^TestPlanGuidance' -count=1` passed (`ok agent-vivy/internal/runtime`, 2.962s), including the scripted Plan-exit path and duplicate-input case.
+- Plan suite: `go test ./internal/runtime -run 'Test(Plan|LegacyPlan)' -count=1` passed (`ok agent-vivy/internal/runtime`, 7.567s).
+- Internal source hash: `go run ./sdk/internal/cmd/source-hash internal ''` returned `d323a0fda5a124e19797e991eb547d7282254accb6bd4dfadbcd581f012ed9e4`; the five internal conformance entries were refreshed.
+- Final gate: `$env:PATH = 'C:\Program Files\Go\bin;' + $env:PATH; just ci` passed with exit 0. It passed UI typecheck, 400 UI tests, UI build and localization checks; `go vet ./...`; `go test -timeout 20m ./...` (including `internal/runtime` in 439.459s, `sdk/internal` in 903.697s, and `sdk/internal/conformance` in 310.520s); headless compile; and plugin CI. Complete output: `C:\Users\ADMINI~1\AppData\Local\Temp\1\issue47-pg2-task1-review-fix2-ci.log`.

@@ -56,16 +56,23 @@ func reconcilePlanGuidance(messages []*schema.Message, active bool) []*schema.Me
 			continue
 		}
 		if message.Role == schema.System && strings.Contains(message.Content, planGuidanceText) {
-			if !active {
-				content := strings.TrimSpace(strings.ReplaceAll(message.Content, planGuidanceText, ""))
+			content := message.Content
+			if !active || hasGuidance {
+				content = strings.ReplaceAll(content, planGuidanceText, "")
+			} else {
+				first := strings.Index(content, planGuidanceText)
+				afterFirst := first + len(planGuidanceText)
+				content = content[:afterFirst] + strings.ReplaceAll(content[afterFirst:], planGuidanceText, "")
+				hasGuidance = true
+			}
+			if content != message.Content {
+				content = strings.TrimSpace(content)
 				if content == "" {
 					continue
 				}
 				copy := *message
 				copy.Content = content
 				message = &copy
-			} else {
-				hasGuidance = true
 			}
 		}
 		filtered = append(filtered, message)
