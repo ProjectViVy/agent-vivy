@@ -204,10 +204,11 @@ type Service struct {
 	goalRuns         map[domain.SessionID]domain.RunID
 	goalRunSessions  map[domain.RunID]domain.SessionID
 	goalRunRefs      map[domain.RunID]domain.GoalRef
-	goalAdmissionMu  sync.Mutex
 	admissionLocksMu sync.Mutex
 	admissionLocks   map[domain.SessionID]*sync.Mutex
 	humanIntentLocks map[domain.SessionID]*sync.Mutex
+	goalWakeRunning  map[domain.SessionID]struct{}
+	goalWakePending  map[domain.SessionID]struct{}
 	goalWG           sync.WaitGroup
 	stopping         bool
 	humanPending     map[domain.SessionID]int
@@ -388,6 +389,8 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
 		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
 		humanIntentLocks: make(map[domain.SessionID]*sync.Mutex),
+		goalWakeRunning:  make(map[domain.SessionID]struct{}),
+		goalWakePending:  make(map[domain.SessionID]struct{}),
 		humanPending:     make(map[domain.SessionID]int),
 		runSessions:      make(map[domain.RunID]domain.SessionID),
 		deletedSessions:  make(map[domain.SessionID]struct{}),
@@ -434,6 +437,24 @@ func (s *Service) humanIntentGate(sessionID domain.SessionID) *sync.Mutex {
 		s.humanIntentLocks[sessionID] = gate
 	}
 	return gate
+}
+
+// withAdmissionIntent linearizes the durable startup commit against human
+// intent registration. Human callers may commit despite their own registered
+// intent; automatic callers yield without writing when a human is pending.
+func (s *Service) withAdmissionIntent(sessionID domain.SessionID, human bool, commit func() error) error {
+	gate := s.humanIntentGate(sessionID)
+	gate.Lock()
+	defer gate.Unlock()
+	if !human {
+		s.mu.Lock()
+		pending := s.humanPending[sessionID] > 0
+		s.mu.Unlock()
+		if pending {
+			return storage.ErrWorkRunConflict
+		}
+	}
+	return commit()
 }
 
 // SetChildApprovalRouter wires the app-owned live worker registry after the
@@ -676,16 +697,22 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 // RunWithOptions starts one run with an explicit harness policy. The mode is
 // validated before any user message, run row, or event is persisted.
 func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions) (domain.RunID, error) {
-	return s.runWithOptions(ctx, sessionID, userText, options, nil)
+	return s.runWithAdmissionGate(ctx, sessionID, userText, options, nil, false)
 }
 
 type runPersistence func(storage.RunAdmission) (domain.RunEvent, error)
 
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
+	return s.runWithAdmissionGate(ctx, sessionID, userText, options, persist, false)
+}
+
+func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence, startupGateHeld bool) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
 	}
-	var sessionAdmission *sync.Mutex
+	if startupGateHeld && options.GoalRound == nil {
+		return "", errors.New("runtime: only a Goal candidate may reuse a held startup gate")
+	}
 	if options.HumanAdmission && options.GoalRound == nil {
 		intentGate := s.humanIntentGate(sessionID)
 		intentGate.Lock()
@@ -694,9 +721,6 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		s.mu.Unlock()
 		intentGate.Unlock()
 
-		sessionAdmission = s.sessionAdmission(sessionID)
-		sessionAdmission.Lock()
-		defer sessionAdmission.Unlock()
 		defer func() {
 			intentGate.Lock()
 			defer intentGate.Unlock()
@@ -708,9 +732,14 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 			}
 			s.mu.Unlock()
 		}()
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+	}
+	if !startupGateHeld {
+		sessionAdmission := s.sessionAdmission(sessionID)
+		sessionAdmission.Lock()
+		defer sessionAdmission.Unlock()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
@@ -876,19 +905,15 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		if options.GoalRound != nil {
 			return "", errors.New("runtime: goal admission cannot use custom persistence")
 		}
-		started, err = persist(admission)
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			started, err = persist(admission)
+			return err
+		})
 		if err != nil {
 			releaseWorkspace()
 			return "", err
 		}
 	} else if options.GoalRound != nil {
-		s.mu.Lock()
-		humanPending := s.humanPending[sessionID] > 0
-		s.mu.Unlock()
-		if humanPending {
-			releaseWorkspace()
-			return "", storage.ErrWorkRunConflict
-		}
 		if s.deps.GoalRuns == nil {
 			releaseWorkspace()
 			return "", errors.New("runtime: goal admission store is not wired")
@@ -908,27 +933,24 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 				RunID:     runID,
 			},
 		}
-		intentGate := s.humanIntentGate(sessionID)
-		intentGate.Lock()
-		s.mu.Lock()
-		humanPending = s.humanPending[sessionID] > 0
-		s.mu.Unlock()
-		if humanPending {
-			intentGate.Unlock()
-			releaseWorkspace()
-			return "", storage.ErrWorkRunConflict
-		}
-		admitted, err := s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
-			Mutation:     mutation,
-			Message:      message,
-			Run:          run,
-			Started:      started,
-			Prompt:       prompt,
-			ExpectedMask: expectedMask,
+		var admitted storage.GoalRunCommitResult
+		err = s.withAdmissionIntent(sessionID, false, func() error {
+			var commitErr error
+			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
+				Mutation:     mutation,
+				Message:      message,
+				Run:          run,
+				Started:      started,
+				Prompt:       prompt,
+				ExpectedMask: expectedMask,
+			})
+			return commitErr
 		})
-		intentGate.Unlock()
 		if err != nil {
 			releaseWorkspace()
+			if errors.Is(err, storage.ErrWorkRunConflict) {
+				return "", err
+			}
 			return "", fmt.Errorf("runtime: admit goal round: %w", err)
 		}
 		if admitted.Work.Replayed {
@@ -944,41 +966,52 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		run.Status = domain.RunActive
 		run.Kind = domain.RunKindPrimary
 		run.RootID = runID
-		started, err = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
-			Message:      message,
-			Run:          run,
-			Started:      started,
-			Prompt:       prompt,
-			ExpectedMask: expectedMask,
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			var commitErr error
+			started, commitErr = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+				Message:      message,
+				Run:          run,
+				Started:      started,
+				Prompt:       prompt,
+				ExpectedMask: expectedMask,
+			})
+			return commitErr
 		})
 		if err != nil {
 			releaseWorkspace()
 			return "", fmt.Errorf("runtime: commit primary run: %w", err)
 		}
 	} else if s.deps.Admission != nil {
-		started, err = s.deps.Admission.CommitRunAdmission(ctx, admission)
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			var commitErr error
+			started, commitErr = s.deps.Admission.CommitRunAdmission(ctx, admission)
+			return commitErr
+		})
 		if err != nil {
 			releaseWorkspace()
 			return "", fmt.Errorf("runtime: commit run admission: %w", err)
 		}
 	} else {
-		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			if appendErr := s.deps.Messages.AppendMessage(ctx, message); appendErr != nil {
+				return fmt.Errorf("runtime: append user message: %w", appendErr)
+			}
+			if createErr := s.deps.Runs.CreateRun(ctx, run); createErr != nil {
+				return fmt.Errorf("runtime: create run: %w", createErr)
+			}
+			seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
+			if appendErr != nil {
+				return fmt.Errorf("runtime: persist run.started: %w", appendErr)
+			}
+			started.Seq = seq
+			if statusErr := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); statusErr != nil {
+				return fmt.Errorf("runtime: activate run: %w", statusErr)
+			}
+			return nil
+		})
+		if err != nil {
 			releaseWorkspace()
-			return "", fmt.Errorf("runtime: append user message: %w", err)
-		}
-		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
-			releaseWorkspace()
-			return "", fmt.Errorf("runtime: create run: %w", err)
-		}
-		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
-		if appendErr != nil {
-			releaseWorkspace()
-			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
-		}
-		started.Seq = seq
-		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
-			releaseWorkspace()
-			return "", fmt.Errorf("runtime: activate run: %w", err)
+			return "", err
 		}
 	}
 	s.publish(ctx, started)
