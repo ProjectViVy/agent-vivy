@@ -13,6 +13,8 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
+
+	"github.com/cloudwego/eino/components/model"
 )
 
 // referenceFixture composes the real T3/T4 services and stores the way the
@@ -27,6 +29,13 @@ type referenceFixture struct {
 }
 
 func newReferenceFixture(t *testing.T) *referenceFixture {
+	t.Helper()
+	return newReferenceFixtureWithConfig(t, WrapModel(testsupport.NewEchoModel()), EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+}
+
+// newReferenceFixtureWithConfig lets lifecycle tests observe the exact model
+// feed or exercise compaction through the real service graph.
+func newReferenceFixtureWithConfig(t *testing.T, chatModel model.ToolCallingChatModel, cfg EngineConfig) *referenceFixture {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "references.db"))
@@ -54,13 +63,14 @@ func newReferenceFixture(t *testing.T) *referenceFixture {
 	}
 	history := NewHistoryService(backend, backend)
 	refs := NewReferenceService(history, backend, backend, backend, backend)
+	refs.SetViewStores(backend, backend)
 	history.SetReferenceLookup(refs.Lookup)
 
 	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	eng, err := NewEngine(ctx, chatModel, ts, cfg)
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
@@ -68,6 +78,7 @@ func newReferenceFixture(t *testing.T) *referenceFixture {
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		Sink: sink, Truncations: backend, Continuity: backend, References: refs,
+		Compactions: backend,
 	})
 	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
 	return &referenceFixture{backend: backend, refs: refs, history: history, svc: svc, sink: sink}

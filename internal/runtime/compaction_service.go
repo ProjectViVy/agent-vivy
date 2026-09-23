@@ -177,9 +177,19 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if foldIdx == 0 {
 		return CompactionResult{BeforeTokens: tokens, AfterTokens: tokens, Skipped: true}, nil
 	}
-	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx])
+	refsByRun, err := s.sessionAttachedReferences(ctx, sessionID)
+	if err != nil {
+		return CompactionResult{}, fmt.Errorf("runtime: gather session references: %w", err)
+	}
+	manifest := referenceManifest(feed[:foldIdx], refsByRun)
+	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun)
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
+	}
+	if len(manifest) > 0 {
+		// The durable record keeps the folded snapshots addressable by ID
+		// even when the model omits the transcript's manifest lines.
+		summary = strings.TrimSpace(summary) + "\n\nFolded references: " + strings.Join(manifest, ", ")
 	}
 	tailFrom := feed[len(feed)-1].CreatedAt
 	if foldIdx > 0 {
@@ -204,7 +214,7 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 
 	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, runID, domain.EventContextCompacted, payloadContextCompacted{
 		Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens,
-		DroppedMessages: foldIdx, RetentionSuffix: keep,
+		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: manifest,
 	}); err != nil {
 		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
 	}
@@ -249,6 +259,33 @@ func timestampSafeFoldIndex(feed []domain.Message, desired int) int {
 	return desired
 }
 
+// referenceManifest lists the snapshot IDs attached to the folded turns,
+// in transcript order with duplicates removed.
+func referenceManifest(folded []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, msg := range folded {
+		for _, ref := range refsByRun[msg.RunID] {
+			if ref.ID == "" || seen[ref.ID] {
+				continue
+			}
+			seen[ref.ID] = true
+			out = append(out, ref.ID)
+		}
+	}
+	return out
+}
+
+func referenceIDsOfRun(refs []domain.ContextReference) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.ID != "" {
+			out = append(out, ref.ID)
+		}
+	}
+	return out
+}
+
 // foldedFor mirrors the feed folding used at run time for the given
 // compaction record, so CompactSession can report honest after-tokens.
 func foldedFor(rec storage.SessionCompaction, stored []domain.Message) []domain.Message {
@@ -268,7 +305,7 @@ func foldedFor(rec storage.SessionCompaction, stored []domain.Message) []domain.
 
 // generateSessionSummary condenses the assembled history with the same
 // provider model the run uses. Returns a plain-text summary.
-func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message) (string, error) {
+func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference) (string, error) {
 	const maxTranscriptBytes = 200 * 1024
 	var transcript strings.Builder
 	transcript.WriteString("需压缩的会话历史（旧→新）：\n\n")
@@ -286,6 +323,9 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 				name = attachment.MimeType
 			}
 			line += fmt.Sprintf("[%s] [image attachment: %s]\n", msg.Role, name)
+		}
+		if ids := referenceIDsOfRun(refsByRun[msg.RunID]); len(ids) > 0 {
+			line += fmt.Sprintf("[references: %s]\n", strings.Join(ids, ", "))
 		}
 		if len(line) > remaining {
 			break

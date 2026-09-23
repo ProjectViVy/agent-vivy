@@ -1033,7 +1033,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, "history/search", "history/read", "history/trace", "history/capabilities", "history/sessions")
 		}
 		if h.deps.References != nil {
-			capabilities = append(capabilities, "reference/preview")
+			capabilities = append(capabilities, "reference/preview", "reference/get")
 		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
@@ -1091,6 +1091,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.historySessions(ctx, request)
 	case "reference/preview":
 		return h.referencePreview(ctx, request)
+	case "reference/get":
+		return h.referenceGet(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {

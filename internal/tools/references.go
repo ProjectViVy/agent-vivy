@@ -16,6 +16,9 @@ const ReferenceContextName = "reference_context"
 type ReferenceOperations interface {
 	Preview(context.Context, domain.HistorySelection) (domain.ReferencePreview, error)
 	Attach(context.Context, domain.ReferenceSelection) (domain.ContextReference, error)
+	// Get reads one destination-owned snapshot plus its live source and
+	// feed status for operator-facing surfaces.
+	Get(context.Context, domain.SessionID, string) (domain.ReferenceView, error)
 }
 
 type referenceContextTool struct{ ops ReferenceOperations }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -114,11 +116,11 @@ func fileContextCandidateBytes(candidate contexthost.Candidate) int {
 }
 
 func userFeedMessageWithContext(ctx context.Context, host *contexthost.Host, msg domain.Message) (*schema.Message, error) {
-	return userFeedMessageWithContextBudget(ctx, host, msg, nil)
+	return userFeedMessageWithContextBudget(ctx, host, msg, nil, nil)
 }
 
-func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Host, msg domain.Message, budget *contextProjectionBudget) (*schema.Message, error) {
-	if len(msg.Attachments) == 0 && len(msg.FileContexts) == 0 {
+func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Host, msg domain.Message, budget *contextProjectionBudget, references []domain.ContextReference) (*schema.Message, error) {
+	if len(msg.Attachments) == 0 && len(msg.FileContexts) == 0 && len(references) == 0 {
 		projected := schema.UserMessage(msg.Content)
 		budget.add(projected)
 		return projected, nil
@@ -158,10 +160,32 @@ func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Hos
 			}
 		}
 	}
-	parts := make([]schema.MessageInputPart, 0, len(textParts)+len(fileParts)+len(attachmentParts))
+	referenceParts := make([]schema.MessageInputPart, 0, len(references))
+	if len(references) > 0 {
+		// Imported blocks take whatever the rest of this message leaves;
+		// their status markers are reserved inside the same allowance.
+		remaining := -1
+		if budget != nil && budget.limit > 0 {
+			baseParts := make([]schema.MessageInputPart, 0, len(textParts)+len(fileParts)+len(attachmentParts))
+			baseParts = append(append(append(baseParts, textParts...), fileParts...), attachmentParts...)
+			used := projectedContextBytes([]*schema.Message{userMessageFromParts("", baseParts)})
+			if rem := budget.remaining() - used; rem > 0 {
+				remaining = rem
+			} else {
+				remaining = 0
+			}
+		}
+		var err error
+		referenceParts, _, err = ProjectReferenceContext(ctx, host, references, remaining)
+		if err != nil {
+			return nil, err
+		}
+	}
+	parts := make([]schema.MessageInputPart, 0, len(textParts)+len(fileParts)+len(attachmentParts)+len(referenceParts))
 	parts = append(parts, textParts...)
 	parts = append(parts, fileParts...)
 	parts = append(parts, attachmentParts...)
+	parts = append(parts, referenceParts...)
 	if len(parts) == 0 {
 		projected := schema.UserMessage(msg.Content)
 		budget.add(projected)
@@ -182,4 +206,159 @@ func userMessageFromParts(content string, parts []schema.MessageInputPart) *sche
 func userFeedMessage(msg domain.Message) *schema.Message {
 	projected, _ := userFeedMessageWithContext(context.Background(), nil, msg)
 	return projected
+}
+
+// ReferenceInclusion records one reference's projection decision for a feed
+// build. The states are the wire vocabulary for imported-data outcomes.
+type ReferenceInclusion struct {
+	ReferenceID string `json:"reference_id"`
+	State       string `json:"state"`
+	Digest      string `json:"digest,omitempty"`
+}
+
+const (
+	ReferenceInclusionIncluded     = "included"
+	ReferenceInclusionElidedBudget = "elided_budget"
+	ReferenceInclusionUnavailable  = "unavailable"
+)
+
+// referenceSnapshotSourceID names the memory-only snapshot source used for
+// imported reference projection. It performs no history or filesystem work.
+const referenceSnapshotSourceID = "vivy.context-references"
+
+// ProjectReferenceContext renders attached reference snapshots as user-data
+// text parts. Imported content never becomes its own message, a system role,
+// or a tool call: every snapshot is exactly one quoted block, and every
+// non-included snapshot keeps an explicit status marker. Snapshot blocks pass
+// through ContextHost budgeting via a memory-only resolved source; the
+// per-reference marker lines are reserved before the query so statuses stay
+// honest even under a tight budget. remainingBytes < 0 means unbounded.
+func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs []domain.ContextReference, remainingBytes int) ([]schema.MessageInputPart, []ReferenceInclusion, error) {
+	inclusions := make([]ReferenceInclusion, 0, len(refs))
+	if len(refs) == 0 {
+		return nil, inclusions, nil
+	}
+	snapshots := make([]contexthost.ResolvedSnapshot, 0, len(refs))
+	rendered := make(map[string]string, len(refs))
+	projectable := make(map[string]bool, len(refs))
+	markerBytes := 0
+	for _, ref := range refs {
+		if !referenceProjectable(ref) {
+			markerBytes += len(referenceMarkerText(ref, ReferenceInclusionUnavailable))
+			continue
+		}
+		projectable[ref.ID] = true
+		markerBytes += len(referenceMarkerText(ref, ReferenceInclusionElidedBudget))
+		rendered[ref.ID] = renderReferenceBlock(ref)
+		snapshots = append(snapshots, contexthost.ResolvedSnapshot{
+			ContentID: ref.ID,
+			MediaType: "text/plain",
+			Content:   rendered[ref.ID],
+			Version:   ref.Digest,
+		})
+	}
+	included := make(map[string]bool, len(snapshots))
+	if len(snapshots) > 0 {
+		source := contexthost.NewResolvedSnapshotSource(referenceSnapshotSourceID, snapshots)
+		if host == nil {
+			var err error
+			host, err = contexthost.New(contexthost.Config{Sources: []contextsource.Provider{source}})
+			if err != nil {
+				return nil, inclusions, err
+			}
+		}
+		request := contexthost.Request{
+			PerSourceLimit: len(snapshots),
+			CandidateBytes: referenceCandidateBytes,
+		}
+		if remainingBytes >= 0 {
+			budget := remainingBytes - markerBytes
+			if budget < 0 {
+				budget = 0
+			}
+			request.EnforceByteBudget = true
+			request.ByteBudget = budget
+			request.TokenBudget = budget
+		}
+		result, err := host.QuerySources(ctx, request, source)
+		if err != nil {
+			return nil, inclusions, err
+		}
+		if len(result.Failures) > 0 {
+			return nil, inclusions, result.Failures[0].Cause
+		}
+		for _, candidate := range result.Candidates {
+			included[candidate.ContentID] = true
+		}
+	}
+	parts := make([]schema.MessageInputPart, 0, len(refs))
+	for _, ref := range refs {
+		switch {
+		case !projectable[ref.ID]:
+			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionUnavailable})
+			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: referenceMarkerText(ref, ReferenceInclusionUnavailable)})
+		case included[ref.ID]:
+			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionIncluded, Digest: ref.Digest})
+			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: rendered[ref.ID]})
+		default:
+			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionElidedBudget, Digest: ref.Digest})
+			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: referenceMarkerText(ref, ReferenceInclusionElidedBudget)})
+		}
+	}
+	return parts, inclusions, nil
+}
+
+// referenceProjectable reports whether the stored copy can be rendered. A
+// snapshot missing identity, digest, or items is an explicit unavailable,
+// never an empty substituted block.
+func referenceProjectable(ref domain.ContextReference) bool {
+	if ref.ID == "" || ref.Digest == "" || len(ref.Items) == 0 {
+		return false
+	}
+	for _, field := range []string{ref.ID, ref.Digest, string(ref.SourceSessionID), ref.Origin} {
+		if !utf8.ValidString(field) {
+			return false
+		}
+	}
+	for _, item := range ref.Items {
+		if !utf8.ValidString(item.Text) || !utf8.ValidString(item.Author) {
+			return false
+		}
+	}
+	return true
+}
+
+// renderReferenceBlock emits the snapshot as one quoted text block. Item
+// authors are labels inside the text, never message roles or tool calls.
+func renderReferenceBlock(ref domain.ContextReference) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n\n[imported reference: %s | origin=%s | source=%s | digest=%s | captured=%s]\n",
+		ref.ID, ref.Origin, ref.SourceSessionID, ref.Digest,
+		time.UnixMilli(ref.CapturedAt).UTC().Format("2006-01-02T15:04:05Z"))
+	for _, item := range ref.Items {
+		fmt.Fprintf(&b, "- [%s] %s\n", item.Author, item.Text)
+	}
+	b.WriteString("[end imported reference]")
+	return b.String()
+}
+
+// referenceMarkerText is the explicit status line emitted when a snapshot is
+// not rendered into the feed. Control bytes in a stored ID never reach the
+// marker.
+func referenceMarkerText(ref domain.ContextReference, state string) string {
+	id := ref.ID
+	if !utf8.ValidString(id) || len(id) > 128 {
+		id = "<invalid>"
+	}
+	for _, r := range id {
+		if unicode.IsControl(r) {
+			id = "<invalid>"
+			break
+		}
+	}
+	return fmt.Sprintf("\n\n[imported reference: %s | state=%s]", id, state)
+}
+
+func referenceCandidateBytes(candidate contexthost.Candidate) int {
+	return len(candidate.Content)
 }

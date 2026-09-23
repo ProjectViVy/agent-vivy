@@ -2015,10 +2015,14 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 		return nil, selection, ContextStats{}, err
 	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
-	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
+	attachedRefs, refErr := s.sessionAttachedReferences(ctx, sessionID)
+	if refErr != nil {
+		return nil, selection, ContextStats{}, fmt.Errorf("runtime: gather session references: %w", refErr)
+	}
+	msgs, stats, err := buildRunContextWithReferences(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
-	}, preamble, folded, userText)
+	}, preamble, folded, userText, attachedRefs)
 	if err != nil {
 		return nil, selection, stats, err
 	}

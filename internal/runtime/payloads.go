@@ -70,6 +70,9 @@ type payloadContextCompacted struct {
 	AfterTokens     int    `json:"after_tokens"`
 	DroppedMessages int    `json:"dropped_messages,omitempty"`
 	RetentionSuffix int    `json:"retention_suffix,omitempty"`
+	// ReferenceIDs is the explicit manifest of snapshots folded into the
+	// summary; they stay readable by ID against the destination journal.
+	ReferenceIDs []string `json:"reference_ids,omitempty"`
 }
 
 type payloadProviderRetry struct {
