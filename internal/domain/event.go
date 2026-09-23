@@ -23,6 +23,7 @@ const (
 	EventToolStarted           EventType = "tool.started"
 	EventToolFinished          EventType = "tool.finished"
 	EventToolMounted           EventType = "tool.mounted"
+	EventToolNudge             EventType = "tool.nudge"
 	EventPolicyEvaluated       EventType = "policy.evaluated"
 	EventHookStarted           EventType = "hook.started"
 	EventHookCompleted         EventType = "hook.completed"
@@ -65,6 +66,7 @@ var EventTypes = []EventType{
 	EventToolProposalStale,
 	EventToolStarted,
 	EventToolFinished,
+	EventToolNudge,
 	EventPolicyEvaluated,
 	EventHookStarted,
 	EventHookCompleted,
