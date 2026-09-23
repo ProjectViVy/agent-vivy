@@ -2,11 +2,16 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/tools"
 )
 
 func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
@@ -91,5 +96,258 @@ func TestHistoryTraceRejectsMissingTrustedSession(t *testing.T) {
 	}
 	if page.Status != string(domain.HistoryStatusForbidden) {
 		t.Fatalf("trace status = %q, want forbidden", page.Status)
+	}
+}
+
+const historySecretToken = "sk-SECRETTOKEN1234567890"
+
+type historyFixture struct {
+	backend *sqlite.Backend
+	service *HistoryService
+	runCtx  context.Context
+	ownCtx  context.Context
+}
+
+func newHistoryFixture(t *testing.T) *historyFixture {
+	t.Helper()
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	for _, session := range []domain.Session{
+		{ID: "A", Title: "admitted source", CreatedAt: 1},
+		{ID: "B", Title: "current", CreatedAt: 2},
+		{ID: "C", Title: "denied", CreatedAt: 3},
+	} {
+		if err := backend.CreateSession(ctx, session); err != nil {
+			t.Fatalf("create session %s: %v", session.ID, err)
+		}
+	}
+	appendMessage := func(m domain.Message) {
+		if err := backend.AppendMessage(ctx, m); err != nil {
+			t.Fatalf("append message %s: %v", m.ID, err)
+		}
+	}
+	appendMessage(domain.Message{ID: "a-safe", SessionID: "A", Role: domain.RoleUser, CreatedAt: 10, Content: "release notes draft for alpha"})
+	appendMessage(domain.Message{ID: "a-secret", SessionID: "A", Role: domain.RoleUser, CreatedAt: 11, Content: "credential " + historySecretToken + " inline"})
+	appendMessage(domain.Message{ID: "a-legacy", SessionID: "A", Role: domain.RoleAssistant, CreatedAt: 12, Content: "legacy assistant row without event mapping"})
+	appendMessage(domain.Message{ID: "a-star", SessionID: "A", Role: domain.RoleUser, CreatedAt: 13, Content: "glob * pattern note"})
+	appendMessage(domain.Message{ID: "c-marker", SessionID: "C", Role: domain.RoleUser, CreatedAt: 14, Content: "denied-source-marker"})
+	if err := backend.CreateRun(ctx, domain.Run{ID: "run-b1", SessionID: "B", Status: domain.RunCompleted, CreatedAt: 15, Kind: domain.RunKindPrimary, RootID: "run-b1"}); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if _, err := backend.Append(ctx, storage.Commit{RunID: "run-b1", Events: []domain.RunEvent{
+		{RunID: "run-b1", Seq: 1, Type: domain.EventModelCompleted, CreatedAt: 16, PayloadVersion: 1, Payload: []byte(`{"content":"assistant summary text"}`)},
+		{RunID: "run-b1", Seq: 2, Type: domain.EventToolRequested, CreatedAt: 17, PayloadVersion: 1, Payload: []byte(`{"tool_call_id":"call-1","tool_name":"read_file","args":{"path":"notes.md","api_key":"` + historySecretToken + `"}}`)},
+		{RunID: "run-b1", Seq: 3, Type: domain.EventContextCompacted, CreatedAt: 18, PayloadVersion: 1, Payload: []byte(`{"mode":"summary","before_tokens":120,"after_tokens":30}`)},
+		{RunID: "run-b1", Seq: 4, Type: domain.EventModelCompleted, CreatedAt: 19, PayloadVersion: 3, Payload: []byte(`{"content":"unknown version body"}`)},
+	}}); err != nil {
+		t.Fatalf("append events: %v", err)
+	}
+	scope, err := domain.NewAcceptedHistoryScope("B", []domain.SessionID{"A"})
+	if err != nil {
+		t.Fatalf("accepted scope: %v", err)
+	}
+	service := NewHistoryService(backend, backend)
+	return &historyFixture{
+		backend: backend,
+		service: service,
+		runCtx:  WithHistoryScope(tools.WithSessionID(ctx, "B"), scope),
+		ownCtx:  tools.WithSessionID(ctx, "B"),
+	}
+}
+
+func (f *historyFixture) QueryAsRun(t *testing.T, request domain.HistorySearchRequest) domain.HistoryPage {
+	t.Helper()
+	page, err := f.service.Search(f.runCtx, request)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	return page
+}
+
+func (f *historyFixture) ReadAsRun(t *testing.T, request domain.HistoryReadRequest) domain.HistoryPage {
+	t.Helper()
+	page, err := f.service.Read(f.runCtx, request)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return page
+}
+
+func TestHistoryFixtureSearchRedactsBeforeMatching(t *testing.T) {
+	f := newHistoryFixture(t)
+	page := f.QueryAsRun(t, domain.HistorySearchRequest{Query: historySecretToken})
+	if len(page.Items) != 0 {
+		t.Fatalf("redaction happened after matching: %#v", page.Items)
+	}
+	page = f.QueryAsRun(t, domain.HistorySearchRequest{Query: "release notes"})
+	if len(page.Items) != 1 || page.Items[0].Ref.MessageID != "a-safe" {
+		t.Fatalf("safe query result = %#v", page.Items)
+	}
+	page = f.QueryAsRun(t, domain.HistorySearchRequest{Query: "legacy assistant"})
+	if len(page.Items) != 1 || page.Items[0].Author != domain.HistoryAuthorAssistant || page.Items[0].Ref.Kind != string(domain.SourceKindMessage) {
+		t.Fatalf("legacy row projection = %#v", page.Items)
+	}
+}
+
+func TestHistoryFixtureDeniedScopeNeverLeaks(t *testing.T) {
+	f := newHistoryFixture(t)
+	selectionForC := &domain.HistorySelection{
+		SourceSessionID: "C",
+		Refs:            []domain.SourceRef{{SessionID: "C", MessageID: "c-marker", Kind: string(domain.SourceKindMessage)}},
+	}
+	page := f.ReadAsRun(t, domain.HistoryReadRequest{Selection: selectionForC})
+	if page.Status != string(domain.HistoryStatusForbidden) || len(page.Items) != 0 {
+		t.Fatalf("source leak: %#v", page)
+	}
+	page = f.QueryAsRun(t, domain.HistorySearchRequest{SessionIDs: []domain.SessionID{"C"}, Query: "denied-source-marker"})
+	if page.Status != string(domain.HistoryStatusForbidden) || len(page.Items) != 0 {
+		t.Fatalf("denied session search leak: %#v", page)
+	}
+	if strings.Contains(strings.ToLower(fmt.Sprint(page)), "denied-source-marker") {
+		t.Fatal("forbidden page disclosed denied content")
+	}
+}
+
+func TestHistoryFixtureEventProjectionIsSanitized(t *testing.T) {
+	f := newHistoryFixture(t)
+	search := func(query string) domain.HistoryPage {
+		page, err := f.service.Search(f.ownCtx, domain.HistorySearchRequest{Query: query})
+		if err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		return page
+	}
+	page := search("assistant summary")
+	if len(page.Items) != 1 || page.Items[0].Text != "assistant summary text" || page.Items[0].Author != domain.HistoryAuthorAssistant {
+		t.Fatalf("model.completed projection = %#v", page.Items)
+	}
+	page = search("read_file")
+	if len(page.Items) != 1 {
+		t.Fatalf("tool.requested projection = %#v", page.Items)
+	}
+	toolCall := page.Items[0]
+	if toolCall.Ref.Kind != string(domain.SourceKindToolCall) || !toolCall.Redacted || strings.Contains(toolCall.Text, historySecretToken) {
+		t.Fatalf("tool arguments were not sanitized: %#v", toolCall)
+	}
+	page = search("compaction")
+	if len(page.Items) != 1 || page.Items[0].Text != "compaction summary: 120 -> 30 tokens" {
+		t.Fatalf("compaction precision = %#v", page.Items)
+	}
+	page = search(historySecretToken)
+	if len(page.Items) != 0 {
+		t.Fatalf("redacted tool arguments remained searchable: %#v", page.Items)
+	}
+	page = search("tool_result")
+	for _, item := range page.Items {
+		if item.Ref.Kind == string(domain.SourceKindToolResult) {
+			t.Fatalf("incomplete tool pair fabricated a result: %#v", item)
+		}
+	}
+}
+
+func TestHistoryFixtureReadRunRangeTruncatesUnknownVersion(t *testing.T) {
+	f := newHistoryFixture(t)
+	page, err := f.service.Read(f.ownCtx, domain.HistoryReadRequest{Selection: &domain.HistorySelection{
+		SourceSessionID: "B",
+		RunRange:        &domain.HistoryRunRange{RunID: "run-b1", FromSeq: 4, ToSeq: 4},
+	}})
+	if err != nil {
+		t.Fatalf("read run range: %v", err)
+	}
+	if page.Status != string(domain.HistoryStatusPartial) || len(page.Items) != 1 {
+		t.Fatalf("unknown version page = %#v", page)
+	}
+	if !page.Items[0].Truncated || page.Items[0].Text != "" {
+		t.Fatalf("unknown payload version leaked a body: %#v", page.Items[0])
+	}
+}
+
+func TestHistoryFixtureCursorGuards(t *testing.T) {
+	f := newHistoryFixture(t)
+	page := f.QueryAsRun(t, domain.HistorySearchRequest{Query: "release", Cursor: "not-a-cursor"})
+	if page.Status != string(domain.HistoryStatusConflict) || len(page.Items) != 0 {
+		t.Fatalf("malformed cursor page = %#v", page)
+	}
+	cut, err := f.backend.CaptureHistoryCut(context.Background(), []domain.SessionID{"A"})
+	if err != nil {
+		t.Fatalf("capture cut: %v", err)
+	}
+	foreign, err := f.service.encodeCursor(historyCursorState{
+		Version: historyCursorVersion, Destination: "B", ScopeHash: "foreign", FilterHash: "foreign",
+		Phase: historyPhaseMessages, Cut: cut,
+	})
+	if err != nil {
+		t.Fatalf("encode foreign cursor: %v", err)
+	}
+	page = f.QueryAsRun(t, domain.HistorySearchRequest{Query: "release", Cursor: foreign})
+	if page.Status != string(domain.HistoryStatusForbidden) || len(page.Items) != 0 {
+		t.Fatalf("cross-scope cursor page = %#v", page)
+	}
+}
+
+func TestHistoryFixtureWildcardQueryIsLiteral(t *testing.T) {
+	f := newHistoryFixture(t)
+	page := f.QueryAsRun(t, domain.HistorySearchRequest{Query: "*"})
+	if len(page.Items) != 1 || page.Items[0].Ref.MessageID != "a-star" {
+		t.Fatalf("wildcard query was not literal: %#v", page.Items)
+	}
+}
+
+func TestHistoryFixtureReadSelectionDigest(t *testing.T) {
+	f := newHistoryFixture(t)
+	safeRef := domain.SourceRef{SessionID: "A", MessageID: "a-safe", Kind: string(domain.SourceKindMessage)}
+	page := f.ReadAsRun(t, domain.HistoryReadRequest{Selection: &domain.HistorySelection{
+		SourceSessionID: "A", Refs: []domain.SourceRef{safeRef},
+	}})
+	if page.Status != string(domain.HistoryStatusOK) || len(page.Items) != 1 || page.NextCursor != "" {
+		t.Fatalf("complete read page = %#v", page)
+	}
+	if page.SelectionDigest == "" || page.SelectionDigest != CanonicalHistorySelectionDigest(page.Items) {
+		t.Fatalf("selection digest = %q", page.SelectionDigest)
+	}
+	legacyRef := domain.SourceRef{SessionID: "A", MessageID: "a-legacy", Kind: string(domain.SourceKindMessage)}
+	page = f.ReadAsRun(t, domain.HistoryReadRequest{
+		Selection: &domain.HistorySelection{SourceSessionID: "A", Refs: []domain.SourceRef{safeRef, legacyRef}},
+		Limit:     1,
+	})
+	if page.SelectionDigest != "" {
+		t.Fatal("partial page exposed a selection digest")
+	}
+	if page.NextCursor == "" {
+		t.Fatal("partial page omitted the continuation cursor")
+	}
+}
+
+func TestHistoryFixtureTraceImmediateProvenance(t *testing.T) {
+	f := newHistoryFixture(t)
+	page, err := f.service.Trace(f.runCtx, domain.HistoryTraceRequest{SourceRef: &domain.SourceRef{
+		SessionID: "A", MessageID: "a-safe", Kind: string(domain.SourceKindMessage),
+	}})
+	if err != nil {
+		t.Fatalf("trace: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Ref.MessageID != "a-safe" {
+		t.Fatalf("trace page = %#v", page)
+	}
+	complete := page.Status == string(domain.HistoryStatusOK) && page.NextCursor == ""
+	partial := page.Status == string(domain.HistoryStatusPartial) && page.NextCursor != ""
+	if !complete && !partial {
+		t.Fatalf("trace status = %q with continuation cursor present: %v", page.Status, page.NextCursor != "")
+	}
+	if !slices.Contains(page.Warnings, "immediate_provenance_only") {
+		t.Fatalf("trace warnings = %v", page.Warnings)
+	}
+	page, err = f.service.Trace(f.runCtx, domain.HistoryTraceRequest{SourceRef: &domain.SourceRef{
+		SessionID: "C", MessageID: "c-marker", Kind: string(domain.SourceKindMessage),
+	}})
+	if err != nil {
+		t.Fatalf("trace denied: %v", err)
+	}
+	if page.Status != string(domain.HistoryStatusForbidden) || len(page.Items) != 0 {
+		t.Fatalf("denied trace leak: %#v", page)
 	}
 }
