@@ -186,8 +186,13 @@ func TestFoldWorkPlanReviewLifecycle(t *testing.T) {
 		}),
 		planEvent(5, WorkEventPlanSubmitted, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-2", PlanMarkdown: "# revised",
+			PlanOriginRunID: "run-2", PlanOriginToolCallID: "tool-2",
 		}),
-		planEvent(6, WorkEventPlanDecided, WorkMutation{
+		planEvent(6, WorkEventPlanReviewSuspended, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-2",
+			PlanOriginRunID: "run-2", PlanOriginToolCallID: "tool-2", PlanResumeTarget: "resume-2",
+		}),
+		planEvent(7, WorkEventPlanDecided, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-2",
 			PlanAction: PlanDecisionExecuteOnce,
 		}),
@@ -200,6 +205,18 @@ func TestFoldWorkPlanReviewLifecycle(t *testing.T) {
 	}
 	if state.Plan.SubmissionID != "submission-2" || state.Plan.Markdown != "# revised" {
 		t.Fatalf("plan submission = %+v, want latest immutable submission", state.Plan)
+	}
+}
+
+func TestFoldWorkRejectsOriginlessPlanSubmission(t *testing.T) {
+	_, err := FoldWork([]WorkEvent{
+		planEvent(1, WorkEventPlanEntered, WorkMutation{SessionID: "session-1"}),
+		planEvent(2, WorkEventPlanSubmitted, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanMarkdown: "# no Eino origin",
+		}),
+	})
+	if !errors.Is(err, ErrStaleGoalReference) {
+		t.Fatalf("FoldWork originless Plan submission = %v, want stale Plan rejection", err)
 	}
 }
 

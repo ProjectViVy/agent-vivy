@@ -7,9 +7,14 @@ func TestFoldWorkPlanStartGoalAtomicallyCreatesGoal(t *testing.T) {
 		planEvent(1, WorkEventPlanEntered, WorkMutation{SessionID: "session-1"}),
 		planEvent(2, WorkEventPlanSubmitted, WorkMutation{
 			SessionID: "session-1", PlanSubmissionID: "submission-1", PlanMarkdown: "# bounded work",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1",
+		}),
+		planEvent(3, WorkEventPlanReviewSuspended, WorkMutation{
+			SessionID: "session-1", PlanSubmissionID: "submission-1",
+			PlanOriginRunID: "run-1", PlanOriginToolCallID: "tool-1", PlanResumeTarget: "opaque-target",
 		}),
 		{
-			SessionID: "session-1", Seq: 3, Kind: WorkEventPlanDecided,
+			SessionID: "session-1", Seq: 4, Kind: WorkEventPlanDecided,
 			PayloadVersion: WorkPayloadVersion,
 			Mutation: WorkMutation{
 				SessionID: "session-1", PlanSubmissionID: "submission-1",

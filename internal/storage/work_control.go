@@ -165,10 +165,16 @@ func ValidateWorkMutation(mutation domain.WorkMutation) error {
 	}
 	switch mutation.Kind {
 	case domain.WorkEventPlanEntered,
-		domain.WorkEventPlanLeft,
-		domain.WorkEventPlanSubmitted:
+		domain.WorkEventPlanLeft:
 		if mutation.Admission != (domain.GoalRunAdmission{}) ||
 			mutation.Goal != (domain.GoalRef{}) {
+			return ErrWorkInvalidMutation
+		}
+	case domain.WorkEventPlanSubmitted:
+		if mutation.Admission != (domain.GoalRunAdmission{}) ||
+			mutation.Goal != (domain.GoalRef{}) || mutation.PlanSubmissionID == "" ||
+			mutation.PlanMarkdown == "" || mutation.PlanOriginRunID == "" ||
+			mutation.PlanOriginToolCallID == "" {
 			return ErrWorkInvalidMutation
 		}
 	case domain.WorkEventPlanReviewSuspended:

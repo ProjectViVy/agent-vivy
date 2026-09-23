@@ -25,6 +25,40 @@ func TestBuildGoalEditMutationCarriesCurrentReference(t *testing.T) {
 	}
 }
 
+func TestBuildPlanSubmitRequiresOriginRunAndToolCall(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		params workParams
+	}{
+		{
+			name: "both missing",
+			params: workParams{
+				SessionID: "session-1", RequestID: "submit-no-origin", PlanMarkdown: "# plan",
+			},
+		},
+		{
+			name: "run missing",
+			params: workParams{
+				SessionID: "session-1", RequestID: "submit-no-run", PlanMarkdown: "# plan",
+				PlanOriginToolCallID: "tool-1",
+			},
+		},
+		{
+			name: "tool call missing",
+			params: workParams{
+				SessionID: "session-1", RequestID: "submit-no-tool-call", PlanMarkdown: "# plan",
+				PlanOriginRunID: "run-1",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, rpcErr := buildWorkMutation("plan/submit", domain.WorkEventPlanSubmitted, tc.params); rpcErr == nil || rpcErr.Code != InvalidParams {
+				t.Fatalf("buildWorkMutation PlanSubmitted error = %v, want invalid params", rpcErr)
+			}
+		})
+	}
+}
+
 func TestPlanGetCarriesReplayStateAcrossPages(t *testing.T) {
 	env := newControlTestEnv(t, func(deps *ControlDeps) {
 		deps.Work = deps.Sessions.(storage.WorkStore)
@@ -33,6 +67,12 @@ func TestPlanGetCarriesReplayStateAcrossPages(t *testing.T) {
 	const sessionID domain.SessionID = "sess-plan-pages"
 	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := env.backend.CreateRun(ctx, domain.Run{
+		ID: "run-plan-pages", SessionID: sessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
 	}
 	version := domain.WorkVersion(0)
 	commit := func(kind domain.WorkEventKind, submissionID, markdown string) {
@@ -46,6 +86,15 @@ func TestPlanGetCarriesReplayStateAcrossPages(t *testing.T) {
 		if kind == domain.WorkEventPlanDecided {
 			mutation.PlanAction = domain.PlanDecisionRevise
 		}
+		if kind == domain.WorkEventPlanSubmitted {
+			mutation.PlanOriginRunID = "run-plan-pages"
+			mutation.PlanOriginToolCallID = fmt.Sprintf("tool-%d", version)
+		}
+		if kind == domain.WorkEventPlanReviewSuspended {
+			mutation.PlanOriginRunID = "run-plan-pages"
+			mutation.PlanOriginToolCallID = fmt.Sprintf("tool-%d", version-1)
+			mutation.PlanResumeTarget = fmt.Sprintf("resume-%d", version)
+		}
 		result, err := env.backend.CommitWork(ctx, mutation)
 		if err != nil {
 			t.Fatalf("CommitWork %s at %d: %v", kind, version, err)
@@ -53,22 +102,23 @@ func TestPlanGetCarriesReplayStateAcrossPages(t *testing.T) {
 		version = result.State.Version
 	}
 	commit(domain.WorkEventPlanEntered, "", "")
-	for i := 0; i < 128; i++ {
+	for i := 0; i < 86; i++ {
 		id := fmt.Sprintf("submission-%d", i)
 		commit(domain.WorkEventPlanSubmitted, id, "# plan")
+		commit(domain.WorkEventPlanReviewSuspended, id, "")
 		commit(domain.WorkEventPlanDecided, id, "")
 	}
-	if version != 257 {
+	if version != 259 {
 		t.Fatalf("work version = %d, want decision past first 256-event page", version)
 	}
 	result, rpcErr := callControl(t, env.handler, "plan/get", map[string]string{
-		"session_id": string(sessionID), "submission_id": "submission-127",
+		"session_id": string(sessionID), "submission_id": "submission-85",
 	})
 	if rpcErr != nil {
 		t.Fatalf("plan/get: %v", rpcErr)
 	}
 	plan, ok := result.(workPlanResult)
-	if !ok || plan.SubmissionID != "submission-127" || plan.ReviewStatus != string(domain.PlanReviewRejected) {
+	if !ok || plan.SubmissionID != "submission-85" || plan.ReviewStatus != string(domain.PlanReviewRejected) {
 		t.Fatalf("plan/get = %+v, want last submission rejected on second page", result)
 	}
 }

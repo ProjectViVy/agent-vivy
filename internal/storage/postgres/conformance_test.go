@@ -71,12 +71,19 @@ func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
 	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
+	if err := backend.CreateRun(ctx, domain.Run{
+		ID: "run-delete-work", SessionID: sessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, mutation := range []domain.WorkMutation{{
 		SessionID: sessionID, ExpectedVersion: 0, RequestID: "delete-enter-plan", RequestHash: "delete-enter-plan",
 		Kind: domain.WorkEventPlanEntered,
 	}, {
 		SessionID: sessionID, ExpectedVersion: 1, RequestID: "delete-submit-plan", RequestHash: "delete-submit-plan",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "delete-submission", PlanMarkdown: "delete this evidence with its owner",
+		PlanOriginRunID: "run-delete-work", PlanOriginToolCallID: "delete-tool-call",
 	}} {
 		if _, err := backend.CommitWork(ctx, mutation); err != nil {
 			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)

@@ -234,6 +234,21 @@ func testPlanOriginCannotArmGoal(t *testing.T, originSessionID domain.SessionID,
 		}
 	}
 	commit(0, "enter", domain.WorkEventPlanEntered, nil)
+	if originSessionID != sessionID {
+		_, err := b.CommitWork(ctx, domain.WorkMutation{
+			SessionID: sessionID, ExpectedVersion: 1, RequestID: "submit-foreign", RequestHash: "submit-foreign",
+			Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-foreign", PlanMarkdown: "# plan",
+			PlanOriginRunID: runID, PlanOriginToolCallID: "tool-call",
+		})
+		if !errors.Is(err, storage.ErrWorkRunConflict) {
+			t.Fatalf("foreign Plan submission = %v, want run conflict", err)
+		}
+		state, readErr := b.ReadWork(ctx, sessionID)
+		if readErr != nil || state.Version != 1 || state.Goal != nil || state.Plan.SubmissionID != "" {
+			t.Fatalf("state after foreign Plan submission = %+v, %v; want unchanged Plan at version 1", state, readErr)
+		}
+		return
+	}
 	commit(1, "submit", domain.WorkEventPlanSubmitted, func(m *domain.WorkMutation) {
 		m.PlanSubmissionID, m.PlanMarkdown = "submission", "# plan"
 		m.PlanOriginRunID, m.PlanOriginToolCallID = runID, "tool-call"

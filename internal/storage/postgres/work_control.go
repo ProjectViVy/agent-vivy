@@ -125,12 +125,6 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	if state.Version != mutation.ExpectedVersion {
 		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
 	}
-	if mutation.Kind == domain.WorkEventPlanDecided && state.Plan.OriginRunID != "" {
-		if err := validatePlanOriginRunTx(ctx, tx, mutation.SessionID, state.Plan.OriginRunID); err != nil {
-			return storage.WorkCommitResult{}, err
-		}
-	}
-
 	event := domain.WorkEvent{
 		SessionID:      mutation.SessionID,
 		Seq:            domain.WorkSeq(state.Version + 1),
@@ -146,6 +140,16 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	next, err := domain.FoldWork(candidate)
 	if err != nil {
 		return storage.WorkCommitResult{}, err
+	}
+	switch mutation.Kind {
+	case domain.WorkEventPlanSubmitted:
+		if err := validatePlanOriginRunTx(ctx, tx, mutation.SessionID, mutation.PlanOriginRunID); err != nil {
+			return storage.WorkCommitResult{}, err
+		}
+	case domain.WorkEventPlanDecided:
+		if err := validatePlanOriginRunTx(ctx, tx, mutation.SessionID, state.Plan.OriginRunID); err != nil {
+			return storage.WorkCommitResult{}, err
+		}
 	}
 	payload, err := json.Marshal(workPayload{Mutation: mutation, Admission: mutation.Admission})
 	if err != nil {

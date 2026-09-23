@@ -299,7 +299,9 @@ func submitPlan(state *WorkState, mutation WorkMutation) error {
 	if mutation.SessionID != state.SessionID ||
 		!state.Plan.Active ||
 		mutation.PlanSubmissionID == "" ||
-		mutation.PlanMarkdown == "" {
+		mutation.PlanMarkdown == "" ||
+		mutation.PlanOriginRunID == "" ||
+		mutation.PlanOriginToolCallID == "" {
 		return fmt.Errorf("%w: invalid plan submission", ErrStaleGoalReference)
 	}
 	if state.Plan.ReviewStatus == PlanReviewPending {
@@ -349,7 +351,7 @@ func decidePlan(state *WorkState, mutation WorkMutation) error {
 		mutation.PlanSubmissionID != state.Plan.SubmissionID {
 		return fmt.Errorf("%w: invalid plan decision", ErrStaleGoalReference)
 	}
-	if state.Plan.OriginRunID != "" && state.Plan.ResumeTarget == "" {
+	if state.Plan.OriginRunID == "" || state.Plan.OriginToolCallID == "" || state.Plan.ResumeTarget == "" {
 		return fmt.Errorf("%w: Plan review has not been suspended", ErrStaleGoalReference)
 	}
 	switch mutation.PlanAction {
