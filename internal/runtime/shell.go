@@ -964,14 +964,12 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 		case domain.EventRunStarted:
 			var started payloadRunStarted
 			if json.Unmarshal(ev.Payload, &started) == nil {
-				if domain.PolicyProfile(started.PolicyProfile).Valid() {
-					profile = domain.PolicyProfile(started.PolicyProfile)
-				}
-				if started.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: started.PolicyHash}
-				}
 				if domain.RunMode(started.Mode).Valid() {
 					mode = domain.RunMode(started.Mode)
+				}
+				profile = recoveredProfile(mode, started.PolicyProfile)
+				if started.PolicyHash != "" {
+					snapshot = domain.PolicySnapshot{Profile: profile, Hash: started.PolicyHash}
 				}
 				if domain.Face(started.Face).Valid() {
 					face = domain.Face(started.Face)
@@ -986,14 +984,12 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 		case domain.EventToolApprovalRequired:
 			var required payloadToolApprovalRequired
 			if json.Unmarshal(ev.Payload, &required) == nil {
-				if domain.PolicyProfile(required.PolicyProfile).Valid() {
-					profile = domain.PolicyProfile(required.PolicyProfile)
-				}
-				if required.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: required.PolicyHash}
-				}
 				if domain.RunMode(required.Mode).Valid() {
 					mode = domain.RunMode(required.Mode)
+				}
+				profile = recoveredProfile(mode, required.PolicyProfile)
+				if required.PolicyHash != "" {
+					snapshot = domain.PolicySnapshot{Profile: profile, Hash: required.PolicyHash}
 				}
 				if domain.Face(required.Face).Valid() {
 					face = domain.Face(required.Face)
