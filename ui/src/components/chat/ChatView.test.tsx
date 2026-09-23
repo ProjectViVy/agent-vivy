@@ -97,7 +97,7 @@ describe('ChatView transcript', () => {
       runEvents: [
         event(1, 'model.reasoning_delta', { delta: '第一行\n第二行' }),
         event(2, 'model.delta', { delta: '答案' }),
-        event(3, 'model.completed', { content: '答案' }),
+        event(3, 'model.completed', { byte_len: 6, content_sha256: 'x' }),
         event(4, 'run.completed', {}),
       ],
     };
