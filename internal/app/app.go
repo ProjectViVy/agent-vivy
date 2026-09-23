@@ -669,9 +669,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
-		Crons:                backend,
-		Channels:             channelHost,
-		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		// A backend without the atomic ContinuityStore seam leaves the dep
+		// nil; continuity submissions then fail unavailable rather than
+		// degrading to a non-atomic write (SC-D4).
+		Continuity: func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
+		Crons:      backend,
+		Channels:   channelHost,
+		Titles:     provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {

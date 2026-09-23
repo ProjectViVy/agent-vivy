@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1393,5 +1394,191 @@ func TestReserveMappedBudgetSkipsStreamingDeltas(t *testing.T) {
 	}
 	if err := reserveMappedBudget(ledger, semantic); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("events budget must still trip on semantic events, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Atomic continuity admission (SC-D4 §7): one transaction commits the
+// user message, the active run row, the ordered startup events and the
+// dedup receipt. Retries replay the committed identity, a changed payload
+// under the same request_id is a conflict, and the just-allocated private
+// workspace rolls back on a failed admission.
+
+type failingContinuityStore struct {
+	storage.ContinuityStore
+	err error
+}
+
+func (f failingContinuityStore) CommitContinuityRun(context.Context, storage.ContinuityAdmission) (storage.ContinuityResult, error) {
+	return storage.ContinuityResult{}, f.err
+}
+
+func newContinuityService(t *testing.T, chatModel domain.ChatModel) (*Service, *sqlite.Backend, *testSink) {
+	t.Helper()
+	svc, backend, sink := newTestService(t, chatModel)
+	svc.deps.Continuity = backend
+	return svc, backend, sink
+}
+
+func continuityWorkspaceEntries(t *testing.T, root string) int {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read workspace root: %v", err)
+	}
+	return len(entries)
+}
+
+func TestContinuityAtomic(t *testing.T) {
+	svc, backend, sink := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-atomic")
+	mustCreateSession(t, backend, sessionID)
+	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
+
+	input := &domain.ContinuityInput{RequestID: "req-atomic-1"}
+	runID, err := svc.RunWithOptions(ctx, sessionID, "hello continuity", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("continuity run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	svc.WaitIdle(ctx)
+
+	receipt, found, err := backend.FindContinuityReceipt(ctx, sessionID, storage.ContinuityOperationAdmission, input.RequestID)
+	if err != nil || !found {
+		t.Fatalf("admission receipt found=%v err=%v", found, err)
+	}
+	if receipt.RunID != runID {
+		t.Fatalf("receipt run = %s, want %s", receipt.RunID, runID)
+	}
+	if receipt.EventSeq != 1 {
+		t.Fatalf("receipt event_seq = %d, want the committed startup tail 1", receipt.EventSeq)
+	}
+
+	events := replayAll(t, backend, runID)
+	if len(events) == 0 || events[0].Type != domain.EventRunStarted {
+		t.Fatalf("first journaled event type = %v", events[0].Type)
+	}
+	var started payloadRunStarted
+	mustUnmarshal(t, events[0].Payload, &started)
+	if started.HistoryScope == nil || started.HistoryScope.DestinationSessionID != sessionID {
+		t.Fatalf("run.started history_scope = %+v, want destination %s", started.HistoryScope, sessionID)
+	}
+	published := sink.snapshot()
+	if len(published) == 0 || published[0].Type != domain.EventRunStarted {
+		t.Fatal("committed run.started was not published after the atomic commit")
+	}
+	messages, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) == 0 || messages[0].Role != domain.RoleUser || messages[0].Content != "hello continuity" {
+		t.Fatalf("admitted user message = %v", messages)
+	}
+}
+
+func TestContinuityRetry(t *testing.T) {
+	svc, backend, _ := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-retry")
+	mustCreateSession(t, backend, sessionID)
+	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
+
+	input := &domain.ContinuityInput{RequestID: "req-retry-1"}
+	first, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	waitForRunStatus(t, backend, first, domain.RunCompleted)
+	svc.WaitIdle(ctx)
+
+	second, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("identical retry: %v", err)
+	}
+	if second != first {
+		t.Fatalf("identical retry admitted run %s, want original %s", second, first)
+	}
+	// The lost-response contract holds even after the run finished.
+	third, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("post-terminal retry: %v", err)
+	}
+	if third != first {
+		t.Fatalf("post-terminal retry admitted run %s, want original %s", third, first)
+	}
+
+	messages, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	userMessages := 0
+	for _, message := range messages {
+		if message.Role == domain.RoleUser {
+			userMessages++
+		}
+	}
+	if userMessages != 1 {
+		t.Fatalf("retries admitted %d user messages, want 1", userMessages)
+	}
+	startedCount := 0
+	for _, ev := range replayAll(t, backend, first) {
+		if ev.Type == domain.EventRunStarted {
+			startedCount++
+		}
+	}
+	if startedCount != 1 {
+		t.Fatalf("run has %d run.started events, want 1", startedCount)
+	}
+
+	if _, err := svc.RunWithOptions(ctx, sessionID, "different text", RunOptions{Continuity: input}); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("changed payload under same request_id = %v, want conflict", err)
+	}
+}
+
+func TestContinuityUnavailableFailsClosed(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-unavailable")
+	mustCreateSession(t, backend, sessionID)
+	_, err := svc.RunWithOptions(ctx, sessionID, "hi", RunOptions{Continuity: &domain.ContinuityInput{RequestID: "r-1"}})
+	if !errors.Is(err, ErrContinuityUnavailable) {
+		t.Fatalf("continuity submission without atomic backend = %v, want ErrContinuityUnavailable", err)
+	}
+}
+
+func TestContinuityAdmissionWorkspaceRollback(t *testing.T) {
+	svc, backend, _ := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-rollback")
+	mustCreateSession(t, backend, sessionID)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	manager, err := NewSessionWorkspaceManager(root, backend, backend)
+	if err != nil {
+		t.Fatalf("workspace manager: %v", err)
+	}
+	svc.deps.Workspaces = manager
+	input := &domain.ContinuityInput{RequestID: "req-rollback-1"}
+
+	// A definite pre-commit failure reaps the freshly created private dir.
+	svc.deps.Continuity = failingContinuityStore{ContinuityStore: backend, err: errors.New("injected pre-commit failure")}
+	if _, err := svc.RunWithOptions(ctx, sessionID, "task", RunOptions{Continuity: input}); err == nil {
+		t.Fatal("injected failure must surface")
+	}
+	if got := continuityWorkspaceEntries(t, root); got != 0 {
+		t.Fatalf("failed admission left %d workspace entries, want 0", got)
+	}
+
+	// An uncertain commit outcome preserves the dir: the rows may already
+	// be durable and the engine may be writing into it.
+	svc.deps.Continuity = failingContinuityStore{ContinuityStore: backend, err: storage.ErrCommitUncertain}
+	if _, err := svc.RunWithOptions(ctx, sessionID, "task", RunOptions{Continuity: input}); !errors.Is(err, storage.ErrCommitUncertain) {
+		t.Fatalf("uncertain commit = %v, want ErrCommitUncertain", err)
+	}
+	if got := continuityWorkspaceEntries(t, root); got != 1 {
+		t.Fatalf("uncertain admission left %d workspace entries, want preserved 1", got)
 	}
 }
