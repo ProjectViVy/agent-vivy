@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -104,7 +105,7 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		if event.RequestID != mutation.RequestID {
 			continue
 		}
-		if event.RequestHash != mutation.RequestHash {
+		if !storage.SameWorkRequest(event, mutation) {
 			return storage.WorkCommitResult{}, storage.ErrWorkRequestConflict
 		}
 		state, err := domain.FoldWork(events[:i+1])
@@ -123,6 +124,11 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	}
 	if state.Version != mutation.ExpectedVersion {
 		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	if mutation.Kind == domain.WorkEventPlanDecided && state.Plan.OriginRunID != "" {
+		if err := validatePlanOriginRunTx(ctx, tx, mutation.SessionID, state.Plan.OriginRunID); err != nil {
+			return storage.WorkCommitResult{}, err
+		}
 	}
 
 	event := domain.WorkEvent{
@@ -251,12 +257,28 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		if event.RequestID != admission.Mutation.RequestID {
 			continue
 		}
-		if event.RequestHash != admission.Mutation.RequestHash {
+		if !storage.SameWorkRequest(event, admission.Mutation) {
 			return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
 		}
 		state, err := domain.FoldWork(events[:i+1])
 		if err != nil {
 			return storage.GoalRunCommitResult{}, fmt.Errorf("storage: fold replayed goal admission: %w", err)
+		}
+		existing, found, err := postgresReadAdmissionRun(ctx, tx, event.Admission.RunID)
+		if err != nil {
+			return storage.GoalRunCommitResult{}, err
+		}
+		if !found {
+			return storage.GoalRunCommitResult{}, storage.ErrWorkEventCorrupt
+		}
+		if err := postgresCompareAdmission(ctx, tx, storage.RunAdmission{
+			Message: admission.Message, Run: admission.Run, Started: admission.Started, Prompt: admission.Prompt,
+		}, existing); err != nil {
+			var conflict *maskcontract.Error
+			if errors.As(err, &conflict) && conflict.Code == maskcontract.CodeRevisionConflict {
+				return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
+			}
+			return storage.GoalRunCommitResult{}, err
 		}
 		run, err := readGoalRunTx(ctx, tx, event.Admission.RunID)
 		if err != nil {
@@ -432,4 +454,20 @@ func readGoalStartedTx(ctx context.Context, tx *Tx, id domain.RunID) (domain.Run
 	}
 	event.RunID, event.Seq, event.Type = domain.RunID(runID), domain.EventSeq(seq), domain.EventType(typ)
 	return event, nil
+}
+
+func validatePlanOriginRunTx(ctx context.Context, tx *Tx, sessionID domain.SessionID, runID domain.RunID) error {
+	var owner, kind, status string
+	err := tx.QueryRowContext(ctx, "SELECT session_id, kind, status FROM runs WHERE id = ? FOR UPDATE", runID).
+		Scan(&owner, &kind, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrWorkRunConflict
+	}
+	if err != nil {
+		return fmt.Errorf("storage: inspect Plan origin run: %w", err)
+	}
+	if owner != string(sessionID) || kind != string(domain.RunKindPrimary) || status != string(domain.RunActive) {
+		return storage.ErrWorkRunConflict
+	}
+	return nil
 }
