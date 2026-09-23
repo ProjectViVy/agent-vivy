@@ -198,7 +198,10 @@ func (s *HistoryService) Search(ctx context.Context, request domain.HistorySearc
 	if err := request.Validate(limits); err != nil {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, err.Error()), nil
 	}
-	if request.ArtifactID != "" || request.TaskID != "" {
+	// TaskID stays unsupported: there is no durable linkage between
+	// deliverable sets and tasks. ArtifactID follows actual set/item
+	// provenance inside the committed deliverables.presented event.
+	if request.TaskID != "" {
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "unsupported_filter"), nil
 	}
 	if tools.SessionIDFromContext(ctx) == "" {
@@ -333,6 +336,30 @@ func (s *HistoryService) runSearch(ctx context.Context, request domain.HistorySe
 	items, next, incomplete, redacted, truncated, warnings, err := s.scan(ctx, state, limit, searchLimits, func(candidate storage.HistoryCandidate, item domain.HistoryItem) bool {
 		if candidate.Unavailable || item.Text == "" {
 			return false
+		}
+		if request.ArtifactID != "" {
+			// Delivery IDs are provenance, never filename text: only a
+			// committed set/item id inside the event matches, so unrelated
+			// or out-of-scope ids disclose nothing.
+			if candidate.EventType != domain.EventDeliverablesPresented {
+				return false
+			}
+			var payload payloadDeliverablesPresented
+			if err := json.Unmarshal([]byte(candidate.Text), &payload); err != nil {
+				return false
+			}
+			if payload.DeliverySet.ID != request.ArtifactID {
+				matched := false
+				for _, delivered := range payload.DeliverySet.Items {
+					if delivered.ID == request.ArtifactID {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return false
+				}
+			}
 		}
 		if !historyKindMatches(request.Kinds, item.Ref.Kind, candidate.Ref.Kind) {
 			return false
@@ -778,6 +805,12 @@ func projectHistoryEvent(candidate storage.HistoryCandidate, maximum int) (domai
 			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
 		}
 		text = fmt.Sprintf("session forked from %s at %s", payload.ParentSessionID, payload.ForkPointMessageID)
+	case domain.EventDeliverablesPresented:
+		var payload payloadDeliverablesPresented
+		if err := json.Unmarshal([]byte(text), &payload); err != nil {
+			return domain.HistoryItem{Ref: ref, Author: author, Truncated: true}, true
+		}
+		text = fmt.Sprintf("presented %d file(s) · set %s", len(payload.DeliverySet.Items), payload.DeliverySet.ID)
 	}
 	safe, redacted, truncated := sanitizeHistoryText(text, maximum)
 	return domain.HistoryItem{Ref: ref, Author: author, Text: safe, Redacted: redacted, Truncated: truncated || candidate.Truncated}, true
@@ -799,7 +832,8 @@ func sanitizeHistoryText(text string, maximum int) (string, bool, bool) {
 func historyEventAllowed(eventType domain.EventType) bool {
 	switch eventType {
 	case domain.EventModelCompleted, domain.EventToolRequested, domain.EventToolFinished,
-		domain.EventContextCompacted, domain.EventSessionTruncated, domain.EventSessionForked:
+		domain.EventContextCompacted, domain.EventSessionTruncated, domain.EventSessionForked,
+		domain.EventDeliverablesPresented:
 		return true
 	default:
 		return false
