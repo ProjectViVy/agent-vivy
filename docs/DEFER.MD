@@ -15,6 +15,7 @@ Deliberately not scheduled. Each row keeps the reason it waits and the record th
 |---|---|---|---|
 | CH-C8 | `vivy channel --name` child process in the same binary | DEFERRED | Memo Plan: `docs/plans/channel-epic/CH-C8.md`. Not a start order |
 | CH-C9 | A2A / NeuroLink capability proposal | DEFERRED | Memo Plan: `docs/plans/channel-epic/CH-C9.md`. Not a start order |
+| EINO-CORE-UPGRADE | Upgrade Eino core from v0.9.13 to the latest stable | DEFERRED | User decision 2026-09-24: retain v0.9.13, which passes the full `just ci` at `a258feb`. A newer core changes checkpoint compatibility; current recovery rejects a version mismatch and does not settle associated pending Work/Plan state, so upgrading without a drain/migration policy risks stranded work. Reconsider after a safe checkpoint drain or migration policy and recovery coverage. The separate v0.9.13 ToolNode parallel-conversion race remains open as `EINO-TOOLSNODE-ERR-RACE` in `docs/TODO.md`. |
 | HITL-P1-7 | Generic edit + bulk approval | DEFERRED | Explicitly not P0 |
 | MEM-1 | Memory / BML / Laputa / AutoDream / Evolution / RAG | IMPLEMENTATION DEFERRED | SCX now records memory/RAG and laputa-garden integration direction in `docs/architecture/SCX-ARCHITECTURE-DESIGN.md`. This is not a live backend or an AutoDream/Evolution implementation; those broader capabilities remain deferred. |
 | P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; SR-4 was decided on 2026-09-02: keep QwenPaw externally obtained and recheck it against `qwenpaw-vendor-ruling.md` when the probe is proposed |

@@ -7,6 +7,7 @@
 **Tech Stack:** Go, pinned Eino v0.9.13, SQLite/PostgreSQL, React/TypeScript where applicable.
 **Spec:** [PG-D1](../../architecture/PLAN-GOAL-PREDESIGN.md).
 **Baseline:** a8d361b0244a1c40be513622bbdaebb5c9d40014.
+**Implementation candidate:** `a258feb`. The authoritative index owns formal status; downstream readiness remains gated by live PostgreSQL migration/conformance evidence.
 **Epic:** Foundation. **Requirements:** R3, R6, R9.
 **Status and predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
 
@@ -15,17 +16,17 @@
 - Soft Plan cannot expand independently configured permissions.
 - Armed Goal and effective Plan cannot coexist.
 - One Service / Journal / Policy path; Eino imports remain in runtime/provider.
-- No code, dependency, database or external tracker mutation is authorized merely by this pre-design.
+- Implementation was authorized for this branch; this plan does not authorize scope expansion or external tracker mutation.
 - Preserve user-owned work. Rebase existing file locations and migration versions before execution.
 - Test commands below are future instructions; none are claimed passed.
 
 ## Contracts and prerequisites
 
-Consumes: Accepted PG-0 ordering anchor and PG-D2 types; existing domain.Message, Run, RunEvent.
+Consumes: PG-0 probe-derived ordering anchor and PG-D2 types; existing domain.Message, Run, RunEvent.
 
 Produces: ReadWork, `ReplayWork(ctx, sessionID, cursor WorkState, limit) (events, next WorkState, error)`, CommitWork, CommitGoalRun and WorkMutation/GoalRunAdmission/WorkCommitResult exactly as the shared design; SQLite/Postgres migration and history integration. Replay starts from `WorkState{SessionID: sessionID}` and carries each returned state to the next bounded page.
 
-This pre-design is not a claim that proposed interfaces exist. PG-0 must settle shared blockers before production code is added. Use the index for prerequisite evidence; revise dependent plans when PG-D2 changes any shared signature.
+The interfaces and storage paths described here are implemented in candidate `a258feb`; the task checklists record that work. PG-0 contract probes provide the ordering and lifecycle decisions, while formal PG-0/PG-1 acceptance remains gated on live PostgreSQL migration/conformance evidence. Use the index for readiness; revise dependent plans when PG-D2 changes any shared signature.
 
 ## File ownership
 
@@ -61,7 +62,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 Implement pure strict event folding and lifecycle validation first. Migration 026 creates the session work-event stream; migration 027 adds message and truncation WorkSeq anchors (024/025 are already owned by masks/prompt snapshots and truncation run IDs on the current base). Reject invalid schema versions, stale expected seq, duplicate request with changed hash and cross-session references. Extend the existing storage engine contract only where the app needs the capability.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 fold(events):
   state = empty
@@ -73,16 +74,16 @@ fold(events):
     apply event
   return state
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 2: Atomic round and review writes
 
-Implement the transaction in design section 5. Return original result for an identical committed retry even if its expectation is now old. Request IDs must be recorded for no-op decisions too. Validate review ownership and settle its Question linkage inside the same transaction. Use session lock semantics appropriate to each backend; no recursive backend method call through the one-connection SQLite pool.
+Implement the transaction in design section 5. Return original result for an identical committed retry even if its expectation is now old. Request IDs must be recorded for no-op decisions too. If a review settlement uses `QuestionStore`, validate ownership and settle the Question row plus work event in the same transaction; this Plan-review path uses the Work event stream and must not create a duplicate Question row or split `AnswerQuestion` from `CommitWork`. Use session lock semantics appropriate to each backend; no recursive backend method call through the one-connection SQLite pool.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 transaction_tests:
   inject failure after message insertion -> no message/run/round remains
@@ -93,16 +94,16 @@ transaction_tests:
   cancelled review cannot arm Goal
   malformed replay record -> explicit fault, no repaired state
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 3: History and delete
 
 Implement the accepted PG-0 anchor rules in existing history transactions. Extend deletion to new owned rows. Original history remains append-only; no synthetic permanently active run. Ensure migration of empty and existing databases leaves prior run events untouched.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 history_checks:
   new schema opens old DB without rewriting run.started
@@ -110,10 +111,10 @@ history_checks:
   rewind retains usage floor from accepted contract
   session delete leaves no orphan work or submission rows
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Verification
 

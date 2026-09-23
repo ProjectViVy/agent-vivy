@@ -11,8 +11,8 @@ The issue is not duplicated here; this is the engineering refinement. Review sha
 
 | Story | Epic / requirements | Independently verifiable outcome | Immediate predecessors / required output | Plan | Status | Evidence or blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the adapter, history, and human-admission contracts with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | In progress | Eino/history probes and corrected plugin pressure tests pass. `just ci` exits 1: six `internal/modules/masks` normalization tests also fail on `origin/main` f6fb11b; the in-flight conformance check used the pre-refresh digest, and its post-refresh focused check passes. Live PostgreSQL is unverified; supervisor acceptance remains pending. |
-| PG-1 | Foundation; R3, R6, R9 | Durably replay work state and atomically account ordinary Goal runs on both backends. | PG-0 accepted output | [PG-1](PG-1.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
+| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the adapter, history, and human-admission contracts with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | In progress | Contract probes and corrected plugin pressure tests pass; full `just ci` passes at `a258feb` (see [current verification](../../logs/2026-09-24-pg1-plan-submit-rpc-ownership/verification.md)). Formal acceptance remains blocked by the mandatory live PostgreSQL migration/parity gate; `VIVY_POSTGRES_TEST_DSN` is unset. The earlier masks/digest CI failure remains historical at the revision recorded in the 2026-09-23 gate-repair log. |
+| PG-1 | Foundation; R3, R6, R9 | Durably replay work state and atomically account ordinary Goal runs on both backends. | PG-0 accepted output | [PG-1](PG-1.md) | Blocked | Candidate `a258feb` is implemented and independently reviewed; SQLite scenarios and full `just ci` pass. PG-0 predecessor acceptance and live PostgreSQL upgrade/conformance evidence remain outstanding because no DSN or local PostgreSQL service is available. |
 | PG-2 | Plan collaboration; R1, R2, R5, R7, R9 | Plan uses guidance with independent permissions and exact human-reviewed transitions. | PG-1 accepted output | [PG-2](PG-2.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-3 | Goal continuation; R3, R4, R5, R6, R9 | At most one authorized continuation is admitted while human requests, cancellation and existing budgets remain authoritative. | PG-1 accepted output | [PG-3](PG-3.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-4 | Composition; R2, R5, R7 | Models can request planning/Goal work and report results without acquiring human authority. | PG-2 accepted output; PG-3 accepted output | [PG-4](PG-4.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
@@ -45,10 +45,10 @@ PG-4 owns application/RPC wiring of their completed contracts. PG-5 owns UI and 
 
 ## Readiness blockers and release rule
 
-1. Live PostgreSQL conformance, browser integration and a real coding walkthrough have not run.
-2. Implementation is authorized, but downstream Story release still requires supervisor acceptance of PG-0 evidence and the required product gates.
+1. Live PostgreSQL migration/conformance is required before PG-0/PG-1 acceptance; no `VIVY_POSTGRES_TEST_DSN`, local `psql`, or PostgreSQL service is available in this environment.
+2. Browser integration and a real coding walkthrough remain later PG-5/PG-6 acceptance gates. Implementation is authorized, but downstream Stories remain gated on PG-0/PG-1 acceptance and the required product evidence.
 
-PG-0 now has executable evidence for pinned Eino guidance, exact Plan review suspension/resume, same-batch fencing, WorkSeq history ordering, and synchronous human-admission waiter semantics. No production Story may be released until the required product gates pass.
+PG-0 has executable contract evidence for pinned Eino guidance, exact Plan review suspension/resume, same-batch fencing, WorkSeq history ordering, and synchronous human-admission waiter semantics. This contract readiness does not complete formal PG-0 implementation acceptance while the mandatory live PostgreSQL schema gate is unverified. No downstream Story may be released until its predecessor and required product gates pass.
 
 ## Coverage
 
@@ -76,5 +76,5 @@ New public Ports, scope expansion, changed acceptance or substantial new infrast
 
 ## Current verification
 
-Pre-design checks are recorded in [2026-09-21 verification](../../logs/2026-09-21-plan-goal-predesign/verification.md). Current runtime and history evidence is in [2026-09-23 verification](../../logs/2026-09-23-plan-goal-foundation/verification.md).
+Pre-design checks are recorded in [2026-09-21 verification](../../logs/2026-09-21-plan-goal-predesign/verification.md). Foundation evidence is in [2026-09-23 verification](../../logs/2026-09-23-plan-goal-foundation/verification.md); the latest full `just ci` passed at `a258feb` and is recorded in [2026-09-24 verification](../../logs/2026-09-24-pg1-plan-submit-rpc-ownership/verification.md). Live PostgreSQL remains unverified.
 Scenario blocks in Story plans remain behavioral pseudocode; the PG-0 probes are executable Go tests.
