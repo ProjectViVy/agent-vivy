@@ -16,7 +16,7 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 )
 
-func TestAutomaticPrimaryCannotOvertakeRegisteredHumanIntent(t *testing.T) {
+func TestAutomaticPrimaryCommitYieldsToHumanRegisteredDuringPreparation(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "primary-admission.db"))
 	if err != nil {
@@ -34,17 +34,15 @@ func TestAutomaticPrimaryCannotOvertakeRegisteredHumanIntent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
+	workspace := &precommitBarrierWorkspaceAllocator{
+		entered: make(chan struct{}), release: make(chan struct{}), path: t.TempDir(),
+	}
 	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
-		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
+		PrimaryRuns: backend, Work: backend, Workspaces: workspace, Sink: newTestSink(),
 	})
-	gate := svc.sessionAdmission(sessionID)
-	gate.Lock()
-	gateHeld := true
 	defer func() {
-		if gateHeld {
-			gate.Unlock()
-		}
+		workspace.releaseBarrier()
 		idleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if !svc.WaitIdle(idleCtx) {
@@ -56,38 +54,54 @@ func TestAutomaticPrimaryCannotOvertakeRegisteredHumanIntent(t *testing.T) {
 		runID domain.RunID
 		err   error
 	}
+	// Stop the automatic run after startup checks and preparation have begun,
+	// but before withAdmissionIntent performs the final durable-commit fence.
+	autoDone := make(chan admissionResult, 1)
+	go func() {
+		runID, err := svc.RunWithOptions(ctx, sessionID, "Automatic turn.", RunOptions{})
+		autoDone <- admissionResult{runID: runID, err: err}
+	}()
+	select {
+	case <-workspace.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic candidate did not reach startup-preparation barrier")
+	}
+
 	humanDone := make(chan admissionResult, 1)
 	go func() {
 		runID, err := svc.RunWithOptions(ctx, sessionID, "Human intent first.", RunOptions{HumanAdmission: true})
 		humanDone <- admissionResult{runID: runID, err: err}
 	}()
 	waitForHumanIntent(t, svc, sessionID)
+	workspace.releaseBarrier()
 
-	autoDone := make(chan admissionResult, 1)
-	go func() {
-		runID, err := svc.RunWithOptions(ctx, sessionID, "Automatic turn.", RunOptions{})
-		autoDone <- admissionResult{runID: runID, err: err}
-	}()
-	gate.Unlock()
-	gateHeld = false
+	var auto admissionResult
+	select {
+	case auto = <-autoDone:
+		if auto.runID != "" || !errors.Is(auto.err, storage.ErrWorkRunConflict) {
+			t.Fatalf("automatic commit = %+v, want no RunID and existing run conflict after human intent registration", auto)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic candidate did not resolve after barrier release")
+	}
 	var human admissionResult
 	select {
 	case human = <-humanDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("human admission did not leave the startup gate")
+		t.Fatal("registered human request did not receive the released startup gate")
 	}
 	if human.err != nil || human.runID == "" {
 		t.Fatalf("human admission = %+v, want committed run", human)
 	}
-	select {
-	case auto := <-autoDone:
-		if auto.runID != "" || !errors.Is(auto.err, storage.ErrWorkRunConflict) {
-			t.Fatalf("automatic producer overtook registered human intent: result=%+v, want no RunID and existing run conflict", auto)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("automatic producer did not resolve after human admission")
-	}
 	waitForTerminalRun(t, backend, human.runID)
+
+	runs, err := backend.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list session runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != human.runID || runs[0].Kind != domain.RunKindPrimary {
+		t.Fatalf("persisted runs = %+v, want only the human primary run", runs)
+	}
 
 	messages, err := backend.ListMessages(ctx, sessionID)
 	if err != nil {
@@ -102,6 +116,26 @@ func TestAutomaticPrimaryCannotOvertakeRegisteredHumanIntent(t *testing.T) {
 	if len(userMessages) != 1 || userMessages[0].Content != "Human intent first." {
 		t.Fatalf("persisted user messages = %+v, want only the registered human turn", userMessages)
 	}
+}
+
+type precommitBarrierWorkspaceAllocator struct {
+	entered     chan struct{}
+	release     chan struct{}
+	enteredOnce sync.Once
+	releaseOnce sync.Once
+	path        string
+}
+
+func (allocator *precommitBarrierWorkspaceAllocator) Ensure(_ context.Context, runID domain.RunID) (Workspace, error) {
+	allocator.enteredOnce.Do(func() {
+		close(allocator.entered)
+		<-allocator.release
+	})
+	return Workspace{ID: string(runID), Path: allocator.path}, nil
+}
+
+func (allocator *precommitBarrierWorkspaceAllocator) releaseBarrier() {
+	allocator.releaseOnce.Do(func() { close(allocator.release) })
 }
 
 func waitForHumanIntent(t *testing.T, svc *Service, sessionID domain.SessionID) {
