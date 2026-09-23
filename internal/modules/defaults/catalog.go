@@ -3,10 +3,14 @@
 package defaults
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 
+	maskmodule "agent-vivy/internal/modules/masks"
 	"agent-vivy/internal/modules/optional"
 	"agent-vivy/internal/provider"
+	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
 )
@@ -14,6 +18,7 @@ import (
 type Binding struct {
 	ImportPath, Package, Constructor, ProviderConstructor string
 	ProviderCollection                                    bool
+	MaskFactory                                           string
 	ContextSourceProvider                                 bool
 	SkillSourceProvider                                   bool
 	MCPHostProvider                                       bool
@@ -23,16 +28,33 @@ type Record struct {
 	Binding    Binding
 }
 
-func Catalog(_ string) ([]Record, error) {
-	source := module.Source{Ref: "file:internal"}
+func Catalog(repoRoot string) ([]Record, error) {
+	digest, err := sourcehash.Tree(filepath.Join(repoRoot, "internal"), "")
+	if err != nil {
+		return nil, fmt.Errorf("default Source Catalog: %w", err)
+	}
+	source := module.Source{Ref: "file:internal", SHA256: digest}
 	protectedPorts := make([]module.PortRef, 0, len(tools.AssemblyControlledToolNames()))
 	for _, id := range tools.AssemblyControlledToolNames() {
 		protectedPorts = append(protectedPorts, port("std/tool@v1", id))
+	}
+	maskProvides := []module.PortRef{port("core/mask-service@v1", "vivy.mask-service")}
+	for _, actionID := range []string{
+		maskmodule.ActionCatalogList,
+		maskmodule.ActionCatalogGet,
+		maskmodule.ActionCatalogCreate,
+		maskmodule.ActionCatalogUpdate,
+		maskmodule.ActionCatalogDelete,
+		maskmodule.ActionSelectionGet,
+		maskmodule.ActionSelectionSet,
+	} {
+		maskProvides = append(maskProvides, port("std/control-action@v1", actionID))
 	}
 	records := []Record{
 		boundRecord("vivy/loop", "agent-vivy/internal/modules/loop", "loop", "NewModule", source, port("core/loop-driver@v1", "vivy.loop-driver")),
 		boundRecord("vivy/model", "agent-vivy/internal/modules/model", "model", "NewModule", source, port("core/chat-model-host@v1", "vivy.chat-model-host")),
 		boundRecord("vivy/storage", "agent-vivy/internal/modules/storage", "storage", "NewModule", source, port("core/storage-engine@v1", "vivy.storage-engine")),
+		boundRecord("vivy/masks", "agent-vivy/internal/modules/masks", "masks", "NewModule", source, maskProvides...),
 		boundRecord("vivy/checkpoint", "agent-vivy/internal/modules/checkpoint", "checkpoint", "NewModule", source, port("core/checkpoint-store@v1", "vivy.checkpoint-store")),
 		boundRecord("vivy/credential", "agent-vivy/internal/modules/credential", "credential", "NewModule", source, port("core/credential-resolver@v1", "vivy.credential-resolver")),
 		boundRecord("vivy/sandbox", "agent-vivy/internal/modules/sandbox", "sandbox", "NewModule", source, port("core/sandbox-backend@v1", "vivy.sandbox-backend")),
@@ -52,6 +74,10 @@ func Catalog(_ string) ([]Record, error) {
 	}
 	for i := range records {
 		switch records[i].Descriptor.Module.ID {
+		case "vivy/masks":
+			records[i].Binding.MaskFactory = "Open"
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/protected-tools":
 			records[i].Binding.ProviderConstructor = "ProtectedToolProviders"
 			records[i].Binding.ProviderCollection = true

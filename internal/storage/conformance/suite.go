@@ -4,6 +4,9 @@ package conformance
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -272,6 +276,30 @@ func cnSessionWork(t *testing.T, h Harness) {
 	}
 }
 
+func cnPromptAdmission(t *testing.T, runID domain.RunID, sessionID domain.SessionID) (storage.RunPromptSnapshot, storage.MaskCaptureCheck, []byte) {
+	t.Helper()
+	promptPayload, err := json.Marshal(storage.RunPromptPayload{Instruction: "storage conformance prompt"})
+	if err != nil {
+		t.Fatalf("marshal prompt payload: %v", err)
+	}
+	promptHash := sha256.Sum256(promptPayload)
+	prompt := storage.RunPromptSnapshot{
+		RunID: runID, SchemaVersion: 1, ComposerVersion: "mask-prompt/1",
+		GenerationID: "conformance-generation", Payload: promptPayload,
+		PayloadSHA256: hex.EncodeToString(promptHash[:]),
+	}
+	startedPayload, err := json.Marshal(struct {
+		Provider     string `json:"provider"`
+		Model        string `json:"model"`
+		PromptSchema int    `json:"prompt_schema"`
+		PromptDigest string `json:"prompt_digest"`
+	}{"test", "test", prompt.SchemaVersion, prompt.PayloadSHA256})
+	if err != nil {
+		t.Fatalf("marshal run.started prompt marker: %v", err)
+	}
+	return prompt, storage.MaskCaptureCheck{SessionID: sessionID}, startedPayload
+}
+
 func cnAtomicGoalRun(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
@@ -314,6 +342,40 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 			PayloadVersion: 1, Payload: []byte("{\"provider\":\"test\",\"model\":\"test\"}"),
 		},
 	}
+	prompt, expectedMask, startedPayload := cnPromptAdmission(t, admission.Run.ID, sessionID)
+	admission.Prompt = &prompt
+	admission.ExpectedMask = &expectedMask
+	admission.Started.Payload = startedPayload
+	bad := admission
+	badRunID := domain.RunID("run-goal-mask-conflict")
+	badPrompt, badExpectedMask, badStartedPayload := cnPromptAdmission(t, badRunID, sessionID)
+	bad.Prompt = &badPrompt
+	bad.ExpectedMask = &badExpectedMask
+	bad.Started.Payload = badStartedPayload
+	bad.ExpectedMask.SelectionRevision = 1
+	bad.Mutation.RequestID = "goal-round-mask-conflict"
+	bad.Mutation.RequestHash = "goal-round-mask-conflict-hash"
+	bad.Mutation.Admission.RunID = badRunID
+	bad.Message.ID = "msg-goal-mask-conflict"
+	bad.Message.RunID = badRunID
+	bad.Run.ID = badRunID
+	bad.Started.RunID = badRunID
+	if _, err := goalRuns.CommitGoalRun(ctx, bad); err == nil {
+		t.Fatal("CommitGoalRun accepted a stale mask capture")
+	} else {
+		var maskErr *maskcontract.Error
+		if !errors.As(err, &maskErr) || maskErr.Code != maskcontract.CodeRevisionConflict {
+			t.Fatalf("stale mask capture error = %v, want revision conflict", err)
+		}
+	}
+	state, err := work.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 1 || state.Goal == nil || state.Goal.RoundsStarted != 0 {
+		t.Fatalf("stale mask capture changed work state = %+v, %v", state, err)
+	}
+	messages, err := b.ListMessages(ctx, sessionID)
+	if err != nil || len(messages) != 0 {
+		t.Fatalf("stale mask capture changed messages = %+v, %v", messages, err)
+	}
 	first, err := goalRuns.CommitGoalRun(ctx, admission)
 	if err != nil {
 		t.Fatalf("CommitGoalRun: %v", err)
@@ -321,7 +383,15 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	if first.Work.Event.Seq != 2 || first.Work.State.Goal == nil || first.Work.State.Goal.RoundsStarted != 1 {
 		t.Fatalf("first admission = %+v, want work seq 2 and one round", first)
 	}
-	messages, err := b.ListMessages(ctx, sessionID)
+	promptStore, ok := b.(storage.RunAdmissionStore)
+	if !ok {
+		t.Fatal("backend does not implement RunAdmissionStore")
+	}
+	loadedPrompt, err := promptStore.LoadRunPrompt(ctx, admission.Run.ID)
+	if err != nil || loadedPrompt.PayloadSHA256 != prompt.PayloadSHA256 || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
+		t.Fatalf("Goal prompt after admission = %+v, %v; want immutable admitted snapshot", loadedPrompt, err)
+	}
+	messages, err = b.ListMessages(ctx, sessionID)
 	if err != nil || len(messages) != 1 || messages[0].ID != admission.Message.ID {
 		t.Fatalf("messages after admission = %+v, %v; want one user row", messages, err)
 	}
@@ -355,10 +425,13 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	stale.Message.RunID = stale.Mutation.Admission.RunID
 	stale.Run.ID = stale.Mutation.Admission.RunID
 	stale.Started.RunID = stale.Mutation.Admission.RunID
+	stalePrompt := *admission.Prompt
+	stalePrompt.RunID = stale.Mutation.Admission.RunID
+	stale.Prompt = &stalePrompt
 	if _, err := goalRuns.CommitGoalRun(ctx, stale); !errors.Is(err, storage.ErrWorkRunConflict) {
 		t.Fatalf("active run admission = %v, want ErrWorkRunConflict", err)
 	}
-	state, err := work.ReadWork(ctx, sessionID)
+	state, err = work.ReadWork(ctx, sessionID)
 	if err != nil || state.Version != 2 || state.Goal == nil || state.Goal.RoundsStarted != 1 {
 		t.Fatalf("failed admission changed work state = %+v, %v", state, err)
 	}
@@ -377,9 +450,30 @@ func cnAtomicPrimaryRun(t *testing.T, h Harness) {
 	}
 	const sessionID domain.SessionID = "sess-primary-first-run"
 	const runID domain.RunID = "run-primary-first-run"
+	prompt, expectedMask, startedPayload := cnPromptAdmission(t, runID, sessionID)
 	started := domain.RunEvent{
 		RunID: runID, Type: domain.EventRunStarted, CreatedAt: 2,
-		PayloadVersion: 1, Payload: []byte(`{"provider":"test","model":"test"}`),
+		PayloadVersion: 1, Payload: startedPayload,
+	}
+	badPromptRunID := domain.RunID("run-primary-mask-conflict")
+	badPrompt, badExpectedMask, badStartedPayload := cnPromptAdmission(t, badPromptRunID, sessionID)
+	bad := storage.PrimaryRunCommit{
+		Message: domain.Message{ID: "msg-primary-mask-conflict", SessionID: sessionID, RunID: badPromptRunID, Role: domain.RoleUser, CreatedAt: 2, Content: "stale"},
+		Run:     domain.Run{ID: badPromptRunID, SessionID: sessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: 2},
+		Started: domain.RunEvent{RunID: badPromptRunID, Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: badStartedPayload},
+		Prompt:  &badPrompt, ExpectedMask: &badExpectedMask,
+	}
+	bad.ExpectedMask.SelectionRevision = 1
+	if _, err := primaryRuns.CommitPrimaryRun(ctx, bad); err == nil {
+		t.Fatal("CommitPrimaryRun accepted a stale mask capture")
+	} else {
+		var maskErr *maskcontract.Error
+		if !errors.As(err, &maskErr) || maskErr.Code != maskcontract.CodeRevisionConflict {
+			t.Fatalf("stale mask capture error = %v, want revision conflict", err)
+		}
+	}
+	if _, err := b.GetSession(ctx, sessionID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("failed admission left a session row: %v", err)
 	}
 	if _, err := primaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
 		Message: domain.Message{
@@ -391,8 +485,17 @@ func cnAtomicPrimaryRun(t *testing.T, h Harness) {
 			Kind: domain.RunKindPrimary, CreatedAt: 2,
 		},
 		Started: started,
+		Prompt:  &prompt, ExpectedMask: &expectedMask,
 	}); err != nil {
 		t.Fatalf("CommitPrimaryRun: %v", err)
+	}
+	promptStore, ok := b.(storage.RunAdmissionStore)
+	if !ok {
+		t.Fatal("backend does not implement RunAdmissionStore")
+	}
+	loadedPrompt, err := promptStore.LoadRunPrompt(ctx, runID)
+	if err != nil || loadedPrompt.PayloadSHA256 != prompt.PayloadSHA256 || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
+		t.Fatalf("primary prompt after admission = %+v, %v; want immutable admitted snapshot", loadedPrompt, err)
 	}
 	session, err := b.GetSession(ctx, sessionID)
 	if err != nil || session.ID != sessionID || session.CreatedAt != 2 {

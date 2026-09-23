@@ -30,6 +30,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
@@ -93,10 +94,14 @@ type ControlDeps struct {
 	Truncations storage.TruncationStore
 	Bus         *events.Bus
 	Service     *runtime.Service
-	Studio      *studio.Service
-	Live        studio.LiveView
-	Eval        eval.Starter
-	Children    ChildController
+	// CodeModeAvailable is projected from the runtime's accepted Face values.
+	// It is a capability of this composed control plane, independent of the
+	// selected mask catalog or any browser-side mask state.
+	CodeModeAvailable bool
+	Studio            *studio.Service
+	Live              studio.LiveView
+	Eval              eval.Starter
+	Children          ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -860,6 +865,32 @@ func containsRPCControl(value string) bool {
 }
 
 func moduleActionRPCError(err error) *Error {
+	var maskErr *maskcontract.Error
+	if errors.As(err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
+		data, marshalErr := json.Marshal(struct {
+			Code            string `json:"code"`
+			CurrentRevision int64  `json:"current_revision,omitempty"`
+			ReferenceCount  int    `json:"reference_count,omitempty"`
+		}{Code: maskErr.Code, CurrentRevision: maskErr.CurrentRevision, ReferenceCount: maskErr.ReferenceCount})
+		if marshalErr != nil {
+			data = nil
+		}
+		rpcCode := InternalError
+		switch maskErr.Code {
+		case maskcontract.CodeInvalidMask:
+			rpcCode = InvalidParams
+		case maskcontract.CodeNotFound:
+			rpcCode = CodeNotFound
+		case maskcontract.CodeRevisionConflict, maskcontract.CodeMaskInUse,
+			maskcontract.CodeMaskUnavailable, maskcontract.CodeSnapshotMissing,
+			maskcontract.CodeSnapshotCorrupt, maskcontract.CodePromptTooLarge,
+			maskcontract.CodeIncompatiblePrompt,
+			maskcontract.CodeAuthorizationDenied, maskcontract.CodeCancelled,
+			maskcontract.CodeUnavailable:
+			rpcCode = CodeConflict
+		}
+		return &Error{Code: rpcCode, Message: "mask action failed", Data: data}
+	}
 	switch {
 	case errors.Is(err, actionhost.ErrInvalidInput):
 		return &Error{Code: InvalidParams, Message: "action input is invalid"}
@@ -1024,8 +1055,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
 		return map[string]any{
-			"protocol_version": ProtocolVersion,
-			"capabilities":     capabilities,
+			"protocol_version":    ProtocolVersion,
+			"capabilities":        capabilities,
+			"code_mode_available": h.deps.CodeModeAvailable,
 		}, nil
 	case "session/create":
 		result, rpcErr := h.createSession(ctx, request)

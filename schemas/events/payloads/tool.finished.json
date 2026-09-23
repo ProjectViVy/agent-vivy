@@ -16,9 +16,29 @@
       "type": "string",
       "description": "Tool output text; empty string allowed when error is set."
     },
+    "parts": {
+      "type": "array",
+      "items": {},
+      "description": "Multimodal outcome parts; present only when the call returned non-text content."
+    },
     "error": {
       "type": "string",
       "description": "Structured tool error; present only when the call failed."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["recoverable", "refused"],
+      "description": "Typed failure classification; present only when the call failed with a classified outcome (NUDGE-DESIGN §4)."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Typed failure reason vocabulary; present only together with outcome."
+    },
+    "effects": {
+      "type": "string",
+      "enum": ["not_executed", "none", "unknown"],
+      "description": "Declared side-effect state of the failed invocation; present only together with outcome."
     }
   },
   "required": ["tool_call_id", "tool_name", "result"],

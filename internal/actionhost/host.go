@@ -25,6 +25,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/logging"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/module"
 	action "agent-vivy/sdk/port/controlaction"
@@ -386,6 +387,10 @@ type Deps struct {
 	// Actions is an alias for Providers.
 	Actions  []action.Provider
 	Bindings []ProviderBinding
+	// MaskManager is an internal, owner-scoped facade target. It is never
+	// exposed through the public Host interface; only sealed T1 actions owned
+	// by vivy/masks receive the named mask operations.
+	MaskManager maskcontract.Manager
 
 	// GenerationAvailable is the sealed Generation readiness attestation. A
 	// zero value is unavailable (fail closed).
@@ -1056,6 +1061,10 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		defer timeoutCancel()
 	}
 	invocationHost := &providerHost{parent: host, definition: definition, identity: identity, instanceID: instanceID, generationID: host.deps.GenerationID, ctx: invocationCtx, secrets: make([]string, 0, 2)}
+	var providerInvocationHost action.Host = invocationHost
+	if definition.Owner == maskModuleOwner {
+		providerInvocationHost = newMaskActionHost(invocationHost, host.deps.MaskManager)
+	}
 	token, accepted := host.trackInvocation(cancel)
 	if !accepted {
 		host.release()
@@ -1065,7 +1074,7 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	go func() {
 		defer host.providerWG.Done()
 		defer host.release()
-		result, invokeErr := invokeProvider(invocationCtx, registered.provider, invocationHost, append(json.RawMessage(nil), input...))
+		result, invokeErr := invokeProvider(invocationCtx, registered.provider, providerInvocationHost, append(json.RawMessage(nil), input...))
 		resultCh <- providerResult{result: result, err: invokeErr}
 	}()
 	var providerOut providerResult
@@ -1104,6 +1113,16 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		}
 		if errors.Is(providerOut.err, action.ErrGrantDenied) {
 			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeDenied, action.ErrGrantDenied, started)
+		}
+		var maskErr *maskcontract.Error
+		if definition.Owner == maskModuleOwner && errors.As(providerOut.err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
+			if maskErr.Code == maskcontract.CodeAuthorizationDenied {
+				return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeDenied, maskErr, started)
+			}
+			if maskErr.Code == maskcontract.CodeCancelled {
+				return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, AuditOutcomeCancelled, maskErr, started)
+			}
+			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeFailed, maskErr, started)
 		}
 		if (errors.Is(providerOut.err, context.Canceled) || errors.Is(providerOut.err, context.DeadlineExceeded)) && invocationCtx.Err() != nil {
 			outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
@@ -1835,6 +1854,10 @@ func (host *Host) recordAudit(ctx context.Context, registered *registeredAction,
 }
 
 func auditError(err error) string {
+	var maskErr *maskcontract.Error
+	if errors.As(err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
+		return maskErr.Code
+	}
 	switch {
 	case errors.Is(err, action.ErrUnauthenticated):
 		return action.ErrUnauthenticated.Error()

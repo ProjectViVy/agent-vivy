@@ -1,4 +1,3 @@
-
 CREATE TABLE session_work_events (
 	session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
 	work_seq BIGINT NOT NULL,

@@ -3,9 +3,11 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"agent-vivy/internal/domain"
+	mask "agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -92,6 +94,9 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES (?,?,?,?,?,?,?)`, child.ID, child.Title, child.CreatedAt, updatedAt, mode, policy, child.WorkspacePath); err != nil {
 		return nil, fmt.Errorf("storage: create fork session: %w", err)
 	}
+	if err := sqliteCopyForkMaskSelection(ctx, tx, child.ID, markers); err != nil {
+		return nil, err
+	}
 	for _, m := range messages {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, int64(m.WorkSeq), m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
@@ -123,8 +128,59 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	return events, nil
 }
 
+// sqliteCopyForkMaskSelection copies the source session's current selection
+// into a newly-created child as an independent revision-1 row. The source is
+// identified by the provenance marker assembled by runtime/rewind_service.
+// A missing source selection is the virtual unmasked revision 0, which still
+// becomes an explicit empty revision 1 on the child.
+func sqliteCopyForkMaskSelection(ctx context.Context, tx *sql.Tx, childID domain.SessionID, markers []storage.SessionTruncation) error {
+	sourceID := sqliteForkSourceID(childID, markers)
+	if sourceID == "" {
+		return nil
+	}
+	var lockedID string
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET id = id WHERE id = ?`, sourceID); err != nil {
+		return fmt.Errorf("storage: lock fork source session: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = ?`, sourceID).Scan(&lockedID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.ErrNotFound
+		}
+		return fmt.Errorf("storage: read fork source session: %w", err)
+	}
+	selection, err := sqliteReadSelection(ctx, tx, sourceID)
+	if err != nil {
+		return err
+	}
+	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) {
+		if _, err := sqliteGetCustomMask(ctx, tx, selection.MaskID); err != nil {
+			return fmt.Errorf("storage: lock fork mask definition: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO session_mask_selections (session_id, mask_id, revision) VALUES (?, ?, 1)`,
+		childID, selection.MaskID); err != nil {
+		return fmt.Errorf("storage: copy fork mask selection: %w", err)
+	}
+	return nil
+}
+
+func sqliteForkSourceID(childID domain.SessionID, markers []storage.SessionTruncation) domain.SessionID {
+	for _, marker := range markers {
+		if marker.Reason == storage.TruncationFork && marker.ForkSessionID == string(childID) {
+			return marker.SessionID
+		}
+	}
+	for _, marker := range markers {
+		if marker.Reason == storage.TruncationForkedFrom && marker.SessionID == childID {
+			return domain.SessionID(marker.ForkSessionID)
+		}
+	}
+	return ""
+}
+
 func sqliteInsertMarker(ctx context.Context, tx *sql.Tx, t storage.SessionTruncation) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_truncations (session_id,cutoff_message_id,tail_message_id,work_seq,reason,fork_session_id,created_at) VALUES (?,?,?,?,?,?,?)`, t.SessionID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_truncations (session_id,run_id,cutoff_message_id,tail_message_id,work_seq,reason,fork_session_id,created_at) VALUES (?,?,?,?,?,?,?,?)`, t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt); err != nil {
 		return fmt.Errorf("storage: record session truncation: %w", err)
 	}
 	return nil

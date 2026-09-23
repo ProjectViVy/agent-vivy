@@ -59,7 +59,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 ## Task 1: Reducer and schema
 
-Implement pure strict event folding and lifecycle validation first. Migration 024 creates the session work-event stream; migration 025 adds message and truncation WorkSeq anchors. Reject invalid schema versions, stale expected seq, duplicate request with changed hash and cross-session references. Extend the existing storage engine contract only where the app needs the capability.
+Implement pure strict event folding and lifecycle validation first. Migration 026 creates the session work-event stream; migration 027 adds message and truncation WorkSeq anchors (024/025 are already owned by masks/prompt snapshots and truncation run IDs on the current base). Reject invalid schema versions, stale expected seq, duplicate request with changed hash and cross-session references. Extend the existing storage engine contract only where the app needs the capability.
 
 - [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text

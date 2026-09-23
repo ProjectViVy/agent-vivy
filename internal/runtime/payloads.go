@@ -17,6 +17,11 @@ type payloadRunStarted struct {
 	PolicyHash           string `json:"policy_hash,omitempty"`
 	SandboxMode          string `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy       string `json:"approval_policy,omitempty"`
+	// PromptSchema and PromptDigest identify the immutable prompt admitted
+	// beside this run. They are omitted for legacy embedders that do not wire
+	// RunAdmissionStore, preserving the v1 event shape on that path.
+	PromptSchema int    `json:"prompt_schema,omitempty"`
+	PromptDigest string `json:"prompt_digest,omitempty"`
 }
 
 type payloadModelDelta struct {
@@ -102,12 +107,29 @@ type payloadToolStarted struct {
 }
 
 // payloadToolFinished carries a non-empty Error only when the call failed.
+// Outcome/Reason/Effects are the optional typed-failure classification
+// (ND-2): present only for failed invocations, so old rows lacking the
+// metadata stay readable and successful calls carry no vocabulary.
 type payloadToolFinished struct {
 	ToolCallID string            `json:"tool_call_id"`
 	ToolName   string            `json:"tool_name"`
 	Result     string            `json:"result"`
 	Parts      []json.RawMessage `json:"parts,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	Outcome    string            `json:"outcome,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Effects    string            `json:"effects,omitempty"`
+}
+
+// payloadToolNudge is the durable record of one reminder scheduled for
+// the next model invocation (NUDGE-DESIGN §7). It denotes scheduling
+// inside this run, not remote receipt.
+type payloadToolNudge struct {
+	ToolCallID      string `json:"tool_call_id"`
+	ToolName        string `json:"tool_name"`
+	Reason          string `json:"reason"`
+	RepeatCount     int    `json:"repeat_count"`
+	TemplateVersion string `json:"template_version"`
 }
 
 // payloadToolMounted journals the tools a mounting tool (today: skill_view)

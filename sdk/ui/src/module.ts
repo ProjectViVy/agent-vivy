@@ -547,6 +547,25 @@ export interface UIRegistry<T = unknown> {
   unregister(id: string): void;
 }
 
+/** Read-only state supplied to contributions rendered in the chat header slot. */
+export interface ChatHeaderContext {
+  readonly sessionId: string | null;
+  readonly running: boolean;
+}
+
+/** Typed value accepted by the host's existing components registry for chat headers. */
+export interface ChatHeaderContribution {
+  readonly slot: "chat.header";
+  readonly render: (context: ChatHeaderContext) => React.ReactNode;
+}
+
+/** Runtime shape guard used by the host before rendering a registry value. */
+export function isChatHeaderContribution(value: unknown): value is ChatHeaderContribution {
+  if (!value || typeof value !== "object") return false;
+  const contribution = value as Partial<ChatHeaderContribution>;
+  return contribution.slot === "chat.header" && typeof contribution.render === "function";
+}
+
 /**
  * The broad, host-owned composition surface. Concrete Web Face registries can
  * specialize these values without changing the public Module ABI.
@@ -1713,6 +1732,10 @@ export interface FaceStoreState {
   readonly initialized: boolean;
   readonly initializationError: string | null;
   readonly capabilities: string[];
+  /** Backend-advertised ability to submit runs with the code Face. */
+  readonly codeModeAvailable: boolean;
+  /** Per-face-session code mode toggle; mask selection never owns this state. */
+  readonly codeMode: boolean;
   readonly connection: FaceConnectionState;
   readonly sessions: FaceSession[];
   readonly sessionsPhase: FacePhase;
@@ -1780,6 +1803,7 @@ export interface FaceStoreState {
   readonly lifecycleBusy: boolean;
   initialize(): Promise<void>;
   retryInitialize(): Promise<void>;
+  setCodeMode(enabled: boolean): void;
   loadSessions(): Promise<void>;
   createSession(title?: string, workspacePath?: string): Promise<FaceSession>;
 	chooseWorkspace(workspacePath: string): Promise<FaceSession>;

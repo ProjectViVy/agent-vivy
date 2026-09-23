@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	mask "agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -30,17 +31,38 @@ func TestCommitSessionRewindRollsBackMarkerWhenEventFails(t *testing.T) {
 func TestCommitSessionForkRollsBackChildWhenEventFails(t *testing.T) {
 	b := openBackend(t)
 	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "source", Title: "source", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := b.CreateCustomMask(ctx, mask.CreateRequest{
+		OperationID: "00000000-0000-4000-8000-000000000091",
+		Name:        "rollback mask", Body: "copied before the injected failure",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SetMaskSelection(ctx, mask.SetSelectionRequest{SessionID: "source", MaskID: definition.ID, ExpectedRevision: 0}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.db.ExecContext(ctx, `CREATE TRIGGER fail_history_event BEFORE INSERT ON run_events BEGIN SELECT RAISE(ABORT, 'event failed'); END`); err != nil {
 		t.Fatal(err)
 	}
 	child := domain.Session{ID: "child", Title: "child", CreatedAt: 1}
 	message := domain.Message{ID: "copy", SessionID: "child", Role: domain.RoleUser, Content: "hello", CreatedAt: 1}
+	markers := []storage.SessionTruncation{{SessionID: "source", Reason: storage.TruncationFork, ForkSessionID: "child"}}
 	event := domain.RunEvent{RunID: "fork-event", Type: domain.EventSessionForked, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)}
-	if _, err := b.CommitSessionFork(ctx, child, []domain.Message{message}, nil, []domain.RunEvent{event}); err == nil {
+	if _, err := b.CommitSessionFork(ctx, child, []domain.Message{message}, markers, []domain.RunEvent{event}); err == nil {
 		t.Fatal("expected injected event failure")
 	}
 	if _, err := b.GetSession(ctx, "child"); err != storage.ErrNotFound {
 		t.Fatalf("child survived rollback: %v", err)
+	}
+	var copied int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_mask_selections WHERE session_id = ?`, "child").Scan(&copied); err != nil {
+		t.Fatal(err)
+	}
+	if copied != 0 {
+		t.Fatalf("copied mask selection survived rollback: %d", copied)
 	}
 }
 

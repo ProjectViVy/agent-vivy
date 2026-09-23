@@ -17,7 +17,10 @@ import {
 import {
   cleanupHandleFromInstall,
   createCleanupHandle,
+  isChatHeaderContribution,
   isHostIconName,
+  type ChatHeaderContext,
+  type ChatHeaderContribution,
   type CleanupHandle,
   type FaceClient,
   type FaceClientAPI,
@@ -868,12 +871,71 @@ export function PresentationHost({
   const hostedContent = diagnostic
     ? diagnosticsNode(diagnostic, resolvedProvenance)
     : phase.status === 'ready'
-      ? createElement(PresentationErrorBoundary, { controller, provenance: resolvedProvenance }, createElement(Fragment, null, navigationNode(runtime, controller.getRouter()), selectedNode))
+      ? createElement(PresentationErrorBoundary, { controller, provenance: resolvedProvenance }, createElement(Fragment, null,
+        root ? null : createElement(ChatHeaderSlot, { host, runtime }),
+        navigationNode(runtime, controller.getRouter()),
+        selectedNode,
+      ))
       : null;
   return createElement('div', { className: 'vivy-presentation-host', 'data-vivy-presentation-tree': '', 'data-vivy-presentation-provenance': serializedProvenance(resolvedProvenance) }, hostedContent);
 }
 
+/**
+ * Renders the host-owned chat header slot from the typed components registry.
+ *
+ * The registry is intentionally broad for ABI compatibility, so values are
+ * narrowed at this boundary. Empty and unknown values are ignored; arbitrary
+ * registry entries must never become React content by accident. The component
+ * is rendered below PresentationErrorBoundary so a Module render failure uses
+ * the same diagnostic and owner cleanup path as the selected root.
+ */
+export function ChatHeaderSlot({ host, runtime: suppliedRuntime }: {
+  readonly host: FullUIHost;
+  readonly runtime?: LiveCompositionRuntime;
+}): ReactNode {
+  const runtime = suppliedRuntime ?? compositionRuntimeOf(host);
+  useSyncExternalStore(
+    runtime ? runtime.subscribe : noopSubscribe,
+    runtime ? runtime.getSnapshot : noopSnapshot,
+    runtime ? runtime.getSnapshot : noopSnapshot,
+  );
+  const storeBinding = useMemo(() => hostStoreBinding(host), [host]);
+  const state = useSyncExternalStore(storeBinding.subscribe, storeBinding.getSnapshot, storeBinding.getServerSnapshot);
+  const context: ChatHeaderContext = {
+    sessionId: state?.activeSessionId ?? null,
+    running: state?.runBusy === true || isActiveRun(state?.currentRun?.status),
+  };
+  const entries = runtime?.getEntries('components') ?? [];
+  const contributions = entries
+    .map((entry) => ({ entry, contribution: isChatHeaderContribution(entry.value) ? entry.value : undefined }))
+    .filter((item): item is { readonly entry: CompositionEntry; readonly contribution: ChatHeaderContribution } => Boolean(item.contribution));
+  if (contributions.length === 0) return null;
+  return createElement(Fragment, null, contributions.map(({ entry, contribution }, index) => createElement(
+    Fragment,
+    { key: `${entry.id}-${index}` },
+    contribution.render(context),
+  )));
+}
+
 const noopSubscribe = (): (() => void) => () => undefined;
+const noopSnapshot = (): undefined => undefined;
+
+function hostStoreBinding(host: FullUIHost): {
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly getSnapshot: () => FaceStoreState | undefined;
+  readonly getServerSnapshot: () => FaceStoreState | undefined;
+} {
+  const store = host.store;
+  return {
+    subscribe: (listener) => store.subscribe(() => listener()),
+    getSnapshot: () => store.getState(),
+    getServerSnapshot: () => store.getInitialState(),
+  };
+}
+
+function isActiveRun(status: string | undefined): boolean {
+  return status === 'accepted' || status === 'queued' || status === 'active';
+}
 
 /**
  * The assembled Module route for the current path, for the shell that owns the

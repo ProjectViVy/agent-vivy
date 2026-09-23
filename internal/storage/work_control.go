@@ -34,10 +34,12 @@ type WorkStore interface {
 // GoalRunCommit is the complete set of ordinary run records admitted by one
 // Goal round. First-party backends persist all four records atomically.
 type GoalRunCommit struct {
-	Mutation domain.WorkMutation
-	Message  domain.Message
-	Run      domain.Run
-	Started  domain.RunEvent
+	Mutation     domain.WorkMutation
+	Message      domain.Message
+	Run          domain.Run
+	Started      domain.RunEvent
+	Prompt       *RunPromptSnapshot
+	ExpectedMask *MaskCaptureCheck
 }
 
 // GoalRunCommitResult returns the durable work event and the run-start record.
@@ -57,9 +59,11 @@ type GoalRunStore interface {
 // run. The message, active run row, and run.started event are committed
 // together so a rejected concurrent admission cannot leave an orphan turn.
 type PrimaryRunCommit struct {
-	Message domain.Message
-	Run     domain.Run
-	Started domain.RunEvent
+	Message      domain.Message
+	Run          domain.Run
+	Started      domain.RunEvent
+	Prompt       *RunPromptSnapshot
+	ExpectedMask *MaskCaptureCheck
 }
 
 // PrimaryRunStore atomically admits one ordinary primary run.
@@ -87,7 +91,10 @@ func ValidatePrimaryRunCommit(admission PrimaryRunCommit) error {
 		admission.Started.PayloadVersion <= 0 {
 		return ErrWorkInvalidMutation
 	}
-	return nil
+	return ValidateRunAdmissionInput(RunAdmission{
+		Message: admission.Message, Run: admission.Run, Started: admission.Started,
+		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask,
+	})
 }
 
 // ValidateGoalRunCommit checks the cross-record identity invariants for an
@@ -117,7 +124,10 @@ func ValidateGoalRunCommit(admission GoalRunCommit) error {
 		admission.Started.PayloadVersion <= 0 {
 		return ErrWorkInvalidMutation
 	}
-	return nil
+	return ValidateRunAdmissionInput(RunAdmission{
+		Message: admission.Message, Run: admission.Run, Started: admission.Started,
+		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask,
+	})
 }
 
 // ValidateWorkMutation checks the host-authenticated request envelope before

@@ -232,7 +232,7 @@ For an ordinary message or message projection, storage reads the current work-ev
 
 Rewind changes the visible context only. It records the cutoff sequence, preserves every work event and admitted-round count, and never wakes a Goal. Fork copies the visible message prefix with fresh message IDs and original `RunID` values as provenance, but writes `work_seq = 0` on copied rows and creates no child work events. The child therefore inherits no Goal identity, pending plan review, approval, admission count, or activation authority. Parent work history remains unchanged and replayable.
 
-Same-timestamp rows are ordered by the stored sequence anchor, not guessed from timestamps. Historical rows predating migration 025 have anchor zero; migration does not fabricate an ordering for those records. The source session remains the audit record for work events that are not copied into a fork.
+Same-timestamp rows are ordered by the stored sequence anchor, not guessed from timestamps. Historical rows predating migration 027 have anchor zero; migration does not fabricate an ordering for those records. The source session remains the audit record for work events that are not copied into a fork.
 
 ## 10. RPC and GUI draft contract
 

@@ -50,6 +50,10 @@ interface RuntimeState {
   initialized: boolean;
   initializationError: string | null;
   capabilities: string[];
+  /** Backend-advertised ability to submit runs with the code Face. */
+  codeModeAvailable: boolean;
+  /** Per-face-session code mode toggle; mask selection never owns this state. */
+  codeMode: boolean;
   connection: ConnectionState;
   sessions: api.Session[];
   sessionsPhase: Phase;
@@ -119,6 +123,7 @@ interface RuntimeState {
   lifecycleBusy: boolean;
   initialize: () => Promise<void>;
   retryInitialize: () => Promise<void>;
+  setCodeMode: (enabled: boolean) => void;
   loadSessions: () => Promise<void>;
   createSession: (title?: string, workspacePath?: string) => Promise<api.Session>;
 	chooseWorkspace: (workspacePath: string) => Promise<api.Session>;
@@ -357,7 +362,7 @@ async function loadTodosIntoStore(sessionId: string, epoch: number): Promise<voi
 }
 
 export const useVivyStore = create<RuntimeState>((set, get) => ({
-  initialized: false, initializationError: null, capabilities: [], connection: 'idle',
+  initialized: false, initializationError: null, capabilities: [], codeModeAvailable: false, codeMode: false, connection: 'idle',
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
@@ -416,6 +421,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
           initialized: true,
           connection: 'connected',
           capabilities: capabilities.capabilities,
+          codeModeAvailable: capabilities.code_mode_available === true,
+          codeMode: false,
           sessions: sessionItems,
           sessionsPhase: initialSessionError ? 'error' : sessionItems.length ? 'ready' : 'empty',
           sessionsError: initialSessionError,
@@ -449,6 +456,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       initialized: false,
       initializationError: null,
       connection: 'connecting',
+      codeModeAvailable: false,
+      codeMode: false,
       sessions: [],
       sessionsPhase: 'idle',
       sessionsError: null,
@@ -478,6 +487,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     });
     await get().initialize();
   },
+  setCodeMode: (enabled) => set((state) => ({ codeMode: state.codeModeAvailable && enabled })),
 
   loadSessions: async () => {
     set((state) => ({ sessionsPhase: state.sessions.length ? 'refreshing' : 'loading', sessionsError: null }));

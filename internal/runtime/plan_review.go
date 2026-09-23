@@ -184,7 +184,7 @@ func (s *Service) handlePlanReviewInterrupt(ctx context.Context, m *eventMapper,
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
 		face: runFace(ctx), ledger: ledger,
 		planSubmissionID: details.PlanSubmissionID, planToolCallID: details.ToolCallID,
-		planResumeTarget: details.ResumeTarget,
+		planResumeTarget: details.ResumeTarget, planBlockedCalls: append([]string(nil), committed.State.Plan.BlockedToolCalls...),
 	}
 	s.mu.Unlock()
 	if !committed.Replayed && s.deps.WorkSink != nil {
@@ -259,13 +259,16 @@ func (s *Service) DecidePlan(ctx context.Context, mutation domain.WorkMutation) 
 	if toolName != tools.SubmitPlanName {
 		return result, ErrPlanReviewUnavailable
 	}
+	resumeBatchIDs := make([]string, 0, 1+len(current.planBlockedCalls))
+	resumeBatchIDs = append(resumeBatchIDs, current.planToolCallID)
+	resumeBatchIDs = append(resumeBatchIDs, current.planBlockedCalls...)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(current.sessionID, current.workspaceID, toolName, current.selectedTools, current.mounted,
 			current.mode, current.profile, current.snapshot, current.sandboxMode, current.approvalPolicy,
 			current.face, current.ledger, state.Plan.OriginRunID, current.planToolCallID,
-			current.planResumeTarget, string(resumeValue), nil, "", "")
+			current.planResumeTarget, string(resumeValue), nil, "", "", resumeBatchIDs)
 	}()
 	return result, nil
 }
@@ -307,7 +310,7 @@ func (s *Service) rebuildPendingPlanReview(ctx context.Context, run domain.Run, 
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode,
 		approvalPolicy: approvalPolicy, face: face, ledger: ledger,
 		planSubmissionID: plan.SubmissionID, planToolCallID: plan.OriginToolCallID,
-		planResumeTarget: plan.ResumeTarget,
+		planResumeTarget: plan.ResumeTarget, planBlockedCalls: append([]string(nil), plan.BlockedToolCalls...),
 	}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger

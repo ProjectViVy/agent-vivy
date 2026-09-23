@@ -664,6 +664,30 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			runObserverHost.Close()
 		}
 	}()
+	generationID := runtimeGenerationID(runtimeAssembly)
+	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	// A sealed first-party composition must never silently downgrade to the
+	// legacy sequential primary admission path. An unpacked development/test
+	// embedder has no sealed identity and remains on the explicitly compatible
+	// path; a packed build is marked by presentation.SealedGeneration and a
+	// non-empty linker-derived identity is also treated as sealed.
+	admission, err := primaryAdmissionForComposition(
+		backend,
+		generationID,
+		presentation.SealedGeneration || generationID != "",
+	)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	maskFrame, maskFrameDigest := "", ""
+	if maskService != nil {
+		maskFrame, maskFrameDigest = maskService.PromptAssets()
+	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
 		Work:                  workStore,
@@ -688,6 +712,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
+		Admission:            admission,
+		MaskResolver:         maskService,
+		MaskFrame:            maskFrame,
+		MaskFrameDigest:      maskFrameDigest,
+		GenerationID:         generationID,
 		Crons:                backend,
 		Channels:             channelHost,
 		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
@@ -723,7 +752,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// empty or unverifiable inventory is a disabled capability, never an
 	// implicit default-allow host.
 	rpcToken := controlrpc.NewSessionToken()
-	generationID := runtimeGenerationID(runtimeAssembly)
 	var actionHost *actionhost.Host
 	actionHostOwned := false
 	if len(runtimeAssembly.ActionSets) > 0 && generationID != "" {
@@ -783,6 +811,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		actionHost, err = actionhost.New(actionhost.Deps{
 			ProviderSets:        runtimeAssembly.ActionSets,
+			MaskManager:         maskService,
 			GenerationAvailable: true,
 			GenerationID:        generationID,
 			Audit:               actionhost.JournalAuditSink{Journal: backend, Logger: logger},
@@ -866,12 +895,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: workStore, WorkBus: workBus,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
-		ActionHost:     actionHost,
-		Marketplace:    marketplace,
-		SkillRevisions: backend,
-		Compactions:    backend,
-		Truncations:    backend,
-		Crons:          backend, CronRunner: svc,
+		CodeModeAvailable: svc.FaceAvailable(domain.FaceCode),
+		ActionHost:        actionHost,
+		Marketplace:       marketplace,
+		SkillRevisions:    backend,
+		Compactions:       backend,
+		Truncations:       backend,
+		Crons:             backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
