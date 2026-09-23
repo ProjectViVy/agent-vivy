@@ -334,6 +334,9 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		mutation.Goal = domain.GoalRef{ID: params.GoalID, Revision: params.GoalRevision}
 	case domain.WorkEventPlanEntered, domain.WorkEventPlanLeft:
 	case domain.WorkEventPlanSubmitted:
+		if params.PlanOriginRunID == "" || params.PlanOriginToolCallID == "" {
+			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "origin_run_id and origin_tool_call_id are required"}
+		}
 		if params.PlanSubmissionID == "" {
 			params.PlanSubmissionID = deterministicWorkID("submission", params.RequestID)
 			mutation.RequestHash = hashWorkRequest(method, params)

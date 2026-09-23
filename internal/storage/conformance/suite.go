@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-32).
+// Package conformance is the D-032 backend suite (CN-01..CN-33).
 package conformance
 
 import (
@@ -43,7 +43,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-31.
+// Run executes CN-01..CN-33.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -83,12 +83,139 @@ func Run(t *testing.T, h Harness) {
 		{"CN-30", "atomic first primary run creates session", cnAtomicPrimaryRun},
 		{"CN-31", "same-time message work anchor", cnMessageWorkAnchor},
 		{"CN-32", "history work isolation and delete", cnHistoryWorkIsolationAndDelete},
+		{"CN-33", "Plan review origin and durable suspension", cnPlanReviewOriginAndSuspension},
 	}
-	if len(cases) != 32 {
-		t.Fatalf("conformance suite must carry exactly 32 cases, got %d", len(cases))
+	if len(cases) != 33 {
+		t.Fatalf("conformance suite must carry exactly 33 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const sessionID domain.SessionID = "sess-plan-review-origin"
+	const foreignSessionID domain.SessionID = "sess-plan-review-foreign"
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "Plan review", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := b.CreateSession(ctx, domain.Session{ID: foreignSessionID, Title: "foreign origin", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession foreign: %v", err)
+	}
+	work, ok := b.(storage.WorkStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkStore")
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "plan-origin-enter", RequestHash: "plan-origin-enter",
+		Kind: domain.WorkEventPlanEntered,
+	}); err != nil {
+		t.Fatalf("CommitWork enter Plan: %v", err)
+	}
+	assertVersion := func(want domain.WorkVersion, wantSubmission string, wantGoal bool) {
+		t.Helper()
+		state, err := work.ReadWork(ctx, sessionID)
+		if err != nil || state.Version != want || state.Plan.SubmissionID != wantSubmission || (state.Goal != nil) != wantGoal {
+			t.Fatalf("ReadWork after rejected mutation = %+v, %v; want version %d, submission %q, Goal %t", state, err, want, wantSubmission, wantGoal)
+		}
+		_, replayed, err := work.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 16)
+		if err != nil || replayed.Version != want {
+			t.Fatalf("ReplayWork after rejected mutation = %+v, %v; want version %d", replayed, err, want)
+		}
+	}
+
+	originless := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-submit", RequestHash: "plan-originless-submit",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-originless", PlanMarkdown: "# originless",
+	}
+	if _, err := work.CommitWork(ctx, originless); !errors.Is(err, storage.ErrWorkInvalidMutation) {
+		t.Fatalf("originless Plan submission = %v, want invalid mutation", err)
+	}
+	assertVersion(1, "", false)
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-decision", RequestHash: "plan-originless-decision",
+		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-originless", PlanAction: domain.PlanDecisionStartGoal,
+		Goal: domain.GoalRef{ID: "goal-originless", Revision: 1}, Objective: "bypass review", MaxRounds: 1,
+	}); !errors.Is(err, domain.ErrStaleGoalReference) {
+		t.Fatalf("decision after rejected originless submission = %v, want stale Plan rejection", err)
+	}
+	assertVersion(1, "", false)
+
+	if err := b.CreateRun(ctx, domain.Run{
+		ID: "run-plan-foreign", SessionID: foreignSessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatalf("CreateRun foreign origin: %v", err)
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-foreign-submit", RequestHash: "plan-foreign-submit",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-foreign", PlanMarkdown: "# foreign",
+		PlanOriginRunID: "run-plan-foreign", PlanOriginToolCallID: "tool-foreign",
+	}); !errors.Is(err, storage.ErrWorkRunConflict) {
+		t.Fatalf("Plan submission with another session's origin = %v, want run conflict", err)
+	}
+	assertVersion(1, "", false)
+
+	if err := b.CreateRun(ctx, domain.Run{
+		ID: "run-plan-inactive", SessionID: sessionID, Status: domain.RunCompleted,
+		Kind: domain.RunKindPrimary, CreatedAt: 3,
+	}); err != nil {
+		t.Fatalf("CreateRun inactive origin: %v", err)
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-inactive-submit", RequestHash: "plan-inactive-submit",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-inactive", PlanMarkdown: "# inactive",
+		PlanOriginRunID: "run-plan-inactive", PlanOriginToolCallID: "tool-inactive",
+	}); !errors.Is(err, storage.ErrWorkRunConflict) {
+		t.Fatalf("Plan submission with inactive origin = %v, want run conflict", err)
+	}
+	assertVersion(1, "", false)
+
+	if err := b.CreateRun(ctx, domain.Run{
+		ID: "run-plan-origin", SessionID: sessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 4,
+	}); err != nil {
+		t.Fatalf("CreateRun active origin: %v", err)
+	}
+	submitted, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-valid-submit", RequestHash: "plan-valid-submit",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-valid", PlanMarkdown: "# bounded plan",
+		PlanOriginRunID: "run-plan-origin", PlanOriginToolCallID: "tool-valid",
+	})
+	if err != nil || submitted.State.Version != 2 || submitted.State.Plan.OriginRunID != "run-plan-origin" {
+		t.Fatalf("valid active same-session Plan submission = %+v, %v", submitted, err)
+	}
+	decision := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-decide-before-suspend", RequestHash: "plan-decide-before-suspend",
+		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-valid", PlanAction: domain.PlanDecisionStartGoal,
+		Goal: domain.GoalRef{ID: "goal-before-suspend", Revision: 1}, Objective: "must wait for exact resume target", MaxRounds: 2,
+	}
+	if _, err := work.CommitWork(ctx, decision); !errors.Is(err, domain.ErrStaleGoalReference) {
+		t.Fatalf("Plan decision before durable suspension = %v, want stale Plan rejection", err)
+	}
+	assertVersion(2, "submission-valid", false)
+	if state, err := work.ReadWork(ctx, sessionID); err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.ResumeTarget != "" {
+		t.Fatalf("Plan after rejected early decision = %+v, %v; want pending without a resume target", state.Plan, err)
+	}
+
+	suspended, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-durable-suspension", RequestHash: "plan-durable-suspension",
+		Kind: domain.WorkEventPlanReviewSuspended, PlanSubmissionID: "submission-valid",
+		PlanOriginRunID: "run-plan-origin", PlanOriginToolCallID: "tool-valid", PlanResumeTarget: "opaque-eino-target",
+	})
+	if err != nil || suspended.State.Version != 3 || suspended.State.Plan.ResumeTarget != "opaque-eino-target" {
+		t.Fatalf("persist Plan review suspension = %+v, %v", suspended.State.Plan, err)
+	}
+	decision.ExpectedVersion = 3
+	decision.RequestID, decision.RequestHash = "plan-decide-after-suspend", "plan-decide-after-suspend"
+	decision.Goal = domain.GoalRef{ID: "goal-after-suspend", Revision: 1}
+	accepted, err := work.CommitWork(ctx, decision)
+	if err != nil || accepted.State.Version != 4 || accepted.State.Plan.Active ||
+		accepted.State.Plan.ReviewStatus != domain.PlanReviewAccepted || accepted.State.Plan.ResumeTarget != "opaque-eino-target" ||
+		accepted.State.Goal == nil || accepted.State.Goal.Ref.ID != "goal-after-suspend" || accepted.State.Goal.Phase != domain.WorkPhaseActive {
+		t.Fatalf("decision after durable suspension = %+v, %v; want accepted Plan with exact target and active Goal", accepted.State, err)
 	}
 }
 
@@ -99,6 +226,12 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 	const childID domain.SessionID = "sess-history-child"
 	if err := b.CreateSession(ctx, domain.Session{ID: sourceID, Title: "source", CreatedAt: 1}); err != nil {
 		t.Fatalf("CreateSession source: %v", err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{
+		ID: "run-history-source", SessionID: sourceID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatalf("CreateRun source: %v", err)
 	}
 	work, ok := b.(storage.WorkStore)
 	if !ok {
@@ -119,6 +252,7 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 		SessionID: sourceID, ExpectedVersion: 1,
 		RequestID: "history-submit-plan", RequestHash: "history-submit-plan",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "history-submission", PlanMarkdown: "preserve the evidence",
+		PlanOriginRunID: "run-history-source", PlanOriginToolCallID: "history-tool-call",
 	}); err != nil {
 		t.Fatalf("CommitWork submit Plan: %v", err)
 	}
@@ -248,24 +382,15 @@ func cnMessageWorkAnchor(t *testing.T, h Harness) {
 	}
 	result, err = work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: "sess-history-anchor", ExpectedVersion: 1,
-		RequestID: "submit-plan-anchor", RequestHash: "submit-plan-anchor",
-		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-anchor", PlanMarkdown: "inspect and report",
+		RequestID: "leave-plan-anchor", RequestHash: "leave-plan-anchor",
+		Kind: domain.WorkEventPlanLeft,
 	})
 	if err != nil {
-		t.Fatalf("CommitWork submit Plan: %v", err)
-	}
-	result, err = work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: "sess-history-anchor", ExpectedVersion: 2,
-		RequestID: "decide-plan-anchor", RequestHash: "decide-plan-anchor",
-		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-anchor",
-		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "shorten the plan",
-	})
-	if err != nil {
-		t.Fatalf("CommitWork decide Plan: %v", err)
+		t.Fatalf("CommitWork leave Plan: %v", err)
 	}
 	message := domain.Message{
 		ID: "msg-history-anchor", SessionID: "sess-history-anchor", Role: domain.RoleUser,
-		CreatedAt: result.Event.CreatedAt, Content: "same millisecond as plan decision",
+		CreatedAt: result.Event.CreatedAt, Content: "same millisecond as Plan leave",
 	}
 	if err := b.AppendMessage(ctx, message); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
