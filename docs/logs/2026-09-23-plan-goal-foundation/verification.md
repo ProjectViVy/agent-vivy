@@ -45,13 +45,44 @@ Worktree: `codex/issue-47-pg0-gates` at baseline `332e3adc3c658f982c32047b0d2389
 | --- | --- |
 | `go run ./sdk/internal/cmd/source-hash internal ''` | Produced `6ba01d9588e44f140e6f13e35ded8343b7465eb3430c1ece134e81c2350ce452`; this is the canonical `internal/` source-tree digest. |
 | `go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` before refreshing evidence | Failed as expected: computed `6ba01d9588e44f140e6f13e35ded8343b7465eb3430c1ece134e81c2350ce452`, checked-in `7c56dd9930bfb5ee54eee85512f0334597ade16e6aa63bfde80a9e3cdce47818`. |
-| `go test ./sdk/internal/conformance -run 'TestGeneration(FailureMatrixEvidence\|RollbackRestoresCatalogAndLocaleIdentity)' -count=1` | Passed. |
-| `go test ./sdk/internal -run 'Test(GenerationFailureMatrixExecutesEveryCase\|MinimalArtifactPhysicallyOmitsOptionalModules)' -count=1` | First attempt failed because `ui/dist` and `ui/node_modules` were absent. After the `just ci` UI build and install, passed in 169.807s. |
-| `go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures\|StartFailureRollsBackEveryConstructedOwner)' -count=1` | First attempt could not compile without `ui/dist`; after the UI build, passed. |
-| `go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed\|PanicAndInvalidDecisionFailClosed)' -count=1` | Passed. |
+| Four plugin pressure commands | Exact unescaped commands and the tests actually selected are recorded below. All four final verbose runs passed. The early attempts on the fresh worktree lacked UI dependencies; those attempts are not counted as passing test evidence. |
 | `go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` after refreshing exactly five `internal/` `sourceSha256` values | Passed in 183.230s; the executed provider and host suites match the checked-in result bundle. |
 | `just ci` | Exit 1. `fmt-check`, UI typecheck, 49 test files / 400 tests, UI build, i18n checks, and `go vet ./...` passed. Full Go tests failed in untouched `internal/modules/masks` and in `sdk/internal/conformance`. The latter Go package began before the digest refresh and compared the newly computed `6ba01d…` with its already embedded old `7c56dd…`; the separate post-refresh reproduction command above passed. |
 | `git diff --check` | Exit 0. |
+
+### Executed plugin pressure matrix
+
+These commands were rerun with `-count=1 -v` after UI dependencies and `ui/dist` were present. The alternation is a plain `|` inside PowerShell single quotes; the earlier log's displayed `\|` was not a reproducible test selector.
+
+```powershell
+go test ./sdk/internal/conformance -run 'TestGeneration(FailureMatrixEvidence|RollbackRestoresCatalogAndLocaleIdentity)' -count=1 -v
+```
+
+Exit 0, `ok agent-vivy/sdk/internal/conformance 0.336s`. `TestGenerationFailureMatrixEvidence` and `TestGenerationRollbackRestoresCatalogAndLocaleIdentity` both ran and passed.
+
+```powershell
+go test ./sdk/internal -run 'Test(GenerationFailureMatrixExecutesEveryCase|MinimalArtifactPhysicallyOmitsOptionalModules)' -count=1 -v
+```
+
+Exit 0, `ok agent-vivy/sdk/internal 159.953s`. `TestGenerationFailureMatrixExecutesEveryCase` ran its 25 named cases, including `startup-rollback` and `valid-deterministic-rebuild`; every case passed. `TestMinimalArtifactPhysicallyOmitsOptionalModules` ran and passed.
+
+```powershell
+go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures|StartFailureRollsBackEveryConstructedOwner)' -count=1 -v
+```
+
+Exit 0, `ok agent-vivy/sdk/internal/assembly 0.427s`. `TestCompilePluginV1GraphFixtures` ran 13 graph cases and all passed. The named `TestStartFailureRollsBackEveryConstructedOwner` is inside generated fixture source, not a registered test of this package, so that selector did not run it directly. The owning integration test was run separately:
+
+```powershell
+go test ./sdk/internal/assembly -run '^TestGeneratedBinderCompilesAndRollsBackLifecycle$' -count=1 -v
+```
+
+Exit 0, `ok agent-vivy/sdk/internal/assembly 2.843s`; `TestGeneratedBinderCompilesAndRollsBackLifecycle` ran and passed.
+
+```powershell
+go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed|PanicAndInvalidDecisionFailClosed)' -count=1 -v
+```
+
+Exit 0, `ok agent-vivy/internal/toolhost 0.041s`. `TestMiddlewareTimeoutFailsClosed` and `TestMiddlewarePanicAndInvalidDecisionFailClosed` both ran and passed.
 
 The six mask failures were `TestMaskCatalogEmbedsCanonicalBuiltIns`, `TestMaskCatalogResolverAndOwnedReturns`, `TestMaskCatalogDuplicateIDsFailClosed`, `TestServiceListMergesBuiltinsAndCustoms`, `TestServiceCaptureResolvesBuiltinsAndOwnsCopies`, and `TestServiceSelectionUsesResolvedCaptureAndRejectsReservedLookup`. Each reported `mask catalog: validate builtin/programmer: definition body is not normalized` (the duplicate-ID assertion instead reported that error where it expected a duplicate-ID error). This task made no mask changes. The first full CI run is not a pass; no later complete CI result is claimed. A second `just ci` was started after the digest refresh, then canceled before completing on supervisor instruction because the focused reproduction had passed and the unrelated mask failure was already recorded.
 
