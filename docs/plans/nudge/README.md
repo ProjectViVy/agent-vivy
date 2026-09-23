@@ -10,11 +10,11 @@ One Epic: **recover from supported tool failures inside the existing Run, with b
 
 | Story | Requirements | Deliverable | Immediate predecessors / accepted input | Status | Plan / gate |
 | --- | --- | --- | --- | --- | --- |
-| ND-0 | N3, N5 | Executable pinned-Eino ordering and correlation evidence | None; inspected baseline | Planned | [ND-0](ND-0.md); toolchain + execution authorization |
-| ND-2 | N2, N3, N4, N5 | Typed outcome records, single detector, durable batch settlement | ND-0: verified event/model ordering | Blocked | [ND-2](ND-2.md); predecessor evidence |
-| ND-1 | N1, N3 | Selective failure producers across direct/enhanced/MCP | ND-2: run-local metadata/state and Journal contract | Blocked | [ND-1](ND-1.md); predecessor evidence |
-| ND-3 | N2, N3, N4, N5 | One transient audited nudge at model handoff | ND-1: classified failure producers integrated with ND-2 state | Blocked | [ND-3](ND-3.md); predecessor evidence |
-| ND-4 | N1–N5 | Integrated CI, real-path recovery and handoff evidence | ND-3: complete integrated feature | Blocked | [ND-4](ND-4.md); predecessor evidence |
+| ND-0 | N3, N5 | Executable pinned-Eino ordering and correlation evidence | None; inspected baseline | Done | [ND-0](ND-0.md); toolchain + execution authorization |
+| ND-2 | N2, N3, N4, N5 | Typed outcome records, single detector, durable batch settlement | ND-0: verified event/model ordering | Done | [ND-2](ND-2.md); predecessor evidence |
+| ND-1 | N1, N3 | Selective failure producers across direct/enhanced/MCP | ND-2: run-local metadata/state and Journal contract | Done | [ND-1](ND-1.md); predecessor evidence |
+| ND-3 | N2, N3, N4, N5 | One transient audited nudge at model handoff | ND-1: classified failure producers integrated with ND-2 state | Done | [ND-3](ND-3.md); predecessor evidence |
+| ND-4 | N1–N5 | Integrated CI, real-path recovery and handoff evidence | ND-3: complete integrated feature | Done | [ND-4](ND-4.md); predecessor evidence |
 
 Computed topological waves: **{ND-0} → {ND-2} → {ND-1} → {ND-3} → {ND-4}**.
 Story IDs retain their responsibility labels; execution order follows dependencies, not numerical ID. The table is the authoritative DAG. No unknown IDs, self-edges, cycles or redundant transitive edges.
