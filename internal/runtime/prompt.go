@@ -13,7 +13,7 @@ import (
 // adds the per-run facts the Instruction cannot (date and notes).
 const preamblePersona = "You are Vivy, a precise personal assistant running locally on the user's machine."
 
-const planGuidanceText = "Planning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy."
+var planGuidanceText = promptAsset("plan.md")
 
 // composeStaticInstruction assembles the cache-stable instruction prefix.
 // It must not contain dates, session history, notes, or per-run tool
