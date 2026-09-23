@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import type { AttachmentInput, Face, RunMode, ThinkingMode } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
-import { faceForMaskId, useActiveMaskId } from '@/components/masks/mask-catalog';
 import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { RecoverableError } from '@/components/feedback/RecoverableError';
@@ -39,10 +38,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 	const [historyAction, setHistoryAction] = useState(false);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
+  const codeMode = useVivyStore((state) => state.codeMode);
   const mobile = useIsMobile();
   const { t } = useTranslation();
-  const activeMaskId = useActiveMaskId();
-  const face = faceForMaskId(activeMaskId);
+  // Face selection is owned by the explicit code-mode control. The legacy
+  // mask catalog remains a presentation choice and cannot silently change
+  // send, queue, edit, or regenerate semantics.
+  const face: Face | undefined = codeMode ? 'code' : undefined;
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
 
   const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {

@@ -378,6 +378,11 @@ export const en: Dictionary = {
     readingConfig: 'Reading model config…',
     manageModelSettings: 'Manage model settings',
   },
+  codeMode: {
+    enabled: 'Code mode on',
+    disabled: 'Enable code mode',
+    noSession: 'Select a conversation first',
+  },
   settingsModel: {
     searchPlaceholder: 'Search providers',
     currentBadge: 'Current',

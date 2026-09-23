@@ -1,11 +1,20 @@
 package assembly
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/moduleport"
+	maskfixture "agent-vivy/sdk/internal/assembly/testdata/maskfixture"
 	"agent-vivy/sdk/module"
 )
+
+var _ moduleport.MaskFactory = maskfixture.Factory
+
+const maskFactoryFixtureSelector = "Factory"
 
 func TestGenerateRuntimeAssemblyUsesTypedProviderConstructors(t *testing.T) {
 	channelDescriptor := testDescriptor("fixture/chat")
@@ -185,6 +194,86 @@ func TestGenerateRuntimeAssemblyMinimalOmitsP4SourceImportsAndFields(t *testing.
 		if strings.Contains(source, omitted) {
 			t.Fatalf("minimal runtime assembly contains omitted P4 surface %q:\n%s", omitted, source)
 		}
+	}
+}
+
+func TestMaskOmittedHasNoProviderImport(t *testing.T) {
+	minimal := testDescriptor("fixture/minimal-maskless")
+	minimal.Provides = []module.PortRef{{Port: "core/tool-host@v1", ID: "fixture.tool-host"}}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: minimal,
+		Binding:    GoBinding{ImportPath: "example.com/fixture/minimal", Package: "minimal"},
+	}}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	for _, omitted := range []string{"internal/modules/masks", "agent-vivy/internal/moduleport", "MaskFactory", "HasMaskFactory"} {
+		if strings.Contains(source, omitted) {
+			t.Fatalf("mask implementation or binding leaked into omitted Assembly: %q:\n%s", omitted, source)
+		}
+	}
+}
+
+func TestGenerateRuntimeAssemblyBindsSelectedMaskFactory(t *testing.T) {
+	descriptor := testDescriptor("vivy/masks")
+	descriptor.Source.Ref = "file:internal"
+	descriptor.Provides = []module.PortRef{{Port: "core/mask-service@v1", ID: "vivy.mask-service"}}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding: GoBinding{
+			ImportPath:  "agent-vivy/sdk/internal/assembly/testdata/maskfixture",
+			Package:     "maskfixture",
+			Constructor: "NewModule",
+			MaskFactory: maskFactoryFixtureSelector,
+		},
+	}}, LifecycleOrder: []string{"vivy/masks"}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	for _, want := range []string{
+		"maskfixture \"agent-vivy/sdk/internal/assembly/testdata/maskfixture\"",
+		"maskfixture." + maskFactoryFixtureSelector,
+		"func (assembly *RuntimeAssembly) HasMaskFactory() bool",
+		"func (assembly *RuntimeAssembly) MaskServiceFactoryValue() any",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("selected mask Assembly missing %q:\n%s", want, source)
+		}
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), "generated.go", generated, 0)
+	if err != nil {
+		t.Fatalf("generated selected mask Assembly is not parseable: %v\n%s", err, source)
+	}
+	foundFactorySelector := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		for _, element := range literal.Elts {
+			field, ok := element.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := field.Key.(*ast.Ident)
+			if !ok || key.Name != "MaskFactory" {
+				continue
+			}
+			selector, ok := field.Value.(*ast.SelectorExpr)
+			if !ok {
+				continue
+			}
+			packageName, ok := selector.X.(*ast.Ident)
+			if ok && packageName.Name == "maskfixture" && selector.Sel.Name == maskFactoryFixtureSelector {
+				foundFactorySelector = true
+			}
+		}
+		return true
+	})
+	if !foundFactorySelector {
+		t.Fatalf("generated selected mask Assembly did not bind typed fixture selector %s:\n%s", maskFactoryFixtureSelector, source)
 	}
 }
 

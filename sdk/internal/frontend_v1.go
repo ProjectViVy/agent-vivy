@@ -49,6 +49,13 @@ func Verify(dir string) (VerifyReport, error) {
 	if err != nil {
 		return VerifyReport{}, err
 	}
+	digest, err := assemblyv1.HashSourceTree(dir, descriptor.Source.SHA256)
+	if err != nil {
+		return VerifyReport{}, err
+	}
+	if digest != descriptor.Source.SHA256 {
+		return VerifyReport{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", descriptor.Module.ID, digest, descriptor.Source.SHA256)
+	}
 	if _, err := loadCatalog(dir, descriptor); err != nil {
 		return VerifyReport{}, err
 	}
@@ -158,6 +165,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/vivy-evolution", importPath: "agent-vivy/plugins/vivy-evolution", pkg: "vivyevolution"},
 	{dir: "plugins/vivy-memory", importPath: "agent-vivy/plugins/vivy-memory", pkg: "vivymemory"},
 	{dir: "plugins/vivy-notebook", importPath: "agent-vivy/plugins/vivy-notebook", pkg: "vivynotebook"},
+	{dir: "plugins/vivy-masks-ui", importPath: "agent-vivy/plugins/vivy-masks-ui", pkg: "vivymasksui"},
 	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }
@@ -273,9 +281,6 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	conformanceResults := assemblyv1.SupportedPortConformance()
 	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: conformanceResults}).Compile(ctx, recipe)
 	if err != nil {
-		return Artifact{}, err
-	}
-	if err := assemblyv1.BindSourceHashes(&plan, catalog); err != nil {
 		return Artifact{}, err
 	}
 	binder, err := assemblyv1.GenerateBinder(plan, "assembly")
@@ -467,8 +472,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
 	}
-	if err := assemblyv1.VerifyBoundSourceHashes(plan, catalog); err != nil {
-		return Artifact{}, fmt.Errorf("sdk: %w", err)
+	if _, err := assemblyv1.NewSourceCatalog(records); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: source changed during build: %w", err)
 	}
 	if err := verifyDependencyLocks(repoRoot, modfile, dependencyLocks); err != nil {
 		return Artifact{}, err
@@ -677,18 +682,17 @@ func bindUIContentHashes(input *assemblyv1.UIAssemblyInput, plan assemblyv1.Asse
 			return fmt.Errorf("sdk: resolve UI source %s: %w", contribution.ID, err)
 		}
 		contribution.ModuleID = moduleID
-		sourceHash := ""
-		for _, resolved := range plan.Modules {
-			if resolved.Descriptor.Module.ID == moduleID {
-				sourceHash = strings.TrimSpace(resolved.Descriptor.Source.SHA256)
-				break
-			}
-		}
+		sourceHash := strings.TrimSpace(record.Descriptor.Source.SHA256)
 		if sourceHash == "" {
-			sourceHash, err = assemblyv1.HashSourceTree(root, record.Descriptor.Source.SHA256)
+			sourceHash, err = assemblyv1.HashSourceTree(root, "")
 			if err != nil {
 				return fmt.Errorf("sdk: hash UI source %s: %w", contribution.ID, err)
 			}
+		}
+		if claimed, claimErr := claimedUIHash("source", contribution.SourceHash, contribution.SourceSHA256, []string{moduleID, contribution.ID}, input.SourceHashes); claimErr != nil {
+			return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, claimErr)
+		} else if claimed != "" && claimed != sourceHash {
+			return fmt.Errorf("sdk: UI provider %s source hash mismatch: got %s, want %s", contribution.ID, claimed, sourceHash)
 		}
 		lockHash, err := hashUIDependencyLocks(root)
 		if err != nil {
@@ -1600,7 +1604,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	}
 	records := make([]assemblyv1.SourceRecord, 0, len(internal)+len(sources)+8)
 	for _, r := range internal {
-		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
+		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, MaskFactory: r.Binding.MaskFactory, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
 	known := repoSourceDirs
 	seen := map[string]bool{}
@@ -1638,7 +1642,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if !ok {
 			return nil, fmt.Errorf("sdk: external source %s requires an authoritative Recipe sources pin", d.Module.ID)
 		}
-		if pin.Ref != d.Source.Ref {
+		if pin.Ref != d.Source.Ref || pin.SHA256 != d.Source.SHA256 {
 			return nil, fmt.Errorf("sdk: external source pin mismatch for %s", d.Module.ID)
 		}
 		importPath, packageName, err := sourceGoBinding(dir)
