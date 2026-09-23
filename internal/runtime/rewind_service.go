@@ -47,12 +47,12 @@ func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, m
 		return "", err
 	}
 	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
-	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
-		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, event)
+	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, events []domain.RunEvent) ([]domain.RunEvent, error) {
+		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, events[0])
 		if err != nil {
-			return event, fmt.Errorf("runtime: commit session edit: %w", err)
+			return events, fmt.Errorf("runtime: commit session edit: %w", err)
 		}
-		return committed, nil
+		return []domain.RunEvent{committed}, nil
 	})
 }
 

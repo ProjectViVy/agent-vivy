@@ -175,6 +175,7 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		{`DELETE FROM messages WHERE session_id = ?`},
 		{`DELETE FROM session_compactions WHERE session_id = ?`},
 		{`DELETE FROM session_truncations WHERE session_id = ?`},
+		{`DELETE FROM continuity_receipts WHERE session_id = ?`},
 		{`DELETE FROM file_versions WHERE session_id = ?`},
 		{`DELETE FROM file_reads WHERE session_id = ?`},
 		{`DELETE FROM sessions WHERE id = ?`},

@@ -226,6 +226,125 @@ func (m *WorkspaceManager) selectedWorkspace(ctx context.Context, runID domain.R
 	return Workspace{ID: fmt.Sprintf("selected_%x", sum[:8]), Path: filepath.Clean(canonical)}, true, nil
 }
 
+// AdmissionWorkspaceAllocator is the workspace seam atomic task admission
+// needs: allocation reports whether it created a fresh private directory so a
+// failed admission can roll that directory back without ever touching a
+// selected or local user directory.
+type AdmissionWorkspaceAllocator interface {
+	// EnsureForAdmission resolves the run workspace exactly like Ensure but
+	// reports true only for a newly created, root-validated, run-ID-named,
+	// non-symlink private directory. Selected and local workspaces return
+	// false; an already-existing private directory also returns false so an
+	// uncertain earlier attempt is preserved, never reaped.
+	EnsureForAdmission(context.Context, domain.RunID) (Workspace, bool, error)
+	// DiscardNewPrivateAdmission removes the run-ID-named private directory
+	// only when it is an empty directory under the manager root. It is a
+	// no-op for local and selected workspaces. Callers invoke it only after
+	// a receipt check confirms the admission did not commit.
+	DiscardNewPrivateAdmission(context.Context, domain.RunID) error
+}
+
+var _ AdmissionWorkspaceAllocator = (*WorkspaceManager)(nil)
+
+// EnsureForAdmission implements AdmissionWorkspaceAllocator.
+func (m *WorkspaceManager) EnsureForAdmission(ctx context.Context, runID domain.RunID) (Workspace, bool, error) {
+	if m == nil || m.root == "" {
+		return Workspace{}, false, errors.New("runtime: workspace manager not wired")
+	}
+	if err := ctx.Err(); err != nil {
+		return Workspace{}, false, err
+	}
+	if selected, ok, err := m.selectedWorkspace(ctx, runID); err != nil {
+		return Workspace{}, false, err
+	} else if ok {
+		return selected, false, nil
+	}
+	if m.local {
+		info, err := os.Lstat(m.root)
+		if err != nil {
+			return Workspace{}, false, fmt.Errorf("runtime: inspect local workspace: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return Workspace{}, false, errors.New("runtime: local workspace root is not a directory")
+		}
+		return Workspace{ID: "local", Path: m.root}, false, nil
+	}
+	name := string(runID)
+	if !validWorkspaceName(name) {
+		return Workspace{}, false, errors.New("runtime: invalid workspace run id")
+	}
+	path := filepath.Join(m.root, name)
+	if err := m.ensureUnderRoot(path); err != nil {
+		return Workspace{}, false, err
+	}
+	if err := os.MkdirAll(m.root, 0o700); err != nil {
+		return Workspace{}, false, fmt.Errorf("runtime: create workspace root: %w", err)
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return Workspace{}, false, errors.New("runtime: workspace path is not a private directory")
+		}
+		// Pre-existing run directory: it may belong to an earlier attempt
+		// whose commit outcome is still uncertain, so it is preserved.
+		return Workspace{ID: name, Path: path}, false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Workspace{}, false, fmt.Errorf("runtime: inspect workspace: %w", err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return Workspace{ID: name, Path: path}, false, nil
+		}
+		return Workspace{}, false, fmt.Errorf("runtime: create workspace: %w", err)
+	}
+	return Workspace{ID: name, Path: path}, true, nil
+}
+
+// DiscardNewPrivateAdmission implements AdmissionWorkspaceAllocator.
+func (m *WorkspaceManager) DiscardNewPrivateAdmission(ctx context.Context, runID domain.RunID) error {
+	if m == nil || m.root == "" {
+		return errors.New("runtime: workspace manager not wired")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Local and selected workspaces are user directories; nothing was
+	// privately allocated, so nothing may be removed.
+	if m.local {
+		return nil
+	}
+	if selected, ok, err := m.selectedWorkspace(ctx, runID); err != nil {
+		return err
+	} else if ok {
+		_ = selected
+		return nil
+	}
+	name := string(runID)
+	if !validWorkspaceName(name) {
+		return errors.New("runtime: invalid workspace run id")
+	}
+	path := filepath.Join(m.root, name)
+	if err := m.ensureUnderRoot(path); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("runtime: inspect workspace for discard: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("runtime: refusing to discard non-private workspace path")
+	}
+	// os.Remove refuses non-empty directories, so a workspace that received
+	// content — for example an uncertain commit the engine then used — is
+	// preserved rather than destroyed.
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("runtime: discard admission workspace: %w", err)
+	}
+	return nil
+}
+
 // ValidateRunPath checks a path against the root selected for this run rather
 // than the process's default root.
 func (m *WorkspaceManager) ValidateRunPath(ctx context.Context, runID domain.RunID, path string) error {
