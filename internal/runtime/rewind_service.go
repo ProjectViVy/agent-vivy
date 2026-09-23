@@ -212,7 +212,27 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	if err != nil {
 		return ForkResult{}, err
 	}
-	events, err := mutations.CommitSessionFork(ctx, child, copied, markers, []domain.RunEvent{parentEvent, childEvent})
+	eventsToCommit := []domain.RunEvent{parentEvent, childEvent}
+	if s.deps.References != nil {
+		// Snapshot copies ride the same atomic commit under the child's
+		// derived history run; their provenance keeps the copied turns' run
+		// identity while reference ids stay unique to the child.
+		copiedRuns := make([]domain.RunID, 0, len(copied))
+		seenRuns := make(map[domain.RunID]bool, len(copied))
+		for _, message := range copied {
+			if message.RunID == "" || seenRuns[message.RunID] {
+				continue
+			}
+			seenRuns[message.RunID] = true
+			copiedRuns = append(copiedRuns, message.RunID)
+		}
+		refEvents, refErr := s.deps.References.ForkReferenceEvents(ctx, newID, sessionID, copiedRuns, forkHistoryRunID(newID))
+		if refErr != nil {
+			return ForkResult{}, fmt.Errorf("runtime: copy fork references: %w", refErr)
+		}
+		eventsToCommit = append(eventsToCommit, refEvents...)
+	}
+	events, err := mutations.CommitSessionFork(ctx, child, copied, markers, eventsToCommit)
 	if err != nil {
 		return ForkResult{}, fmt.Errorf("runtime: commit session fork: %w", err)
 	}

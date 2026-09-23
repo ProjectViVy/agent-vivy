@@ -383,6 +383,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// nil-continuity, which only disables model-side attach commits.
 	continuityStore, _ := backend.(storage.ContinuityStore)
 	referenceService := runtime.NewReferenceService(historyService, backend, backend, backend, continuityStore)
+	referenceService.SetViewStores(backend, backend)
 	historyService.SetReferenceLookup(referenceService.Lookup)
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)

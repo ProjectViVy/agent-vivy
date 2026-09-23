@@ -44,6 +44,39 @@ func (h *controlHandler) referencePreview(ctx context.Context, request Request) 
 	return preview, nil
 }
 
+// referenceGetParams addresses one committed snapshot inside its destination
+// session. The reply is the destination-owned copy plus live source and feed
+// status — never a fresh read of the source session.
+type referenceGetParams struct {
+	SessionID   string `json:"session_id"`
+	ReferenceID string `json:"reference_id"`
+}
+
+func (h *controlHandler) referenceGet(ctx context.Context, request Request) (any, *Error) {
+	if rpcErr := rejectHistorySpoofFields(request); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if h.deps.References == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "reference operations are not configured"}
+	}
+	var params referenceGetParams
+	if rpcErr := decodeStrictJSON(request.Params, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.ReferenceID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and reference_id are required"}
+	}
+	view, err := h.deps.References.Get(ctx, domain.SessionID(params.SessionID), params.ReferenceID)
+	if err != nil {
+		var refErr runtime.ReferenceError
+		if errors.As(err, &refErr) {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("reference get failed: %s: %s", refErr.Status, refErr.Reason)}
+		}
+		return nil, internalError(err)
+	}
+	return view, nil
+}
+
 // decodeStrictJSON decodes one body exactly: unknown keys are rejected so a
 // forged caller body (raw items, fabricated digest fields, spoofed authority)
 // fails closed instead of being silently ignored.

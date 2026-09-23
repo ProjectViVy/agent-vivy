@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 	"unicode/utf8"
@@ -33,13 +34,15 @@ func (e ReferenceError) Error() string {
 // explicit context references. It never bypasses HistoryService
 // authorization: a snapshot is exactly what one authorized read returned.
 type ReferenceService struct {
-	history    *HistoryService
-	sessions   storage.SessionStore
-	runs       storage.RunStore
-	journal    storage.Journal
-	continuity storage.ContinuityStore
-	limits     domain.ContinuityLimits
-	now        func() time.Time
+	history     *HistoryService
+	sessions    storage.SessionStore
+	runs        storage.RunStore
+	journal     storage.Journal
+	continuity  storage.ContinuityStore
+	messages    storage.MessageStore
+	truncations storage.TruncationStore
+	limits      domain.ContinuityLimits
+	now         func() time.Time
 }
 
 var _ tools.ReferenceOperations = (*ReferenceService)(nil)
@@ -54,6 +57,15 @@ func NewReferenceService(history *HistoryService, sessions storage.SessionStore,
 		limits:     domain.DefaultContinuityLimits(),
 		now:        time.Now,
 	}
+}
+
+// SetViewStores wires the stores needed to report a snapshot's current feed
+// status (whether its owning turn is still visible after rewinds). The
+// stores are optional: without them reference/get reports feed_status
+// "unknown" rather than guessing.
+func (s *ReferenceService) SetViewStores(messages storage.MessageStore, truncations storage.TruncationStore) {
+	s.messages = messages
+	s.truncations = truncations
 }
 
 // SetLimits narrows the effective budget without weakening defaults.
@@ -178,7 +190,205 @@ func (s *ReferenceService) Lookup(ctx context.Context, sessionID domain.SessionI
 			return found, nil
 		}
 	}
+	// Fork-copied snapshots live under the session's derived history run,
+	// which intentionally has no run-store row.
+	iter, err := s.journal.Replay(ctx, forkHistoryRunID(sessionID), 0)
+	if err != nil {
+		return domain.ContextReference{}, err
+	}
+	found, err := scanReferenceEvents(iter, referenceID)
+	if err != nil {
+		return domain.ContextReference{}, err
+	}
+	if found.ID == referenceID {
+		return found, nil
+	}
 	return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusNotFound), Reason: "reference not found"}
+}
+
+// Get reads the destination-owned copy plus live source and feed status,
+// each computed independently of the stored snapshot content.
+func (s *ReferenceService) Get(ctx context.Context, sessionID domain.SessionID, referenceID string) (domain.ReferenceView, error) {
+	reference, err := s.Lookup(ctx, sessionID, referenceID)
+	if err != nil {
+		return domain.ReferenceView{}, err
+	}
+	view := domain.ReferenceView{Reference: reference, SourceStatus: "ok", FeedStatus: "unknown"}
+	if s.sessions != nil {
+		if _, err := s.sessions.GetSession(ctx, reference.SourceSessionID); err != nil {
+			if !errors.Is(err, storage.ErrNotFound) {
+				return domain.ReferenceView{}, err
+			}
+			view.SourceStatus = "source_unavailable"
+		}
+	}
+	if s.messages != nil && s.truncations != nil {
+		view.FeedStatus = s.referenceFeedStatus(ctx, sessionID, reference)
+	}
+	return view, nil
+}
+
+// referenceFeedStatus reports whether the snapshot's owning turn is still in
+// the session's effective view: "included", "hidden" by a rewind/edit
+// marker, or "detached" when no user turn carries its run.
+func (s *ReferenceService) referenceFeedStatus(ctx context.Context, sessionID domain.SessionID, reference domain.ContextReference) string {
+	stored, err := s.messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		return "unknown"
+	}
+	owned := false
+	for _, message := range stored {
+		if message.RunID == reference.DestinationRunID && message.Role == domain.RoleUser {
+			owned = true
+			break
+		}
+	}
+	markers, err := s.truncations.ListViewTruncations(ctx, sessionID)
+	if err != nil {
+		return "unknown"
+	}
+	for _, message := range storage.ApplySessionTruncations(stored, markers) {
+		if message.RunID == reference.DestinationRunID && message.Role == domain.RoleUser {
+			return "included"
+		}
+	}
+	if owned {
+		return "hidden"
+	}
+	return "detached"
+}
+
+// AttachedReferences collects the session's committed reference snapshots
+// keyed by the run of the turn that owns them. Only startup-position events
+// (admission) and fork copies participate: a mid-run model attach was
+// already delivered to the model by its tool result and must not be
+// re-injected as imported data.
+func (s *ReferenceService) AttachedReferences(ctx context.Context, sessionID domain.SessionID) (map[domain.RunID][]domain.ContextReference, error) {
+	out := make(map[domain.RunID][]domain.ContextReference)
+	if s.runs == nil || s.journal == nil {
+		return out, nil
+	}
+	runs, err := s.runs.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range runs {
+		iter, err := s.journal.Replay(ctx, run.ID, 0)
+		if err != nil {
+			return nil, err
+		}
+		if err := collectStartupReferences(iter, sessionID, out); err != nil {
+			return nil, err
+		}
+	}
+	iter, err := s.journal.Replay(ctx, forkHistoryRunID(sessionID), 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := collectAllRunReferences(iter, sessionID, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ForkReferenceEvents builds the child-owned copies of every startup
+// snapshot attached to the given parent runs — the same startup set the feed
+// would project, so a mid-run model attach never travels without its tool
+// result. Copies keep the original provenance and the copied turns' run
+// identity; they journal under the child's derived history run inside the
+// same atomic fork commit.
+func (s *ReferenceService) ForkReferenceEvents(ctx context.Context, dst, parent domain.SessionID, runs []domain.RunID, historyRun domain.RunID) ([]domain.RunEvent, error) {
+	if s.journal == nil {
+		return nil, nil
+	}
+	var events []domain.RunEvent
+	seen := make(map[domain.RunID]bool, len(runs))
+	for _, runID := range runs {
+		if runID == "" || seen[runID] {
+			continue
+		}
+		seen[runID] = true
+		iter, err := s.journal.Replay(ctx, runID, 0)
+		if err != nil {
+			return nil, err
+		}
+		byRun := make(map[domain.RunID][]domain.ContextReference)
+		if err := collectStartupReferences(iter, parent, byRun); err != nil {
+			return nil, err
+		}
+		for _, copied := range byRun[runID] {
+			copied.ID = newPrefixedID("ref_")
+			copied.DestinationSessionID = dst
+			// DestinationRunID stays the copied turn's provenance run: fork
+			// message copies keep the parent run id for audit.
+			forkEvent, err := historyEvent(historyRun, domain.EventContextReferenceAttached, payloadContextReferenceAttached{Reference: copied})
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, forkEvent)
+		}
+	}
+	return events, nil
+}
+
+// forkHistoryRunID derives the rowless journal run that owns a forked child
+// session's copied reference events. One fork produces one child session, so
+// the id is deterministic and never collides with a live run row.
+func forkHistoryRunID(sessionID domain.SessionID) domain.RunID {
+	return domain.RunID("frok_" + string(sessionID))
+}
+
+// collectStartupReferences walks only a run's committed startup set:
+// run.started plus the contiguous reference events that follow it. A first
+// non-reference event (model.request, deltas, a mid-run model attach) ends
+// the scan.
+func collectStartupReferences(iter storage.Iterator[storage.Entry], sessionID domain.SessionID, out map[domain.RunID][]domain.ContextReference) error {
+	defer func() { _ = iter.Close() }()
+	seenStarted := false
+loop:
+	for iter.Next() {
+		event := iter.Value().Event
+		switch event.Type {
+		case domain.EventRunStarted:
+			seenStarted = true
+		case domain.EventContextReferenceAttached:
+			if !seenStarted {
+				break loop
+			}
+			appendDecodedReference(event, sessionID, out)
+		default:
+			break loop
+		}
+	}
+	return iter.Err()
+}
+
+func collectAllRunReferences(iter storage.Iterator[storage.Entry], sessionID domain.SessionID, out map[domain.RunID][]domain.ContextReference) error {
+	defer func() { _ = iter.Close() }()
+	for iter.Next() {
+		appendDecodedReference(iter.Value().Event, sessionID, out)
+	}
+	return iter.Err()
+}
+
+// appendDecodedReference records a well-formed snapshot under its owning
+// run. Undecodable payloads are skipped here; Lookup surfaces them as an
+// explicit error instead of an empty substituted reference.
+func appendDecodedReference(event domain.RunEvent, sessionID domain.SessionID, out map[domain.RunID][]domain.ContextReference) {
+	var payload payloadContextReferenceAttached
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return
+	}
+	reference := payload.Reference
+	if reference.DestinationSessionID != sessionID || reference.DestinationRunID == "" || reference.ID == "" {
+		return
+	}
+	for _, existing := range out[reference.DestinationRunID] {
+		if existing.ID == reference.ID {
+			return
+		}
+	}
+	out[reference.DestinationRunID] = append(out[reference.DestinationRunID], reference)
 }
 
 func (s *ReferenceService) snapshot(ctx context.Context, selection domain.ReferenceSelection, dest domain.SessionID, runID domain.RunID, origin string) (domain.ContextReference, error) {

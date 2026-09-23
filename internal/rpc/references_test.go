@@ -27,6 +27,10 @@ func (f *fakeReferenceOps) Attach(_ context.Context, selection domain.ReferenceS
 	return f.reference, f.err
 }
 
+func (f *fakeReferenceOps) Get(_ context.Context, _ domain.SessionID, _ string) (domain.ReferenceView, error) {
+	return domain.ReferenceView{}, f.err
+}
+
 type fakeHistoryOps struct{}
 
 func (fakeHistoryOps) Search(context.Context, domain.HistorySearchRequest) (domain.HistoryPage, error) {

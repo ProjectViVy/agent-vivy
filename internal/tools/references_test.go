@@ -26,6 +26,10 @@ func (f *fakeReferenceOps) Attach(_ context.Context, selection domain.ReferenceS
 	return f.reference, f.err
 }
 
+func (f *fakeReferenceOps) Get(_ context.Context, _ domain.SessionID, _ string) (domain.ReferenceView, error) {
+	return domain.ReferenceView{}, f.err
+}
+
 func newReferenceContextTool(t *testing.T, ops ReferenceOperations) *referenceContextTool {
 	t.Helper()
 	tool, ok := NewReferenceContext(ops).(*referenceContextTool)

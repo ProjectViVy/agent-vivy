@@ -19,6 +19,15 @@ type ContextReference struct {
 	Origin               string        `json:"origin"`
 }
 
+// ReferenceView is the destination-facing read of one snapshot: the saved
+// copy plus live source and feed status computed at read time, kept
+// independent of the stored snapshot content.
+type ReferenceView struct {
+	Reference    ContextReference `json:"reference"`
+	SourceStatus string           `json:"source_status"`
+	FeedStatus   string           `json:"feed_status"`
+}
+
 // Validate checks the captured snapshot without consulting its live source.
 func (r ContextReference) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
