@@ -98,7 +98,8 @@ type Message struct {
 	SessionID        SessionID
 	RunID            RunID // empty for user-authored messages
 	Role             Role
-	CreatedAt        int64 // unix milli
+	CreatedAt        int64   // unix milli
+	WorkSeq          WorkSeq // latest committed session work event visible when this message was persisted
 	Content          string
 	Attachments      []Attachment  // user rows only; images delivered as multimodal input
 	FileContexts     []FileContext // user rows only; bounded project text snapshots

@@ -9,12 +9,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudwego/eino/compose"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
-
-const maxModelGoalRounds = 1000
-const maxModelPlanBytes = 256 << 10
 
 var _ tools.WorkControlOperations = (*Service)(nil)
 
@@ -46,9 +45,8 @@ func (s *Service) modelWorkContext(ctx context.Context) (domain.SessionID, domai
 	return sessionID, runID, nil
 }
 
-// WorkRunFenced reports whether a model Goal run has already committed a
-// terminal work report. The tool adapter uses this process-local fence to
-// reject every later tool call in the same model batch.
+// WorkRunFenced reports whether this call is blocked by a terminal work
+// action or by a pending Plan review's unreviewed sibling batch.
 func (s *Service) WorkRunFenced(ctx context.Context) bool {
 	if s == nil {
 		return false
@@ -61,9 +59,10 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 		return false
 	}
 	s.mu.Lock()
-	_, fenced := s.workFenced[runID]
+	_, terminal := s.workFenced[runID]
+	_, batchSibling := s.workBlockedCalls[runID][compose.GetToolCallID(ctx)]
 	s.mu.Unlock()
-	return fenced
+	return terminal || batchSibling
 }
 
 // WorkToolCall serializes model tool admission and invocation for one live
@@ -144,17 +143,31 @@ func (s *Service) SubmitPlan(ctx context.Context, markdown string) (domain.WorkS
 		return domain.WorkState{}, err
 	}
 	markdown = strings.TrimSpace(markdown)
-	if markdown == "" || len([]byte(markdown)) > maxModelPlanBytes {
+	if markdown == "" || len([]byte(markdown)) > domain.MaxPlanMarkdownBytes {
 		return domain.WorkState{}, fmt.Errorf("runtime: plan markdown is empty or too large")
 	}
-	return s.commitModelWork(ctx, sessionID, runID, "submit-plan", map[string]string{"markdown": markdown}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
+	toolCallID := compose.GetToolCallID(ctx)
+	if toolCallID == "" {
+		return domain.WorkState{}, ErrPlanReviewUnavailable
+	}
+	state, err := s.commitModelWork(ctx, sessionID, runID, "submit-plan", map[string]string{
+		"markdown": markdown, "tool_call_id": toolCallID,
+	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
 			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanSubmitted,
 			PlanSubmissionID: "submission-" + requestID[len("model-work-submit-plan-"):],
 			PlanMarkdown:     markdown, PlanOriginRunID: runID,
+			PlanOriginToolCallID: toolCallID,
 		}
 	})
+	if err == nil {
+		// Eino may still visit other calls already emitted in this model
+		// batch before the interrupt reaches Service.consume. Hold the whole
+		// run until the mapper identifies and durably records those siblings.
+		s.fenceWorkRun(runID)
+	}
+	return state, err
 }
 
 func (s *Service) GetGoal(ctx context.Context) (*domain.GoalState, error) {
@@ -179,7 +192,7 @@ func (s *Service) CreateGoal(ctx context.Context, objective string, maxRounds in
 		return domain.WorkState{}, err
 	}
 	objective = strings.TrimSpace(objective)
-	if objective == "" || len([]byte(objective)) > 8<<10 || maxRounds <= 0 || maxRounds > maxModelGoalRounds {
+	if objective == "" || len([]byte(objective)) > domain.MaxGoalObjectiveBytes || maxRounds <= 0 || maxRounds > domain.MaxGoalRounds {
 		return domain.WorkState{}, fmt.Errorf("runtime: invalid Goal objective or round limit")
 	}
 	state, err := s.commitModelWork(ctx, sessionID, runID, "create-goal", map[string]any{"objective": objective, "max_rounds": maxRounds}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {

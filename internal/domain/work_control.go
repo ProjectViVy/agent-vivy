@@ -13,6 +13,12 @@ type WorkVersion int64
 
 const WorkPayloadVersion = 1
 
+// WorkControlLimits are the single source of truth shared by model tools,
+// runtime operations, and RPC validation.
+const MaxPlanMarkdownBytes = 256 << 10
+const MaxGoalObjectiveBytes = 8 << 10
+const MaxGoalRounds = 1000
+
 // WorkEventKind is the bounded vocabulary of session work events.
 type WorkEventKind string
 
@@ -27,6 +33,8 @@ const WorkEventGoalRoundAdmitted WorkEventKind = "goal.round_admitted"
 const WorkEventPlanEntered WorkEventKind = "plan.entered"
 const WorkEventPlanLeft WorkEventKind = "plan.left"
 const WorkEventPlanSubmitted WorkEventKind = "plan.submitted"
+const WorkEventPlanReviewSuspended WorkEventKind = "plan.review_suspended"
+const WorkEventPlanReviewCancelled WorkEventKind = "plan.review_cancelled"
 const WorkEventPlanDecided WorkEventKind = "plan.decided"
 
 // Valid reports whether k is a supported work event kind.
@@ -43,6 +51,8 @@ func (k WorkEventKind) Valid() bool {
 		WorkEventPlanEntered,
 		WorkEventPlanLeft,
 		WorkEventPlanSubmitted,
+		WorkEventPlanReviewSuspended,
+		WorkEventPlanReviewCancelled,
 		WorkEventPlanDecided:
 		return true
 	}
@@ -106,6 +116,9 @@ type PlanState struct {
 	Feedback         string
 	OriginRunID      RunID
 	OriginToolCallID string
+	ResumeTarget     string
+	BlockedToolCalls []string
+	DecisionAction   PlanDecisionAction
 }
 
 // WorkState is the pure reducer state for one session.
@@ -135,6 +148,8 @@ type WorkMutation struct {
 	PlanFeedback         string
 	PlanOriginRunID      RunID
 	PlanOriginToolCallID string
+	PlanResumeTarget     string
+	PlanBlockedToolCalls []string
 }
 
 // GoalRunAdmission records one atomically admitted Goal round.
@@ -228,6 +243,10 @@ func applyWorkEvent(state *WorkState, event WorkEvent) error {
 		return leavePlan(state, event.Mutation)
 	case WorkEventPlanSubmitted:
 		return submitPlan(state, event.Mutation)
+	case WorkEventPlanReviewSuspended:
+		return suspendPlanReview(state, event.Mutation)
+	case WorkEventPlanReviewCancelled:
+		return cancelPlanReview(state, event.Mutation)
 	case WorkEventPlanDecided:
 		return decidePlan(state, event.Mutation)
 	}
@@ -275,6 +294,33 @@ func submitPlan(state *WorkState, mutation WorkMutation) error {
 	state.Plan.Feedback = ""
 	state.Plan.OriginRunID = mutation.PlanOriginRunID
 	state.Plan.OriginToolCallID = mutation.PlanOriginToolCallID
+	state.Plan.ResumeTarget = ""
+	state.Plan.BlockedToolCalls = nil
+	state.Plan.DecisionAction = ""
+	return nil
+}
+
+func suspendPlanReview(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID ||
+		state.Plan.ReviewStatus != PlanReviewPending ||
+		mutation.PlanSubmissionID == "" || mutation.PlanSubmissionID != state.Plan.SubmissionID ||
+		mutation.PlanOriginRunID == "" || mutation.PlanOriginRunID != state.Plan.OriginRunID ||
+		mutation.PlanOriginToolCallID == "" || mutation.PlanOriginToolCallID != state.Plan.OriginToolCallID ||
+		mutation.PlanResumeTarget == "" {
+		return fmt.Errorf("%w: invalid Plan review suspension", ErrStaleGoalReference)
+	}
+	state.Plan.ResumeTarget = mutation.PlanResumeTarget
+	state.Plan.BlockedToolCalls = append([]string(nil), mutation.PlanBlockedToolCalls...)
+	return nil
+}
+
+func cancelPlanReview(state *WorkState, mutation WorkMutation) error {
+	if mutation.SessionID != state.SessionID || state.Plan.ReviewStatus != PlanReviewPending ||
+		mutation.PlanSubmissionID == "" || mutation.PlanSubmissionID != state.Plan.SubmissionID ||
+		mutation.PlanOriginRunID == "" || mutation.PlanOriginRunID != state.Plan.OriginRunID {
+		return fmt.Errorf("%w: invalid Plan review cancellation", ErrStaleGoalReference)
+	}
+	state.Plan.ReviewStatus = PlanReviewCancelled
 	return nil
 }
 
@@ -286,12 +332,16 @@ func decidePlan(state *WorkState, mutation WorkMutation) error {
 		mutation.PlanSubmissionID != state.Plan.SubmissionID {
 		return fmt.Errorf("%w: invalid plan decision", ErrStaleGoalReference)
 	}
+	if state.Plan.OriginRunID != "" && state.Plan.ResumeTarget == "" {
+		return fmt.Errorf("%w: Plan review has not been suspended", ErrStaleGoalReference)
+	}
 	switch mutation.PlanAction {
 	case PlanDecisionRevise:
 		if mutation.Goal != (GoalRef{}) || mutation.Objective != "" || mutation.MaxRounds != 0 {
 			return fmt.Errorf("%w: revision cannot carry Goal fields", ErrStaleGoalReference)
 		}
 		state.Plan.ReviewStatus = PlanReviewRejected
+		state.Plan.DecisionAction = mutation.PlanAction
 		state.Plan.Feedback = mutation.PlanFeedback
 	case PlanDecisionExecuteOnce:
 		if mutation.Goal != (GoalRef{}) || mutation.Objective != "" || mutation.MaxRounds != 0 {
@@ -299,6 +349,7 @@ func decidePlan(state *WorkState, mutation WorkMutation) error {
 		}
 		state.Plan.Active = false
 		state.Plan.ReviewStatus = PlanReviewAccepted
+		state.Plan.DecisionAction = mutation.PlanAction
 		state.Plan.Feedback = mutation.PlanFeedback
 	case PlanDecisionStartGoal:
 		if state.Goal != nil || mutation.Goal.ID == "" || mutation.Goal.Revision != 1 || mutation.Objective == "" || mutation.MaxRounds <= 0 {
@@ -306,6 +357,7 @@ func decidePlan(state *WorkState, mutation WorkMutation) error {
 		}
 		state.Plan.Active = false
 		state.Plan.ReviewStatus = PlanReviewAccepted
+		state.Plan.DecisionAction = mutation.PlanAction
 		state.Plan.Feedback = mutation.PlanFeedback
 		state.Goal = &GoalState{Ref: mutation.Goal, Objective: mutation.Objective, Phase: WorkPhaseActive, MaxRounds: mutation.MaxRounds}
 	default:

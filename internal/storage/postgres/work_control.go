@@ -297,9 +297,10 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	}
 
 	message := admission.Message
+	message.WorkSeq = domain.WorkSeq(state.Version)
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, message.Content,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, int64(message.WorkSeq), message.Content,
 		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
 		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: append goal message: %w", err)

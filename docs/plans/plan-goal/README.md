@@ -11,7 +11,7 @@ The issue is not duplicated here; this is the engineering refinement. Review sha
 
 | Story | Epic / requirements | Independently verifiable outcome | Immediate predecessors / required output | Plan | Status | Evidence or blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the three PG-D1 engineering blockers with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | In progress | Runtime probe and contract decision are required before downstream release |
+| PG-0 | Foundation; R1, R2, R6, R7, R9 | Resolve the adapter, history, and human-admission contracts with source-backed, executable decisions. | None; inspected baseline | [PG-0](PG-0.md) | In progress | Probes and direct CI gates pass; live PostgreSQL and supervisor acceptance remain |
 | PG-1 | Foundation; R3, R6, R9 | Durably replay work state and atomically account ordinary Goal runs on both backends. | PG-0 accepted output | [PG-1](PG-1.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-2 | Plan collaboration; R1, R2, R5, R7, R9 | Plan uses guidance with independent permissions and exact human-reviewed transitions. | PG-1 accepted output | [PG-2](PG-2.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
 | PG-3 | Goal continuation; R3, R4, R5, R6, R9 | At most one authorized continuation is admitted while human requests, cancellation and existing budgets remain authoritative. | PG-1 accepted output | [PG-3](PG-3.md) | Blocked | Unaccepted predecessor evidence; PG-D1 blockers apply |
@@ -45,13 +45,10 @@ PG-4 owns application/RPC wiring of their completed contracts. PG-5 owns UI and 
 
 ## Readiness blockers and release rule
 
-1. Go unavailable in current environment; new Eino boundary behavior not executed.
-2. PG-D1 section 9 needs an exact durable message/work-event anchor and non-refundable usage semantics validated against existing fork/rewind.
-3. PG-3 host-queued human requests need an exact response/lifetime contract consistent with current callers. Resolve in PG-0/PG-D2; do not fabricate an accepted run ID before admission.
-4. Full product CI and PostgreSQL/browser/live evidence have not run.
-5. Implementation is authorized, but downstream Story release still requires PG-0 evidence.
+1. Live PostgreSQL conformance, browser integration and a real coding walkthrough have not run.
+2. Implementation is authorized, but downstream Story release still requires supervisor acceptance of PG-0 evidence and the required product gates.
 
-PG-0 owns the first three engineering refinements. Update shared design and every affected consumer plan together before release. PG-0 can become Ready for its bounded investigation after toolchain availability and accepted probe evidence; no production Story may be released while its consumed contract is unsettled.
+PG-0 now has executable evidence for pinned Eino guidance, exact Plan review suspension/resume, same-batch fencing, WorkSeq history ordering, and synchronous human-admission waiter semantics. No production Story may be released until the required product gates pass.
 
 ## Coverage
 
@@ -79,5 +76,5 @@ New public Ports, scope expansion, changed acceptance or substantial new infrast
 
 ## Current verification
 
-Documentation-only checks are recorded in [verification](../../logs/2026-09-21-plan-goal-predesign/verification.md).
-Scenario blocks in Story plans are behavioral pseudocode and are not advertised as compiled test implementations.
+Pre-design checks are recorded in [2026-09-21 verification](../../logs/2026-09-21-plan-goal-predesign/verification.md). Current runtime and history evidence is in [2026-09-23 verification](../../logs/2026-09-23-plan-goal-foundation/verification.md).
+Scenario blocks in Story plans remain behavioral pseudocode; the PG-0 probes are executable Go tests.

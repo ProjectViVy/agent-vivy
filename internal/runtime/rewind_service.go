@@ -42,11 +42,11 @@ func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, m
 	if err := s.rejectBusySession(ctx, sessionID); err != nil {
 		return "", err
 	}
-	stored, _, _, err := s.sessionViewCutoff(ctx, sessionID, messageID)
+	stored, effective, cutoffIdx, err := s.sessionViewCutoff(ctx, sessionID, messageID)
 	if err != nil {
 		return "", err
 	}
-	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
+	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, WorkSeq: effective[cutoffIdx].WorkSeq, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
 	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
 		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, event)
 		if err != nil {
@@ -89,7 +89,7 @@ func (s *Service) RewindSession(ctx context.Context, sessionID domain.SessionID,
 	if err := s.rejectBusySession(ctx, sessionID); err != nil {
 		return RewindResult{}, err
 	}
-	stored, _, cutoffIdx, err := s.sessionViewCutoff(ctx, sessionID, messageID)
+	stored, effective, cutoffIdx, err := s.sessionViewCutoff(ctx, sessionID, messageID)
 	if err != nil {
 		return RewindResult{}, err
 	}
@@ -100,6 +100,7 @@ func (s *Service) RewindSession(ctx context.Context, sessionID domain.SessionID,
 		SessionID:       sessionID,
 		CutoffMessageID: messageID,
 		TailMessageID:   stored[len(stored)-1].ID,
+		WorkSeq:         effective[cutoffIdx].WorkSeq,
 		Reason:          storage.TruncationRewind,
 		CreatedAt:       time.Now().UnixMilli(),
 	}
@@ -180,6 +181,7 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	for i, message := range copied {
 		message.SessionID = newID
 		message.ID = newMessageID()
+		message.WorkSeq = 0 // the fork starts with an empty work-event stream
 		childForkPointID = message.ID
 		copied[i] = message
 	}
@@ -190,9 +192,9 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	// Tails are recorded for the same audit symmetry but filter nothing.
 	markers := []storage.SessionTruncation{{
 		SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationFork,
-		ForkSessionID: string(newID), CreatedAt: now,
+		WorkSeq: effective[cutoffIdx].WorkSeq, ForkSessionID: string(newID), CreatedAt: now,
 	}, {
-		SessionID: newID, CutoffMessageID: childForkPointID, TailMessageID: childForkPointID, Reason: storage.TruncationForkedFrom,
+		SessionID: newID, CutoffMessageID: childForkPointID, TailMessageID: childForkPointID, WorkSeq: 0, Reason: storage.TruncationForkedFrom,
 		ForkSessionID: string(sessionID), CreatedAt: now,
 	}}
 	parentEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), domain.EventSessionTruncated, payloadSessionTruncated{

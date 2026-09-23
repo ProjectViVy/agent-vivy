@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +15,13 @@ import (
 func appendRewindFixture(t *testing.T, svc *Service, sessionID domain.SessionID) {
 	t.Helper()
 	ctx := context.Background()
+	if _, err := svc.deps.Sessions.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
+		if err := svc.deps.Sessions.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+	} else if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
 	messages := []domain.Message{
 		{ID: "msg-1", SessionID: sessionID, Role: domain.RoleUser, Content: "one", CreatedAt: 1},
 		{ID: "msg-2", SessionID: sessionID, Role: domain.RoleAssistant, Content: "two", CreatedAt: 2},
@@ -180,6 +189,117 @@ func TestForkSessionCopiesHistoryAndAnchors(t *testing.T) {
 	}
 	if _, err := svc.ForkSession(ctx, "sess-src", "msg-gone", ""); err != ErrInvalidCutoff {
 		t.Fatalf("unknown fork point = %v, want ErrInvalidCutoff", err)
+	}
+}
+
+func TestForkAndRewindKeepSpentGoalRoundsWithoutChildAuthority(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	const sessionID domain.SessionID = "sess-history-work"
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "history", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	appendRewindFixture(t, svc, sessionID)
+	svc.deps.Work = backend
+	svc.deps.GoalRuns = backend
+	ref := domain.GoalRef{ID: "goal-history", Revision: 1}
+	created, err := backend.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "create-history-goal", RequestHash: "create-history-goal",
+		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "finish the history probe", MaxRounds: 2,
+	})
+	if err != nil {
+		t.Fatalf("create Goal: %v", err)
+	}
+
+	for round := 1; round <= 2; round++ {
+		runID := domain.RunID(fmt.Sprintf("run-history-%d", round))
+		messageID := fmt.Sprintf("msg-history-round-%d", round)
+		at := int64(4 + round)
+		admission := storage.GoalRunCommit{
+			Mutation: domain.WorkMutation{
+				SessionID: sessionID, ExpectedVersion: domain.WorkVersion(round),
+				RequestID: fmt.Sprintf("admit-history-%d", round), RequestHash: fmt.Sprintf("admit-history-%d", round),
+				Kind:      domain.WorkEventGoalRoundAdmitted,
+				Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: round, RunID: runID},
+			},
+			Message: domain.Message{ID: messageID, SessionID: sessionID, RunID: runID, Role: domain.RoleUser, CreatedAt: at, Content: fmt.Sprintf("continue round %d", round)},
+			Run:     domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: at},
+			Started: domain.RunEvent{RunID: runID, Type: domain.EventRunStarted, CreatedAt: at, PayloadVersion: 1, Payload: []byte(`{"provider":"test","model":"test"}`)},
+		}
+		admitted, err := backend.CommitGoalRun(ctx, admission)
+		if err != nil {
+			t.Fatalf("CommitGoalRun round %d: %v", round, err)
+		}
+		if admitted.Work.Event.Seq != domain.WorkSeq(round+1) || admitted.Run.ID != runID {
+			t.Fatalf("round %d admission = %+v, want work seq %d", round, admitted, round+1)
+		}
+		if err := backend.SetRunStatus(ctx, runID, domain.RunCompleted); err != nil {
+			t.Fatalf("complete fixture run %s: %v", runID, err)
+		}
+	}
+	if err := backend.AppendMessage(ctx, domain.Message{ID: "msg-history-b", SessionID: sessionID, Role: domain.RoleUser, CreatedAt: 7, Content: "message B"}); err != nil {
+		t.Fatalf("AppendMessage B: %v", err)
+	}
+	parentMessages, err := backend.ListMessages(ctx, sessionID)
+	if err != nil || len(parentMessages) != 7 {
+		t.Fatalf("parent history before fork = %d rows, %v; want 7", len(parentMessages), err)
+	}
+	if parentMessages[0].WorkSeq != 0 || parentMessages[4].WorkSeq != 1 || parentMessages[5].WorkSeq != 2 || parentMessages[6].WorkSeq != 3 {
+		t.Fatalf("message anchors = [%d %d %d %d], want A=0, rounds=1/2, B=3", parentMessages[0].WorkSeq, parentMessages[4].WorkSeq, parentMessages[5].WorkSeq, parentMessages[6].WorkSeq)
+	}
+
+	fork, err := svc.ForkSession(ctx, sessionID, "msg-history-b", "history branch")
+	if err != nil {
+		t.Fatalf("ForkSession through B: %v", err)
+	}
+	childID := domain.SessionID(fork.SessionID)
+	childMessages, err := backend.ListMessages(ctx, childID)
+	if err != nil || len(childMessages) != 7 {
+		t.Fatalf("child history = %d rows, %v; want copied prefix", len(childMessages), err)
+	}
+	for i, message := range childMessages {
+		if message.WorkSeq != 0 {
+			t.Fatalf("child message %d WorkSeq = %d, want zero in a child with no work events", i, message.WorkSeq)
+		}
+	}
+	childWork, err := backend.ReadWork(ctx, childID)
+	if err != nil || childWork.Version != 0 || childWork.Goal != nil || childWork.Plan.Active {
+		t.Fatalf("child work state = %+v / %v, want no inherited authority", childWork, err)
+	}
+	parentMarker, ok, err := backend.LatestSessionTruncation(ctx, sessionID)
+	if err != nil || !ok || parentMarker.WorkSeq != 3 {
+		t.Fatalf("parent fork marker = %+v / %v / %v, want source WorkSeq 3", parentMarker, ok, err)
+	}
+	childMarker, ok, err := backend.LatestSessionTruncation(ctx, childID)
+	if err != nil || !ok || childMarker.WorkSeq != 0 {
+		t.Fatalf("child fork marker = %+v / %v / %v, want WorkSeq 0", childMarker, ok, err)
+	}
+
+	if _, err := svc.RewindSession(ctx, sessionID, "msg-1"); err != nil {
+		t.Fatalf("RewindSession to A: %v", err)
+	}
+	parentWork, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || parentWork.Version != 3 || parentWork.Goal == nil || parentWork.Goal.RoundsStarted != 2 {
+		t.Fatalf("parent work after rewind = %+v / %v; want two spent rounds preserved", parentWork, err)
+	}
+	events, err := backend.ReplayWork(ctx, sessionID, 0, 10)
+	if err != nil || len(events) != 3 || events[2].Seq != 3 {
+		t.Fatalf("work journal after rewind = %+v / %v; want all three events", events, err)
+	}
+	marker, ok, err := backend.LatestSessionTruncation(ctx, sessionID)
+	if err != nil || !ok || marker.Reason != storage.TruncationRewind || marker.WorkSeq != 0 {
+		t.Fatalf("rewind marker = %+v / %v / %v, want cutoff anchor 0", marker, ok, err)
+	}
+	runs, err := backend.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("runs after rewind = %d, %v; want no automatically admitted run", len(runs), err)
+	}
+	active, err := backend.ListActiveRuns(ctx)
+	if err != nil || len(active) != 0 {
+		t.Fatalf("active runs after rewind = %+v / %v; want none", active, err)
+	}
+	if created.Event.Seq != 1 {
+		t.Fatalf("Goal creation seq = %d, want first work event", created.Event.Seq)
 	}
 }
 

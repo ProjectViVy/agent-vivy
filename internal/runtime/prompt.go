@@ -13,6 +13,8 @@ import (
 // adds the per-run facts the Instruction cannot (date and notes).
 const preamblePersona = "You are Vivy, a precise personal assistant running locally on the user's machine."
 
+const planGuidanceText = "Planning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy."
+
 // composeStaticInstruction assembles the cache-stable instruction prefix.
 // It must not contain dates, session history, notes, or per-run tool
 // manifests.
@@ -39,7 +41,7 @@ func composeRunPreamble(now time.Time, notesDigest string, hasEnabledTools bool,
 		b.WriteString("\n" + faceCodePreamble)
 	}
 	if softPlan {
-		b.WriteString("\nPlanning collaboration is active. Treat planning as advisory guidance only; do not claim human approval, widen permissions, or change the execution policy.")
+		b.WriteString("\n" + planGuidanceText)
 	}
 	if !hasEnabledTools {
 		// Defensive: an empty active set is a legal configuration

@@ -524,7 +524,7 @@ func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bo
 		approvalPolicy(ctx) == domain.ApprovalPolicyNever
 }
 
-func workRunTerminalFence(ctx context.Context) bool {
+func workToolCallFenced(ctx context.Context) bool {
 	operations := tools.WorkControlFromContext(ctx)
 	fence, ok := operations.(interface {
 		WorkRunFenced(context.Context) bool
@@ -550,8 +550,11 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 
 func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
-	if workRunTerminalFence(ctx) {
-		return "", refuseCall("the Goal has already reached a terminal state; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash)
+	if result, handled, err := resumePlanReview(ctx, spec.Name, a.maxResultBytes); handled || err != nil {
+		return result, err
+	}
+	if workToolCallFenced(ctx) {
+		return "", refuseCall("a terminal work-control action has been committed for this run; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash)
 	}
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
@@ -742,6 +745,9 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 	}
 	result, err := a.invoke(ctx, argumentsInJSON)
 	if err != nil {
+		return "", err
+	}
+	if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
 		return "", err
 	}
 	result = untrustedToolResultHeader + tools.RedactSensitive(result)

@@ -30,7 +30,7 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	if kind == domain.RunKindPrimary && (r.Status == domain.RunAccepted || r.Status == domain.RunQueued || r.Status == domain.RunActive) {
 		var active int
 		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM runs WHERE session_id = ? AND kind = ? AND status IN `+activeStatuses,
+			`SELECT COUNT(*) FROM runs WHERE session_id = ? AND kind = ? AND status IN ('queued','active')`,
 			r.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
 			return fmt.Errorf("storage: inspect active run for %s: %w", r.ID, err)
 		}
@@ -63,6 +63,12 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	createdAt := admission.Message.CreatedAt
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO sessions (id, title, created_at) VALUES (?, '', ?) ON CONFLICT(id) DO NOTHING`,
+		admission.Message.SessionID, createdAt); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: ensure primary session: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = updated_at WHERE id = ?", admission.Message.SessionID)
 	if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
@@ -73,6 +79,11 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	if affected == 0 {
 		return domain.RunEvent{}, storage.ErrNotFound
+	}
+	message := admission.Message
+	message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
+	if err != nil {
+		return domain.RunEvent{}, err
 	}
 
 	var active int
@@ -85,10 +96,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		return domain.RunEvent{}, storage.ErrWorkRunConflict
 	}
 
-	message := admission.Message
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, message.Content,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, int64(message.WorkSeq), message.Content,
 		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
 		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: append primary message: %w", err)

@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-17).
+// Package conformance is the D-032 backend suite (CN-01..CN-31).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-29.
+// Run executes CN-01..CN-31.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -76,12 +76,72 @@ func Run(t *testing.T, h Harness) {
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
 		{"CN-28", "session work journal idempotence", cnSessionWork},
 		{"CN-29", "atomic Goal round admission", cnAtomicGoalRun},
+		{"CN-30", "atomic first primary run creates session", cnAtomicPrimaryRun},
+		{"CN-31", "same-time message work anchor", cnMessageWorkAnchor},
 	}
-	if len(cases) != 28 {
-		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
+	if len(cases) != 31 {
+		t.Fatalf("conformance suite must carry exactly 31 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+func cnMessageWorkAnchor(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-history-anchor", Title: "history anchor", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	work, ok := b.(storage.WorkStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkStore")
+	}
+	result, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: "sess-history-anchor", ExpectedVersion: 0,
+		RequestID: "enter-plan-anchor", RequestHash: "enter-plan-anchor",
+		Kind: domain.WorkEventPlanEntered,
+	})
+	if err != nil {
+		t.Fatalf("CommitWork enter Plan: %v", err)
+	}
+	result, err = work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: "sess-history-anchor", ExpectedVersion: 1,
+		RequestID: "submit-plan-anchor", RequestHash: "submit-plan-anchor",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-anchor", PlanMarkdown: "inspect and report",
+	})
+	if err != nil {
+		t.Fatalf("CommitWork submit Plan: %v", err)
+	}
+	result, err = work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: "sess-history-anchor", ExpectedVersion: 2,
+		RequestID: "decide-plan-anchor", RequestHash: "decide-plan-anchor",
+		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-anchor",
+		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "shorten the plan",
+	})
+	if err != nil {
+		t.Fatalf("CommitWork decide Plan: %v", err)
+	}
+	message := domain.Message{
+		ID: "msg-history-anchor", SessionID: "sess-history-anchor", Role: domain.RoleUser,
+		CreatedAt: result.Event.CreatedAt, Content: "same millisecond as plan decision",
+	}
+	if err := b.AppendMessage(ctx, message); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	messages, err := b.ListMessages(ctx, message.SessionID)
+	if err != nil || len(messages) != 1 || messages[0].CreatedAt != result.Event.CreatedAt || messages[0].WorkSeq != result.Event.Seq {
+		t.Fatalf("same-time message = %+v, %v; want WorkSeq %d", messages, err, result.Event.Seq)
+	}
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{
+		SessionID: message.SessionID, CutoffMessageID: message.ID, TailMessageID: message.ID,
+		WorkSeq: messages[0].WorkSeq, Reason: storage.TruncationRewind, CreatedAt: result.Event.CreatedAt,
+	}); err != nil {
+		t.Fatalf("RecordSessionTruncation: %v", err)
+	}
+	marker, ok, err := b.LatestSessionTruncation(ctx, message.SessionID)
+	if err != nil || !ok || marker.WorkSeq != result.Event.Seq {
+		t.Fatalf("truncation anchor = %+v / %v / %v, want WorkSeq %d", marker, ok, err, result.Event.Seq)
 	}
 }
 
@@ -305,6 +365,53 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	messages, err = b.ListMessages(ctx, sessionID)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("failed admission changed messages = %+v, %v", messages, err)
+	}
+}
+
+func cnAtomicPrimaryRun(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	primaryRuns, ok := b.(storage.PrimaryRunStore)
+	if !ok {
+		t.Fatal("backend does not implement PrimaryRunStore")
+	}
+	const sessionID domain.SessionID = "sess-primary-first-run"
+	const runID domain.RunID = "run-primary-first-run"
+	started := domain.RunEvent{
+		RunID: runID, Type: domain.EventRunStarted, CreatedAt: 2,
+		PayloadVersion: 1, Payload: []byte(`{"provider":"test","model":"test"}`),
+	}
+	if _, err := primaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+		Message: domain.Message{
+			ID: "msg-primary-first-run", SessionID: sessionID, RunID: runID,
+			Role: domain.RoleUser, CreatedAt: 2, Content: "hello",
+		},
+		Run: domain.Run{
+			ID: runID, SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 2,
+		},
+		Started: started,
+	}); err != nil {
+		t.Fatalf("CommitPrimaryRun: %v", err)
+	}
+	session, err := b.GetSession(ctx, sessionID)
+	if err != nil || session.ID != sessionID || session.CreatedAt != 2 {
+		t.Fatalf("session after first admission = %+v, %v; want committed default session", session, err)
+	}
+	if mode, policy := session.EffectiveSandbox(); mode != domain.SandboxModeWorkspaceWrite || policy != domain.ApprovalPolicyAsk {
+		t.Fatalf("first-run session permissions = %s/%s, want product defaults", mode, policy)
+	}
+	messages, err := b.ListMessages(ctx, sessionID)
+	if err != nil || len(messages) != 1 || messages[0].RunID != runID {
+		t.Fatalf("messages after admission = %+v, %v; want one user message", messages, err)
+	}
+	run, err := b.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunActive {
+		t.Fatalf("primary run after admission = %+v, %v; want active", run, err)
+	}
+	events := replayAll(t, b, runID, 0)
+	if len(events) != 1 || events[0].Type != domain.EventRunStarted || events[0].Seq != 1 {
+		t.Fatalf("primary journal after admission = %+v; want one run.started", events)
 	}
 }
 

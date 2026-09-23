@@ -21,10 +21,17 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 		return fmt.Errorf("storage: begin append message %s: %w", m.ID, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := lockMessageSession(ctx, tx, m.SessionID); err != nil {
+		return err
+	}
+	m.WorkSeq, err = currentMessageWorkSeq(ctx, tx, m.SessionID)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs),
 		m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
 		return fmt.Errorf("storage: append message %s: %w", m.ID, err)
@@ -66,10 +73,17 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, fmt.Errorf("storage: begin projected message %s: %w", m.ID, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := lockMessageSession(ctx, tx, m.SessionID); err != nil {
+		return false, err
+	}
+	m.WorkSeq, err = currentMessageWorkSeq(ctx, tx, m.SessionID)
+	if err != nil {
+		return false, err
+	}
 	result, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
+		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID)
 	if err != nil {
 		return false, fmt.Errorf("storage: append projected message %s: %w", m.ID, err)
@@ -101,6 +115,32 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 	return false, nil
 }
 
+func lockMessageSession(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) error {
+	result, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = updated_at WHERE id = ?`, sessionID)
+	if err != nil {
+		return fmt.Errorf("storage: lock session for message: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: inspect message session lock: %w", err)
+	}
+	if affected == 0 {
+		// Legacy SQLite callers can still append orphan projections because
+		// foreign-key enforcement is disabled on the in-memory test backend.
+		// Such rows have no work stream to anchor and therefore retain zero.
+		return nil
+	}
+	return nil
+}
+
+func currentMessageWorkSeq(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (domain.WorkSeq, error) {
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(work_seq), 0) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("storage: read message work anchor: %w", err)
+	}
+	return domain.WorkSeq(sequence), nil
+}
+
 func messageActivityAt(at int64) int64 {
 	if at <= 0 {
 		return time.Now().UnixMilli()
@@ -113,8 +153,8 @@ func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.M
 	var sid, rid, role string
 	var args []byte
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id FROM messages WHERE id = ?`, id).
-		Scan(&m.ID, &sid, &rid, &role, &m.CreatedAt, &m.Content, &m.ToolCallID, &m.ToolName, &args, &m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID)
+		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id FROM messages WHERE id = ?`, id).
+		Scan(&m.ID, &sid, &rid, &role, &m.CreatedAt, &m.WorkSeq, &m.Content, &m.ToolCallID, &m.ToolName, &args, &m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return m, storage.ErrNotFound
@@ -130,7 +170,7 @@ func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.M
 // concern). Image attachments load with their message rows.
 func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id
+		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id
 		 FROM messages WHERE session_id = ? ORDER BY created_at, id`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list messages %s: %w", sessionID, err)
@@ -143,7 +183,7 @@ func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) 
 		var m domain.Message
 		var id, sid, rid, role string
 		var args []byte
-		if err := rows.Scan(&id, &sid, &rid, &role, &m.CreatedAt, &m.Content, &m.ToolCallID, &m.ToolName, &args,
+		if err := rows.Scan(&id, &sid, &rid, &role, &m.CreatedAt, &m.WorkSeq, &m.Content, &m.ToolCallID, &m.ToolName, &args,
 			&m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID); err != nil {
 			return nil, fmt.Errorf("storage: scan message: %w", err)
 		}
