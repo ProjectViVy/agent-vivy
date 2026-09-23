@@ -23,3 +23,12 @@
 - `go run ./sdk/internal/cmd/source-hash internal ''`: `71f1876a344c1e79745103bdd19e21865e4c2865acfdef258c193bc1a8dcc1f6`. Five canonical internal-source evidence entries refreshed.
 - `go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1 -v`: passed after the evidence refresh. The temporary LF mask prompts and generated UI file were restored; the digest was unchanged.
 - Full `just ci` was not rerun in this fix round by explicit direction. Producer conformance, final diff checks, and temporary checkout restoration are recorded in the Task 1 report.
+
+## Fix round 2
+
+- Failing-first `go test ./internal/runtime -run '^TestRecoveredGoalRefRejectsCorruptLaterReplayPage$' -count=1 -v`: failed because recovery returned `{ID:goal-1 Revision:1}, true` despite corrupt seq 1001 on page two.
+- `go test ./internal/runtime -run '^TestRecoveredGoalRef' -count=1 -v`: passed both one-page recovery and valid/corrupt second-page regression.
+- `go test ./internal/storage/sqlite -run '^TestReplayWork' -count=1 -v`: passed the focused bounded replay tests.
+- `go run ./sdk/internal/cmd/source-hash internal ''`: `d49e65bba9458193d3ae2acf76451b81b200a46edb61ebc54db1eb0fa035cd7f`; five canonical internal-source evidence entries refreshed.
+- `go test ./sdk/internal/conformance -run '^TestCheckedInProviderConformanceMatchesExecutedSuites$' -count=1 -v`: passed. The temporary LF mask files and generated UI file were restored; the digest was unchanged.
+- Full `just ci` was not rerun by explicit direction. Final diff and temporary asset restoration are recorded in the Task 1 report.

@@ -171,6 +171,7 @@ func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.
 		return domain.GoalRef{}, false
 	}
 	cursor := domain.WorkState{SessionID: run.SessionID}
+	var found domain.GoalRef
 	for {
 		events, next, err := s.deps.Work.ReplayWork(ctx, run.SessionID, cursor, goalRecoveryPageSize)
 		if err != nil {
@@ -178,7 +179,7 @@ func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.
 			return domain.GoalRef{}, false
 		}
 		if len(events) == 0 {
-			return domain.GoalRef{}, false
+			return found, found.ID != ""
 		}
 		cursor = next
 		for _, event := range events {
@@ -189,12 +190,12 @@ func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.
 			if admission.RunID == "" {
 				admission = event.Mutation.Admission
 			}
-			if admission.RunID == run.ID && admission.Goal.ID != "" && admission.Goal.Revision > 0 {
-				return admission.Goal, true
+			if found.ID == "" && admission.RunID == run.ID && admission.Goal.ID != "" && admission.Goal.Revision > 0 {
+				found = admission.Goal
 			}
 		}
 		if len(events) < goalRecoveryPageSize {
-			return domain.GoalRef{}, false
+			return found, found.ID != ""
 		}
 	}
 }
