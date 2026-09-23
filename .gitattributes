@@ -12,6 +12,9 @@ justfile text eol=lf
 *.yaml text
 *.json text
 
+# Built-in mask prompt bytes are embedded and must stay LF-normalized.
+internal/modules/masks/prompts/*.md text eol=lf
+
 # Never touch binary fixtures
 *.db   binary
 *.bin  binary
