@@ -11,7 +11,42 @@ export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'err
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 /** 运行期间排队等待发送的消息（对照 Crush 队列 pill 行为）。 */
-export interface QueuedMessage { id: string; text: string; mode: api.RunMode; face?: api.Face; attachments?: api.AttachmentInput[]; thinking?: api.ThinkingMode; }
+export interface QueuedMessage extends api.TurnSubmission { id: string }
+
+export interface ReferenceDraft {
+  id: string;
+  preview: api.ReferencePreview;
+  selection: api.ReferenceSelection;
+  /** further-reading 勾选：本引用要求把源会话纳入任务级读域。 */
+  allowFurther?: boolean;
+}
+
+let draftSeq = 0;
+const newDraftRequestId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `req_${crypto.randomUUID()}`
+    : `req_${Date.now()}_${++draftSeq}`;
+
+/** Full copy so later composer edits cannot mutate a queued/draft submission. */
+const copySubmission = (submission: api.TurnSubmission): api.TurnSubmission => ({
+  ...submission,
+  attachments: submission.attachments?.map((item) => ({ ...item })),
+  continuity: submission.continuity && {
+    request_id: submission.continuity.request_id,
+    references: submission.continuity.references?.map((reference) => ({
+      ...reference,
+      selection: {
+        ...reference.selection,
+        refs: reference.selection.refs?.map((ref) => ({ ...ref })),
+        run_range: reference.selection.run_range && { ...reference.selection.run_range },
+      },
+    })),
+    history_scope: submission.continuity.history_scope && {
+      ...submission.continuity.history_scope,
+      session_ids: submission.continuity.history_scope.session_ids && [...submission.continuity.history_scope.session_ids],
+    },
+  },
+});
 
 const ACTIVE_SESSION_KEY = 'vivy.ui.activeSession';
 const DEMO_PREFIX = 'vivy.demo.';
@@ -121,9 +156,16 @@ interface RuntimeState {
   setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => Promise<void>;
+  startRun: (sessionId: string, submission: api.TurnSubmission) => Promise<void>;
 	editSession: (sessionId: string, messageId: string, text: string, mode?: api.RunMode, face?: api.Face, thinking?: api.ThinkingMode) => Promise<void>;
-  enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => void;
+  enqueueMessage: (submission: api.TurnSubmission) => void;
+  draftReferences: ReferenceDraft[];
+  draftScope: api.HistoryScope | null;
+  draftRequestId: string;
+  addDraftReference: (preview: api.ReferencePreview, selection: api.ReferenceSelection, allowFurtherReading: boolean) => void;
+  removeDraftReference: (id: string) => void;
+  setDraftScope: (scope: api.HistoryScope | null) => void;
+  clearDraftContext: () => void;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
@@ -248,14 +290,7 @@ function handleRunEvent(event: RunEvent): void {
     stopSubscription();
     // 队列只在成功完成后派发（对照 Crush）：失败 / 取消保留队列，由用户处置。
     if (event.type === 'run.completed') {
-      void refreshAfterTerminal(event.run_id).then(() => {
-        const next = useVivyStore.getState();
-        const item = next.queuedMessages[0];
-        if (item && next.activeSessionId && !next.runBusy) {
-          useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-          void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
-        }
-      });
+      void refreshAfterTerminal(event.run_id).then(drainQueue);
     } else {
       void refreshAfterTerminal(event.run_id);
     }
@@ -264,6 +299,22 @@ function handleRunEvent(event: RunEvent): void {
   else if (event.type === 'tool.finished' && isTaskToolName(event.payload.tool_name)) void state.loadTodos();
   else if (event.type === 'context.compacted' && state.activeSessionId) void loadContextIntoStore(state.activeSessionId);
   useVivyStore.setState(update);
+}
+
+/** 空闲时派发队首；失败（含陈旧引用冲突）把整条提交放回队头停住队列：
+ *  不重排后续任务、不刷新 request_id，用户移除队首后下一条才继续。 */
+function drainQueue(): void {
+  const next = useVivyStore.getState();
+  const item = next.queuedMessages[0];
+  if (!item || !next.activeSessionId || next.runBusy || runActive(next.currentRun)) return;
+  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
+  const { id: _queuedId, ...submission } = item;
+  void next.startRun(next.activeSessionId, submission).catch(() => {
+    const state = useVivyStore.getState();
+    if (!state.queuedMessages.some((queued) => queued.id === item.id)) {
+      useVivyStore.setState({ queuedMessages: [item, ...state.queuedMessages] });
+    }
+  });
 }
 
 function startSubscription(runId: string, afterSeq: number): void {
@@ -468,7 +519,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [] });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -477,7 +528,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -553,17 +604,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set((state) => ({ runLogs: withCachedRunLog(state.runLogs, runId, events) }));
     } catch { /* 历史事件不可得（已删除/清理）：该运行保持投影渲染 */ }
   },
-  startRun: async (sessionId, text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => {
+  startRun: async (sessionId, submission) => {
     if (get().activeSessionId !== sessionId) {
       const message = t('errors.sessionMismatch');
       set({ runError: message });
       throw new Error(message);
     }
     // 运行中改为入队（对照 Crush），不再静默丢弃。
-    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face, attachments, thinking); return; }
+    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(submission); return; }
     set({ runBusy: true, runError: null });
+    const { text, attachments } = submission;
     try {
-      const result = await api.startTurn(sessionId, text, mode, face, attachments, thinking);
+      const result = await api.startTurn(sessionId, submission);
       if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
       const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
       const localAttachments: api.MessageAttachment[] | undefined = attachments?.map((item) => ({ name: item.name, mime_type: item.mime_type, data_url: `data:${item.mime_type};base64,${item.data}` }));
@@ -598,8 +650,44 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 		} catch (error) { set({ runError: errorMessage(error) }); throw error; }
 		finally { set({ runBusy: false }); }
 	},
-  enqueueMessage: (text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face, attachments, thinking }] })),
-  removeQueuedMessage: (id) => set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) })),
+  enqueueMessage: (submission) => set((state) => ({ queuedMessages: [...state.queuedMessages, { ...copySubmission(submission), id: `queued-${++queuedSeq}` }] })),
+  draftReferences: [],
+  draftScope: null,
+  draftRequestId: newDraftRequestId(),
+  addDraftReference: (preview, selection, allowFurtherReading) => set((state) => {
+    const draft: ReferenceDraft = { id: `ref_${++draftSeq}`, preview, selection, allowFurther: allowFurtherReading };
+    const scope = state.draftScope ?? {};
+    const source = selection.selection.source_session_id;
+    const ids = scope.session_ids ? [...scope.session_ids] : [];
+    if (allowFurtherReading && !ids.includes(source)) ids.push(source);
+    return {
+      draftReferences: [...state.draftReferences, draft],
+      draftScope: allowFurtherReading ? { ...scope, session_ids: ids } : scope,
+    };
+  }),
+  removeDraftReference: (id) => set((state) => {
+    const removed = state.draftReferences.find((item) => item.id === id);
+    const remaining = state.draftReferences.filter((item) => item.id !== id);
+    let scope = state.draftScope;
+    // 其 further-reading scope 项随引用一起移除（无其他引用仍需该源会话时）。
+    if (removed?.allowFurther && scope?.session_ids) {
+      const source = removed.selection.selection.source_session_id;
+      const stillNeeded = remaining.some((item) => item.allowFurther && item.selection.selection.source_session_id === source);
+      if (!stillNeeded) {
+        const ids = scope.session_ids.filter((session) => session !== source);
+        scope = { ...scope, session_ids: ids.length ? ids : undefined };
+        if (!scope.session_ids && !scope.workspace) scope = null;
+      }
+    }
+    return { draftReferences: remaining, draftScope: scope };
+  }),
+  setDraftScope: (scope) => set({ draftScope: scope }),
+  clearDraftContext: () => set({ draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() }),
+  // 移除队首（如陈旧引用冲突项）后在空闲时放行后续排队项。
+  removeQueuedMessage: (id) => {
+    set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) }));
+    drainQueue();
+  },
   clearQueue: () => set({ queuedMessages: [] }),
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;

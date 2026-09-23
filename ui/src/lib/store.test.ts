@@ -419,7 +419,7 @@ describe('Vivy store integrity', () => {
     api.listChildren.mockResolvedValue({ children: [] });
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
-    await useVivyStore.getState().startRun('s1', 'second message');
+    await useVivyStore.getState().startRun('s1', { text: 'second message', mode: 'normal' });
     expect(api.startTurn).not.toHaveBeenCalled();
     expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
     expect(useVivyStore.getState().queuedMessages[0]).toMatchObject({ text: 'second message', mode: 'normal' });
@@ -433,9 +433,9 @@ describe('Vivy store integrity', () => {
     api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
-    await useVivyStore.getState().startRun('s1', 'second message');
+    await useVivyStore.getState().startRun('s1', { text: 'second message', mode: 'normal' });
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
-    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'second message', 'normal', undefined, undefined, undefined));
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', { text: 'second message', mode: 'normal' }));
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
   });
 
@@ -448,10 +448,10 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
     const attachments = [{ name: 'dot.png', mime_type: 'image/png', data: 'aGVsbG8=' }];
-    await useVivyStore.getState().startRun('s1', 'look at this', 'normal', undefined, attachments);
+    await useVivyStore.getState().startRun('s1', { text: 'look at this', mode: 'normal', attachments });
     expect(useVivyStore.getState().queuedMessages[0]).toMatchObject({ text: 'look at this', attachments });
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
-    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'look at this', 'normal', undefined, attachments, undefined));
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', { text: 'look at this', mode: 'normal', attachments }));
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
   });
 
@@ -463,10 +463,10 @@ describe('Vivy store integrity', () => {
     api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
-    await useVivyStore.getState().startRun('s1', 'think hard', 'normal', undefined, undefined, 'on');
+    await useVivyStore.getState().startRun('s1', { text: 'think hard', mode: 'normal', thinking: 'on' });
     expect(useVivyStore.getState().queuedMessages[0]).toMatchObject({ text: 'think hard', thinking: 'on' });
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
-    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'think hard', 'normal', undefined, undefined, 'on'));
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', { text: 'think hard', mode: 'normal', thinking: 'on' }));
   });
 
   it('retains queued messages when the run fails', async () => {
@@ -477,7 +477,7 @@ describe('Vivy store integrity', () => {
     api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
-    await useVivyStore.getState().startRun('s1', 'second message');
+    await useVivyStore.getState().startRun('s1', { text: 'second message', mode: 'normal' });
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.failed', created_at: 2, payload_version: 1, payload: { cause_category: 'internal_error', message: 'boom' } });
     await vi.waitFor(() => expect(useVivyStore.getState().runError).toBe('boom'));
     expect(api.startTurn).not.toHaveBeenCalled();
@@ -491,10 +491,98 @@ describe('Vivy store integrity', () => {
     api.listChildren.mockResolvedValue({ children: [] });
     await useVivyStore.getState().selectSession('s1');
     await useVivyStore.getState().openRun('r1', 's1');
-    await useVivyStore.getState().startRun('s1', 'second message');
+    await useVivyStore.getState().startRun('s1', { text: 'second message', mode: 'normal' });
     expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
     await useVivyStore.getState().selectSession('s2');
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
+
+  it('threads the typed continuity submission through the queue and retains a rejected head', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+
+    const submission = {
+      text: 'apply the fix',
+      mode: 'normal' as const,
+      continuity: {
+        request_id: 'req_t7',
+        references: [{
+          selection: {
+            source_session_id: 'src-1',
+            refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }],
+          },
+          expected_digest: 'd1',
+        }],
+        history_scope: { session_ids: [] as string[] },
+      },
+    };
+    await useVivyStore.getState().startRun('s1', submission);
+    const queued = useVivyStore.getState().queuedMessages[0];
+
+    // The queued copy must not drift if the composer mutates its draft later.
+    submission.continuity.history_scope.session_ids.push('mutated');
+    api.startTurn.mockRejectedValueOnce(new Error('stale reference'));
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledTimes(1));
+
+    const sent = api.startTurn.mock.calls[0][1];
+    expect(sent.continuity!.references).toEqual(queued.continuity!.references);
+    expect(sent.continuity!.history_scope!.session_ids).toEqual([]);
+    expect(sent.continuity!.request_id).toBe(queued.continuity!.request_id);
+    await vi.waitFor(() => expect(useVivyStore.getState().queuedMessages).toHaveLength(1)); // stale head retained
+    expect(useVivyStore.getState().queuedMessages[0].id).toBe(queued.id);
+  });
+
+  it('resumes queue draining once the rejected head is removed', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+
+    await useVivyStore.getState().startRun('s1', { text: 'stale', mode: 'normal' });
+    await useVivyStore.getState().startRun('s1', { text: 'later', mode: 'normal' });
+    api.startTurn.mockRejectedValueOnce(new Error('stale reference')).mockResolvedValue({ run_id: 'r2', status: 'active' });
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
+    await vi.waitFor(() => expect(useVivyStore.getState().queuedMessages.map((item) => item.text)).toEqual(['stale', 'later']));
+
+    // Removing the stale head lets the next item drain on the next idle beat;
+    // no reordering, no silent digest refresh.
+    useVivyStore.getState().removeQueuedMessage(useVivyStore.getState().queuedMessages[0].id);
+    useVivyStore.setState({ currentRun: null, runBusy: false });
+    useVivyStore.setState((state) => ({ ...state })); // trigger subscription drain
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', { text: 'later', mode: 'normal' }));
+  });
+
+  it('keeps draft references session-bound and resets the request id on session switch', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+    const preview = {
+      selection: { source_session_id: 'src-1', refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }] },
+      items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }],
+      digest: 'd1', captured_at: 1, byte_count: 2, source_status: 'ok',
+    };
+    const selection = { selection: preview.selection, expected_digest: 'd1' };
+    useVivyStore.getState().addDraftReference(preview, selection, true);
+    const firstRequest = useVivyStore.getState().draftRequestId;
+    expect(useVivyStore.getState().draftReferences).toHaveLength(1);
+    expect(useVivyStore.getState().draftScope?.session_ids).toEqual(['src-1']);
+
+    useVivyStore.getState().removeDraftReference(useVivyStore.getState().draftReferences[0].id);
+    expect(useVivyStore.getState().draftReferences).toEqual([]);
+
+    useVivyStore.getState().addDraftReference(preview, selection, false);
+    expect(useVivyStore.getState().draftScope?.session_ids ?? []).toEqual([]); // unchecked adds no scope entry
+
+    await useVivyStore.getState().selectSession('s2');
+    expect(useVivyStore.getState().draftReferences).toEqual([]);
+    expect(useVivyStore.getState().draftScope).toBeNull();
+    expect(useVivyStore.getState().draftRequestId).not.toBe(firstRequest);
   });
 
   it('does not overwrite session created while initialize is in-flight', async () => {
@@ -539,7 +627,7 @@ describe('Vivy store integrity', () => {
     api.listMessages.mockResolvedValue({ messages: [] });
     await useVivyStore.getState().selectSession('s1');
 
-    await expect(useVivyStore.getState().startRun('s2', 'hello')).rejects.toThrow();
+    await expect(useVivyStore.getState().startRun('s2', { text: 'hello', mode: 'normal' })).rejects.toThrow();
     expect(api.startTurn).not.toHaveBeenCalled();
     expect(useVivyStore.getState().runError).toBeTruthy();
   });

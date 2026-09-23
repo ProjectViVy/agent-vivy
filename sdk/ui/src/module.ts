@@ -615,6 +615,120 @@ export interface FaceAttachmentInput {
 
 export type FaceThinkingMode = "auto" | "on" | "off";
 
+/** Exact identity and safe projection kind of one source record (SC-D4). */
+export interface FaceSourceRef {
+  readonly session_id: string;
+  readonly run_id?: string;
+  readonly message_id?: string;
+  readonly event_seq?: number;
+  readonly kind: string;
+  readonly created_at: number;
+}
+
+/** Redacted, bounded projection of one source record. */
+export interface FaceHistoryItem {
+  readonly ref: FaceSourceRef;
+  readonly author: string;
+  readonly text: string;
+  readonly source_refs?: FaceSourceRef[];
+  readonly redacted: boolean;
+  readonly truncated: boolean;
+}
+
+export interface FaceHistoryRunRange {
+  readonly run_id: string;
+  readonly from_seq: number;
+  readonly to_seq: number;
+}
+
+/** One source session plus exactly one selector (refs or run range). */
+export interface FaceHistorySelection {
+  readonly source_session_id: string;
+  readonly refs?: FaceSourceRef[];
+  readonly run_range?: FaceHistoryRunRange;
+}
+
+/** Server-validated selector plus its sanitized-snapshot digest. */
+export interface FaceReferenceSelection {
+  readonly selection: FaceHistorySelection;
+  readonly expected_digest: string;
+}
+
+/** Caller-declared task scope; empty means the destination session only. */
+export interface FaceHistoryScope {
+  readonly session_ids?: string[];
+  readonly workspace?: boolean;
+}
+
+/** Continuity fields of one typed submission: stable request id, explicit
+ * reference selectors and an optional broader model read scope. */
+export interface FaceTurnContinuity {
+  readonly request_id: string;
+  readonly references?: FaceReferenceSelection[];
+  readonly history_scope?: FaceHistoryScope;
+}
+
+/** One typed turn submission shared by direct send and queued send so
+ * references/scope cannot be dropped by positional argument drift. */
+export interface FaceTurnSubmission {
+  readonly text: string;
+  readonly mode?: FaceRunMode;
+  readonly face?: FaceName;
+  readonly attachments?: FaceAttachmentInput[];
+  readonly thinking?: FaceThinkingMode;
+  readonly continuity?: FaceTurnContinuity;
+}
+
+export interface FaceHistorySearchRequest {
+  readonly query?: string;
+  readonly session_ids?: string[];
+  readonly from?: number;
+  readonly to?: number;
+  readonly kinds?: string[];
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface FaceHistoryPage {
+  readonly status: string;
+  readonly items: FaceHistoryItem[];
+  readonly next_cursor: string;
+  readonly truncated: boolean;
+  readonly redacted: boolean;
+  readonly warnings: string[];
+  readonly reason?: string;
+  readonly selection_digest?: string;
+}
+
+export interface FaceHistorySession {
+  readonly id: string;
+  readonly title: string;
+  readonly workspace_label: string;
+  readonly updated_at: number;
+}
+
+export interface FaceHistorySessionPage {
+  readonly sessions: FaceHistorySession[];
+  readonly next_cursor: string;
+}
+
+/** Bounded excerpt returned by reference/preview before attach. */
+export interface FaceReferencePreview {
+  readonly selection: FaceHistorySelection;
+  readonly items: FaceHistoryItem[];
+  readonly digest: string;
+  readonly captured_at: number;
+  readonly byte_count: number;
+  readonly source_status: string;
+}
+
+/** Session-bound ephemeral draft attachment shown as a composer chip. */
+export interface FaceReferenceDraft {
+  readonly id: string;
+  readonly preview: FaceReferencePreview;
+  readonly selection: FaceReferenceSelection;
+}
+
 export type FaceRunStatus = "accepted" | "queued" | "active" | "completed" | "failed" | "cancelled";
 
 /** Core run data returned by the existing Web Face API. */
@@ -1553,14 +1667,10 @@ export interface FaceClientAPI {
   listSessionCompactions(sessionId: string, limit?: number): Promise<{ readonly compactions: readonly FaceSessionCompactionRecord[] }>;
   listTodos(sessionId: string): Promise<{ readonly todos: readonly FaceTodo[] }>;
   updateTodo(sessionId: string, id: string, status: FaceTodoStatus): Promise<{ readonly todo: FaceTodo }>;
-  startTurn(
-    sessionId: string,
-    text: string,
-    mode?: FaceRunMode,
-    face?: FaceName,
-    attachments?: FaceAttachmentInput[],
-    thinking?: FaceThinkingMode,
-  ): Promise<FaceRunStartResult>;
+  startTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceRunStartResult>;
+  historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
+  historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
+  previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
   interruptRun(runId: string): Promise<FaceRunInterruptResult>;
   cancelRun(runId: string): Promise<FaceRunInterruptResult>;
   getRun(runId: string): Promise<FaceRun>;
@@ -1648,13 +1758,8 @@ export type FaceConnectionState = "idle" | "connecting" | "connected" | "reconne
 
 export type FacePhase = "idle" | "loading" | "refreshing" | "ready" | "empty" | "error" | "processing";
 
-export interface FaceQueuedMessage {
+export interface FaceQueuedMessage extends FaceTurnSubmission {
   readonly id: string;
-  readonly text: string;
-  readonly mode: FaceRunMode;
-  readonly face?: FaceName;
-  readonly attachments?: FaceAttachmentInput[];
-  readonly thinking?: FaceThinkingMode;
 }
 
 /** Complete current Zustand-backed Face state exposed to UI Modules. */
@@ -1688,6 +1793,12 @@ export interface FaceStoreState {
   readonly runError: string | null;
   readonly runBusy: boolean;
   readonly queuedMessages: FaceQueuedMessage[];
+  /** Session-bound ephemeral draft: attached previews plus the optional
+   * broader read scope; never an ACL and never localStorage authority. */
+  readonly draftReferences: FaceReferenceDraft[];
+  readonly draftScope: FaceHistoryScope | null;
+  /** Stable client request id for the current draft continuity context. */
+  readonly draftRequestId: string;
   readonly backgroundRuns: FaceBackgroundRun[];
   readonly backgroundPhase: FacePhase;
   readonly backgroundError: string | null;
@@ -1732,11 +1843,15 @@ export interface FaceStoreState {
   setSessionPermission(id: string, preset: Exclude<FacePermissionPreset, "custom">): Promise<void>;
   deleteSession(id: string): Promise<void>;
   selectSession(id: string): Promise<void>;
-  startRun(sessionId: string, text: string, mode?: FaceRunMode, face?: FaceName, attachments?: FaceAttachmentInput[], thinking?: FaceThinkingMode): Promise<void>;
+  startRun(sessionId: string, submission: FaceTurnSubmission): Promise<void>;
   editSession(sessionId: string, messageId: string, text: string, mode?: FaceRunMode, face?: FaceName, thinking?: FaceThinkingMode): Promise<void>;
-  enqueueMessage(text: string, mode?: FaceRunMode, face?: FaceName, attachments?: FaceAttachmentInput[], thinking?: FaceThinkingMode): void;
+  enqueueMessage(submission: FaceTurnSubmission): void;
   removeQueuedMessage(id: string): void;
   clearQueue(): void;
+  addDraftReference(preview: FaceReferencePreview, selection: FaceReferenceSelection, allowFurtherReading: boolean): void;
+  removeDraftReference(id: string): void;
+  setDraftScope(scope: FaceHistoryScope | null): void;
+  clearDraftContext(): void;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
