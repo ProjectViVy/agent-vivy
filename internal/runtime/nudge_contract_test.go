@@ -611,6 +611,7 @@ type contractHarnessOpts struct {
 	emitNotices bool
 	retry       *adk.ModelRetryConfig
 	extraTools  []tools.Tool
+	autoApprove []string
 	failures    map[int]error
 }
 
@@ -665,7 +666,7 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 
 	adapters := make([]einotool.BaseTool, 0, len(allTools))
 	for _, tl := range allTools {
-		inner := newToolAdapter(tl, 64<<10, nil, nil, nil)
+		inner := newToolAdapter(tl, 64<<10, nil, nil, opts.autoApprove)
 		var bt einotool.BaseTool = inner
 		if opts.enhanced {
 			bt = newEnhancedToolAdapter(inner)
