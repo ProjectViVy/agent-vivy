@@ -26,6 +26,37 @@ func ev(typ domain.EventType) domain.RunEvent {
 	return domain.RunEvent{Type: typ, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{}`)}
 }
 
+func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	const sessionID domain.SessionID = "session-delete-work"
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []domain.WorkMutation{{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "delete-enter-plan", RequestHash: "delete-enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}, {
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "delete-submit-plan", RequestHash: "delete-submit-plan",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "delete-submission", PlanMarkdown: "delete this evidence with its owner",
+	}} {
+		if _, err := b.CommitWork(ctx, mutation); err != nil {
+			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)
+		}
+	}
+	var before int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&before); err != nil || before != 2 {
+		t.Fatalf("work rows before delete = %d, %v; want 2", before, err)
+	}
+	if err := b.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	var after int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&after); err != nil || after != 0 {
+		t.Fatalf("work rows after delete = %d, %v; want 0", after, err)
+	}
+}
+
 func TestJournalAppendReplay(t *testing.T) {
 	b := openBackend(t)
 	ctx := context.Background()

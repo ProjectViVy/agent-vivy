@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -87,6 +88,8 @@ func TestApplyUpgradesSQLite23To27AndReopens(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (id, title, created_at) VALUES ('upgrade-session', 'preserved', 11);
 		INSERT INTO runs (id, session_id, status, created_at) VALUES ('upgrade-run', 'upgrade-session', 'completed', 12);
+		INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload)
+		VALUES ('upgrade-run', 1, 'run.started', 13, 1, '{"provider":"legacy","model":"legacy-model"}');
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
@@ -142,6 +145,17 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	}
 	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
 		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
+	}
+	var eventRunID, eventType string
+	var eventSeq, eventCreatedAt, payloadVersion int64
+	var payload []byte
+	if err := db.QueryRow(`SELECT run_id, seq, type, created_at, payload_version, payload FROM run_events WHERE run_id = 'upgrade-run' AND seq = 1`).
+		Scan(&eventRunID, &eventSeq, &eventType, &eventCreatedAt, &payloadVersion, &payload); err != nil {
+		t.Fatalf("read preserved run.started: %v", err)
+	}
+	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
+	if eventRunID != "upgrade-run" || eventSeq != 1 || eventType != "run.started" || eventCreatedAt != 13 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", eventRunID, eventSeq, eventType, eventCreatedAt, payloadVersion, payload, wantPayload)
 	}
 }
 

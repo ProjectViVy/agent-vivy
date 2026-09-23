@@ -98,6 +98,7 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		return nil, err
 	}
 	for _, m := range messages {
+		m.WorkSeq = 0
 		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, int64(m.WorkSeq), m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
 		}
@@ -113,6 +114,9 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		}
 	}
 	for _, marker := range markers {
+		if marker.SessionID == child.ID {
+			marker.WorkSeq = 0
+		}
 		if err := sqliteInsertMarker(ctx, tx, marker); err != nil {
 			return nil, err
 		}
