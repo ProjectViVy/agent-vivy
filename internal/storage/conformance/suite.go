@@ -123,7 +123,7 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 		t.Fatalf("CommitWork submit Plan: %v", err)
 	}
 	if err := b.AppendMessage(ctx, domain.Message{
-		ID: "msg-history-source", SessionID: sourceID, Role: domain.RoleUser,
+		ID: "msg-history-source", SessionID: sourceID, RunID: "run-history-source", Role: domain.RoleUser,
 		CreatedAt: 2, Content: "source message",
 	}); err != nil {
 		t.Fatalf("AppendMessage source: %v", err)
@@ -163,8 +163,12 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 		t.Fatalf("source work after fork = %+v, %v; want unchanged %+v", afterWork, err, beforeWork)
 	}
 	childMessages, err := b.ListMessages(ctx, childID)
-	if err != nil || len(childMessages) != 1 || childMessages[0].WorkSeq != 0 {
-		t.Fatalf("child messages = %+v, %v; want copied row with WorkSeq 0", childMessages, err)
+	if err != nil || len(childMessages) != 1 || childMessages[0].WorkSeq != 0 || childMessages[0].RunID != beforeMessages[0].RunID {
+		t.Fatalf("child messages = %+v, %v; want copied row with WorkSeq 0 and source RunID %q", childMessages, err, beforeMessages[0].RunID)
+	}
+	parentMarker, ok, err := b.LatestSessionTruncation(ctx, sourceID)
+	if err != nil || !ok || parentMarker.WorkSeq != beforeMessages[0].WorkSeq {
+		t.Fatalf("parent fork marker = %+v, ok=%v, err=%v; want source WorkSeq %d", parentMarker, ok, err, beforeMessages[0].WorkSeq)
 	}
 	childMarker, ok, err := b.LatestSessionTruncation(ctx, childID)
 	if err != nil || !ok || childMarker.WorkSeq != 0 {
