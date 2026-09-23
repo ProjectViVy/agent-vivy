@@ -1121,8 +1121,6 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanEntered)
 	case "plan/leave":
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanLeft)
-	case "plan/submit":
-		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanSubmitted)
 	case "plan/decide":
 		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanDecided)
 	case "session/rename":

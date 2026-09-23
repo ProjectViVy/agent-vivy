@@ -22,20 +22,17 @@ const (
 )
 
 type workParams struct {
-	SessionID            string `json:"session_id"`
-	ExpectedVersion      int64  `json:"expected_version"`
-	RequestID            string `json:"request_id"`
-	GoalID               string `json:"goal_id,omitempty"`
-	GoalRevision         int64  `json:"goal_revision,omitempty"`
-	Objective            string `json:"objective,omitempty"`
-	MaxRounds            int    `json:"max_rounds,omitempty"`
-	Reason               string `json:"reason,omitempty"`
-	PlanSubmissionID     string `json:"submission_id,omitempty"`
-	PlanMarkdown         string `json:"markdown,omitempty"`
-	PlanAction           string `json:"action,omitempty"`
-	PlanFeedback         string `json:"feedback,omitempty"`
-	PlanOriginRunID      string `json:"origin_run_id,omitempty"`
-	PlanOriginToolCallID string `json:"origin_tool_call_id,omitempty"`
+	SessionID        string `json:"session_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	RequestID        string `json:"request_id"`
+	GoalID           string `json:"goal_id,omitempty"`
+	GoalRevision     int64  `json:"goal_revision,omitempty"`
+	Objective        string `json:"objective,omitempty"`
+	MaxRounds        int    `json:"max_rounds,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	PlanSubmissionID string `json:"submission_id,omitempty"`
+	PlanAction       string `json:"action,omitempty"`
+	PlanFeedback     string `json:"feedback,omitempty"`
 }
 
 type workGoalResult struct {
@@ -287,7 +284,6 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 	params.GoalID, params.PlanSubmissionID = strings.TrimSpace(params.GoalID), strings.TrimSpace(params.PlanSubmissionID)
 	params.Objective = strings.TrimSpace(params.Objective)
 	params.PlanAction = strings.TrimSpace(params.PlanAction)
-	params.PlanOriginRunID, params.PlanOriginToolCallID = strings.TrimSpace(params.PlanOriginRunID), strings.TrimSpace(params.PlanOriginToolCallID)
 	params.Reason, params.PlanFeedback = strings.TrimSpace(params.Reason), strings.TrimSpace(params.PlanFeedback)
 	if params.ExpectedVersion < 0 {
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "expected_version must be non-negative"}
@@ -296,12 +292,11 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "request_id is required and invalid"}
 	}
 	if len(params.GoalID) > maxWorkIdentifierBytes || len(params.PlanSubmissionID) > maxWorkIdentifierBytes ||
-		len(params.PlanOriginRunID) > maxWorkIdentifierBytes || len(params.PlanOriginToolCallID) > maxWorkIdentifierBytes ||
-		hasWorkControl(params.GoalID) || hasWorkControl(params.PlanSubmissionID) || hasWorkControl(params.PlanOriginRunID) || hasWorkControl(params.PlanOriginToolCallID) {
+		hasWorkControl(params.GoalID) || hasWorkControl(params.PlanSubmissionID) {
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "work identifier is invalid"}
 	}
 	if len(params.Reason) > maxWorkReasonBytes || len(params.PlanFeedback) > maxPlanFeedbackBytes ||
-		len(params.Objective) > domain.MaxGoalObjectiveBytes || len(params.PlanMarkdown) > domain.MaxPlanMarkdownBytes {
+		len(params.Objective) > domain.MaxGoalObjectiveBytes {
 		return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "work text exceeds its limit"}
 	}
 	if !kind.Valid() || kind == domain.WorkEventGoalRoundAdmitted {
@@ -333,19 +328,6 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 		}
 		mutation.Goal = domain.GoalRef{ID: params.GoalID, Revision: params.GoalRevision}
 	case domain.WorkEventPlanEntered, domain.WorkEventPlanLeft:
-	case domain.WorkEventPlanSubmitted:
-		if params.PlanOriginRunID == "" || params.PlanOriginToolCallID == "" {
-			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "origin_run_id and origin_tool_call_id are required"}
-		}
-		if params.PlanSubmissionID == "" {
-			params.PlanSubmissionID = deterministicWorkID("submission", params.RequestID)
-			mutation.RequestHash = hashWorkRequest(method, params)
-		}
-		if strings.TrimSpace(params.PlanMarkdown) == "" {
-			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "markdown is required"}
-		}
-		mutation.PlanSubmissionID, mutation.PlanMarkdown = params.PlanSubmissionID, params.PlanMarkdown
-		mutation.PlanOriginRunID, mutation.PlanOriginToolCallID = domain.RunID(params.PlanOriginRunID), params.PlanOriginToolCallID
 	case domain.WorkEventPlanDecided:
 		if params.PlanSubmissionID == "" || params.PlanAction == "" {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "submission_id and action are required"}
