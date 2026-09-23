@@ -142,10 +142,7 @@ func (h *controlHandler) historyCapabilities(ctx context.Context) (any, *Error) 
 	}
 	provider, ok := h.deps.History.(tools.HistoryCapabilitiesOperations)
 	if !ok {
-		return map[string]any{
-			"kinds":   []string{string(domain.SourceKindMessage), string(domain.SourceKindToolCall), string(domain.SourceKindToolResult), string(domain.SourceKindEvent)},
-			"filters": []string{"query", "session_ids", "from", "to", "kinds"},
-		}, nil
+		return nil, &Error{Code: MethodNotFound, Message: "history capabilities are not supported"}
 	}
 	capabilities, err := provider.Capabilities(ctx)
 	if err != nil {
