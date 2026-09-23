@@ -280,18 +280,14 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 			}
 			return storage.GoalRunCommitResult{}, err
 		}
-		run, err := readGoalRunTx(ctx, tx, event.Admission.RunID)
-		if err != nil {
-			return storage.GoalRunCommitResult{}, err
-		}
-		started, err := readGoalStartedTx(ctx, tx, event.Admission.RunID)
-		if err != nil {
-			return storage.GoalRunCommitResult{}, err
-		}
+		// Status is a mutable run projection. The retry result describes the
+		// original admission, while the durable run may already be terminal.
+		run := existing.run
+		run.Status = domain.RunActive
 		return storage.GoalRunCommitResult{
 			Work:    storage.WorkCommitResult{State: state, Event: event, Replayed: true},
 			Run:     run,
-			Started: started,
+			Started: existing.started,
 		}, nil
 	}
 
@@ -415,45 +411,6 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		Run:     run,
 		Started: started,
 	}, nil
-}
-
-func readGoalRunTx(ctx context.Context, tx *Tx, id domain.RunID) (domain.Run, error) {
-	var run domain.Run
-	var runID, sessionID, status, kind, parentID, rootID string
-	err := tx.QueryRowContext(ctx,
-		"SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth FROM runs WHERE id = ?", id).
-		Scan(&runID, &sessionID, &status, &run.CreatedAt, &kind, &parentID, &rootID, &run.Depth)
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Run{}, storage.ErrNotFound
-	}
-	if err != nil {
-		return domain.Run{}, fmt.Errorf("storage: read admitted run: %w", err)
-	}
-	run.ID, run.SessionID, run.Status = domain.RunID(runID), domain.SessionID(sessionID), domain.RunStatus(status)
-	run.Kind, run.ParentID, run.RootID = domain.RunKind(kind), domain.RunID(parentID), domain.RunID(rootID)
-	return run, nil
-}
-
-func readGoalStartedTx(ctx context.Context, tx *Tx, id domain.RunID) (domain.RunEvent, error) {
-	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT run_id, seq, type, created_at, payload_version, payload FROM run_events WHERE run_id = ? ORDER BY seq LIMIT 1"), id)
-	if err != nil {
-		return domain.RunEvent{}, fmt.Errorf("storage: read admitted run.started: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return domain.RunEvent{}, err
-		}
-		return domain.RunEvent{}, storage.ErrWorkEventCorrupt
-	}
-	var event domain.RunEvent
-	var runID, typ string
-	var seq int64
-	if err := rows.Scan(&runID, &seq, &typ, &event.CreatedAt, &event.PayloadVersion, &event.Payload); err != nil {
-		return domain.RunEvent{}, fmt.Errorf("storage: scan admitted run.started: %w", err)
-	}
-	event.RunID, event.Seq, event.Type = domain.RunID(runID), domain.EventSeq(seq), domain.EventType(typ)
-	return event, nil
 }
 
 func validatePlanOriginRunTx(ctx context.Context, tx *Tx, sessionID domain.SessionID, runID domain.RunID) error {

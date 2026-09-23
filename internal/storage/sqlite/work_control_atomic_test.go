@@ -62,6 +62,33 @@ func TestGoalRunRetryRejectsChangedMessageWithSameRequest(t *testing.T) {
 	}
 }
 
+func TestGoalRunRetryReturnsAdmissionTimeRunAfterTerminalTransition(t *testing.T) {
+	b, sessionID, admission := goalAdmissionFixture(t)
+	ctx := context.Background()
+	first, err := b.CommitGoalRun(ctx, admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetRunStatus(ctx, admission.Run.ID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := b.CommitGoalRun(ctx, admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retry.Work.Replayed || retry.Run != first.Run || retry.Started.Seq != first.Started.Seq {
+		t.Fatalf("retry = %+v, want original admitted result %+v with replay marker", retry, first)
+	}
+	durable, err := b.GetRun(ctx, admission.Run.ID)
+	if err != nil || durable.Status != domain.RunCompleted {
+		t.Fatalf("durable run = %+v, %v; retry must not change terminal status", durable, err)
+	}
+	state, err := b.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 2 || state.Goal == nil || state.Goal.RoundsStarted != 1 {
+		t.Fatalf("durable work after retry = %+v, %v", state, err)
+	}
+}
+
 func goalAdmissionFixture(t *testing.T) (*Backend, domain.SessionID, storage.GoalRunCommit) {
 	t.Helper()
 	b := openBackend(t)
@@ -172,6 +199,15 @@ func TestConcurrentGoalAdmissionsAtOneVersionHaveOneWinner(t *testing.T) {
 }
 
 func TestCancelledOriginRunCannotApprovePlanIntoGoal(t *testing.T) {
+	testPlanOriginCannotArmGoal(t, "work-cancelled-review", true)
+}
+
+func TestOtherSessionOriginRunCannotApprovePlanIntoGoal(t *testing.T) {
+	testPlanOriginCannotArmGoal(t, "other-session", false)
+}
+
+func testPlanOriginCannotArmGoal(t *testing.T, originSessionID domain.SessionID, cancelRun bool) {
+	t.Helper()
 	b := openBackend(t)
 	ctx := context.Background()
 	const sessionID domain.SessionID = "work-cancelled-review"
@@ -179,7 +215,12 @@ func TestCancelledOriginRunCannotApprovePlanIntoGoal(t *testing.T) {
 	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: 1}); err != nil {
+	if originSessionID != sessionID {
+		if err := b.CreateSession(ctx, domain.Session{ID: originSessionID, CreatedAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: originSessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
 	commit := func(version domain.WorkVersion, id string, kind domain.WorkEventKind, fill func(*domain.WorkMutation)) {
@@ -201,8 +242,10 @@ func TestCancelledOriginRunCannotApprovePlanIntoGoal(t *testing.T) {
 		m.PlanSubmissionID, m.PlanOriginRunID = "submission", runID
 		m.PlanOriginToolCallID, m.PlanResumeTarget = "tool-call", "resume-target"
 	})
-	if err := b.SetRunStatus(ctx, runID, domain.RunCancelled); err != nil {
-		t.Fatal(err)
+	if cancelRun {
+		if err := b.SetRunStatus(ctx, runID, domain.RunCancelled); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_, err := b.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: 3, RequestID: "approve", RequestHash: "approve",
@@ -210,7 +253,7 @@ func TestCancelledOriginRunCannotApprovePlanIntoGoal(t *testing.T) {
 		Goal: domain.GoalRef{ID: "new-goal", Revision: 1}, Objective: "execute", MaxRounds: 1,
 	})
 	if !errors.Is(err, storage.ErrWorkRunConflict) {
-		t.Fatalf("decision after origin run cancellation = %v, want run conflict", err)
+		t.Fatalf("decision with non-owned origin run = %v, want run conflict", err)
 	}
 	state, err := b.ReadWork(ctx, sessionID)
 	if err != nil || state.Version != 3 || state.Goal != nil || state.Plan.ReviewStatus != domain.PlanReviewPending {
