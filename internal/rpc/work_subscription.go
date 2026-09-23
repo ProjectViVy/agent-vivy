@@ -65,6 +65,7 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 	ch, cancel := h.deps.WorkBus.Subscribe(sessionID)
 	defer func() { cancel() }()
 	last := domain.WorkSeq(after)
+	cursor := domain.WorkState{SessionID: sessionID}
 	send := func(event domain.WorkEvent) bool {
 		if event.Seq <= last {
 			return true
@@ -80,10 +81,11 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 	}
 	replay := func() error {
 		for {
-			events, err := h.deps.Work.ReplayWork(ctx, sessionID, domain.WorkVersion(last), workReplayPageSize)
+			events, next, err := h.deps.Work.ReplayWork(ctx, sessionID, cursor, workReplayPageSize)
 			if err != nil {
 				return err
 			}
+			cursor = next
 			for _, event := range events {
 				if !send(event) {
 					return context.Canceled
@@ -94,13 +96,16 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 			}
 		}
 	}
-	if err := replay(); err != nil {
+	reportReplayError := func(err error) {
 		if !errors.Is(err, context.Canceled) {
 			_ = peer.NotifyContext(ctx, "session/work/stream_error", map[string]any{
 				"subscription_id": subscriptionID,
 				"message":         "work event replay failed",
 			})
 		}
+	}
+	if err := replay(); err != nil {
+		reportReplayError(err)
 		return
 	}
 	for {
@@ -116,9 +121,20 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 				cancel()
 				ch, cancel = h.deps.WorkBus.Subscribe(sessionID)
 				if err := replay(); err != nil {
+					reportReplayError(err)
 					return
 				}
 				continue
+			}
+			if event.Seq > last && event.Seq-last > 1 {
+				if err := replay(); err != nil {
+					reportReplayError(err)
+					return
+				}
+				if event.Seq > last && event.Seq-last > 1 {
+					reportReplayError(domain.ErrNonContiguousWorkSeq)
+					return
+				}
 			}
 			if !send(event) {
 				return

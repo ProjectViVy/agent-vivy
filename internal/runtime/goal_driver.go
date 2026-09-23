@@ -170,22 +170,18 @@ func (s *Service) recoveredGoalRef(ctx context.Context, run domain.Run) (domain.
 	if s == nil || s.deps.Work == nil || run.ID == "" || run.SessionID == "" {
 		return domain.GoalRef{}, false
 	}
-	after := domain.WorkVersion(0)
+	cursor := domain.WorkState{SessionID: run.SessionID}
 	for {
-		events, err := s.deps.Work.ReplayWork(ctx, run.SessionID, after, goalRecoveryPageSize)
+		events, next, err := s.deps.Work.ReplayWork(ctx, run.SessionID, cursor, goalRecoveryPageSize)
 		if err != nil {
-			slog.Warn("restart recovery: goal admission replay failed", "run", string(run.ID), "after", after, "err", err)
+			slog.Warn("restart recovery: goal admission replay failed", "run", string(run.ID), "after", cursor.Version, "err", err)
 			return domain.GoalRef{}, false
 		}
 		if len(events) == 0 {
 			return domain.GoalRef{}, false
 		}
+		cursor = next
 		for _, event := range events {
-			if event.Seq <= domain.WorkSeq(after) {
-				slog.Warn("restart recovery: goal admission replay made no progress", "run", string(run.ID), "after", after, "seq", event.Seq)
-				return domain.GoalRef{}, false
-			}
-			after = domain.WorkVersion(event.Seq)
 			if event.Kind != domain.WorkEventGoalRoundAdmitted {
 				continue
 			}

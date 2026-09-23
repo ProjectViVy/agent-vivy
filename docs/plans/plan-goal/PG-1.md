@@ -23,7 +23,7 @@
 
 Consumes: Accepted PG-0 ordering anchor and PG-D2 types; existing domain.Message, Run, RunEvent.
 
-Produces: ReadWork, ReplayWork, CommitWork, CommitGoalRun and WorkMutation/GoalRunAdmission/WorkCommitResult exactly as the shared design; SQLite/Postgres migration and history integration.
+Produces: ReadWork, `ReplayWork(ctx, sessionID, cursor WorkState, limit) (events, next WorkState, error)`, CommitWork, CommitGoalRun and WorkMutation/GoalRunAdmission/WorkCommitResult exactly as the shared design; SQLite/Postgres migration and history integration. Replay starts from `WorkState{SessionID: sessionID}` and carries each returned state to the next bounded page.
 
 This pre-design is not a claim that proposed interfaces exist. PG-0 must settle shared blockers before production code is added. Use the index for prerequisite evidence; revise dependent plans when PG-D2 changes any shared signature.
 

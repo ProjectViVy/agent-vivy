@@ -266,13 +266,37 @@ func cnSessionWork(t *testing.T, h Harness) {
 	if state.Version != 2 || state.Goal == nil || state.Goal.RoundsStarted != 1 {
 		t.Fatalf("ReadWork = %+v, want version 2/one round", state)
 	}
-	events, err := work.ReplayWork(ctx, sessionID, 0, 10)
-	if err != nil || len(events) != 2 || events[0].Seq != 1 || events[1].Seq != 2 {
-		t.Fatalf("ReplayWork = %+v, %v; want two contiguous events", events, err)
+	cursor := domain.WorkState{SessionID: sessionID}
+	events, next, err := work.ReplayWork(ctx, sessionID, cursor, 1)
+	if err != nil || len(events) != 1 || events[0].Seq != 1 || next.Version != 1 {
+		t.Fatalf("ReplayWork first page = %+v / %+v, %v; want seq/version 1", events, next, err)
 	}
-	tail, err := work.ReplayWork(ctx, sessionID, 1, 10)
-	if err != nil || len(tail) != 1 || tail[0].Seq != 2 {
-		t.Fatalf("ReplayWork tail = %+v, %v; want round event", tail, err)
+	tail, next, err := work.ReplayWork(ctx, sessionID, next, 1)
+	if err != nil || len(tail) != 1 || tail[0].Seq != 2 || next.Version != 2 || next.Goal == nil || next.Goal.RoundsStarted != 1 {
+		t.Fatalf("ReplayWork tail = %+v / %+v, %v; want round event and folded state", tail, next, err)
+	}
+	empty, final, err := work.ReplayWork(ctx, sessionID, next, 1)
+	if err != nil || len(empty) != 0 || final.Version != 2 {
+		t.Fatalf("ReplayWork exhausted = %+v / %+v, %v; want stable version 2", empty, final, err)
+	}
+	edit := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "work-edit-1", RequestHash: "hash-edit-1",
+		Kind: domain.WorkEventGoalEdited, Goal: ref, Objective: "ship the revised result", MaxRounds: 3,
+	}
+	edited, err := work.CommitWork(ctx, edit)
+	if err != nil || edited.State.Goal == nil || edited.State.Goal.Ref != (domain.GoalRef{ID: ref.ID, Revision: 2}) ||
+		edited.State.Goal.RoundsStarted != 1 {
+		t.Fatalf("CommitWork edit = %+v, %v; want revision 2 and retained spent round", edited, err)
+	}
+	page, replayed, err := work.ReplayWork(ctx, sessionID, final, 1)
+	if err != nil || len(page) != 1 || page[0].Seq != 3 || replayed.Goal == nil ||
+		replayed.Goal.Ref.Revision != 2 || replayed.Goal.RoundsStarted != 1 {
+		t.Fatalf("ReplayWork edit page = %+v / %+v, %v; want folded revision 2", page, replayed, err)
+	}
+	loaded, err := work.ReadWork(ctx, sessionID)
+	if err != nil || loaded.Version != 3 || loaded.Goal == nil || loaded.Goal.Ref.Revision != 2 ||
+		loaded.Goal.Objective != "ship the revised result" || loaded.Goal.RoundsStarted != 1 {
+		t.Fatalf("ReadWork after edit = %+v, %v; want durable revision 2 and spent round", loaded, err)
 	}
 }
 
