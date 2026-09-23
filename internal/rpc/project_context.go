@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/runtime"
 )
 
 // Project-file context is intentionally smaller than image attachments. The
@@ -193,7 +194,7 @@ func resolveProjectContextsWithContext(ctx context.Context, root string, paths [
 		if err != nil {
 			return nil, &projectContextPathError{index: index, public: publicProjectContextPathError(err), cause: err}
 		}
-		if sensitiveProjectContextPath(clean) {
+		if runtime.SensitiveWorkspacePath(clean) {
 			return nil, &projectContextPathError{index: index, public: "path is sensitive", cause: errProjectContextSensitive}
 		}
 		// This preflight produces a stable error for a symlink/junction that
@@ -214,7 +215,7 @@ func resolveProjectContextsWithContext(ctx context.Context, root string, paths [
 		if err != nil {
 			return nil, &projectContextPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("relativize project context: %w", err)}
 		}
-		if sensitiveProjectContextPath(canonicalRel) {
+		if runtime.SensitiveWorkspacePath(canonicalRel) {
 			return nil, &projectContextPathError{index: index, public: "path is sensitive", cause: errProjectContextSensitive}
 		}
 		lexicalReal, err := filepath.Abs(filepath.Join(rootReal, clean))
@@ -262,7 +263,7 @@ func resolveProjectContextsWithContext(ctx context.Context, root string, paths [
 		postReal, postErr = filepath.Abs(postReal)
 		postInfo, statErr := os.Stat(filepath.Join(rootReal, clean))
 		postRel, relErr := filepath.Rel(rootReal, postReal)
-		if postErr != nil || statErr != nil || relErr != nil || !sameProjectContextPath(lexicalReal, postReal) || sensitiveProjectContextPath(postRel) || !os.SameFile(info, postInfo) {
+		if postErr != nil || statErr != nil || relErr != nil || !sameProjectContextPath(lexicalReal, postReal) || runtime.SensitiveWorkspacePath(postRel) || !os.SameFile(info, postInfo) {
 			cause := errProjectContextSymlink
 			if postErr != nil {
 				cause = postErr
@@ -367,36 +368,6 @@ func publicProjectContextPathError(err error) string {
 	}
 }
 
-func sensitiveProjectContextPath(clean string) bool {
-	parts := strings.FieldsFunc(clean, func(r rune) bool { return r == '/' || r == '\\' })
-	for _, part := range parts {
-		lower := strings.ToLower(part)
-		if lower == ".git" || lower == ".hg" || lower == ".svn" || lower == "node_modules" || lower == ".ssh" || lower == ".aws" {
-			return true
-		}
-		if lower == ".env" || strings.HasPrefix(lower, ".env.") || lower == ".netrc" || lower == ".npmrc" || lower == ".pypirc" || lower == "secrets" || lower == "secret" || lower == "credential" || lower == "credentials" || lower == "password" || lower == "token" || lower == "keys" || lower == "keys.txt" {
-			return true
-		}
-		for _, prefix := range []string{"secret.", "secret-", "secret_", "credential.", "credential-", "credential_", "password.", "password-", "password_", "token.", "token-", "token_"} {
-			if strings.HasPrefix(lower, prefix) {
-				return true
-			}
-		}
-	}
-	base := strings.ToLower(filepath.Base(clean))
-	for _, suffix := range []string{".pem", ".key", ".p12", ".pfx", ".der", ".secret", ".secrets", ".credential", ".credentials", ".password", ".token"} {
-		if strings.HasSuffix(base, suffix) {
-			return true
-		}
-	}
-	for _, name := range []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials.json", "service-account.json"} {
-		if base == name {
-			return true
-		}
-	}
-	return false
-}
-
 func validProjectContextText(data []byte) bool {
 	if !utf8.Valid(data) {
 		return false
@@ -448,7 +419,7 @@ func listProjectContexts(root, prefix, query string, limit int) ([]projectContex
 	cleanPrefix := ""
 	if strings.TrimSpace(prefix) != "" {
 		cleanPrefix, err = cleanProjectContextPath(prefix)
-		if err != nil || sensitiveProjectContextPath(cleanPrefix) {
+		if err != nil || runtime.SensitiveWorkspacePath(cleanPrefix) {
 			return nil, false, errProjectContextListPrefix
 		}
 		info, statErr := os.Stat(filepath.Join(rootReal, cleanPrefix))
@@ -498,7 +469,7 @@ func listProjectContexts(root, prefix, query string, limit int) ([]projectContex
 			if relErr != nil {
 				return relErr
 			}
-			if rel != "." && sensitiveProjectContextPath(rel) {
+			if rel != "." && runtime.SensitiveWorkspacePath(rel) {
 				return fs.SkipDir
 			}
 			return nil
@@ -516,7 +487,7 @@ func listProjectContexts(root, prefix, query string, limit int) ([]projectContex
 			return nil
 		}
 		info, infoErr := entry.Info()
-		if infoErr != nil || !info.Mode().IsRegular() || info.Size() > maxProjectContextBytes || sensitiveProjectContextPath(rel) {
+		if infoErr != nil || !info.Mode().IsRegular() || info.Size() > maxProjectContextBytes || runtime.SensitiveWorkspacePath(rel) {
 			return nil
 		}
 		file, openErr := rootHandle.Open(rel)
@@ -564,7 +535,7 @@ func cleanProjectContextListQuery(raw string) (string, error) {
 			return "", errProjectContextListPrefix
 		}
 	}
-	if sensitiveProjectContextPath(normalized) {
+	if runtime.SensitiveWorkspacePath(normalized) {
 		return "", errProjectContextListPrefix
 	}
 	return strings.ToLower(strings.TrimPrefix(normalized, "./")), nil

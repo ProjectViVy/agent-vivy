@@ -182,3 +182,38 @@ func workspaceRelPath(rel string) (string, error) {
 	}
 	return clean, nil
 }
+
+// SensitiveWorkspacePath is the shared sensitive-path policy for any
+// workspace-relative open: VC internals, dependency trees and the usual
+// credential/secret filename vocabulary are never served. It was extracted
+// from the RPC attachment/project-context resolvers so RPC and delivery use
+// one rule.
+func SensitiveWorkspacePath(clean string) bool {
+	parts := strings.FieldsFunc(clean, func(r rune) bool { return r == '/' || r == '\\' })
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if lower == ".git" || lower == ".hg" || lower == ".svn" || lower == "node_modules" || lower == ".ssh" || lower == ".aws" {
+			return true
+		}
+		if lower == ".env" || strings.HasPrefix(lower, ".env.") || lower == ".netrc" || lower == ".npmrc" || lower == ".pypirc" || lower == "secrets" || lower == "secret" || lower == "credential" || lower == "credentials" || lower == "password" || lower == "token" || lower == "keys" || lower == "keys.txt" {
+			return true
+		}
+		for _, prefix := range []string{"secret.", "secret-", "secret_", "credential.", "credential-", "credential_", "password.", "password-", "password_", "token.", "token-", "token_"} {
+			if strings.HasPrefix(lower, prefix) {
+				return true
+			}
+		}
+	}
+	base := strings.ToLower(filepath.Base(clean))
+	for _, suffix := range []string{".pem", ".key", ".p12", ".pfx", ".der", ".secret", ".secrets", ".credential", ".credentials", ".password", ".token"} {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	for _, name := range []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials.json", "service-account.json"} {
+		if base == name {
+			return true
+		}
+	}
+	return false
+}
