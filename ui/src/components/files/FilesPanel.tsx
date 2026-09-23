@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useVivyStore } from '@/lib/store';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '@/lib/api';
 import { useTranslation } from '@/i18n';
-import { RefreshCw } from 'lucide-react';
+import { Package, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function formatBytes(size: number): string {
@@ -32,6 +32,53 @@ function highlighted(content: string, path: string): string {
   } catch {
     return escapeHtml(content);
   }
+}
+
+/** 交付组区块：加法的已提交交付组列表，与工作区修改文件列表互相独立。
+ * 点条目滚动聚焦聊天里的原组卡片（data-delivery-set 锚）。 */
+function DeliveriesSection() {
+  const { t } = useTranslation();
+  const deliverySets = useVivyStore((state) => state.deliverySets);
+  const deliverySetsPhase = useVivyStore((state) => state.deliverySetsPhase);
+  const loadDeliverySets = useVivyStore((state) => state.loadDeliverySets);
+  const activeSessionId = useVivyStore((state) => state.activeSessionId);
+
+  useEffect(() => {
+    void loadDeliverySets();
+  }, [loadDeliverySets, activeSessionId]);
+
+  const focusSet = (id: string) => {
+    document.getElementById(`deliverable-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  if (deliverySetsPhase === 'loading' || deliverySetsPhase === 'idle') {
+    return <p className="p-3 text-xs text-muted-foreground">{t('files.loading')}</p>;
+  }
+  if (deliverySets.length === 0) return null;
+  return (
+    <div className="border-b">
+      <p className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('files.deliveries')}</p>
+      <ul>
+        {deliverySets.map((set) => (
+          <li key={set.id}>
+            <button
+              type="button"
+              onClick={() => focusSet(set.id)}
+              className="flex w-full min-w-0 items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-accent"
+              aria-label={t('files.deliveryFocus', { name: set.title ?? set.id })}
+            >
+              <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">
+                {(set.title ?? '') !== '' ? `${set.title} · ` : ''}
+                {t('deliverableCard.summary', { count: set.items.length })}
+              </span>
+              {set.failures.length > 0 ? <span className="shrink-0 text-[10px] text-amber-600">{t('deliverableCard.failures', { count: set.failures.length })}</span> : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export function FilesPanel() {
@@ -92,11 +139,17 @@ export function FilesPanel() {
   const html = useMemo(() => (selected && content !== null ? highlighted(content, selected) : null), [selected, content]);
 
   if (!runId) {
-    return <p className="p-4 text-sm text-muted-foreground">{t('files.noRun')}</p>;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <DeliveriesSection />
+        <p className="p-4 text-sm text-muted-foreground">{t('files.noRun')}</p>
+      </div>
+    );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <DeliveriesSection />
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-xs text-muted-foreground">{t('files.count', { count: files.length })}</span>
         <Button variant="ghost" size="icon" className="h-7 w-7" title={t('files.refresh')} aria-label={t('files.refresh')} onClick={() => void refresh()} disabled={loading}>

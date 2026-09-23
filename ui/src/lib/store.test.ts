@@ -5,6 +5,7 @@ const api = vi.hoisted(() => ({
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
+  deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -678,5 +679,49 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().selectSession('s2');
 
     expect(useVivyStore.getState().referenceViews).toEqual({});
+  });
+
+  const deliverable = (id: string): import('./api').Deliverable => ({
+    id, session_id: 'ses-1', run_id: 'run-1', workspace_id: 'ws-1', path: `out/${id}.txt`, name: `${id}.txt`,
+    description: '', size: 2, sha256: 'a'.repeat(64), media_type: 'text/plain', captured_at: 1, origin_tool_call_id: 'call-1',
+  });
+
+  it('loadDeliverySets dedupes set ids across cursor pages', async () => {
+    const setPage = (id: string) => ({ id, session_id: 'ses-1', run_id: 'run-1', tool_call_id: 'call-1', created_at: 1, items: [], failures: [{ path: 'x', reason: 'missing' }], status: 'partial' });
+    api.deliverablesList
+      .mockResolvedValueOnce({ items: [setPage('dvs-1'), setPage('dvs-2')], next_cursor: 'c1' })
+      .mockResolvedValueOnce({ items: [setPage('dvs-2'), setPage('dvs-3')], next_cursor: '' });
+    useVivyStore.setState({ activeSessionId: 'ses-1' });
+    await useVivyStore.getState().loadDeliverySets();
+    expect(api.deliverablesList).toHaveBeenCalledTimes(2);
+    expect(api.deliverablesList.mock.calls[1]?.[1]).toEqual({ cursor: 'c1', limit: 100 });
+    expect(useVivyStore.getState().deliverySets.map((set) => set.id)).toEqual(['dvs-1', 'dvs-2', 'dvs-3']);
+  });
+
+  it('allows only one active download per item and cancel returns it to unchecked', async () => {
+    const gate = deferred<import('./api').DeliveryChunk>();
+    api.deliverablesRead.mockReturnValue(gate.promise);
+    api.deliverablesClose.mockResolvedValue(undefined);
+    useVivyStore.setState({ activeSessionId: 'ses-1' });
+    const item = deliverable('itm-1');
+    const first = useVivyStore.getState().downloadDeliveryItem(item);
+    expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('downloading');
+    // 同一条目重复点击不并发第二个传输。
+    await useVivyStore.getState().downloadDeliveryItem(item);
+    expect(api.deliverablesRead).toHaveBeenCalledTimes(1);
+    useVivyStore.getState().cancelDeliveryDownload('itm-1');
+    gate.resolve({ transfer_id: 'xfr-1', item_id: 'itm-1', digest: item.sha256, offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
+    await first;
+    expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('unchecked');
+    expect(api.deliverablesClose).toHaveBeenCalledWith('ses-1', 'xfr-1');
+    // 取消后可重试：新一次调用会开新传输。
+    api.deliverablesRead.mockResolvedValue({ transfer_id: 'xfr-2', item_id: 'itm-1', digest: item.sha256, offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
+    const urlCreate = vi.fn(() => 'blob:x');
+    vi.stubGlobal('URL', { ...URL, createObjectURL: urlCreate, revokeObjectURL: vi.fn() });
+    await useVivyStore.getState().downloadDeliveryItem(item);
+    // assembled bytes 未过 sha 校验时状态落为不可用而非下载成功。
+    expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('unavailable');
+    expect(urlCreate).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

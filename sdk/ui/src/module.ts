@@ -749,6 +749,85 @@ export interface FaceReferenceView {
   readonly feed_status: string;
 }
 
+/** Explicit file delivery types committed by deliverables.presented events. */
+export type FaceDeliverySetStatus = "ok" | "partial" | "failed";
+
+export interface FaceDeliverable {
+  readonly id: string;
+  readonly session_id: string;
+  readonly run_id: string;
+  readonly workspace_id: string;
+  readonly path: string;
+  readonly name: string;
+  readonly description: string;
+  readonly size: number;
+  readonly sha256: string;
+  readonly media_type: string;
+  readonly captured_at: number;
+  readonly origin_tool_call_id: string;
+  readonly file_version_id?: string;
+}
+
+export interface FaceDeliveryFailure {
+  readonly path: string;
+  readonly reason: string;
+}
+
+export interface FaceDeliverySet {
+  readonly id: string;
+  readonly session_id: string;
+  readonly run_id: string;
+  readonly tool_call_id: string;
+  readonly created_at: number;
+  readonly title?: string;
+  readonly items: FaceDeliverable[];
+  readonly failures: FaceDeliveryFailure[];
+  readonly status: FaceDeliverySetStatus;
+}
+
+export interface FaceDeliverySetPage {
+  readonly items: FaceDeliverySet[];
+  readonly next_cursor?: string;
+}
+
+/** deliverables/read request: digest binding is mandatory; a received
+ * transfer_id resumes that owner's open transfer. */
+export interface FaceDeliveryReadRequest {
+  readonly item_id: string;
+  readonly expected_digest: string;
+  readonly transfer_id?: string;
+  readonly offset: number;
+  readonly length: number;
+}
+
+export interface FaceDeliveryChunk {
+  readonly transfer_id: string;
+  readonly item_id: string;
+  readonly digest: string;
+  readonly offset: number;
+  readonly data_base64: string;
+  readonly eof: boolean;
+  readonly expires_at: number;
+}
+
+/** Per-item availability + preview state owned by the Face store; items
+ * start unchecked and move to a stable reason on failure. */
+export type FaceDeliveryItemStatus =
+  | "unchecked"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "changed"
+  | "missing"
+  | "forbidden"
+  | "unavailable";
+
+export interface FaceDeliveryItemState {
+  readonly status: FaceDeliveryItemStatus;
+  readonly preview?: string;
+}
+
 /** history/read request: exactly one of selection or reference_id. */
 export interface FaceHistoryReadRequest {
   readonly selection?: FaceHistorySelection;
@@ -1701,6 +1780,12 @@ export interface FaceClientAPI {
   previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
   referenceGet(sessionId: string, referenceId: string): Promise<FaceReferenceView>;
   historyRead(sessionId: string, request: FaceHistoryReadRequest): Promise<FaceHistoryPage>;
+  /** Explicit delivery RPCs (SC-D4 §12): reads are digest-bound and
+   * connection-owned; there is no arbitrary HTTP transfer route. */
+  deliverablesList(sessionId: string, params?: { readonly cursor?: string; readonly limit?: number }): Promise<FaceDeliverySetPage>;
+  deliverablesGet(sessionId: string, setId: string): Promise<{ readonly set: FaceDeliverySet }>;
+  deliverablesRead(sessionId: string, request: FaceDeliveryReadRequest): Promise<FaceDeliveryChunk>;
+  deliverablesClose(sessionId: string, transferId: string): Promise<void>;
   interruptRun(runId: string): Promise<FaceRunInterruptResult>;
   cancelRun(runId: string): Promise<FaceRunInterruptResult>;
   getRun(runId: string): Promise<FaceRun>;
@@ -1832,6 +1917,13 @@ export interface FaceStoreState {
   /** Live reference/get views for committed references, keyed by reference id;
    * null marks a failed read while the committed snapshot stays readable. */
   readonly referenceViews: Readonly<Record<string, FaceReferenceView | null>>;
+  /** Committed delivery sets for the active session, chronological; the
+   * FilesPanel summary and chat cards read this same data. */
+  readonly deliverySets: FaceDeliverySet[];
+  readonly deliverySetsPhase: FacePhase;
+  /** Per-item availability keyed by deliverable id; missing entries render
+   * as unchecked. */
+  readonly deliveryItemStates: Readonly<Record<string, FaceDeliveryItemState>>;
   readonly backgroundRuns: FaceBackgroundRun[];
   readonly backgroundPhase: FacePhase;
   readonly backgroundError: string | null;
@@ -1886,6 +1978,16 @@ export interface FaceStoreState {
   setDraftScope(scope: FaceHistoryScope | null): void;
   clearDraftContext(): void;
   loadReferenceView(referenceId: string): Promise<void>;
+  loadDeliverySets(): Promise<void>;
+  /** Bounded availability probe for one deliverable (first bytes only). */
+  checkDeliveryItem(item: FaceDeliverable): Promise<void>;
+  /** Loads a bounded UTF-8 text preview for text-previewable media types. */
+  previewDeliveryItem(item: FaceDeliverable): Promise<void>;
+  /** Sequential verified download: completes only after EOF + digest match;
+   * a second click while downloading is a no-op (cancel via
+   * cancelDeliveryDownload). */
+  downloadDeliveryItem(item: FaceDeliverable): Promise<void>;
+  cancelDeliveryDownload(itemId: string): void;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
