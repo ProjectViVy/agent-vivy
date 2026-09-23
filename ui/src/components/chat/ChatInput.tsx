@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Check, CheckCircle, ChevronDown, Clock, Lightbulb, LightbulbOff,
+  Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
   Paperclip, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -16,6 +16,8 @@ import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { HistoryPicker } from './HistoryPicker';
+import { ContextReferenceChip } from './ContextReferenceChip';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
@@ -93,6 +95,10 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
 	const chooseWorkspace = useVivyStore((state) => state.chooseWorkspace);
+  const draftReferences = useVivyStore((state) => state.draftReferences);
+  const addDraftReference = useVivyStore((state) => state.addDraftReference);
+  const removeDraftReference = useVivyStore((state) => state.removeDraftReference);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
@@ -233,6 +239,13 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* 历史引用（SC-D4 §13.1）：打开选择器只列会话元数据，不预载转写。 */}
+      {activeSessionId ? (
+        <button type="button" onClick={() => setPickerOpen(true)} disabled={disabled} title={t('chatInput.attachHistory')} aria-label={t('chatInput.attachHistory')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+          <History className="h-4 w-4" />
+        </button>
+      ) : null}
+
       {/* 附件（图片）：与服务端同款门禁（png/jpeg/gif/webp、5MB、每条最多 4 张） */}
       <label className={cn('shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent', disabled ? 'pointer-events-none opacity-50' : 'cursor-pointer')} title={t('chatInput.attachment')} aria-label={t('chatInput.attachment')}>
         <Paperclip className="h-4 w-4" />
@@ -317,6 +330,14 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         <button type="button" onClick={clearQueue} className="shrink-0 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t('chatInput.clearQueue')} aria-label={t('chatInput.clearQueue')}>{t('chatInput.clearQueue')}</button>
       </div>
     ) : null}
+    {/* 已附历史引用 chip：来源会话 + 条数 + 捕获时间，可查看/移除 */}
+    {draftReferences.length ? (
+      <div className="flex flex-wrap gap-1.5 border-t border-border/60 px-3 py-2" aria-live="polite">
+        {draftReferences.map((draft) => (
+          <ContextReferenceChip key={draft.id} preview={draft.preview} onRemove={() => removeDraftReference(draft.id)} />
+        ))}
+      </div>
+    ) : null}
     {/* 待发送附件缩略图（贴图 / 选择文件共用） */}
     {pending.length ? (
       <div className="flex flex-wrap gap-2 border-t border-border/60 px-3 py-2">
@@ -367,5 +388,13 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {activeSessionId ? (
+      <HistoryPicker
+        destinationSessionId={activeSessionId}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onAttach={addDraftReference}
+      />
+    ) : null}
   </div>;
 }

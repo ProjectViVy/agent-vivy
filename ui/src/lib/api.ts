@@ -5,6 +5,7 @@ export const RPC_METHODS = [
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
+  'history/search', 'history/sessions', 'reference/preview',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
   'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
@@ -277,7 +278,44 @@ export const listSessionCompactions = (sessionId: string, limit = 50) =>
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
 export const updateTodo = (sessionId: string, id: string, status: TodoStatus) =>
   request<{ todo: Todo }>('session/todo/update', { session_id: sessionId, id, status });
-export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[], thinking?: ThinkingMode) => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode, face, attachments, thinking });
+// Explicit-history continuity types are owned by @vivy/ui-sdk so the Face
+// contract and this host API share one structural submission shape (SC-D4).
+import type {
+  FaceHistoryItem, FaceHistoryPage, FaceHistoryScope, FaceHistorySearchRequest,
+  FaceHistorySelection, FaceHistorySession, FaceHistorySessionPage,
+  FaceReferencePreview, FaceReferenceSelection, FaceSourceRef,
+  FaceTurnContinuity, FaceTurnSubmission,
+} from '@vivy/ui-sdk';
+
+export type SourceRef = FaceSourceRef;
+export type HistoryItem = FaceHistoryItem;
+export type HistorySelection = FaceHistorySelection;
+export type HistoryScope = FaceHistoryScope;
+export type ReferenceSelection = FaceReferenceSelection;
+export type ReferencePreview = FaceReferencePreview;
+export type HistoryPage = FaceHistoryPage;
+export type HistorySession = FaceHistorySession;
+export type TurnContinuity = FaceTurnContinuity;
+export type TurnSubmission = FaceTurnSubmission;
+
+export const startTurn = (sessionId: string, submission: TurnSubmission) =>
+  request<{ run_id: string; status: RunStatus }>('turn/start', {
+    session_id: sessionId,
+    text: submission.text,
+    mode: submission.mode,
+    face: submission.face,
+    attachments: submission.attachments,
+    thinking: submission.thinking,
+    request_id: submission.continuity?.request_id,
+    references: submission.continuity?.references,
+    history_scope: submission.continuity?.history_scope,
+  });
+export const historySearch = (sessionId: string, params: FaceHistorySearchRequest) =>
+  request<HistoryPage>('history/search', { session_id: sessionId, ...params });
+export const historySessions = (params: { query?: string; cursor?: string; limit?: number }) =>
+  request<FaceHistorySessionPage>('history/sessions', params);
+export const previewReference = (sessionId: string, selection: HistorySelection) =>
+  request<ReferencePreview>('reference/preview', { session_id: sessionId, selection });
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
 export const getRun = (runId: string) => request<Run>('run/get', { run_id: runId });

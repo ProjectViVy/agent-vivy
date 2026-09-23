@@ -11,6 +11,8 @@ import {
   type FullUIHost,
   type FaceNavigationOptions,
   type FaceStoreState,
+  type FaceClientAPI,
+  type FaceTurnSubmission,
   type UICompositionInput,
   type UIExtension,
   type UIProvider,
@@ -59,6 +61,9 @@ const emptyFaceStoreState: FaceStoreState = {
   runError: null,
   runBusy: false,
   queuedMessages: [],
+  draftReferences: [],
+  draftScope: null,
+  draftRequestId: "fixture-request",
   backgroundRuns: [],
   backgroundPhase: "empty",
   backgroundError: null,
@@ -79,6 +84,7 @@ const emptyFaceStoreState: FaceStoreState = {
   settingsPhase: "idle",
   settingsError: null,
   providers: [],
+  catalog: [],
   providersPhase: "empty",
   providersError: null,
   species: null,
@@ -92,6 +98,7 @@ const emptyFaceStoreState: FaceStoreState = {
   retryInitialize: unavailableFaceOperation,
   loadSessions: unavailableFaceOperation,
   createSession: unavailableFaceOperation,
+  chooseWorkspace: unavailableFaceOperation,
   renameSession: unavailableFaceOperation,
   setSessionPermission: unavailableFaceOperation,
   deleteSession: unavailableFaceOperation,
@@ -101,6 +108,10 @@ const emptyFaceStoreState: FaceStoreState = {
   enqueueMessage: () => undefined,
   removeQueuedMessage: () => undefined,
   clearQueue: () => undefined,
+  addDraftReference: () => undefined,
+  removeDraftReference: () => undefined,
+  setDraftScope: () => undefined,
+  clearDraftContext: () => undefined,
   cancelCurrentRun: unavailableFaceOperation,
   openRun: unavailableFaceOperation,
   loadRunLog: unavailableFaceOperation,
@@ -279,6 +290,8 @@ describe("full-code UI composition", () => {
         listWorkspaceFiles: unavailableFaceOperation,
         readWorkspaceFile: unavailableFaceOperation,
         listSessions: async () => ({ sessions: [] }),
+        browseWorkspace: unavailableFaceOperation,
+        setSessionWorkspace: unavailableFaceOperation,
         getSession: async () => ({
           session: { id: "fixture/session", title: "Fixture", created_at: 0 },
           messages: [],
@@ -297,6 +310,9 @@ describe("full-code UI composition", () => {
         listTodos: unavailableFaceOperation,
         updateTodo: unavailableFaceOperation,
         startTurn: unavailableFaceOperation,
+        historySearch: unavailableFaceOperation,
+        historySessions: unavailableFaceOperation,
+        previewReference: unavailableFaceOperation,
         interruptRun: unavailableFaceOperation,
         cancelRun: unavailableFaceOperation,
         getRun: async () => ({ id: "fixture/run", session_id: "fixture/session", status: "completed" as const, created_at: 0 }),
@@ -491,6 +507,45 @@ describe("full-code UI composition", () => {
     } as never;
     expect(() => composeUI({ roots: [extensionAsRoot] }))
       .toThrow("render");
+  });
+
+  it("threads one typed submission through queue and turn start", async () => {
+    const submission: FaceTurnSubmission = {
+      text: "resume the fix",
+      mode: "normal",
+      continuity: {
+        request_id: "req_t7",
+        references: [{
+          selection: {
+            source_session_id: "src-1",
+            refs: [{ session_id: "src-1", kind: "message", message_id: "m1", created_at: 1 }],
+          },
+          expected_digest: "d1",
+        }],
+        history_scope: { session_ids: [] },
+      },
+    };
+
+    let sent: FaceTurnSubmission | undefined;
+    let queued: FaceTurnSubmission | undefined;
+    const api: Pick<FaceClientAPI, "startTurn"> = {
+      startTurn: async (_sessionId, received) => {
+        sent = received;
+        return { run_id: "r1", status: "accepted" };
+      },
+    };
+    const store: Pick<FaceStoreState, "enqueueMessage"> = {
+      enqueueMessage: (received) => {
+        queued = received;
+      },
+    };
+
+    store.enqueueMessage(submission);
+    await api.startTurn("s1", queued!);
+
+    expect(sent!.continuity!.references).toEqual(queued!.continuity!.references);
+    expect(sent!.continuity!.history_scope!.session_ids).toEqual([]);
+    expect(sent!.continuity!.request_id).toBe(queued!.continuity!.request_id);
   });
 
   it("exposes a usable typed store subscription", () => {
