@@ -1725,8 +1725,15 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
+	// One fresh detector per drive leg (ND-2): the consume loop drives it
+	// from the durable journal stream; the same pointer travels on the
+	// context so in-context seams share exactly this instance.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	runCtx = withNudgeState(runCtx, state)
+	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state)
 }
 
 // withLiveModelStreamObserver installs the producer-path stream seam used by
@@ -1754,6 +1761,27 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 			return nil
 		},
 	})
+}
+
+// nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
+// the boundary middleware delegates persistence to the Service — one
+// audited event per scheduled reminder, journaled and published through
+// the normal path. A failed append aborts the model call rather than
+// degrading the reminder into an unrecorded injection.
+func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudgeEmitter {
+	return func(ctx context.Context, notice nudgeNotice) error {
+		re := m.build(domain.EventToolNudge, payloadToolNudge{
+			ToolCallID:      notice.CallID,
+			ToolName:        notice.ToolName,
+			Reason:          notice.Reason,
+			RepeatCount:     notice.Count,
+			TemplateVersion: notice.TemplateVersion,
+		})
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: nudge scheduling event could not be journaled")
+		}
+		return nil
+	}
 }
 
 // runMessages rebuilds the session transcript for the engine (ADR-010):
@@ -1916,15 +1944,32 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+//
+// The leg's nudge detector is driven from this loop in journal order
+// (ND-2): a turn's tool.requested batch registers after its events are
+// durably appended, each tool.finished records completion on append
+// success, and the batch seals only once every one of its results is
+// durable — so the detector can never release a model handoff ahead of
+// the Journal. Any exit aborts the waiters the terminal transition
+// leaves behind.
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
 		}
 	}
+	if state != nil {
+		// Every exit path releases a waiting model boundary with the
+		// leg's last cause, even when the consume loop itself stranded.
+		defer state.Abort(context.Canceled)
+	}
+	var outstanding map[string]struct{}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -1935,22 +1980,82 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if err := reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
+			var requested []string
 			for _, re := range events {
 				if !s.persistAndPublish(ctx, sessionID, re) {
 					persistStopped = true
 					return context.Canceled
 				}
+				if state == nil {
+					continue
+				}
+				switch re.Type {
+				case domain.EventToolRequested:
+					var p payloadToolRequested
+					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
+						requested = append(requested, p.ToolCallID)
+					}
+				case domain.EventToolFinished:
+					var p payloadToolFinished
+					if err := json.Unmarshal(re.Payload, &p); err != nil {
+						return fmt.Errorf("runtime: decode tool.finished payload: %w", err)
+					}
+					call, ok := m.takeCompletion(p.ToolCallID)
+					if !ok {
+						// Resume legs replay the decided call without a
+						// parked record; rebuild the outcome from the
+						// journaled payload instead.
+						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
+					}
+					if err := state.Complete(call); err != nil {
+						return err
+					}
+					if _, tracked := outstanding[p.ToolCallID]; tracked {
+						delete(outstanding, p.ToolCallID)
+						if len(outstanding) == 0 {
+							state.Seal(nil)
+							if cause := state.terminalErr(); cause != nil {
+								return cause
+							}
+						}
+					} else {
+						state.Seal(nil)
+						if cause := state.terminalErr(); cause != nil {
+							return cause
+						}
+					}
+				}
+			}
+			if state != nil && len(requested) > 0 {
+				if err := state.Register(requested); err != nil {
+					return err
+				}
+				if outstanding == nil {
+					outstanding = map[string]struct{}{}
+				}
+				for _, id := range requested {
+					outstanding[id] = struct{}{}
+				}
 			}
 			return nil
 		})
 		if persistStopped {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			if state != nil {
+				state.Abort(errRunInterrupted)
+			}
 			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
 		}
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			// A failed first exchange still leaves a user message worth a
 			// title; the generator's truncation fallback names it when no
@@ -1962,11 +2067,17 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 
 	turnEnd := m.onTurnEnd()
 	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+		if state != nil {
+			state.Abort(err)
+		}
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
 	for _, re := range turnEnd {
 		if !s.persistAndPublish(ctx, sessionID, re) {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 	}
@@ -2755,6 +2866,12 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
+	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
+	// window state carries over from the suspended leg.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	ctx = withNudgeState(ctx, state)
+	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
@@ -2767,7 +2884,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter)
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state)
 }
 
 // terminalEvent classifies the failure path: context cancellation and

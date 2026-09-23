@@ -40,6 +40,7 @@ type fakeSession struct {
 	read        ResourceContent
 	discoverErr error
 	callErr     error
+	callResult  *ToolResult
 	block       bool
 }
 
@@ -53,6 +54,9 @@ func (session *fakeSession) DiscoverTools(ctx context.Context) ([]RemoteTool, er
 }
 func (session *fakeSession) CallTool(context.Context, string, json.RawMessage) (ToolResult, error) {
 	session.calls++
+	if session.callResult != nil {
+		return *session.callResult, session.callErr
+	}
 	return ToolResult{Text: "ok"}, session.callErr
 }
 func (session *fakeSession) ListResources(context.Context) ([]RemoteResource, error) {

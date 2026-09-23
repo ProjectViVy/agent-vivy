@@ -88,6 +88,30 @@ describe('foldRunEvents', () => {
     expect(stopped[0].call.status).toBe('stopped');
   });
 
+  it('keeps soft-converted failures failed on tool.finished.error', () => {
+    // ND-3：可恢复失败把诊断放进了 result 供模型纠错，但行状态必须由
+    // tool.finished.error 决定，outcome=recoverable 也不能翻回 ok。
+    const rows = foldRunEvents('run-1', [
+      event(1, 'tool.requested', { tool_call_id: 'c1', tool_name: 'read_file', args: { path: 'missing.go' } }),
+      event(2, 'tool.finished', {
+        tool_call_id: 'c1',
+        tool_name: 'read_file',
+        result: 'read "missing.go": file does not exist',
+        error: 'read "missing.go": file does not exist',
+        outcome: 'recoverable',
+        reason: 'not_found',
+        effects: 'none',
+      }),
+    ]);
+    const tool = rows[0];
+    if (tool?.kind !== 'tool') throw new Error('expected a tool row');
+    expect(tool.call).toMatchObject({
+      status: 'error',
+      error: 'read "missing.go": file does not exist',
+      result: 'read "missing.go": file does not exist',
+    });
+  });
+
   it('emits a compaction notice', () => {
     const rows = foldRunEvents('run-1', [event(1, 'context.compacted', { mode: 'auto', before_tokens: 900, after_tokens: 300 })]);
     expect(rows[0]).toMatchObject({ kind: 'notice', text: 'auto · 900 → 300 tokens' });

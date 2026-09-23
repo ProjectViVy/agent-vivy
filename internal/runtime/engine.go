@@ -312,6 +312,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
+	// ND-3 (NUDGE-DESIGN §6/§7): the reminder boundary is registered last
+	// so its WrapModel sits innermost — after compaction, tool search and
+	// the mount projection — and sees only the final shaped input. Its
+	// injected message is transient, never visible to the other handlers.
+	handlers = append(handlers, newNudgeMiddleware(cfg.MaxContextBytes))
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",

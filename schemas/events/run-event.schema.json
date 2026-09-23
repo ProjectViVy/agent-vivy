@@ -35,6 +35,7 @@
         "tool.started",
         "tool.finished",
         "tool.mounted",
+        "tool.nudge",
         "policy.evaluated",
         "hook.started",
         "hook.completed",
