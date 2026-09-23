@@ -296,6 +296,7 @@ func TestMCPResourceBridgeReachesProductionServiceModelInput(t *testing.T) {
 	service := NewService(engine, "test", "test-model", ServiceDeps{
 		Journal: journal, Runs: journal, Messages: journal, Sink: newTestSink(), Truncations: journal,
 	})
+	mustCreateSession(t, journal, "mcp-resource-session")
 	runID, err := service.Run(context.Background(), "mcp-resource-session", "guide")
 	if err != nil {
 		t.Fatal(err)

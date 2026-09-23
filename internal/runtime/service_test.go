@@ -50,6 +50,16 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	return svc, backend, sink
 }
 
+// mustCreateSession establishes the durable session row that message
+// storage requires (fail-closed position allocation). Test fixtures that
+// run or append messages for a session must call this first.
+func mustCreateSession(t *testing.T, sessions storage.SessionStore, id domain.SessionID) {
+	t.Helper()
+	if err := sessions.CreateSession(context.Background(), domain.Session{ID: id, Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session %s: %v", id, err)
+	}
+}
+
 type blockingWorkspaceAllocator struct {
 	entered chan struct{}
 	release chan struct{}
@@ -211,6 +221,7 @@ func replayAll(t *testing.T, j storage.Journal, runID domain.RunID) []domain.Run
 
 func TestServiceRunHappyPath(t *testing.T) {
 	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -315,6 +326,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-zh-tools")
 
 	runID, err := svc.Run(ctx, "sess-zh-tools", "你现在有什么工具？")
 	if err != nil {
@@ -358,6 +370,7 @@ func (blockingModel) Stream(ctx context.Context, _ []*domain.Message) (domain.St
 
 func TestServiceRunCancelled(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "never finishes")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -488,6 +501,7 @@ func TestDeleteSessionRacesWorkerCreationWithoutOrphans(t *testing.T) {
 // page refresh) leaves the run alive until Cancel is called (AS-7).
 func TestServiceRunSurvivesRequestCancellation(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	ctx, cancel := context.WithCancel(context.Background())
 	runID, err := svc.Run(ctx, "sess-1", "keep going")
 	if err != nil {
@@ -521,6 +535,7 @@ func (errorModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[
 
 func TestServiceRunFailed(t *testing.T) {
 	svc, backend, _ := newTestService(t, errorModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "boom")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -564,6 +579,7 @@ func (unconfiguredModel) Stream(_ context.Context, _ []*domain.Message) (domain.
 
 func TestServiceRunFailedWithoutProvider(t *testing.T) {
 	svc, backend, _ := newTestService(t, unconfiguredModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -586,6 +602,7 @@ func TestServiceRunFailedWithoutProvider(t *testing.T) {
 
 func TestServiceRunFailedKeyMissing(t *testing.T) {
 	svc, backend, _ := newTestService(t, keyMissingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -619,6 +636,7 @@ func (transportErrorModel) Stream(_ context.Context, _ []*domain.Message) (domai
 
 func TestServiceRunFailedProviderTransport(t *testing.T) {
 	svc, backend, _ := newTestService(t, transportErrorModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -922,6 +940,7 @@ func TestServicePersistsFirstModelChunkBeforeProviderEOF(t *testing.T) {
 		}
 	}()
 	svc, backend, _ := newTestService(t, model)
+	mustCreateSession(t, backend, "sess-incremental")
 	runID, err := svc.Run(context.Background(), "sess-incremental", "stream")
 	if err != nil {
 		t.Fatal(err)
@@ -1003,6 +1022,7 @@ func userAssistantPairs(msgs []domain.Message) [][2]string {
 func TestServiceFeedsSessionHistory(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-h")
 
 	run1, err := svc.Run(context.Background(), "sess-h", "remember the code word bluebird")
 	if err != nil {
@@ -1046,6 +1066,8 @@ func TestServiceFeedsSessionHistory(t *testing.T) {
 func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-a")
+	mustCreateSession(t, backend, "sess-b")
 
 	run1, err := svc.Run(context.Background(), "sess-a", "a speaks first")
 	if err != nil {
@@ -1076,6 +1098,7 @@ func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-p")
 
 	runID, err := svc.Run(context.Background(), "sess-p", "echo hello")
 	if err != nil {
@@ -1118,6 +1141,7 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 func TestServicePreambleCarriesNotesDigest(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-n")
 
 	if err := backend.AppendNote(context.Background(), domain.Note{
 		ID: "note_digest", Content: "code word is bluebird\nsecond line", CreatedAt: time.Now().UnixMilli(),
@@ -1261,6 +1285,7 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: newTestSink(),
 	})
+	mustCreateSession(t, backend, "sess-tools")
 
 	run1, err := svc.Run(ctx, "sess-tools", "please echo")
 	if err != nil {

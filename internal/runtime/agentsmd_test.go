@@ -245,6 +245,7 @@ func TestServiceAgentsMDInjectionIsTransient(t *testing.T) {
 	svc, backend, rec := newAgentsMDService(t,
 		[]string{tools.EchoInfoName}, agentsMDScript()...)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-agentsmd")
 
 	runID, err := svc.Run(ctx, "sess-agentsmd", "echo something")
 	if err != nil {
@@ -299,6 +300,7 @@ func TestServiceAgentsMDInjectionSurvivesApprovalResume(t *testing.T) {
 	svc, backend, rec := newAgentsMDService(t,
 		[]string{tools.WriteNoteName}, approvalScript...)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-agentsmd-resume")
 
 	runID, err := svc.Run(ctx, "sess-agentsmd-resume", "note that I need milk")
 	if err != nil {

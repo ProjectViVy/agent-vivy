@@ -43,6 +43,7 @@ func TestSessionTrajectoryProjection(t *testing.T) {
 	ctx := context.Background()
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	sessionID := domain.SessionID("sess-traj")
+	mustCreateSession(t, backend, sessionID)
 
 	run1, run2 := domain.RunID("run-traj-1"), domain.RunID("run-traj-2")
 	if err := backend.CreateRun(ctx, domain.Run{ID: run1, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1000}); err != nil {
@@ -192,6 +193,7 @@ func TestSessionTrajectoryRealRun(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
 	sessionID := domain.SessionID("sess-traj-real")
+	mustCreateSession(t, svc.deps.Sessions, sessionID)
 	runID, err := svc.Run(ctx, sessionID, "hello trajectory")
 	if err != nil {
 		t.Fatal(err)
