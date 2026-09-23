@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-31).
+// Package conformance is the D-032 backend suite (CN-01..CN-32).
 package conformance
 
 import (
@@ -82,12 +82,145 @@ func Run(t *testing.T, h Harness) {
 		{"CN-29", "atomic Goal round admission", cnAtomicGoalRun},
 		{"CN-30", "atomic first primary run creates session", cnAtomicPrimaryRun},
 		{"CN-31", "same-time message work anchor", cnMessageWorkAnchor},
+		{"CN-32", "history work isolation and delete", cnHistoryWorkIsolationAndDelete},
 	}
-	if len(cases) != 31 {
-		t.Fatalf("conformance suite must carry exactly 31 cases, got %d", len(cases))
+	if len(cases) != 32 {
+		t.Fatalf("conformance suite must carry exactly 32 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const sourceID domain.SessionID = "sess-history-source"
+	const childID domain.SessionID = "sess-history-child"
+	if err := b.CreateSession(ctx, domain.Session{ID: sourceID, Title: "source", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession source: %v", err)
+	}
+	work, ok := b.(storage.WorkStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkStore")
+	}
+	mutations, ok := b.(storage.HistoryMutationStore)
+	if !ok {
+		t.Fatal("backend does not implement HistoryMutationStore")
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sourceID, ExpectedVersion: 0,
+		RequestID: "history-enter-plan", RequestHash: "history-enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}); err != nil {
+		t.Fatalf("CommitWork enter Plan: %v", err)
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sourceID, ExpectedVersion: 1,
+		RequestID: "history-submit-plan", RequestHash: "history-submit-plan",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "history-submission", PlanMarkdown: "preserve the evidence",
+	}); err != nil {
+		t.Fatalf("CommitWork submit Plan: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{
+		ID: "msg-history-source", SessionID: sourceID, Role: domain.RoleUser,
+		CreatedAt: 2, Content: "source message",
+	}); err != nil {
+		t.Fatalf("AppendMessage source: %v", err)
+	}
+	beforeMessages, err := b.ListMessages(ctx, sourceID)
+	if err != nil || len(beforeMessages) != 1 || beforeMessages[0].WorkSeq != 2 {
+		t.Fatalf("source before fork = %+v, %v; want one message anchored at 2", beforeMessages, err)
+	}
+	beforeWork, err := work.ReadWork(ctx, sourceID)
+	if err != nil || beforeWork.Version != 2 || beforeWork.Plan.SubmissionID != "history-submission" {
+		t.Fatalf("source work before fork = %+v, %v; want submitted Plan at version 2", beforeWork, err)
+	}
+
+	copy := beforeMessages[0]
+	copy.ID = "msg-history-child"
+	copy.SessionID = childID
+	// A caller-provided source anchor must never become authority in the child.
+	copy.WorkSeq = beforeMessages[0].WorkSeq
+	markers := []storage.SessionTruncation{{
+		SessionID: sourceID, CutoffMessageID: beforeMessages[0].ID, TailMessageID: beforeMessages[0].ID,
+		WorkSeq: beforeMessages[0].WorkSeq, Reason: storage.TruncationFork, ForkSessionID: string(childID), CreatedAt: 3,
+	}, {
+		SessionID: childID, CutoffMessageID: copy.ID, TailMessageID: copy.ID,
+		WorkSeq: beforeMessages[0].WorkSeq, Reason: storage.TruncationForkedFrom, ForkSessionID: string(sourceID), CreatedAt: 3,
+	}}
+	if _, err := mutations.CommitSessionFork(ctx,
+		domain.Session{ID: childID, Title: "child", CreatedAt: 3},
+		[]domain.Message{copy}, markers, nil); err != nil {
+		t.Fatalf("CommitSessionFork: %v", err)
+	}
+	afterMessages, err := b.ListMessages(ctx, sourceID)
+	if err != nil || len(afterMessages) != 1 || afterMessages[0].ID != beforeMessages[0].ID || afterMessages[0].WorkSeq != beforeMessages[0].WorkSeq {
+		t.Fatalf("source messages after fork = %+v, %v; want unchanged %+v", afterMessages, err, beforeMessages)
+	}
+	afterWork, err := work.ReadWork(ctx, sourceID)
+	if err != nil || afterWork.Version != beforeWork.Version || afterWork.Plan.SubmissionID != beforeWork.Plan.SubmissionID {
+		t.Fatalf("source work after fork = %+v, %v; want unchanged %+v", afterWork, err, beforeWork)
+	}
+	childMessages, err := b.ListMessages(ctx, childID)
+	if err != nil || len(childMessages) != 1 || childMessages[0].WorkSeq != 0 {
+		t.Fatalf("child messages = %+v, %v; want copied row with WorkSeq 0", childMessages, err)
+	}
+	childMarker, ok, err := b.LatestSessionTruncation(ctx, childID)
+	if err != nil || !ok || childMarker.WorkSeq != 0 {
+		t.Fatalf("child fork marker = %+v, ok=%v, err=%v; want WorkSeq 0", childMarker, ok, err)
+	}
+	childWork, err := work.ReadWork(ctx, childID)
+	if err != nil || childWork.Version != 0 || childWork.Plan.Active || childWork.Goal != nil {
+		t.Fatalf("child work = %+v, %v; want no copied authority", childWork, err)
+	}
+
+	const roundSessionID domain.SessionID = "sess-history-rounds"
+	if err := b.CreateSession(ctx, domain.Session{ID: roundSessionID, Title: "rounds", CreatedAt: 4}); err != nil {
+		t.Fatalf("CreateSession rounds: %v", err)
+	}
+	ref := domain.GoalRef{ID: "goal-history-rounds", Revision: 1}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: roundSessionID, ExpectedVersion: 0,
+		RequestID: "history-create-goal", RequestHash: "history-create-goal",
+		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "retain charged rounds", MaxRounds: 2,
+	}); err != nil {
+		t.Fatalf("CommitWork create Goal: %v", err)
+	}
+	if _, err := work.CommitWork(ctx, domain.WorkMutation{
+		SessionID: roundSessionID, ExpectedVersion: 1,
+		RequestID: "history-admit-round", RequestHash: "history-admit-round",
+		Kind:      domain.WorkEventGoalRoundAdmitted,
+		Admission: domain.GoalRunAdmission{SessionID: roundSessionID, Goal: ref, Round: 1, RunID: "run-history-round"},
+	}); err != nil {
+		t.Fatalf("CommitWork admit round: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{
+		ID: "msg-history-round", SessionID: roundSessionID, Role: domain.RoleUser,
+		CreatedAt: 5, Content: "rewind target",
+	}); err != nil {
+		t.Fatalf("AppendMessage round target: %v", err)
+	}
+	if _, err := mutations.CommitSessionRewind(ctx, storage.SessionTruncation{
+		SessionID: roundSessionID, CutoffMessageID: "msg-history-round", TailMessageID: "msg-history-round",
+		WorkSeq: 2, Reason: storage.TruncationRewind, CreatedAt: 6,
+	}, domain.RunEvent{
+		RunID: "run-history-rewind", Type: domain.EventSessionTruncated,
+		CreatedAt: 6, PayloadVersion: 1, Payload: []byte(`{"session_id":"sess-history-rounds"}`),
+	}); err != nil {
+		t.Fatalf("CommitSessionRewind: %v", err)
+	}
+	roundWork, err := work.ReadWork(ctx, roundSessionID)
+	if err != nil || roundWork.Version != 2 || roundWork.Goal == nil || roundWork.Goal.RoundsStarted != 1 {
+		t.Fatalf("work after rewind = %+v, %v; want complete evidence and one charged round", roundWork, err)
+	}
+
+	if err := b.DeleteSession(ctx, sourceID); err != nil {
+		t.Fatalf("DeleteSession source: %v", err)
+	}
+	deletedWork, err := work.ReadWork(ctx, sourceID)
+	if !errors.Is(err, storage.ErrNotFound) || deletedWork.Version != 0 || deletedWork.Plan.SubmissionID != "" || deletedWork.Goal != nil {
+		t.Fatalf("deleted session work = %+v, %v; want ErrNotFound with no work or submission evidence", deletedWork, err)
 	}
 }
 
@@ -416,8 +549,8 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 		t.Fatalf("Goal prompt after admission = %+v, %v; want immutable admitted snapshot", loadedPrompt, err)
 	}
 	messages, err = b.ListMessages(ctx, sessionID)
-	if err != nil || len(messages) != 1 || messages[0].ID != admission.Message.ID {
-		t.Fatalf("messages after admission = %+v, %v; want one user row", messages, err)
+	if err != nil || len(messages) != 1 || messages[0].ID != admission.Message.ID || messages[0].WorkSeq != 1 {
+		t.Fatalf("messages after admission = %+v, %v; want one user row anchored at pre-admission version 1", messages, err)
 	}
 	runs, err := b.ListRunsBySession(ctx, sessionID)
 	if err != nil || len(runs) != 1 || runs[0].Status != domain.RunActive {

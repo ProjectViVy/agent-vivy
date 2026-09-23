@@ -55,6 +55,46 @@ func TestBackendConformance(t *testing.T) {
 	})
 }
 
+func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
+	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("VIVY_POSTGRES_TEST_DSN not set")
+	}
+	ctx := context.Background()
+	schema := fmt.Sprintf("delete_work_%d_%d", time.Now().UnixNano(), schemaSeq.Add(1))
+	backend, err := OpenSchema(ctx, dsn, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	const sessionID domain.SessionID = "session-delete-work"
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []domain.WorkMutation{{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "delete-enter-plan", RequestHash: "delete-enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}, {
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "delete-submit-plan", RequestHash: "delete-submit-plan",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "delete-submission", PlanMarkdown: "delete this evidence with its owner",
+	}} {
+		if _, err := backend.CommitWork(ctx, mutation); err != nil {
+			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)
+		}
+	}
+	var before int
+	if err := backend.db.SQL.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = $1`, sessionID).Scan(&before); err != nil || before != 2 {
+		t.Fatalf("work rows before delete = %d, %v; want 2", before, err)
+	}
+	if err := backend.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	var after int
+	if err := backend.db.SQL.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = $1`, sessionID).Scan(&after); err != nil || after != 0 {
+		t.Fatalf("work rows after delete = %d, %v; want 0", after, err)
+	}
+}
+
 func TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions(t *testing.T) {
 	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
 	if dsn == "" {
