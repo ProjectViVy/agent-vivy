@@ -145,6 +145,11 @@ type ServiceDeps struct {
 	// submission then fails unavailable instead of silently degrading to a
 	// non-atomic write.
 	Continuity storage.ContinuityStore
+	// References snapshots operator-selected context excerpts during
+	// admission (SC-D4 §7). Nil fails a reference-bearing submission
+	// unavailable; ordinary runs and model-side preview/attach are
+	// unaffected by this dep.
+	References *ReferenceService
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -738,6 +743,31 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		// The atomic admission commits run.started alongside the run row, so
 		// the committed row is already active rather than accepted.
 		run.Status = domain.RunActive
+		// Reference snapshots are built and bounded before commit and land
+		// in the same startup set; no engine step ever touches their content.
+		for _, selection := range options.Continuity.References {
+			if s.deps.References == nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", ErrContinuityUnavailable
+			}
+			reference, refErr := s.deps.References.AttachForAdmission(ctx, selection, sessionID, runID)
+			if refErr == nil {
+				var event domain.RunEvent
+				event, refErr = ReferenceEvent(reference, now)
+				if refErr == nil {
+					startupEvents = append(startupEvents, event)
+					refErr = ledger.ReserveEvent()
+				}
+			}
+			if refErr != nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", fmt.Errorf("runtime: snapshot admission reference: %w", refErr)
+			}
+		}
 		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
 			SessionID:    sessionID,
 			Message:      message,
@@ -816,7 +846,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID, admittedScope)
 	}()
 	return runID, nil
 }
@@ -1882,7 +1912,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string, historyScope *domain.AcceptedHistoryScope) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -1917,6 +1947,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
+	if historyScope != nil {
+		runCtx = WithHistoryScope(runCtx, *historyScope)
+	}
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))

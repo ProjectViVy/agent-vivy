@@ -91,13 +91,17 @@ type ControlDeps struct {
 	Truncations storage.TruncationStore
 	// History is the single runtime-owned bounded projection shared by model
 	// tools and operator inspection RPCs. Nil disables history/*.
-	History  tools.HistoryOperations
-	Bus      *events.Bus
-	Service  *runtime.Service
-	Studio   *studio.Service
-	Live     studio.LiveView
-	Eval     eval.Starter
-	Children ChildController
+	History tools.HistoryOperations
+	// References owns reference/preview composition. Nil disables the
+	// method; turn/start reference fields still decode and validate but the
+	// submission fails unavailable at admission.
+	References tools.ReferenceOperations
+	Bus        *events.Bus
+	Service    *runtime.Service
+	Studio     *studio.Service
+	Live       studio.LiveView
+	Eval       eval.Starter
+	Children   ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -359,6 +363,14 @@ type turnParams struct {
 	Attachments     []turnAttachment `json:"attachments,omitempty"`
 	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
 	ContextPaths    []string         `json:"context_paths,omitempty"`
+	// Continuity-bearing fields (SC-D4 §7): request_id plus optional
+	// operator-selected reference excerpts and a broader model read scope.
+	// Bodies decode raw first because each entry must satisfy a strict
+	// shape; forged fields inside an entry are rejected.
+	RequestID    string            `json:"request_id,omitempty"`
+	References   []json.RawMessage `json:"references,omitempty"`
+	HistoryScope json.RawMessage   `json:"history_scope,omitempty"`
+	continuity   *domain.ContinuityInput
 }
 
 // shellParams is intentionally smaller than turnParams. A direct shell
@@ -1020,6 +1032,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.History != nil {
 			capabilities = append(capabilities, "history/search", "history/read", "history/trace", "history/capabilities", "history/sessions")
 		}
+		if h.deps.References != nil {
+			capabilities = append(capabilities, "reference/preview")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -1074,6 +1089,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.historyCapabilities(ctx)
 	case "history/sessions":
 		return h.historySessions(ctx, request)
+	case "reference/preview":
+		return h.referencePreview(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {
@@ -2920,7 +2937,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
-		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts, Continuity: params.continuity,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -3448,6 +3465,9 @@ func parseTurnParams(request Request) (turnParams, *Error) {
 	}
 	if params.SessionID == "" {
 		return params, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if err := decodeContinuityInput(&params); err != nil {
+		return params, err
 	}
 	return params, nil
 }
