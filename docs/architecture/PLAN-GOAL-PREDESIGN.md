@@ -117,6 +117,8 @@ type PlanDecision struct {
 
 WorkVersion is a session journal sequence, Goal revision changes only when its definition/lifecycle changes. Round admission changes WorkVersion and the count, not Goal revision. Reports must match both GoalRef and the owning admitted run. A UI may refresh and retry an unrelated version conflict; it must never silently resubmit an objective edit against a changed GoalRef.
 
+A Goal edit carries the exact current GoalRef as its precondition. The reducer advances that Goal's revision by one after validating the reference, while preserving already admitted rounds.
+
 Actor data comes from verified RPC session identity or live root-run context. Do not put a caller-selectable actor/isHuman flag in tool JSON.
 Control request IDs are caller-stable opaque strings; reuse with different payload returns conflict.
 
@@ -126,7 +128,7 @@ Proposed operations, all on first-party backend implementations:
 
 ```go
 ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error)
-ReplayWork(ctx context.Context, sessionID domain.SessionID, after domain.WorkVersion, limit int) ([]domain.WorkEvent, error)
+ReplayWork(ctx context.Context, sessionID domain.SessionID, cursor domain.WorkState, limit int) ([]domain.WorkEvent, domain.WorkState, error)
 CommitWork(ctx context.Context, mutation WorkMutation) (WorkCommitResult, error)
 CommitGoalRun(ctx context.Context, admission GoalRunAdmission) (WorkCommitResult, error)
 ```
@@ -140,7 +142,7 @@ These definitions are shared here; Story workers must not invent incompatible va
 New SQL table proposal: session_work_events(session_id, seq, kind, payload_version, request_id, request_hash, created_at, payload).
 Primary key (session_id, seq), unique (session_id, request_id), foreign key session deletion policy matching first-party storage. No independently writable Goal snapshot table. Initial implementation folds session work events; hot admission may use a version-checked process projection only after measurement justifies it.
 
-Goal round uniqueness is enforced by serialized session transaction + expected seq + sequential round validation. Replay is strict: invalid current-format records stop work access rather than being silently skipped. Reads are paged; configured RPC frame and event payload limits apply. Oversized objectives/plans fail before persistence, using one documented bound resolved in PG-0 rather than a second hard-coded competing limit.
+Goal round uniqueness is enforced by serialized session transaction + expected seq + sequential round validation. Replay is strict: invalid current-format records stop work access rather than being silently skipped. A replay caller starts with `WorkState{SessionID: sessionID}` and carries the returned folded state into the next call. Each call reads and folds at most `limit` events after that cursor; session mismatches and sequence gaps fail closed. A subscription with an external `after_seq` still folds from the beginning and suppresses delivery through `after_seq`. No snapshot or cache is introduced. Configured RPC frame and event payload limits apply. Oversized objectives/plans fail before persistence, using one documented bound resolved in PG-0 rather than a second hard-coded competing limit.
 
 CommitGoalRun:
 ```text

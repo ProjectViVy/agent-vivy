@@ -25,9 +25,11 @@ type WorkCommitResult struct {
 
 // WorkStore is the optional session work-control extension. It is deliberately
 // separate from Engine until runtime admission consumes the complete contract.
+// ReplayWork starts from WorkState{SessionID: sessionID}; callers carry each
+// returned state to the next bounded page.
 type WorkStore interface {
 	ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error)
-	ReplayWork(ctx context.Context, sessionID domain.SessionID, after domain.WorkVersion, limit int) ([]domain.WorkEvent, error)
+	ReplayWork(ctx context.Context, sessionID domain.SessionID, cursor domain.WorkState, limit int) ([]domain.WorkEvent, domain.WorkState, error)
 	CommitWork(ctx context.Context, mutation domain.WorkMutation) (WorkCommitResult, error)
 }
 

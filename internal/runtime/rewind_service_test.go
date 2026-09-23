@@ -282,9 +282,9 @@ func TestForkAndRewindKeepSpentGoalRoundsWithoutChildAuthority(t *testing.T) {
 	if err != nil || parentWork.Version != 3 || parentWork.Goal == nil || parentWork.Goal.RoundsStarted != 2 {
 		t.Fatalf("parent work after rewind = %+v / %v; want two spent rounds preserved", parentWork, err)
 	}
-	events, err := backend.ReplayWork(ctx, sessionID, 0, 10)
-	if err != nil || len(events) != 3 || events[2].Seq != 3 {
-		t.Fatalf("work journal after rewind = %+v / %v; want all three events", events, err)
+	events, replayed, err := backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 10)
+	if err != nil || len(events) != 3 || events[2].Seq != 3 || replayed.Version != 3 {
+		t.Fatalf("work journal after rewind = %+v / %+v / %v; want all three events", events, replayed, err)
 	}
 	marker, ok, err := backend.LatestSessionTruncation(ctx, sessionID)
 	if err != nil || !ok || marker.Reason != storage.TruncationRewind || marker.WorkSeq != 0 {

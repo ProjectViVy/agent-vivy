@@ -39,25 +39,38 @@ func (b *Backend) ReadWork(ctx context.Context, sessionID domain.SessionID) (dom
 	return state, nil
 }
 
-func (b *Backend) ReplayWork(ctx context.Context, sessionID domain.SessionID, after domain.WorkVersion, limit int) ([]domain.WorkEvent, error) {
+func (b *Backend) ReplayWork(ctx context.Context, sessionID domain.SessionID, cursor domain.WorkState, limit int) ([]domain.WorkEvent, domain.WorkState, error) {
+	if sessionID == "" || cursor.SessionID != sessionID {
+		return nil, domain.WorkState{}, fmt.Errorf("%w: session %q", domain.ErrInvalidWorkCursor, cursor.SessionID)
+	}
 	if limit <= 0 {
-		return []domain.WorkEvent{}, nil
+		next, err := domain.FoldWorkFrom(cursor, nil)
+		return []domain.WorkEvent{}, next, err
 	}
-	if _, err := b.ReadWork(ctx, sessionID); err != nil {
-		return nil, err
+	if _, err := b.GetSession(ctx, sessionID); err != nil {
+		return nil, domain.WorkState{}, err
 	}
-	events, err := b.readWorkEvents(ctx, sessionID, domain.WorkSeq(after), limit)
-	if err != nil {
-		return nil, err
-	}
-	want := domain.WorkSeq(after) + 1
-	for _, event := range events {
-		if event.Seq != want {
-			return nil, fmt.Errorf("%w: got %d after %d", domain.ErrNonContiguousWorkSeq, event.Seq, want-1)
+	if cursor.Version > 0 {
+		var anchor int
+		err := b.db.QueryRowContext(ctx,
+			"SELECT 1 FROM session_work_events WHERE session_id = ? AND work_seq = ?",
+			sessionID, int64(cursor.Version)).Scan(&anchor)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.WorkState{}, domain.ErrInvalidWorkCursor
 		}
-		want++
+		if err != nil {
+			return nil, domain.WorkState{}, fmt.Errorf("storage: check work replay cursor: %w", err)
+		}
 	}
-	return events, nil
+	events, err := b.readWorkEvents(ctx, sessionID, domain.WorkSeq(cursor.Version), limit)
+	if err != nil {
+		return nil, domain.WorkState{}, err
+	}
+	next, err := domain.FoldWorkFrom(cursor, events)
+	if err != nil {
+		return nil, domain.WorkState{}, fmt.Errorf("storage: fold replayed work: %w", err)
+	}
+	return events, next, nil
 }
 
 func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) (storage.WorkCommitResult, error) {

@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 // WorkSeq is the session-scoped sequence assigned to a work event.
@@ -178,10 +179,26 @@ var ErrUnsupportedWorkPayloadVersion = errors.New("unsupported work payload vers
 var ErrUnsupportedWorkEventKind = errors.New("unsupported work event kind")
 var ErrStaleGoalReference = errors.New("stale goal reference")
 var ErrWorkRoundLimit = errors.New("work round limit exceeded")
+var ErrInvalidWorkCursor = errors.New("invalid work replay cursor")
 
 // FoldWork strictly reduces events into session work state.
 func FoldWork(events []WorkEvent) (WorkState, error) {
-	var state WorkState
+	return FoldWorkFrom(WorkState{}, events)
+}
+
+// FoldWorkFrom strictly reduces a contiguous page from a caller-carried state.
+// The input state is not mutated, including when the page is invalid.
+func FoldWorkFrom(cursor WorkState, events []WorkEvent) (WorkState, error) {
+	if cursor.Version < 0 || (cursor.Version != 0 && cursor.SessionID == "") ||
+		(cursor.Version == 0 && (cursor.Goal != nil || !reflect.DeepEqual(cursor.Plan, PlanState{}))) {
+		return WorkState{}, ErrInvalidWorkCursor
+	}
+	state := cursor
+	if cursor.Goal != nil {
+		goal := *cursor.Goal
+		state.Goal = &goal
+	}
+	state.Plan.BlockedToolCalls = append([]string(nil), cursor.Plan.BlockedToolCalls...)
 	for _, event := range events {
 		if event.SessionID == "" {
 			return WorkState{}, fmt.Errorf("%w: empty event session", ErrStaleGoalReference)
@@ -395,13 +412,12 @@ func editGoal(state *WorkState, mutation WorkMutation) error {
 		return err
 	}
 	if mutation.SessionID != state.SessionID ||
-		mutation.Goal.Revision != state.Goal.Ref.Revision+1 ||
 		mutation.Objective == "" ||
 		mutation.MaxRounds < state.Goal.RoundsStarted ||
 		mutation.MaxRounds <= 0 {
 		return fmt.Errorf("%w: invalid goal edit", ErrStaleGoalReference)
 	}
-	state.Goal.Ref = mutation.Goal
+	state.Goal.Ref.Revision++
 	state.Goal.Objective = mutation.Objective
 	state.Goal.MaxRounds = mutation.MaxRounds
 	return nil

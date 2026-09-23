@@ -152,14 +152,14 @@ func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Er
 	var found bool
 	currentSubmission := ""
 	planActive := false
-	after := domain.WorkVersion(0)
+	cursor := domain.WorkState{SessionID: sessionID}
 	for {
-		events, err := h.deps.Work.ReplayWork(ctx, sessionID, after, workReplayPageSize)
+		events, next, err := h.deps.Work.ReplayWork(ctx, sessionID, cursor, workReplayPageSize)
 		if err != nil {
 			return nil, workError(err)
 		}
+		cursor = next
 		for _, event := range events {
-			after = domain.WorkVersion(event.Seq)
 			switch event.Kind {
 			case domain.WorkEventPlanEntered:
 				planActive = true
@@ -326,7 +326,7 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 			strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "goal_id, goal_revision, objective and max_rounds are required"}
 		}
-		mutation.Goal, mutation.Objective, mutation.MaxRounds = domain.GoalRef{ID: params.GoalID, Revision: params.GoalRevision + 1}, strings.TrimSpace(params.Objective), params.MaxRounds
+		mutation.Goal, mutation.Objective, mutation.MaxRounds = domain.GoalRef{ID: params.GoalID, Revision: params.GoalRevision}, strings.TrimSpace(params.Objective), params.MaxRounds
 	case domain.WorkEventGoalPaused, domain.WorkEventGoalResumed, domain.WorkEventGoalCompleted, domain.WorkEventGoalBlocked, domain.WorkEventGoalCleared:
 		if params.GoalID == "" || params.GoalRevision <= 0 {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "goal_id and goal_revision are required"}

@@ -77,6 +77,41 @@ func TestFoldWorkRejectsStaleGoalReference(t *testing.T) {
 	}
 }
 
+func TestFoldWorkEditsExactCurrentGoalRevision(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	state, err := FoldWork([]WorkEvent{
+		goalEvent(1, WorkEventGoalCreated, ref, "first objective", 2),
+		admissionEvent(2, ref, 1),
+		goalEvent(3, WorkEventGoalEdited, ref, "revised objective", 3),
+	})
+	if err != nil {
+		t.Fatalf("FoldWork valid edit: %v", err)
+	}
+	if state.Version != 3 || state.Goal == nil ||
+		state.Goal.Ref != (GoalRef{ID: "goal-1", Revision: 2}) ||
+		state.Goal.Objective != "revised objective" || state.Goal.RoundsStarted != 1 || state.Goal.MaxRounds != 3 {
+		t.Fatalf("FoldWork edited state = %+v, want revision 2 and spent round retained", state)
+	}
+}
+
+func TestFoldWorkFromCarriesStateWithoutMutatingCursor(t *testing.T) {
+	ref := GoalRef{ID: "goal-1", Revision: 1}
+	cursor, err := FoldWork([]WorkEvent{goalEvent(1, WorkEventGoalCreated, ref, "ship it", 2)})
+	if err != nil {
+		t.Fatalf("FoldWork create: %v", err)
+	}
+	next, err := FoldWorkFrom(cursor, []WorkEvent{goalEvent(2, WorkEventGoalPaused, ref, "", 0)})
+	if err != nil {
+		t.Fatalf("FoldWorkFrom pause: %v", err)
+	}
+	if cursor.Version != 1 || cursor.Goal == nil || cursor.Goal.Phase != WorkPhaseActive {
+		t.Fatalf("input cursor mutated: %+v", cursor)
+	}
+	if next.Version != 2 || next.Goal == nil || next.Goal.Phase != WorkPhasePaused {
+		t.Fatalf("next state = %+v, want paused at version 2", next)
+	}
+}
+
 func TestFoldWorkRejectsRoundCapOverflow(t *testing.T) {
 	ref := GoalRef{ID: "goal-1", Revision: 1}
 	_, err := FoldWork([]WorkEvent{
