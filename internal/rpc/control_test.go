@@ -514,6 +514,45 @@ func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 	}
 }
 
+func TestInitializeProjectsCodeModeCapability(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.CodeModeAvailable = true
+	})
+	result, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		CodeModeAvailable bool `json:"code_mode_available"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=true", raw)
+	}
+
+	without := newControlTestEnv(t)
+	result, rpcErr = callControl(t, without.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=false when the face gate is absent", raw)
+	}
+}
+
 func TestControlHandlerUnknownMethodAndInvalidParams(t *testing.T) {
 	env := newControlTestEnv(t)
 	if _, rpcErr := callControl(t, env.handler, "missing", nil); rpcErr == nil || rpcErr.Code != MethodNotFound {

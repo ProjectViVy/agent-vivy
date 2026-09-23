@@ -25,6 +25,8 @@ interface RpcResponse<T> {
 export interface RpcCapabilities {
   protocol_version: string;
   capabilities: string[];
+  /** Optional additive capability advertised by newer control planes. */
+  code_mode_available?: boolean;
 }
 
 interface Bootstrap {
@@ -105,9 +107,17 @@ export class RpcClient {
     const capabilities = await provisional.call<RpcCapabilities>('initialize', { protocol_version: bootstrap.protocol_version });
     provisional.capabilities.protocol_version = capabilities.protocol_version;
     provisional.capabilities.capabilities = capabilities.capabilities ?? [];
+    if (typeof capabilities.code_mode_available === 'boolean') {
+      provisional.capabilities.code_mode_available = capabilities.code_mode_available;
+    } else {
+      delete provisional.capabilities.code_mode_available;
+    }
     capabilitiesSnapshot = {
       protocol_version: provisional.capabilities.protocol_version,
       capabilities: [...provisional.capabilities.capabilities],
+      ...(typeof provisional.capabilities.code_mode_available === 'boolean'
+        ? { code_mode_available: provisional.capabilities.code_mode_available }
+        : {}),
     };
     return provisional;
   }
@@ -166,6 +176,9 @@ export function getRpcCapabilitiesSnapshot(): RpcCapabilities {
   return {
     protocol_version: capabilitiesSnapshot.protocol_version,
     capabilities: [...capabilitiesSnapshot.capabilities],
+    ...(typeof capabilitiesSnapshot.code_mode_available === 'boolean'
+      ? { code_mode_available: capabilitiesSnapshot.code_mode_available }
+      : {}),
   };
 }
 

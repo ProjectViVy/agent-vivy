@@ -17,6 +17,7 @@ import (
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -44,6 +45,14 @@ type RunHook interface {
 // The runtime never executes filesystem commands through this interface.
 type WorkspaceAllocator interface {
 	Ensure(context.Context, domain.RunID) (Workspace, error)
+}
+
+// WorkspaceReleaser is an optional rollback seam for allocators that create
+// filesystem state during Ensure. Admission failures must not leave an
+// unowned per-run directory behind; selected project and local workspaces may
+// implement this as a no-op.
+type WorkspaceReleaser interface {
+	Release(context.Context, Workspace) error
 }
 
 // ChildApprovalRouter receives a durable decision for an approval owned by a
@@ -135,6 +144,19 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// Admission is the optional atomic primary-run boundary. First-party App
+	// wiring supplies it when prompt snapshots are enabled; legacy embedders
+	// retain the existing sequential path when it is absent.
+	Admission storage.RunAdmissionStore
+	// MaskResolver is the selected generation's narrow runtime-facing mask
+	// seam. Runtime never holds the provider's control-plane Manager.
+	MaskResolver maskcontract.Resolver
+	// MaskFrame and MaskFrameDigest are immutable provider assets copied by the
+	// composition root. Keeping them separate prevents runtime from reaching
+	// through the control-plane service for prompt data.
+	MaskFrame       string
+	MaskFrameDigest string
+	GenerationID    string
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -556,7 +578,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	return s.runWithOptions(ctx, sessionID, userText, options, nil)
 }
 
-type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.RunEvent, error)
+type runPersistence func(storage.RunAdmission) (domain.RunEvent, error)
 
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
@@ -616,12 +638,58 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	var capture maskcontract.Capture
+	var prompt *storage.RunPromptSnapshot
+	var expectedMask *storage.MaskCaptureCheck
+	if s.deps.Admission != nil {
+		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
+		if s.deps.MaskResolver != nil {
+			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: capture session mask: %w", err)
+			}
+			if capture.Selection.SessionID != sessionID {
+				return "", maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask capture belongs to another session"))
+			}
+			expectedMask = &storage.MaskCaptureCheck{
+				SessionID: sessionID, SelectionRevision: capture.Selection.Revision,
+				MaskID: capture.Selection.MaskID,
+			}
+			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
+				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
+				expectedMask.DefinitionDigest = capture.Mask.Digest
+			}
+		}
+		built, buildErr := buildPromptSnapshot(PromptInput{
+			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
+			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+		})
+		if buildErr != nil {
+			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
+		}
+		prompt = &built
+	}
 	workspaceID := ""
+	var workspace Workspace
+	workspaceReady := false
+	releaseWorkspace := func() {
+		if !workspaceReady || s.deps.Workspaces == nil {
+			return
+		}
+		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
+			if err := releaser.Release(context.WithoutCancel(ctx), workspace); err != nil {
+				slog.Warn("run admission rollback could not release workspace", "run", string(runID), "err", err)
+			}
+		}
+		workspaceReady = false
+	}
 	if s.deps.Workspaces != nil {
-		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
+		var err error
+		workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
 		if err != nil {
 			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 		}
+		workspaceReady = true
 		workspaceID = workspace.ID
 	}
 	now := time.Now().UnixMilli()
@@ -648,29 +716,46 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
+	promptSchema, promptDigest := 0, ""
+	if prompt != nil {
+		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+	}
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
+	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	if persist != nil {
-		started, err = persist(message, run, started)
+		started, err = persist(admission)
 		if err != nil {
+			releaseWorkspace()
 			return "", err
+		}
+	} else if s.deps.Admission != nil {
+		started, err = s.deps.Admission.CommitRunAdmission(ctx, admission)
+		if err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: commit run admission: %w", err)
 		}
 	} else {
 		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: append user message: %w", err)
 		}
 		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: create run: %w", err)
 		}
 		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
 		if appendErr != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
 		}
 		started.Seq = seq
 		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: activate run: %w", err)
 		}
 	}
@@ -1024,19 +1109,35 @@ func (s *Service) recover(ctx context.Context) error {
 				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
 				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
-		case hasApproval && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
-			s.rebuildPending(ctx, run, approval, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				// Keep the review row and in-memory suspension visible while this
+				// process lacks the immutable prompt needed to resume it. A later
+				// generation/module restore can retry recovery; no model or tool is
+				// allowed to consume the opaque checkpoint in the meantime.
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			}
 		case hasQuestion && question.ExpiresAt <= now:
 			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
 				s.failUnrecoverable(ctx, run.ID, "question expiry could not be persisted")
 			}
-		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
-			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			}
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
@@ -1301,8 +1402,119 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 	if s.engine.cfg.Checkpoints == nil {
 		return false
 	}
-	_, ok, err := s.engine.cfg.Checkpoints.Get(ctx, checkpointIDFor(runID))
+	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return false
+	}
+	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
 	return err == nil && ok
+}
+
+// promptBlocksRecovery distinguishes a recoverable prompt incompatibility
+// from an unreadable Eino checkpoint. The former keeps the approval/question
+// pending so a compatible generation can retry; the latter is an unrecoverable
+// lost continuation and is closed by the existing recovery policy.
+func (s *Service) promptBlocksRecovery(ctx context.Context, runID domain.RunID) (bool, error) {
+	_, _, err := s.promptSnapshotContext(ctx, runID)
+	if err == nil {
+		return false, nil
+	}
+	var typed *maskcontract.Error
+	if !errors.As(err, &typed) {
+		return false, err
+	}
+	switch typed.Code {
+	case maskcontract.CodeSnapshotMissing, maskcontract.CodeSnapshotCorrupt,
+		maskcontract.CodeIncompatiblePrompt, maskcontract.CodeMaskUnavailable:
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+// promptSnapshotContext loads the durable prompt marker and snapshot before
+// any Eino checkpoint is read. Legacy runs have no marker and retain their
+// historical static instruction; a new-format run must have a matching,
+// same-generation snapshot or it is rejected fail-closed.
+func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID) (context.Context, bool, error) {
+	if s.deps.Admission == nil {
+		return ctx, false, nil
+	}
+	schemaVersion, digest, marked, err := s.runPromptMarker(ctx, runID)
+	if err != nil {
+		return ctx, false, err
+	}
+	if !marked {
+		return ctx, false, nil
+	}
+	snapshot, err := s.deps.Admission.LoadRunPrompt(ctx, runID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotMissing, err)
+		}
+		return ctx, false, fmt.Errorf("runtime: load run prompt snapshot: %w", err)
+	}
+	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion || snapshot.PayloadSHA256 != digest {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run prompt marker does not match snapshot"))
+	}
+	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt belongs to another generation"))
+	}
+	if snapshot.ComposerVersion != promptComposerVersion {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt was composed by an unsupported version"))
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil {
+		return ctx, false, err
+	}
+	if payload.Mask != nil && s.deps.MaskResolver == nil {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeMaskUnavailable, errors.New("the mask provider is not present for this run"))
+	}
+	return withRunPrompt(ctx, snapshot), true, nil
+}
+
+func (s *Service) promptSnapshotForRun(ctx context.Context, runID domain.RunID) (storage.RunPromptSnapshot, bool, error) {
+	promptCtx, hasPrompt, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return storage.RunPromptSnapshot{}, false, err
+	}
+	if !hasPrompt {
+		return storage.RunPromptSnapshot{}, false, nil
+	}
+	snapshot, _ := runPrompt(promptCtx)
+	return snapshot, true, nil
+}
+
+func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, digest string, marked bool, err error) {
+	if s.deps.Journal == nil {
+		return 0, "", false, errors.New("runtime: journal not wired")
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventRunStarted {
+			continue
+		}
+		var payload payloadRunStarted
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return 0, "", false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
+		}
+		if payload.PromptSchema == 0 && payload.PromptDigest == "" {
+			return 0, "", false, nil
+		}
+		if payload.PromptSchema <= 0 || strings.TrimSpace(payload.PromptDigest) == "" {
+			return 0, "", false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
+		}
+		return payload.PromptSchema, payload.PromptDigest, true, nil
+	}
+	if err := it.Err(); err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	return 0, "", false, storage.ErrNotFound
 }
 
 // rebuildPending restores the in-memory suspend state of one run so the
@@ -1695,6 +1907,16 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
+	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
+	if promptErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		// Bind before history selection so the admitted instruction is reserved
+		// from the same byte budget that chooses transcript rows.
+		ctx = withRunPrompt(ctx, promptSnapshot)
+	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
 	if err != nil {
@@ -1710,6 +1932,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
+	if hasPrompt {
+		runCtx = withRunPrompt(runCtx, promptSnapshot)
+	}
 	// Per-run mount registry: skill_view records declared tools here so the
 	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
@@ -1796,6 +2021,10 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 
 func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
+	reservedPromptBytes, err := promptInstructionReservation(ctx)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
 	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
@@ -1819,6 +2048,7 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
+		ReservedBytes:      reservedPromptBytes,
 	}, preamble, folded, userText)
 	if err != nil {
 		return nil, selection, stats, err
@@ -1826,7 +2056,7 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
 		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sessionID), WorkspaceID: workspaceID}
 		if eng.cfg.MaxContextBytes > 0 {
-			used := projectedContextBytes(msgs)
+			used := projectedContextBytes(msgs) + reservedPromptBytes
 			request.EnforceByteBudget = true
 			request.ByteBudget = max(0, eng.cfg.MaxContextBytes-used)
 			// Keep the Host's token bound coupled to the same final
@@ -1853,8 +2083,9 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 			}
 		}
 	}
-	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs) > eng.cfg.MaxContextBytes {
-		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectedContextBytes(msgs), eng.cfg.MaxContextBytes)
+	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs)+reservedPromptBytes > eng.cfg.MaxContextBytes {
+		used := projectedContextBytes(msgs) + reservedPromptBytes
+		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, used, eng.cfg.MaxContextBytes)
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -2400,6 +2631,14 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	if approval.Kind != domain.ApprovalKindChild && !isShellApproval(approval) {
+		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
+			// Validate before first-writer settlement. A corrupt or incompatible
+			// snapshot leaves the review pending, so recovery can surface the
+			// same fail-closed state without losing the user's decision slot.
+			return fmt.Errorf("runtime: approval resume rejected by prompt snapshot: %w", err)
+		}
+	}
 	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
@@ -2702,6 +2941,12 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if time.Now().UnixMilli() >= question.ExpiresAt {
 		return ErrQuestionExpired
 	}
+	if _, _, err := s.promptSnapshotContext(ctx, question.RunID); err != nil {
+		// Keep the durable question pending when the immutable prompt cannot be
+		// reconstructed. Answering it would otherwise consume the only resume
+		// opportunity while no model/tool call is allowed to proceed.
+		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
+	}
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
@@ -2835,6 +3080,19 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		mounts = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
+	promptCtx, hasPrompt, promptErr := s.promptSnapshotContext(ctx, runID)
+	if promptErr != nil {
+		// Validate the immutable prompt before consuming proposal bytes or
+		// handing a durable approval/question to Eino. The decision has already
+		// been recorded by the caller, so close the run visibly if recovery is
+		// no longer possible instead of leaving an active dangling run.
+		slog.Warn("resume rejected prompt snapshot", "run", string(runID), "err", promptErr)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		ctx = promptCtx
+	}
 	approvedArgumentsHash := ""
 	if approvalID != "" {
 		var unbindErr error

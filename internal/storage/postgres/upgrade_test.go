@@ -292,7 +292,8 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close() })
 
-	// (a) normalize the old marker and record the canonical 001–023 history.
+	// (a) normalize the old marker and record the canonical 001–023 history;
+	// the normal runner then applies the new 024 mask schema.
 	var versions []int64
 	var names []string
 	var checksums []string

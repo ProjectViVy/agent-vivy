@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { MaskIdentity } from '@/components/masks/MaskIdentity';
 import { maskOptions, setActiveMaskId, useActiveMask, type MaskOption } from '@/components/masks/mask-catalog';
 import { useTranslation } from '@/i18n';
+import { CodeModeControl } from './CodeModeControl';
 
 function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], catalog: readonly ProviderCatalogEntry[], t: ReturnType<typeof useTranslation>['t']): string {
   // 目录/注册表命中时显示厂商名（如 provider=openai-completions + DeepSeek 端点
@@ -164,10 +165,15 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 export function MaskAndModelSwitcher() {
   const activeMask = useActiveMask();
   const settings = useVivyStore((state) => state.settings);
+  const codeModeAvailable = useVivyStore((state) => state.codeModeAvailable);
 
   return <div className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border bg-background/70 p-0.5 shadow-sm">
     <MaskMenu activeMask={activeMask} onSelect={setActiveMaskId} />
     <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
     <ModelMenu settings={settings} />
+    {codeModeAvailable ? <>
+      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
+      <CodeModeControl />
+    </> : null}
   </div>;
 }

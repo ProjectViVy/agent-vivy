@@ -39,6 +39,20 @@ func TestBackendConformance(t *testing.T) {
 			}
 		},
 	})
+	conformance.RunMasks(t, conformance.Harness{
+		DualOpen: conformance.DualOpenExclusive,
+		Setup: func(t *testing.T) conformance.Slot {
+			schema := fmt.Sprintf("mask_cn_%d_%d", time.Now().UnixNano(), schemaSeq.Add(1))
+			open := func() (storage.Engine, error) {
+				return OpenSchema(context.Background(), dsn, schema)
+			}
+			eng, err := open()
+			if err != nil {
+				t.Fatalf("OpenSchema: %v", err)
+			}
+			return conformance.Slot{Engine: eng, Reopen: open, OpenSecond: open}
+		},
+	})
 }
 
 func TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions(t *testing.T) {

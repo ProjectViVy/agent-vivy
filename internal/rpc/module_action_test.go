@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/actionhost"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/sdk/port/controlaction"
 )
 
@@ -18,6 +19,24 @@ const (
 	moduleActionID     = "example.action.read"
 	moduleActionToken  = "face-connection-token"
 )
+
+func TestModuleActionRPCProjectsAllowlistedMaskError(t *testing.T) {
+	err := maskcontract.NewRevisionError(maskcontract.CodeRevisionConflict, 4, errors.New("private storage detail"))
+	rpcErr := moduleActionRPCError(err)
+	if rpcErr.Code != CodeConflict || rpcErr.Message != "mask action failed" {
+		t.Fatalf("RPC error = %#v", rpcErr)
+	}
+	var data struct {
+		Code            string `json:"code"`
+		CurrentRevision int64  `json:"current_revision"`
+	}
+	if unmarshalErr := json.Unmarshal(rpcErr.Data, &data); unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+	if data.Code != maskcontract.CodeRevisionConflict || data.CurrentRevision != 4 || strings.Contains(string(rpcErr.Data), "private storage") {
+		t.Fatalf("unsafe mask error projection = %s", rpcErr.Data)
+	}
+}
 
 type moduleActionFixture struct {
 	env       *controlTestEnv

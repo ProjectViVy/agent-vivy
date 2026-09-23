@@ -22,16 +22,21 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 23 {
-		t.Fatalf("migration count = %d, want 23", count)
+	if count != 25 {
+		t.Fatalf("migration count = %d, want 25", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 23`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 23: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 25: %v", err)
 	}
-	if name != "workspace_path" || len(checksum) != 64 {
-		t.Fatalf("migration 23 metadata = %q/%q", name, checksum)
+	if name != "truncation_run_id" || len(checksum) != 64 {
+		t.Fatalf("migration 25 metadata = %q/%q", name, checksum)
+	}
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots"} {
+		if !tableExists(t, db, table) {
+			t.Fatalf("migration 24 did not create %s", table)
+		}
 	}
 
 	if err := Apply(ctx, db, SQLite); err != nil {
@@ -43,6 +48,91 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 	if reapplied != count {
 		t.Fatalf("re-applied migration count = %d, want %d", reapplied, count)
+	}
+}
+
+func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatalf("Embedded: %v", err)
+	}
+	through23 := Manifest{byDialect: map[Dialect][]Migration{
+		SQLite:   manifest.Migrations(SQLite)[:23],
+		Postgres: manifest.Migrations(Postgres)[:23],
+	}}
+	path := filepath.Join(t.TempDir(), "upgrade-23.db")
+	open := func() *sql.DB {
+		db, err := sql.Open("sqlite", "file:"+path)
+		if err != nil {
+			t.Fatalf("sql.Open: %v", err)
+		}
+		db.SetMaxOpenConns(1)
+		return db
+	}
+
+	db := open()
+	if err := ApplyManifest(ctx, db, SQLite, through23); err != nil {
+		t.Fatalf("apply through migration 23: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO sessions (id, title, created_at) VALUES ('upgrade-session', 'preserved', 11);
+		INSERT INTO runs (id, session_id, status, created_at) VALUES ('upgrade-run', 'upgrade-session', 'completed', 12);
+	`); err != nil {
+		t.Fatalf("seed version 23 data: %v", err)
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("upgrade 23 to 24: %v", err)
+	}
+	assertSQLiteMaskMigration24(t, db)
+	assertSQLiteUpgradeRows(t, db)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close upgraded database: %v", err)
+	}
+
+	db = open()
+	t.Cleanup(func() { _ = db.Close() })
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("apply after reopen: %v", err)
+	}
+	assertSQLiteMaskMigration24(t, db)
+	assertSQLiteUpgradeRows(t, db)
+}
+
+func assertSQLiteMaskMigration24(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
+		t.Fatalf("count upgraded migrations: %v", err)
+	}
+	if count != 25 {
+		t.Fatalf("upgraded migration count = %d, want 25", count)
+	}
+	var name, checksum string
+	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read upgraded migration 25 metadata: %v", err)
+	}
+	if name != "truncation_run_id" || len(checksum) != 64 {
+		t.Fatalf("upgraded migration 25 metadata = %q/%q", name, checksum)
+	}
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots"} {
+		if !tableExists(t, db, table) {
+			t.Fatalf("upgrade did not create %s", table)
+		}
+	}
+}
+
+func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var sessionTitle, runSession, runStatus string
+	if err := db.QueryRow(`SELECT title FROM sessions WHERE id = 'upgrade-session'`).Scan(&sessionTitle); err != nil {
+		t.Fatalf("read upgraded session: %v", err)
+	}
+	if err := db.QueryRow(`SELECT session_id, status FROM runs WHERE id = 'upgrade-run'`).Scan(&runSession, &runStatus); err != nil {
+		t.Fatalf("read upgraded run: %v", err)
+	}
+	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
+		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
 	}
 }
 
