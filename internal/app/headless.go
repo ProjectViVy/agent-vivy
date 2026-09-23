@@ -224,18 +224,13 @@ func (s *headlessSink) Publish(ev domain.RunEvent) {
 			s.streamed = false
 			break
 		}
-		content, err := s.completion.Complete(ev.PayloadVersion, ev.Payload)
-		if err != nil {
+		if err := s.completion.Complete(ev.PayloadVersion, ev.Payload); err != nil {
 			s.failProtocol(err)
 			s.streamed = false
 			break
 		}
 		if s.streamed {
 			_, _ = fmt.Fprintln(s.out)
-		} else if ev.PayloadVersion == 0 || ev.PayloadVersion == 1 {
-			if strings.TrimSpace(content) != "" {
-				_, _ = fmt.Fprintln(s.out, content)
-			}
 		}
 		s.streamed = false
 	case domain.EventToolStarted:

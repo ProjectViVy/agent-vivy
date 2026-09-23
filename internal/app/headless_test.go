@@ -90,15 +90,20 @@ func TestHeadlessSinkRendersStream(t *testing.T) {
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"Hel"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"lo"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","byte_len":5}`)})
-	// A legacy v1 provider that did not stream prints its authoritative
-	// completed content once.
-	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 1, Payload: []byte(`{"content":"Second turn"}`)})
+	// A malformed v2 completion fails the stream protocol closed.
 	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content":"illegal","content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":7}`)})
-	if got := out.String(); got != "Hello\nSecond turn\n" {
+	if got := out.String(); got != "Hello\n" {
 		t.Fatalf("stdout = %q, want streamed text with message breaks", got)
 	}
 	if !strings.Contains(errw.String(), "model.completed v2") {
 		t.Fatalf("stderr = %q, want invalid v2 diagnostic", errw.String())
+	}
+	// A legacy content-bearing completion is rejected, not rendered.
+	var out2, errw2 bytes.Buffer
+	sink2 := newHeadlessSink(&out2, &errw2)
+	sink2.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 1, Payload: []byte(`{"content":"Second turn"}`)})
+	if out2.String() != "" || !strings.Contains(errw2.String(), "unsupported model.completed payload version 1") {
+		t.Fatalf("legacy v1 completion: stdout=%q stderr=%q", out2.String(), errw2.String())
 	}
 	sink.Publish(domain.RunEvent{Type: domain.EventToolStarted, Payload: []byte(`{"tool_name":"bash"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventToolFinished, Payload: []byte(`{"tool_name":"bash","error":"exit status 1"}`)})
