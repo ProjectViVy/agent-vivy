@@ -196,7 +196,7 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
 		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
 		errors.Is(err, storage.ErrWorkInvalidMutation) || errors.Is(err, storage.ErrWorkRunConflict) ||
-		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrWorkRoundLimit) {
+		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrGoalArmed) || errors.Is(err, domain.ErrWorkRoundLimit) {
 		return &toolRefusal{cause: err, reason: publicRefusalReason(err)}, true
 	}
 	return nil, false

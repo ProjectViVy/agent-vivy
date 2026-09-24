@@ -178,6 +178,7 @@ var ErrNonContiguousWorkSeq = errors.New("non-contiguous work sequence")
 var ErrUnsupportedWorkPayloadVersion = errors.New("unsupported work payload version")
 var ErrUnsupportedWorkEventKind = errors.New("unsupported work event kind")
 var ErrStaleGoalReference = errors.New("stale goal reference")
+var ErrGoalArmed = errors.New("goal_armed")
 var ErrWorkRoundLimit = errors.New("work round limit exceeded")
 var ErrInvalidWorkCursor = errors.New("invalid work replay cursor")
 
@@ -278,7 +279,7 @@ func enterPlan(state *WorkState, mutation WorkMutation) error {
 		return fmt.Errorf("%w: plan already active", ErrStaleGoalReference)
 	}
 	if state.Goal != nil && state.Goal.Phase == WorkPhaseActive {
-		return fmt.Errorf("%w: active Goal must be paused before Plan", ErrStaleGoalReference)
+		return fmt.Errorf("%w: %w: active Goal must be paused before Plan", ErrGoalArmed, ErrStaleGoalReference)
 	}
 	state.Plan = PlanState{Active: true, ReviewStatus: PlanReviewNone}
 	return nil

@@ -1,6 +1,80 @@
 package runtime
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/cloudwego/eino/schema"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/tools"
+)
+
+func TestModelEnterPlanWhileGoalArmedReportsGoalArmedWithoutPersistingPlan(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "armed-goal.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	const sessionID = domain.SessionID("sess-armed-goal-plan-tool")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "Armed Goal", CreatedAt: 1,
+		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAuto)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-armed-goal", RequestHash: "seed-armed-goal",
+		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-armed", Revision: 1},
+		Objective: "bounded objective", MaxRounds: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	toolset, err := tools.NewRegistry(tools.NewEnterPlanMode()).Resolve([]string{tools.EnterPlanModeName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{ID: "enter-while-armed", Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`}}}),
+		schema.AssistantMessage("The Goal remains armed.", nil),
+	)
+	engine, err := NewEngine(ctx, model, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+		AutoApproveTools: []string{tools.EnterPlanModeName}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Work: backend, Runs: backend, Messages: backend, Sessions: backend,
+		PrimaryRuns: backend, Sink: newTestSink(), PolicyDefaultProfile: domain.PolicyProfileFullAuto,
+	})
+	runID, err := svc.Run(ctx, sessionID, "Make a plan.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	state, err := backend.ReadWork(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive || state.Plan.Active || state.Version != 1 {
+		t.Fatalf("persisted work changed despite armed Goal: %+v", state)
+	}
+	var sawGoalArmed bool
+	var toolEvents []string
+	for _, event := range replayAll(t, backend, runID) {
+		if event.Type == domain.EventToolFinished {
+			toolEvents = append(toolEvents, string(event.Payload))
+		}
+		if event.Type == domain.EventToolFinished && strings.Contains(string(event.Payload), "goal_armed") {
+			sawGoalArmed = true
+		}
+	}
+	if !sawGoalArmed {
+		t.Fatalf("model did not receive the goal_armed refusal: tool events = %v", toolEvents)
+	}
+}
 
 func TestModelWorkIdentityIsDeterministicAndRunScoped(t *testing.T) {
 	id1, hash1, err := modelWorkIdentity("run-1", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})

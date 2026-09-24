@@ -203,7 +203,7 @@ func TestGoalRoundCapPersistsExplicitBlock(t *testing.T) {
 	}
 }
 
-func TestOldRevisionGoalRunCannotReportIntoEditedGoal(t *testing.T) {
+func TestOldGoalRunCannotReportEditedGoalReference(t *testing.T) {
 	ctx := context.Background()
 	backend := openLifecycleBackend(t)
 	const sessionID domain.SessionID = "sess-goal-old-report"
@@ -218,7 +218,7 @@ func TestOldRevisionGoalRunCannotReportIntoEditedGoal(t *testing.T) {
 	model := &gatedLifecycleModel{
 		inner: NewScriptedModel(
 			schema.AssistantMessage("", []schema.ToolCall{{ID: "report-old-revision", Function: schema.FunctionCall{
-				Name: tools.ReportGoalName, Arguments: `{"goal_id":"goal-lifecycle","revision":1,"status":"completed","reason":"old run done"}`,
+				Name: tools.ReportGoalName, Arguments: `{"goal_id":"goal-lifecycle","revision":2,"status":"completed","reason":"old run claims the edited Goal"}`,
 			}}}),
 			schema.AssistantMessage("Old report was rejected.", nil),
 		),
