@@ -6,7 +6,7 @@
 > Acceptance and release records: `docs/logs/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-09-19
+> Updated: 2026-09-24
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -33,14 +33,14 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 > land; no outer-loop fallback needed.
 
 
-## 0.1 Open remaining (updated 2026-09-23)
+## 0.1 Open remaining (updated 2026-09-24)
 
 Completed rows have been moved to `docs/COMPLETE.MD`; deferred, superseded, and declined rows to `docs/DEFER.MD`.
 This section retains only currently open work.
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| ISSUE-39-EINO-ORCHESTRATION | Native child lifecycle and bounded Eino DAG | PLANNED · TECHNICAL GATE | [Architecture](superpowers/specs/2026-09-23-issue39-eino-orchestration-design.md) and [eight-Story plan](superpowers/plans/issue39-eino-orchestration/index.md). First verify the combined Eino graph/approval/recovery path (ORCH-01); implementation and release require separate evidence. Mailbox-compatible stable Agent Session routing is required for continuable children; delivery/ack semantics remain open (D8), separate from unauthorized/deferred peer traffic (D5). Also track interrupt/close and descendant lifecycle, optional completed-turn fork, read-only/write workspace boundary, tree-wide budget/cost recovery, and one-shot/continuable mode boundaries (D9–D14). |
+| ISSUE-39-EINO-ORCHESTRATION | Native child lifecycle and bounded Eino DAG | ORCH-01 READY ON WINDOWS · G0 OPEN | [Architecture](superpowers/specs/2026-09-23-issue39-eino-orchestration-design.md) and [eight-Story plan/preflight](superpowers/plans/issue39-eino-orchestration/index.md). Main/source baseline is current; the standalone integrated Eino graph/Service proof is the only Story ready for a conforming Windows toolchain. This Linux checkout lacks Go, just and PowerShell, so no G0 runtime evidence exists. ORCH-02–08 remain gated. Mailbox-compatible stable Agent Session routing is required for continuable children; delivery/ack semantics remain open (D8), separate from deferred peer traffic (D5). Interrupt/close, optional completed-turn fork, read-only/write workspace boundary, tree budget/cost recovery and one-shot/continuable mode still require D9–D14 review. |
 | UI-SESSION-SEARCH-METADATA | Session-list search matches metadata only | OPEN | Found 2026-09-19 while adding the session-list header actions (`docs/logs/2026-09-19-session-list-header-actions/`). The new search input filters titles, folder labels and the untitled placeholder client-side, capped at 20 rows, because no host content-search RPC exists. The harness sidebar also searches message content through its host with a debounced request and matched snippets; Vivy would need an equivalent bounded `sessions/search` RPC (query → sorted matches with snippets, abortable) before the UI may claim content search. Do not fake it by loading transcripts into the browser. Related paths: `ui/src/components/chat/session-list-view.ts`, `internal/rpc/control.go`. |
 | APR-SDK-MOCK-DRIFT | `sdk/ui` typecheck is broken by stale Face-contract mocks | OPEN | Found 2026-09-19 while syncing the new settings fields into the Face contract. `cd sdk/ui; npx tsc --noEmit` reports `src/module.test.ts:36` missing `catalog` and `chooseWorkspace` from `FaceStoreState`, and `:275` missing `browseWorkspace` and `setSessionWorkspace` from `FaceClientAPI` — the mock store/API literals were not extended when those members were added to the contract. `just ci` does not typecheck `sdk/ui`, so the drift is invisible to the gate; add `sdk/ui` typecheck (and its vitest suite) to `plugin-ci` or a sibling gate and repair the mocks. |
 | APR-SETTLE-DEAD-PATH | Retire the second, unwired approval-timeout path | OPEN | Found 2026-09-19 while implementing timed auto-approval (`docs/logs/2026-09-19-approval-resume-and-timeout/`). Two mechanisms claim the same fact: the live `Service.StartInteractionSweeper` → `SweepExpired` (deadline = the row's `expires_at`) and the unwired `ApprovalScheduler` (`internal/runtime/approval_scheduler.go`) → `storage.ApprovalTimeoutStore.SweepExpiredApprovals` (`approvals.timeout_at`). Nothing constructs the scheduler or the store type assertion, so `Approval.TimeoutAt` is a field only the direct-shell approval path ever writes (`internal/runtime/shell.go`) and nothing reads. Delete the scheduler plus the `timeout_at` column/`ListExpiredApprovals`/`SweepExpiredApprovals` seam (or make the sweeper the only writer and drop the duplicate store methods) after confirming no plugin/Conformance consumer depends on `ApprovalTimeoutStore`. |
