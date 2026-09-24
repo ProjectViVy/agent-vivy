@@ -64,7 +64,10 @@ type goalWakeReadProbe struct {
 
 func (p *goalWakeReadProbe) ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error) {
 	state, err := p.WorkStore.ReadWork(ctx, sessionID)
-	if err == nil && state.Goal != nil && state.Goal.Phase == domain.WorkPhaseActive && !state.Plan.Active {
+	// WakeGoal's detached admission attempt uses context.Background. The
+	// authenticated RPC request and the origin resume retain cancellable
+	// contexts, so neither can satisfy this pre-terminal wake probe.
+	if err == nil && ctx.Done() == nil && state.Goal != nil && state.Goal.Phase == domain.WorkPhaseActive && !state.Plan.Active {
 		p.once.Do(func() { close(p.sawActiveGoal) })
 	}
 	return state, err
@@ -195,6 +198,22 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first authenticated plan/decide: %v", err)
 	}
+	select {
+	case <-chat.resumeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("origin did not resume after RPC decision")
+	}
+	select {
+	case <-probe.sawActiveGoal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("initial RPC decision did not wake Goal before origin terminal cleanup")
+	}
+	originBeforeRelease, err := backend.GetRun(ctx, origin)
+	if err != nil || originBeforeRelease.Status != domain.RunActive {
+		t.Fatalf("origin reached terminal before observed RPC wake: %+v / %v", originBeforeRelease, err)
+	}
+	// A replay itself begins with Service.DecidePlan's ReadWork; keep it after
+	// the wake assertion so it cannot be mistaken for the initial RPC wake.
 	replayJSON, err := client.Call(ctx, "plan/decide", params)
 	if err != nil {
 		t.Fatalf("replayed authenticated plan/decide: %v", err)
@@ -213,20 +232,6 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 	}
 	if firstView.Replayed || !replayView.Replayed || firstView.Event.Seq != replayView.Event.Seq {
 		t.Fatalf("decision replay = %s / %s", firstJSON, replayJSON)
-	}
-	select {
-	case <-chat.resumeEntered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("origin did not resume after RPC decision")
-	}
-	select {
-	case <-probe.sawActiveGoal:
-	case <-time.After(5 * time.Second):
-		t.Fatal("initial RPC decision did not wake Goal before origin terminal cleanup")
-	}
-	originBeforeRelease, err := backend.GetRun(ctx, origin)
-	if err != nil || originBeforeRelease.Status != domain.RunActive {
-		t.Fatalf("origin reached terminal before observed RPC wake: %+v / %v", originBeforeRelease, err)
 	}
 	release()
 	deadline = time.Now().Add(5 * time.Second)
