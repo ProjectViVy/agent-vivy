@@ -4,12 +4,22 @@ const api = vi.hoisted(() => ({
 	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
-  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
+  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
+const workSubscription = vi.hoisted(() => ({
+  onEvent: undefined as undefined | ((event: { seq: number; kind: string; request_id: string; created_at: number }) => void),
+  onReconnect: undefined as undefined | (() => Promise<void>),
+  close: vi.fn(),
+}));
 vi.mock('./api', () => api);
 vi.mock('./rpc', () => ({ resetRpcClient: vi.fn() }));
 vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent) => { subscription.onEvent = onEvent; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
+vi.mock('./work-subscription', () => ({ subscribeWork: vi.fn((_id: string, afterSeq: number, onEvent: typeof workSubscription.onEvent, _onError: unknown, onReconnect: typeof workSubscription.onReconnect) => {
+  workSubscription.onEvent = onEvent;
+  workSubscription.onReconnect = onReconnect;
+  return { close: workSubscription.close, lastSeq: () => afterSeq };
+}) }));
 
 import { resetStoreForTests, useVivyStore } from './store';
 import * as localeStore from '@/i18n';
@@ -27,6 +37,10 @@ function settings(locale: 'en' | 'zh', workspaceLocale: '' | 'en' | 'zh' = local
     locale, generation_locale: 'en', workspace_locale: workspaceLocale, locale_read_only: false,
   };
 }
+function work(sessionId: string, version: number, activation: 'armed' | 'disarmed', processEpoch: string, runId = '') {
+  return { session_id: sessionId, version, activation, process_epoch: processEpoch, current_run_id: runId,
+    plan: { active: false, review_status: 'none' }, goal: { id: 'goal-1', revision: 1, objective: 'ship', phase: 'active', max_rounds: 2, rounds_started: 1 } };
+}
 
 describe('Vivy store integrity', () => {
   beforeEach(() => {
@@ -39,6 +53,9 @@ describe('Vivy store integrity', () => {
     useVivyStore.setState(useVivyStore.getInitialState(), true);
     vi.clearAllMocks();
     subscription.onEvent = undefined;
+    workSubscription.onEvent = undefined;
+    workSubscription.onReconnect = undefined;
+    workSubscription.close.mockReset();
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
@@ -46,6 +63,7 @@ describe('Vivy store integrity', () => {
     api.listProviders.mockResolvedValue({ entries: [], catalog: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
     api.listTodos.mockResolvedValue({ todos: [] });
+    api.getSessionWork.mockImplementation(async (id: string) => work(id, 0, 'disarmed', 'process-a'));
   });
 
   it('initializes one authoritative active session and restores its messages', async () => {
@@ -206,6 +224,52 @@ describe('Vivy store integrity', () => {
     await p1;
     expect(useVivyStore.getState().activeSessionId).toBe('s2');
     expect(useVivyStore.getState().messages.map((item) => item.content)).toEqual(['new']);
+  });
+
+  it('replaces armed activation with the restarted backend WorkView on reconnect', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));
+    await useVivyStore.getState().selectSession('s1');
+    expect(useVivyStore.getState().work).toMatchObject({ activation: 'armed', process_epoch: 'process-a' });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'disarmed', 'process-b'));
+
+    expect(workSubscription.onReconnect).toBeTypeOf('function');
+    await workSubscription.onReconnect?.();
+
+    expect(useVivyStore.getState().work).toMatchObject({ activation: 'disarmed', process_epoch: 'process-b', version: 1 });
+    expect(localStorage.getItem('vivy.ui.work')).toBeNull();
+  });
+
+  it('opens a committed automatic run once when its work event is duplicated', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a'));
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 2, 'armed', 'process-a', 'r2'));
+    api.getRun.mockResolvedValue({ id: 'r2', session_id: 's1', status: 'active', created_at: 2 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    const event = { seq: 2, kind: 'goal.round_admitted', request_id: 'round-2', created_at: 2 };
+
+    workSubscription.onEvent?.(event);
+    workSubscription.onEvent?.(event);
+    await vi.waitFor(() => expect(useVivyStore.getState().currentRun?.id).toBe('r2'));
+
+    expect(api.getSessionWork).toHaveBeenCalledTimes(2);
+    expect(api.getRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a previous session WorkView response after a switch', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    const oldWork = deferred<ReturnType<typeof work>>();
+    api.getSessionWork.mockImplementation((id: string) => id === 's1' ? oldWork.promise : Promise.resolve(work('s2', 3, 'disarmed', 'process-b')));
+    const first = useVivyStore.getState().selectSession('s1');
+    const second = useVivyStore.getState().selectSession('s2');
+    await second;
+    oldWork.resolve(work('s1', 4, 'armed', 'process-a', 'r-old'));
+    await first;
+
+    expect(useVivyStore.getState().activeSessionId).toBe('s2');
+    expect(useVivyStore.getState().work).toMatchObject({ session_id: 's2', process_epoch: 'process-b', activation: 'disarmed' });
   });
 
   it('sets a workspace on the empty active session without creating another chat', async () => {

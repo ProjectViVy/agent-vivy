@@ -63,6 +63,7 @@ type workStateResult struct {
 	Plan         workPlanResult  `json:"plan"`
 	Activation   string          `json:"activation"`
 	CurrentRunID string          `json:"current_run_id,omitempty"`
+	ProcessEpoch string          `json:"process_epoch"`
 }
 
 type workEventResult struct {
@@ -128,7 +129,9 @@ func (h *controlHandler) getWork(ctx context.Context, request Request) (any, *Er
 		return nil, workError(err)
 	}
 	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
-	return workStateView(state, activation, currentRunID), nil
+	view := workStateView(state, activation, currentRunID)
+	view.ProcessEpoch = h.processEpoch
+	return view, nil
 }
 
 func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Error) {
@@ -260,7 +263,9 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 		h.deps.Service.CancelPlanReview(sessionID)
 	}
 	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
-	return workCommitResult{Work: workStateView(result.State, activation, currentRunID), Event: workEventView(result.Event), Replayed: result.Replayed}, nil
+	view := workStateView(result.State, activation, currentRunID)
+	view.ProcessEpoch = h.processEpoch
+	return workCommitResult{Work: view, Event: workEventView(result.Event), Replayed: result.Replayed}, nil
 }
 
 func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (domain.SessionID, *Error) {

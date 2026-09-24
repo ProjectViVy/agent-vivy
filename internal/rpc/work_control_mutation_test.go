@@ -847,9 +847,14 @@ func TestWorkSubscriptionReplaysFromDerivedStateAndContinuesLive(t *testing.T) {
 	commit(1, domain.WorkEventGoalPaused)
 	peer := NewPeer(nil, nil, Options{OutgoingBuffer: 8})
 	streamCtx, cancel := context.WithCancel(ctx)
+	ch, stopLive := bus.Subscribe(sessionID)
+	work, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ReadWork watermark: %v", err)
+	}
 	done := make(chan struct{})
 	go func() {
-		env.handler.(*controlHandler).streamWork(streamCtx, peer, "sub-1", sessionID, 1)
+		env.handler.(*controlHandler).streamWorkBuffered(streamCtx, peer, "sub-1", sessionID, 1, work.Version, ch, stopLive)
 		close(done)
 	}()
 	defer func() {
