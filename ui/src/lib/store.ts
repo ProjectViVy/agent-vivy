@@ -191,6 +191,8 @@ let subscription: RunSubscription | null = null;
 let workSubscription: WorkSubscription | null = null;
 let workSubscriptionSessionID: string | null = null;
 let sessionEpoch = 0;
+let workRead = 0;
+let workEventSeq = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
 let settingsRead = 0;
@@ -242,6 +244,7 @@ function stopWorkSubscription(): void {
   workSubscription?.close();
   workSubscription = null;
   workSubscriptionSessionID = null;
+  workEventSeq = 0;
 }
 function workRequestID(prefix: string): string {
   try { return `${prefix}-${crypto.randomUUID()}`; }
@@ -305,32 +308,45 @@ function startSubscription(runId: string, afterSeq: number): void {
   });
 }
 
-function handleWorkEvent(event: api.WorkEvent): void {
+function handleWorkEvent(sessionId: string, epoch: number, event: api.WorkEvent): void {
   const state = useVivyStore.getState();
-  if (!state.activeSessionId || event.seq <= (state.work?.version ?? 0)) return;
-  void state.loadWork(state.activeSessionId);
+  if (epoch !== sessionEpoch || state.activeSessionId !== sessionId || event.seq <= workEventSeq) return;
+  workEventSeq = event.seq;
+  if (event.seq > (state.work?.version ?? 0)) void state.loadWork(sessionId);
 }
 
 function startWorkSubscription(sessionId: string, afterSeq: number): void {
   stopWorkSubscription();
+  const epoch = sessionEpoch;
+  workEventSeq = afterSeq;
   workSubscriptionSessionID = sessionId;
-  workSubscription = subscribeWork(sessionId, afterSeq, handleWorkEvent, (message) => {
-    if (useVivyStore.getState().activeSessionId === sessionId) {
-      useVivyStore.setState({ workError: message, workPhase: 'error' });
+  workSubscription = subscribeWork(sessionId, afterSeq, (event) => handleWorkEvent(sessionId, epoch, event), (message) => {
+    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      useVivyStore.setState({ work: null, workError: message, workPhase: 'error' });
+    }
+  }, async () => {
+    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      await useVivyStore.getState().loadWork(sessionId);
+      const state = useVivyStore.getState();
+      if (state.activeSessionId === sessionId && state.workPhase === 'error') {
+        throw new Error(state.workError ?? 'work refresh failed');
+      }
     }
   });
 }
 
-async function loadWorkIntoStore(sessionId: string, epoch: number): Promise<api.WorkState | null> {
+async function loadWorkIntoStore(sessionId: string, epoch: number): Promise<api.WorkView | null> {
+  const read = ++workRead;
   try {
     const work = await api.getSessionWork(sessionId);
     const state = useVivyStore.getState();
-    if (epoch === sessionEpoch && state.activeSessionId === sessionId) {
+    if (read === workRead && epoch === sessionEpoch && state.activeSessionId === sessionId) {
       useVivyStore.setState({ work, workPhase: 'ready', workError: null });
+      return work;
     }
-    return work;
+    return null;
   } catch (error) {
-    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+    if (read === workRead && epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
       useVivyStore.setState({ workPhase: 'error', workError: errorMessage(error) });
     }
     return null;
@@ -562,7 +578,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
-      const runId = background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id ?? lastRunId(messages);
+      const runId = work?.current_run_id || background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id || lastRunId(messages);
       if (runId) await get().openRun(runId, id);
       // 最近的两个更早运行按需回放事件，让前几轮也按工具/思考行渲染。
       const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
@@ -574,6 +590,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const epoch = sessionEpoch;
     set({ workPhase: get().work ? 'refreshing' : 'loading', workError: null });
     const work = await loadWorkIntoStore(sessionId, epoch);
+    if (work?.current_run_id && get().currentRun?.id !== work.current_run_id) {
+      await get().openRun(work.current_run_id, sessionId);
+    }
     if (work && epoch === sessionEpoch && get().activeSessionId === sessionId
       && (workSubscription === null || workSubscriptionSessionID !== sessionId)) {
       startWorkSubscription(sessionId, work.version);
@@ -874,5 +893,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 
 export function resetStoreForTests(): void {
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
+  workRead = 0; workEventSeq = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;
 }

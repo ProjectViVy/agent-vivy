@@ -12,6 +12,7 @@ export function subscribeWork(
   afterSeq: number,
   onEvent: (event: WorkEvent) => void,
   onError?: (message: string) => void,
+  onReconnect?: () => Promise<void>,
 ): WorkSubscription {
   let closed = false;
   let cursor = afterSeq;
@@ -21,6 +22,7 @@ export function subscribeWork(
   let removeStreamError: (() => void) | undefined;
   let removeClose: (() => void) | undefined;
   let timer: number | undefined;
+  let connected = false;
 
   const clearListeners = () => {
     removeEvent?.();
@@ -44,6 +46,8 @@ export function subscribeWork(
     subscriptionId = '';
     try {
       client = await getRpcClient();
+      if (connected) await onReconnect?.();
+      if (closed) return;
       removeEvent = client.onNotification('session/work/event', (params) => {
         const envelope = params as { subscription_id?: string; event?: WorkEvent };
         if (envelope.subscription_id !== subscriptionId || !envelope.event || envelope.event.seq <= cursor) return;
@@ -74,6 +78,7 @@ export function subscribeWork(
         return;
       }
       subscriptionId = response.subscription_id;
+      connected = true;
     } catch (error) {
       clearListeners();
       resetRpcClient();

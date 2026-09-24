@@ -97,6 +97,8 @@ export interface WorkState {
   activation: 'armed' | 'disarmed';
   current_run_id?: string;
 }
+/** A fresh backend projection includes the process-local activation epoch. */
+export interface WorkView extends WorkState { process_epoch: string }
 export interface WorkEvent {
   seq: number;
   kind: string;
@@ -108,6 +110,7 @@ export interface WorkCommitResult {
   event: WorkEvent;
   replayed: boolean;
 }
+export interface WorkCommitView extends WorkCommitResult { work: WorkView }
 export type WorkMethod =
   | 'goal/create' | 'goal/edit' | 'goal/pause' | 'goal/resume' | 'goal/complete' | 'goal/block' | 'goal/clear'
   | 'plan/enter' | 'plan/leave' | 'plan/decide';
@@ -309,11 +312,11 @@ export const setSessionPermission = (id: string, preset: Exclude<PermissionPrese
 export const setSessionWorkspace = (id: string, workspacePath: string) => request<Session>('session/set_workspace', { session_id: id, workspace_path: workspacePath });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
-export const getSessionWork = (sessionId: string) => request<WorkState>('session/work/get', { session_id: sessionId });
+export const getSessionWork = (sessionId: string) => request<WorkView>('session/work/get', { session_id: sessionId });
 export const getPlan = (sessionId: string, submissionId: string) =>
   request<WorkPlan>('plan/get', { session_id: sessionId, submission_id: submissionId });
 export const commitWork = (method: WorkMethod, params: Record<string, unknown>) =>
-  request<WorkCommitResult>(method, params);
+  request<WorkCommitView>(method, params);
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
 export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
 /** session/rewind：截点互斥（含截点）之后退出上下文，行留档不删除。 */

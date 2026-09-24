@@ -32,6 +32,14 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	// Attach the live buffer before reading the durable watermark. A commit
+	// after this read is either buffered here or recovered by sequence replay.
+	ch, stopLive := h.deps.WorkBus.Subscribe(sessionID)
+	work, err := h.deps.Work.ReadWork(ctx, sessionID)
+	if err != nil {
+		stopLive()
+		return nil, workError(err)
+	}
 	subscriptionID := newControlID("work_sub_")
 	streamCtx, cancel := context.WithCancel(ctx)
 	h.mu.Lock()
@@ -42,6 +50,7 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 		delete(h.subscriptions, subscriptionID)
 		h.mu.Unlock()
 		cancel()
+		stopLive()
 	}
 	go func() {
 		select {
@@ -52,17 +61,18 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 	}()
 	peer.AfterResponse(request.ID, func() {
 		defer cleanup()
-		h.streamWork(streamCtx, peer, subscriptionID, sessionID, domain.WorkVersion(params.AfterSeq))
+		h.streamWorkBuffered(streamCtx, peer, subscriptionID, sessionID, domain.WorkVersion(params.AfterSeq), work.Version, ch, stopLive)
 	})
 	return map[string]any{
 		"subscription_id": subscriptionID,
 		"session_id":      string(sessionID),
 		"after_seq":       params.AfterSeq,
+		"watermark_seq":   int64(work.Version),
+		"process_epoch":   h.processEpoch,
 	}, nil
 }
 
-func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptionID string, sessionID domain.SessionID, after domain.WorkVersion) {
-	ch, cancel := h.deps.WorkBus.Subscribe(sessionID)
+func (h *controlHandler) streamWorkBuffered(ctx context.Context, peer *Peer, subscriptionID string, sessionID domain.SessionID, after, watermark domain.WorkVersion, ch <-chan domain.WorkEvent, cancel func()) {
 	defer func() { cancel() }()
 	last := domain.WorkSeq(after)
 	cursor := domain.WorkState{SessionID: sessionID}
@@ -73,17 +83,26 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 		if err := peer.NotifyContext(ctx, "session/work/event", map[string]any{
 			"subscription_id": subscriptionID,
 			"event":           workEventView(event),
+			"process_epoch":   h.processEpoch,
+			"work_version":    int64(event.Seq),
 		}); err != nil {
 			return false
 		}
 		last = event.Seq
 		return true
 	}
-	replay := func() error {
-		for {
-			events, next, err := h.deps.Work.ReplayWork(ctx, sessionID, cursor, workReplayPageSize)
+	replay := func(through domain.WorkVersion) error {
+		for cursor.Version < through {
+			limit := workReplayPageSize
+			if remaining := int(through - cursor.Version); remaining < limit {
+				limit = remaining
+			}
+			events, next, err := h.deps.Work.ReplayWork(ctx, sessionID, cursor, limit)
 			if err != nil {
 				return err
+			}
+			if len(events) == 0 {
+				return domain.ErrNonContiguousWorkSeq
 			}
 			cursor = next
 			for _, event := range events {
@@ -91,10 +110,8 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 					return context.Canceled
 				}
 			}
-			if len(events) < workReplayPageSize {
-				return nil
-			}
 		}
+		return nil
 	}
 	reportReplayError := func(err error) {
 		if !errors.Is(err, context.Canceled) {
@@ -104,7 +121,7 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 			})
 		}
 	}
-	if err := replay(); err != nil {
+	if err := replay(watermark); err != nil {
 		reportReplayError(err)
 		return
 	}
@@ -120,14 +137,24 @@ func (h *controlHandler) streamWork(ctx context.Context, peer *Peer, subscriptio
 				// gap is repaired remain buffered for the resumed stream.
 				cancel()
 				ch, cancel = h.deps.WorkBus.Subscribe(sessionID)
-				if err := replay(); err != nil {
+				work, err := h.deps.Work.ReadWork(ctx, sessionID)
+				if err != nil {
+					reportReplayError(err)
+					return
+				}
+				if err := replay(work.Version); err != nil {
 					reportReplayError(err)
 					return
 				}
 				continue
 			}
 			if event.Seq > last && event.Seq-last > 1 {
-				if err := replay(); err != nil {
+				work, err := h.deps.Work.ReadWork(ctx, sessionID)
+				if err != nil {
+					reportReplayError(err)
+					return
+				}
+				if err := replay(work.Version); err != nil {
 					reportReplayError(err)
 					return
 				}

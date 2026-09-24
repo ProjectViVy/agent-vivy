@@ -330,7 +330,7 @@ func NewControlHandler(deps ControlDeps) (Handler, error) {
 		deps.Approvals == nil || deps.Questions == nil || deps.Bus == nil || deps.Service == nil {
 		return nil, errors.New("rpc: control dependencies are incomplete")
 	}
-	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc)}, nil
+	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc), processEpoch: newControlID("epoch_")}, nil
 }
 
 type controlHandler struct {
@@ -339,6 +339,7 @@ type controlHandler struct {
 	mu            sync.Mutex
 	subscriptions map[string]context.CancelFunc
 	modelChangeMu sync.Mutex
+	processEpoch  string
 }
 
 type sessionParams struct {
