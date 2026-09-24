@@ -22,11 +22,21 @@ var (
 // does not poll: a Goal is woken only by an explicit human mutation or by a
 // successful terminal event from its admitted round.
 func (s *Service) WakeGoal(sessionID domain.SessionID) {
+	s.wakeGoal(sessionID, true)
+}
+
+func (s *Service) wakeGoal(sessionID domain.SessionID, explicit bool) {
 	if s == nil || strings.TrimSpace(string(sessionID)) == "" {
 		return
 	}
 	s.mu.Lock()
 	if s.stopping {
+		s.mu.Unlock()
+		return
+	}
+	if explicit {
+		delete(s.goalDisarmed, sessionID)
+	} else if _, disarmed := s.goalDisarmed[sessionID]; disarmed {
 		s.mu.Unlock()
 		return
 	}
@@ -172,6 +182,9 @@ func (s *Service) GoalActivation(sessionID domain.SessionID) (activation string,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, disarmed := s.goalDisarmed[sessionID]; disarmed {
+		return "disarmed", s.goalRuns[sessionID]
+	}
 	if runID := s.goalRuns[sessionID]; runID != "" {
 		return "armed", runID
 	}
@@ -194,8 +207,9 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	s.mu.Lock()
 	stopping := s.stopping
 	humanPending := s.humanPending[sessionID] > 0
+	_, disarmed := s.goalDisarmed[sessionID]
 	s.mu.Unlock()
-	if stopping || humanPending {
+	if stopping || humanPending || disarmed {
 		return nil
 	}
 	state, err := s.deps.Work.ReadWork(ctx, sessionID)
@@ -228,8 +242,9 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 	s.mu.Lock()
 	stopping = s.stopping
 	humanPending = s.humanPending[sessionID] > 0
+	_, disarmed = s.goalDisarmed[sessionID]
 	s.mu.Unlock()
-	if stopping || humanPending {
+	if stopping || humanPending || disarmed {
 		return nil
 	}
 
@@ -309,6 +324,7 @@ func (s *Service) rememberRecoveredGoalRun(ctx context.Context, run domain.Run) 
 	s.mu.Lock()
 	s.goalRunSessions[run.ID] = run.SessionID
 	s.goalRunRefs[run.ID] = goalRef
+	s.goalDisarmed[run.SessionID] = struct{}{}
 	s.mu.Unlock()
 }
 
@@ -324,11 +340,11 @@ func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionI
 		// A human edit invalidated this run's report, but its wake was
 		// deferred while the old run owned the session. Recheck the latest
 		// durable revision only after the old run has been cleaned up.
-		s.WakeGoal(sessionID)
+		s.wakeGoal(sessionID, false)
 		return
 	}
 	if status == domain.RunCompleted && state.Goal.RoundsStarted < state.Goal.MaxRounds {
-		s.WakeGoal(sessionID)
+		s.wakeGoal(sessionID, false)
 		return
 	}
 
