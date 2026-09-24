@@ -324,7 +324,6 @@ func (s *Service) rememberRecoveredGoalRun(ctx context.Context, run domain.Run) 
 	s.mu.Lock()
 	s.goalRunSessions[run.ID] = run.SessionID
 	s.goalRunRefs[run.ID] = goalRef
-	s.goalDisarmed[run.SessionID] = struct{}{}
 	s.mu.Unlock()
 }
 

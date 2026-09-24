@@ -1316,6 +1316,14 @@ func (s *Service) recover(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
 	}
+	// Every recovered session starts without process-local automatic Goal
+	// authority, including when its active Goal was created by a human run
+	// that suspended before any Goal round was admitted.
+	s.mu.Lock()
+	for _, run := range runs {
+		s.goalDisarmed[run.SessionID] = struct{}{}
+	}
+	s.mu.Unlock()
 	s.cleanupOrphanedShellState(ctx)
 	if len(runs) == 0 {
 		return nil

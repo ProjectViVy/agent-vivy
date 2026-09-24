@@ -245,7 +245,6 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	if peer != nil {
 		h.bindPeerSessionRequest(ctx, peer, request)
 	}
-	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
 	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalEdited || kind == domain.WorkEventGoalResumed ||
 		(kind == domain.WorkEventPlanDecided && params.PlanAction == string(domain.PlanDecisionStartGoal)) {
 		h.deps.Service.WakeGoal(sessionID)
@@ -256,6 +255,7 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	if kind == domain.WorkEventPlanLeft {
 		h.deps.Service.CancelPlanReview(sessionID)
 	}
+	activation, currentRunID := h.deps.Service.GoalActivation(sessionID)
 	return workCommitResult{Work: workStateView(result.State, activation, currentRunID), Event: workEventView(result.Event), Replayed: result.Replayed}, nil
 }
 

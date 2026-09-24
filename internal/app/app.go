@@ -1183,6 +1183,9 @@ func (a *App) Close() error {
 	a.closeOnce.Do(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		if a.service != nil {
+			a.service.StopAutomaticWork()
+		}
 		if a.actionHost != nil {
 			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
 		}
@@ -1192,7 +1195,6 @@ func (a *App) Close() error {
 		if a.service != nil {
 			a.service.StopInteractionSweeper()
 			a.service.StopCronScheduler()
-			a.service.StopAutomaticWork()
 			a.service.CancelAll()
 		}
 		if a.worker != nil {
@@ -1652,6 +1654,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.logger.Info("vivy shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
+	a.service.StopAutomaticWork()
 
 	// Reverse startup order with hard ordering guarantees (E4): channels
 	// stop first so an adapter's Stop never races a cancelled run's final
@@ -1666,7 +1669,6 @@ func (a *App) Run(ctx context.Context) error {
 	// terminal watcher still writes its state back while storage is open
 	// (bounded by StopCronScheduler's drain window).
 	a.service.StopCronScheduler()
-	a.service.StopAutomaticWork()
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {
