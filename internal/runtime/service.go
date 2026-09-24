@@ -204,6 +204,7 @@ type Service struct {
 	goalRuns         map[domain.SessionID]domain.RunID
 	goalDisarmed     map[domain.SessionID]struct{}
 	planTransitions  map[domain.SessionID]uint64
+	planCancelling   map[domain.SessionID]uint64
 	goalRunSessions  map[domain.RunID]domain.SessionID
 	goalRunRefs      map[domain.RunID]domain.GoalRef
 	admissionLocksMu sync.Mutex
@@ -392,6 +393,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalRuns:         make(map[domain.SessionID]domain.RunID),
 		goalDisarmed:     make(map[domain.SessionID]struct{}),
 		planTransitions:  make(map[domain.SessionID]uint64),
+		planCancelling:   make(map[domain.SessionID]uint64),
 		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
 		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
 		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
