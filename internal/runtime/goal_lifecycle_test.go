@@ -72,6 +72,43 @@ func waitLifecycleIdle(t *testing.T, svc *Service) {
 	}
 }
 
+type workEventSinkFunc func(domain.WorkEvent)
+
+func (f workEventSinkFunc) Publish(event domain.WorkEvent) { f(event) }
+
+func TestGoalAdmissionEventExposesCurrentRunToSubscriber(t *testing.T) {
+	ctx := context.Background()
+	backend := openLifecycleBackend(t)
+	const sessionID domain.SessionID = "sess-goal-admission-visibility"
+	createLifecycleGoal(t, backend, sessionID, 2)
+	svc := newGoalLifecycleService(t, backend, &blockingEinoModel{}, nil, backend, nil)
+	t.Cleanup(func() { svc.CancelAll(); waitLifecycleIdle(t, svc) })
+	type observation struct {
+		admitted domain.RunID
+		current  domain.RunID
+		state    domain.WorkState
+		err      error
+	}
+	observed := make(chan observation, 1)
+	svc.deps.WorkSink = workEventSinkFunc(func(event domain.WorkEvent) {
+		if event.Kind != domain.WorkEventGoalRoundAdmitted {
+			return
+		}
+		state, err := svc.ReadWork(ctx, sessionID)
+		_, current := svc.GoalActivation(sessionID)
+		observed <- observation{admitted: event.Admission.RunID, current: current, state: state, err: err}
+	})
+	svc.WakeGoal(sessionID)
+	select {
+	case got := <-observed:
+		if got.err != nil || got.admitted == "" || got.current != got.admitted || got.state.Goal == nil || got.state.Goal.RoundsStarted != 1 {
+			t.Fatalf("subscriber observed admitted RunID=%q, current RunID=%q, work=%+v, err=%v", got.admitted, got.current, got.state, got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal admission event was not published")
+	}
+}
+
 func TestGoalReservationCannotCommitAfterPauseOrEdit(t *testing.T) {
 	for _, kind := range []domain.WorkEventKind{domain.WorkEventGoalPaused, domain.WorkEventGoalEdited} {
 		t.Run(string(kind), func(t *testing.T) {

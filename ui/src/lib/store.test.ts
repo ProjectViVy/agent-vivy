@@ -249,6 +249,20 @@ describe('Vivy store integrity', () => {
     }));
   });
 
+  it('submits the Goal reference captured when editing began', async () => {
+    const current = work('s1', 8, 'disarmed', 'process-a');
+    current.goal.revision = 3;
+    useVivyStore.setState({ activeSessionId: 's1', work: current as never, workPhase: 'ready' });
+    api.commitWork.mockResolvedValue({ work: current, event: { seq: 9, kind: 'goal.edited', request_id: 'r1', created_at: 1 }, replayed: false });
+
+    await useVivyStore.getState().editGoal('Revised objective', 4, { id: 'goal-1', revision: 2 });
+
+    expect(api.commitWork).toHaveBeenCalledWith('goal/edit', expect.objectContaining({
+      session_id: 's1', expected_version: 8, goal_id: 'goal-1', goal_revision: 2,
+      objective: 'Revised objective', max_rounds: 4,
+    }));
+  });
+
   it('replaces armed activation with the restarted backend WorkView on reconnect', async () => {
     api.listMessages.mockResolvedValue({ messages: [] });
     api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));

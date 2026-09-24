@@ -915,6 +915,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
+	var goalAdmissionEvent *domain.WorkEvent
 	if persist != nil {
 		if options.GoalRound != nil {
 			return "", errors.New("runtime: goal admission cannot use custom persistence")
@@ -983,9 +984,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		run = admitted.Run
 		runID = run.ID
 		started = admitted.Started
-		if s.deps.WorkSink != nil {
-			s.deps.WorkSink.Publish(admitted.Work.Event)
-		}
+		goalAdmissionEvent = &admitted.Work.Event
 	} else if s.deps.PrimaryRuns != nil {
 		run.Status = domain.RunActive
 		run.Kind = domain.RunKindPrimary
@@ -1062,6 +1061,11 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	s.runTools[runID] = selectedToolSet
 	s.workGates[runID] = &sync.Mutex{}
 	s.mu.Unlock()
+	// The durable admission is already committed. Register its process-local
+	// RunID before notifying subscribers that refresh WorkView on this event.
+	if goalAdmissionEvent != nil && s.deps.WorkSink != nil {
+		s.deps.WorkSink.Publish(*goalAdmissionEvent)
+	}
 
 	s.wg.Add(1)
 	go func() {

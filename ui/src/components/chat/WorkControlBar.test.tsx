@@ -51,6 +51,52 @@ describe('chat work controls', () => {
     return [...container.querySelectorAll('button')].find((item) => item.textContent?.trim() === label);
   }
 
+  async function enter(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+    await act(async () => {
+      const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  it('edits the displayed Goal with its opening reference and preserves spent rounds', async () => {
+    const editGoal = vi.fn(async () => {
+      useVivyStore.setState({ work: { ...baseWork, version: 5, goal: { ...baseWork.goal!, revision: 3, objective: 'Ship safely', max_rounds: 4 } } });
+      return {};
+    });
+    useVivyStore.setState({ editGoal: editGoal as never });
+    await render();
+    expect(button('Save Goal')).toBeUndefined();
+    await act(async () => { button('Edit Goal')?.click(); });
+    const objective = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Goal objective"]')!;
+    const rounds = container.querySelector<HTMLInputElement>('input[aria-label="Goal round limit"]')!;
+    expect(objective.value).toBe('Ship the release');
+    expect(rounds.value).toBe('3');
+    await enter(objective, 'Ship safely');
+    await enter(rounds, '4');
+    await act(async () => { button('Save Goal')?.click(); });
+    expect(editGoal).toHaveBeenCalledWith('Ship safely', 4, { id: 'g1', revision: 2 });
+    expect(container.textContent).toContain('1 / 4 rounds');
+    expect(button('Save Goal')).toBeUndefined();
+  });
+
+  it('keeps the edit draft and opening Goal reference after a conflict', async () => {
+    const editGoal = vi.fn(async () => {
+      useVivyStore.setState({ workError: 'stale_goal', work: { ...baseWork, goal: { ...baseWork.goal!, revision: 3, objective: 'Changed elsewhere' } } });
+      throw new Error('stale_goal');
+    });
+    useVivyStore.setState({ editGoal: editGoal as never });
+    await render();
+    await act(async () => { button('Edit Goal')?.click(); });
+    const objective = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Goal objective"]')!;
+    await enter(objective, 'My revised objective');
+    await act(async () => { button('Save Goal')?.click(); });
+    expect(objective.value).toBe('My revised objective');
+    expect(container.textContent).toContain('stale_goal');
+    await act(async () => { button('Save Goal')?.click(); });
+    expect(editGoal).toHaveBeenNthCalledWith(2, 'My revised objective', 3, { id: 'g1', revision: 2 });
+  });
+
   it('offers Resume for an active but disarmed Goal and shows its independent permission', async () => {
     await render();
     expect(button('Resume Goal')).toBeDefined();

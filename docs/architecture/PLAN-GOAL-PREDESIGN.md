@@ -253,6 +253,7 @@ Wire casing follows existing snake_case conventions. Errors map onto existing RP
 Subscription must replay through a captured watermark then deliver later committed seq without a gap; duplicates are deduplicated by session+seq. Activation events carry process epoch and current work version; reconnect fetches WorkView, never trusts an old armed projection.
 
 Proposed UI: WorkControlBar.tsx with Plan control and Goal summary, PlanReview.tsx for document/decisions. State remains in store.ts; transport remains rpc.ts. Preserve TodoProgressStrip and existing task panel. Explicitly render active/disarmed, stopping_for_plan, pending review and blockers. No demo-api imports or generated-file edits.
+The Goal summary is read-only until the human selects Edit Goal. That action opens one form prefilled with the current objective and round limit, bound to the GoalRef visible when editing began. Save submits once through `goal/edit`; a failure or stale reference leaves the draft intact and does not rebind it to a newer GoalRef. Successful edits retain already admitted rounds in the displayed summary.
 
 ## 11. Verification and economy
 
