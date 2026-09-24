@@ -7,3 +7,5 @@ An admitted Goal run waiting on an approval or question remains the one active s
 If a process is lost after atomic GoalRun commit but before the Service drives the model, startup recovery fails that existing run and blocks the Goal. The consumed round, original message, and admission event remain; no new run replays the work.
 
 For pause, clear, and direct cancel while a run is still cancelling, the mutation response or `session/work/get` shows `activation: disarmed` with the still-owned `current_run_id`; that ID clears only at terminal cleanup. `session/work/subscribe` publishes durable event metadata and does not project activation; clients obtain the current WorkView through `session/work/get`.
+
+If a run finishes while `run/cancel` is reading its old Work state, terminal cleanup wins first: the late cancel returns not-active without writing a false cancellation block. The normal next round is admitted exactly once. If a Goal run is suspended on a question or approval and later resumed, `run/cancel` still reaches the resumed model context and produces a cancelled terminal rather than leaving model work running behind a blocked Goal.

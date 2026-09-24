@@ -364,8 +364,8 @@ func TestPendingGoalQuestionKeepsSessionBusy(t *testing.T) {
 	if err != nil || state.Goal == nil || state.Goal.RoundsStarted != 1 || state.Goal.Phase != domain.WorkPhaseActive {
 		t.Fatalf("Goal while question pending = %+v / %v", state, err)
 	}
-	if !svc.Cancel(admitted.Run.ID) {
-		t.Fatal("cancel pending Goal question returned false")
+	if cancelled, err := svc.CancelRun(ctx, admitted.Run.ID); err != nil || !cancelled {
+		t.Fatalf("cancel pending Goal question = %v / %v", cancelled, err)
 	}
 	waitForRunStatus(t, backend, admitted.Run.ID, domain.RunCancelled)
 	waitLifecycleIdle(t, svc)
@@ -374,6 +374,108 @@ func TestPendingGoalQuestionKeepsSessionBusy(t *testing.T) {
 		t.Fatalf("runs after pending question cancellation = %+v / %v", runs, err)
 	}
 }
+
+func TestCancelResumedGoalQuestionSignalsTheCurrentModelContext(t *testing.T) {
+	ctx := context.Background()
+	backend := openLifecycleBackend(t)
+	const sessionID domain.SessionID = "sess-goal-resumed-question-cancel"
+	createLifecycleGoal(t, backend, sessionID, 2)
+	toolset, err := tools.Builtin(backend).Resolve([]string{tools.AskUserName})
+	if err != nil {
+		t.Fatalf("resolve ask_user: %v", err)
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	model := &heldResumedQuestionModel{
+		inner: NewQuestionFlowModel(), resumed: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{}),
+	}
+	engine, err := NewEngine(ctx, model, toolset, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
+		PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend,
+		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
+	})
+	defer func() { model.unblock(); svc.CancelAll(); waitLifecycleIdle(t, svc) }()
+	svc.WakeGoal(sessionID)
+	var runID domain.RunID
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, runID = svc.GoalActivation(sessionID)
+		if runID != "" {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if runID == "" {
+		t.Fatal("Goal question run was not admitted")
+	}
+	question := waitForPendingQuestion(t, backend, runID)
+	if err := svc.AnswerQuestion(ctx, question.ID, "blue"); err != nil {
+		t.Fatalf("answer question: %v", err)
+	}
+	select {
+	case <-model.resumed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("question did not resume into model")
+	}
+	accepted, err := svc.CancelRun(ctx, runID)
+	if err != nil || !accepted {
+		t.Fatalf("cancel resumed Goal run = %v / %v", accepted, err)
+	}
+	select {
+	case <-model.cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal cancellation did not signal resumed model context")
+	}
+	model.unblock()
+	waitForRunStatus(t, backend, runID, domain.RunCancelled)
+	waitLifecycleIdle(t, svc)
+	state, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseBlocked || state.Goal.Reason != "goal round cancelled" {
+		t.Fatalf("cancelled resumed Goal = %+v / %v", state, err)
+	}
+}
+
+type heldResumedQuestionModel struct {
+	inner     *ScriptedModel
+	mu        sync.Mutex
+	calls     int
+	resumed   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+	once      sync.Once
+}
+
+func (m *heldResumedQuestionModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	m.mu.Lock()
+	m.calls++
+	call := m.calls
+	m.mu.Unlock()
+	if call == 2 {
+		close(m.resumed)
+		select {
+		case <-ctx.Done():
+			close(m.cancelled)
+			return nil, ctx.Err()
+		case <-m.release:
+		}
+	}
+	return m.inner.Stream(ctx, in, opts...)
+}
+func (m *heldResumedQuestionModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	return m.inner.Generate(ctx, in, opts...)
+}
+func (m *heldResumedQuestionModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
+}
+func (m *heldResumedQuestionModel) unblock() { m.once.Do(func() { close(m.release) }) }
 
 func TestPendingGoalApprovalKeepsSessionBusy(t *testing.T) {
 	ctx := context.Background()
@@ -422,8 +524,8 @@ func TestPendingGoalApprovalKeepsSessionBusy(t *testing.T) {
 	if err != nil || state.Goal == nil || state.Goal.RoundsStarted != 1 || state.Goal.Phase != domain.WorkPhaseActive {
 		t.Fatalf("Goal while approval pending = %+v / %v", state, err)
 	}
-	if !svc.Cancel(admitted.Run.ID) {
-		t.Fatal("cancel pending Goal approval returned false")
+	if cancelled, err := svc.CancelRun(ctx, admitted.Run.ID); err != nil || !cancelled {
+		t.Fatalf("cancel pending Goal approval = %v / %v", cancelled, err)
 	}
 	waitForRunStatus(t, backend, admitted.Run.ID, domain.RunCancelled)
 	waitLifecycleIdle(t, svc)

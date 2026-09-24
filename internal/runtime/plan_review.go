@@ -177,7 +177,7 @@ func (s *Service) handlePlanReviewInterrupt(ctx context.Context, m *eventMapper,
 	delete(s.workFenced, m.runID)
 	s.workBlockedCalls[m.runID] = blocked
 	s.pending[m.runID] = pendingRun{
-		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
+		runCtx: ctx, sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
 		mounted:       tools.MountedToolsFromContext(ctx), mode: mode,
 		profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
@@ -265,7 +265,7 @@ func (s *Service) DecidePlan(ctx context.Context, mutation domain.WorkMutation) 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(current.sessionID, current.workspaceID, toolName, current.selectedTools, current.mounted,
+		s.resumeRun(current.runCtx, current.sessionID, current.workspaceID, toolName, current.selectedTools, current.mounted,
 			current.mode, current.profile, current.snapshot, current.sandboxMode, current.approvalPolicy,
 			current.face, current.ledger, state.Plan.OriginRunID, current.planToolCallID,
 			current.planResumeTarget, string(resumeValue), nil, "", "", resumeBatchIDs)
@@ -296,6 +296,7 @@ func (s *Service) rebuildPendingPlanReview(ctx context.Context, run domain.Run, 
 		blocked[callID] = struct{}{}
 	}
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	s.mu.Lock()
 	if isGoalRun {
 		s.goalRuns[run.SessionID] = run.ID
@@ -304,8 +305,9 @@ func (s *Service) rebuildPendingPlanReview(ctx context.Context, run domain.Run, 
 	}
 	s.workGates[run.ID] = &sync.Mutex{}
 	s.workBlockedCalls[run.ID] = blocked
+	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
-		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m,
+		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m,
 		selectedTools: selectedTools, mounted: s.recoveredMounts(ctx, run.ID),
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode,
 		approvalPolicy: approvalPolicy, face: face, ledger: ledger,

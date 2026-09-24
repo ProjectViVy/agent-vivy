@@ -462,6 +462,145 @@ func TestRunCancelPreservesOrdinaryNonGoalCancellation(t *testing.T) {
 	}
 }
 
+type goalCancelReadKey struct{}
+
+type heldGoalCancelReadStore struct {
+	storage.WorkStore
+	cancelEntered     chan struct{}
+	cancelRelease     chan struct{}
+	settlementEntered chan struct{}
+	settlementRelease chan struct{}
+	cancelOnce        sync.Once
+	settlementOnce    sync.Once
+}
+
+func (s *heldGoalCancelReadStore) ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error) {
+	state, err := s.WorkStore.ReadWork(ctx, sessionID)
+	if ctx.Value(goalCancelReadKey{}) == true {
+		s.cancelOnce.Do(func() { close(s.cancelEntered) })
+		<-s.cancelRelease
+	} else if state.Goal != nil && state.Goal.RoundsStarted == 1 {
+		select {
+		case <-s.cancelEntered:
+			s.settlementOnce.Do(func() { close(s.settlementEntered) })
+			<-s.settlementRelease
+		default:
+		}
+	}
+	return state, err
+}
+
+func TestRunCancelDoesNotBlockGoalAfterItsRunCompleted(t *testing.T) {
+	ctx := context.Background()
+	model := &heldTwoRoundModel{
+		firstEntered: make(chan struct{}), firstRelease: make(chan struct{}),
+		secondEntered: make(chan struct{}), secondRelease: make(chan struct{}),
+	}
+	readBarrier := &heldGoalCancelReadStore{
+		cancelEntered: make(chan struct{}), cancelRelease: make(chan struct{}),
+		settlementEntered: make(chan struct{}), settlementRelease: make(chan struct{}),
+	}
+	env, svc := newGoalLifecycleControlEnv(t, model, func(inner storage.WorkStore) storage.WorkStore {
+		readBarrier.WorkStore = inner
+		return readBarrier
+	})
+	var readReleaseOnce, settlementReleaseOnce sync.Once
+	releaseRead := func() { readReleaseOnce.Do(func() { close(readBarrier.cancelRelease) }) }
+	releaseSettlement := func() { settlementReleaseOnce.Do(func() { close(readBarrier.settlementRelease) }) }
+	defer func() {
+		releaseRead()
+		releaseSettlement()
+		model.releaseAll()
+		svc.CancelAll()
+		waitForGoalControlIdle(t, svc)
+	}()
+	const sessionID domain.SessionID = "sess-complete-races-cancel"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/create", map[string]any{
+		"session_id": string(sessionID), "request_id": "create", "expected_version": 0,
+		"goal_id": "goal-complete-races-cancel", "goal_revision": 1, "objective": "run", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/create: %v", rpcErr)
+	}
+	select {
+	case <-model.firstEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first Goal run did not enter model barrier")
+	}
+	_, oldRunID := svc.GoalActivation(sessionID)
+	if oldRunID == "" {
+		t.Fatal("Goal has no admitted RunID")
+	}
+	params, err := json.Marshal(map[string]any{"run_id": string(oldRunID)})
+	if err != nil {
+		t.Fatalf("encode cancel request: %v", err)
+	}
+	type cancelResult struct {
+		result any
+		rpcErr *Error
+	}
+	cancelled := make(chan cancelResult, 1)
+	go func() {
+		result, rpcErr := env.handler.Handle(context.WithValue(ctx, goalCancelReadKey{}, true), nil, Request{
+			JSONRPC: "2.0", Method: "run/cancel", Params: params,
+		})
+		cancelled <- cancelResult{result: result, rpcErr: rpcErr}
+	}()
+	select {
+	case <-readBarrier.cancelEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancel did not capture old Goal Work state")
+	}
+	model.releaseFirst()
+	select {
+	case <-readBarrier.settlementEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("completed run did not reach post-cleanup settlement")
+	}
+	oldRun, err := env.backend.GetRun(ctx, oldRunID)
+	if err != nil || oldRun.Status != domain.RunCompleted {
+		t.Fatalf("old run before cancel resumes = %+v / %v", oldRun, err)
+	}
+	releaseRead()
+	select {
+	case result := <-cancelled:
+		if result.rpcErr == nil || result.rpcErr.Code != CodeNotFound || result.result != nil {
+			t.Fatalf("late run/cancel = %+v, want not-active error without Work side effect", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("late run/cancel did not return")
+	}
+	releaseSettlement()
+	model.releaseSecond()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state, readErr := env.backend.ReadWork(ctx, sessionID)
+		if readErr != nil {
+			t.Fatalf("read settled Goal: %v", readErr)
+		}
+		if state.Goal != nil && state.Goal.Phase == domain.WorkPhaseBlocked {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	waitForGoalControlIdle(t, svc)
+	state, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Reason != "goal round limit reached" || state.Goal.RoundsStarted != 2 {
+		t.Fatalf("Goal after completion won cancellation = %+v / %v", state, err)
+	}
+	runs, err := env.backend.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 2 || runs[0].ID == runs[1].ID {
+		t.Fatalf("Goal runs after completion won cancellation = %+v / %v", runs, err)
+	}
+	for _, run := range runs {
+		if run.Status != domain.RunCompleted {
+			t.Fatalf("Goal run = %+v, want completed", run)
+		}
+	}
+}
+
 type failOneGoalBlockStore struct {
 	storage.WorkStore
 	mu     sync.Mutex
