@@ -149,7 +149,7 @@ interface RuntimeState {
   clearGoal: () => Promise<api.WorkCommitResult>;
   enterPlan: () => Promise<api.WorkCommitResult>;
   leavePlan: () => Promise<api.WorkCommitResult>;
-  decidePlan: (action: api.PlanAction, feedback?: string, objective?: string, maxRounds?: number) => Promise<api.WorkCommitResult>;
+  decidePlan: (action: api.PlanAction, feedback?: string, objective?: string, maxRounds?: number, submissionId?: string) => Promise<api.WorkCommitResult>;
   loadBackgroundRuns: () => Promise<void>;
   attachBackgroundRun: (runId: string) => Promise<void>;
   loadChildren: (parentRunId?: string) => Promise<void>;
@@ -660,9 +660,13 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   enterPlan: () => get().commitWork('plan/enter'),
   leavePlan: () => get().commitWork('plan/leave'),
-  decidePlan: (action, feedback = '', objective = '', maxRounds = 0) => {
-    const submissionID = get().work?.plan.submission_id;
-    if (!submissionID) return Promise.reject(new Error(t('workControl.noPlan')));
+  decidePlan: (action, feedback = '', objective = '', maxRounds = 0, exactSubmissionID) => {
+    const submissionID = exactSubmissionID ?? get().work?.plan.submission_id;
+    if (!submissionID || get().work?.plan.submission_id !== submissionID || get().work?.plan.review_status !== 'pending') {
+      const error = new Error(t('workControl.reviewStale'));
+      set({ workError: error.message });
+      return Promise.reject(error);
+    }
     const fields: Record<string, unknown> = { submission_id: submissionID, action, feedback };
     if (action === 'start_goal') {
       fields.objective = objective;

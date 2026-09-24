@@ -4,7 +4,7 @@ const api = vi.hoisted(() => ({
 	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
-  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(),
+  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
 const workSubscription = vi.hoisted(() => ({
@@ -231,6 +231,24 @@ describe('Vivy store integrity', () => {
     expect(useVivyStore.getState().messages.map((item) => item.content)).toEqual(['new']);
   });
 
+  it('refuses a stale Plan decision without replacing its exact submission with the current one', async () => {
+    const current = { ...work('s1', 8, 'disarmed', 'process-a'), goal: undefined,
+      plan: { active: true, review_status: 'pending', submission_id: 'submission-8', markdown: 'Current plan' } };
+    useVivyStore.setState({ activeSessionId: 's1', work: current as never, workPhase: 'ready' });
+
+    await expect(useVivyStore.getState().decidePlan('execute_once', undefined, undefined, undefined, 'submission-7'))
+      .rejects.toThrow('This Plan submission changed');
+    expect(api.commitWork).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().work?.plan.submission_id).toBe('submission-8');
+    expect(useVivyStore.getState().workError).toContain('This Plan submission changed');
+
+    api.commitWork.mockResolvedValue({ work: current, event: { seq: 9, kind: 'plan.decided', request_id: 'r1', created_at: 1 }, replayed: false });
+    await useVivyStore.getState().decidePlan('execute_once', undefined, undefined, undefined, 'submission-8');
+    expect(api.commitWork).toHaveBeenCalledWith('plan/decide', expect.objectContaining({
+      session_id: 's1', expected_version: 8, submission_id: 'submission-8', action: 'execute_once',
+    }));
+  });
+
   it('replaces armed activation with the restarted backend WorkView on reconnect', async () => {
     api.listMessages.mockResolvedValue({ messages: [] });
     api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));
@@ -328,6 +346,23 @@ describe('Vivy store integrity', () => {
 
     expect(api.getSessionWork).toHaveBeenCalledTimes(2);
     expect(api.getRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the next automatic run after the previous per-run stream ended', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 2, 'armed', 'process-a', 'r2'));
+    api.getRun.mockImplementation(async (id: string) => ({ id, session_id: 's1', status: 'active', created_at: id === 'r1' ? 1 : 2 }));
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    expect(useVivyStore.getState().currentRun?.id).toBe('r1');
+
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
+    expect(useVivyStore.getState().currentRun).toMatchObject({ id: 'r1', status: 'completed' });
+    workSubscription.onEvent?.({ seq: 2, kind: 'goal.round_admitted', request_id: 'round-2', created_at: 3 });
+    await vi.waitFor(() => expect(useVivyStore.getState().currentRun).toMatchObject({ id: 'r2', status: 'active' }));
+    expect(api.getRun).toHaveBeenCalledWith('r2');
   });
 
   it('discards a previous session WorkView response after a switch', async () => {
