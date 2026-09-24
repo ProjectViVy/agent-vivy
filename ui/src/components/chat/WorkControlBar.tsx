@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PlanAction } from '@/lib/api';
+import type { PlanAction, WorkGoal } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const sessions = useVivyStore((state) => state.sessions);
   const loadWork = useVivyStore((state) => state.loadWork);
   const createGoal = useVivyStore((state) => state.createGoal);
+  const editGoal = useVivyStore((state) => state.editGoal);
   const pauseGoal = useVivyStore((state) => state.pauseGoal);
   const resumeGoal = useVivyStore((state) => state.resumeGoal);
   const clearGoal = useVivyStore((state) => state.clearGoal);
@@ -25,6 +26,9 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const [objective, setObjective] = useState('');
   const [maxRounds, setMaxRounds] = useState('3');
   const [creating, setCreating] = useState(false);
+  const [editDraft, setEditDraft] = useState<{
+    ref: Pick<WorkGoal, 'id' | 'revision'>; objective: string; maxRounds: string;
+  } | null>(null);
   const [enteringPlan, setEnteringPlan] = useState(false);
   const goal = work?.goal;
   const plan = work?.plan;
@@ -40,6 +44,15 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
       await createGoal(objective.trim(), rounds);
       setObjective('');
       setCreating(false);
+    });
+  };
+  const saveEdit = async () => {
+    if (!editDraft) return;
+    const rounds = Number(editDraft.maxRounds);
+    if (!editDraft.objective.trim() || !Number.isInteger(rounds) || rounds <= 0 || rounds > 1000 || (goal && rounds < goal.rounds_started)) return;
+    await runAction(async () => {
+      await editGoal(editDraft.objective.trim(), rounds, editDraft.ref);
+      setEditDraft(null);
     });
   };
   const handleEnterPlan = async () => {
@@ -67,6 +80,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
         {enteringPlan ? <span role="status" className="text-xs text-muted-foreground">{t('workControl.stoppingForPlan')}</span> : null}
         {work.current_run_id ? <span className="text-[11px] text-muted-foreground">{t('workControl.currentRun')}: {work.current_run_id}</span> : null}
         <div className="ml-auto flex flex-wrap gap-1">
+          {goal && !editDraft ? <Button type="button" size="sm" variant="outline" disabled={busy || enteringPlan} onClick={() => setEditDraft({ ref: { id: goal.id, revision: goal.revision }, objective: goal.objective, maxRounds: String(goal.max_rounds) })}>{t('workControl.editGoal')}</Button> : null}
           {goal && goalIsActive && work.activation === 'armed' ? <Button type="button" size="sm" variant="outline" disabled={busy || enteringPlan} onClick={() => void runAction(pauseGoal)}>{t('workControl.pauseGoal')}</Button> : null}
           {goal && (goal.phase === 'paused' || (goalIsActive && work.activation === 'disarmed')) ? <Button type="button" size="sm" variant="outline" disabled={busy || enteringPlan || Boolean(work.plan.active) || goal.rounds_started >= goal.max_rounds} onClick={() => void runAction(resumeGoal)}>{t('workControl.resumeGoal')}</Button> : null}
           {goal ? <Button type="button" size="sm" variant="ghost" disabled={busy || enteringPlan} onClick={() => void runAction(clearGoal)}>{t('workControl.clear')}</Button> : null}
@@ -79,6 +93,14 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
           <Textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder={t('workControl.objectivePlaceholder')} disabled={busy} className="min-h-9 flex-1" />
           <Input value={maxRounds} onChange={(event) => setMaxRounds(event.target.value)} aria-label={t('workControl.maxRounds')} type="number" min={1} max={1000} disabled={busy} className="w-24" />
           <Button type="button" disabled={busy || !objective.trim()} onClick={() => void create()}>{t('workControl.create')}</Button>
+        </div>
+      ) : null}
+      {editDraft ? (
+        <div className="mx-auto mt-2 flex max-w-4xl flex-col gap-2 sm:flex-row">
+          <Textarea value={editDraft.objective} onChange={(event) => setEditDraft({ ...editDraft, objective: event.target.value })} aria-label={t('workControl.editObjective')} disabled={busy} className="min-h-9 flex-1" />
+          <Input value={editDraft.maxRounds} onChange={(event) => setEditDraft({ ...editDraft, maxRounds: event.target.value })} aria-label={t('workControl.editRounds')} type="number" min={goal?.rounds_started || 1} max={1000} disabled={busy} className="w-24" />
+          <Button type="button" disabled={busy || !editDraft.objective.trim() || !Number.isInteger(Number(editDraft.maxRounds)) || Number(editDraft.maxRounds) <= 0 || Number(editDraft.maxRounds) > 1000 || Boolean(goal && Number(editDraft.maxRounds) < goal.rounds_started)} onClick={() => void saveEdit()}>{t('workControl.saveGoal')}</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditDraft(null)}>{t('workControl.cancelEdit')}</Button>
         </div>
       ) : null}
       {goal && (goal.reason || goal.evidence_run_id) ? (

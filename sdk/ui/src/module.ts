@@ -1822,7 +1822,7 @@ export interface FaceStoreState {
   loadWork(sessionId?: string): Promise<void>;
   commitWork(method: FaceWorkMethod, fields?: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   createGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
-  editGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
+  editGoal(objective: string, maxRounds: number, goalRef: Pick<FaceWorkGoal, "id" | "revision">): Promise<FaceWorkCommitResult>;
   pauseGoal(reason?: string): Promise<FaceWorkCommitResult>;
   resumeGoal(): Promise<FaceWorkCommitResult>;
   clearGoal(): Promise<FaceWorkCommitResult>;

@@ -143,7 +143,7 @@ interface RuntimeState {
   loadWork: (sessionId?: string) => Promise<void>;
   commitWork: (method: api.WorkMethod, fields?: Record<string, unknown>) => Promise<api.WorkCommitResult>;
   createGoal: (objective: string, maxRounds: number) => Promise<api.WorkCommitResult>;
-  editGoal: (objective: string, maxRounds: number) => Promise<api.WorkCommitResult>;
+  editGoal: (objective: string, maxRounds: number, goalRef: Pick<api.WorkGoal, 'id' | 'revision'>) => Promise<api.WorkCommitResult>;
   pauseGoal: (reason?: string) => Promise<api.WorkCommitResult>;
   resumeGoal: () => Promise<api.WorkCommitResult>;
   clearGoal: () => Promise<api.WorkCommitResult>;
@@ -638,11 +638,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     }
   },
   createGoal: (objective, maxRounds) => get().commitWork('goal/create', { objective, max_rounds: maxRounds }),
-  editGoal: (objective, maxRounds) => {
-    const goal = get().work?.goal;
-    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
-    return get().commitWork('goal/edit', { goal_id: goal.id, goal_revision: goal.revision, objective, max_rounds: maxRounds });
-  },
+  editGoal: (objective, maxRounds, goalRef) => get().commitWork('goal/edit', {
+    goal_id: goalRef.id, goal_revision: goalRef.revision, objective, max_rounds: maxRounds,
+  }),
   pauseGoal: (reason = '') => {
     const goal = get().work?.goal;
     if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
