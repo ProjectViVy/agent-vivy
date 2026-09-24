@@ -285,6 +285,9 @@ type Service struct {
 var ErrModelChangeBusy = errors.New("runtime: model cannot change while runs are active or suspended")
 
 type pendingRun struct {
+	// runCtx keeps the same cancellation lifetime across suspend/resume.
+	// Recovered pending runs receive a fresh process-owned context.
+	runCtx        context.Context
 	sessionID     domain.SessionID
 	workspaceID   string
 	mapper        *eventMapper
@@ -1824,6 +1827,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		selectedTools = []string{toolName}
 	}
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	m.registerOpenCall(openToolCall{
 		id:   approval.ToolCallID,
 		name: toolName,
@@ -1835,7 +1839,8 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		s.goalRunRefs[run.ID] = goalRef
 	}
 	s.workGates[run.ID] = &sync.Mutex{}
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	s.active[run.ID] = cancelRun
+	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -1868,6 +1873,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
 	if isGoalRun {
@@ -1876,8 +1882,9 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		s.goalRunRefs[run.ID] = goalRef
 	}
 	s.workGates[run.ID] = &sync.Mutex{}
+	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
-		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
+		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
 	}
 	s.runSessions[run.ID] = run.SessionID
@@ -2785,7 +2792,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m, selectedTools: append([]string(nil), selectedTools...),
+		runCtx: ctx, sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m, selectedTools: append([]string(nil), selectedTools...),
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
@@ -2871,7 +2878,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
+		runCtx: ctx, sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
 		mounted:       tools.MountedToolsFromContext(ctx),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
@@ -3014,7 +3021,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID, nil)
 	}()
 	return nil
@@ -3283,7 +3290,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
 	}()
 	return nil
@@ -3349,7 +3356,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
+func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -3370,7 +3377,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		// call so reconstructed tool.started/finished keep the call id.
 		m.registerOpenCall(openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
+	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(parent, selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
 	ctx = tools.WithWorkControl(ctx, s)
@@ -3444,10 +3451,14 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	})
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
-		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeInternalError,
-			Message:       "The run could not be resumed. Please try again.",
-		}))
+		if ctx.Err() != nil {
+			s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		} else {
+			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError,
+				Message:       "The run could not be resumed. Please try again.",
+			}))
+		}
 		return
 	}
 	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state)

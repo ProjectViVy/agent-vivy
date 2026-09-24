@@ -127,6 +127,18 @@ func (s *Service) CancelRun(ctx context.Context, runID domain.RunID) (bool, erro
 		}
 		if state.Goal != nil && state.Goal.Phase == domain.WorkPhaseActive &&
 			state.Goal.Ref == goalRef && state.Goal.EvidenceRunID == runID {
+			// Terminal publication holds projectionMu through ownership cleanup.
+			// Recheck under that same boundary: WorkVersion CAS alone cannot
+			// tell whether this process still owns the run being cancelled.
+			s.projectionMu.Lock()
+			s.mu.Lock()
+			cancel := s.active[runID]
+			current := s.goalRuns[sessionID] == runID && s.goalRunRefs[runID] == goalRef && cancel != nil
+			s.mu.Unlock()
+			if !current {
+				s.projectionMu.Unlock()
+				return false, nil
+			}
 			reason := "goal round cancelled"
 			requestID := fmt.Sprintf("goal-cancel-%s-%d", runID, state.Version)
 			hash := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)))
@@ -136,8 +148,16 @@ func (s *Service) CancelRun(ctx context.Context, runID domain.RunID) (bool, erro
 				Kind: domain.WorkEventGoalBlocked, Goal: goalRef,
 				Reason: reason, EvidenceRunID: runID,
 			}); err != nil {
+				s.projectionMu.Unlock()
 				return false, err
 			}
+			cancel()
+			s.projectionMu.Unlock()
+			// Pending approval/question cancellation can emitTerminal itself,
+			// so finish it outside projectionMu. The durable disarm and signal
+			// already won; cleanup racing this call cannot turn it into NotFound.
+			s.Cancel(runID)
+			return true, nil
 		}
 	}
 	return s.Cancel(runID), nil
