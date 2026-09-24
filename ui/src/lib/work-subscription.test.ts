@@ -13,7 +13,7 @@ import { subscribeWork } from './work-subscription';
 function client() {
   const subscriptionId = `sub-${clients.length + 1}`;
   const current = {
-    call: vi.fn(async (method: string) => method === 'session/work/subscribe' ? { subscription_id: subscriptionId } : {}),
+    call: vi.fn(async (method: string) => method === 'session/work/subscribe' ? { subscription_id: subscriptionId, process_epoch: 'process-b', watermark_seq: 1 } : {}),
     notifications: {} as Record<string, Listener>,
     close: undefined as undefined | (() => void),
   };
@@ -50,6 +50,31 @@ describe('work subscription', () => {
     second.notifications['session/work/event']?.({ subscription_id: 'sub-2', event });
     second.notifications['session/work/event']?.({ subscription_id: 'sub-2', event });
     expect(events).toEqual([2]);
+    subscription.close();
+  });
+
+  it('reports the first subscription process epoch even without a later event', async () => {
+    const first = client();
+    rpc.getRpcClient.mockResolvedValueOnce(first);
+    const connected = vi.fn(async (_epoch: string) => undefined);
+    const subscription = subscribeWork('s1', 1, () => undefined, undefined, undefined, connected);
+
+    await vi.waitFor(() => expect(connected).toHaveBeenCalledWith('process-b'));
+    subscription.close();
+  });
+
+  it('retries through the existing reconnect path after a failed event refresh', async () => {
+    const first = client();
+    const second = client();
+    rpc.getRpcClient.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const refresh = vi.fn(async () => undefined);
+    const subscription = subscribeWork('s1', 1, () => undefined, undefined, refresh);
+    await vi.waitFor(() => expect(first.call).toHaveBeenCalledWith('session/work/subscribe', { session_id: 's1', after_seq: 1 }));
+
+    subscription.retry();
+    await vi.waitFor(() => expect(second.call).toHaveBeenCalledWith('session/work/subscribe', { session_id: 's1', after_seq: 1 }), { timeout: 1600 });
+
+    expect(refresh).toHaveBeenCalledOnce();
     subscription.close();
   });
 });

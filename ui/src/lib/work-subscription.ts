@@ -4,6 +4,7 @@ import { t } from '@/i18n';
 
 export interface WorkSubscription {
   close(): void;
+  retry(): void;
   lastSeq(): number;
 }
 
@@ -13,6 +14,7 @@ export function subscribeWork(
   onEvent: (event: WorkEvent) => void,
   onError?: (message: string) => void,
   onReconnect?: () => Promise<void>,
+  onConnected?: (processEpoch: string) => Promise<void>,
 ): WorkSubscription {
   let closed = false;
   let cursor = afterSeq;
@@ -39,6 +41,14 @@ export function subscribeWork(
       timer = undefined;
       void connect();
     }, 1000);
+  };
+  const retry = () => {
+    if (closed) return;
+    const previousId = subscriptionId;
+    subscriptionId = '';
+    clearListeners();
+    if (client && previousId) void client.call('session/work/unsubscribe', { subscription_id: previousId }).catch(() => undefined);
+    reconnect();
   };
   const connect = async () => {
     if (closed) return;
@@ -69,7 +79,7 @@ export function subscribeWork(
         resetRpcClient();
         reconnect();
       });
-      const response = await client.call<{ subscription_id: string }>('session/work/subscribe', {
+      const response = await client.call<{ subscription_id: string; process_epoch: string }>('session/work/subscribe', {
         session_id: sessionId,
         after_seq: cursor,
       });
@@ -78,9 +88,14 @@ export function subscribeWork(
         return;
       }
       subscriptionId = response.subscription_id;
+      if (!response.process_epoch) throw new Error('work subscription missing process epoch');
+      await onConnected?.(response.process_epoch);
       connected = true;
     } catch (error) {
+      const failedId = subscriptionId;
+      subscriptionId = '';
       clearListeners();
+      if (client && failedId) void client.call('session/work/unsubscribe', { subscription_id: failedId }).catch(() => undefined);
       resetRpcClient();
       onError?.(error instanceof Error ? error.message : String(error));
       reconnect();
@@ -96,5 +111,5 @@ export function subscribeWork(
     }
   };
   void connect();
-  return { close, lastSeq: () => cursor };
+  return { close, retry, lastSeq: () => cursor };
 }

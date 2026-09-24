@@ -193,6 +193,7 @@ let workSubscriptionSessionID: string | null = null;
 let sessionEpoch = 0;
 let workRead = 0;
 let workEventSeq = 0;
+let runOpen = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
 let settingsRead = 0;
@@ -312,7 +313,13 @@ function handleWorkEvent(sessionId: string, epoch: number, event: api.WorkEvent)
   const state = useVivyStore.getState();
   if (epoch !== sessionEpoch || state.activeSessionId !== sessionId || event.seq <= workEventSeq) return;
   workEventSeq = event.seq;
-  if (event.seq > (state.work?.version ?? 0)) void state.loadWork(sessionId);
+  if (event.seq > (state.work?.version ?? 0)) {
+    useVivyStore.setState({ work: null, workPhase: 'loading' });
+    void state.loadWork(sessionId).then(() => {
+      const current = useVivyStore.getState();
+      if (epoch === sessionEpoch && current.activeSessionId === sessionId && current.workPhase === 'error') workSubscription?.retry();
+    });
+  }
 }
 
 function startWorkSubscription(sessionId: string, afterSeq: number): void {
@@ -331,6 +338,15 @@ function startWorkSubscription(sessionId: string, afterSeq: number): void {
       if (state.activeSessionId === sessionId && state.workPhase === 'error') {
         throw new Error(state.workError ?? 'work refresh failed');
       }
+    }
+  }, async (processEpoch) => {
+    const state = useVivyStore.getState();
+    if (epoch !== sessionEpoch || state.activeSessionId !== sessionId) return;
+    if (state.work && 'process_epoch' in state.work && state.work.process_epoch === processEpoch) return;
+    useVivyStore.setState({ work: null, workPhase: 'loading' });
+    await state.loadWork(sessionId);
+    if (useVivyStore.getState().activeSessionId === sessionId && useVivyStore.getState().workPhase === 'error') {
+      throw new Error(useVivyStore.getState().workError ?? 'work refresh failed');
     }
   });
 }
@@ -566,6 +582,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
+    runOpen += 1;
     stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
     set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null });
     try {
@@ -578,8 +595,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
-      const runId = work?.current_run_id || background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id || lastRunId(messages);
-      if (runId) await get().openRun(runId, id);
+      const runId = get().work?.current_run_id || background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id || lastRunId(messages);
+      if (runId && get().currentRun?.id !== runId) await get().openRun(runId, id);
       // 最近的两个更早运行按需回放事件，让前几轮也按工具/思考行渲染。
       const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
       await Promise.all(older.map((candidate) => get().loadRunLog(candidate)));
@@ -688,9 +705,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   setTodoPanelOpen: (open) => set({ todoPanelOpen: open }),
   openRun: async (runId, sessionId) => {
+    const request = ++runOpen;
+    const epoch = sessionEpoch;
     try {
       const [run, log, children] = await Promise.all([api.getRun(runId), api.getRunLog(runId), api.listChildren(runId, true)]);
-      if (get().activeSessionId !== sessionId) return;
+      if (request !== runOpen || epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       const events = log.events.sort((a, b) => a.seq - b.seq);
       const active = runActive(run);
       const failed = !active && run.status === 'failed'
@@ -703,7 +722,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         : previous.runLogs;
       set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
-    } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
+    } catch (error) { if (request === runOpen && epoch === sessionEpoch && get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {
     if (runId === '' || get().runLogs[runId] !== undefined) return;

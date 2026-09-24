@@ -10,15 +10,18 @@ const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((eve
 const workSubscription = vi.hoisted(() => ({
   onEvent: undefined as undefined | ((event: { seq: number; kind: string; request_id: string; created_at: number }) => void),
   onReconnect: undefined as undefined | (() => Promise<void>),
+  onConnected: undefined as undefined | ((processEpoch: string) => Promise<void>),
+  retry: vi.fn(),
   close: vi.fn(),
 }));
 vi.mock('./api', () => api);
 vi.mock('./rpc', () => ({ resetRpcClient: vi.fn() }));
 vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent) => { subscription.onEvent = onEvent; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
-vi.mock('./work-subscription', () => ({ subscribeWork: vi.fn((_id: string, afterSeq: number, onEvent: typeof workSubscription.onEvent, _onError: unknown, onReconnect: typeof workSubscription.onReconnect) => {
+vi.mock('./work-subscription', () => ({ subscribeWork: vi.fn((_id: string, afterSeq: number, onEvent: typeof workSubscription.onEvent, _onError: unknown, onReconnect: typeof workSubscription.onReconnect, onConnected: typeof workSubscription.onConnected) => {
   workSubscription.onEvent = onEvent;
   workSubscription.onReconnect = onReconnect;
-  return { close: workSubscription.close, lastSeq: () => afterSeq };
+  workSubscription.onConnected = onConnected;
+  return { close: workSubscription.close, retry: workSubscription.retry, lastSeq: () => afterSeq };
 }) }));
 
 import { resetStoreForTests, useVivyStore } from './store';
@@ -55,7 +58,9 @@ describe('Vivy store integrity', () => {
     subscription.onEvent = undefined;
     workSubscription.onEvent = undefined;
     workSubscription.onReconnect = undefined;
+    workSubscription.onConnected = undefined;
     workSubscription.close.mockReset();
+    workSubscription.retry.mockReset();
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
@@ -238,6 +243,73 @@ describe('Vivy store integrity', () => {
 
     expect(useVivyStore.getState().work).toMatchObject({ activation: 'disarmed', process_epoch: 'process-b', version: 1 });
     expect(localStorage.getItem('vivy.ui.work')).toBeNull();
+  });
+
+  it('drops an armed initial WorkView when the first subscription belongs to a restarted process', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));
+    await useVivyStore.getState().selectSession('s1');
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'disarmed', 'process-b'));
+
+    expect(workSubscription.onConnected).toBeTypeOf('function');
+    await workSubscription.onConnected?.('process-b');
+
+    expect(useVivyStore.getState().work).toMatchObject({ activation: 'disarmed', process_epoch: 'process-b' });
+    expect(api.getSessionWork).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reopen an older run after a work event arrives during session initialization', async () => {
+    const background = deferred<{ runs: [] }>();
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.listBackgroundRuns.mockReturnValueOnce(background.promise);
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a', 'r1'));
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 2, 'armed', 'process-a', 'r2'));
+    api.getRun.mockImplementation(async (id: string) => ({ id, session_id: 's1', status: 'completed', created_at: 2 }));
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+
+    const selecting = useVivyStore.getState().selectSession('s1');
+    await vi.waitFor(() => expect(workSubscription.onEvent).toBeTypeOf('function'));
+    workSubscription.onEvent?.({ seq: 2, kind: 'goal.round_admitted', request_id: 'round-2', created_at: 2 });
+    await vi.waitFor(() => expect(useVivyStore.getState().currentRun?.id).toBe('r2'));
+    background.resolve({ runs: [] });
+    await selecting;
+
+    expect(useVivyStore.getState().currentRun?.id).toBe('r2');
+    expect(api.getRun).not.toHaveBeenCalledWith('r1');
+  });
+
+  it('does not let an older overlapping run open finish after a newer open', async () => {
+    const oldRun = deferred<{ id: string; session_id: string; status: string; created_at: number }>();
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+    api.getRun.mockImplementation((id: string) => id === 'r1' ? oldRun.promise : Promise.resolve({ id, session_id: 's1', status: 'completed', created_at: 2 }));
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+
+    const openingOld = useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().openRun('r2', 's1');
+    oldRun.resolve({ id: 'r1', session_id: 's1', status: 'completed', created_at: 1 });
+    await openingOld;
+
+    expect(useVivyStore.getState().currentRun?.id).toBe('r2');
+  });
+
+  it('drops armed activation and retries when an event WorkView refresh fails', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 1, 'armed', 'process-a'));
+    await useVivyStore.getState().selectSession('s1');
+    api.getSessionWork.mockRejectedValueOnce(new Error('temporary work read failure'));
+
+    workSubscription.onEvent?.({ seq: 2, kind: 'goal.paused', request_id: 'pause-2', created_at: 2 });
+    await vi.waitFor(() => expect(useVivyStore.getState().workPhase).toBe('error'));
+
+    expect(useVivyStore.getState().work).toBeNull();
+    expect(workSubscription.retry).toHaveBeenCalledOnce();
+
+    api.getSessionWork.mockResolvedValueOnce(work('s1', 2, 'disarmed', 'process-a'));
+    await workSubscription.onReconnect?.();
+    expect(useVivyStore.getState().work).toMatchObject({ version: 2, activation: 'disarmed' });
   });
 
   it('opens a committed automatic run once when its work event is duplicated', async () => {
