@@ -4,7 +4,18 @@ Epic: native governed children and bounded DAG; P1; [Issue #39](https://github.c
 
 ## Read order, scope and release authority
 
-Read repository `AGENTS.md`, the architecture, this index, then the Story; read `ui/AGENTS.md` for UI work. The user requested a detailed **planning package**, not implementation authorization. All implementation Stories remain **Planned · review gate**; the native feasibility Story must pass before the rest can move to Ready. An authorized implementer must rebase/review the current source and confirm interfaces before work. This package does not authorize a custom scheduler, external agent backend, #40 product, shared context, named mask inheritance, independent personality or swarm messaging. If G0 fails, stop and return evidence to #39 instead of implementing a fallback architecture.
+Read repository `AGENTS.md`, the architecture, this index, then the Story; read `ui/AGENTS.md` for UI work. The 2026-09-24 preflight releases **ORCH-01 only** as the first technical proof on the repository's Windows toolchain. No production implementation or product interface has started. The initial Issue #39 body still describes the original unscheduled proposal; the later user request advances the plan to pre-start preparation, not a blanket release of ORCH-02–08. A Story owner must confirm its input contracts and required verification environment when starting. This package does not authorize a custom scheduler, external agent backend, #40 product, shared context, named mask inheritance, independent personality or swarm messaging. If G0 fails, stop and return evidence to #39 instead of implementing a fallback architecture.
+
+## Start preflight (2026-09-24)
+
+| Check | Observed state | Start implication |
+| --- | --- | --- |
+| Source | Remote `main` remains `f6fb11bc71be2d06946ff33b0462aa56f9ff51ef`; plan branch is based on that commit, with no upstream diff. `go.mod` pins Go 1.26.4 and Eino v0.9.13. | ORCH-01 source references are current at this check. Recheck before starting if `main` changes. |
+| Decision and scope | Issue #39 is open; G0 and D7 remain unverified. D14, D8 and D9 affect later child schema/controls, but do not determine whether the native Service/Eino proof can run. | Start the standalone ORCH-01 proof. Do not start ORCH-02 or publish child/mailbox controls yet. |
+| Verification environment | This Linux planning checkout has no `go`, `just` or PowerShell (`powershell.exe`/`powershell`/`pwsh`); `VIVY_POSTGRES_TEST_DSN` is unset. The `justfile` uses PowerShell and `.github/workflows/ci.yml` provisions Go/just on `windows-latest`. | ORCH-01 is **plan-ready**, but cannot be executed or verified in this checkout. Use a Windows development/CI environment with Go from `go.mod`, `just`, PowerShell, pnpm and available SQL test backends; record any Postgres skip. GitHub CI on a PR or manual workflow dispatch supplies the established Windows gates, but has not run for this proof. |
+| First handoff | [ORCH-01](ORCH-01.md) names the existing runtime/Service, checkpoint and graph fixtures, the test-only change boundary, failing then passing proof, and GO/NO-GO evidence. | Owner starts with API/identity call path, then a focused failing integration test. Stop downstream Stories if the production Service seam cannot satisfy G0. |
+
+**Readiness:** ORCH-01 is ready to be picked up in a conforming Windows execution environment; its G0 result is **open**. ORCH-02–08 remain blocked by predecessors and their named decisions. A new implementation branch/worktree should be based on current `main`; this documentation branch remains the reviewable plan reference. Mark a later Story Ready here only after predecessor traces, schema/product decisions and toolchain results are recorded.
 
 ## Requirements and acceptance identifiers
 
@@ -29,7 +40,7 @@ Read repository `AGENTS.md`, the architecture, this index, then the Story; read 
 
 | Story | Epic | Requirements | Outcome and immediate predecessor output | Plan | State | Evidence / next gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| ORCH-01 | Native proof | R1,R5,R6 | Standalone integrated Service/Eino proof; none | [01](ORCH-01.md) | Planned · review gate | G0 unverified; Go toolchain absent in this planning workspace. |
+| ORCH-01 | Native proof | R1,R5,R6 | Standalone integrated Service/Eino proof; none | [01](ORCH-01.md) | Ready for Windows execution | G0 unverified; local Linux toolchain absent. See preflight. |
 | ORCH-02 | Child foundation | R1,R2,R6,R8,R14 | Durable binding for continuable child Sessions and admission conformance; explicit one-shot/continuable scope; 01: verified runtime semantics | [02](ORCH-02.md) | Planned · blocked by 01 and D14 schema scope | G1 schema/lifecycle review. |
 | ORCH-03 | Child execution | R1,R2,R6 | Production native agent activation through Service; 02: durable binding, idempotent admission | [03](ORCH-03.md) | Planned · blocked by 02 | G1 parity and rollback. |
 | ORCH-04 | Child controls | R2,R3,R6,R8,R9 | Host RPC/UI continuation and interrupt with durable wait; 03: native child runs; mailbox send/receive is gated by D8 | [04](ORCH-04.md) | Planned · blocked by 03; mailbox API blocked by D8 | G1/G3; do not treat later-Run follow-up as in-flight message delivery. |

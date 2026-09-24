@@ -1,6 +1,6 @@
 # Issue 39: Eino-native child and bounded workflow design
 
-> Status: proposed implementation architecture, **not implementation approval**. 2026-09-23 baseline: agent-vivy `f6fb11bc71be2d06946ff33b0462aa56f9ff51ef`, Eino v0.9.13 `c5e6aef927cca02bea934541f8dff2ea711b2ca7`. Decision record: [Issue #39](https://github.com/ProjectViVy/agent-vivy/issues/39#issuecomment-5798636327). Execution package: [index](../plans/issue39-eino-orchestration/index.md).
+> Status: proposed implementation architecture. ORCH-01 technical proof is prepared for start under the [2026-09-24 preflight](../plans/issue39-eino-orchestration/index.md); later implementation Stories still require their gates. 2026-09-23 baseline: agent-vivy `f6fb11bc71be2d06946ff33b0462aa56f9ff51ef`, Eino v0.9.13 `c5e6aef927cca02bea934541f8dff2ea711b2ca7`. Decision record: [Issue #39](https://github.com/ProjectViVy/agent-vivy/issues/39#issuecomment-5798636327). Execution package: [index](../plans/issue39-eino-orchestration/index.md).
 
 ## Outcome and boundaries
 
