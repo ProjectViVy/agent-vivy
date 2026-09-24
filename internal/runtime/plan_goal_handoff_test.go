@@ -13,6 +13,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
 )
@@ -22,6 +23,160 @@ type heldPlanResumeModel struct {
 	calls         atomic.Int32
 	resumeEntered chan struct{}
 	release       chan struct{}
+}
+
+type heldCancellationEinoModel struct {
+	entered   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+	once      sync.Once
+}
+
+func (m *heldCancellationEinoModel) Generate(ctx context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	m.once.Do(func() {
+		close(m.entered)
+		context.AfterFunc(ctx, func() { close(m.cancelled) })
+	})
+	<-m.release
+	return nil, ctx.Err()
+}
+
+func (m *heldCancellationEinoModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	_, err := m.Generate(ctx, in, opts...)
+	return nil, err
+}
+
+func (m *heldCancellationEinoModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
+}
+
+func TestResumeBeforePlanCancellationLeavesOwnedRunAlive(t *testing.T) {
+	ctx := context.Background()
+	backend := openLifecycleBackend(t)
+	const sessionID domain.SessionID = "sess-resume-before-plan-cancel"
+	ref := createLifecycleGoal(t, backend, sessionID, 2)
+	model := &gatedLifecycleModel{
+		inner:   NewScriptedModel(schema.AssistantMessage("held Goal run", nil)),
+		entered: make(chan struct{}), release: make(chan struct{}),
+	}
+	svc := newGoalLifecycleService(t, backend, model, nil, backend, nil)
+	defer func() { model.unblock(); svc.CancelAll(); waitLifecycleIdle(t, svc) }()
+	svc.WakeGoal(sessionID)
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal run did not start")
+	}
+	_, runID := svc.GoalActivation(sessionID)
+	if runID == "" {
+		t.Fatal("Goal run has no ID")
+	}
+	state, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 2 {
+		t.Fatalf("initial Work = %+v / %v", state, err)
+	}
+	mutation := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: state.Version,
+		RequestID: "enter-plan", RequestHash: "enter-plan", Kind: domain.WorkEventPlanEntered,
+	}
+	transition, _, err := svc.pauseGoalForPlan(ctx, mutation)
+	if err != nil || transition == nil {
+		t.Fatalf("durable Plan pause = %+v / %v", transition, err)
+	}
+	paused, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || paused.Version != 3 || paused.Goal == nil || paused.Goal.Phase != domain.WorkPhasePaused {
+		t.Fatalf("durable Goal pause = %+v / %v", paused, err)
+	}
+	resumed, resumeErr := svc.ResumeGoal(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 3,
+		RequestID: "human-resume", RequestHash: "human-resume",
+		Kind: domain.WorkEventGoalResumed, Goal: ref,
+	})
+	if resumeErr != nil || resumed.State.Goal == nil || resumed.State.Goal.Phase != domain.WorkPhaseActive {
+		t.Fatalf("human resume = %+v / %v", resumed, resumeErr)
+	}
+	result, err := svc.finishPlanTransition(ctx, mutation, *transition)
+	if !errors.Is(err, storage.ErrWorkVersionConflict) || result.Event.Kind != "" {
+		t.Fatalf("stale Plan = %+v / %v", result, err)
+	}
+	run, err := backend.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunActive {
+		t.Fatalf("resumed Goal run was cancelled: %+v / %v", run, err)
+	}
+	state, err = backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 4 || state.Plan.Active || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive {
+		t.Fatalf("Work after resume = %+v / %v", state, err)
+	}
+	events, _, err := backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 10)
+	if err != nil || len(events) != 4 || events[2].Kind != domain.WorkEventGoalPaused || events[3].Kind != domain.WorkEventGoalResumed {
+		t.Fatalf("Journal after resume = %+v / %v", events, err)
+	}
+}
+
+func TestResumeCannotCommitAfterPlanClaimsCancellation(t *testing.T) {
+	ctx := context.Background()
+	backend := openLifecycleBackend(t)
+	const sessionID domain.SessionID = "sess-resume-during-plan-drain"
+	ref := createLifecycleGoal(t, backend, sessionID, 2)
+	model := &heldCancellationEinoModel{entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	svc := newGoalLifecycleService(t, backend, model, nil, backend, nil)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(model.release) }) }
+	defer func() { release(); svc.CancelAll(); waitLifecycleIdle(t, svc) }()
+	svc.WakeGoal(sessionID)
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal run did not start")
+	}
+	state, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 2 {
+		t.Fatalf("initial Work = %+v / %v", state, err)
+	}
+	type planOutcome struct {
+		result storage.WorkCommitResult
+		err    error
+	}
+	planDone := make(chan planOutcome, 1)
+	go func() {
+		result, err := svc.EnterPlan(ctx, domain.WorkMutation{
+			SessionID: sessionID, ExpectedVersion: state.Version,
+			RequestID: "enter-plan", RequestHash: "enter-plan", Kind: domain.WorkEventPlanEntered,
+		})
+		planDone <- planOutcome{result: result, err: err}
+	}()
+	select {
+	case <-model.cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Plan did not signal cancellation")
+	}
+	resumeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	resume, err := svc.ResumeGoal(resumeCtx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 3,
+		RequestID: "resume-during-drain", RequestHash: "resume-during-drain",
+		Kind: domain.WorkEventGoalResumed, Goal: ref,
+	})
+	if !errors.Is(err, storage.ErrWorkVersionConflict) || resume.Event.Kind != "" {
+		t.Fatalf("resume during Plan drain = %+v / %v", resume, err)
+	}
+	state, err = backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Version != 3 || state.Goal == nil || state.Goal.Phase != domain.WorkPhasePaused || state.Plan.Active {
+		t.Fatalf("Work during drain = %+v / %v", state, err)
+	}
+	release()
+	select {
+	case outcome := <-planDone:
+		if outcome.err != nil || outcome.result.State.Version != 4 || !outcome.result.State.Plan.Active {
+			t.Fatalf("Plan after drain = %+v / %v", outcome.result, outcome.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Plan transition did not settle")
+	}
+	events, _, err := backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 10)
+	if err != nil || len(events) != 4 || events[2].Kind != domain.WorkEventGoalPaused || events[3].Kind != domain.WorkEventPlanEntered {
+		t.Fatalf("Journal after Plan drain = %+v / %v", events, err)
+	}
 }
 
 func (m *heldPlanResumeModel) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {

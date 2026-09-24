@@ -23,11 +23,29 @@ var (
 // durable before cancellation; neither admission nor projection locks are
 // held while its owned run drains.
 func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (storage.WorkCommitResult, error) {
+	transition, result, err := s.pauseGoalForPlan(ctx, mutation)
+	if err != nil || transition == nil {
+		return result, err
+	}
+	return s.finishPlanTransition(ctx, mutation, *transition)
+}
+
+type planTransition struct {
+	goal              domain.GoalRef
+	runID             domain.RunID
+	token             uint64
+	versionAfterPause domain.WorkVersion
+}
+
+// pauseGoalForPlan owns the durable first phase and releases both transition
+// locks before the caller attempts cancellation. Keeping this boundary
+// explicit lets a human resume win before cancellation is claimed.
+func (s *Service) pauseGoalForPlan(ctx context.Context, mutation domain.WorkMutation) (*planTransition, storage.WorkCommitResult, error) {
 	if s == nil || s.deps.Work == nil || mutation.Kind != domain.WorkEventPlanEntered {
-		return storage.WorkCommitResult{}, storage.ErrWorkInvalidMutation
+		return nil, storage.WorkCommitResult{}, storage.ErrWorkInvalidMutation
 	}
 	if err := storage.ValidateWorkMutation(mutation); err != nil {
-		return storage.WorkCommitResult{}, err
+		return nil, storage.WorkCommitResult{}, err
 	}
 	gate := s.sessionAdmission(mutation.SessionID)
 	gate.Lock()
@@ -35,13 +53,21 @@ func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (
 	if s.sessionDeleted(mutation.SessionID) {
 		s.projectionMu.Unlock()
 		gate.Unlock()
-		return storage.WorkCommitResult{}, storage.ErrNotFound
+		return nil, storage.WorkCommitResult{}, storage.ErrNotFound
 	}
 	state, err := s.ReadWork(ctx, mutation.SessionID)
 	if err != nil {
 		s.projectionMu.Unlock()
 		gate.Unlock()
-		return storage.WorkCommitResult{}, err
+		return nil, storage.WorkCommitResult{}, err
+	}
+	s.mu.Lock()
+	_, cancelling := s.planCancelling[mutation.SessionID]
+	s.mu.Unlock()
+	if cancelling {
+		s.projectionMu.Unlock()
+		gate.Unlock()
+		return nil, storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
 	}
 	s.mu.Lock()
 	runID := s.goalRuns[mutation.SessionID]
@@ -52,12 +78,12 @@ func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (
 		result, commitErr := s.CommitWork(ctx, mutation)
 		s.projectionMu.Unlock()
 		gate.Unlock()
-		return result, commitErr
+		return nil, result, commitErr
 	}
 	if state.Version != mutation.ExpectedVersion {
 		s.projectionMu.Unlock()
 		gate.Unlock()
-		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+		return nil, storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
 	}
 	s.mu.Lock()
 	s.planTransitions[mutation.SessionID]++
@@ -77,7 +103,7 @@ func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (
 		if pauseErr != nil {
 			s.projectionMu.Unlock()
 			gate.Unlock()
-			return storage.WorkCommitResult{}, pauseErr
+			return nil, storage.WorkCommitResult{}, pauseErr
 		}
 		versionAfterPause = paused.State.Version
 		s.mu.Lock()
@@ -86,8 +112,54 @@ func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (
 	}
 	s.projectionMu.Unlock()
 	gate.Unlock()
+	return &planTransition{goal: state.Goal.Ref, runID: runID, token: token, versionAfterPause: versionAfterPause}, storage.WorkCommitResult{}, nil
+}
+
+// finishPlanTransition claims cancellation only if the durable pause still
+// matches. Its cancellation signal and terminal drain run without admission
+// or projection locks; the final Plan commit is revalidated under both.
+func (s *Service) finishPlanTransition(ctx context.Context, mutation domain.WorkMutation, transition planTransition) (storage.WorkCommitResult, error) {
+	gate := s.sessionAdmission(mutation.SessionID)
+	// A human resume can win after the durable pause and before cancellation.
+	// Revalidate under the same short ordering boundary used by ResumeGoal,
+	// then reserve the cancellation decision without holding either lock while
+	// CancelGoal signals the run or its cleanup drains.
+	gate.Lock()
+	s.projectionMu.Lock()
+	s.mu.Lock()
+	stale := s.planTransitions[mutation.SessionID] != transition.token
+	_, deleted := s.deletedSessions[mutation.SessionID]
+	s.mu.Unlock()
+	if stale || deleted {
+		s.projectionMu.Unlock()
+		gate.Unlock()
+		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	latest, err := s.ReadWork(ctx, mutation.SessionID)
+	if err != nil {
+		s.projectionMu.Unlock()
+		gate.Unlock()
+		return storage.WorkCommitResult{}, err
+	}
+	if latest.Version != transition.versionAfterPause || latest.Goal == nil || latest.Goal.Ref != transition.goal || latest.Goal.Phase != domain.WorkPhasePaused {
+		s.projectionMu.Unlock()
+		gate.Unlock()
+		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	s.mu.Lock()
+	s.planCancelling[mutation.SessionID] = transition.token
+	s.mu.Unlock()
+	s.projectionMu.Unlock()
+	gate.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.planCancelling[mutation.SessionID] == transition.token {
+			delete(s.planCancelling, mutation.SessionID)
+		}
+		s.mu.Unlock()
+	}()
 	s.CancelGoal(mutation.SessionID)
-	if err := s.waitGoalRunCleanup(ctx, mutation.SessionID, runID); err != nil {
+	if err := s.waitGoalRunCleanup(ctx, mutation.SessionID, transition.runID); err != nil {
 		return storage.WorkCommitResult{}, err
 	}
 
@@ -96,21 +168,51 @@ func (s *Service) EnterPlan(ctx context.Context, mutation domain.WorkMutation) (
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	s.mu.Lock()
-	stale := s.planTransitions[mutation.SessionID] != token
-	_, deleted := s.deletedSessions[mutation.SessionID]
+	stale = s.planTransitions[mutation.SessionID] != transition.token
+	_, deleted = s.deletedSessions[mutation.SessionID]
 	s.mu.Unlock()
 	if stale || deleted {
 		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
 	}
-	latest, err := s.ReadWork(ctx, mutation.SessionID)
+	latest, err = s.ReadWork(ctx, mutation.SessionID)
 	if err != nil {
 		return storage.WorkCommitResult{}, err
 	}
-	if latest.Version != versionAfterPause || latest.Goal == nil || latest.Goal.Ref != state.Goal.Ref || latest.Goal.Phase != domain.WorkPhasePaused {
+	if latest.Version != transition.versionAfterPause || latest.Goal == nil || latest.Goal.Ref != transition.goal || latest.Goal.Phase != domain.WorkPhasePaused {
 		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
 	}
 	mutation.ExpectedVersion = latest.Version
 	return s.CommitWork(ctx, mutation)
+}
+
+// ResumeGoal keeps the durable human resume and its rearm ordered against a
+// pending Plan cancellation decision. A stale Plan must not stop a run that
+// a later human has resumed.
+func (s *Service) ResumeGoal(ctx context.Context, mutation domain.WorkMutation) (storage.WorkCommitResult, error) {
+	if s == nil || mutation.Kind != domain.WorkEventGoalResumed {
+		return storage.WorkCommitResult{}, storage.ErrWorkInvalidMutation
+	}
+	gate := s.sessionAdmission(mutation.SessionID)
+	gate.Lock()
+	defer gate.Unlock()
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	s.mu.Lock()
+	_, cancelling := s.planCancelling[mutation.SessionID]
+	_, deleted := s.deletedSessions[mutation.SessionID]
+	s.mu.Unlock()
+	if cancelling {
+		return storage.WorkCommitResult{}, storage.ErrWorkVersionConflict
+	}
+	if deleted {
+		return storage.WorkCommitResult{}, storage.ErrNotFound
+	}
+	result, err := s.CommitWork(ctx, mutation)
+	if err != nil {
+		return storage.WorkCommitResult{}, err
+	}
+	s.WakeGoal(mutation.SessionID)
+	return result, nil
 }
 
 func (s *Service) waitGoalRunCleanup(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) error {

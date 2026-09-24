@@ -238,6 +238,8 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 		result, err = h.deps.Service.DecidePlan(ctx, mutation)
 	} else if kind == domain.WorkEventPlanEntered {
 		result, err = h.deps.Service.EnterPlan(ctx, mutation)
+	} else if kind == domain.WorkEventGoalResumed {
+		result, err = h.deps.Service.ResumeGoal(ctx, mutation)
 	} else {
 		result, err = h.deps.Service.CommitWork(ctx, mutation)
 	}
@@ -247,7 +249,7 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	if peer != nil {
 		h.bindPeerSessionRequest(ctx, peer, request)
 	}
-	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalEdited || kind == domain.WorkEventGoalResumed ||
+	if kind == domain.WorkEventGoalCreated || kind == domain.WorkEventGoalEdited ||
 		(kind == domain.WorkEventPlanDecided && params.PlanAction == string(domain.PlanDecisionStartGoal) && !result.Replayed) {
 		h.deps.Service.WakeGoal(sessionID)
 	}
