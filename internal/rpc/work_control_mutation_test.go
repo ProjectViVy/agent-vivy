@@ -152,6 +152,66 @@ func newGoalLifecycleControlEnv(t *testing.T, model domain.ChatModel, wrapWork f
 	return env, svc
 }
 
+type failGoalPauseWorkStore struct{ storage.WorkStore }
+
+func (s *failGoalPauseWorkStore) CommitWork(ctx context.Context, mutation domain.WorkMutation) (storage.WorkCommitResult, error) {
+	if mutation.Kind == domain.WorkEventGoalPaused {
+		return storage.WorkCommitResult{}, errors.New("injected pause storage failure")
+	}
+	return s.WorkStore.CommitWork(ctx, mutation)
+}
+
+func TestGoalEditResponseReflectsRearmedOwnedRun(t *testing.T) {
+	ctx := context.Background()
+	model := &holdCancellationModel{entered: make(chan struct{}), release: make(chan struct{})}
+	env, svc := newGoalLifecycleControlEnv(t, model, func(inner storage.WorkStore) storage.WorkStore {
+		return &failGoalPauseWorkStore{WorkStore: inner}
+	})
+	defer func() { svc.StopAutomaticWork(); model.unblock(); svc.CancelAll(); waitForGoalControlIdle(t, svc) }()
+	const sessionID domain.SessionID = "sess-edit-rearmed-response"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/create", map[string]any{
+		"session_id": string(sessionID), "request_id": "create", "expected_version": 0,
+		"goal_id": "goal-edit-rearm", "goal_revision": 1, "objective": "original", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/create: %v", rpcErr)
+	}
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal run did not reach model barrier")
+	}
+	_, runID := svc.GoalActivation(sessionID)
+	if runID == "" {
+		t.Fatal("Goal run has no RunID")
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/pause", map[string]any{
+		"session_id": string(sessionID), "request_id": "pause-error", "expected_version": 2,
+		"goal_id": "goal-edit-rearm", "goal_revision": 1, "reason": "stop",
+	}); rpcErr == nil {
+		t.Fatal("failed pause write returned success")
+	}
+	if activation, current := svc.GoalActivation(sessionID); activation != "disarmed" || current != runID {
+		t.Fatalf("activation after failed pause = %q/%q", activation, current)
+	}
+	got, rpcErr := callControl(t, env.handler, "goal/edit", map[string]any{
+		"session_id": string(sessionID), "request_id": "edit", "expected_version": 2,
+		"goal_id": "goal-edit-rearm", "goal_revision": 1, "objective": "revised", "max_rounds": 2,
+	})
+	if rpcErr != nil {
+		t.Fatalf("goal/edit: %v", rpcErr)
+	}
+	view := got.(workCommitResult).Work
+	if view.Activation != "armed" || view.CurrentRunID != string(runID) {
+		t.Fatalf("edit response after explicit re-arm = %+v", view)
+	}
+	if activation, current := svc.GoalActivation(sessionID); activation != "armed" || current != runID {
+		t.Fatalf("live activation after edit = %q/%q", activation, current)
+	}
+}
+
 type holdCancellationModel struct {
 	entered    chan struct{}
 	release    chan struct{}
