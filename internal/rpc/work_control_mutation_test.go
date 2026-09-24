@@ -3,7 +3,9 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"sync"
 	"testing"
@@ -40,8 +42,8 @@ func TestWorkViewDisarmsDurablyPausedOrClearedGoalDuringCancellation(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			state := domain.WorkState{SessionID: "sess-work-view", Version: 3, Goal: tc.goal}
 			view := workStateView(state, "armed", "run-being-cancelled")
-			if view.Activation != "disarmed" || view.CurrentRunID != "" {
-				t.Fatalf("WorkView after durable %s = activation %q, current run %q; want disarmed and empty", tc.name, view.Activation, view.CurrentRunID)
+			if view.Activation != "disarmed" || view.CurrentRunID != "run-being-cancelled" {
+				t.Fatalf("WorkView after durable %s = activation %q, current run %q; want disarmed with owned RunID", tc.name, view.Activation, view.CurrentRunID)
 			}
 		})
 	}
@@ -52,22 +54,7 @@ func TestPauseAndClearReturnDisarmedWorkViewWhileOwnedRunIsCancelling(t *testing
 		t.Run(operation, func(t *testing.T) {
 			ctx := context.Background()
 			model := &holdCancellationModel{entered: make(chan struct{}), release: make(chan struct{})}
-			var svc *runtime.Service
-			env := newControlTestEnv(t, func(deps *ControlDeps) {
-				backend := deps.Sessions.(*sqlite.Backend)
-				engine, err := runtime.NewEngine(ctx, runtime.WrapModel(model), nil, runtime.EngineConfig{
-					StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
-				})
-				if err != nil {
-					t.Fatalf("new engine: %v", err)
-				}
-				svc = runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
-					Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
-					PrimaryRuns: backend, GoalRuns: backend, Work: backend, Sink: deps.Bus,
-				})
-				deps.Service = svc
-				deps.Work = backend
-			})
+			env, svc := newGoalLifecycleControlEnv(t, model, nil)
 			defer func() {
 				model.unblock()
 				if svc != nil {
@@ -110,7 +97,7 @@ func TestPauseAndClearReturnDisarmedWorkViewWhileOwnedRunIsCancelling(t *testing
 				t.Fatalf("%s: %v", operation, rpcErr)
 			}
 			mutationView := changed.(workCommitResult).Work
-			if mutationView.Activation != "disarmed" || mutationView.CurrentRunID != "" {
+			if mutationView.Activation != "disarmed" || mutationView.CurrentRunID != string(runID) {
 				t.Fatalf("mutation WorkView = %+v", mutationView)
 			}
 			activation, current := svc.GoalActivation(sessionID)
@@ -122,7 +109,7 @@ func TestPauseAndClearReturnDisarmedWorkViewWhileOwnedRunIsCancelling(t *testing
 				t.Fatalf("session/work/get: %v", rpcErr)
 			}
 			getView := got.(workStateResult)
-			if getView.Activation != "disarmed" || getView.CurrentRunID != "" {
+			if getView.Activation != "disarmed" || getView.CurrentRunID != string(runID) {
 				t.Fatalf("get WorkView = %+v", getView)
 			}
 			state, err := env.backend.ReadWork(ctx, sessionID)
@@ -140,19 +127,369 @@ func TestPauseAndClearReturnDisarmedWorkViewWhileOwnedRunIsCancelling(t *testing
 	}
 }
 
+func newGoalLifecycleControlEnv(t *testing.T, model domain.ChatModel, wrapWork func(storage.WorkStore) storage.WorkStore) (*controlTestEnv, *runtime.Service) {
+	t.Helper()
+	var svc *runtime.Service
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		backend := deps.Sessions.(*sqlite.Backend)
+		engine, err := runtime.NewEngine(context.Background(), runtime.WrapModel(model), nil, runtime.EngineConfig{
+			StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+		})
+		if err != nil {
+			t.Fatalf("new engine: %v", err)
+		}
+		var work storage.WorkStore = backend
+		if wrapWork != nil {
+			work = wrapWork(work)
+		}
+		svc = runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
+			Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
+			PrimaryRuns: backend, GoalRuns: backend, Work: work, Sink: deps.Bus,
+		})
+		deps.Service = svc
+		deps.Work = work
+	})
+	return env, svc
+}
+
 type holdCancellationModel struct {
-	entered chan struct{}
-	release chan struct{}
-	start   sync.Once
-	done    sync.Once
+	entered    chan struct{}
+	release    chan struct{}
+	cancelled  chan struct{}
+	start      sync.Once
+	done       sync.Once
+	cancelOnce sync.Once
 }
 
 func (m *holdCancellationModel) Stream(ctx context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
 	m.start.Do(func() { close(m.entered) })
+	if m.cancelled != nil {
+		context.AfterFunc(ctx, func() { m.cancelOnce.Do(func() { close(m.cancelled) }) })
+	}
 	<-m.release
 	return nil, ctx.Err()
 }
 func (m *holdCancellationModel) unblock() { m.done.Do(func() { close(m.release) }) }
+
+func TestEditedGoalStartsNewRevisionAfterOldRunCleanup(t *testing.T) {
+	ctx := context.Background()
+	model := &heldTwoRoundModel{
+		firstEntered: make(chan struct{}), firstRelease: make(chan struct{}),
+		secondEntered: make(chan struct{}), secondRelease: make(chan struct{}),
+	}
+	env, svc := newGoalLifecycleControlEnv(t, model, nil)
+	defer func() {
+		model.releaseAll()
+		svc.CancelAll()
+		idleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if !svc.WaitIdle(idleCtx) {
+			t.Error("edited Goal did not become idle")
+		}
+	}()
+	const sessionID domain.SessionID = "sess-edit-live-goal"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/create", map[string]any{
+		"session_id": string(sessionID), "request_id": "create", "expected_version": 0,
+		"goal_id": "goal-edit-live", "goal_revision": 1, "objective": "original", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/create: %v", rpcErr)
+	}
+	select {
+	case <-model.firstEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first Goal run did not enter model barrier")
+	}
+	activation, oldRunID := svc.GoalActivation(sessionID)
+	if activation != "armed" || oldRunID == "" {
+		t.Fatalf("old Goal run = %q / %q", activation, oldRunID)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/edit", map[string]any{
+		"session_id": string(sessionID), "request_id": "edit", "expected_version": 2,
+		"goal_id": "goal-edit-live", "goal_revision": 1, "objective": "revised", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/edit: %v", rpcErr)
+	}
+	// The old run still owns the session, and its report cannot cross the
+	// durable GoalRef CAS into revision 2.
+	_, err := env.backend.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 3, RequestID: "old-report", RequestHash: "old-report",
+		Kind: domain.WorkEventGoalCompleted, Goal: domain.GoalRef{ID: "goal-edit-live", Revision: 1},
+		Reason: "old run done", EvidenceRunID: oldRunID,
+	})
+	if !errors.Is(err, domain.ErrStaleGoalReference) {
+		t.Fatalf("old-revision report = %v, want stale Goal reference", err)
+	}
+	runs, err := env.backend.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 1 || runs[0].ID != oldRunID {
+		t.Fatalf("runs before old cleanup = %+v / %v", runs, err)
+	}
+	model.releaseFirst()
+	select {
+	case <-model.secondEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("edited active Goal did not start a new revision after old run cleanup")
+	}
+	runs, err = env.backend.ListRunsBySession(ctx, sessionID)
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("runs after old cleanup = %+v / %v", runs, err)
+	}
+	var revisedRun domain.Run
+	for _, run := range runs {
+		if run.ID == oldRunID {
+			if run.Status != domain.RunCompleted {
+				t.Fatalf("old run status = %s, want completed before revised start", run.Status)
+			}
+		} else {
+			revisedRun = run
+		}
+	}
+	if revisedRun.ID == "" || revisedRun.Status != domain.RunActive {
+		t.Fatalf("revised run = %+v", revisedRun)
+	}
+	state, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Ref.Revision != 2 || state.Goal.RoundsStarted != 2 || state.Goal.EvidenceRunID != revisedRun.ID {
+		t.Fatalf("revised Goal state = %+v / %v", state, err)
+	}
+	messages, err := env.backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	userRuns := make(map[domain.RunID]bool)
+	for _, message := range messages {
+		if message.Role == domain.RoleUser {
+			userRuns[message.RunID] = true
+		}
+	}
+	if len(userRuns) != 2 || !userRuns[oldRunID] || !userRuns[revisedRun.ID] {
+		t.Fatalf("user message RunIDs = %+v, want both admitted runs", userRuns)
+	}
+	model.releaseSecond()
+}
+
+type heldTwoRoundModel struct {
+	mu            sync.Mutex
+	calls         int
+	firstEntered  chan struct{}
+	firstRelease  chan struct{}
+	secondEntered chan struct{}
+	secondRelease chan struct{}
+	firstDone     sync.Once
+	secondDone    sync.Once
+}
+
+func (m *heldTwoRoundModel) Stream(ctx context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
+	m.mu.Lock()
+	m.calls++
+	call := m.calls
+	m.mu.Unlock()
+	switch call {
+	case 1:
+		close(m.firstEntered)
+		select {
+		case <-m.firstRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	case 2:
+		close(m.secondEntered)
+		select {
+		case <-m.secondRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	default:
+		return nil, fmt.Errorf("unexpected Goal model call %d", call)
+	}
+	return &singleGoalMessage{message: &domain.Message{Role: domain.RoleAssistant, Content: "round completed"}}, nil
+}
+func (m *heldTwoRoundModel) releaseFirst()  { m.firstDone.Do(func() { close(m.firstRelease) }) }
+func (m *heldTwoRoundModel) releaseSecond() { m.secondDone.Do(func() { close(m.secondRelease) }) }
+func (m *heldTwoRoundModel) releaseAll()    { m.releaseFirst(); m.releaseSecond() }
+
+type singleGoalMessage struct{ message *domain.Message }
+
+func (s *singleGoalMessage) Recv() (*domain.Message, error) {
+	if s.message == nil {
+		return nil, io.EOF
+	}
+	message := s.message
+	s.message = nil
+	return message, nil
+}
+
+func TestRunCancelDisarmsOwnedGoalBeforeSignallingRun(t *testing.T) {
+	ctx := context.Background()
+	model := &holdCancellationModel{entered: make(chan struct{}), release: make(chan struct{}), cancelled: make(chan struct{})}
+	env, svc := newGoalLifecycleControlEnv(t, model, nil)
+	defer func() { model.unblock(); svc.CancelAll(); waitForGoalControlIdle(t, svc) }()
+	const sessionID domain.SessionID = "sess-direct-goal-cancel"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/create", map[string]any{
+		"session_id": string(sessionID), "request_id": "create", "expected_version": 0,
+		"goal_id": "goal-direct-cancel", "goal_revision": 1, "objective": "run", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/create: %v", rpcErr)
+	}
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal run did not enter model barrier")
+	}
+	_, runID := svc.GoalActivation(sessionID)
+	if runID == "" {
+		t.Fatal("Goal has no admitted RunID")
+	}
+	if _, rpcErr := callControl(t, env.handler, "run/cancel", map[string]any{"run_id": string(runID)}); rpcErr != nil {
+		t.Fatalf("run/cancel: %v", rpcErr)
+	}
+	state, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseBlocked || state.Goal.Reason != "goal round cancelled" || state.Goal.EvidenceRunID != runID || state.Goal.RoundsStarted != 1 {
+		t.Fatalf("durable Goal after run/cancel = %+v / %v", state, err)
+	}
+	select {
+	case <-model.cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run/cancel did not signal the model after durable disarm")
+	}
+	got, rpcErr := callControl(t, env.handler, "session/work/get", map[string]any{"session_id": string(sessionID)})
+	if rpcErr != nil {
+		t.Fatalf("session/work/get: %v", rpcErr)
+	}
+	view := got.(workStateResult)
+	if view.Activation != "disarmed" || view.CurrentRunID != string(runID) {
+		t.Fatalf("WorkView while blocked run is cancelling = %+v", view)
+	}
+	run, err := env.backend.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunActive {
+		t.Fatalf("held cancelling run = %+v / %v", run, err)
+	}
+	model.unblock()
+	waitForGoalControlIdle(t, svc)
+	run, err = env.backend.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunCancelled {
+		t.Fatalf("terminal cancelled run = %+v / %v", run, err)
+	}
+}
+
+func TestRunCancelPersistenceFailureDoesNotSignalOwnedGoal(t *testing.T) {
+	ctx := context.Background()
+	model := &holdCancellationModel{entered: make(chan struct{}), release: make(chan struct{}), cancelled: make(chan struct{})}
+	store := &failOneGoalBlockStore{err: errors.New("injected Goal block persistence failure")}
+	env, svc := newGoalLifecycleControlEnv(t, model, func(inner storage.WorkStore) storage.WorkStore {
+		store.WorkStore = inner
+		return store
+	})
+	defer func() { model.unblock(); svc.CancelAll(); waitForGoalControlIdle(t, svc) }()
+	const sessionID domain.SessionID = "sess-goal-cancel-failure"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "goal/create", map[string]any{
+		"session_id": string(sessionID), "request_id": "create", "expected_version": 0,
+		"goal_id": "goal-cancel-failure", "goal_revision": 1, "objective": "run", "max_rounds": 2,
+	}); rpcErr != nil {
+		t.Fatalf("goal/create: %v", rpcErr)
+	}
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal run did not enter model barrier")
+	}
+	_, runID := svc.GoalActivation(sessionID)
+	if runID == "" {
+		t.Fatal("Goal has no admitted RunID")
+	}
+	if _, rpcErr := callControl(t, env.handler, "run/cancel", map[string]any{"run_id": string(runID)}); rpcErr == nil {
+		t.Fatal("run/cancel accepted a Goal whose durable block failed")
+	}
+	select {
+	case <-model.cancelled:
+		t.Fatal("run/cancel signalled the run despite block persistence failure")
+	default:
+	}
+	state, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive || state.Goal.RoundsStarted != 1 {
+		t.Fatalf("Goal after failed disarm = %+v / %v", state, err)
+	}
+	run, err := env.backend.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunActive {
+		t.Fatalf("run after failed disarm = %+v / %v", run, err)
+	}
+}
+
+func TestRunCancelPreservesOrdinaryNonGoalCancellation(t *testing.T) {
+	ctx := context.Background()
+	model := &holdCancellationModel{entered: make(chan struct{}), release: make(chan struct{}), cancelled: make(chan struct{})}
+	env, svc := newGoalLifecycleControlEnv(t, model, nil)
+	defer func() { model.unblock(); svc.CancelAll(); waitForGoalControlIdle(t, svc) }()
+	const sessionID domain.SessionID = "sess-ordinary-cancel"
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{"session_id": string(sessionID), "text": "hello"})
+	if rpcErr != nil {
+		t.Fatalf("turn/start: %v", rpcErr)
+	}
+	accepted := started.(map[string]any)
+	runID := accepted["run_id"].(domain.RunID)
+	select {
+	case <-model.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ordinary run did not enter model barrier")
+	}
+	if _, rpcErr := callControl(t, env.handler, "run/cancel", map[string]any{"run_id": string(runID)}); rpcErr != nil {
+		t.Fatalf("ordinary run/cancel: %v", rpcErr)
+	}
+	select {
+	case <-model.cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ordinary run/cancel did not signal the model")
+	}
+	state, err := env.backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Goal != nil || state.Version != 0 {
+		t.Fatalf("ordinary cancellation changed Goal work = %+v / %v", state, err)
+	}
+	model.unblock()
+	waitForGoalControlIdle(t, svc)
+	run, err := env.backend.GetRun(ctx, runID)
+	if err != nil || run.Status != domain.RunCancelled {
+		t.Fatalf("ordinary cancelled run = %+v / %v", run, err)
+	}
+}
+
+type failOneGoalBlockStore struct {
+	storage.WorkStore
+	mu     sync.Mutex
+	failed bool
+	err    error
+}
+
+func (s *failOneGoalBlockStore) CommitWork(ctx context.Context, mutation domain.WorkMutation) (storage.WorkCommitResult, error) {
+	s.mu.Lock()
+	fail := mutation.Kind == domain.WorkEventGoalBlocked && !s.failed
+	if fail {
+		s.failed = true
+	}
+	s.mu.Unlock()
+	if fail {
+		return storage.WorkCommitResult{}, s.err
+	}
+	return s.WorkStore.CommitWork(ctx, mutation)
+}
+
+func waitForGoalControlIdle(t *testing.T, svc *runtime.Service) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("Goal control service did not become idle")
+	}
+}
 
 func TestBuildWorkMutationRejectsModelOnlyPlanSubmit(t *testing.T) {
 	if _, rpcErr := buildWorkMutation("plan/submit", domain.WorkEventPlanSubmitted, workParams{

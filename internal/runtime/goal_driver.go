@@ -108,6 +108,41 @@ func (s *Service) CancelGoal(sessionID domain.SessionID) {
 	}
 }
 
+// CancelRun is the public run/cancel path. A run still owned by the current
+// active Goal is durably blocked before its cancellation is signalled. Other
+// runs retain the ordinary Cancel behavior.
+func (s *Service) CancelRun(ctx context.Context, runID domain.RunID) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	s.mu.Lock()
+	sessionID := s.goalRunSessions[runID]
+	goalRef := s.goalRunRefs[runID]
+	owned := sessionID != "" && s.goalRuns[sessionID] == runID
+	s.mu.Unlock()
+	if owned {
+		state, err := s.ReadWork(ctx, sessionID)
+		if err != nil {
+			return false, err
+		}
+		if state.Goal != nil && state.Goal.Phase == domain.WorkPhaseActive &&
+			state.Goal.Ref == goalRef && state.Goal.EvidenceRunID == runID {
+			reason := "goal round cancelled"
+			requestID := fmt.Sprintf("goal-cancel-%s-%d", runID, state.Version)
+			hash := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)))
+			if _, err := s.CommitWork(ctx, domain.WorkMutation{
+				SessionID: sessionID, ExpectedVersion: state.Version,
+				RequestID: requestID, RequestHash: hex.EncodeToString(hash[:]),
+				Kind: domain.WorkEventGoalBlocked, Goal: goalRef,
+				Reason: reason, EvidenceRunID: runID,
+			}); err != nil {
+				return false, err
+			}
+		}
+	}
+	return s.Cancel(runID), nil
+}
+
 // GoalActivation reports process-local authority. It is intentionally never
 // persisted: after a restart a durable active Goal is disarmed until a host
 // explicitly wakes it.
@@ -262,7 +297,14 @@ func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionI
 		return
 	}
 	state, err := s.deps.Work.ReadWork(ctx, sessionID)
-	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive || state.Goal.Ref != goalRef {
+	if err != nil || state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive {
+		return
+	}
+	if state.Goal.Ref != goalRef {
+		// A human edit invalidated this run's report, but its wake was
+		// deferred while the old run owned the session. Recheck the latest
+		// durable revision only after the old run has been cleaned up.
+		s.WakeGoal(sessionID)
 		return
 	}
 	if status == domain.RunCompleted && state.Goal.RoundsStarted < state.Goal.MaxRounds {
