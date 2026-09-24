@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,7 +18,11 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/migrations"
 	"agent-vivy/internal/tools"
+
+	_ "modernc.org/sqlite"
 )
 
 // A dropped model-to-tool Plan submission must make the pending review
@@ -186,6 +191,321 @@ func TestPlanGoalIntegratedReviewAndTwoRounds(t *testing.T) {
 	after, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
 	if err != nil || len(after) != 3 {
 		t.Fatalf("restart admitted extra run: %v / %v", after, err)
+	}
+}
+
+// A committed review and its checkpoint survive process loss. Closing App
+// gracefully cancels suspended runs, so closing only the database here models
+// the crash boundary rather than an orderly application shutdown.
+func TestPlanGoalIntegratedPendingReviewRecovery(t *testing.T) {
+	planGoalTestProvider(t, newPlanGoalScriptServer(t, []planGoalReply{
+		{tool: tools.SubmitPlanName, args: `{"markdown":"Review this durable plan."}`},
+		{text: "Review accepted."},
+	}).URL)
+	cfg, workspace := planGoalTestConfig(t, []string{tools.SubmitPlanName})
+	a := openPlanGoalTestApp(t, cfg)
+	client, err := a.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := callControl(t, client, "session/create", map[string]any{"title": "review recovery", "workspace_path": workspace})
+	sessionID := session["id"].(string)
+	callControl(t, client, "session/set_permission", map[string]any{"session_id": sessionID, "preset": "trusted"})
+	callControl(t, client, "plan/enter", map[string]any{"session_id": sessionID, "request_id": "enter-review", "expected_version": 0})
+	turn := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "Submit a plan."})
+	runID := turn["run_id"].(string)
+	var pending map[string]any
+	ready := false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		pending = callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
+		plan, _ := pending["plan"].(map[string]any)
+		state, err := a.backend.(storage.WorkStore).ReadWork(context.Background(), domain.SessionID(sessionID))
+		if plan["review_status"] == "pending" && err == nil && state.Plan.ResumeTarget != "" {
+			ready = true
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !ready {
+		state, err := a.backend.(storage.WorkStore).ReadWork(context.Background(), domain.SessionID(sessionID))
+		t.Fatalf("review did not reach suspend boundary: view=%v state=%+v err=%v run=%v events=%v", pending, state.Plan, err, callControl(t, client, "run/get", map[string]any{"run_id": runID}), runEvents(t, client, runID))
+	}
+	if pending["plan"].(map[string]any)["origin_run_id"] != runID {
+		t.Fatalf("pending review lacks originating run: %v", pending)
+	}
+	durablePending, err := a.backend.(storage.WorkStore).ReadWork(context.Background(), domain.SessionID(sessionID))
+	if err != nil || durablePending.Plan.OriginToolCallID == "" || durablePending.Plan.ResumeTarget == "" {
+		t.Fatalf("pending review lacks resumable origin: %+v / %v", durablePending.Plan, err)
+	}
+	_ = client.Close()
+	if err := a.backend.Close(); err != nil {
+		t.Fatalf("simulate process loss: %v", err)
+	}
+	// App.Close releases process-owned resources; its cancellation cannot write
+	// to the already-closed Journal, matching an ungraceful process exit.
+	_ = a.Close()
+	restarted := openPlanGoalTestApp(t, cfg)
+	replay, err := restarted.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replay.Close()
+	work := callControl(t, replay, "session/work/get", map[string]any{"session_id": sessionID})
+	plan := work["plan"].(map[string]any)
+	if plan["review_status"] != "pending" || plan["origin_run_id"] != runID || plan["markdown"] != "Review this durable plan." {
+		t.Fatalf("recovered review = %v", work)
+	}
+	run := callControl(t, replay, "run/get", map[string]any{"run_id": runID})
+	if run["status"] != "active" {
+		t.Fatalf("recovered Plan run = %v, work = %v, before = %+v", run, work, durablePending.Plan)
+	}
+	before, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
+	if err != nil || len(before) != 1 {
+		t.Fatalf("recovered runs = %v / %v", before, err)
+	}
+	callControl(t, replay, "plan/decide", map[string]any{
+		"session_id": sessionID, "request_id": "approve-recovered", "expected_version": work["version"],
+		"submission_id": plan["submission_id"], "action": "execute_once",
+	})
+	waitFor(t, 5*time.Second, func() bool {
+		return callControl(t, replay, "run/get", map[string]any{"run_id": runID})["status"] == "completed"
+	})
+	after, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
+	if err != nil || len(after) != 1 {
+		t.Fatalf("review replay admitted duplicate run: %v / %v", after, err)
+	}
+}
+
+func TestPlanGoalIntegratedRoundLimitBlocksDurably(t *testing.T) {
+	planGoalTestProvider(t, newPlanGoalScriptServer(t, []planGoalReply{{text: "One round ended without report_goal."}}).URL)
+	cfg, workspace := planGoalTestConfig(t, nil)
+	a := openPlanGoalTestApp(t, cfg)
+	client, err := a.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	session := callControl(t, client, "session/create", map[string]any{"title": "round limit", "workspace_path": workspace})
+	sessionID := session["id"].(string)
+	callControl(t, client, "goal/create", map[string]any{
+		"session_id": sessionID, "request_id": "cap-one", "expected_version": 0,
+		"goal_id": "goal-cap-one", "goal_revision": 1, "objective": "Finish without a report.", "max_rounds": 1,
+	})
+	var work map[string]any
+	waitFor(t, 5*time.Second, func() bool {
+		work = callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
+		goal, _ := work["goal"].(map[string]any)
+		return goal["phase"] == "blocked"
+	})
+	goal := work["goal"].(map[string]any)
+	if goal["reason"] != "goal round limit reached" || goal["rounds_started"] != float64(1) || work["activation"] != "disarmed" {
+		t.Fatalf("cap did not persist explicit block: %v", work)
+	}
+	runs, err := a.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
+	if err != nil || len(runs) != 1 || runs[0].Status != domain.RunCompleted || goal["evidence_run_id"] != string(runs[0].ID) {
+		t.Fatalf("capped runs = %v / %v, work=%v", runs, err, work)
+	}
+	assertWorkEventCount(t, a, sessionID, domain.WorkEventGoalRoundAdmitted, 1)
+	assertWorkEventCount(t, a, sessionID, domain.WorkEventGoalBlocked, 1)
+	_ = client.Close()
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted := openPlanGoalTestApp(t, cfg)
+	replayed, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
+	if err != nil || len(replayed) != 1 {
+		t.Fatalf("restart exceeded cap: %v / %v", replayed, err)
+	}
+}
+
+func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
+	entered := make(chan struct{})
+	cancelled := make(chan struct{})
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		close(entered)
+		<-r.Context().Done()
+		close(cancelled)
+	}))
+	t.Cleanup(model.Close)
+	planGoalTestProvider(t, model.URL)
+	cfg, workspace := planGoalTestConfig(t, nil)
+	a := openPlanGoalTestApp(t, cfg)
+	client, err := a.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := callControl(t, client, "session/create", map[string]any{"title": "inflight pause", "workspace_path": workspace})
+	sessionID := session["id"].(string)
+	callControl(t, client, "goal/create", map[string]any{
+		"session_id": sessionID, "request_id": "start-inflight", "expected_version": 0,
+		"goal_id": "goal-inflight", "goal_revision": 1, "objective": "Wait for cancellation.", "max_rounds": 2,
+	})
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Goal never reached model request")
+	}
+	work := callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
+	if work["activation"] != "armed" {
+		t.Fatalf("inflight Goal not armed: %v", work)
+	}
+	callControl(t, client, "goal/pause", map[string]any{
+		"session_id": sessionID, "request_id": "pause-inflight", "expected_version": work["version"],
+		"goal_id": "goal-inflight", "goal_revision": 1, "reason": "user paused during model request",
+	})
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pause did not cancel in-flight model request")
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		view := callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
+		goal, _ := view["goal"].(map[string]any)
+		return goal["phase"] == "paused" && view["activation"] == "disarmed"
+	})
+	_ = client.Close()
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted := openPlanGoalTestApp(t, cfg)
+	replay, err := restarted.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replay.Close()
+	recovered := callControl(t, replay, "session/work/get", map[string]any{"session_id": sessionID})
+	goal := recovered["goal"].(map[string]any)
+	if goal["phase"] != "paused" || recovered["activation"] != "disarmed" || goal["rounds_started"] != float64(1) {
+		t.Fatalf("inflight pause lost across restart: %v", recovered)
+	}
+	runs, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
+	if err != nil || len(runs) != 1 || !runs[0].Status.Terminal() {
+		t.Fatalf("inflight Journal = %v / %v", runs, err)
+	}
+	assertWorkEventCount(t, restarted, sessionID, domain.WorkEventGoalRoundAdmitted, 1)
+	assertWorkEventCount(t, restarted, sessionID, domain.WorkEventGoalPaused, 1)
+}
+
+func TestPlanGoalIntegratedOpensVersion23SQLite(t *testing.T) {
+	planGoalTestProvider(t, newPlanGoalScriptServer(t, nil).URL)
+	cfg, _ := planGoalTestConfig(t, nil)
+	manifest, err := migrations.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+cfg.Storage.SQLite.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range manifest.Migrations(migrations.SQLite)[:23] {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(migration.SQL); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("seed migration %d: %v", migration.Version, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.Checksum, int64(1)); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO sessions (id,title,created_at) VALUES ('legacy-app-session','preserved',11)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	a := openPlanGoalTestApp(t, cfg)
+	client, err := a.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	session := callControl(t, client, "session/get", map[string]any{"session_id": "legacy-app-session"})
+	if session["session"].(map[string]any)["title"] != "preserved" {
+		t.Fatalf("old session not preserved by app.New migration: %v", session)
+	}
+	work := callControl(t, client, "session/work/get", map[string]any{"session_id": "legacy-app-session"})
+	if work["version"] != float64(0) {
+		t.Fatalf("upgraded Work projection: %v", work)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check, err := sql.Open("sqlite", "file:"+cfg.Storage.SQLite.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer check.Close()
+	var count int
+	if err := check.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil || count != len(manifest.Migrations(migrations.SQLite)) {
+		t.Fatalf("app.New migration count = %d / %v", count, err)
+	}
+}
+
+func planGoalTestProvider(t *testing.T, url string) {
+	t.Helper()
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	t.Setenv("DEEPSEEK_API_KEY", "plan-goal-loopback-key")
+	t.Setenv("VIVY_PROVIDER", "deepseek")
+	t.Setenv("VIVY_API_BASE", url)
+}
+
+func planGoalTestConfig(t *testing.T, enabled []string) (config.Config, string) {
+	t.Helper()
+	dir := t.TempDir()
+	workspace := filepath.Join(dir, "workspace")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := newDeepSeekTestConfig(t)
+	cfg.Storage.SQLite.Path = filepath.Join(dir, "vivy.db")
+	cfg.Runtime.WorkspaceRoot = workspace
+	cfg.Tools.Enabled = enabled
+	cfg.Runtime.Sandbox.Approval.AutoApproveTools = enabled
+	return cfg, workspace
+}
+
+func openPlanGoalTestApp(t *testing.T, cfg config.Config) *App {
+	t.Helper()
+	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
+	if err != nil {
+		t.Fatalf("compose app: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	return a
+}
+
+func assertWorkEventCount(t *testing.T, a *App, sessionID string, kind domain.WorkEventKind, want int) {
+	t.Helper()
+	workStore, ok := a.backend.(storage.WorkStore)
+	if !ok {
+		t.Fatal("app backend lacks durable WorkStore")
+	}
+	events, _, err := workStore.ReplayWork(context.Background(), domain.SessionID(sessionID), domain.WorkState{SessionID: domain.SessionID(sessionID)}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	for _, event := range events {
+		if event.Kind == kind {
+			got++
+		}
+	}
+	if got != want {
+		t.Fatalf("persisted %s count = %d, want %d: %v", kind, got, want, events)
 	}
 }
 
