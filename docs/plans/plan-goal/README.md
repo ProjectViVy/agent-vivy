@@ -76,5 +76,5 @@ New public Ports, scope expansion, changed acceptance or substantial new infrast
 
 ## Current verification
 
-Pre-design checks are recorded in [2026-09-21 verification](../../logs/2026-09-21-plan-goal-predesign/verification.md). Foundation evidence is in [2026-09-23 verification](../../logs/2026-09-23-plan-goal-foundation/verification.md); the latest full `just ci` passed at `a258feb` and is recorded in [2026-09-24 verification](../../logs/2026-09-24-pg1-plan-submit-rpc-ownership/verification.md). Live PostgreSQL remains unverified.
+Pre-design checks are recorded in [2026-09-21 verification](../../logs/2026-09-21-plan-goal-predesign/verification.md). Foundation evidence is in [2026-09-23 verification](../../logs/2026-09-23-plan-goal-foundation/verification.md). The latest integrated full `just ci` passed at `33d1faa` and is recorded in [PG-5 final review fixes verification](../../logs/2026-09-24-pg5-final-review-fixes/verification.md). Live PostgreSQL, browser acceptance, and the PG-6 coding walkthrough remain unverified.
 Scenario blocks in Story plans remain behavioral pseudocode; the PG-0 probes are executable Go tests.
