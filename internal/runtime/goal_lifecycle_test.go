@@ -253,16 +253,47 @@ func TestOldRevisionGoalRunCannotReportIntoEditedGoal(t *testing.T) {
 	}
 	model.unblock()
 	waitForTerminalRun(t, backend, runs[0].ID)
+	// The edit's wake is deferred until old-run cleanup. Let the revised
+	// round settle before using WaitIdle: it can legitimately start after the
+	// old terminal and must never be mistaken for the stale report succeeding.
+	var revisedRun domain.Run
+	settled := false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		allRuns, listErr := backend.ListRunsBySession(ctx, sessionID)
+		if listErr != nil {
+			t.Fatalf("list runs after edit: %v", listErr)
+		}
+		if len(allRuns) == 2 {
+			for _, run := range allRuns {
+				if run.ID != runs[0].ID {
+					revisedRun = run
+				}
+			}
+			state, readErr := backend.ReadWork(ctx, sessionID)
+			if readErr != nil {
+				t.Fatalf("read revised Goal: %v", readErr)
+			}
+			if revisedRun.Status.Terminal() && state.Goal != nil && state.Goal.Phase == domain.WorkPhaseBlocked {
+				settled = true
+				break
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !settled {
+		t.Fatalf("revised Goal run did not settle after old cleanup: %+v", revisedRun)
+	}
 	waitLifecycleIdle(t, svc)
 	state, err := backend.ReadWork(ctx, sessionID)
-	if err != nil || state.Goal == nil || state.Goal.Ref.Revision != 2 || state.Goal.Phase != domain.WorkPhaseActive || state.Goal.RoundsStarted != 1 {
+	if err != nil || state.Goal == nil || state.Goal.Ref.Revision != 2 || state.Goal.Phase != domain.WorkPhaseBlocked || state.Goal.RoundsStarted != 2 || state.Goal.EvidenceRunID != revisedRun.ID {
 		t.Fatalf("Goal after stale run report = %+v / %v", state, err)
 	}
 	if got := countWorkEvents(t, backend, sessionID, domain.WorkEventGoalCompleted); got != 0 {
 		t.Fatalf("stale report completed revised Goal %d times", got)
 	}
-	if got := countWorkEvents(t, backend, sessionID, domain.WorkEventGoalBlocked); got != 0 {
-		t.Fatalf("stale run settled revised Goal %d times", got)
+	if got := countWorkEvents(t, backend, sessionID, domain.WorkEventGoalBlocked); got != 1 {
+		t.Fatalf("revised Goal block events = %d, want only its own terminal", got)
 	}
 	staleReportRejected := false
 	for _, event := range replayAll(t, backend, runs[0].ID) {

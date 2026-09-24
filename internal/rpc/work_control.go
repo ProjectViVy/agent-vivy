@@ -80,7 +80,7 @@ type workCommitResult struct {
 
 func workStateView(state domain.WorkState, activation string, currentRunID domain.RunID) workStateResult {
 	if state.Goal == nil || state.Goal.Phase != domain.WorkPhaseActive {
-		activation, currentRunID = "disarmed", ""
+		activation = "disarmed"
 	}
 	status := state.Plan.ReviewStatus
 	if status == "" {

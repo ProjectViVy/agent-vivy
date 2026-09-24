@@ -1212,7 +1212,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
-		return h.cancelRun(request)
+		return h.cancelRun(ctx, request)
 	case "run/get":
 		result, rpcErr := h.getRun(ctx, request)
 		if rpcErr == nil {
@@ -3031,12 +3031,16 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
 }
 
-func (h *controlHandler) cancelRun(request Request) (any, *Error) {
+func (h *controlHandler) cancelRun(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseRunParams(request)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if !h.deps.Service.Cancel(domain.RunID(params.RunID)) {
+	cancelled, err := h.deps.Service.CancelRun(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, workError(err)
+	}
+	if !cancelled {
 		return nil, &Error{Code: CodeNotFound, Message: "run is not active in this process"}
 	}
 	return map[string]any{"run_id": params.RunID, "status": "cancelling"}, nil
