@@ -203,6 +203,7 @@ type Service struct {
 	goalStarting     map[domain.SessionID]struct{}
 	goalRuns         map[domain.SessionID]domain.RunID
 	goalDisarmed     map[domain.SessionID]struct{}
+	planTransitions  map[domain.SessionID]uint64
 	goalRunSessions  map[domain.RunID]domain.SessionID
 	goalRunRefs      map[domain.RunID]domain.GoalRef
 	admissionLocksMu sync.Mutex
@@ -390,6 +391,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalStarting:     make(map[domain.SessionID]struct{}),
 		goalRuns:         make(map[domain.SessionID]domain.RunID),
 		goalDisarmed:     make(map[domain.SessionID]struct{}),
+		planTransitions:  make(map[domain.SessionID]uint64),
 		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
 		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
 		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
@@ -608,8 +610,12 @@ func (s *Service) MaxEventPayloadBytes() int {
 // deletion with run startup and Journal-to-message projection. The tombstone
 // prevents a cancelled drive from appending a late event after storage delete.
 func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
+	// Serialize the tombstone with the final Plan entry check. A deletion
+	// beginning during an unlocked Goal drain wins before Plan can commit.
+	s.projectionMu.Lock()
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
+	s.planTransitions[id]++
 	liveRunIDs := make([]domain.RunID, 0)
 	for runID, sessionID := range s.runSessions {
 		if sessionID == id {
@@ -618,6 +624,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 	childRuns := s.deps.ChildRuns
 	s.mu.Unlock()
+	s.projectionMu.Unlock()
 	if childRuns != nil {
 		childRuns.CancelSessionChildren(id)
 	}
