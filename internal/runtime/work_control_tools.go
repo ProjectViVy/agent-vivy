@@ -223,6 +223,7 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 	}
 	s.mu.Lock()
 	owned := s.goalRuns[sessionID] == runID
+	admittedRef := s.goalRunRefs[runID]
 	s.mu.Unlock()
 	if !owned {
 		return domain.WorkState{}, errors.New("runtime: only the admitted Goal run may report Goal state")
@@ -230,6 +231,9 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 	goalID, reason = strings.TrimSpace(goalID), strings.TrimSpace(reason)
 	if goalID == "" || revision <= 0 || (status != "completed" && status != "blocked") {
 		return domain.WorkState{}, errors.New("runtime: invalid Goal report")
+	}
+	if admittedRef != (domain.GoalRef{ID: goalID, Revision: revision}) {
+		return domain.WorkState{}, fmt.Errorf("%w: report does not match the admitted Goal", domain.ErrStaleGoalReference)
 	}
 	kind := domain.WorkEventGoalCompleted
 	if status == "blocked" {

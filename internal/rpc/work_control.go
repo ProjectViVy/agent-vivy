@@ -390,6 +390,8 @@ func workError(err error) *Error {
 		return &Error{Code: InvalidParams, Message: "invalid work mutation"}
 	case errors.Is(err, runtime.ErrPlanReviewUnavailable):
 		return &Error{Code: CodeConflict, Message: "the originating Plan review is no longer resumable"}
+	case errors.Is(err, domain.ErrGoalArmed):
+		return &Error{Code: CodeConflict, Message: "active Goal must be paused before Plan", Data: json.RawMessage(`{"reason":"goal_armed"}`)}
 	case errors.Is(err, domain.ErrStaleGoalReference):
 		return &Error{Code: CodeConflict, Message: "stale or invalid work reference"}
 	case errors.Is(err, domain.ErrWorkRoundLimit):
