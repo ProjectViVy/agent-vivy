@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n';
 
-export function PlanReview({ plan, busy, onDecide }: {
+export function PlanReview({ plan, busy, hasGoal, onDecide }: {
   plan: WorkPlan;
   busy: boolean;
-  onDecide: (action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => Promise<void>;
+  hasGoal: boolean;
+  onDecide: (submissionId: string, action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [feedback, setFeedback] = useState('');
@@ -21,7 +22,7 @@ export function PlanReview({ plan, busy, onDecide }: {
   const validGoal = goalObjective.trim().length > 0 && Number.isInteger(rounds) && rounds > 0 && rounds <= 1000;
   const decide = async (action: PlanAction) => {
     try {
-      await onDecide(action, action === 'revise' ? feedback : undefined, action === 'start_goal' ? goalObjective.trim() : undefined, action === 'start_goal' ? rounds : undefined);
+      await onDecide(plan.submission_id!, action, action === 'revise' ? feedback : undefined, action === 'start_goal' ? goalObjective.trim() : undefined, action === 'start_goal' ? rounds : undefined);
       if (action === 'revise') {
         setFeedback('');
         setRevising(false);
@@ -46,22 +47,21 @@ export function PlanReview({ plan, busy, onDecide }: {
       {pending ? (
         <div className="mt-3 space-y-2">
           {revising ? <Textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder={t('workControl.revisePlaceholder')} disabled={busy} /> : null}
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          {!hasGoal ? <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
             <Textarea value={goalObjective} onChange={(event) => setGoalObjective(event.target.value)} placeholder={t('workControl.goalObjectivePlaceholder')} disabled={busy} className="min-h-9" />
             <Input value={goalRounds} onChange={(event) => setGoalRounds(event.target.value)} aria-label={t('workControl.startGoalRounds')} type="number" min={1} max={1000} disabled={busy} className="w-24" />
-          </div>
+          </div> : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" disabled={busy || (revising && !feedback.trim())} onClick={() => revising ? void decide('revise') : setRevising(true)}>
               {t(revising ? 'workControl.reviseSubmit' : 'workControl.revise')}
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void decide('execute_once')}>
+            <Button type="button" size="sm" variant={hasGoal ? 'default' : 'outline'} disabled={busy} onClick={() => void decide('execute_once')}>
               {t('workControl.executeOnce')}
             </Button>
-            <Button type="button" size="sm" disabled={busy || !validGoal} onClick={() => void decide('start_goal')}>
+            {!hasGoal ? <Button type="button" size="sm" disabled={busy || !validGoal} onClick={() => void decide('start_goal')}>
               {t('workControl.startGoal')}
-            </Button>
+            </Button> : null}
           </div>
-          <p className="text-xs text-muted-foreground">{t('workControl.startGoalHint')}</p>
         </div>
       ) : null}
     </section>
