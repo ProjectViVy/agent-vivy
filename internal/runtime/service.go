@@ -202,6 +202,7 @@ type Service struct {
 	active           map[domain.RunID]context.CancelFunc
 	goalStarting     map[domain.SessionID]struct{}
 	goalRuns         map[domain.SessionID]domain.RunID
+	goalDisarmed     map[domain.SessionID]struct{}
 	goalRunSessions  map[domain.RunID]domain.SessionID
 	goalRunRefs      map[domain.RunID]domain.GoalRef
 	admissionLocksMu sync.Mutex
@@ -388,6 +389,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		active:           make(map[domain.RunID]context.CancelFunc),
 		goalStarting:     make(map[domain.SessionID]struct{}),
 		goalRuns:         make(map[domain.SessionID]domain.RunID),
+		goalDisarmed:     make(map[domain.SessionID]struct{}),
 		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
 		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
 		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
@@ -938,6 +940,12 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		var admitted storage.GoalRunCommitResult
 		err = s.withAdmissionIntent(sessionID, false, func() error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			_, disarmed := s.goalDisarmed[sessionID]
+			if s.stopping || disarmed {
+				return nil
+			}
 			var commitErr error
 			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
 				Mutation:     mutation,
@@ -955,6 +963,10 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				return "", err
 			}
 			return "", fmt.Errorf("runtime: admit goal round: %w", err)
+		}
+		if admitted.Run.ID == "" {
+			releaseWorkspace()
+			return "", nil
 		}
 		if admitted.Work.Replayed {
 			return admitted.Run.ID, nil
@@ -3747,7 +3759,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	} else if runSession != "" && (status == domain.RunCompleted || s.goalCreatedByRun(persistCtx, runSession, terminal.RunID)) {
 		// A completed human turn, or a failed/cancelled turn that created
 		// the current Goal, releases the session for the next candidate.
-		s.WakeGoal(runSession)
+		s.wakeGoal(runSession, false)
 	}
 }
 

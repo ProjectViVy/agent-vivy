@@ -34,6 +34,13 @@ func (s *Service) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		return storage.WorkCommitResult{}, err
 	}
 	result, err := s.deps.Work.CommitWork(ctx, mutation)
+	if err != nil && mutation.Kind == domain.WorkEventGoalPaused {
+		// The durable phase is unchanged, but this process must not start
+		// another Goal round after a failed human stop request.
+		s.mu.Lock()
+		s.goalDisarmed[mutation.SessionID] = struct{}{}
+		s.mu.Unlock()
+	}
 	if err == nil && !result.Replayed && s.deps.WorkSink != nil {
 		s.deps.WorkSink.Publish(result.Event)
 	}
