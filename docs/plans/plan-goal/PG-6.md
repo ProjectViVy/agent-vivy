@@ -52,7 +52,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 Boot real application composition with scripted model and disposable database/workspace. Exercise RPC -> model tool -> review -> Goal -> two ordinary runs -> evidence -> completion. Include migration fixtures and restart at transaction/cancellation boundaries.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 scenario:
   Plan saves design under writable policy
@@ -63,10 +63,10 @@ scenario:
   repeat under read-only -> write denied; no approval bypass
   legacy Plan resume -> old hard restriction preserved
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 2: Product and live evidence
 
