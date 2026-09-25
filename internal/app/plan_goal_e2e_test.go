@@ -317,6 +317,18 @@ func TestPlanGoalIntegratedRoundLimitBlocksDurably(t *testing.T) {
 	if err != nil || len(replayed) != 1 {
 		t.Fatalf("restart exceeded cap: %v / %v", replayed, err)
 	}
+	replayClient, err := restarted.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replayClient.Close()
+	recovered := callControl(t, replayClient, "session/work/get", map[string]any{"session_id": sessionID})
+	recoveredGoal, ok := recovered["goal"].(map[string]any)
+	if !ok || recovered["activation"] != "disarmed" || recoveredGoal["phase"] != "blocked" ||
+		recoveredGoal["reason"] != "goal round limit reached" || recoveredGoal["rounds_started"] != float64(1) ||
+		recoveredGoal["evidence_run_id"] != string(replayed[0].ID) {
+		t.Fatalf("round-limit Work projection changed after restart: %v", recovered)
+	}
 }
 
 func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
