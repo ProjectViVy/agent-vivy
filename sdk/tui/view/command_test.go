@@ -18,6 +18,10 @@ type commandDriver struct {
 	commandArgs []string
 }
 
+type initCommandDriver struct{ *commandDriver }
+
+func (*initCommandDriver) SupportsCapability(name string) bool { return name == "project.init.status" }
+
 type dynamicCommandDriver struct {
 	*testDriver
 	commands []surface.DynamicCommand
@@ -224,6 +228,44 @@ func TestCommandExecutorReceivesParsedUnicodeArguments(t *testing.T) {
 	}
 	if m.input != "" {
 		t.Fatalf("command draft was not cleared: %q", m.input)
+	}
+}
+
+func TestInitCommandUsesDriverAndBlocksWhileBusy(t *testing.T) {
+	d := &initCommandDriver{commandDriver: &commandDriver{testDriver: &testDriver{}}}
+	m := New(d)
+	m.input = "/init"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || d.commandName != "init" || d.sent != "" || m.input != "" {
+		t.Fatalf("/init dispatch: command=%q sent=%q input=%q cmd=%v", d.commandName, d.sent, m.input, cmd != nil)
+	}
+	busy := &initCommandDriver{commandDriver: &commandDriver{testDriver: &testDriver{busy: true}}}
+	m = New(busy)
+	m.input = "/init"
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || busy.commandName != "" || !strings.Contains(m.View(), "unavailable") {
+		t.Fatalf("busy /init dispatched: command=%q cmd=%v", busy.commandName, cmd != nil)
+	}
+}
+
+func TestInitCommandIsOnlyAdvertisedForCodeProjects(t *testing.T) {
+	d := &commandDriver{testDriver: &testDriver{}}
+	m := New(d)
+	m.input = "/help"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if strings.Contains(m.commandOverlay, "/init") {
+		t.Fatalf("generic TUI advertises code project command: %s", m.commandOverlay)
+	}
+	m.input = "/init"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || d.commandName != "" || d.sent != "" {
+		t.Fatalf("generic TUI dispatched /init: command=%q sent=%q", d.commandName, d.sent)
 	}
 }
 

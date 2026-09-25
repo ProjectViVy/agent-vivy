@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/adk/middlewares/agentsmd"
 )
 
 func TestDiscoverProjectInstructionsRootAgentsMD(t *testing.T) {
@@ -76,6 +78,39 @@ func TestDiscoverProjectInstructionsMissingAgentsMDStillListsDefault(t *testing.
 	}
 }
 
+func TestDiscoverProjectInstructionsLoadsFileCreatedAfterStartup(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, AgentsMDFileName), []byte("repo rules"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(repo, "pkg")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instructions, err := DiscoverProjectInstructions(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instructions.AgentsMDFiles) != 2 || instructions.AgentsMDFiles[0] != "AGENTS.md" || instructions.AgentsMDFiles[1] != "pkg/AGENTS.md" {
+		t.Fatalf("startup files = %v, want root plus missing launch placeholder", instructions.AgentsMDFiles)
+	}
+	if err := os.WriteFile(filepath.Join(child, AgentsMDFileName), []byte("new local rules"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend, err := NewProjectAgentsMDBackend(instructions.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The startup list remains fixed; the next turn must still see this path.
+	response, err := backend.Read(t.Context(), &agentsmd.ReadRequest{FilePath: instructions.AgentsMDFiles[1]})
+	if err != nil || response.Content != "new local rules" {
+		t.Fatalf("new rules read = %+v, %v", response, err)
+	}
+}
+
 func TestDiscoverProjectInstructionsSkillDirs(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
@@ -132,6 +167,30 @@ func TestDiscoverProjectInstructionsSkipsSymlinkAgentsMD(t *testing.T) {
 	}
 	if regularFile(link) {
 		t.Fatal("symlink must not count as a regular AGENTS.md")
+	}
+}
+
+func TestDiscoverProjectInstructionsSkipsSymlinkInLaunchSubdirectory(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, AgentsMDFileName), []byte("root rules"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(repo, "pkg")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(repo, AgentsMDFileName), filepath.Join(child, AgentsMDFileName)); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	got, err := DiscoverProjectInstructions(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.AgentsMDFiles) != 1 || got.AgentsMDFiles[0] != AgentsMDFileName {
+		t.Fatalf("symlink path entered instruction list: %v", got.AgentsMDFiles)
 	}
 }
 

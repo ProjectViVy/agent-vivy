@@ -1,0 +1,5 @@
+Analyze this code workspace and prepare its project instructions in AGENTS.md at the project root.
+
+First inspect the repository structure, existing project instructions, README, build and test commands, CI configuration, and a few representative source files. Use the available controlled tools and the current workspace; do not guess the language, architecture, commands, or conventions. Avoid secrets, credentials, generated output, dependency trees, and unrelated directories. Follow existing instructions you discover.
+
+Record only useful, verified guidance for future coding sessions: the project purpose, important code locations, commands that actually apply, testing expectations, and nonobvious local conventions. Aim for 5–10 actionable rules, or fewer when the evidence warrants it. Keep the file short and practical. When you finish, explain the evidence and show what you created or proposed. If you cannot inspect enough of the repository, explain the obstacle instead of inventing rules.

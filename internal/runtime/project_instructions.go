@@ -19,8 +19,8 @@ type ProjectInstructions struct {
 	Root string
 	// AgentsMDFiles is the ordered list passed to agentsmd.Config.
 	// Git-root files come first so crate-local files sit closer to the
-	// user turn. Always contains at least "AGENTS.md" so a missing file
-	// stays a non-fatal Eino warning.
+	// user turn. The launch directory is always listed, even if its file
+	// is absent at startup, so an /init-created file loads on the next turn.
 	AgentsMDFiles []string
 	// SkillRoots are existing first-level skill directories in closer-first
 	// order (cwd, then git root). Read-only overlays on EinoSkillBackend.
@@ -124,7 +124,13 @@ func collectAgentsMDFiles(launchDir, backendRoot string) ([]string, error) {
 		}
 		path := filepath.Join(chain[i], AgentsMDFileName)
 		if !regularFile(path) {
-			continue
+			// Reserve only a genuinely absent launch file. An existing
+			// symlink, directory, or unreadable entry must not be promoted
+			// to a middleware read path.
+			_, statErr := os.Lstat(path)
+			if !samePath(chain[i], launchDir) || !errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
 		}
 		seen[strings.ToLower(name)] = struct{}{}
 		files = append(files, name)

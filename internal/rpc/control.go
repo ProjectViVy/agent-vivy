@@ -1038,6 +1038,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if strings.TrimSpace(h.deps.ProjectRoot) != "" {
 			capabilities = append(capabilities, "attachments.resolve")
 			capabilities = append(capabilities, "project-context.resolve", "project-context.list")
+			capabilities = append(capabilities, "project.init.status")
 		}
 		if h.deps.Service != nil && h.deps.Service.ShellAvailable() {
 			capabilities = append(capabilities, "shell", "shell.start")
@@ -1108,6 +1109,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.resolveProjectContext(ctx, request)
 	case "project-context/list":
 		return h.listProjectContext(request)
+	case "project/init/status":
+		return h.projectInitStatus()
 	case "context/compact":
 		return h.compactContext(ctx, request)
 	case "session/rewind":
