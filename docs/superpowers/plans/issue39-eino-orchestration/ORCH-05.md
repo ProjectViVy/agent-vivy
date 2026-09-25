@@ -14,8 +14,8 @@ NEW `internal/orchestration/{descriptor,validation}.go` and tests (pure domain, 
 
 ## Tasks
 
-- [ ] Write table tests: empty graph, duplicate and unknown keys, self-edge, cycle, disconnected node, oversized task/output mapping, more than admitted nodes/depth/width, conflicting operation ID, same descriptor in different field order canonicalized to same digest. Document exact hard limits from current Service budget/caps; do not invent unbounded parser DSL.
-- [ ] Implement deterministic key normalization/ordering, topological validator and authority check. Validate requested tool names against parent's permitted list; output mappings are explicit bounded strings, not arbitrary expression evaluation. Reject before creating an orchestration Run. No retries/loops/dynamic mutation.
+- [ ] Write table tests: empty graph, duplicate/unknown keys, self-edge, cycle, unreachable node, unconsumed node/output, oversized task/output, finite node/depth/width limits, conflicting operation ID and canonical digest. Accepted nodes must be reachable from start and consumed by workflow output/end. Document actual Service caps.
+- [ ] Implement deterministic key ordering, topology/output-consumption validation and authority check. Parent model only; tools may narrow immutable ceiling. Outputs are explicit bounded mappings. Reject before Run. No retries/loops/dynamic mutation.
 - [ ] Implement paired migrations and read/append-only revision storage. Make `(parent_run_id, operation_id)` unique with payload digest conflict handling and immutable descriptor bytes. Create workflow Run (`RunKindChild` with graph descriptor binding, unless a separate kind is justified in code review), preserving parent/root lineage. Journal proposal accepted/start only after descriptor and Run persist.
 - [ ] Test two concurrent identical submissions across backend instances; one revision/Run and no nodes. Test parent deletion racing admission. Run `go test ./internal/orchestration ./internal/storage/... -run 'Workflow|Graph|DeleteSession' -count=1` plus `just ci` with actual Postgres conformance.
 
