@@ -606,6 +606,92 @@ func bootLive(t *testing.T, env *fakeEnv, opts Options) *Live {
 	return live
 }
 
+func TestInitUsesControlledTurnAndPreservesDraftPreferences(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%v", exists), func(t *testing.T) {
+			env := &fakeEnv{script: baseScript()}
+			env.script["initialize"] = func(json.RawMessage) (any, error) {
+				return map[string]any{"capabilities": []string{"project.init.status"}}, nil
+			}
+			env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+				return map[string]bool{"exists": exists}, nil
+			}
+			live := bootLive(t, env, Options{})
+			if err := live.client.setCapabilities(json.RawMessage(`{"capabilities":["project.init.status"]}`)); err != nil {
+				t.Fatal(err)
+			}
+			live.drafts[live.Active().ID] = []surface.Attachment{{Name: "unrelated.png", Path: "unrelated.png"}}
+			initialMode := "plan"
+			wantMode := "normal"
+			if exists {
+				initialMode, wantMode = "normal", "plan"
+			}
+			if err := live.SetRunMode(initialMode); err != nil {
+				t.Fatal(err)
+			}
+			msg := mustMsg[liveTurnStartedMsg](t, live.ExecuteCommand("init", nil))
+			if msg.Err != nil || msg.RunID != "run_1" || !env.saw("project/init/status") {
+				t.Fatalf("init result = %+v", msg)
+			}
+			var params struct {
+				SessionID       string   `json:"session_id"`
+				Text            string   `json:"text"`
+				Mode            string   `json:"mode"`
+				AttachmentPaths []string `json:"attachment_paths"`
+			}
+			if err := json.Unmarshal(env.params["turn/start"], &params); err != nil {
+				t.Fatal(err)
+			}
+			if params.Mode == "" {
+				params.Mode = "normal" // normal mode is the RPC default.
+			}
+			if params.SessionID != live.Active().ID || params.Mode != wantMode || len(params.AttachmentPaths) != 0 || live.RunMode() != initialMode || len(live.PendingAttachments()) != 1 {
+				t.Fatalf("init turn = %+v, draft mode=%q, attachments=%+v", params, live.RunMode(), live.PendingAttachments())
+			}
+			if !strings.Contains(params.Text, "AGENTS.md") || !strings.Contains(params.Text, "inspect") {
+				t.Fatalf("init skipped repository analysis: %q", params.Text)
+			}
+			if exists && !strings.Contains(params.Text, "suggest") {
+				t.Fatalf("existing file lacked read-only suggestions: %q", params.Text)
+			}
+			if !exists && !strings.Contains(params.Text, "create") {
+				t.Fatalf("missing file lacked creation instruction: %q", params.Text)
+			}
+		})
+	}
+}
+
+func TestInitPreflightErrorNeverStartsTurn(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["initialize"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"capabilities": []string{"project.init.status"}}, nil
+	}
+	env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+		return nil, errors.New("cannot inspect project instructions")
+	}
+	live := bootLive(t, env, Options{})
+	if err := live.client.setCapabilities(json.RawMessage(`{"capabilities":["project.init.status"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("init", nil))
+	if msg.Err == nil || env.saw("turn/start") || live.Meta().Busy {
+		t.Fatalf("failed /init started turn: %+v", msg)
+	}
+	withoutCap := bootLive(t, &fakeEnv{script: baseScript()}, Options{})
+	msg = mustMsg[surface.CommandResultMsg](t, withoutCap.ExecuteCommand("init", nil))
+	if msg.Err == nil {
+		t.Fatal("init ran without project capability")
+	}
+	// An older or malformed server response cannot be treated as "absent".
+	env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+		return map[string]any{}, nil
+	}
+	msg = mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("init", nil))
+	if msg.Err == nil || env.saw("turn/start") {
+		t.Fatalf("missing status started turn: %+v", msg)
+	}
+}
+
 func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
 		"initialize": baseScript()["initialize"],

@@ -89,8 +89,9 @@ func BuildDefault() RuntimeAssembly {
 	}
 }
 
-func (assembly *RuntimeAssembly) ContextSourceProviders() any  { return assembly.ContextSources }
-func (assembly *RuntimeAssembly) SkillSourceProviders() any    { return assembly.SkillSources }
+func (assembly *RuntimeAssembly) ContextSourceProviders() any { return assembly.ContextSources }
+func (assembly *RuntimeAssembly) SkillSourceProviders() any   { return assembly.SkillSources }
+
 func (assembly *RuntimeAssembly) MaskServiceFactoryValue() any { return nil }
 
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
