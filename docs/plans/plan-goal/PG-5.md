@@ -63,7 +63,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 Capture a session watermark, replay through it, then stream later committed events with no gap. Client deduplicates session+seq; reconnect refreshes process epoch and activation. Do not persist armed in localStorage.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 subscription_tests:
   new round commits between replay and live attach -> observed once
@@ -71,10 +71,10 @@ subscription_tests:
   reconnect after driver restart -> disarmed replaces old armed
   session switch before response -> old response ignored
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 2: GUI actions
 
@@ -92,8 +92,8 @@ ui_tests:
 ```
 - [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
 - [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Verification
 
