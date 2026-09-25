@@ -1,0 +1,17 @@
+SOURCE_HEAD=b46998a67b9d17d9ab7cc1c9f27ad4c22506fe23
+COMMAND='/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run 'TestOrchestrationNative|GraphConformance' -count=1 -v
+=== RUN   TestOrchestrationNative
+    orchestration_conformance_test.go:53: invoke native orchestration workflow: [NodeRunError] runtime: native orchestration unimplemented
+        ------------------------
+        node path: [b]
+--- FAIL: TestOrchestrationNative (0.42s)
+=== RUN   TestGraphConformanceBrokerReplayRisk
+    toolbroker_test.go:52: same broker operation executed 2 times across replay, want exactly one
+--- FAIL: TestGraphConformanceBrokerReplayRisk (0.00s)
+FAIL
+FAIL	agent-vivy/internal/runtime	0.659s
+FAIL
+EXIT_CODE=1
+VERDICT=NO-GO
+BINARY_OBSERVABLE=named Service/Eino test stopped at ErrNativeOrchestrationUnimplemented and named broker replay test observed effect_count=2
+DISTINGUISHING_GAP=broker has no durable operation/result boundary across external effect and later checkpoint

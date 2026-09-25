@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "task": "Issue #39 Task 5 G0",
+  "source_head": "b46998a67b9d17d9ab7cc1c9f27ad4c22506fe23",
+  "verdict": "NO-GO",
+  "required_surface": {
+    "command": "'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run 'TestOrchestrationNative|GraphConformance' -count=1 -v",
+    "exit_code": 1,
+    "named_tests": ["TestOrchestrationNative", "TestGraphConformanceBrokerReplayRisk"],
+    "observable": "real Eino Workflow reached real Service and returned ErrNativeOrchestrationUnimplemented; real broker replay executed the same effect twice",
+    "artifact": "docs/logs/2026-09-26-issue39-native-proof/task-5-issue39-native-orchestration.log"
+  },
+  "criteria": {
+    "parallel_overlap_and_join": "unverified: no Service-owned native path",
+    "approval_interrupt_while_sibling_runs": "unverified: no Service-owned native path",
+    "parent_cancellation": "unverified: no Service-owned native path",
+    "fresh_service_engine_store_recovery": "unverified: no Service-owned native path",
+    "invalid_engine_or_prompt_fails_closed": "existing checkpoint store supports it; insufficient alone",
+    "one_effect_across_crash_restart": "failed: replay reproducer observed effect_count=2; no durable broker operation/result ledger"
+  },
+  "distinguishing_evidence": [
+    "Eino compose/graph_run.go writes the Workflow checkpoint in interrupt handling after completed tasks are resolved",
+    "internal/app/worker.go persists tool.started, invokes the broker, then attempts tool.finished and discards its persistence error",
+    "internal/runtime/toolbroker.go invokes tool.InvokableRun directly and accepts no stable effect operation id or store",
+    "internal/runtime/tool_failure_test.go records potentially executed failures as effects=unknown"
+  ],
+  "downstream_tasks_unblocked": false,
+  "production_code_changed": false,
+  "intentional_red_test": "TestGraphConformanceBrokerReplayRisk"
+}
