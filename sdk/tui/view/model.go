@@ -163,10 +163,14 @@ func New(driver surface.Driver, options ...Options) Model {
 		opts.Locale = corei18n.English
 	}
 	translator := tuii18n.New(opts.Locale)
+	registry := command.DefaultRegistry(translator)
+	if !driver.SupportsCapability("project.init.status") {
+		registry = registry.Without("init")
+	}
 	return Model{
 		driver:          driver,
 		translator:      translator,
-		commandRegistry: command.DefaultRegistry(translator),
+		commandRegistry: registry,
 		width:           120,
 		height:          36,
 		palette:         DefaultPalette(),
@@ -1806,6 +1810,11 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.openSessions()
 	case "model":
 		return m.openModelPicker(strings.Join(args, " "))
+	case "init":
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
 	case "new":
 		if len(args) > 1 && strings.TrimSpace(strings.Join(args, " ")) == "" {
 			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/new [title]"}))), nil

@@ -99,6 +99,68 @@ func TestEngineProjectAgentsMDInjectsHostFileInSandbox(t *testing.T) {
 	}
 }
 
+func TestEngineReadsInitCreatedProjectInstructionsOnNextTurn(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, AgentsMDFileName), []byte("original root rules"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(root, "pkg")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instructions, err := DiscoverProjectInstructions(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend, err := NewProjectAgentsMDBackend(instructions.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordingModel{inner: NewScriptedModel(
+		schema.AssistantMessage("FIRST", nil),
+		schema.AssistantMessage("SECOND", nil),
+	)}
+	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+		AgentsMDBackend: backend, AgentsMDFiles: instructions.AgentsMDFiles,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-before-init"), []*schema.Message{schema.UserMessage("before")})); got != "FIRST" {
+		t.Fatalf("before = %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(child, AgentsMDFileName), []byte(agentsMDTestMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-after-init"), []*schema.Message{schema.UserMessage("after")})); got != "SECOND" {
+		t.Fatalf("after = %q", got)
+	}
+	inputs := rec.snapshot()
+	if len(inputs) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(inputs))
+	}
+	for i, input := range inputs {
+		joined := ""
+		for _, message := range input {
+			if message != nil {
+				joined += message.Content
+			}
+		}
+		if !strings.Contains(joined, "original root rules") || strings.Contains(joined, agentsMDTestMarker) != (i == 1) {
+			t.Fatalf("model call %d instruction snapshot = %q", i, joined)
+		}
+	}
+}
+
 func TestEngineSelectedWorkspaceAgentsMDReplacesLaunchProject(t *testing.T) {
 	ctx := context.Background()
 	launchProject := t.TempDir()

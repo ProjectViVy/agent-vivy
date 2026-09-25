@@ -335,6 +335,23 @@ func (r Registry) Extend(specs ...Spec) (Registry, error) {
 	return newRegistry(r.translator, all...)
 }
 
+// Without returns a registry that omits one command for a face that does not
+// advertise its required capability. Other commands and their locale remain.
+func (r Registry) Without(name string) Registry {
+	name = normalizeName(name)
+	specs := make([]Spec, 0, len(r.ordered))
+	for _, spec := range r.ordered {
+		if spec.Name != name {
+			specs = append(specs, spec)
+		}
+	}
+	filtered, err := newRegistry(r.translator, specs...)
+	if err != nil {
+		return r
+	}
+	return filtered
+}
+
 func (r *Registry) addName(name string, spec Spec) error {
 	if _, exists := r.byName[name]; exists {
 		return fmt.Errorf("command: duplicate command /%s", name)
@@ -415,7 +432,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return nil
 	}
 	switch spec.Name {
-	case "help", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
+	case "help", "init", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
 		return count(0, 0)
 	case "model":
 		return count(0, -1)
@@ -567,6 +584,7 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 	}
 	r, err := newRegistry(translator,
 		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: description("help")},
+		Spec{Name: "init", Usage: "/init", Description: description("init")},
 		Spec{Name: "status", Usage: "/status", Description: description("status")},
 		Spec{Name: "sessions", Usage: "/sessions", Description: description("sessions")},
 		Spec{Name: "model", Usage: "/model [filter]", Description: description("model")},

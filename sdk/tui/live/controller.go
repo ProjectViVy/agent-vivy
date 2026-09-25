@@ -2116,6 +2116,8 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		}
 	}
 	switch name {
+	case "init":
+		return l.initProject()
 	case "new":
 		return l.NewSession(strings.TrimSpace(strings.Join(args, " ")))
 	case "session":
@@ -2252,7 +2254,7 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 
 func commandMutates(name string) bool {
 	switch name {
-	case "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
+	case "init", "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
 		return true
 	default:
 		return false
