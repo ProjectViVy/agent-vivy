@@ -30,3 +30,12 @@ go test ./internal/runtime -run '^TestVC1Walkthrough$' -count=3 -timeout=2m
 ```
 
 The changed internal source digest is `621fcd68049603c59f6824d8d5be8fa074870e0030dcde0aa115ad268e58716b`; the five internal-rooted conformance rows were refreshed. `TestCheckedInProviderConformanceMatchesExecutedSuites` passed in 153.586 seconds. The subsequent complete `just ci` passed with exit code 0 on the resulting code and digest: 424 UI tests, UI build/typecheck/i18n, Go vet/full tests, headless compile, and plugin/face checks. The GitHub Actions rerun for the follow-up push is reported separately in the PR checks and is not claimed by this local result.
+
+The second GitHub Actions run again passed `ui ci` and `full UI browser smoke`, but `backend ci` failed at `TestPlanGoalIntegratedRoundLimitBlocksDurably`: its 5-second asynchronous wait did not reach the blocked projection under Windows full-suite load. The dependent `just ci` status job failed because backend failed; it was not a separate test failure. The PG-6 integrated tests now use 30-second bounds for their asynchronous run/work assertions and cancellation. This changes only the maximum wait on failure, not the normal completion path or asserted state. Focused checks passed:
+
+```text
+go test ./internal/app -run '^TestPlanGoalIntegratedRoundLimitBlocksDurably$' -count=3 -timeout=3m
+go test ./internal/app -run '^TestPlanGoalIntegrated' -count=1 -timeout=5m
+```
+
+The latest internal source digest is `73941fc206ef7187ef4a22393d94cec85e9023f50a6ac559849bf74152bde116`; exactly five internal-rooted conformance rows were refreshed. The final full local `just ci` rerun on this revision passed with exit code 0: 424 UI tests, typecheck/build/i18n, Go vet/full tests (`internal/app` 109.507 seconds, `sdk/internal` 483.847 seconds, `sdk/internal/conformance` 183.149 seconds), headless compile, and all plugin/face checks. The follow-up GitHub Actions run must be checked separately; this local pass does not assert a remote result.

@@ -4,6 +4,8 @@ Added deterministic Plan-to-Goal acceptance tests through the real application, 
 
 A PR CI follow-up replaced the VC-1 walkthrough test's assumption that the Windows runner has `rg` with `git grep --no-index`, which is available with the required Git checkout. The conformance source digest was refreshed for that test-only edit.
 
+A second Windows CI run exposed a 5-second timeout in an asynchronous PG-6 app test under full-suite load. The integrated tests now allow 30 seconds for their asynchronous state assertions and cancellation, without changing the asserted outcomes or the normal completion path.
+
 The scenarios cover exact Plan review and human approval, two ordinary Goal runs, a real `go test ./...` execute event linked to completion evidence, completed replay, and read-only write denial. Further app-level cases cover pending review recovery without duplicate execution, finite round-limit exhaustion with the blocked Work projection preserved after restart, pause of an in-flight model request followed by disarmed reopen, and opening a version-23 SQLite database through `app.New`. Existing focused tests cover legacy hard-Plan resume and lower-level transaction and wake races. No app-level fault injector exists for the exact interval between SQLite commit and in-process publication; that interval is not claimed as directly observed here.
 
 PostgreSQL/Docker validation is deferred to the next phase, browser acceptance belongs to the user, and the live-provider coding walkthrough remains unverified because credentials were not configured. These are still PG-6 acceptance gaps, not passes.

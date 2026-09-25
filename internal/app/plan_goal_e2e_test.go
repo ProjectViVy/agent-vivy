@@ -161,7 +161,7 @@ func TestPlanGoalIntegratedReviewAndTwoRounds(t *testing.T) {
 	if !tested {
 		t.Fatalf("completed Goal evidence run %s has no successful execute event: %v", evidenceRunID, events)
 	}
-	waitFor(t, 5*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		run := callControl(t, client, "run/get", map[string]any{"run_id": evidenceRunID})
 		return run["status"] == "completed"
 	})
@@ -268,7 +268,7 @@ func TestPlanGoalIntegratedPendingReviewRecovery(t *testing.T) {
 		"session_id": sessionID, "request_id": "approve-recovered", "expected_version": work["version"],
 		"submission_id": plan["submission_id"], "action": "execute_once",
 	})
-	waitFor(t, 5*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		return callControl(t, replay, "run/get", map[string]any{"run_id": runID})["status"] == "completed"
 	})
 	after, err := restarted.backend.ListRunsBySession(context.Background(), domain.SessionID(sessionID))
@@ -293,7 +293,7 @@ func TestPlanGoalIntegratedRoundLimitBlocksDurably(t *testing.T) {
 		"goal_id": "goal-cap-one", "goal_revision": 1, "objective": "Finish without a report.", "max_rounds": 1,
 	})
 	var work map[string]any
-	waitFor(t, 5*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		work = callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
 		goal, _ := work["goal"].(map[string]any)
 		return goal["phase"] == "blocked"
@@ -356,7 +356,7 @@ func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
 	})
 	select {
 	case <-entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Goal never reached model request")
 	}
 	work := callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
@@ -372,7 +372,7 @@ func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("pause did not cancel in-flight model request")
 	}
-	waitFor(t, 5*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		view := callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
 		goal, _ := view["goal"].(map[string]any)
 		return goal["phase"] == "paused" && view["activation"] == "disarmed"
@@ -556,7 +556,7 @@ func TestPlanGoalIntegratedReadOnlyDeniesPlanWrite(t *testing.T) {
 	callControl(t, client, "plan/enter", map[string]any{"session_id": sessionID, "request_id": "enter-read-only-plan", "expected_version": 0})
 	turn := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "Try writing during Plan."})
 	runID := turn["run_id"].(string)
-	waitFor(t, 5*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		return callControl(t, client, "run/get", map[string]any{"run_id": runID})["status"] == "completed"
 	})
 	if _, err := os.Stat(filepath.Join(workspace, "blocked.txt")); !os.IsNotExist(err) {
