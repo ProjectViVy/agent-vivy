@@ -182,6 +182,57 @@ func TestNudgeStateSignatureChanges(t *testing.T) {
 	}
 }
 
+func TestNudgeStateResumeBatchWaitsForEveryToolResult(t *testing.T) {
+	s := newNudgeState()
+	if err := s.Complete(nudgeOkCall("resume-a")); err != nil {
+		t.Fatalf("complete first resumed result: %v", err)
+	}
+
+	type takeResult struct {
+		notice *nudgeNotice
+		err    error
+	}
+	result := make(chan takeResult, 1)
+	go func() {
+		notice, _, err := s.Take(context.Background(), []string{"resume-a", "resume-b"})
+		result <- takeResult{notice: notice, err: err}
+	}()
+	select {
+	case <-result:
+		t.Fatal("model boundary released before every resumed tool result was durable")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	if err := s.Complete(nudgeOkCall("resume-b")); err != nil {
+		t.Fatalf("complete second resumed result: %v", err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil || got.notice != nil {
+			t.Fatalf("take = %+v, want an unnudged sealed batch", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("model boundary remained blocked after all resumed tool results were durable")
+	}
+}
+
+func TestNudgeStateResumeBatchAcceptsDurableSiblingResults(t *testing.T) {
+	s := newNudgeState()
+	if err := s.Register([]string{"resume-target", "resume-sibling"}); err != nil {
+		t.Fatalf("register resumed batch: %v", err)
+	}
+	if err := s.SatisfyDurable("resume-sibling"); err != nil {
+		t.Fatalf("satisfy durable sibling: %v", err)
+	}
+	if err := s.Complete(nudgeOkCall("resume-target")); err != nil {
+		t.Fatalf("complete resumed target: %v", err)
+	}
+	notice, _, err := s.Take(context.Background(), []string{"resume-target", "resume-sibling"})
+	if err != nil || notice != nil {
+		t.Fatalf("take = %+v, want an unnudged batch with durable sibling; err=%v", notice, err)
+	}
+}
+
 // Seal evaluates request order, not completion order: when two distinct
 // failures in one batch tie on the threshold, the earlier request wins
 // (ND-2: one notice per batch, ties earliest request index).

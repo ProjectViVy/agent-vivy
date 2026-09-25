@@ -13,6 +13,7 @@ import { ReasoningRow } from './ReasoningRow';
 import { ToolRow } from './ToolRow';
 import { ChatInput } from './ChatInput';
 import { TodoProgressStrip } from './TodoProgressStrip';
+import { WorkControlBar } from './WorkControlBar';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { cn } from '@/lib/utils';
 
@@ -105,6 +106,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <WorkControlBar key={sessionId} sessionId={sessionId} />
         <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}

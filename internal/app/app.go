@@ -254,6 +254,22 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 
+	workStore, ok := backend.(storage.WorkStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement work store")
+	}
+	goalRunStore, ok := backend.(storage.GoalRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement Goal run store")
+	}
+	primaryRunStore, ok := backend.(storage.PrimaryRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement primary run store")
+	}
+
 	// Provider metadata is part of the binary: there is no bundle directory,
 	// no working-directory dependency, and nothing a running instance can be
 	// pointed at (PROV-P1, decision D3). The embedded data is reconciled
@@ -594,6 +610,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
+	workBus := events.NewWorkBus(cfg.Runtime.StreamBuffer)
 	svcSink := runtime.EventSink(bus)
 	if ao.sink != nil {
 		svcSink = fanoutSink{primary: bus, extra: ao.sink}
@@ -621,7 +638,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov, HumanAdmission: true})
 			},
 			Channels:    channelPlugins,
 			Config:      cfg.Channels,
@@ -673,8 +690,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
+		Work:                  workStore,
 		Runs:                  backend,
 		Messages:              backend,
+		GoalRuns:              goalRunStore,
+		PrimaryRuns:           primaryRunStore,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
@@ -807,7 +827,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if !ok || identity.SessionID == "" || strings.TrimSpace(request.SessionID) != identity.SessionID {
 					return actionport.RunResult{}, actionport.ErrUnauthenticated
 				}
-				id, runErr := svc.Run(ctx, domain.SessionID(identity.SessionID), request.Text)
+				id, runErr := svc.RunWithOptions(ctx, domain.SessionID(identity.SessionID), request.Text, runtime.RunOptions{HumanAdmission: true})
 				if runErr != nil {
 					return actionport.RunResult{}, actionport.ErrRunDenied
 				}
@@ -873,7 +893,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
-		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: workStore, WorkBus: workBus,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		CodeModeAvailable: svc.FaceAvailable(domain.FaceCode),
 		ActionHost:        actionHost,
@@ -1163,6 +1183,9 @@ func (a *App) Close() error {
 	a.closeOnce.Do(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		if a.service != nil {
+			a.service.StopAutomaticWork()
+		}
 		if a.actionHost != nil {
 			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
 		}
@@ -1631,6 +1654,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.logger.Info("vivy shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
+	a.service.StopAutomaticWork()
 
 	// Reverse startup order with hard ordering guarantees (E4): channels
 	// stop first so an adapter's Stop never races a cancelled run's final

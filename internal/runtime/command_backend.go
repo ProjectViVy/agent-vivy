@@ -153,7 +153,12 @@ func (b *CommandBackend) executeBash(ctx context.Context, path string, args []st
 			if err != nil {
 				return fmt.Errorf("command: build shell: %w", err)
 			}
-			return runner.Run(runCtx, file)
+			err = runner.Run(runCtx, file)
+			var status interp.ExitStatus
+			if errors.As(err, &status) {
+				return embeddedShellExitStatus(status)
+			}
+			return err
 		}
 	}
 	if background {
@@ -176,6 +181,11 @@ func (b *CommandBackend) executeBash(ctx context.Context, path string, args []st
 	result.Command, result.Cwd, result.Untrusted = display, cwd, true
 	return result, nil
 }
+
+type embeddedShellExitStatus uint8
+
+func (e embeddedShellExitStatus) Error() string { return fmt.Sprintf("exit status %d", e) }
+func (e embeddedShellExitStatus) ExitCode() int { return int(e) }
 
 func portableShellCommands(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 	return func(ctx context.Context, args []string) error {

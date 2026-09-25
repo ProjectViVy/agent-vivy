@@ -63,6 +63,8 @@ type ControlDeps struct {
 	Messages  storage.MessageStore
 	Runs      storage.RunStore
 	Journal   storage.Journal
+	Work      storage.WorkStore
+	WorkBus   *events.WorkBus
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
@@ -328,7 +330,7 @@ func NewControlHandler(deps ControlDeps) (Handler, error) {
 		deps.Approvals == nil || deps.Questions == nil || deps.Bus == nil || deps.Service == nil {
 		return nil, errors.New("rpc: control dependencies are incomplete")
 	}
-	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc)}, nil
+	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc), processEpoch: newControlID("epoch_")}, nil
 }
 
 type controlHandler struct {
@@ -337,6 +339,7 @@ type controlHandler struct {
 	mu            sync.Mutex
 	subscriptions map[string]context.CancelFunc
 	modelChangeMu sync.Mutex
+	processEpoch  string
 }
 
 type sessionParams struct {
@@ -352,15 +355,17 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-	SessionID       string           `json:"session_id"`
-	Text            string           `json:"text"`
-	Mode            string           `json:"mode,omitempty"`
-	Face            string           `json:"face,omitempty"`
-	PolicyProfile   string           `json:"policy_profile,omitempty"`
-	Thinking        string           `json:"thinking,omitempty"`
-	Attachments     []turnAttachment `json:"attachments,omitempty"`
-	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
-	ContextPaths    []string         `json:"context_paths,omitempty"`
+	CollaborationMode    string           `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int              `json:"collaboration_version,omitempty"`
+	SessionID            string           `json:"session_id"`
+	Text                 string           `json:"text"`
+	Mode                 string           `json:"mode,omitempty"`
+	Face                 string           `json:"face,omitempty"`
+	PolicyProfile        string           `json:"policy_profile,omitempty"`
+	Thinking             string           `json:"thinking,omitempty"`
+	Attachments          []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
+	ContextPaths         []string         `json:"context_paths,omitempty"`
 }
 
 // shellParams is intentionally smaller than turnParams. A direct shell
@@ -372,13 +377,15 @@ type shellParams struct {
 }
 
 type editSessionParams struct {
-	SessionID     string `json:"session_id"`
-	MessageID     string `json:"message_id"`
-	Text          string `json:"text"`
-	Mode          string `json:"mode,omitempty"`
-	Face          string `json:"face,omitempty"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
-	Thinking      string `json:"thinking,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	SessionID            string `json:"session_id"`
+	MessageID            string `json:"message_id"`
+	Text                 string `json:"text"`
+	Mode                 string `json:"mode,omitempty"`
+	Face                 string `json:"face,omitempty"`
+	PolicyProfile        string `json:"policy_profile,omitempty"`
+	Thinking             string `json:"thinking,omitempty"`
 }
 
 // turnAttachment carries one image on a turn/start call (VC-1g-2).
@@ -1025,6 +1032,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if _, ok := h.deps.Sessions.(storage.SessionWorkspaceStore); ok && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.set_workspace")
 		}
+		if h.deps.Work != nil && h.deps.Service != nil {
+			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
+		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
 			capabilities = append(capabilities, "commands.list", "commands.expand")
@@ -1076,6 +1086,44 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			bindPeerSessionResult(peer, result)
 		}
 		return result, rpcErr
+	case "session/work/get":
+		result, rpcErr := h.getWork(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "session/work/subscribe":
+		result, rpcErr := h.subscribeWork(ctx, peer, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "goal/create":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCreated)
+	case "goal/edit":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalEdited)
+	case "goal/pause":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalPaused)
+	case "goal/resume":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalResumed)
+	case "goal/complete":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCompleted)
+	case "goal/block":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalBlocked)
+	case "goal/clear":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCleared)
+	case "plan/get":
+		result, rpcErr := h.getPlan(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "plan/enter":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanEntered)
+	case "plan/leave":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanLeft)
+	case "plan/decide":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanDecided)
 	case "session/rename":
 		result, rpcErr := h.renameSession(ctx, request)
 		if rpcErr == nil {
@@ -1165,7 +1213,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
-		return h.cancelRun(request)
+		return h.cancelRun(ctx, request)
 	case "run/get":
 		result, rpcErr := h.getRun(ctx, request)
 		if rpcErr == nil {
@@ -1178,7 +1226,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerRunResult(ctx, peer, result)
 		}
 		return result, rpcErr
-	case "run/unsubscribe":
+	case "run/unsubscribe", "session/work/unsubscribe":
 		return h.unsubscribe(request)
 	case "run/log":
 		return h.runLog(ctx, request)
@@ -2936,7 +2984,9 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -2971,7 +3021,10 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 		return nil, &Error{Code: InvalidParams, Message: "session_id, message_id and text are required"}
 	}
 	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile), Thinking: domain.ThinkingMode(params.Thinking),
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
+		Thinking:       domain.ThinkingMode(params.Thinking),
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -2979,12 +3032,16 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
 }
 
-func (h *controlHandler) cancelRun(request Request) (any, *Error) {
+func (h *controlHandler) cancelRun(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseRunParams(request)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if !h.deps.Service.Cancel(domain.RunID(params.RunID)) {
+	cancelled, err := h.deps.Service.CancelRun(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, workError(err)
+	}
+	if !cancelled {
 		return nil, &Error{Code: CodeNotFound, Message: "run is not active in this process"}
 	}
 	return map[string]any{"run_id": params.RunID, "status": "cancelling"}, nil
@@ -5854,7 +5911,7 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidCollaborationMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

@@ -1,0 +1,11 @@
+# Verification
+
+- TDD RED — `go test ./internal/runtime -run '^TestCreateGoalNeverRequiresHumanApprovalBeforeDurableGoalOrWake$' -count=1 -v`: failed because `ApprovalPolicyNever` refused the tool before producing a human approval interrupt; the model advanced without approval and no Goal events were written. This was the missing confirmation behavior, not a cleanup failure.
+- TDD RED — `go test ./internal/runtime -run '^TestModelWorkIdentityUsesEinoCallIDForDistinctCallsAndRetries$' -count=1 -v`: failed because distinct Eino call IDs with identical payloads received the same request identity.
+- GREEN focused — with `C:\Program Files\Go\bin` prepended to `PATH`, `go test ./internal/runtime -run '^Test(ModelWorkIdentity|ModelWorkIdentityUsesEinoCallID)' -count=1 -v` passed. The additional SQLite WorkStore assertion verifies replay for the same call ID/arguments and `storage.ErrWorkRequestConflict` for changed arguments with the same RequestID and changed hash.
+- GREEN Plan/legacy/Task 2 — with Go PATH corrected, `go test ./internal/runtime -run 'Test(Plan|LegacyPlan|ModelWork|CreateGoal)' -count=1` passed.
+- Eino pin/API check — `go.mod` remains on Eino v0.9.13, EinoExt OpenAI v0.1.13, Claude v0.1.25, and MCP v0.0.9. Inspected pinned APIs: `compose.GetToolCallID(ctx)`, `tool.StatefulInterrupt(ctx, info, state)`, and ADK `TypedRunner.ResumeWithParams(ctx, checkpointID, params, opts...)`.
+- Conformance refresh — `go run ./sdk/internal/cmd/source-hash internal ''` produced `2fb7424c66dd0d8b69a130c3bc03ddd3ea4cc3f138dbb9b89959d14dbd1a27b7`; refreshed the five matching checked-in source digests. `go test ./sdk/internal/conformance -run '^TestCheckedInProviderConformanceMatchesExecutedSuites$' -count=1` passed (184.569s).
+- Full CI — `just ci` with `C:\Program Files\Go\bin` prepended to `PATH`; passed, exit code 0. Live output: `C:\Users\ADMINI~1\AppData\Local\Temp\1\issue47-pg2-task2-just-ci.log`. Key long packages passed: `internal/runtime` (456.299s), `sdk/internal` (857.783s), `sdk/internal/conformance` (295.377s); plugins/faces vet and tests completed successfully.
+
+`git diff --check` passed. UI test output included existing expected fixture-error/React `act(...)` diagnostics, but all 49 UI test files (400 tests) passed and CI exited 0.

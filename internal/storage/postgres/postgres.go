@@ -40,6 +40,8 @@ type Backend struct {
 
 var (
 	_ storage.Engine             = (*Backend)(nil)
+	_ storage.WorkStore          = (*Backend)(nil)
+	_ storage.GoalRunStore       = (*Backend)(nil)
 	_ storage.CheckpointOrphaner = (*Backend)(nil)
 )
 

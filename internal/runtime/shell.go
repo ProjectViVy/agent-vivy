@@ -108,15 +108,30 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if s == nil || s.engine == nil {
 		return "", errors.New("runtime: service not wired")
 	}
+	if sessionID == "" {
+		return "", errors.New("runtime: shell session id is required")
+	}
+	sessionAdmission := s.sessionAdmission(sessionID)
+	sessionAdmission.Lock()
+	defer sessionAdmission.Unlock()
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
 		return "", err
 	}
 	if !s.ShellAvailable() {
 		return "", ErrShellUnavailable
 	}
-	if sessionID == "" {
-		return "", errors.New("runtime: shell session id is required")
-	}
+	s.mu.Lock()
+	s.humanPending[sessionID]++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if pending := s.humanPending[sessionID]; pending <= 1 {
+			delete(s.humanPending, sessionID)
+		} else {
+			s.humanPending[sessionID] = pending - 1
+		}
+		s.mu.Unlock()
+	}()
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	if s.sessionDeleted(sessionID) {
@@ -363,6 +378,10 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 	evaluation, err := adapter.policy.Evaluate(profile, spec, input)
 	if err != nil {
 		return nil, err
+	}
+	if approvalPolicyDeniesEffectful(ctx, spec) {
+		evaluation.Decision = domain.PolicyDeny
+		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
 	}
 	emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason})
 	if evaluation.Decision == domain.PolicyDeny {
@@ -945,14 +964,12 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 		case domain.EventRunStarted:
 			var started payloadRunStarted
 			if json.Unmarshal(ev.Payload, &started) == nil {
-				if domain.PolicyProfile(started.PolicyProfile).Valid() {
-					profile = domain.PolicyProfile(started.PolicyProfile)
-				}
-				if started.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: started.PolicyHash}
-				}
 				if domain.RunMode(started.Mode).Valid() {
 					mode = domain.RunMode(started.Mode)
+				}
+				profile = recoveredProfile(mode, started.PolicyProfile)
+				if started.PolicyHash != "" {
+					snapshot = domain.PolicySnapshot{Profile: profile, Hash: started.PolicyHash}
 				}
 				if domain.Face(started.Face).Valid() {
 					face = domain.Face(started.Face)
@@ -967,14 +984,12 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 		case domain.EventToolApprovalRequired:
 			var required payloadToolApprovalRequired
 			if json.Unmarshal(ev.Payload, &required) == nil {
-				if domain.PolicyProfile(required.PolicyProfile).Valid() {
-					profile = domain.PolicyProfile(required.PolicyProfile)
-				}
-				if required.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: required.PolicyHash}
-				}
 				if domain.RunMode(required.Mode).Valid() {
 					mode = domain.RunMode(required.Mode)
+				}
+				profile = recoveredProfile(mode, required.PolicyProfile)
+				if required.PolicyHash != "" {
+					snapshot = domain.PolicySnapshot{Profile: profile, Hash: required.PolicyHash}
 				}
 				if domain.Face(required.Face).Valid() {
 					face = domain.Face(required.Face)

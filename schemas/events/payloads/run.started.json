@@ -46,6 +46,18 @@
       "minLength": 1,
       "description": "Digest of the policy definition used by the run."
     },
+    "collaboration_mode": {
+      "type": "string",
+      "enum": [
+        "plan"
+      ],
+      "description": "Soft Plan guidance mode; it does not change execution policy."
+    },
+    "collaboration_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of the orthogonal collaboration metadata."
+    },
     "sandbox_mode": {
       "type": "string",
       "enum": [

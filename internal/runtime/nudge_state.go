@@ -44,6 +44,8 @@ type nudgeBatch struct {
 	ids       []string
 	remaining map[string]struct{}
 	calls     map[string]completedCall
+	satisfied map[string]struct{}
+	implicit  bool
 }
 
 // nudgeState is the single run-local observation point for bounded tool
@@ -124,7 +126,10 @@ func (s *nudgeState) Register(ids []string) error {
 		}
 		seen[id] = struct{}{}
 	}
-	batch := &nudgeBatch{ids: append([]string(nil), ids...), remaining: make(map[string]struct{}, len(ids)), calls: make(map[string]completedCall, len(ids))}
+	batch := &nudgeBatch{
+		ids: append([]string(nil), ids...), remaining: make(map[string]struct{}, len(ids)),
+		calls: make(map[string]completedCall, len(ids)), satisfied: make(map[string]struct{}, len(ids)),
+	}
 	for _, id := range ids {
 		batch.remaining[id] = struct{}{}
 	}
@@ -161,9 +166,9 @@ func (s *nudgeState) Failure(id string) (toolFailure, bool) {
 
 // Complete records one durable outcome. With an outstanding batch the id
 // must belong to it — a duplicate or foreign id is an invariant error.
-// With no outstanding batch the completion is admitted as an implicit
-// singleton batch, which is how the decided tool call of a resume leg
-// reaches the detector without a matching tool.requested.
+// With no outstanding batch the completion is admitted into an implicit
+// batch, which is how tool results replayed by a resume leg are grouped
+// before the model boundary reveals the complete result tail.
 func (s *nudgeState) Complete(call completedCall) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -179,11 +184,21 @@ func (s *nudgeState) Complete(call completedCall) error {
 			ids:       []string{call.ID},
 			remaining: map[string]struct{}{call.ID: {}},
 			calls:     map[string]completedCall{},
+			satisfied: map[string]struct{}{},
+			implicit:  true,
 		}
 		s.batch = batch
+	} else if batch.implicit && len(batch.remaining) == 0 {
+		if _, exists := batch.calls[call.ID]; exists {
+			return fmt.Errorf("runtime: nudge completion duplicates tool call id %q", call.ID)
+		}
+		batch.ids = append(batch.ids, call.ID)
+		batch.remaining[call.ID] = struct{}{}
 	}
 	if _, ok := batch.remaining[call.ID]; !ok {
-		if _, done := batch.calls[call.ID]; done {
+		_, done := batch.calls[call.ID]
+		_, settled := batch.satisfied[call.ID]
+		if done || settled {
 			return fmt.Errorf("runtime: nudge completion duplicates tool call id %q", call.ID)
 		}
 		return fmt.Errorf("runtime: nudge completion for unregistered tool call id %q", call.ID)
@@ -194,6 +209,28 @@ func (s *nudgeState) Complete(call completedCall) error {
 		call.Failure = &failure
 	}
 	batch.calls[call.ID] = call
+	s.broadcastLocked()
+	return nil
+}
+
+// SatisfyDurable marks a sibling result already persisted by an earlier leg
+// of the same interrupted model batch. Such results satisfy the handoff
+// barrier, but are intentionally excluded from this leg's fresh detector.
+func (s *nudgeState) SatisfyDurable(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.terminal != nil {
+		return s.terminal
+	}
+	if id == "" || s.batch == nil || s.batch.implicit {
+		return errors.New("runtime: durable nudge result requires a registered resume batch")
+	}
+	if _, ok := s.batch.remaining[id]; !ok {
+		return fmt.Errorf("runtime: durable nudge result has unexpected tool call id %q", id)
+	}
+	delete(s.batch.remaining, id)
+	s.batch.satisfied[id] = struct{}{}
+	s.broadcastLocked()
 	return nil
 }
 
@@ -208,6 +245,10 @@ func (s *nudgeState) Complete(call completedCall) error {
 func (s *nudgeState) Seal(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.sealLocked(err)
+}
+
+func (s *nudgeState) sealLocked(err error) {
 	if err != nil {
 		s.setTerminalLocked(err)
 		return
@@ -222,6 +263,9 @@ func (s *nudgeState) Seal(err error) {
 	}
 	var best *nudgeNotice
 	for _, id := range batch.ids {
+		if _, settled := batch.satisfied[id]; settled {
+			continue
+		}
 		call := batch.calls[id]
 		count, recErr := s.window.record(call.Name, call.ArgsJSON, call.Result, call.Error)
 		if errors.Is(recErr, errLoopDetected) {
@@ -276,6 +320,21 @@ func (s *nudgeState) Take(ctx context.Context, ids []string) (*nudgeNotice, bool
 			err := s.terminal
 			s.mu.Unlock()
 			return nil, false, err
+		}
+		if batch := s.batch; batch != nil && len(batch.remaining) == 0 && len(batch.ids) == len(ids) {
+			covered := true
+			for _, id := range ids {
+				_, completed := batch.calls[id]
+				_, settled := batch.satisfied[id]
+				if !completed && !settled {
+					covered = false
+					break
+				}
+			}
+			if covered {
+				batch.ids = append(batch.ids[:0], ids...)
+				s.sealLocked(nil)
+			}
 		}
 		if s.batch == nil && s.sealedIDs != nil {
 			covered := true

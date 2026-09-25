@@ -6,7 +6,7 @@
 **Architecture:** Follow PG-D1 shared ownership and transaction contracts. Keep this slice within existing Service / Journal / Policy ownership.
 **Tech Stack:** Go, pinned Eino v0.9.13, SQLite/PostgreSQL, React/TypeScript where applicable.
 **Spec:** [PG-D1](../../architecture/PLAN-GOAL-PREDESIGN.md).
-**Baseline:** aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+**Baseline:** a8d361b0244a1c40be513622bbdaebb5c9d40014.
 **Epic:** Plan collaboration. **Requirements:** R1, R2, R5, R7, R9.
 **Status and predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
 
@@ -63,7 +63,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 Separate collaboration selection from execution policy. New Plan does not coerce a plan policy, but preserve policy explicitly selected independently. Missing collaboration contract version on historical Plan run means legacy hard restriction on every resume path, including direct shell. Embed one Markdown guidance source through existing runtime composition.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 effective_restriction(run):
   if legacy(run) and run.mode == plan: enforce old hard Plan behavior
@@ -71,16 +71,16 @@ effective_restriction(run):
   if effective collaboration == plan: append plan guidance
   never infer a wider policy from leaving Plan
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 2: Exact plan review
 
 Persist immutable full submission and review linkage. Decisions reference submission ID and expected work version. Rejection and expiry leave Plan active. execute_once ends Plan but does not arm Goal; start_goal requires explicit objective and cap and is rejected while an unfinished Goal exists. Keep actual Goal arming adapter disabled until PG-3/PG-4 are integrated; return capability absence rather than simulated success.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 decision_tests:
   submit v1; submit v2; decide v1 -> review_stale
@@ -90,10 +90,10 @@ decision_tests:
   writable policy + planning document save -> allowed
   historical hard-Plan checkpoint + effectful tool -> denied
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Verification
 

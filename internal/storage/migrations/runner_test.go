@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -22,8 +23,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 25 {
-		t.Fatalf("migration count = %d, want 25", count)
+	if count != 27 {
+		t.Fatalf("migration count = %d, want 27", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -36,6 +37,15 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("migration 24 did not create %s", table)
+		}
+	}
+	for version, want := range map[int]string{26: "session_work_events", 27: "history_work_anchors"} {
+		if err := db.QueryRowContext(ctx,
+			`SELECT name FROM schema_migrations WHERE version = ?`, version).Scan(&name); err != nil {
+			t.Fatalf("read migration %d: %v", version, err)
+		}
+		if name != want {
+			t.Fatalf("migration %d name = %q, want %q", version, name, want)
 		}
 	}
 
@@ -51,7 +61,7 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 }
 
-func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
+func TestApplyUpgradesSQLite23To27AndReopens(t *testing.T) {
 	ctx := context.Background()
 	manifest, err := Embedded()
 	if err != nil {
@@ -78,11 +88,13 @@ func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (id, title, created_at) VALUES ('upgrade-session', 'preserved', 11);
 		INSERT INTO runs (id, session_id, status, created_at) VALUES ('upgrade-run', 'upgrade-session', 'completed', 12);
+		INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload)
+		VALUES ('upgrade-run', 1, 'run.started', 13, 1, '{"provider":"legacy","model":"legacy-model"}');
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
-		t.Fatalf("upgrade 23 to 24: %v", err)
+		t.Fatalf("upgrade 23 to 27: %v", err)
 	}
 	assertSQLiteMaskMigration24(t, db)
 	assertSQLiteUpgradeRows(t, db)
@@ -105,8 +117,8 @@ func assertSQLiteMaskMigration24(t *testing.T, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 25 {
-		t.Fatalf("upgraded migration count = %d, want 25", count)
+	if count != 27 {
+		t.Fatalf("upgraded migration count = %d, want 27", count)
 	}
 	var name, checksum string
 	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
@@ -133,6 +145,17 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	}
 	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
 		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
+	}
+	var eventRunID, eventType string
+	var eventSeq, eventCreatedAt, payloadVersion int64
+	var payload []byte
+	if err := db.QueryRow(`SELECT run_id, seq, type, created_at, payload_version, payload FROM run_events WHERE run_id = 'upgrade-run' AND seq = 1`).
+		Scan(&eventRunID, &eventSeq, &eventType, &eventCreatedAt, &payloadVersion, &payload); err != nil {
+		t.Fatalf("read preserved run.started: %v", err)
+	}
+	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
+	if eventRunID != "upgrade-run" || eventSeq != 1 || eventType != "run.started" || eventCreatedAt != 13 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", eventRunID, eventSeq, eventType, eventCreatedAt, payloadVersion, payload, wantPayload)
 	}
 }
 

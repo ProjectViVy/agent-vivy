@@ -7,14 +7,16 @@ import "encoding/json"
 // v1; model.completed v2 commits its preceding bounded delta sequence.
 
 type payloadRunStarted struct {
-	Provider       string `json:"provider"`
-	Model          string `json:"model"`
-	Mode           string `json:"mode"`
-	Face           string `json:"face"`
-	PolicyProfile  string `json:"policy_profile,omitempty"`
-	PolicyHash     string `json:"policy_hash,omitempty"`
-	SandboxMode    string `json:"sandbox_mode,omitempty"`
-	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	Provider             string `json:"provider"`
+	Model                string `json:"model"`
+	Mode                 string `json:"mode"`
+	Face                 string `json:"face"`
+	PolicyProfile        string `json:"policy_profile,omitempty"`
+	PolicyHash           string `json:"policy_hash,omitempty"`
+	SandboxMode          string `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy       string `json:"approval_policy,omitempty"`
 	// PromptSchema and PromptDigest identify the immutable prompt admitted
 	// beside this run. They are omitted for legacy embedders that do not wire
 	// RunAdmissionStore, preserving the v1 event shape on that path.
