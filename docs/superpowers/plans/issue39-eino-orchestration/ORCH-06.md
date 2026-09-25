@@ -3,7 +3,7 @@
 > **For implementers:** REQUIRED SUB-SKILL: `superpowers:executing-plans` or explicitly assigned `superpowers:subagent-driven-development`.
 
 **Goal:** Execute validated DAG nodes as governed child Runs using native Eino Workflow with parallel dependencies and safe recovery.
-**Architecture:** Runtime compiles one immutable descriptor into Eino `compose.Workflow`; node lambdas call ORCH-03's Service child invoker through a stable idempotent node key, and graph Run owns the Eino checkpoint.
+**Architecture:** Runtime compiles immutable descriptor into Eino `compose.Workflow`; DAG nodes default one-shot/non-addressable and invoke ORCH-03 Service with stable idempotent node key. Host validates finite limits. Workflow output/end consumes all declared node outputs; reject unreachable/unconsumed nodes.
 **Tech Stack:** Go, Eino v0.9.13 compose, Service, Journal, checkpoint bridge.
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), R1/R4/R5/R6; [index](index.md) predecessors ORCH-03, ORCH-05.
 **Review focus:** Eino controls dependency execution; no second scheduler, no duplicate side effects on resume, no budget widening, orphan/run leaks or graph checkpoint serving as a product log.
@@ -15,9 +15,9 @@ NEW `internal/runtime/workflow.go`, `workflow_test.go` for Eino compiler/runner 
 ## Tasks
 
 - [ ] Extend ORCH-01's integrated fixture to a production compile path. Test diamond `A → C`, `B → C` with A/B parallel start, C receiving only approved explicit outputs, no read of sibling child Sessions. Test invalid descriptor cannot reach compile, even via internal API.
-- [ ] Build native `Workflow` using `AddLambdaNode` with brokered node invocation, `AddDependency` for order-only and `AddInput` only for mapped outputs, `AddEnd`, `Compile(WithMaxRunSteps(...), WithCheckPointStore(...))` and invocation `WithCheckPointID(graphRunID...)` as verified by ORCH-01. Keep graph Run's immutable checkpoint identity separate from node child Runs. If Eino API differs in integrated fixture, use the observed minimal native API and update design/plan before implementation.
+- [ ] Build native `Workflow` with brokered lambda nodes; `AddDependency` for order-only edges and `AddInput` for approved mapped outputs. Use `Workflow.End()` for declared output/dependencies; `AddEnd` is deprecated. Do not use `WithMaxRunSteps`, unsupported in DAG/Workflow mode. Host enforces finite node/depth/width/output limits before compile. Reject unreachable or unconsumed nodes/outputs. Checkpoint options only as proven by ORCH-01; keep graph Run identity separate from child Runs.
 - [ ] Admit each node idempotently through Service, record node-to-child mapping in Journal, wait durably for completion, project bounded output, then return it to Workflow. Test re-entry after crash before and after mapping event; brokered write runs at most once. Parallel node budget and policy come from parent; when all slots occupied, bounded backpressure or explicit failure is observable and cancellation interrupts waiting.
-- [ ] Exercise approval interrupt while sibling runs, parent cancel, failed dependency, unready descendants, corrupted checkpoint, restart after graph completion. Verify graph terminal event only once, no append after terminal, and normal child runs remain inspectable. Resource caps include graph step limit and existing per-parent child cap.
+- [ ] Exercise approval interrupt, parent cancel, failed dependency, unreachable/unconsumed rejection, corrupted checkpoint and restart. Verify one terminal event, no post-terminal append, inspectable child Runs. Limits are Host-validated DAG bounds and Service child caps, not Eino max steps.
 - [ ] Run `go test ./internal/runtime ./internal/app -run 'Workflow|Child|Approval|Checkpoint' -count=1`; both SQL backend conformance where applicable; `just ci`. Record event timelines and counts, not just eventual return values.
 
 ## Failure and rollback
