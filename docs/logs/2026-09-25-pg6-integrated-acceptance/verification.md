@@ -1,6 +1,6 @@
 # Verification
 
-Tested code revision: `1aca64f937c462f3558cf6b51c591a4ae703028b` (the commit contains the exact code and conformance digest used by the final gate). The configured author and committer are the human contributor `mastwet`.
+Initial PG-6 code revision: `1aca64f937c462f3558cf6b51c591a4ae703028b`. The configured author and committer are the human contributor `mastwet`.
 
 Focused checks passed:
 
@@ -20,3 +20,13 @@ Intermediate checks are not counted as final evidence: one `just ci` attempt at 
 Independent PG-6 follow-up review passed after the restarted round-limit Work projection assertion was added. A final read-only branch review found no new actionable code defect in the PG-6 integration delta; reviewers did not claim to rerun CI.
 
 Unverified by user direction: live PostgreSQL migration/parity (`just test-postgres`) and Docker checks were deferred to the next phase; no PostgreSQL DSN/service was configured. Browser acceptance belongs to the user and was not run by the agent. The live-provider coding walkthrough was not run because credentials were not configured. These outcomes do not complete PG-6 or release downstream Stories.
+
+## PR CI follow-up
+
+The first GitHub Actions run for PR #57 passed `ui ci` and `full UI browser smoke` but failed `backend ci` in the existing `TestVC1Walkthrough`: the Windows runner did not have `rg` on `PATH`. The test now uses `git grep --no-index` against its disposable workspace file, preserving the Bash-tool and on-disk verification while depending only on Git, already required for the checkout. The focused walkthrough passed three consecutive local runs:
+
+```text
+go test ./internal/runtime -run '^TestVC1Walkthrough$' -count=3 -timeout=2m
+```
+
+The changed internal source digest is `621fcd68049603c59f6824d8d5be8fa074870e0030dcde0aa115ad268e58716b`; the five internal-rooted conformance rows were refreshed. `TestCheckedInProviderConformanceMatchesExecutedSuites` passed in 153.586 seconds. The subsequent complete `just ci` passed with exit code 0 on the resulting code and digest: 424 UI tests, UI build/typecheck/i18n, Go vet/full tests, headless compile, and plugin/face checks. The GitHub Actions rerun for the follow-up push is reported separately in the PR checks and is not claimed by this local result.
