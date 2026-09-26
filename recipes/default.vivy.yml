@@ -31,6 +31,7 @@ modules:
   - vivy/memory
   - vivy/memory-bml
   - vivy/memory-bml-sync
+  - vivy/memory-bml-tools
   - vivy/notebook
 order:
   std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook]
