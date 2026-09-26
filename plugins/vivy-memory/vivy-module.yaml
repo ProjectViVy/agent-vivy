@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/memory, version: 0.1.0}
-source: {ref: repo:plugins/vivy-memory, sha256: 80c33e5bab9644e87ddaa261f0677e9509ac1ad9372fbb67a5c6d0edaf95fd04}
+source: {ref: repo:plugins/vivy-memory, sha256: 57f30df3256ea169fd3fef3e44db080e13745b3ac7a8f8e90fba3b76c613391c}
 provides:
   - {port: std/ui-extension@v1, id: vivy.memory.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

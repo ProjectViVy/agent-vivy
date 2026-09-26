@@ -101,6 +101,14 @@
         "zh": "暂无记忆"
       }
     },
+    "plugin.vivy/memory.loadFailed": {
+      "description": "Memory page copy: load failure title",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load memories",
+        "zh": "加载记忆失败"
+      }
+    },
     "plugin.vivy/memory.nav": {
       "description": "Sidebar VIVY group label for the Memory Module",
       "placeholders": [],

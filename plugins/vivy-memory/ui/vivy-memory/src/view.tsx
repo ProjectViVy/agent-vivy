@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, Search } from 'lucide-react';
+import { AlertTriangle, Brain, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { dateTimeLocale } from '@/i18n';
 import { usePluginHost, usePluginTranslation, type UITranslator } from '@vivy/ui-sdk';
-import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { MemoryClient, type MemoryEntry } from './memory-client';
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -75,7 +75,14 @@ export function MemoryView() {
     return (
       <div className="h-full overflow-auto p-6">
         <div className="mx-auto max-w-xl">
-          <DemoLoadError message={error} onRetry={() => void load(query.trim())} />
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              <strong>{t('plugin.vivy/memory.loadFailed')}</strong>
+            </div>
+            <p className="mt-1">{error}</p>
+            <Button className="mt-3" size="sm" variant="outline" onClick={() => void load(query.trim())}>{t('common.retry')}</Button>
+          </div>
         </div>
       </div>
     );
@@ -110,7 +117,7 @@ export function MemoryView() {
                   <span className="truncate text-sm font-medium">{firstLine(item.content)}</span>
                   <Badge variant="outline">{trustLabel(t, item.trust)}</Badge>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString(dateTimeLocale())}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{formatDateTime(item.updated_at)}</p>
               </button>
             )) : (
               <p className="px-3 py-10 text-center text-sm text-muted-foreground">{query ? t('plugin.vivy/memory.noMatch') : t('plugin.vivy/memory.empty')}</p>
@@ -132,7 +139,7 @@ export function MemoryView() {
                 <Badge>{trustLabel(t, selected.trust)}</Badge>
                 <p className="mt-4 leading-7 break-words whitespace-pre-wrap">{selected.content}</p>
                 <p className="mt-6 text-xs text-muted-foreground">
-                  {t('plugin.vivy/memory.updatedAt', { date: new Date(selected.updated_at).toLocaleString(dateTimeLocale()) })}
+                  {t('plugin.vivy/memory.updatedAt', { date: formatDateTime(selected.updated_at) })}
                   {' · '}
                   {t('plugin.vivy/memory.revision', { revision: selected.revision })}
                   {selected.provenance ? ` · ${t('plugin.vivy/memory.provenance', { source: selected.provenance })}` : ''}
@@ -146,6 +153,11 @@ export function MemoryView() {
       }
     />
   );
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(dateTimeLocale());
 }
 
 function firstLine(content: string): string {

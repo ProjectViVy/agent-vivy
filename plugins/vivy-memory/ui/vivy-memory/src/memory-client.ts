@@ -9,7 +9,6 @@ export const MEMORY_MODULE_ID = 'vivy/memory-bml' as const;
 export const MEMORY_ACTIONS = Object.freeze({
   list: 'vivy.memory.list',
   search: 'vivy.memory.search',
-  get: 'vivy.memory.get',
 } as const);
 
 /** Wire shape of one BML memory record (serde spelling, see bml.MemoryEntry). */
@@ -51,10 +50,6 @@ export interface MemorySearchInput {
   readonly limit?: number;
 }
 
-export interface MemoryGetInput {
-  readonly id: string;
-}
-
 /** The narrow transport seam makes the UI client independently testable. */
 export interface MemoryActionTransport {
   invoke<Input = unknown, Result = unknown>(request: {
@@ -77,10 +72,6 @@ export class MemoryClient {
 
   search(input: MemorySearchInput): Promise<MemoryOutcome> {
     return this.invoke<MemorySearchInput, MemoryOutcome>(MEMORY_ACTIONS.search, input);
-  }
-
-  get(id: string): Promise<MemoryOutcome> {
-    return this.invoke<MemoryGetInput, MemoryOutcome>(MEMORY_ACTIONS.get, { id });
   }
 
   private invoke<Input, Result>(actionId: string, input: Input): Promise<Result> {
