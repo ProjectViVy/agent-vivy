@@ -8,6 +8,10 @@
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), R3/R4/R6; [index](index.md) predecessors ORCH-04 and ORCH-06.
 **Review focus:** proposal/start errors actionable; status identity and permissions stable across page reload; no mock workflow or unsupported action shown.
 
+## Provisional implementation status (2026-09-26)
+
+Workflow proposal/start/get/list/cancel RPC methods, a strict model-facing `workflow` tool, host-derived Run/node/output projections, and localized RunInspector controls are present. Child and workflow API tests, UI typecheck and Vitest pass. Real `:3015` host/browser E2E, accessibility review, and G0/G1/G3/release acceptance remain pending.
+
 ## Files and interface
 
 Modify `internal/rpc/{control,control_test}.go`, App control wiring, `ui/src/lib/{api,api.test,store,store.test}.ts`, `ui/src/components/chat/RunInspector.tsx`, `ui/src/i18n/{en,zh}.ts`, relevant component tests; include `types.ts` only for a shared Run/Session shape change. Proposed methods `workflow/propose` (pure validation of an inline descriptor; returns errors and canonical digest), `workflow/start` (operation ID plus the inline descriptor and digest; atomically persists the immutable revision and Run), `workflow/get`, `workflow/list`, `workflow/cancel`. `workflow/propose` persists neither revision nor Run; `start` revalidates the descriptor and parent authority at admission, rejecting digest mismatch. Revise names only with contract tests and design update. Read `docs/architecture/VIVY-FACE-PACK.md` for published UI contract; do not edit `ui/src/generated/**`.

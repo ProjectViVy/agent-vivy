@@ -8,6 +8,10 @@
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), G1; [index](index.md) predecessor ORCH-02.
 **Review focus:** eliminate second model/tool loop without moving Eino imports into App; ensure policy and approval parity.
 
+## Provisional implementation status (2026-09-26)
+
+The native child activation path is present in the worktree. One-shot and continuable children use Service/Eino execution, child-scoped tool views, isolated task context, approval handling, cancellation, and durable child lifecycle events; the prior handwritten worker loop has been removed from the production path. Explicit one-shot selection remains bounded by the parent tool ceiling and uses normal Service approval for effectful calls. Focused runtime/app tests pass. G1 parity and integrated restart/budget evidence remain blocked, as do PostgreSQL DSN-backed checks, repository CI, and release.
+
 ## Files and interface
 
 Modify `internal/runtime/{service,engine,checkpoint}.go` as required by G0, `internal/app/{worker,agenttool}.go`, existing `internal/runtime/service_test.go`, `internal/app/worker_test.go`; NEW `internal/runtime/child_activation.go` only if Service becomes clearer. Inspect `internal/worker/` before removal; delete obsolete execution loop and broker wrappers only when all consumers and logs migrate. Internal proposed seam: `Service.ActivateChild(ctx, binding, task, toolSelection, maskHint) (domain.RunID,error)`, returning the ORCH-02-admitted ID and using `RunWithOptions` or the same internal drive path. This is an internal contract sketch; G0 may reveal a smaller signature. Keep `agentToolRef.StartAgentTask(ctx, task, mask)` compatibility while it delegates to this seam.

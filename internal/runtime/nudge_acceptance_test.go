@@ -118,7 +118,7 @@ func newAcceptanceHarness(t *testing.T, script []*schema.Message, opts acceptanc
 		t.Fatalf("new engine: %v", err)
 	}
 	h.svc = NewService(eng, "acceptance", "acceptance-v0", ServiceDeps{
-		Journal: h.journal, Runs: backend, Messages: backend, Notes: backend,
+		Journal: h.journal, ToolOperations: backend, Runs: backend, Messages: backend, Notes: backend,
 		Approvals: backend, Sessions: backend, Sink: newTestSink(), Truncations: backend,
 		ApprovalExpiration: 5 * time.Minute,
 	})

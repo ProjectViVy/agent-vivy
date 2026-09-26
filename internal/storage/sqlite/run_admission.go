@@ -45,10 +45,17 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	if err := sqliteValidateAdmissionCapture(ctx, tx, in.ExpectedMask); err != nil {
 		return in.Started, err
 	}
-	if exists, err := sqliteMessageExists(ctx, tx, in.Message.ID); err != nil {
-		return in.Started, err
-	} else if exists {
-		return in.Started, storage.AdmissionConflict()
+	if in.Run.Kind == domain.RunKindChild && in.Run.EffectiveChildMode() == domain.ChildModeOneShot {
+		if err := sqliteCheckChildConcurrency(ctx, tx, in.Run.ParentID); err != nil {
+			return in.Started, err
+		}
+	}
+	if !in.OmitMessage {
+		if exists, err := sqliteMessageExists(ctx, tx, in.Message.ID); err != nil {
+			return in.Started, err
+		} else if exists {
+			return in.Started, storage.AdmissionConflict()
+		}
 	}
 	if in.Edit != nil {
 		marker := *in.Edit
@@ -59,8 +66,10 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 			return in.Started, storage.AdmissionUnavailable("insert admission edit marker", err)
 		}
 	}
-	if err := sqliteInsertAdmissionMessage(ctx, tx, in.Message); err != nil {
-		return in.Started, err
+	if !in.OmitMessage {
+		if err := sqliteInsertAdmissionMessage(ctx, tx, in.Message); err != nil {
+			return in.Started, err
+		}
 	}
 	if err := sqliteInsertAdmissionRun(ctx, tx, in.Run); err != nil {
 		return in.Started, err
@@ -197,10 +206,11 @@ func sqliteInsertAdmissionRun(ctx context.Context, tx *sql.Tx, r domain.Run) err
 	if rootID == "" {
 		rootID = r.ID
 	}
+	childMode := r.EffectiveChildMode()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth)
-		VALUES (?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
-		string(kind), r.ParentID, rootID, r.Depth); err != nil {
+		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth,child_mode)
+		VALUES (?,?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
+		string(kind), r.ParentID, rootID, r.Depth, string(childMode)); err != nil {
 		return storage.AdmissionUnavailable("insert admission run", err)
 	}
 	return nil
@@ -226,11 +236,11 @@ type sqliteAdmissionRun struct {
 
 func sqliteReadAdmissionRun(ctx context.Context, tx *sql.Tx, runID domain.RunID) (sqliteAdmissionRun, bool, error) {
 	var existing sqliteAdmissionRun
-	var rid, sid, status, kind, parentID, rootID string
+	var rid, sid, status, kind, childMode, parentID, rootID string
 	err := tx.QueryRowContext(ctx, `
-		SELECT id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth
+		SELECT id,session_id,status,created_at,kind,child_mode,parent_run_id,root_run_id,depth
 		FROM runs WHERE id = ?`, runID).
-		Scan(&rid, &sid, &status, &existing.run.CreatedAt, &kind, &parentID, &rootID, &existing.run.Depth)
+		Scan(&rid, &sid, &status, &existing.run.CreatedAt, &kind, &childMode, &parentID, &rootID, &existing.run.Depth)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sqliteAdmissionRun{}, false, nil
 	}
@@ -241,6 +251,7 @@ func sqliteReadAdmissionRun(ctx context.Context, tx *sql.Tx, runID domain.RunID)
 	existing.run.SessionID = domain.SessionID(sid)
 	existing.run.Status = domain.RunStatus(status)
 	existing.run.Kind = domain.RunKind(kind)
+	existing.run.ChildMode = domain.ChildMode(childMode)
 	existing.run.ParentID = domain.RunID(parentID)
 	existing.run.RootID = domain.RunID(rootID)
 
@@ -308,16 +319,26 @@ func sqliteCompareAdmission(ctx context.Context, tx *sql.Tx, in storage.RunAdmis
 		wantRun.RootID = wantRun.ID
 	}
 	if existing.run.SessionID != wantRun.SessionID || existing.run.CreatedAt != wantRun.CreatedAt ||
-		existing.run.Kind != wantRun.Kind || existing.run.ParentID != wantRun.ParentID ||
+		existing.run.Kind != wantRun.Kind || existing.run.EffectiveChildMode() != wantRun.EffectiveChildMode() || existing.run.ParentID != wantRun.ParentID ||
 		existing.run.RootID != wantRun.RootID || existing.run.Depth != wantRun.Depth {
 		return storage.AdmissionConflict()
 	}
-	existingMessage, err := sqliteLoadAdmissionMessage(ctx, tx, in.Message.ID)
-	if err != nil {
-		return err
-	}
-	if !sqliteSameAdmissionMessage(existingMessage, in.Message) {
-		return storage.AdmissionConflict()
+	if in.OmitMessage {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE run_id = ?`, in.Run.ID).Scan(&count); err != nil {
+			return storage.AdmissionUnavailable("check omitted admission message", err)
+		}
+		if count != 0 {
+			return storage.AdmissionConflict()
+		}
+	} else {
+		existingMessage, err := sqliteLoadAdmissionMessage(ctx, tx, in.Message.ID)
+		if err != nil {
+			return err
+		}
+		if !sqliteSameAdmissionMessage(existingMessage, in.Message) {
+			return storage.AdmissionConflict()
+		}
 	}
 	wantStarted := in.Started
 	wantStarted.Seq = 1

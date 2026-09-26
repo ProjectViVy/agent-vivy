@@ -8,6 +8,10 @@
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), R4/R6; [index](index.md) predecessor ORCH-02.
 **Review focus:** bounds and authority cannot be bypassed by text, duplicate node keys, topological order or retry; description does not become a second execution state.
 
+## Provisional implementation status (2026-09-26)
+
+The pure descriptor validator and immutable revision persistence are present. Current bounds are 12 nodes, 24 edges, depth 6, width 4, 4 declared outputs, 4 KiB per task, 16 KiB total task text, and 8 KiB total output. SQLite conformance and focused validation tests pass; PostgreSQL schema compilation is not DSN-backed verification. G0/G2 and release acceptance remain blocked.
+
 ## Files and interface
 
 NEW `internal/orchestration/{descriptor,validation}.go` and tests (pure domain, **no Eino imports**). Add `internal/storage/{sqlite,postgres}/workflow_revisions.go` and paired `internal/storage/migrations/{sqlite,postgres}/NNN_workflow_revisions.sql`; modify `internal/storage/contracts.go`, conformance suite, `internal/runtime/service.go` only for admission wiring. `WorkflowRevision{ID,Digest,ParentRunID,Nodes,Edges}` and `TaskNode{Key,Task,MaskHint}`, `Dependency{From,To,OutputKey}` from design are sketches. Persist canonical schema version, immutable JSON, digest, parent authority digest, parent/run lineage, admission operation key. Reuse existing SnapshotStore/Journal where possible; introduce a table only for facts not representable safely with existing stores. If ORCH-02 chose migration 026, next is 027; decide at rebased tip, not a hard-coded filename.

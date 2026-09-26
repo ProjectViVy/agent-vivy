@@ -9,8 +9,8 @@ diagnostics to stderr and are out of scope here.
 
 ## 1. One init path
 
-All kernel logging goes through `log/slog`. There is exactly one setup
-function per process kind in `internal/logging/logging.go`:
+All kernel logging goes through `log/slog`. There is one setup function
+in `internal/logging/logging.go`:
 
 - `logging.Setup` — the `vivy.exe` service process, wired by the
   two-phase bootstrap in `cmd/vivy/main.go`:
@@ -19,13 +19,9 @@ function per process kind in `internal/logging/logging.go`:
   2. After config load, `logging.Setup` replaces the default logger
      (`slog.SetDefault`) and logs the `logging initialized` milestone
      with the effective level/format/dir.
-- `logging.SetupWorker` — a `vivy worker` child process. It installs
-  the per-worker file sink (§3) before the protocol loop starts and is
-  wired only in `cmd/vivy/main.go`'s worker branch.
 
 Never create ad-hoc `slog.Handler`s, stdlib `log.Logger`s, or
-`fmt.Println` diagnostics in `internal/...`. The worker subcommand
-branch is the only stdout exception (the worker protocol owns stdout).
+`fmt.Println` diagnostics in `internal/...`.
 
 ## 2. Configuration
 
@@ -48,13 +44,6 @@ the config file:
 Both are parsed strictly: an invalid value aborts startup with a clear
 error instead of silently keeping the configured value.
 
-A second family, `VIVY_WORKER_LOG_DIR` / `VIVY_WORKER_LOG_LEVEL` /
-`VIVY_WORKER_LOG_FORMAT`, is **not** an operator override: the
-supervisor exports it when spawning `vivy worker` children and it is
-consumed only by `logging.SetupWorker` (§3). Resolution precedence in
-the child is the worker env, then the inherited `VIVY_LOG_*` values,
-then the built-in defaults.
-
 ## 3. Destinations
 
 - Default sink: stdout (when `stdout: true`) **plus** a daily-rotated
@@ -64,14 +53,6 @@ then the built-in defaults.
   formality, not a flush dependency.
 - At startup, files matching `vivy.log*` older than `retention_days`
   (by mtime) are deleted. `0` disables deletion.
-- Each `vivy worker` child writes its own append-only file
-  `<dir>/vivy.log.worker-<pid>`: one writer per file, no rotation and
-  no sweep in the child, never stdout (the JSONL protocol owns it). The
-  supervisor hands off the parent's effective level/format (resolved by
-  `logging.ResolveEffective`, same precedence as `Setup`) plus the log
-  dir; without the dir env the child runs sink-free as before. Because
-  the file name shares the `vivy.log` prefix, the parent's startup
-  retention sweep prunes a dead worker's file automatically.
 - Log files are runtime scratch beside the Journal, not product
   history. They are never read back by the kernel, and Studio sessions
   must not treat them as tenant data (air gap, ST-2). The durable record
@@ -115,8 +96,8 @@ Rules:
   is pattern-redacted in its message and string attributes, and an
   attribute whose key contains `token`/`secret`/`password`/`api_key`/
   `authorization`/`credential` (case-insensitive) collapses to
-  `[REDACTED]`. The guard is always on for both sinks (`Setup` and
-  `SetupWorker`) with no config knob — a value that slipped past
+  `[REDACTED]`. The guard is always on for the configured sink (`Setup`)
+  with no config knob — a value that slipped past
   call-site discipline never reaches the file. `tools.RedactSensitive`
   delegates to `logging.Redact`, so both layers share one shape set and
   marker vocabulary.

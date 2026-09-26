@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
+	"time"
 
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/orchestration"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/tools"
 )
@@ -29,7 +31,7 @@ func (r *agentToolRef) arm(manager *workerManager) {
 // machinery: clean context, read-only tool surface, parent-owned budget,
 // approvals surfacing in the parent session. The parent run id comes from
 // the run-scoped tool context.
-func (r *agentToolRef) StartAgentTask(ctx context.Context, task, mask string) (string, error) {
+func (r *agentToolRef) StartAgentTask(ctx context.Context, task string) (string, error) {
 	r.mu.Lock()
 	m := r.manager
 	r.mu.Unlock()
@@ -43,8 +45,6 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task, mask string) (s
 	started, err := m.StartChild(ctx, controlrpc.ChildRequest{
 		ParentRunID: string(parentRunID),
 		Text:        task,
-		System:      agentSystemPrompt(mask),
-		ToolNames:   m.readOnlyToolNames(),
 	})
 	if err != nil {
 		return "", err
@@ -53,7 +53,9 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task, mask string) (s
 	if err != nil {
 		// The parent context is gone (cancel or shutdown); do not leave the
 		// child running detached behind a failed tool call.
-		_, _ = m.CancelChild(context.WithoutCancel(ctx), started.ID)
+		cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		_, _ = m.CancelChild(cancelCtx, started.ID)
 		return "", err
 	}
 	switch final.Status {
@@ -69,31 +71,31 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task, mask string) (s
 	}
 }
 
-// agentSystemPrompt builds the child's system message. The mask is a
-// persona hint, not a named agent: the sub-agent stays a disposable,
-// single-task vivy with no kernel and no durable identity.
-func agentSystemPrompt(mask string) string {
-	var b strings.Builder
-	b.WriteString("You are a Vivy sub-agent executing one focused task delegated by the main agent. ")
-	b.WriteString("You have a clean context and read-only tools; finish the task efficiently and put the complete, self-contained answer in your final message — it is returned verbatim to the delegating agent.")
-	if mask != "" {
-		b.WriteString("\nPersona hint (mask): " + mask)
-	}
-	return b.String()
+// workflowToolRef delays binding the workflow operations until the native
+// Service is composed, matching the agent tool's app-owned lifecycle.
+type workflowToolRef struct {
+	mu      sync.Mutex
+	manager *workerManager
 }
 
-// readOnlyToolNames selects the read-only subset of registered tools for the
-// sub-agent surface: spec-marked readonly tools minus MCP surfaces and the
-// agent tool itself (sub-agents do not spawn sub-agents).
-func (m *workerManager) readOnlyToolNames() []string {
-	names := make([]string, 0, len(m.tools))
-	for _, name := range m.toolOrder {
-		if name == tools.AgentName || strings.HasPrefix(name, "mcp_") {
-			continue
-		}
-		if tool, ok := m.tools[name]; ok && tool.Spec().Readonly {
-			names = append(names, name)
-		}
+func (r *workflowToolRef) arm(manager *workerManager) {
+	r.mu.Lock()
+	r.manager = manager
+	r.mu.Unlock()
+}
+
+func (r *workflowToolRef) RunWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, descriptor orchestration.Descriptor) (tools.WorkflowTaskResult, error) {
+	r.mu.Lock()
+	manager := r.manager
+	r.mu.Unlock()
+	if manager == nil {
+		return tools.WorkflowTaskResult{}, errors.New("workflow machinery is not wired")
 	}
-	return names
+	if scopedParent := tools.RunIDFromContext(ctx); scopedParent == "" || scopedParent != parentRunID {
+		return tools.WorkflowTaskResult{}, errors.New("workflow tool requires a matching run-scoped parent")
+	}
+	if tools.ToolCallIDFromContext(ctx) == "" {
+		return tools.WorkflowTaskResult{}, errors.New("workflow tool requires a stable model call identity")
+	}
+	return manager.RunWorkflow(ctx, parentRunID, operationKey, descriptor)
 }

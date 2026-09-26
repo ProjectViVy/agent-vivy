@@ -20,16 +20,10 @@ import (
 
 // Environment overrides, mirroring the reference harness convention of
 // env above config: VIVY_LOG_LEVEL is the RUST_LOG analogue,
-// VIVY_LOG_FORMAT the LOG_FORMAT analogue. The VIVY_WORKER_LOG_* family
-// is set by the supervisor when spawning `vivy worker` children and
-// carries the parent's validated log settings (LOGGING.md §3).
+// VIVY_LOG_FORMAT the LOG_FORMAT analogue.
 const (
 	EnvLevel  = "VIVY_LOG_LEVEL"
 	EnvFormat = "VIVY_LOG_FORMAT"
-
-	EnvWorkerLogDir    = "VIVY_WORKER_LOG_DIR"
-	EnvWorkerLogLevel  = "VIVY_WORKER_LOG_LEVEL"
-	EnvWorkerLogFormat = "VIVY_WORKER_LOG_FORMAT"
 )
 
 // FilePrefix names the rotating file family <prefix>.YYYY-MM-DD.
@@ -102,64 +96,8 @@ func Setup(opts Options) (*slog.Logger, Effective, io.Closer, error) {
 		nil
 }
 
-// SetupWorker builds the file sink for one `vivy worker` child process.
-// The supervisor exports the parent's validated log settings through the
-// VIVY_WORKER_LOG_* environment; an unset dir disables file logging and
-// returns a nil logger (the worker protocol then runs as before, with
-// diagnostics invisible). The child never writes stdout (the protocol
-// owns it) and never rotates or sweeps files: each process appends to
-// its own <dir>/vivy.log.worker-<pid>, and the parent's startup
-// retention sweep — matching the vivy.log prefix — prunes the file once
-// the worker is gone and its mtime ages out.
-func SetupWorker() (*slog.Logger, io.Closer, string, error) {
-	dir := strings.TrimSpace(os.Getenv(EnvWorkerLogDir))
-	if dir == "" {
-		return nil, nil, "", nil
-	}
-
-	levelStr := strings.TrimSpace(os.Getenv(EnvWorkerLogLevel))
-	if levelStr == "" {
-		levelStr = strings.TrimSpace(os.Getenv(EnvLevel))
-	}
-	level, err := parseLevel(levelStr)
-	if err != nil {
-		return nil, nil, "", err
-	}
-
-	formatStr := strings.TrimSpace(os.Getenv(EnvWorkerLogFormat))
-	if formatStr == "" {
-		formatStr = strings.TrimSpace(os.Getenv(EnvFormat))
-	}
-	format, err := parseFormat(formatStr)
-	if err != nil {
-		return nil, nil, "", err
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, nil, "", fmt.Errorf("logging: create %s: %w", dir, err)
-	}
-	name := filepath.Join(dir, fmt.Sprintf("%s.worker-%d", FilePrefix, os.Getpid()))
-	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("logging: open %s: %w", name, err)
-	}
-
-	hopts := &slog.HandlerOptions{Level: level, AddSource: true}
-	var h slog.Handler
-	if format == "text" {
-		h = slog.NewTextHandler(f, hopts)
-	} else {
-		h = slog.NewJSONHandler(f, hopts)
-	}
-	h = newRedactingHandler(h)
-	return slog.New(h), f, name, nil
-}
-
 // ResolveEffective applies the env overrides exactly as Setup does and
-// returns the canonical lowercase level and format, without opening a
-// sink. The supervisor uses it to hand the parent's effective log
-// settings to worker children so their per-worker file sink matches the
-// parent process (LOGGING.md §3).
+// returns the canonical lowercase level and format, without opening a sink.
 func ResolveEffective(level, format string) (Effective, error) {
 	l, err := resolveLevel(level)
 	if err != nil {

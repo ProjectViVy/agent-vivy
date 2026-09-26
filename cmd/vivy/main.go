@@ -14,7 +14,6 @@ import (
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/logging"
-	"agent-vivy/internal/worker"
 	"agent-vivy/sdk/generation"
 )
 
@@ -30,38 +29,6 @@ func main() {
 			os.Exit(1)
 		}
 		_, _ = os.Stdout.Write(raw)
-		return
-	}
-	// The worker protocol owns stdout. Keep this branch before the normal
-	// logger is installed so startup diagnostics can never corrupt JSONL.
-	if len(os.Args) > 1 && os.Args[1] == "worker" {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		// The supervisor exports the parent's validated log settings through
-		// VIVY_WORKER_LOG_*; an unset dir keeps the child sink-free (protocol
-		// errors still reach the parent via RPC, never stdout).
-		wlog, closeWLog, wlogPath, werr := logging.SetupWorker()
-		if werr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, werr)
-			os.Exit(1)
-		}
-		if wlog != nil {
-			slog.SetDefault(wlog)
-			defer closeWLog.Close()
-			wlog.Info("worker started", "pid", os.Getpid(), "path", wlogPath)
-		}
-		serveErr := worker.Run(ctx, os.Stdin, os.Stdout)
-		if wlog != nil {
-			if serveErr != nil {
-				wlog.Error("worker ended", "err", serveErr)
-			} else {
-				wlog.Info("worker ended")
-			}
-		}
-		if serveErr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, serveErr)
-			os.Exit(1)
-		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "init" {

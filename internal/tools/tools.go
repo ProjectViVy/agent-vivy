@@ -349,6 +349,37 @@ func BuiltinWithAgent(notes storage.NoteStore, files FileOperations, skills Skil
 	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, agentOps)
 }
 
+// BuiltinWithWorkflow adds the model-facing bounded DAG capability while
+// preserving the existing registry constructor and optional agent tool.
+func BuiltinWithWorkflow(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations, workflowOps WorkflowOperations) *Registry {
+	registry := builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, agentOps)
+	if workflowOps == nil {
+		return registry
+	}
+	return registry.WithAdditional(NewWorkflow(workflowOps))
+}
+
+// BuiltinWithChildMessages adds the direct-parent reply capability used only
+// by explicitly continuable children. Runtime authority still validates that
+// the active Run belongs to such a ChildSession.
+func BuiltinWithChildMessages(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations, workflowOps WorkflowOperations, messageOps ParentMessageOperations) *Registry {
+	registry := BuiltinWithWorkflow(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, agentOps, workflowOps)
+	if messageOps == nil {
+		return registry
+	}
+	return registry.WithAdditional(NewReplyParent(messageOps))
+}
+
+// BuiltinWithChildInbox adds the parent-only child reply reader alongside the
+// existing direct reply sender.
+func BuiltinWithChildInbox(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations, workflowOps WorkflowOperations, messageOps ParentMessageOperations, inboxOps ChildInboxOperations) *Registry {
+	registry := BuiltinWithChildMessages(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, agentOps, workflowOps, messageOps)
+	if inboxOps == nil {
+		return registry
+	}
+	return registry.WithAdditional(NewChildInbox(inboxOps))
+}
+
 func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations) *Registry {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),

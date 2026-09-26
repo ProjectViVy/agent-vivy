@@ -22,18 +22,25 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 25 {
-		t.Fatalf("migration count = %d, want 25", count)
+	if count != 28 {
+		t.Fatalf("migration count = %d, want 28", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 25: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 27`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 27: %v", err)
 	}
-	if name != "truncation_run_id" || len(checksum) != 64 {
-		t.Fatalf("migration 25 metadata = %q/%q", name, checksum)
+	if name != "child_sessions" || len(checksum) != 64 {
+		t.Fatalf("migration 27 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots"} {
+	if err := db.QueryRowContext(ctx,
+		`SELECT name, checksum FROM schema_migrations WHERE version = 28`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 28: %v", err)
+	}
+	if name != "workflow_revisions" || len(checksum) != 64 {
+		t.Fatalf("migration 28 metadata = %q/%q", name, checksum)
+	}
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "child_sessions", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("migration 24 did not create %s", table)
 		}
@@ -51,7 +58,7 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 }
 
-func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
+func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	ctx := context.Background()
 	manifest, err := Embedded()
 	if err != nil {
@@ -78,13 +85,15 @@ func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (id, title, created_at) VALUES ('upgrade-session', 'preserved', 11);
 		INSERT INTO runs (id, session_id, status, created_at) VALUES ('upgrade-run', 'upgrade-session', 'completed', 12);
+		INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth)
+		VALUES ('upgrade-child-run', 'upgrade-session', 'completed', 13, 'child', 'upgrade-run', 'upgrade-run', 1);
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
-		t.Fatalf("upgrade 23 to 24: %v", err)
+		t.Fatalf("upgrade 23 to latest: %v", err)
 	}
-	assertSQLiteMaskMigration24(t, db)
+	assertSQLiteLatestMigrations(t, db)
 	assertSQLiteUpgradeRows(t, db)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close upgraded database: %v", err)
@@ -95,27 +104,27 @@ func TestApplyUpgradesSQLite23To24AndReopens(t *testing.T) {
 	if err := Apply(ctx, db, SQLite); err != nil {
 		t.Fatalf("apply after reopen: %v", err)
 	}
-	assertSQLiteMaskMigration24(t, db)
+	assertSQLiteLatestMigrations(t, db)
 	assertSQLiteUpgradeRows(t, db)
 }
 
-func assertSQLiteMaskMigration24(t *testing.T, db *sql.DB) {
+func assertSQLiteLatestMigrations(t *testing.T, db *sql.DB) {
 	t.Helper()
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 25 {
-		t.Fatalf("upgraded migration count = %d, want 25", count)
+	if count != 28 {
+		t.Fatalf("upgraded migration count = %d, want 28", count)
 	}
 	var name, checksum string
-	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read upgraded migration 25 metadata: %v", err)
+	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 28`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read upgraded migration 28 metadata: %v", err)
 	}
-	if name != "truncation_run_id" || len(checksum) != 64 {
-		t.Fatalf("upgraded migration 25 metadata = %q/%q", name, checksum)
+	if name != "workflow_revisions" || len(checksum) != 64 {
+		t.Fatalf("upgraded migration 28 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots"} {
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "tool_operations", "child_sessions", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("upgrade did not create %s", table)
 		}
@@ -133,6 +142,13 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	}
 	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
 		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
+	}
+	var childMode string
+	if err := db.QueryRow(`SELECT child_mode FROM runs WHERE id = 'upgrade-child-run'`).Scan(&childMode); err != nil {
+		t.Fatalf("read migrated child mode: %v", err)
+	}
+	if childMode != "one-shot" {
+		t.Fatalf("migrated historical child mode = %q, want one-shot", childMode)
 	}
 }
 

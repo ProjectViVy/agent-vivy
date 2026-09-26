@@ -32,17 +32,30 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 	if in.Run.Kind != "" && !in.Run.Kind.Valid() {
 		return admissionInvalid("run kind is invalid")
 	}
-	if strings.TrimSpace(in.Message.ID) == "" {
-		return admissionInvalid("message id is required")
-	}
-	if in.Message.SessionID != in.Run.SessionID {
-		return admissionInvalid("message and run sessions differ")
-	}
-	if in.Message.RunID != "" && in.Message.RunID != in.Run.ID {
-		return admissionInvalid("message and run ids differ")
-	}
-	if in.Message.Role != domain.RoleUser {
-		return admissionInvalid("run admission message must be a user message")
+	if in.OmitMessage {
+		if in.Run.Kind != domain.RunKindChild || in.Run.EffectiveChildMode() != domain.ChildModeOneShot {
+			return admissionInvalid("only one-shot child admission may omit its transcript message")
+		}
+		if in.Message.ID != "" || in.Message.SessionID != "" || in.Message.RunID != "" || in.Message.Role != "" ||
+			in.Message.CreatedAt != 0 || in.Message.Content != "" || len(in.Message.Attachments) != 0 ||
+			len(in.Message.FileContexts) != 0 || in.Message.ToolCallID != "" || in.Message.ToolName != "" ||
+			len(in.Message.ToolArgs) != 0 || in.Message.Source != "" || in.Message.Channel != "" ||
+			in.Message.ChatID != "" || in.Message.ChannelMessageID != "" {
+			return admissionInvalid("omitted admission message must be empty")
+		}
+	} else {
+		if strings.TrimSpace(in.Message.ID) == "" {
+			return admissionInvalid("message id is required")
+		}
+		if in.Message.SessionID != in.Run.SessionID {
+			return admissionInvalid("message and run sessions differ")
+		}
+		if in.Message.RunID != "" && in.Message.RunID != in.Run.ID {
+			return admissionInvalid("message and run ids differ")
+		}
+		if in.Message.Role != domain.RoleUser {
+			return admissionInvalid("run admission message must be a user message")
+		}
 	}
 	if in.Started.RunID != in.Run.ID {
 		return admissionInvalid("run.started and run ids differ")

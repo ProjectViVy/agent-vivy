@@ -8,9 +8,17 @@
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), G1–G4; [index](index.md) predecessor ORCH-07.
 **Review focus:** reconcile graph checkpoint and Vivy Journal after crash, no duplicate effect, policy isolation, parent deletion and clean UI provenance.
 
+## Current provisional acceptance status (2026-09-26)
+
+Implementation through ORCH-07 is present in the worktree; focused local Go/UI checks pass and are recorded in the [provisional verification log](../../../logs/2026-09-26-issue39-orch02-provisional/verification.md). ORCH-08 acceptance is not complete: PostgreSQL DSN-backed conformance, repository `just ci`, real host/browser E2E, and the integrated R1-R14/G0-G4 matrix remain outstanding. The owner plans to run E2E after implementation completion. Missing evidence stays BLOCKED and cannot be used to claim G0/G1 or release readiness.
+
 ## Files and evidence
 
 Test-only changes in `internal/runtime/*test.go`, `internal/app/*test.go`, `internal/rpc/*test.go`, `internal/storage/conformance/*`, `ui/src/lib/*test.ts` and existing UI component tests as evidenced by gaps. NEW `docs/logs/YYYY-MM-DD-issue39-eino-orchestration/{summary,verification,acceptance}.md`; update `docs/TODO.md` §0.1 only for genuine remaining gaps, `docs/COMPLETE.MD` only after accepted completion. This Story must not quietly add unrelated product features to satisfy a fixture.
+
+## Recovery acceptance
+
+Apply architecture D15 and the ORCH-01 process-crash matrix to the integrated product. Unknown effects must produce an explicit parent-visible failure/blocked outcome with no automatic replay; completed results must be reused. No arbitrary external exactly-once or guaranteed automatic recovery claim. Preserve operation identity through graph and child recovery, and require both SQL backends for release acceptance.
 
 ## Tasks
 

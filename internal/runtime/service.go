@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -55,21 +56,6 @@ type WorkspaceReleaser interface {
 	Release(context.Context, Workspace) error
 }
 
-// ChildApprovalRouter receives a durable decision for an approval owned by a
-// supervised child. The router is app-owned because it holds live worker
-// waiters; runtime still owns validation and first-writer-wins persistence.
-type ChildApprovalRouter interface {
-	ResolveChildApproval(context.Context, domain.Approval, string) error
-}
-
-// ChildRunCanceller stops app-owned supervised worker processes. The runtime
-// calls it while deleting a session so sealing Journal writes also stops any
-// in-flight model/tool side effects.
-type ChildRunCanceller interface {
-	CancelChildRun(domain.RunID) bool
-	CancelSessionChildren(domain.SessionID)
-}
-
 // ChannelDeliverer delivers outbound content to an external channel (CH-0).
 // Defined as an interface here so runtime stays free of internal/channelhost imports.
 type ChannelDeliverer interface {
@@ -98,9 +84,13 @@ var (
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
-	Journal  storage.Journal
-	Runs     storage.RunStore
-	Messages storage.MessageStore
+	Journal storage.Journal
+	// ToolOperations is the Journal-transactional recovery index for logical
+	// tool calls. NewService discovers it from Journal when the backend also
+	// implements storage.ToolOperationStore.
+	ToolOperations storage.ToolOperationStore
+	Runs           storage.RunStore
+	Messages       storage.MessageStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -129,8 +119,6 @@ type ServiceDeps struct {
 	PolicyDefaultProfile domain.PolicyProfile
 	Hooks                []RunHook
 	Sink                 EventSink
-	ChildApprovals       ChildApprovalRouter
-	ChildRuns            ChildRunCanceller
 	// Compactions persists session-level durable compaction summaries
 	// (context/compact + feed folding). Nil keeps automatic in-run
 	// compression working; only durable summary folding is disabled.
@@ -148,6 +136,15 @@ type ServiceDeps struct {
 	// wiring supplies it when prompt snapshots are enabled; legacy embedders
 	// retain the existing sequential path when it is absent.
 	Admission storage.RunAdmissionStore
+	// ChildSessions is the atomic addressable-child admission boundary. NewService
+	// discovers it from Sessions when the backend supports continuable children.
+	ChildSessions storage.ChildSessionStore
+	// ChildMailbox persists direct parent-child messages. NewService discovers
+	// it from Sessions when the backend supports continuable children.
+	ChildMailbox storage.ChildMailboxStore
+	// WorkflowRevisions stores immutable validated workflow descriptors. NewService
+	// discovers it from Sessions when the backend supports workflow admission.
+	WorkflowRevisions storage.WorkflowRevisionStore
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
@@ -187,8 +184,12 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu     sync.Mutex
-	active map[domain.RunID]context.CancelFunc
+	mu               sync.Mutex
+	active           map[domain.RunID]context.CancelFunc
+	workflowStartMu  sync.Mutex
+	workflowNodeMu   sync.Mutex
+	operationMu      sync.Mutex
+	operationFlights map[string]*toolOperationFlight
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -209,7 +210,8 @@ type Service struct {
 	shellStates map[string]shellState
 	// ledgers survive approval/question suspension and are shared by every
 	// resume of the same run.
-	ledgers map[domain.RunID]*BudgetLedger
+	ledgers                map[domain.RunID]*BudgetLedger
+	recoveredBudgetLedgers map[domain.RunID]*BudgetLedger
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
@@ -271,6 +273,8 @@ type pendingRun struct {
 	face           domain.Face
 	questionID     string
 	ledger         *BudgetLedger
+	engine         *Engine
+	execution      runExecutionOptions
 }
 
 // RunOptions controls the physical policy applied to one run.
@@ -303,6 +307,18 @@ type RunOptions struct {
 // NewService wires the run service over an engine and its dependencies.
 // provider and modelID label the run.started payload.
 func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Service {
+	if deps.ToolOperations == nil {
+		deps.ToolOperations, _ = deps.Journal.(storage.ToolOperationStore)
+	}
+	if deps.ChildSessions == nil {
+		deps.ChildSessions, _ = deps.Sessions.(storage.ChildSessionStore)
+	}
+	if deps.ChildMailbox == nil {
+		deps.ChildMailbox, _ = deps.Sessions.(storage.ChildMailboxStore)
+	}
+	if deps.WorkflowRevisions == nil {
+		deps.WorkflowRevisions, _ = deps.Sessions.(storage.WorkflowRevisionStore)
+	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"
 	} else {
@@ -315,41 +331,25 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		deps.PolicyDefaultProfile = domain.PolicyProfileDefault
 	}
 	return &Service{
-		engine:          eng,
-		deps:            deps,
-		provider:        provider,
-		modelID:         modelID,
-		defaultProfile:  deps.PolicyDefaultProfile,
-		approvalSettle:  deps.ApprovalSettleTimeout,
-		active:          make(map[domain.RunID]context.CancelFunc),
-		runSessions:     make(map[domain.RunID]domain.SessionID),
-		deletedSessions: make(map[domain.SessionID]struct{}),
-		pending:         make(map[domain.RunID]pendingRun),
-		shellPending:    make(map[domain.RunID]shellPendingRun),
-		shellStates:     make(map[string]shellState),
-		ledgers:         make(map[domain.RunID]*BudgetLedger),
-		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
-		runTools:        make(map[domain.RunID]map[string]struct{}),
-		contextViews:    make(map[domain.RunID]string),
-		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
+		engine:           eng,
+		deps:             deps,
+		provider:         provider,
+		modelID:          modelID,
+		defaultProfile:   deps.PolicyDefaultProfile,
+		approvalSettle:   deps.ApprovalSettleTimeout,
+		active:           make(map[domain.RunID]context.CancelFunc),
+		operationFlights: make(map[string]*toolOperationFlight),
+		runSessions:      make(map[domain.RunID]domain.SessionID),
+		deletedSessions:  make(map[domain.SessionID]struct{}),
+		pending:          make(map[domain.RunID]pendingRun),
+		shellPending:     make(map[domain.RunID]shellPendingRun),
+		shellStates:      make(map[string]shellState),
+		ledgers:          make(map[domain.RunID]*BudgetLedger),
+		snapshots:        make(map[domain.RunID]domain.PolicySnapshot),
+		runTools:         make(map[domain.RunID]map[string]struct{}),
+		contextViews:     make(map[domain.RunID]string),
+		lastCompaction:   make(map[domain.SessionID]*LastCompaction),
 	}
-}
-
-// SetChildApprovalRouter wires the app-owned live worker registry after the
-// runtime service has been constructed. This avoids a composition cycle:
-// the manager depends on Service, while Service only calls the small router
-// seam when a child approval is decided.
-func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
-	s.mu.Lock()
-	s.deps.ChildApprovals = router
-	s.mu.Unlock()
-}
-
-// SetChildRunCanceller wires the app-owned live worker registry.
-func (s *Service) SetChildRunCanceller(canceller ChildRunCanceller) {
-	s.mu.Lock()
-	s.deps.ChildRuns = canceller
-	s.mu.Unlock()
 }
 
 // SetCatalog wires the provider catalog so the service can query model
@@ -483,31 +483,50 @@ func (s *Service) MaxEventPayloadBytes() int {
 func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
-	liveRunIDs := make([]domain.RunID, 0)
-	for runID, sessionID := range s.runSessions {
-		if sessionID == id {
-			liveRunIDs = append(liveRunIDs, runID)
-		}
-	}
-	childRuns := s.deps.ChildRuns
 	s.mu.Unlock()
-	if childRuns != nil {
-		childRuns.CancelSessionChildren(id)
-	}
-	for _, runID := range liveRunIDs {
-		s.Cancel(runID)
-	}
-
+	// Child admission and activation share projectionMu with this enumeration.
+	// Once the root tombstone is installed, no new direct child can be admitted;
+	// marking each discovered ChildSession before releasing the lock also fences
+	// continuation started through a descendant Session.
 	s.projectionMu.Lock()
-	runs, err := s.deps.Runs.ListRunsBySession(ctx, id)
-	s.projectionMu.Unlock()
-	if err != nil {
-		return err
-	}
-	for _, run := range runs {
-		if run.Kind == domain.RunKindChild && childRuns != nil {
-			childRuns.CancelChildRun(run.ID)
+	sessionIDs := []domain.SessionID{id}
+	if childStore, ok := s.deps.Sessions.(storage.ChildSessionStore); ok {
+		seen := map[domain.SessionID]struct{}{id: {}}
+		for index := 0; index < len(sessionIDs); index++ {
+			bindings, err := childStore.ListChildSessions(ctx, sessionIDs[index])
+			if err != nil {
+				s.projectionMu.Unlock()
+				return err
+			}
+			for _, binding := range bindings {
+				if _, found := seen[binding.ChildSessionID]; found {
+					continue
+				}
+				seen[binding.ChildSessionID] = struct{}{}
+				sessionIDs = append(sessionIDs, binding.ChildSessionID)
+				s.mu.Lock()
+				s.deletedSessions[binding.ChildSessionID] = struct{}{}
+				s.mu.Unlock()
+			}
 		}
+	}
+	allRuns := make([]domain.Run, 0)
+	for _, sessionID := range sessionIDs {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			s.projectionMu.Unlock()
+			return err
+		}
+		allRuns = append(allRuns, runs...)
+	}
+	s.projectionMu.Unlock()
+
+	seenRuns := make(map[domain.RunID]struct{}, len(allRuns))
+	for _, run := range allRuns {
+		if _, found := seenRuns[run.ID]; found {
+			continue
+		}
+		seenRuns[run.ID] = struct{}{}
 		s.Cancel(run.ID)
 	}
 	s.projectionMu.Lock()
@@ -797,6 +816,9 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	p, isPending := s.pending[runID]
 	sp, isShellPending := s.shellPending[runID]
 	s.mu.Unlock()
+	if active || isPending || isShellPending {
+		s.cancelWorkflowChildren(runID)
+	}
 
 	if isShellPending {
 		if err := s.waitShellApprovalReady(context.Background(), runID); err != nil {
@@ -859,8 +881,11 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 			delete(s.pending, runID)
 		}
 		s.mu.Unlock()
-		s.emitTerminal(context.Background(), p.mapper,
-			p.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
+		if p.execution.child != nil {
+			terminalCtx = withChildTerminal(terminalCtx)
+		}
+		s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
 		return true
 	}
 	if !active {
@@ -868,6 +893,26 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	}
 	cancel() // the drive closes the run via the run.cancelled path
 	return true
+}
+
+// cancelWorkflowChildren propagates explicit cancellation through the run
+// tree. Workflow runs also cancel their currently executing graph node via
+// context cancellation; ordinary one-shot and continuable children are
+// cancelled directly because their execution contexts are detached.
+func (s *Service) cancelWorkflowChildren(parentID domain.RunID) {
+	if s == nil || s.deps.Runs == nil {
+		return
+	}
+	children, err := s.deps.Runs.ListChildRuns(context.Background(), parentID)
+	if err != nil {
+		slog.Warn("list workflow children for cancellation", "run", string(parentID), "err", err)
+		return
+	}
+	for _, child := range children {
+		if !child.Status.Terminal() {
+			s.Cancel(child.ID)
+		}
+	}
 }
 
 // CancelAll cancels every in-flight run. Shutdown calls it before closing
@@ -1035,6 +1080,14 @@ func (s *Service) recover(ctx context.Context) error {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
 		return errors.New("runtime: service not wired")
 	}
+	s.mu.Lock()
+	s.recoveredBudgetLedgers = make(map[domain.RunID]*BudgetLedger)
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.recoveredBudgetLedgers = nil
+		s.mu.Unlock()
+	}()
 	runs, err := s.deps.Runs.ListActiveRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
@@ -1072,12 +1125,10 @@ func (s *Service) recover(ctx context.Context) error {
 	}
 
 	now := time.Now().UnixMilli()
+	var workflowRuns []domain.Run
 	for _, run := range runs {
-		// Child processes are intentionally not re-executed after restart:
-		// replaying a side-effecting child could duplicate an external action.
-		// Close it before considering approvals or checkpoints.
-		if run.Kind == domain.RunKindChild {
-			s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
+		if run.Kind == domain.RunKindWorkflow {
+			workflowRuns = append(workflowRuns, run)
 			continue
 		}
 		workspaceID := ""
@@ -1091,6 +1142,33 @@ func (s *Service) recover(ctx context.Context) error {
 		}
 		approval, hasApproval := pendingByRun[run.ID]
 		question, hasQuestion := pendingQuestionsByRun[run.ID]
+		if run.Kind == domain.RunKindChild {
+			switch {
+			case hasApproval && hasQuestion:
+				s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
+			case hasApproval && approval.ExpiresAt <= now:
+				if err := s.expireApproval(ctx, approval, "human review timed out during restart"); err != nil {
+					slog.Warn("restart recovery: child approval expiry failed", "approval", approval.ID, "err", err)
+				}
+				s.failUnrecoverable(ctx, run.ID, "child approval expired during restart")
+			case hasApproval && approval.Kind == domain.ApprovalKindChild && !isShellApproval(approval):
+				if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+					s.failUnrecoverable(ctx, run.ID, "child prompt snapshot could not be recovered")
+				} else if blocked {
+					s.failUnrecoverable(ctx, run.ID, "child prompt snapshot is not compatible")
+				} else if !s.checkpointReadable(ctx, run.ID) {
+					s.failUnrecoverable(ctx, run.ID, "child checkpoint not readable")
+				} else if err := s.rebuildPendingChild(ctx, run, approval, workspaceID); err != nil {
+					slog.Warn("restart recovery: child approval could not be rebuilt", "run", string(run.ID), "err", err)
+					s.failUnrecoverable(ctx, run.ID, "child approval runner could not be rebuilt")
+				}
+			default:
+				// A child without a pending approval is not replayed after restart:
+				// its last external operation may have crossed the effect boundary.
+				s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
+			}
+			continue
+		}
 		switch {
 		case hasApproval && hasQuestion:
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
@@ -1141,6 +1219,21 @@ func (s *Service) recover(ctx context.Context) error {
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
+		}
+	}
+	for _, run := range workflowRuns {
+		workspaceID := ""
+		if s.deps.Workspaces != nil {
+			workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, run.SessionID), run.ID)
+			if err != nil {
+				s.failUnrecoverable(ctx, run.ID, "workflow workspace is unavailable")
+				continue
+			}
+			workspaceID = workspace.ID
+		}
+		if err := s.recoverWorkflowRun(ctx, run, workspaceID); err != nil {
+			slog.Warn("restart recovery: workflow could not be resumed", "run", string(run.ID), "err", err)
+			s.failUnrecoverable(ctx, run.ID, "workflow authority or checkpoint could not be recovered")
 		}
 	}
 	return nil
@@ -1282,10 +1375,9 @@ func (s *Service) CreateWorkerRun(ctx context.Context, run domain.Run) error {
 	return s.deps.Runs.CreateRun(ctx, run)
 }
 
-// RegisterWorkerProcess atomically installs an app-owned live child handle
-// under the session deletion fence. If deletion wins, registration is
-// rejected; if registration wins, DeleteSession cannot enumerate the run
-// and invoke ChildRunCanceller until the callback has completed.
+// RegisterWorkerProcess activates native child cancellation state under the
+// session deletion fence. If deletion wins, registration is rejected; if
+// registration wins, DeleteSession sees the child Run and cancels it.
 func (s *Service) RegisterWorkerProcess(ctx context.Context, runID domain.RunID, register func()) error {
 	if register == nil || s.deps.Runs == nil {
 		return errors.New("runtime: worker process registration is not wired")
@@ -1349,6 +1441,12 @@ func (s *Service) RecordExternalRunEventVersion(ctx context.Context, runID domai
 func (s *Service) appendRunEvent(ctx context.Context, event domain.RunEvent, updateTerminalStatus bool) (domain.RunEvent, error) {
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
+	return s.appendRunEventLocked(ctx, event, updateTerminalStatus)
+}
+
+// appendRunEventLocked is the common deletion-safe path for callers that
+// already hold projectionMu while committing a related projection mutation.
+func (s *Service) appendRunEventLocked(ctx context.Context, event domain.RunEvent, updateTerminalStatus bool) (domain.RunEvent, error) {
 	run, err := s.deps.Runs.GetRun(ctx, event.RunID)
 	if err != nil {
 		return domain.RunEvent{}, err
@@ -1669,28 +1767,99 @@ func (s *Service) storeContextView(runID domain.RunID, view string) {
 // events before a suspended run becomes resumable. If the current policy is
 // already exceeded, recovery fails closed instead of resetting the budget.
 func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *BudgetLedger {
-	ledger, err := NewBudgetLedger(s.deps.Budget)
+	s.mu.Lock()
+	if ledger := s.recoveredBudgetLedgers[runID]; ledger != nil {
+		s.mu.Unlock()
+		return ledger
+	}
+	s.mu.Unlock()
+	ledgers, err := s.recoverBudgetLedgers(ctx, runID)
 	if err != nil {
-		s.failUnrecoverable(ctx, runID, "invalid budget policy")
+		s.failUnrecoverable(ctx, runID, "run-tree budget replay failed")
 		return nil
 	}
-	it, err := s.deps.Journal.Replay(ctx, runID, 0)
-	if err != nil {
-		s.failUnrecoverable(ctx, runID, "budget replay failed")
-		return nil
+	s.mu.Lock()
+	if s.recoveredBudgetLedgers == nil {
+		s.recoveredBudgetLedgers = make(map[domain.RunID]*BudgetLedger)
 	}
-	defer func() { _ = it.Close() }()
-	for it.Next() {
-		if err := ledger.ReplayEvent(it.Value().Event); err != nil {
-			s.failUnrecoverable(ctx, runID, "budget exceeded before restart")
-			return nil
+	for id, rebuilt := range ledgers {
+		if s.recoveredBudgetLedgers[id] == nil {
+			s.recoveredBudgetLedgers[id] = rebuilt
 		}
 	}
-	if err := it.Err(); err != nil {
-		s.failUnrecoverable(ctx, runID, "budget replay failed")
-		return nil
+	ledger := s.recoveredBudgetLedgers[runID]
+	s.mu.Unlock()
+	if ledger == nil {
+		s.failUnrecoverable(ctx, runID, "run-tree budget target is missing")
 	}
 	return ledger
+}
+
+func (s *Service) recoverBudgetLedgers(ctx context.Context, runID domain.RunID) (map[domain.RunID]*BudgetLedger, error) {
+	if s.deps.Runs == nil {
+		return nil, errors.New("runtime: run-tree budget replay is unavailable")
+	}
+	target, err := s.deps.Runs.GetRun(ctx, runID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget target is unavailable")
+	}
+	rootID := target.RootID
+	if rootID == "" {
+		rootID = target.ID
+	}
+	root, err := s.deps.Runs.GetRun(ctx, rootID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget root is unavailable")
+	}
+	runs, err := s.deps.Runs.ListRunTree(ctx, root.ID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget listing failed")
+	}
+	all := append([]domain.Run{root}, runs...)
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Depth != all[j].Depth {
+			return all[i].Depth < all[j].Depth
+		}
+		if all[i].CreatedAt != all[j].CreatedAt {
+			return all[i].CreatedAt < all[j].CreatedAt
+		}
+		return all[i].ID < all[j].ID
+	})
+	ledgers := make(map[domain.RunID]*BudgetLedger, len(all))
+	for _, run := range all {
+		var ledger *BudgetLedger
+		if run.ID == root.ID || run.ParentID == "" {
+			ledger, err = NewBudgetLedger(s.deps.Budget)
+		} else if parent := ledgers[run.ParentID]; parent != nil {
+			ledger, err = parent.Child(s.deps.Budget)
+		} else {
+			err = fmt.Errorf("budget lineage parent %s is missing", run.ParentID)
+		}
+		if err != nil {
+			return nil, errors.New("runtime: invalid run-tree budget policy or lineage")
+		}
+		it, replayErr := s.deps.Journal.Replay(ctx, run.ID, 0)
+		if replayErr != nil {
+			return nil, errors.New("runtime: run-tree budget replay failed")
+		}
+		for it.Next() {
+			if replayErr = ledger.ReplayEvent(it.Value().Event); replayErr != nil {
+				break
+			}
+		}
+		if replayErr == nil {
+			replayErr = it.Err()
+		}
+		_ = it.Close()
+		if replayErr != nil {
+			return nil, errors.New("runtime: budget exceeded or replay failed before restart")
+		}
+		ledgers[run.ID] = ledger
+	}
+	if ledgers[runID] == nil {
+		return nil, errors.New("runtime: run-tree budget target is missing")
+	}
+	return ledgers, nil
 }
 
 // recoveredMounts rebuilds the run's skill-mount registry from the
@@ -1873,7 +2042,7 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
-// run.failed so no non-terminal row outlives the process (FR-8).
+// terminal event so no non-terminal row outlives the process (FR-8).
 func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
 	m := newEventMapper(runID, 0)
 	if run, err := s.deps.Runs.GetRun(ctx, runID); err == nil && run.Kind == domain.RunKindChild {
@@ -1901,12 +2070,67 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 }
 
 func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
+	s.driveWithExecution(ctx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID, runExecutionOptions{})
+}
+
+type runExecutionOptions struct {
+	engine                           *Engine
+	child                            *childActivationDrive
+	oneShotChild                     bool
+	suppressSessionMessageProjection bool
+}
+
+type runExecutionContextKey struct{}
+type runEngineContextKey struct{}
+type childTerminalContextKey struct{}
+type suppressSessionMessageProjectionContextKey struct{}
+
+func withRunExecution(ctx context.Context, eng *Engine, execution runExecutionOptions) context.Context {
+	ctx = context.WithValue(ctx, runExecutionContextKey{}, execution)
+	return context.WithValue(ctx, runEngineContextKey{}, eng)
+}
+
+func executionFromContext(ctx context.Context) runExecutionOptions {
+	execution, _ := ctx.Value(runExecutionContextKey{}).(runExecutionOptions)
+	return execution
+}
+
+func engineFromContext(ctx context.Context) *Engine {
+	eng, _ := ctx.Value(runEngineContextKey{}).(*Engine)
+	return eng
+}
+
+func withChildTerminal(ctx context.Context) context.Context {
+	return context.WithValue(ctx, childTerminalContextKey{}, true)
+}
+
+func isChildTerminal(ctx context.Context) bool {
+	value, _ := ctx.Value(childTerminalContextKey{}).(bool)
+	return value
+}
+
+func withSessionMessageProjectionDisabled(ctx context.Context) context.Context {
+	return context.WithValue(ctx, suppressSessionMessageProjectionContextKey{}, true)
+}
+
+func sessionMessageProjectionDisabled(ctx context.Context) bool {
+	value, _ := ctx.Value(suppressSessionMessageProjectionContextKey{}).(bool)
+	return value
+}
+
+func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string, execution runExecutionOptions) {
+	if execution.child != nil {
+		ctx = withChildTerminal(ctx)
+	}
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
-	eng := s.engine
+	eng := execution.engine
+	if eng == nil {
+		eng = s.engine
+	}
 	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
 	if promptErr != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
@@ -1918,7 +2142,24 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		ctx = withRunPrompt(ctx, promptSnapshot)
 	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
+	var msgs []*schema.Message
+	var selection tools.Selection
+	var stats ContextStats
+	var err error
+	var parentReplies []parentReplyDelivery
+	if execution.child == nil {
+		parentReplies, err = s.pendingParentReplies(ctx, sessionID, m.runID)
+		if err != nil {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+		if len(parentReplies) > 0 {
+			userText = formatParentReplies(parentReplies, userText)
+		}
+		msgs, selection, stats, err = s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
+	} else {
+		msgs, selection, stats, execution.child.included, err = s.runMessagesForChild(ctx, userText, execution.child.pending, eng)
+	}
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -1932,6 +2173,11 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
+	runCtx = withRunExecution(runCtx, eng, execution)
+	if execution.suppressSessionMessageProjection {
+		runCtx = withSessionMessageProjectionDisabled(runCtx)
+	}
+	runCtx = withToolOperationCoordinator(runCtx, s.newToolOperationCoordinator(m.runID, sessionID))
 	if hasPrompt {
 		runCtx = withRunPrompt(runCtx, promptSnapshot)
 	}
@@ -1941,6 +2187,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// seeded with the mounts prior runs of this session accumulated, so a
 	// skill mounted once stays callable without re-viewing.
 	mounts := s.sessionMounts(ctx, sessionID, m.runID)
+	if execution.child != nil {
+		mounts = tools.NewMountedTools()
+	}
 	if mounts == nil {
 		mounts = tools.NewMountedTools()
 	}
@@ -1949,7 +2198,11 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
-	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
+	var onDelta func(string)
+	if execution.child != nil {
+		onDelta = execution.child.appendOutput
+	}
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
 	// context so in-context seams share exactly this instance.
@@ -1957,8 +2210,20 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	m.setNudgeState(state)
 	runCtx = withNudgeState(runCtx, state)
 	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
+	if execution.child != nil {
+		if err := s.beginChildMailboxSafePoint(runCtx, execution.child); err != nil {
+			s.emitTerminal(runCtx, m, s.terminalEvent(runCtx, m, err))
+			return
+		}
+	}
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state)
+	var beforeComplete func() error
+	if execution.child != nil {
+		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(runCtx, execution.child) }
+	} else if len(parentReplies) > 0 {
+		beforeComplete = func() error { return s.consumeParentReplies(runCtx, parentReplies, m.runID) }
+	}
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state, beforeComplete, execution)
 }
 
 // withLiveModelStreamObserver installs the producer-path stream seam used by
@@ -1967,10 +2232,13 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // fail-closed errors, or the tool-settled barrier on the Recv→Send path.
 // Keeping the construction in one place prevents approval/question resumes
 // from reverting to EOF-batched output.
-func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) context.Context {
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string)) context.Context {
 	return withModelStreamObserver(ctx, modelStreamObserver{
 		Begin: m.beginObservedStream,
 		Chunk: func(chunk *schema.Message) error {
+			if chunk != nil && onDelta != nil {
+				onDelta(chunk.Content)
+			}
 			if err := m.waitForToolsSettled(ctx); err != nil {
 				return err
 			}
@@ -2183,7 +2451,7 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // durable — so the detector can never release a model handoff ahead of
 // the Journal. Any exit aborts the waiters the terminal transition
 // leaves behind.
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState) {
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState, beforeComplete func() error, execution runExecutionOptions) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
@@ -2213,6 +2481,9 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			}
 			var requested []string
 			for _, re := range events {
+				if execution.child != nil && re.Type == domain.EventToolRequested {
+					execution.child.resetOutput()
+				}
 				if !s.persistAndPublish(ctx, sessionID, re) {
 					persistStopped = true
 					return context.Canceled
@@ -2291,7 +2562,9 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			// A failed first exchange still leaves a user message worth a
 			// title; the generator's truncation fallback names it when no
 			// model is reachable.
-			s.maybeAutoTitle(ctx, sessionID)
+			if execution.child == nil {
+				s.maybeAutoTitle(ctx, sessionID)
+			}
 			return
 		}
 	}
@@ -2312,8 +2585,25 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 	}
-	s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
-	s.maybeAutoTitle(ctx, sessionID)
+	if beforeComplete != nil {
+		if err := beforeComplete(); err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, fmt.Errorf("runtime: settle child mailbox: %w", err)))
+			return
+		}
+	}
+	if execution.child != nil {
+		summary := ""
+		summary = boundedChildSummary(execution.child.result())
+		s.emitTerminal(ctx, m, m.build(domain.EventChildCompleted, map[string]any{"summary": summary}))
+	} else {
+		s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
+	}
+	if execution.child == nil {
+		s.maybeAutoTitle(ctx, sessionID)
+	}
 }
 
 // reserveMappedBudget charges durable non-terminal events and the logical
@@ -2367,6 +2657,10 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("interrupt handling failed", "run", string(runID), "err", err)
+		if isChildTerminal(ctx) {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run could not be paused for approval. Please try again.",
@@ -2421,6 +2715,17 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(bindErr)
 		return
 	}
+	approvalKind := domain.ApprovalKindRun
+	if s.deps.Runs != nil {
+		run, runErr := s.deps.Runs.GetRun(persistCtx, runID)
+		if runErr != nil {
+			fail(fmt.Errorf("load run for approval ownership: %w", runErr))
+			return
+		}
+		if run.Kind == domain.RunKindChild {
+			approvalKind = domain.ApprovalKindChild
+		}
+	}
 	approval := domain.Approval{
 		ID:               newPrefixedID("apr_"),
 		RunID:            runID,
@@ -2436,6 +2741,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Preview:          proposal.Preview,
 		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
 		ProposalData:     boundProposalData,
+		Kind:             approvalKind,
 		SandboxMode:      string(sandboxMode(ctx)),
 		ApprovalPolicy:   string(approvalPolicy(ctx)),
 	}
@@ -2468,6 +2774,15 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(err)
 		return
 	}
+	if isChildTerminal(ctx) {
+		lifecycle := m.build(domain.EventChildSuspended, map[string]string{
+			"approval_id": approval.ID, "tool_call_id": approval.ToolCallID,
+		})
+		if _, err := s.appendRunEvent(persistCtx, lifecycle, false); err != nil {
+			fail(err)
+			return
+		}
+	}
 
 	if ctx.Err() != nil {
 		// Cancelled while suspending: close the durable approval before the
@@ -2476,7 +2791,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		if err := s.cancelApproval(persistCtx, approval, "run cancelled while suspending"); err != nil {
 			slog.Warn("cancel approval while suspending failed", "approval", approval.ID, "err", err)
 		}
-		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, context.Canceled))
 		return
 	}
 
@@ -2487,6 +2802,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
+		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -2497,6 +2813,10 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("question handling failed", "run", string(runID), "err", err)
+		if isChildTerminal(ctx) {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run could not be paused for a user question. Please try again.",
@@ -2575,6 +2895,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
 		face: runFace(ctx), questionID: question.ID, ledger: ledger,
+		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -2631,7 +2952,13 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
-	if approval.Kind != domain.ApprovalKindChild && !isShellApproval(approval) {
+	s.mu.Lock()
+	_, nativeChildPending := s.pending[approval.RunID]
+	s.mu.Unlock()
+	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+		return errors.New("runtime: child approval is not active for Service resume")
+	}
+	if (approval.Kind != domain.ApprovalKindChild || nativeChildPending) && !isShellApproval(approval) {
 		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
 			// Validate before first-writer settlement. A corrupt or incompatible
 			// snapshot leaves the review pending, so recovery can surface the
@@ -2650,16 +2977,6 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	decisionPersisted := s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
 		ApprovalID: approval.ID, Decision: decision, Actor: actor, Reason: reason, DecidedAt: time.Now().UnixMilli(),
 	})
-	if approval.Kind == domain.ApprovalKindChild {
-		if s.deps.ChildApprovals == nil {
-			return errors.New("runtime: child approval router is not wired")
-		}
-		if err := s.deps.ChildApprovals.ResolveChildApproval(ctx, approval, decision); err != nil {
-			return fmt.Errorf("runtime: resolve child approval: %w", err)
-		}
-		return nil
-	}
-
 	s.mu.Lock()
 	p, ok := s.pending[approval.RunID]
 	if ok {
@@ -2698,6 +3015,21 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 		slog.Warn("approval decided without a pending run", "approval", approval.ID, "run", string(approval.RunID))
 		return nil
 	}
+	if isNativeOrchestrationResumeTarget(approval.ResumeTarget) {
+		if !decisionPersisted {
+			s.emitTerminal(context.WithoutCancel(ctx), p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError,
+				Message:       "The workflow approval decision could not be recorded; the node did not run.",
+			}))
+			return errors.New("runtime: persist workflow approval decision failed")
+		}
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.resumeNativeOrchestrationApproval(p, approval, decision)
+		}()
+		return nil
+	}
 
 	// Recover the tool name from the suspended mapper so the resumed
 	// tool result events keep their call identity.
@@ -2712,7 +3044,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
@@ -2865,10 +3197,16 @@ func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, 
 	}
 	s.mu.Unlock()
 	if pending {
-		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeHumanTimeout,
-			Message:       "The run stopped because human review timed out.",
-		}))
+		if p.execution.child != nil {
+			terminalCtx := withRunExecution(ctx, p.engine, p.execution)
+			terminalCtx = withChildTerminal(terminalCtx)
+			s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, context.DeadlineExceeded))
+		} else {
+			s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeHumanTimeout,
+				Message:       "The run stopped because human review timed out.",
+			}))
+		}
 	} else if shellPending {
 		s.deleteShellState(sp.stateRef)
 		s.emitTerminal(ctx, sp.mapper, sp.mapper.build(domain.EventRunFailed, payloadRunFailed{
@@ -2981,7 +3319,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
@@ -3047,7 +3385,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -3057,6 +3395,9 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		s.runTools[runID] = selected
 	}
 	s.mu.Unlock()
+	if eng == nil {
+		eng = s.engine
+	}
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -3069,8 +3410,26 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		m.registerOpenCall(openToolCall{id: toolCallID, name: toolName})
 	}
 	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
+	ctx = withRunExecution(ctx, eng, execution)
+	if execution.child != nil {
+		ctx = withChildTerminal(ctx)
+	}
+	if execution.suppressSessionMessageProjection {
+		ctx = withSessionMessageProjectionDisabled(ctx)
+	}
+	ctx = withToolOperationCoordinator(ctx, s.newToolOperationCoordinator(runID, sessionID))
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
+	if approvalID != "" && isChildTerminal(ctx) {
+		lifecycle := m.build(domain.EventChildResumed, map[string]string{
+			"approval_id": approvalID, "decision": resumeValue,
+		})
+		if _, err := s.appendRunEvent(context.Background(), lifecycle, false); err != nil {
+			slog.Warn("persist child resume lifecycle failed", "run", string(runID), "approval", approvalID, "err", err)
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+	}
 	// Restore the skill mounts captured at suspend time so tools mounted
 	// before the interrupt stay callable after resume (TT-2). A nil
 	// registry (restart recovery) falls back to a fresh one so a
@@ -3099,6 +3458,10 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		proposalData, approvedArgumentsHash, unbindErr = unbindToolApprovalProposal(proposalData)
 		if unbindErr != nil {
 			slog.Warn("resume rejected invalid tool approval binding", "run", string(runID), "approval", approvalID, "err", unbindErr)
+			if isChildTerminal(ctx) {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, unbindErr))
+				return
+			}
 			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 				CauseCategory: causeInternalError,
 				Message:       "The approved tool request could not be verified and did not run.",
@@ -3123,7 +3486,11 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		})
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
-	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
+	var onDelta func(string)
+	if execution.child != nil {
+		onDelta = execution.child.appendOutput
+	}
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta)
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
 	state := newNudgeState()
@@ -3131,24 +3498,55 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	ctx = withNudgeState(ctx, state)
 	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
+	iter, err := eng.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
+		if isChildTerminal(ctx) {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run could not be resumed. Please try again.",
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state)
+	var beforeComplete func() error
+	if execution.child != nil {
+		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(ctx, execution.child) }
+	}
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state, beforeComplete, execution)
+	if execution.child != nil {
+		s.failUnsettledChildMail(execution.child)
+	}
 }
 
 // terminalEvent classifies the failure path: context cancellation and
 // engine CancelErrors close the run as cancelled; everything else fails
 // it with a structured, user-visible message (FR-11).
 func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error) domain.RunEvent {
+	if isChildTerminal(ctx) {
+		var cancelErr *adk.CancelError
+		if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) ||
+			errors.Is(cause, errRunCancelled) || errors.As(cause, &cancelErr) {
+			return m.build(domain.EventChildCancelled, map[string]any{"reason": reasonUserRequested})
+		}
+		message := "The child task could not be completed. Please retry."
+		if providerMessage, ok := keyMissingMessage(cause); ok {
+			message = providerMessage
+		} else if isProviderTransportError(cause) {
+			message = providerUnavailableMessage
+		} else if errors.Is(cause, adk.ErrExceedMaxIterations) {
+			message = "The child task reached its tool-call limit."
+		} else if errors.Is(cause, ErrContextBudgetExceeded) {
+			message = "The child task context exceeds the configured limit."
+		}
+		return m.build(domain.EventChildFailed, map[string]any{
+			"cause_category": causeCategoryOf(cause), "message": message,
+		})
+	}
 	var ce *adk.CancelError
 	if errors.Is(cause, errRunCancelled) || ctx.Err() != nil || errors.As(cause, &ce) {
 		return m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested})
@@ -3282,7 +3680,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		return false
 	}
 	re.Seq = seq
-	if re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished {
+	if !sessionMessageProjectionDisabled(ctx) && (re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished) {
 		projectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		err := s.projectRunMessagesLocked(projectCtx, sessionID, re.RunID)
 		cancel()

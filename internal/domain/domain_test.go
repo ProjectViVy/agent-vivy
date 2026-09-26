@@ -72,7 +72,7 @@ func TestStatusVocabulary(t *testing.T) {
 }
 
 func TestRunKindVocabulary(t *testing.T) {
-	for _, kind := range []RunKind{RunKindPrimary, RunKindChild} {
+	for _, kind := range []RunKind{RunKindPrimary, RunKindChild, RunKindWorkflow} {
 		if !kind.Valid() {
 			t.Errorf("%q: Valid = false", kind)
 		}
@@ -82,9 +82,21 @@ func TestRunKindVocabulary(t *testing.T) {
 	}
 }
 
+func TestChildModeDefaultsLegacyChildrenToOneShot(t *testing.T) {
+	if got := (Run{Kind: RunKindChild}).EffectiveChildMode(); got != ChildModeOneShot {
+		t.Fatalf("legacy child mode = %q, want %q", got, ChildModeOneShot)
+	}
+	if got := (Run{Kind: RunKindPrimary}).EffectiveChildMode(); got != "" {
+		t.Fatalf("primary child mode = %q, want empty", got)
+	}
+	if got := (Run{Kind: RunKindChild, ChildMode: ChildModeContinuable}).EffectiveChildMode(); got != ChildModeContinuable {
+		t.Fatalf("continuable child mode = %q", got)
+	}
+}
+
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 39 {
-		t.Fatalf("vocabulary size = %d, want 39", len(EventTypes))
+	if len(EventTypes) != 44 {
+		t.Fatalf("vocabulary size = %d, want 44", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0

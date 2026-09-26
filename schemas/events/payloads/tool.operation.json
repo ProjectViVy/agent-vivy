@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.operation.json",
+  "title": "tool.operation payload (v1)",
+  "type": "object",
+  "properties": {
+    "operation_id": { "type": "string", "minLength": 1 },
+    "tool_name": { "type": "string", "minLength": 1 },
+    "state": { "type": "string", "enum": ["admitted", "claimed", "completed"] },
+    "request_digest": { "type": "string", "minLength": 1 },
+    "middleware_input_digest": { "type": "string", "minLength": 1 },
+    "arguments_digest": { "type": "string", "minLength": 1 },
+    "result": { "type": "string" },
+    "failure": { "type": "string" }
+  },
+  "required": ["operation_id", "tool_name", "state"],
+  "additionalProperties": false
+}

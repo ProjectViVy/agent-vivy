@@ -22,6 +22,7 @@ const (
 	EventToolProposalStale     EventType = "tool.proposal_stale"
 	EventToolStarted           EventType = "tool.started"
 	EventToolFinished          EventType = "tool.finished"
+	EventToolOperation         EventType = "tool.operation"
 	EventToolMounted           EventType = "tool.mounted"
 	EventToolNudge             EventType = "tool.nudge"
 	EventPolicyEvaluated       EventType = "policy.evaluated"
@@ -39,6 +40,10 @@ const (
 	EventChildCompleted        EventType = "child.completed"
 	EventChildFailed           EventType = "child.failed"
 	EventChildCancelled        EventType = "child.cancelled"
+	EventWorkflowStarted       EventType = "workflow.started"
+	EventWorkflowNodeStarted   EventType = "workflow.node.started"
+	EventWorkflowNodeCompleted EventType = "workflow.node.completed"
+	EventWorkflowNodeFailed    EventType = "workflow.node.failed"
 	EventContextCompacted      EventType = "context.compacted"
 	EventSessionTruncated      EventType = "session.truncated"
 	EventSessionForked         EventType = "session.forked"
@@ -66,6 +71,7 @@ var EventTypes = []EventType{
 	EventToolProposalStale,
 	EventToolStarted,
 	EventToolFinished,
+	EventToolOperation,
 	EventToolNudge,
 	EventPolicyEvaluated,
 	EventHookStarted,
@@ -82,6 +88,10 @@ var EventTypes = []EventType{
 	EventChildCompleted,
 	EventChildFailed,
 	EventChildCancelled,
+	EventWorkflowStarted,
+	EventWorkflowNodeStarted,
+	EventWorkflowNodeCompleted,
+	EventWorkflowNodeFailed,
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,

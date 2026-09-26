@@ -9,21 +9,19 @@ import (
 
 type fakeAgentOps struct {
 	gotTask string
-	gotMask string
 	result  string
 	err     error
 }
 
-func (f *fakeAgentOps) StartAgentTask(_ context.Context, task, mask string) (string, error) {
+func (f *fakeAgentOps) StartAgentTask(_ context.Context, task string) (string, error) {
 	f.gotTask = task
-	f.gotMask = mask
 	return f.result, f.err
 }
 
-func TestAgentToolDelegatesTaskAndMask(t *testing.T) {
+func TestAgentToolDelegatesOnlyTask(t *testing.T) {
 	ops := &fakeAgentOps{result: "sub-agent answer"}
 	tool := NewAgent(ops)
-	args, err := json.Marshal(map[string]string{"task": "  find the bug  ", "mask": "  terse reviewer "})
+	args, err := json.Marshal(map[string]string{"task": "  find the bug  ", "mask": "parent persona"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +32,8 @@ func TestAgentToolDelegatesTaskAndMask(t *testing.T) {
 	if out != "sub-agent answer" {
 		t.Fatalf("result = %q", out)
 	}
-	if ops.gotTask != "find the bug" || ops.gotMask != "terse reviewer" {
-		t.Fatalf("ops got task=%q mask=%q", ops.gotTask, ops.gotMask)
+	if ops.gotTask != "find the bug" {
+		t.Fatalf("ops got task=%q", ops.gotTask)
 	}
 }
 
@@ -60,18 +58,18 @@ func TestAgentToolValidatesArguments(t *testing.T) {
 	}
 }
 
-func TestAgentToolBoundsTaskAndMask(t *testing.T) {
+func TestAgentToolBoundsTaskAndIgnoresLegacyMask(t *testing.T) {
 	tool := NewAgent(&fakeAgentOps{})
 	bigTask := strings.Repeat("a", maxAgentTaskBytes+1)
 	if _, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"task":"`+bigTask+`"}`)); err == nil || !strings.Contains(err.Error(), "64") {
 		t.Fatalf("oversize task err = %v, want 64 KiB bound", err)
 	}
-	args, err := json.Marshal(map[string]string{"task": "ok", "mask": strings.Repeat("m", maxAgentMaskBytes+1)})
+	args, err := json.Marshal(map[string]string{"task": "ok", "mask": strings.Repeat("m", 4096)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.InvokableRun(context.Background(), args); err == nil || !strings.Contains(err.Error(), "2") {
-		t.Fatalf("oversize mask err = %v, want 2 KiB bound", err)
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatalf("legacy mask must be ignored, got %v", err)
 	}
 }
 
@@ -94,8 +92,8 @@ func TestAgentToolSpec(t *testing.T) {
 	if !spec.Params["task"].Required {
 		t.Fatal("task param must be required")
 	}
-	if _, ok := spec.Params["mask"]; !ok {
-		t.Fatal("mask param must exist")
+	if _, ok := spec.Params["mask"]; ok {
+		t.Fatal("persona mask must not be exposed to clean-context child tasks")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 )
 
 type runIDContextKey struct{}
+type toolCallIDContextKey struct{}
 type proposalDataContextKey struct{}
 type sessionIDContextKey struct{}
 type workspaceIDContextKey struct{}
@@ -23,6 +24,17 @@ func WithRunID(ctx context.Context, runID domain.RunID) context.Context {
 func RunIDFromContext(ctx context.Context) domain.RunID {
 	runID, _ := ctx.Value(runIDContextKey{}).(domain.RunID)
 	return runID
+}
+
+// WithToolCallID binds the model-issued stable call identity for tools whose
+// durable operation must be idempotent across retries and recovery.
+func WithToolCallID(ctx context.Context, callID string) context.Context {
+	return context.WithValue(ctx, toolCallIDContextKey{}, callID)
+}
+
+func ToolCallIDFromContext(ctx context.Context) string {
+	callID, _ := ctx.Value(toolCallIDContextKey{}).(string)
+	return callID
 }
 
 // WithProposalData carries the exact opaque proposal payload into a resumed

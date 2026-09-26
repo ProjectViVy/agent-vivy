@@ -9,6 +9,7 @@ import (
 
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
@@ -76,6 +77,35 @@ func TestEngineHiddenToolsStayOutOfActiveSurface(t *testing.T) {
 	}
 	if _, ok := eng.toolByName["list_dir"]; !ok {
 		t.Fatal("hidden tool missing from the executable universe")
+	}
+}
+
+func TestChildViewConstrainsToolsAndRemovesParentContextMiddleware(t *testing.T) {
+	parent, err := NewEngine(context.Background(), WrapModel(testsupport.NewEchoModel()), []tools.Tool{tools.NewEchoInfo()}, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolTurns: 24,
+		ContextHost:     &contexthost.Host{},
+		HiddenTools:     []tools.Tool{tools.NewListDir(nil)},
+		AgentsMDFiles:   []string{"AGENTS.md"},
+		AgentsMDBackend: &ProjectAgentsMDBackend{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := parent.ChildView(context.Background(), []string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("ChildView: %v", err)
+	}
+	if got, want := strings.Join(child.SelectTools().Names(), ","), tools.EchoInfoName; got != want {
+		t.Fatalf("child tools = %s, want %s", got, want)
+	}
+	if len(child.toolByName) != 1 || child.cfg.HiddenTools != nil || child.cfg.AgentsMDBackend != nil || child.cfg.ContextHost != nil || child.cfg.SkillBackend != nil {
+		t.Fatalf("child engine retained parent context or hidden tools: config=%+v tools=%v", child.cfg, child.toolByName)
+	}
+	if child.cfg.MaxToolTurns != maxChildToolTurns || child.cfg.StaticInstructionOverride == nil || *child.cfg.StaticInstructionOverride != childStaticInstruction {
+		t.Fatalf("child guardrails = turns:%d instruction:%v, want max %d and neutral instruction", child.cfg.MaxToolTurns, child.cfg.StaticInstructionOverride, maxChildToolTurns)
+	}
+	if _, err := parent.ChildView(context.Background(), []string{"list_dir"}); err == nil {
+		t.Fatal("ChildView accepted a hidden tool outside the admitted active surface")
 	}
 }
 

@@ -333,7 +333,13 @@ func TestServiceGrepToolEndToEnd(t *testing.T) {
 			t.Fatalf("journal lost %s; events: %s", want, journal)
 		}
 	}
-	if got := strings.Count(journal, "UNTRUSTED TOOL OUTPUT"); got != 2 {
-		t.Fatalf("journal carried %d tool results, want 2; events: %s", got, journal)
+	toolResultEvents := 0
+	for _, ev := range events {
+		if ev.Type == domain.EventToolFinished && strings.Contains(string(ev.Payload), "UNTRUSTED TOOL OUTPUT") {
+			toolResultEvents++
+		}
+	}
+	if toolResultEvents != 2 {
+		t.Fatalf("journal carried %d finished tool results, want 2; events: %s", toolResultEvents, journal)
 	}
 }

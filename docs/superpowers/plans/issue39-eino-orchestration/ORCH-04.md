@@ -8,11 +8,15 @@
 **Spec:** [architecture](../../specs/2026-09-23-issue39-eino-orchestration-design.md), R2/R3/R6/R8/R9/R14; [index](index.md) predecessors ORCH-03 and ORCH-02 mode contract.
 **Review focus:** ID vs Session confusion, caller cancellation on wait, idempotent interrupt, hidden child Sessions, and compatible existing controls.
 
-**Required mailbox:** Direct parent-child messages route to stable `ChildSessionID`, never activation `RunID`. Host derives sender identity and authorizes only the direct relationship; it persists stable IDs, idempotent admission, sequence/order and lifecycle before ack. Consume at a verified safe point with durable cursor/receipt. Retry/restart can redeliver, so delivery is at-least-once, not exactly-once effects. Follow-up starts a new Run. Peer/swarm remains deferred.
+**Required mailbox:** Direct parent-child messages route to stable `ChildSessionID`, never activation `RunID`. Host derives sender identity and authorizes only the direct relationship; it persists stable IDs, idempotent admission, recipient-scoped sequence/order and lifecycle before ack. Consume at a verified safe point with durable cursor/receipt. Retry/restart can redeliver, so delivery is at-least-once, not exactly-once effects. Follow-up starts a new Run. Peer/swarm remains deferred.
 
 Acceptance acknowledges durable admission only, returning stable message ID and no reply. Cancellation after admission does not retract it; idempotent retry returns the same ID. Interrupt stops activation and preserves ChildSession/pending mail. A separately addressed reply and later activation are distinct.
 
 Only explicit continuable mode has stable ChildSession and follow-up/mail. Legacy synchronous agent and DAG nodes default one-shot/non-addressable, exposing bounded result/error only. Host/UI labels ChildSession and activation Run separately. A new active authorizer Run in the same original parent Session can reauthorize after origin Run termination, intersected with original authority ceiling; deletion fences.
+
+## Provisional implementation status (2026-09-26)
+
+Child RPC, mailbox controls, scoped child history, follow-up/interrupt and RunInspector surfaces are present. Direct mail uses durable recipient order/receipts, activation safe-point handling, idempotent replies, and bounded admission (128 messages per recipient per ChildSession; 32 KiB per body). Focused Go and UI tests/typecheck pass. D9 close semantics remain open; the UI has not had real host/browser E2E, and G0/G1/G3/release remain blocked.
 
 ## Files and interface
 

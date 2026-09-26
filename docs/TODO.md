@@ -42,7 +42,7 @@ Owner-priority consolidation (2026-09-26): Issue #39 is the sole open item. All 
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| ISSUE-39-EINO-ORCHESTRATION | Native child lifecycle and bounded Eino DAG | OPEN · SOLE PRIORITY · G0 REDESIGN REQUIRED | Temporarily paused after the prior G0 NO-GO. Tasks 6–14 were NOT RUN; no orchestration product capability shipped. Simplify and revise the G0 recovery design before resuming implementation. Plan snapshot: [Prometheus plan](plans/issue39-native-orchestration.md); prior result: [Task 5 evidence](logs/2026-09-26-issue39-native-proof/task-5-summary.md). |
+| ISSUE-39-EINO-ORCHESTRATION | Native child lifecycle and bounded Eino DAG | OPEN · SOLE PRIORITY · G0 BLOCKED | ORCH-02–07 provisional implementation is present: governed child activation, durable direct mailbox, immutable bounded DAG, native Eino Workflow, model-facing tools, RPC and UI. Focused Go package tests, `go vet`, app builds, UI typecheck and Vitest (402 tests) pass; SQLite conformance ran. G0/G1/G4 remain blocked: `just ci`, PostgreSQL DSN-backed conformance, the integrated R1-R14 matrix and real host/browser E2E are not complete; the owner will run E2E after implementation. No product capability is accepted or released. Current evidence: [provisional verification](logs/2026-09-26-issue39-orch02-provisional/verification.md), [ORCH-01 acceptance](logs/2026-09-26-issue39-orchestration-g0/acceptance.md), [implementation plan](plans/issue39-native-orchestration.md), and [historical Task 5 evidence](logs/2026-09-26-issue39-native-proof/task-5-summary.md). |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 

@@ -478,7 +478,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [] });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], selectedChild: null });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -551,7 +551,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const runLogs = previous.currentRun && previous.currentRun.id !== runId && previous.runEvents.length > 0
         ? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
         : previous.runLogs;
-      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
+      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
@@ -635,10 +635,20 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   startChild: async (text, policyProfile, toolNames) => {
     const parent = get().currentRun; if (!parent) return;
     set({ childBusyId: 'create', childrenError: null });
-    try { await api.startChild({ parent_run_id: parent.id, text, policy_profile: policyProfile || undefined, tool_names: toolNames?.length ? toolNames : undefined }); await get().loadChildren(parent.id); }
+    try {
+      await api.startChild({ parent_run_id: parent.id, text, policy_profile: policyProfile || undefined, tool_names: toolNames?.length ? toolNames : undefined });
+      await get().loadChildren(parent.id);
+    }
     catch (error) { set({ childrenError: errorMessage(error) }); throw error; } finally { set({ childBusyId: null }); }
   },
-  openChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.getChild(runId) }); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
+  openChild: async (runId) => {
+    set({ childBusyId: runId });
+    try {
+      const child = await api.getChild(runId);
+      set({ selectedChild: child });
+    } catch (error) { set({ childrenError: errorMessage(error) }); }
+    finally { set({ childBusyId: null }); }
+  },
   waitChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.waitChild(runId) }); await get().loadChildren(); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
   cancelChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.cancelChild(runId) }); await get().loadChildren(); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
   loadReviews: async () => {

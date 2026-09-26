@@ -1,9 +1,11 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-17).
+// Package conformance is the D-032 backend suite (CN-01..CN-33).
 package conformance
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -39,7 +41,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-27.
+// Run executes the backend conformance suite.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -74,13 +76,670 @@ func Run(t *testing.T, h Harness) {
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
+		{"CN-28", "tool operation identity and atomic claim", cnToolOperationIdentity},
+		{"CN-29", "tool operation recovery after reopen", cnToolOperationRecovery},
+		{"CN-30", "continuable child admission and reauthorization", cnChildSessionAdmission},
+		{"CN-31", "ordered durable child mailbox and receipt", cnChildMailbox},
+		{"CN-32", "parent deletion fences child session tree", cnChildSessionDelete},
+		{"CN-33", "immutable workflow revision admission", cnWorkflowRevisionAdmission},
 	}
-	if len(cases) != 27 {
-		t.Fatalf("conformance suite must carry exactly 27 cases, got %d", len(cases))
+	if len(cases) != 33 {
+		t.Fatalf("conformance suite must carry exactly 33 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
 	}
+}
+
+func cnWorkflowRevisionAdmission(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const sessionID = domain.SessionID("session-cn-workflow-parent")
+	const parentID = domain.RunID("run-cn-workflow-parent")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "workflow parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: parentID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2, RootID: parentID}); err != nil {
+		t.Fatal(err)
+	}
+
+	const descriptor = `{"schema_version":1,"nodes":[{"key":"a","task":"inspect"}],"outputs":["a"]}`
+	makeAdmission := func(runID domain.RunID) storage.WorkflowAdmission {
+		descriptorHash := sha256.Sum256([]byte(descriptor))
+		authority := []byte(`{"policy_profile":"default","tool_names":[]}`)
+		authorityHash := sha256.Sum256(authority)
+		created := int64(3)
+		return storage.WorkflowAdmission{
+			Revision: domain.WorkflowRevision{
+				RunID: runID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
+				OperationKey: "operation-1", DescriptorDigest: hex.EncodeToString(descriptorHash[:]),
+				AuthorityDigest: hex.EncodeToString(authorityHash[:]), DescriptorJSON: []byte(descriptor), AuthorityJSON: authority, SchemaVersion: 1, CreatedAt: created,
+			},
+			Run:     domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: created, Kind: domain.RunKindWorkflow, ParentID: parentID, RootID: parentID, Depth: 1},
+			Started: domain.RunEvent{RunID: runID, Type: domain.EventRunStarted, CreatedAt: created, PayloadVersion: 1, Payload: []byte(`{"mode":"workflow"}`)},
+		}
+	}
+
+	const workers = 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	created := 0
+	results := make([]storage.WorkflowAdmissionResult, workers)
+	var firstErr error
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			input := makeAdmission(domain.RunID(fmt.Sprintf("run-cn-workflow-%d", i)))
+			result, err := b.CommitWorkflowAdmission(ctx, input)
+			mu.Lock()
+			defer mu.Unlock()
+			results[i] = result
+			if result.Created {
+				created++
+			}
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}(i)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		t.Fatalf("concurrent admission: %v", firstErr)
+	}
+	if created != 1 {
+		t.Fatalf("created %d workflow revisions, want exactly one", created)
+	}
+	wantRunID := results[0].Run.ID
+	for i, result := range results {
+		if result.Run.ID != wantRunID || result.Revision.RunID != wantRunID || result.Started.Seq != 1 {
+			t.Fatalf("result %d did not resolve to the same durable Run: %+v", i, result)
+		}
+	}
+	stored, err := b.GetWorkflowRevisionByOperation(ctx, parentID, "operation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.RunID != wantRunID || stored.DescriptorDigest != results[0].Revision.DescriptorDigest {
+		t.Fatalf("stored revision mismatch: %+v", stored)
+	}
+
+	conflict := makeAdmission("run-cn-workflow-conflict")
+	conflict.Revision.DescriptorJSON = []byte(`{"schema_version":1,"nodes":[{"key":"a","task":"changed"}],"outputs":["a"]}`)
+	conflictHash := sha256.Sum256(conflict.Revision.DescriptorJSON)
+	conflict.Revision.DescriptorDigest = hex.EncodeToString(conflictHash[:])
+	if _, err := b.CommitWorkflowAdmission(ctx, conflict); !errors.Is(err, storage.ErrWorkflowRevisionConflict) {
+		t.Fatalf("changed retry = %v, want workflow conflict", err)
+	}
+	for i, kind := range []domain.RunKind{domain.RunKindChild, domain.RunKindWorkflow, domain.RunKindChild} {
+		childMode := domain.ChildModeOneShot
+		if kind == domain.RunKindWorkflow {
+			childMode = ""
+		}
+		if err := b.CreateRun(ctx, domain.Run{
+			ID: domain.RunID(fmt.Sprintf("run-cn-workflow-cap-%d", i)), SessionID: sessionID,
+			Status: domain.RunActive, CreatedAt: int64(20 + i), Kind: kind, ChildMode: childMode,
+			ParentID: parentID, RootID: parentID, Depth: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	capAdmission := makeAdmission("run-cn-workflow-cap-admission")
+	capAdmission.Revision.OperationKey = "operation-cap"
+	if _, err := b.CommitWorkflowAdmission(ctx, capAdmission); !errors.Is(err, storage.ErrChildConcurrencyLimit) {
+		t.Fatalf("workflow admission above direct-child cap = %v, want concurrency limit", err)
+	}
+
+	if err := b.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.GetWorkflowRevision(ctx, wantRunID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("deleted parent revision lookup = %v, want not found", err)
+	}
+}
+
+func cnChildSessionAdmission(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const parentSessionID = domain.SessionID("session-cn-child-parent")
+	const parentRunID = domain.RunID("run-cn-child-parent")
+	if err := b.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 2, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	input := conformanceChildAdmission(parentSessionID, parentRunID, "child-first", "operation-first", "digest-first", 3, 4)
+	const workers = 10
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	created := 0
+	var firstErr error
+	results := make([]storage.ChildSessionAdmissionResult, workers)
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			result, err := b.CommitChildSessionAdmission(ctx, input)
+			mu.Lock()
+			defer mu.Unlock()
+			results[i] = result
+			if result.Created {
+				created++
+			}
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}(i)
+	}
+	wg.Wait()
+	if firstErr != nil || created != 1 {
+		t.Fatalf("concurrent child admission created=%d err=%v, want one committed child", created, firstErr)
+	}
+	for _, result := range results {
+		if result.Binding.ChildSessionID != "child-first" || result.Run.ID != "run-child-first" || result.Started.Seq != 1 {
+			t.Fatalf("duplicate admission returned inconsistent identity: %+v", result)
+		}
+	}
+	if runs, err := b.ListRunsBySession(ctx, "child-first"); err != nil || len(runs) != 1 {
+		t.Fatalf("child activation rows=%d err=%v, want one", len(runs), err)
+	}
+	listedSessions, err := b.ListSessions(ctx)
+	if err != nil || len(listedSessions) != 1 || listedSessions[0].ID != parentSessionID {
+		t.Fatalf("top-level session list = %+v err=%v, want parent only", listedSessions, err)
+	}
+	conflict := conformanceChildAdmission(parentSessionID, parentRunID, "child-conflict", "operation-first", "different-digest", 5, 6)
+	if _, err := b.CommitChildSessionAdmission(ctx, conflict); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("reused operation key with changed request = %v, want conflict", err)
+	}
+
+	if err := b.SetRunStatus(ctx, parentRunID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	const authorizerID = domain.RunID("run-cn-child-reauthorizer")
+	if err := b.CreateRun(ctx, domain.Run{ID: authorizerID, SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 7, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	activation := conformanceChildActivation("child-first", authorizerID, parentRunID, 8, 9)
+	if _, err := b.CommitChildSessionActivation(ctx, activation); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("follow-up activation while previous child run is active = %v, want conflict", err)
+	}
+	if err := b.SetRunStatus(ctx, "run-child-first", domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	result, err := b.CommitChildSessionActivation(ctx, activation)
+	if err != nil || !result.Created {
+		t.Fatalf("continuation after origin run termination: result=%+v err=%v", result, err)
+	}
+	if result.Binding.OriginParentRunID != parentRunID || result.Binding.AuthorizerRunID != authorizerID || result.Binding.InitialActivationRunID != "run-child-first" || result.Binding.ActivationRunID != "run-child-followup" {
+		t.Fatalf("child activation lineage = %+v", result.Binding)
+	}
+	if result.Binding.AuthorityCeiling.PolicyProfile != domain.PolicyProfileDefault || result.Binding.AuthorityCeiling.SandboxMode != domain.SandboxModeWorkspaceWrite ||
+		len(result.Binding.AuthorityCeiling.ToolNames) != 1 || result.Binding.AuthorityCeiling.ToolNames[0] != "read_file" ||
+		result.Binding.ActivationOperationKey != "operation-followup" || len(result.Binding.ActivationToolNames) != 1 || result.Binding.ActivationToolNames[0] != "read_file" {
+		t.Fatalf("persisted child authority or activation scope = %+v", result.Binding)
+	}
+	retried, err := b.CommitChildSessionActivation(ctx, activation)
+	if err != nil || retried.Created || retried.Run.ID != "run-child-followup" {
+		t.Fatalf("idempotent child activation = %+v err=%v", retried, err)
+	}
+	changedActivation := activation
+	changedActivation.Admission.Message = activation.Admission.Message
+	changedActivation.Admission.Message.ID = "message-child-followup-changed"
+	changedActivation.Admission.Message.Content = "different continuation"
+	changedActivation.Admission.Message.RunID = "run-child-followup-changed"
+	changedActivation.Admission.Run = activation.Admission.Run
+	changedActivation.Admission.Run.ID = "run-child-followup-changed"
+	changedActivation.Admission.Run.CreatedAt++
+	changedActivation.Admission.Started = activation.Admission.Started
+	changedActivation.Admission.Started.RunID = changedActivation.Admission.Run.ID
+	changedActivation.Admission.Started.CreatedAt++
+	changedActivation.RequestDigest, err = domain.ChildRequestDigest(changedActivation.OperationKey, changedActivation.Admission.Message.Content, changedActivation.ToolNames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.CommitChildSessionActivation(ctx, changedActivation); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("reused activation key with changed task = %v, want conflict", err)
+	}
+	widenedActivation := activation
+	widenedActivation.OperationKey = "operation-widened"
+	widenedActivation.ToolNames = []string{"shell"}
+	widenedActivation.Admission.Message.ID = "message-child-widened"
+	widenedActivation.Admission.Message.Content = "widen tools"
+	widenedActivation.Admission.Message.RunID = "run-child-widened"
+	widenedActivation.Admission.Run.ID = "run-child-widened"
+	widenedActivation.Admission.Run.CreatedAt++
+	widenedActivation.Admission.Started.RunID = widenedActivation.Admission.Run.ID
+	widenedActivation.Admission.Started.CreatedAt++
+	widenedActivation.RequestDigest, err = domain.ChildRequestDigest(widenedActivation.OperationKey, widenedActivation.Admission.Message.Content, widenedActivation.ToolNames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.CommitChildSessionActivation(ctx, widenedActivation); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("activation outside original tool ceiling = %v, want conflict", err)
+	}
+	if err := b.SetRunStatus(ctx, "run-child-followup", domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	for i, kind := range []domain.RunKind{domain.RunKindChild, domain.RunKindWorkflow, domain.RunKindChild, domain.RunKindChild} {
+		childMode := domain.ChildModeOneShot
+		if kind == domain.RunKindWorkflow {
+			childMode = ""
+		}
+		if err := b.CreateRun(ctx, domain.Run{
+			ID: domain.RunID(fmt.Sprintf("run-cn-child-cap-%d", i)), SessionID: parentSessionID,
+			Status: domain.RunActive, CreatedAt: int64(20 + i), Kind: kind, ChildMode: childMode,
+			ParentID: authorizerID, RootID: parentRunID, Depth: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	capActivation := conformanceChildActivation("child-first", authorizerID, parentRunID, 30, 31)
+	capActivation.OperationKey = "operation-cap"
+	capActivation.RequestDigest, err = domain.ChildRequestDigest(capActivation.OperationKey, capActivation.Admission.Message.Content, capActivation.ToolNames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capActivation.Admission.Run.ID = "run-child-followup-cap"
+	capActivation.Admission.Message.ID = "message-child-followup-cap"
+	capActivation.Admission.Message.RunID = capActivation.Admission.Run.ID
+	capActivation.Admission.Started.RunID = capActivation.Admission.Run.ID
+	if _, err := b.CommitChildSessionActivation(ctx, capActivation); !errors.Is(err, storage.ErrChildConcurrencyLimit) {
+		t.Fatalf("follow-up admission above direct-child cap = %v, want concurrency limit", err)
+	}
+	capChild := conformanceChildAdmission(parentSessionID, authorizerID, "child-cap", "operation-newchild-cap", "digest-cap", 32, 33)
+	capChild.Admission.Run.RootID = parentRunID
+	if _, err := b.CommitChildSessionAdmission(ctx, capChild); !errors.Is(err, storage.ErrChildConcurrencyLimit) {
+		t.Fatalf("continuable child admission above direct-child cap = %v, want concurrency limit", err)
+	}
+	oneShotID := domain.RunID("run-child-oneshot-cap")
+	oneShotAdmission := storage.RunAdmission{
+		Message: domain.Message{ID: "message-child-oneshot-cap", SessionID: parentSessionID, RunID: oneShotID, Role: domain.RoleUser, CreatedAt: 34, Content: "one shot"},
+		Run:     domain.Run{ID: oneShotID, SessionID: parentSessionID, Status: domain.RunAccepted, CreatedAt: 35, Kind: domain.RunKindChild, ChildMode: domain.ChildModeOneShot, ParentID: authorizerID, RootID: parentRunID, Depth: 1},
+		Started: domain.RunEvent{RunID: oneShotID, Type: domain.EventRunStarted, CreatedAt: 35, PayloadVersion: 1, Payload: []byte(`{"provider":"fixture"}`)},
+	}
+	runAdmissions, ok := b.(storage.RunAdmissionStore)
+	if !ok {
+		t.Fatal("backend does not expose RunAdmissionStore")
+	}
+	if _, err := runAdmissions.CommitRunAdmission(ctx, oneShotAdmission); !errors.Is(err, storage.ErrChildConcurrencyLimit) {
+		t.Fatalf("one-shot admission above direct-child cap = %v, want concurrency limit", err)
+	}
+	legacy := domain.Run{ID: "run-legacy-child", SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 10, Kind: domain.RunKindChild, ParentID: authorizerID, RootID: parentRunID, Depth: 1}
+	if err := b.CreateRun(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	storedLegacy, err := b.GetRun(ctx, legacy.ID)
+	if err != nil || storedLegacy.EffectiveChildMode() != domain.ChildModeOneShot {
+		t.Fatalf("legacy child mode = %+v err=%v, want one-shot", storedLegacy, err)
+	}
+}
+
+func cnChildMailbox(t *testing.T, h Harness) {
+	slot := h.Setup(t)
+	b := slot.Engine
+	initialBackend := b
+	t.Cleanup(func() { _ = initialBackend.Close() })
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("session-cn-mail-parent")
+	parentRunID := domain.RunID("run-cn-mail-parent")
+	if err := b.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 2, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := b.CommitChildSessionAdmission(ctx, conformanceChildAdmission(parentSessionID, parentRunID, "child-mail", "operation-mail", "digest-mail", 3, 4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := domain.ChildMailboxMessage{ID: "mail-1", ChildSessionID: "child-mail", SenderSessionID: parentSessionID, RecipientSessionID: "child-mail", IdempotencyKey: "parent-msg-1", Body: []byte("first"), CreatedAt: 5}
+	first, inserted, err := b.EnqueueChildMessage(ctx, first)
+	if err != nil || !inserted || first.Sequence != 1 {
+		t.Fatalf("first mail=%+v inserted=%v err=%v", first, inserted, err)
+	}
+	retry := first
+	retry.ID = "client-generated-different-id"
+	retry.Sequence = 0
+	retry.Status = ""
+	retry.ConsumedAt = 0
+	retry.ConsumedByRunID = ""
+	retry, inserted, err = b.EnqueueChildMessage(ctx, retry)
+	if err != nil || inserted || retry.ID != first.ID || retry.Sequence != first.Sequence {
+		t.Fatalf("idempotent mail retry=%+v inserted=%v err=%v", retry, inserted, err)
+	}
+	conflict := domain.ChildMailboxMessage{ID: "mail-conflict", ChildSessionID: "child-mail", SenderSessionID: parentSessionID, RecipientSessionID: "child-mail", IdempotencyKey: "parent-msg-1", Body: []byte("changed")}
+	if _, _, err := b.EnqueueChildMessage(ctx, conflict); !errors.Is(err, storage.ErrChildMessageConflict) {
+		t.Fatalf("mail idempotency conflict = %v, want conflict", err)
+	}
+	second, inserted, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{ID: "mail-2", ChildSessionID: "child-mail", SenderSessionID: parentSessionID, RecipientSessionID: "child-mail", IdempotencyKey: "parent-msg-2", Body: []byte("second"), CreatedAt: 6})
+	if err != nil || !inserted || second.Sequence != 2 {
+		t.Fatalf("second mail=%+v inserted=%v err=%v", second, inserted, err)
+	}
+	if _, _, err := b.RecordChildMessageReceipt(ctx, domain.ChildMessageReceipt{ChildSessionID: "child-mail", MessageID: second.ID, ConsumerRunID: created.Run.ID, State: domain.ChildMessageReceiptConsumed, CreatedAt: 7, UpdatedAt: 7}); !errors.Is(err, storage.ErrChildMessageConflict) {
+		t.Fatalf("out-of-order consumption = %v, want conflict", err)
+	}
+	receipt := domain.ChildMessageReceipt{ChildSessionID: "child-mail", MessageID: first.ID, ConsumerRunID: created.Run.ID, State: domain.ChildMessageReceiptInProgress, CreatedAt: 8, UpdatedAt: 8}
+	if _, inserted, err := b.RecordChildMessageReceipt(ctx, receipt); err != nil || !inserted {
+		t.Fatalf("begin receipt inserted=%v err=%v", inserted, err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := slot.Reopen()
+	if err != nil {
+		t.Fatalf("reopen mailbox: %v", err)
+	}
+	b = reopened
+	t.Cleanup(func() { _ = reopened.Close() })
+	storedReceipt, err := b.GetChildMessageReceipt(ctx, "child-mail", first.ID, created.Run.ID)
+	if err != nil || storedReceipt.State != domain.ChildMessageReceiptInProgress {
+		t.Fatalf("receipt after reopen=%+v err=%v", storedReceipt, err)
+	}
+	pending, err := b.ListPendingChildMessages(ctx, "child-mail", "child-mail", 0, 10)
+	if err != nil || len(pending) != 2 || pending[0].Sequence != 1 || pending[1].Sequence != 2 {
+		t.Fatalf("pending after reopen=%+v err=%v", pending, err)
+	}
+	receipt.State = domain.ChildMessageReceiptConsumed
+	receipt.UpdatedAt = 9
+	if _, _, err := b.RecordChildMessageReceipt(ctx, receipt); err != nil {
+		t.Fatalf("consume first receipt: %v", err)
+	}
+	binding, err := b.GetChildSessionBinding(ctx, "child-mail")
+	if err != nil || binding.ConsumedMessageSequence != 1 {
+		t.Fatalf("consumed cursor=%d err=%v", binding.ConsumedMessageSequence, err)
+	}
+	childReply, inserted, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{ID: "mail-reply", ChildSessionID: "child-mail", SenderSessionID: "child-mail", RecipientSessionID: parentSessionID, IdempotencyKey: "child-reply-1", Body: []byte("reply"), CreatedAt: 9})
+	if err != nil || !inserted || childReply.Sequence != 1 {
+		t.Fatalf("child reply=%+v inserted=%v err=%v; want parent inbox sequence 1", childReply, inserted, err)
+	}
+	parentInbox, err := b.ListPendingChildMessages(ctx, "child-mail", parentSessionID, 0, 10)
+	if err != nil || len(parentInbox) != 1 || parentInbox[0].ID != childReply.ID {
+		t.Fatalf("parent inbox=%+v err=%v; want only child reply", parentInbox, err)
+	}
+	if _, err := b.ListPendingChildMessages(ctx, "child-mail", "session-cn-unrelated", 0, 10); !errors.Is(err, storage.ErrChildMessageConflict) {
+		t.Fatalf("unrelated session mailbox read = %v, want conflict", err)
+	}
+	childInbox, err := b.ListPendingChildMessages(ctx, "child-mail", "child-mail", 0, 10)
+	if err != nil || len(childInbox) != 1 || childInbox[0].ID != second.ID {
+		t.Fatalf("child inbox=%+v err=%v; want second parent message", childInbox, err)
+	}
+	wrongRecipient := domain.ChildMailboxMessage{ID: "mail-wrong-route", ChildSessionID: "child-mail", SenderSessionID: parentSessionID, RecipientSessionID: parentSessionID, IdempotencyKey: "wrong-route", Body: []byte("must reject")}
+	if _, _, err := b.EnqueueChildMessage(ctx, wrongRecipient); !errors.Is(err, storage.ErrChildMessageConflict) {
+		t.Fatalf("parent message addressed to parent itself = %v, want conflict", err)
+	}
+	wrongConsumer := domain.ChildMessageReceipt{ChildSessionID: "child-mail", MessageID: childReply.ID, ConsumerRunID: created.Run.ID, State: domain.ChildMessageReceiptConsumed, CreatedAt: 10, UpdatedAt: 10}
+	if _, _, err := b.RecordChildMessageReceipt(ctx, wrongConsumer); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("child activation consumed a parent inbox message = %v, want conflict", err)
+	}
+	parentReceipt := domain.ChildMessageReceipt{ChildSessionID: "child-mail", MessageID: childReply.ID, ConsumerRunID: parentRunID, State: domain.ChildMessageReceiptConsumed, CreatedAt: 10, UpdatedAt: 10}
+	if _, _, err := b.RecordChildMessageReceipt(ctx, parentReceipt); err != nil {
+		t.Fatalf("parent safe-point receipt: %v", err)
+	}
+	binding, err = b.GetChildSessionBinding(ctx, "child-mail")
+	if err != nil || binding.ConsumedParentMessageSequence != 1 {
+		t.Fatalf("parent consumed cursor=%d err=%v; want 1", binding.ConsumedParentMessageSequence, err)
+	}
+	for sequence := binding.NextMessageSequence; sequence <= storage.MaxChildMailboxMessagesPerRecipient; sequence++ {
+		message, inserted, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{
+			ID: fmt.Sprintf("mail-cap-%d", sequence), ChildSessionID: "child-mail",
+			SenderSessionID: parentSessionID, RecipientSessionID: "child-mail",
+			IdempotencyKey: fmt.Sprintf("parent-cap-%d", sequence), Body: []byte("bounded mailbox"),
+		})
+		if err != nil || !inserted || message.Sequence != sequence {
+			t.Fatalf("mailbox cap admission seq=%d message=%+v inserted=%v err=%v", sequence, message, inserted, err)
+		}
+	}
+	fullRetry := first
+	fullRetry.ID, fullRetry.Sequence, fullRetry.Status = "retry-after-cap", 0, ""
+	fullRetry.ConsumedAt, fullRetry.ConsumedByRunID = 0, ""
+	if message, inserted, err := b.EnqueueChildMessage(ctx, fullRetry); err != nil || inserted || message.ID != first.ID {
+		t.Fatalf("mailbox full rejected idempotent retry: message=%+v inserted=%v err=%v", message, inserted, err)
+	}
+	if _, _, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{
+		ID: "mail-over-cap", ChildSessionID: "child-mail", SenderSessionID: parentSessionID,
+		RecipientSessionID: "child-mail", IdempotencyKey: "parent-over-cap", Body: []byte("must reject"),
+	}); !errors.Is(err, storage.ErrChildMailboxFull) {
+		t.Fatalf("mail admission beyond lifetime bound = %v, want mailbox full", err)
+	}
+	if err := b.CloseChildSession(ctx, "child-mail", 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{ID: "mail-3", ChildSessionID: "child-mail", SenderSessionID: parentSessionID, RecipientSessionID: "child-mail", IdempotencyKey: "parent-msg-3", Body: []byte("after close")}); !errors.Is(err, storage.ErrChildSessionClosed) {
+		t.Fatalf("mail after close = %v, want closed", err)
+	}
+	if pending, err := b.ListPendingChildMessages(ctx, "child-mail", "child-mail", 0, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("pending after close=%+v err=%v", pending, err)
+	}
+}
+
+func cnChildSessionDelete(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	parentID := domain.SessionID("session-cn-delete-parent")
+	parentRunID := domain.RunID("run-cn-delete-parent")
+	if err := b.CreateSession(ctx, domain.Session{ID: parentID, Title: "parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: parentID, Status: domain.RunActive, CreatedAt: 2, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	child, err := b.CommitChildSessionAdmission(ctx, conformanceChildAdmission(parentID, parentRunID, "child-delete", "operation-delete", "digest-delete", 3, 4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grandchildInput := conformanceChildAdmission("child-delete", child.Run.ID, "grandchild-delete", "operation-grandchild", "digest-grandchild", 5, 6)
+	grandchildInput.Admission.Run.RootID = parentRunID
+	grandchildInput.Admission.Run.Depth = 2
+	grandchild, err := b.CommitChildSessionAdmission(ctx, grandchildInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := b.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{ID: "mail-delete", ChildSessionID: "child-delete", SenderSessionID: parentID, RecipientSessionID: "child-delete", IdempotencyKey: "delete-key", Body: []byte("pending"), CreatedAt: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DeleteSession(ctx, parentID); err != nil {
+		t.Fatal(err)
+	}
+	for _, sessionID := range []domain.SessionID{parentID, "child-delete", "grandchild-delete"} {
+		if _, err := b.GetSession(ctx, sessionID); !errors.Is(err, storage.ErrNotFound) {
+			t.Errorf("GetSession(%s) = %v, want not found", sessionID, err)
+		}
+		if _, err := b.GetChildSessionBinding(ctx, sessionID); !errors.Is(err, storage.ErrNotFound) {
+			t.Errorf("GetChildSessionBinding(%s) = %v, want not found", sessionID, err)
+		}
+	}
+	for _, runID := range []domain.RunID{parentRunID, child.Run.ID, grandchild.Run.ID} {
+		if _, err := b.GetRun(ctx, runID); !errors.Is(err, storage.ErrNotFound) {
+			t.Errorf("GetRun(%s) = %v, want not found", runID, err)
+		}
+	}
+}
+
+func conformanceChildAdmission(parentSessionID domain.SessionID, parentRunID domain.RunID, childSessionID, operationKey, requestDigest string, sessionAt, runAt int64) storage.ChildSessionAdmission {
+	childRunID := domain.RunID("run-" + childSessionID)
+	task := "task-" + requestDigest
+	authority := domain.ChildAuthorityCeiling{
+		PolicyProfile: domain.PolicyProfileDefault, PolicyHash: "policy-hash-default",
+		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
+		ToolNames: []string{"read_file"},
+	}
+	authorityDigest, err := authority.Digest()
+	if err != nil {
+		panic(err)
+	}
+	activationDigest, err := domain.ChildRequestDigest(operationKey, task, []string{"read_file"})
+	if err != nil {
+		panic(err)
+	}
+	return storage.ChildSessionAdmission{
+		Session: domain.Session{ID: domain.SessionID(childSessionID), Title: "child task", CreatedAt: sessionAt, UpdatedAt: sessionAt},
+		Binding: domain.ChildSessionBinding{
+			ChildSessionID: domain.SessionID(childSessionID), OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID,
+			AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID,
+			OperationKey: operationKey, RequestDigest: activationDigest, AuthorityCeilingDigest: authorityDigest,
+			AuthorityCeiling: authority, ActivationOperationKey: operationKey, ActivationRequestDigest: activationDigest,
+			ActivationToolNames: []string{"read_file"},
+			State:               domain.ChildSessionOpen, CreatedAt: runAt, UpdatedAt: runAt,
+		},
+		Admission: storage.RunAdmission{
+			Message: domain.Message{ID: "message-" + childSessionID, SessionID: domain.SessionID(childSessionID), RunID: childRunID, Role: domain.RoleUser, CreatedAt: runAt, Content: task},
+			Run:     domain.Run{ID: childRunID, SessionID: domain.SessionID(childSessionID), Status: domain.RunAccepted, CreatedAt: runAt, Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable, ParentID: parentRunID, RootID: parentRunID, Depth: 1},
+			Started: domain.RunEvent{RunID: childRunID, Type: domain.EventRunStarted, CreatedAt: runAt, PayloadVersion: 1, Payload: []byte(`{"provider":"fixture"}`)},
+		},
+	}
+}
+
+func conformanceChildActivation(childSessionID string, authorizerID, rootID domain.RunID, messageAt, runAt int64) storage.ChildSessionActivation {
+	childRunID := domain.RunID("run-child-followup")
+	sessionID := domain.SessionID(childSessionID)
+	toolNames := []string{"read_file"}
+	requestDigest, err := domain.ChildRequestDigest("operation-followup", "continue", toolNames)
+	if err != nil {
+		panic(err)
+	}
+	return storage.ChildSessionActivation{
+		ChildSessionID:  sessionID,
+		AuthorizerRunID: authorizerID,
+		OperationKey:    "operation-followup",
+		RequestDigest:   requestDigest,
+		ToolNames:       toolNames,
+		Admission: storage.RunAdmission{
+			Message: domain.Message{ID: "message-child-followup", SessionID: sessionID, RunID: childRunID, Role: domain.RoleUser, CreatedAt: messageAt, Content: "continue"},
+			Run:     domain.Run{ID: childRunID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: runAt, Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable, ParentID: authorizerID, RootID: rootID, Depth: 1},
+			Started: domain.RunEvent{RunID: childRunID, Type: domain.EventRunStarted, CreatedAt: runAt, PayloadVersion: 1, Payload: []byte(`{"provider":"fixture"}`)},
+		},
+	}
+}
+
+func cnToolOperationIdentity(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const sessionID = domain.SessionID("session-cn-tool-operation")
+	const runID = domain.RunID("run-cn-tool-operation")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "operation", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	const workers = 12
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	created := 0
+	var firstErr error
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, inserted, _, err := b.AdmitToolOperation(ctx, conformanceToolOperation(runID, "call-1"))
+			mu.Lock()
+			defer mu.Unlock()
+			if inserted {
+				created++
+			}
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil || created != 1 {
+		t.Fatalf("duplicate admission count=%d err=%v, want one admission", created, firstErr)
+	}
+	conflict := conformanceToolOperation(runID, "call-1")
+	conflict.EffectiveArguments = []byte(`{"text":"changed"}`)
+	conflict.ArgumentsDigest = conformanceToolOperationDigest(string(conflict.EffectiveArguments))
+	if _, _, _, err := b.AdmitToolOperation(ctx, conflict); !errors.Is(err, storage.ErrToolOperationConflict) {
+		t.Fatalf("same key with changed payload = %v, want ErrToolOperationConflict", err)
+	}
+	if _, inserted, _, err := b.AdmitToolOperation(ctx, conformanceToolOperation(runID, "call-2")); err != nil || !inserted {
+		t.Fatalf("distinct same-argument admission: inserted=%v err=%v", inserted, err)
+	}
+	claimed := 0
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, acquired, _, err := b.ClaimToolOperation(ctx, runID, "call-1", fmt.Sprintf("owner-%d", i))
+			if err != nil {
+				t.Errorf("ClaimToolOperation: %v", err)
+				return
+			}
+			if acquired {
+				mu.Lock()
+				claimed++
+				mu.Unlock()
+			}
+		}(i)
+	}
+	wg.Wait()
+	if claimed != 1 {
+		t.Fatalf("duplicate claim count = %d, want exactly one", claimed)
+	}
+}
+
+func cnToolOperationRecovery(t *testing.T, h Harness) {
+	slot := h.Setup(t)
+	ctx := context.Background()
+	b := slot.Engine
+	t.Cleanup(func() { _ = b.Close() })
+	const sessionID = domain.SessionID("session-cn-operation-recovery")
+	const runID = domain.RunID("run-cn-operation-recovery")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "operation", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"call-unknown", "call-complete"} {
+		if _, _, _, err := b.AdmitToolOperation(ctx, conformanceToolOperation(runID, id)); err != nil {
+			t.Fatal(err)
+		}
+		if _, claimed, _, err := b.ClaimToolOperation(ctx, runID, id, "owner-before-reopen"); err != nil || !claimed {
+			t.Fatalf("claim %s: claimed=%v err=%v", id, claimed, err)
+		}
+	}
+	if _, _, err := b.CompleteToolOperation(ctx, runID, "call-complete", "owner-before-reopen", "persisted", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := slot.Reopen()
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	unknown, err := reopened.GetToolOperation(ctx, runID, "call-unknown")
+	if err != nil || unknown.State != domain.ToolOperationClaimed {
+		t.Fatalf("unknown operation after reopen = %+v err=%v", unknown, err)
+	}
+	if _, acquired, _, err := reopened.ClaimToolOperation(ctx, runID, "call-unknown", "owner-after-reopen"); err != nil || acquired {
+		t.Fatalf("unknown operation reclaimed after reopen: acquired=%v err=%v", acquired, err)
+	}
+	completed, err := reopened.GetToolOperation(ctx, runID, "call-complete")
+	if err != nil || completed.State != domain.ToolOperationCompleted || completed.Result != "persisted" {
+		t.Fatalf("completed operation after reopen = %+v err=%v", completed, err)
+	}
+}
+
+func conformanceToolOperationDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func conformanceToolOperation(runID domain.RunID, id string) domain.ToolOperation {
+	args := []byte(`{"text":"same"}`)
+	return domain.ToolOperation{RunID: runID, OperationID: id, ToolName: "write_note",
+		RequestDigest: conformanceToolOperationDigest("request:" + string(args)), MiddlewareInputArguments: append([]byte(nil), args...),
+		ArgumentsDigest: conformanceToolOperationDigest(string(args)), EffectiveArguments: args}
 }
 
 // cnSessionWorkspace catches three storage regressions: dropping the selected

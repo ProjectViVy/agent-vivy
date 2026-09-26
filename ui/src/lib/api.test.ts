@@ -28,6 +28,11 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('channel/inspect');
     expect(api.RPC_METHODS).toContain('channel/get');
     expect(api.RPC_METHODS).toContain('channel/update');
+    expect(api.RPC_METHODS).toContain('child/followup');
+    expect(api.RPC_METHODS).toContain('child/interrupt');
+    expect(api.RPC_METHODS).toContain('child/history');
+    expect(api.RPC_METHODS).toContain('child/message/send');
+    expect(api.RPC_METHODS).toContain('child/message/list');
     expect(api.RPC_METHODS).toContain('cron/list');
     expect(api.RPC_METHODS).toContain('cron/create');
     expect(api.RPC_METHODS).toContain('cron/update');

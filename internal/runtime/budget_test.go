@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/testsupport"
 )
 
 func TestBudgetLedgerChildCannotBypassParent(t *testing.T) {
@@ -101,5 +103,42 @@ func TestBudgetLedgerReplayPreservesCircuitState(t *testing.T) {
 	}
 	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventModelUsage}); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("third semantic event error = %v, want budget exceeded", err)
+	}
+}
+
+func TestRecoveredSiblingRunsShareOneBudgetAccount(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	svc.deps.Budget = BudgetPolicy{MaxModelCalls: 2}
+	const sessionID = domain.SessionID("session-recovered-budget-siblings")
+	const rootID = domain.RunID("run-recovered-budget-root")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "budget", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: rootID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2, RootID: rootID}); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []domain.RunID{"run-recovered-budget-child-a", "run-recovered-budget-child-b"} {
+		if err := backend.CreateRun(ctx, domain.Run{
+			ID: id, SessionID: sessionID, Status: domain.RunActive, CreatedAt: int64(3 + i),
+			Kind: domain.RunKindChild, ChildMode: domain.ChildModeOneShot,
+			ParentID: rootID, RootID: rootID, Depth: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := svc.recoverBudgetLedger(ctx, "run-recovered-budget-child-a")
+	second := svc.recoverBudgetLedger(ctx, "run-recovered-budget-child-b")
+	if first == nil || second == nil {
+		t.Fatal("recovered sibling budget ledger is nil")
+	}
+	if err := first.ReserveModelCall(); err != nil {
+		t.Fatalf("first sibling reservation: %v", err)
+	}
+	if err := second.ReserveModelCall(); err != nil {
+		t.Fatalf("second sibling reservation: %v", err)
+	}
+	if err := first.ReserveModelCall(); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("third combined reservation = %v, want shared run-tree budget exhaustion", err)
 	}
 }

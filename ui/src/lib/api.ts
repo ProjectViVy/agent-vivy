@@ -7,7 +7,8 @@ export const RPC_METHODS = [
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
-  'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
+  'child/start', 'child/followup', 'child/interrupt', 'child/history', 'child/message/send', 'child/message/list',
+  'child/get', 'child/list', 'child/wait', 'child/cancel',
   'generations/list', 'generations/get', 'generations/create', 'generations/reject',
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
   'settings/get', 'settings/update', 'settings/locale',
@@ -85,7 +86,10 @@ export interface CompactResult { before_tokens: number; after_tokens: number; fo
 /** session/compactions 单条记录：summary 为不可信生成内容，仅展示。 */
 export interface SessionCompactionRecord { run_id: string; created_at: number; tail_from: number; dropped_count: number; summary: string }
 export interface BackgroundRun extends Run { workspace_id?: string }
-export interface ChildRun { id: string; parent_run_id: string; root_run_id: string; session_id: string; status: RunStatus; depth: number; workspace_id?: string; result?: string; error?: string; created_at: number }
+export type ChildMode = 'one-shot' | 'continuable';
+export interface ChildRun { id: string; parent_run_id: string; root_run_id: string; session_id: string; status: RunStatus; depth: number; child_mode?: ChildMode; workspace_id?: string; result?: string; error?: string; created_at: number }
+export interface ChildHistoryMessage { id: string; run_id?: string; role: Message['role']; content: string; created_at: number }
+export interface ChildMailboxMessage { id: string; child_session_id: string; sender_session_id: string; recipient_session_id: string; sequence: number; text: string; status: 'pending' | 'consumed' | 'rejected' | 'expired'; created_at: number }
 export type ReviewKind = 'approval' | 'question';
 export type ReviewStatus = 'pending' | 'approved' | 'denied' | 'answered' | 'cancelled' | 'expired' | 'stale';
 export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; precondition_hash?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
