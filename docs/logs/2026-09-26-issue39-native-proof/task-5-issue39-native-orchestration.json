@@ -5,6 +5,7 @@
   "verdict": "NO-GO",
   "required_surface": {
     "command": "'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v",
+    "execution_wrapper": "timeout 120s",
     "exit_code": 1,
     "named_tests": ["TestGraphConformanceBrokerReplayRisk"],
     "observable": "two direct ExecuteBrokerTool calls with the same run and input in one process re-invoked an in-memory fixture counter",

@@ -35,7 +35,9 @@ Post-change commands and their exact outputs are recorded in
 `task-5-issue39-native-orchestration.log` and this document. The focused and
 race commands intentionally exit `1`: that non-zero result is the named
 NO-GO probe, not product success. The unknown-effect control must exit `0`;
-`git diff --check` must exit `0`.
+`git diff --check` must exit `0`. Each displayed Go target command was
+executed under `timeout 120s`; the raw target remains the copy/paste Manual-QA
+invocation below.
 
 - Focused command: exit `1`; the captured artifact reports
   `same-process direct broker calls re-invoked in-memory fixture 2 times;
@@ -60,7 +62,8 @@ Run:
 PASS for this evidence correction means the named test runs and reports that
 the in-memory fixture was called twice, while the test comment and Task 5 docs
 explicitly state it is same-process only and G0 crash/restart remains
-unproven. Its non-zero exit is not product success.
+unproven. Evidence capture wraps this target invocation in `timeout 120s`.
+Its non-zero exit is not product success.
 
 ## 6. UltraQA
 
