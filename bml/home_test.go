@@ -251,6 +251,14 @@ func TestHomeMemRulesDefaultThenFile(t *testing.T) {
 	if _, err := h.WriteMemRules(" \n\t "); homeErrCode(t, err) != HomeCodeInvalidRequest {
 		t.Fatalf("empty write code: %v", err)
 	}
+
+	// Rust read_to_string maps invalid UTF-8 to memory_invalid_request.
+	if err := os.WriteFile(h.MemRulesPath(), []byte{0xff, 0xfe, 0x00}, 0o644); err != nil {
+		t.Fatalf("write non-utf8: %v", err)
+	}
+	if _, err := h.ReadMemRules(); homeErrCode(t, err) != HomeCodeInvalidRequest {
+		t.Fatalf("non-utf8 read code: %v", err)
+	}
 }
 
 func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
@@ -279,14 +287,14 @@ func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
 		t.Fatal("startup GC must keep active sessions and remove stale ones")
 	}
 
-	// Corrected contract: empty active list means "no active sessions" and
-	// removes every session-scoped record.
+	// Upstream parity: an empty active list early-returns without touching
+	// the store (memory_home.rs:385-387).
 	putSessionRecord(t, h, "session-checkpoint-c", "gui:orphan")
-	if n, err := h.RunStartupGC(ctx, nil); err != nil || n != 2 {
+	if n, err := h.RunStartupGC(ctx, nil); err != nil || n != 0 {
 		t.Fatalf("empty startup GC: %d %v", n, err)
 	}
-	if alive("session-checkpoint-a") || alive("session-checkpoint-c") {
-		t.Fatal("empty startup GC must remove all session-scoped records")
+	if !alive("session-checkpoint-a") || !alive("session-checkpoint-c") {
+		t.Fatal("empty startup GC must be a no-op")
 	}
 
 	putSessionRecord(t, h, "session-checkpoint-d", "gui:gone")
