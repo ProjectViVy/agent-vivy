@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // machineMemoryScope is the workspace identity every machine-home record is
@@ -96,15 +97,6 @@ func homeInvalid(msg string) *HomeError {
 	return &HomeError{
 		code:    HomeCodeInvalidRequest,
 		message: "invalid memory request: " + msg,
-	}
-}
-
-func homeIOErr(path string, err error) *HomeError {
-	return &HomeError{
-		code:    HomeCodeIO,
-		message: fmt.Sprintf("Memory Home I/O failed at %s: %v", path, err),
-		err:     err,
-		Path:    path,
 	}
 }
 
@@ -299,7 +291,9 @@ func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store,
 	if !isFile(path) {
 		return nil, invalidBackupErr()
 	}
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
+	// mode=rw keeps the open honest: a file deleted between the isFile
+	// check and connect errors instead of silently recreating an empty DB.
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=rw&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
 	if err != nil {
 		return nil, ioErr(path, err)
 	}
@@ -521,6 +515,11 @@ func (h *Home) ReadMemRules() (MemRulesDocument, error) {
 	raw, err := os.ReadFile(h.memrulesPath)
 	switch {
 	case err == nil:
+		if !utf8.Valid(raw) {
+			// Rust read_to_string surfaces invalid UTF-8 as an io error,
+			// which the facade maps to memory_invalid_request.
+			return MemRulesDocument{}, homeInvalid("MEMRULES content is not valid UTF-8")
+		}
 		return MemRulesDocument{Content: string(raw), Source: MemRulesSourceFile}, nil
 	case os.IsNotExist(err):
 		return MemRulesDocument{Content: DefaultMemRulesText, Source: MemRulesSourceDefault}, nil
@@ -564,9 +563,13 @@ func (h *Home) ClearSessionCheckpoint(ctx context.Context, sessionID string) (ui
 }
 
 // RunStartupGC deletes every session-scoped record whose session_id is not
-// in activeSessionIDs. An empty list means no active sessions and removes
-// every session-scoped record; a missing store reports zero removals.
+// in activeSessionIDs. An empty list is a no-op (upstream parity:
+// memory_home.rs early-returns Ok(0) before touching the store). A missing
+// store reports zero removals.
 func (h *Home) RunStartupGC(ctx context.Context, activeSessionIDs []string) (uint64, error) {
+	if len(activeSessionIDs) == 0 {
+		return 0, nil
+	}
 	store, err := h.existingStore(ctx)
 	if err != nil {
 		return 0, err
