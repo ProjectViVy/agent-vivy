@@ -33,10 +33,13 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 > land; no outer-loop fallback needed.
 
 
-## 0.1 Open remaining (updated 2026-09-19)
+## 0.1 Open remaining (updated 2026-09-26)
 
 Completed rows have been moved to `docs/COMPLETE.MD`; deferred, superseded, and declined rows to `docs/DEFER.MD`.
-This section retains only currently open work.
+This section retains only currently open work — with one exception: the
+MEMORY track's stage rows (MEM-0A..MEM-5 below) stay visible for status
+tracking while the track is in flight, including rows already DONE; the
+authoritative per-story state lives in `docs/superpowers/plans/memory/index.md`.
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
