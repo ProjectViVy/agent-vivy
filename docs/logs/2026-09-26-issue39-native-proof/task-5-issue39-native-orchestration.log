@@ -1,6 +1,6 @@
 SOURCE_HEAD=743467f1e65e2290680e4a4b11d6a3f89732457f
 HISTORICAL_RAW_TARGET_COMMAND='/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
-COMMAND=timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
+EXECUTED_COMMAND=timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
 EXECUTION_WRAPPER=timeout 120s
 === RUN   TestGraphConformanceBrokerReplayRisk
     toolbroker_test.go:58: same-process direct broker calls re-invoked in-memory fixture 2 times; crash/restart safety remains unproven

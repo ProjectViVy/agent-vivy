@@ -45,23 +45,35 @@ NO-GO probe, not product success. The unknown-effect control must exit `0`;
 `git diff --check` must exit `0`. Every displayed Go invocation is the
 complete bounded command used for evidence.
 
-- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run
-  '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v`: exit `1`; the captured
-  artifact reports
+- Focused command (bounded copy/paste invocation):
+
+  ```text
+  timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
+  ```
+
+  Exit `1`; the captured artifact reports
   `same-process direct broker calls re-invoked in-memory fixture 2 times;
   crash/restart safety remains unproven`.
-- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test -race ./internal/runtime -run
-  '^TestGraphConformanceBrokerReplayRisk$' -count=3 -v`: exit `1`; all three
-  executions reported that same two-call fixture observation and no race
-  diagnostic appeared.
-- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run
-  '^TestToolFailureUnknownEffectsCountOnce$' -count=1 -v`: exit `0`; the named
-  control passed.
+- Race command (bounded copy/paste invocation):
+
+  ```text
+  timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test -race ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=3 -v
+  ```
+
+  Exit `1`; all three executions reported that same two-call fixture
+  observation and no race diagnostic appeared.
+- Control command (bounded copy/paste invocation):
+
+  ```text
+  timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestToolFailureUnknownEffectsCountOnce$' -count=1 -v
+  ```
+
+  Exit `0`; the named control passed.
 - `git diff --check`: exit `0`.
 
 ## 5. Manual-QA channel
 
-Run:
+Run this complete bounded invocation:
 
 ```text
 timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v

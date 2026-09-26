@@ -5,6 +5,7 @@
   "verdict": "NO-GO",
   "required_surface": {
     "command": "timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v",
+    "manual_qa_invocation": "timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v",
     "historical_raw_target_command": "'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v",
     "execution_wrapper": "timeout 120s",
     "exit_code": 1,
