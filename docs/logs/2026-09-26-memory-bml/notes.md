@@ -20,6 +20,7 @@ session and independently reviewed; fix rounds where reviews found issues.
 | T6 | MemoryHome facade + MEMRULES (`home.go`) | 1 fix round (RunStartupGC empty-input parity, memrules UTF-8, TOCTOU) |
 | T7 | migration adapters (`migrate.go`) | approved, minors deferred |
 | T8 | `bml/README.md` | controller-verified, docs only |
+| T9 | `bml/provider.go` — `MemoryProvider` trait contract + DTOs + `NopProvider` (no impl, user-requested scope add) | approved, minors deferred |
 
 Final gate: `cd bml && gofmt -l . && go vet ./... && go test ./...` all clean.
 
