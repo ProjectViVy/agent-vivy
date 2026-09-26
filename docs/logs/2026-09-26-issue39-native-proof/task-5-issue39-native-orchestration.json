@@ -1,30 +1,32 @@
 {
   "schema_version": 1,
   "task": "Issue #39 Task 5 G0",
-  "source_head": "b46998a67b9d17d9ab7cc1c9f27ad4c22506fe23",
+  "source_head": "9f26f091f851bfdbe3b878d2cf8480320192ea53",
   "verdict": "NO-GO",
   "required_surface": {
-    "command": "'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run 'TestOrchestrationNative|GraphConformance' -count=1 -v",
+    "command": "'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v",
     "exit_code": 1,
-    "named_tests": ["TestOrchestrationNative", "TestGraphConformanceBrokerReplayRisk"],
-    "observable": "real Eino Workflow reached real Service and returned ErrNativeOrchestrationUnimplemented; real broker replay executed the same effect twice",
+    "named_tests": ["TestGraphConformanceBrokerReplayRisk"],
+    "observable": "two direct ExecuteBrokerTool calls with the same run and input in one process re-invoked an in-memory fixture counter",
+    "limits": "no Service/Engine/checkpoint/fresh-store recreation, injected crash/restart, stable operation ID, or real external side effect was exercised",
     "artifact": "docs/logs/2026-09-26-issue39-native-proof/task-5-issue39-native-orchestration.log"
   },
   "criteria": {
     "parallel_overlap_and_join": "unverified: no Service-owned native path",
     "approval_interrupt_while_sibling_runs": "unverified: no Service-owned native path",
     "parent_cancellation": "unverified: no Service-owned native path",
-    "fresh_service_engine_store_recovery": "unverified: no Service-owned native path",
+    "fresh_service_engine_store_recovery": "unverified: this probe does not construct or restart a Service, Engine, checkpoint, or fresh store",
     "invalid_engine_or_prompt_fails_closed": "existing checkpoint store supports it; insufficient alone",
-    "one_effect_across_crash_restart": "failed: replay reproducer observed effect_count=2; no durable broker operation/result ledger"
+    "one_effect_across_crash_restart": "unverified: no injected crash/restart or real external effect was tested; repeated direct calls re-invoked only the in-memory fixture, and the broker API seam has no durable operation/result identity"
   },
   "distinguishing_evidence": [
     "Eino compose/graph_run.go writes the Workflow checkpoint in interrupt handling after completed tasks are resolved",
     "internal/app/worker.go persists tool.started, invokes the broker, then attempts tool.finished and discards its persistence error",
-    "internal/runtime/toolbroker.go invokes tool.InvokableRun directly and accepts no stable effect operation id or store",
+    "internal/runtime/toolbroker.go invokes tool.InvokableRun directly and its API accepts no durable operation/result identity or store",
     "internal/runtime/tool_failure_test.go records potentially executed failures as effects=unknown"
   ],
   "downstream_tasks_unblocked": false,
   "production_code_changed": false,
-  "intentional_red_test": "TestGraphConformanceBrokerReplayRisk"
+  "intentional_red_test": "TestGraphConformanceBrokerReplayRisk",
+  "terminal_reason": "conservative NO-GO: required Service/Eino/checkpoint/fresh-store crash recovery criteria and replay safety are not proven; this bounded same-process probe does not substitute for them"
 }
