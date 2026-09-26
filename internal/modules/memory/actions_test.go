@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/modules/memory"
@@ -183,6 +184,57 @@ func TestUpdateAndRemoveEnforceRevisionCAS(t *testing.T) {
 
 	outcome = invokeOutcome(t, memory.ActionGet, fmt.Sprintf(`{"id":%q}`, id))
 	wantFailure(t, outcome, bml.HomeCodeNotFound)
+}
+
+func TestUpdateEvidenceRefsPassThroughAndPreserve(t *testing.T) {
+	openService(t)
+	outcome := invokeOutcome(t, memory.ActionAdd,
+		`{"kind":"long_term","content":"keeps evidence","evidence":[{"id":"ev-1","source":"user_input","uri":"run:ev-1"}]}`)
+	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+	if outcome.Entry == nil || len(outcome.Entry.EvidenceRefs) != 1 {
+		t.Fatalf("add entry evidence = %#v, want one ref", outcome.Entry)
+	}
+	id := outcome.Entry.ID
+	revision := outcome.Entry.Revision
+
+	// Omitted evidence_refs preserves the record's existing references.
+	outcome = invokeOutcome(t, memory.ActionUpdate,
+		fmt.Sprintf(`{"id":%q,"content":"v2","base_revision":%d}`, id, revision))
+	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+	if outcome.Entry == nil || len(outcome.Entry.EvidenceRefs) != 1 || outcome.Entry.EvidenceRefs[0].ID != "ev-1" {
+		t.Fatalf("update without evidence_refs = %#v, want ev-1 preserved", outcome.Entry)
+	}
+	revision = outcome.Entry.Revision
+
+	// A supplied list replaces them.
+	outcome = invokeOutcome(t, memory.ActionUpdate,
+		fmt.Sprintf(`{"id":%q,"content":"v3","base_revision":%d,"evidence_refs":[{"id":"ev-2","source":"file","uri":"file:///x"}]}`, id, revision))
+	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+	if outcome.Entry == nil || len(outcome.Entry.EvidenceRefs) != 1 || outcome.Entry.EvidenceRefs[0].ID != "ev-2" {
+		t.Fatalf("update with evidence_refs = %#v, want ev-2", outcome.Entry)
+	}
+	revision = outcome.Entry.Revision
+
+	// An explicitly empty list clears them — absent and empty differ.
+	outcome = invokeOutcome(t, memory.ActionUpdate,
+		fmt.Sprintf(`{"id":%q,"content":"v4","base_revision":%d,"evidence_refs":[]}`, id, revision))
+	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+	if outcome.Entry == nil || len(outcome.Entry.EvidenceRefs) != 0 {
+		t.Fatalf("update with empty evidence_refs = %#v, want cleared", outcome.Entry)
+	}
+}
+
+func TestOversizedOutputReportsOutputTooLarge(t *testing.T) {
+	service := openService(t)
+	// The service write path has no input cap; a record larger than the
+	// action output budget drives list past MaxOutputBytes.
+	outcome := service.Add(context.Background(), bml.MemoryAddRequest{
+		Content: strings.Repeat("x", 300<<10),
+	})
+	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+
+	outcome = invokeOutcome(t, memory.ActionList, `{}`)
+	wantFailure(t, outcome, "output_too_large")
 }
 
 func TestAddRejectsUnsupportedKind(t *testing.T) {

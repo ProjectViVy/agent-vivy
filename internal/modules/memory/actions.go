@@ -31,7 +31,7 @@ const (
 
 // outputLimitReason reports a marshaled result larger than MaxOutputBytes
 // without inventing a store-level reason code.
-const outputLimitReason = "memory action result exceeds the output limit"
+const outputLimitReason = "output_too_large"
 
 type memoryAction struct {
 	definition controlaction.Definition
@@ -153,10 +153,13 @@ type addInput struct {
 	Evidence []bml.EvidenceRef `json:"evidence"`
 }
 
+// updateInput distinguishes an omitted evidence_refs (nil — preserve the
+// record's existing references) from an explicitly empty list (clear them).
 type updateInput struct {
-	ID           string `json:"id"`
-	Content      string `json:"content"`
-	BaseRevision *int64 `json:"base_revision"`
+	ID           string             `json:"id"`
+	Content      string             `json:"content"`
+	BaseRevision *int64             `json:"base_revision"`
+	Evidence     *[]bml.EvidenceRef `json:"evidence_refs"`
 }
 
 type removeInput struct {
@@ -222,8 +225,13 @@ func invokeUpdate(ctx context.Context, service *Service, raw json.RawMessage) (j
 	if in.ID == "" || !validCAS(in.BaseRevision) {
 		return marshalOutcome(invalidInput())
 	}
+	var evidence []bml.EvidenceRef
+	if in.Evidence != nil {
+		evidence = *in.Evidence
+	}
 	return marshalOutcome(service.Update(ctx, bml.MemoryUpdateRequest{
 		RecordID: in.ID, Content: in.Content, BaseRevision: *in.BaseRevision,
+		EvidenceRefs: evidence,
 	}))
 }
 
@@ -315,7 +323,7 @@ var (
 	searchInputSchema     = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":4096},"limit":{"type":"integer","minimum":0,"maximum":4294967295}},"required":["query"],"additionalProperties":false}`)
 	getInputSchema        = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128}},"required":["id"],"additionalProperties":false}`)
 	addInputSchema        = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"]},"content":{"type":"string","minLength":1},"evidence":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["kind","content"],"additionalProperties":false}`)
-	updateInputSchema     = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"content":{"type":"string","minLength":1},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","content","base_revision"],"additionalProperties":false}`)
+	updateInputSchema     = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"content":{"type":"string","minLength":1},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["id","content","base_revision"],"additionalProperties":false}`)
 	removeInputSchema     = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"reason":{"type":"string","minLength":1,"maxLength":1024},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","reason","base_revision"],"additionalProperties":false}`)
 	rulesWriteInputSchema = json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","minLength":1},"base_revision":{"type":"string","minLength":1,"maxLength":128}},"required":["content","base_revision"],"additionalProperties":false}`)
 	outcomeSchema         = json.RawMessage(`{"type":"object","required":["status"]}`)

@@ -141,12 +141,25 @@ func (s *Service) Add(ctx context.Context, req bml.MemoryAddRequest) bml.MemoryC
 }
 
 // Update applies a compare-and-swap content update under the caller's base
-// revision; a stale revision returns failed memory_revision_conflict.
+// revision; a stale revision returns failed memory_revision_conflict. A nil
+// EvidenceRefs means the caller did not address evidence, so the record's
+// current references are preserved via read-modify-write — omitted is not
+// cleared.
 func (s *Service) Update(ctx context.Context, req bml.MemoryUpdateRequest) bml.MemoryCrudOutcome {
 	if !s.live() {
 		return unavailableOutcome()
 	}
-	stored, err := s.home.UpdateRecord(ctx, req.RecordID, req.Content, req.BaseRevision, req.EvidenceRefs)
+	evidence := req.EvidenceRefs
+	if evidence == nil {
+		current, err := s.home.GetRecord(ctx, req.RecordID)
+		if err != nil {
+			return outcomeFromError(err)
+		}
+		if current != nil {
+			evidence = current.Record.EvidenceRefs
+		}
+	}
+	stored, err := s.home.UpdateRecord(ctx, req.RecordID, req.Content, req.BaseRevision, evidence)
 	if err != nil {
 		return outcomeFromError(err)
 	}

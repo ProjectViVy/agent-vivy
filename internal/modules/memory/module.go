@@ -58,15 +58,23 @@ var active atomic.Pointer[Service]
 
 // Open is the composition entry point, called once after
 // storagemodule.Open: it warms the BML home under cfg.DataDirectory() and
-// publishes the service for providers to resolve at call time.
+// publishes the service for providers to resolve at call time. A second
+// call — or one racing the first — returns the existing service instead of
+// orphaning the Home it already opened.
 func Open(ctx context.Context, cfg config.Config) (*Service, error) {
+	if service := active.Load(); service != nil {
+		return service, nil
+	}
 	home := bml.NewHome(cfg.DataDirectory())
 	if err := home.Warmup(ctx); err != nil {
 		_ = home.Close()
 		return nil, err
 	}
 	service := &Service{home: home}
-	active.Store(service)
+	if !active.CompareAndSwap(nil, service) {
+		_ = home.Close()
+		return active.Load(), nil
+	}
 	return service, nil
 }
 

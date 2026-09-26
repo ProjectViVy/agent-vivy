@@ -43,6 +43,30 @@ func TestServiceListsEmptyStore(t *testing.T) {
 	}
 }
 
+func TestOpenReturnsExistingServiceOnSecondCall(t *testing.T) {
+	first, err := memory.Open(context.Background(), testConfig(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = memory.Close() })
+	// A second Open must not orphan the first Home — it returns the
+	// already-published service, even under a different config dir.
+	second, err := memory.Open(context.Background(), testConfig(t.TempDir()))
+	if err != nil {
+		t.Fatalf("second Open() error = %v", err)
+	}
+	if second != first {
+		t.Fatalf("second Open() = %p, want the existing service %p", second, first)
+	}
+	if got := memory.Active(); got != first {
+		t.Fatalf("Active() = %p, want %p", got, first)
+	}
+	outcome := first.List(context.Background(), bml.MemoryListRequest{})
+	if outcome.Status != bml.CrudOutcomeListed {
+		t.Fatalf("List() on reused service status = %q, want listed", outcome.Status)
+	}
+}
+
 func TestCloseClearsActiveAndIsIdempotent(t *testing.T) {
 	if _, err := memory.Open(context.Background(), testConfig(t.TempDir())); err != nil {
 		t.Fatalf("Open() error = %v", err)

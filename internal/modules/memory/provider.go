@@ -2,9 +2,12 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +22,11 @@ import (
 // never opened the memory service — never a fabricated page or accepted
 // receipt.
 var errUnavailable = errors.New("memory: service unavailable")
+
+// errInvalidRequest is the recall-plane equivalent of the
+// memory_invalid_request outcome reason: host-supplied request fields the
+// provider cannot serve.
+var errInvalidRequest = errors.New(bml.HomeCodeInvalidRequest)
 
 // metadataPrefix namespaces every candidate metadata key the provider emits
 // (MEM-1A plan: keys prefixed vivy.memory-bml.).
@@ -71,6 +79,12 @@ func (*Provider) Query(ctx context.Context, req contextsource.Request) (contexts
 	if limit <= 0 {
 		limit = int(defaultRecallLimit)
 	}
+	// The fetch window must fit the store's uint32 bound; the comparison is
+	// arranged so int64(offset)+int64(limit) can never overflow. An absurd
+	// host-controlled cursor is an invalid request, never a wrapped offset.
+	if int64(offset) > math.MaxUint32-int64(limit)-1 {
+		return contextsource.Page{}, fmt.Errorf("%w: cursor %q exceeds the recall bound", errInvalidRequest, req.Cursor)
+	}
 	var sessionID *string
 	if trimmed := strings.TrimSpace(req.SessionID); trimmed != "" {
 		sessionID = &trimmed
@@ -122,12 +136,16 @@ func (*Provider) ObserveRunWithReceipt(ctx context.Context, event observer.RunEv
 	if event.Type != runCompletedEvent {
 		return observer.NewDeliveryReceipt(event.ID, receiptID, observer.DeliveryCompleted), nil
 	}
+	ack := observer.NewDeliveryReceipt(event.ID, receiptID, observer.DeliveryCompleted)
+	// Permanently undecodable events are acknowledged without a write: the
+	// host retains its cursor on failed deliveries and never abandons them,
+	// so reporting a failure retry cannot fix wedges all later ingest.
 	if event.ID.RunID == "" {
-		return fail(errors.New("memory: run.completed event has empty run id"))
+		return ack, nil
 	}
 	var payload runCompletedPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fail(fmt.Errorf("memory: decode run.completed payload: %w", err))
+		return ack, nil
 	}
 	_, _, err := service.AppendHistory(ctx, bml.AppendHistoryInput{
 		ID:         ingestRecordID(event.ID),
@@ -190,13 +208,23 @@ func runEvidence(event observer.RunEvent) bml.EvidenceRef {
 // ingestRecordID is the deterministic record id for one EventID — the
 // idempotency key bml's insert-only put enforces.
 func ingestRecordID(id observer.EventID) string {
-	return "run-history-" + sanitizeIDPart(id.RunID) + "-" + strconv.FormatInt(id.Seq, 10)
+	return "run-history-" + runIDPart(id.RunID) + "-" + strconv.FormatInt(id.Seq, 10)
 }
 
 // ingestReceiptID is the deterministic receipt id for one EventID, so a
 // host retry sees the identical receipt.
 func ingestReceiptID(id observer.EventID) string {
-	return ProviderID + "/" + sanitizeIDPart(id.RunID) + "/" + strconv.FormatInt(id.Seq, 10)
+	return ProviderID + "/" + runIDPart(id.RunID) + "/" + strconv.FormatInt(id.Seq, 10)
+}
+
+// runIDPart renders the RunID portion of deterministic ids: the sanitized
+// stem plus a short hash of the raw id, so RunIDs that sanitize identically
+// (a/b vs a\b) still dedupe independently.
+func runIDPart(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	suffix := hex.EncodeToString(sum[:4])
+	stem := truncateUTF8(sanitizeIDPart(raw), maxIDPartBytes-len(suffix)-1)
+	return stem + "-" + suffix
 }
 
 // sanitizeIDPart keeps record/receipt ids to a portable alphabet; the RunID
@@ -212,7 +240,7 @@ func sanitizeIDPart(id string) string {
 			b.WriteByte('-')
 		}
 	}
-	return truncateUTF8(b.String(), maxIDPartBytes)
+	return b.String()
 }
 
 // recallOffset parses the decimal offset cursor; absent is the first page.
@@ -222,7 +250,7 @@ func recallOffset(cursor string) (int, error) {
 	}
 	offset, err := strconv.Atoi(cursor)
 	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("memory: invalid cursor %q", cursor)
+		return 0, fmt.Errorf("%w: invalid cursor %q", errInvalidRequest, cursor)
 	}
 	return offset, nil
 }

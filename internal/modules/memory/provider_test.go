@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,6 +255,102 @@ func TestProviderReportsUnavailableWithoutService(t *testing.T) {
 	}
 	if receipt.State != observer.DeliveryFailed || receipt.ReceiptID == "" || receipt.EventID != event.ID {
 		t.Fatalf("receipt = %+v, want failed with non-empty id and matching EventID", receipt)
+	}
+}
+
+func TestProviderObserveAcksUndecodableCompletedEvent(t *testing.T) {
+	ctx := context.Background()
+	openService(t)
+	provider := memory.NewProvider()
+
+	// A malformed payload can never decode, and the host never abandons a
+	// failed delivery — so the only truthful non-wedging disposition is an
+	// acknowledged completion with no record written.
+	poison := observer.NewRunEvent(observer.NewEventID("run-poison", 1), "run.completed",
+		time.Now().UnixMilli(), json.RawMessage(`{"outcome":`))
+	receipt, err := provider.ObserveRunWithReceipt(ctx, poison)
+	if err != nil {
+		t.Fatalf("ObserveRunWithReceipt(poison) error = %v, want nil (ack)", err)
+	}
+	if receipt.State != observer.DeliveryCompleted || receipt.ReceiptID == "" {
+		t.Fatalf("poison receipt = %+v, want completed with non-empty id", receipt)
+	}
+	replay, err := provider.ObserveRunWithReceipt(ctx, poison)
+	if err != nil || replay != receipt {
+		t.Fatalf("replayed poison receipt = %+v, err %v; want identical ack", replay, err)
+	}
+
+	// A missing required field (empty RunID) is equally permanent.
+	norun := completedEvent(t, "", 7, "no run id")
+	norunReceipt, err := provider.ObserveRunWithReceipt(ctx, norun)
+	if err != nil {
+		t.Fatalf("ObserveRunWithReceipt(empty RunID) error = %v, want nil (ack)", err)
+	}
+	if norunReceipt.State != observer.DeliveryCompleted {
+		t.Fatalf("empty-RunID receipt state = %q, want completed", norunReceipt.State)
+	}
+
+	// The wedge regression: a well-formed event later in the same run must
+	// still ingest — the poisoned event did not block the cursor.
+	good := completedEvent(t, "run-poison", 2, "later work lands")
+	goodReceipt, err := provider.ObserveRunWithReceipt(ctx, good)
+	if err != nil {
+		t.Fatalf("ObserveRunWithReceipt(good) error = %v", err)
+	}
+	if goodReceipt.State != observer.DeliveryCompleted {
+		t.Fatalf("good receipt state = %q, want completed", goodReceipt.State)
+	}
+	page, err := provider.Query(ctx, contextsource.Request{Query: "run-poison", Limit: 10})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(page.Candidates) != 1 {
+		t.Fatalf("recall candidates = %d, want exactly 1 (the good event only)", len(page.Candidates))
+	}
+}
+
+func TestProviderIngestSeparatesCollidingRunIDs(t *testing.T) {
+	ctx := context.Background()
+	openService(t)
+	provider := memory.NewProvider()
+
+	// "a/b" and "a\b" sanitize to the same id stem; the raw-id hash suffix
+	// must keep their dedupe keys distinct.
+	slash := completedEvent(t, "a/b", 1, "collision alpha")
+	backslash := completedEvent(t, "a\\b", 1, "collision alpha")
+	slashReceipt, err := provider.ObserveRunWithReceipt(ctx, slash)
+	if err != nil {
+		t.Fatalf("ObserveRunWithReceipt(a/b) error = %v", err)
+	}
+	backslashReceipt, err := provider.ObserveRunWithReceipt(ctx, backslash)
+	if err != nil {
+		t.Fatalf("ObserveRunWithReceipt(a\\b) error = %v", err)
+	}
+	if slashReceipt.ReceiptID == backslashReceipt.ReceiptID {
+		t.Fatalf("colliding RunIDs share receipt id %q", slashReceipt.ReceiptID)
+	}
+	page, err := provider.Query(ctx, contextsource.Request{Query: "collision alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(page.Candidates) != 2 {
+		t.Fatalf("recall candidates = %d, want 2 (one per distinct RunID)", len(page.Candidates))
+	}
+	if page.Candidates[0].ContentID == page.Candidates[1].ContentID {
+		t.Fatalf("colliding RunIDs share record id %q", page.Candidates[0].ContentID)
+	}
+}
+
+func TestProviderQueryRejectsAbsurdCursor(t *testing.T) {
+	openService(t)
+	for _, cursor := range []string{"9223372036854775807", "4294967296"} {
+		_, err := memory.NewProvider().Query(context.Background(), contextsource.Request{Query: "x", Cursor: cursor})
+		if err == nil {
+			t.Fatalf("Query(cursor=%q) returned nil error", cursor)
+		}
+		if !strings.Contains(err.Error(), bml.HomeCodeInvalidRequest) {
+			t.Fatalf("Query(cursor=%q) error = %q, want the memory_invalid_request vocabulary", cursor, err)
+		}
 	}
 }
 
