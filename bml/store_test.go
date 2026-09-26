@@ -3,11 +3,13 @@ package bml
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -613,16 +615,9 @@ func TestImportRecords(t *testing.T) {
 		storeRecord("i-1", "workspace-1", "first"),
 		storeRecord("i-2", "workspace-1", "second"),
 	}
-	n, err := s.ImportRecords(ctx, batch)
+	m, err := s.ImportRecords(ctx, batch, 0)
 	if err != nil {
 		t.Fatalf("ImportRecords: %v", err)
-	}
-	if n != 2 {
-		t.Fatalf("imported = %d, want 2", n)
-	}
-	m, err := s.Metadata(ctx)
-	if err != nil {
-		t.Fatalf("Metadata: %v", err)
 	}
 	if m.StoreRevision != 2 || m.RecordCount != 2 || m.ContentBytes != int64(len("first")+len("second")) {
 		t.Fatalf("metadata after import = %+v", m)
@@ -636,22 +631,24 @@ func TestImportRecords(t *testing.T) {
 	}
 
 	// Idempotent replay: identical canonical JSON is a no-op.
-	n, err = s.ImportRecords(ctx, batch)
+	m, err = s.ImportRecords(ctx, batch, 2)
 	if err != nil {
 		t.Fatalf("idempotent ImportRecords: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("re-imported = %d, want 0", n)
-	}
-	m, _ = s.Metadata(ctx)
 	if m.StoreRevision != 2 || m.RecordCount != 2 {
 		t.Fatalf("idempotent replay mutated metadata: %+v", m)
+	}
+
+	// Store-revision CAS on import.
+	_, err = s.ImportRecords(ctx, []Record{storeRecord("i-9", "workspace-1", "nine")}, 1)
+	if code := storeErrCode(t, err); code != ErrStoreRevisionConflict {
+		t.Fatalf("stale store revision import: code = %q", code)
 	}
 
 	// Conflicting id aborts the whole batch.
 	conflict := storeRecord("i-1", "workspace-1", "different content")
 	fresh := storeRecord("i-3", "workspace-1", "third")
-	_, err = s.ImportRecords(ctx, []Record{conflict, fresh})
+	_, err = s.ImportRecords(ctx, []Record{conflict, fresh}, 2)
 	if code := storeErrCode(t, err); code != ErrImportConflict {
 		t.Fatalf("conflicting import: code = %q", code)
 	}
@@ -666,7 +663,7 @@ func TestImportRecords(t *testing.T) {
 	// One invalid record aborts the batch.
 	invalid := storeRecord("i-4", "workspace-1", "fourth")
 	invalid.Provenance.ContentDigest = MemoryContentDigest([]byte("tampered"))
-	_, err = s.ImportRecords(ctx, []Record{invalid, storeRecord("i-5", "workspace-1", "fifth")})
+	_, err = s.ImportRecords(ctx, []Record{invalid, storeRecord("i-5", "workspace-1", "fifth")}, 2)
 	if code := storeErrCode(t, err); code != ErrInvalidRecord {
 		t.Fatalf("invalid import: code = %q", code)
 	}
@@ -676,7 +673,7 @@ func TestImportRecords(t *testing.T) {
 	}
 
 	// Cross-workspace record aborts the batch.
-	_, err = s.ImportRecords(ctx, []Record{storeRecord("i-6", "workspace-2", "sixth")})
+	_, err = s.ImportRecords(ctx, []Record{storeRecord("i-6", "workspace-2", "sixth")}, 2)
 	if code := storeErrCode(t, err); code != ErrWorkspaceMismatch {
 		t.Fatalf("cross-workspace import: code = %q", code)
 	}
@@ -689,13 +686,69 @@ func TestImportRecords(t *testing.T) {
 	_, err = s.ImportRecords(ctx, []Record{
 		storeRecord("i-7", "workspace-1", "seven"),
 		storeRecord("i-8", "workspace-1", "eight"),
-	})
+	}, 2)
 	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
 		t.Fatalf("capacity import: code = %q", code)
 	}
 	m, _ = s.Metadata(ctx)
 	if m.RecordCount != MaxMemoryRecords-1 {
 		t.Fatalf("capacity failure was not atomic: %+v", m)
+	}
+}
+
+func TestConcurrentPutAcrossConnections(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s1, err := Open(ctx, dir, "workspace-1")
+	if err != nil {
+		t.Fatalf("Open s1: %v", err)
+	}
+	defer s1.Close()
+	s2, err := Open(ctx, dir, "workspace-1")
+	if err != nil {
+		t.Fatalf("Open s2: %v", err)
+	}
+	defer s2.Close()
+
+	// Two independent connections race at the same expected store revision;
+	// whichever loses the write CAS must surface store_revision_conflict and
+	// leave exactly one committed record.
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	race := func(s *Store, id string, i int) {
+		defer wg.Done()
+		<-start
+		_, errs[i] = s.Put(ctx, storeRecord(id, "workspace-1", id), 0, nil)
+	}
+	wg.Add(2)
+	go race(s1, "left", 0)
+	go race(s2, "right", 1)
+	close(start)
+	wg.Wait()
+
+	var ok, conflicts int
+	for _, err := range errs {
+		if err == nil {
+			ok++
+			continue
+		}
+		var se *StoreError
+		if errors.As(err, &se) && se.Code == ErrStoreRevisionConflict {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 || conflicts != 1 {
+		t.Fatalf("cross-connection put: ok=%d conflicts=%d", ok, conflicts)
+	}
+	m, err := s1.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if m.StoreRevision != 1 || m.RecordCount != 1 {
+		t.Fatalf("metadata = %+v, want revision 1 count 1", m)
 	}
 }
 
@@ -720,6 +773,77 @@ func TestGetCorruptRecord(t *testing.T) {
 	_, err = s.List(ctx, 10)
 	if code := storeErrCode(t, err); code != ErrCorruptRecord {
 		t.Fatalf("corrupt list: code = %q", code)
+	}
+}
+
+func TestCanonicalJSONMatchesSerdeBytes(t *testing.T) {
+	// Hand-written serde_json::to_string(&record) output: struct declaration
+	// field order, no HTML escaping, chrono "Z" timestamps with AutoSi
+	// fractional groups, and U+2028 preserved verbatim.
+	content := "a<b>&\"q\"\u2028end"
+	reasonDigest := MemoryContentDigest([]byte("rm"))
+	expires := time.Date(2026, 7, 30, 0, 0, 0, 123_456_000, time.UTC)
+	rec := Record{
+		ID:      "t-1",
+		Kind:    KindJournal,
+		Content: content,
+		Provenance: Provenance{
+			Source:        ProvenanceSourceUserInput,
+			SourceID:      "u-1",
+			ContentDigest: MemoryContentDigest([]byte(content)),
+			CapturedAt:    time.Date(2026, 7, 29, 12, 0, 1, 123_000_000, time.UTC),
+			Correlation: AuditCorrelation{
+				RequestID: "r-1", TurnID: "tn-1", SessionID: "s-1", TraceID: strptr("tr-1"),
+			},
+		},
+		EvidenceRefs: []EvidenceRef{{
+			ID: "e-1", Source: EvidenceSourceFile, URI: "file://x",
+			Excerpt:   strptr("ex<c"),
+			CreatedAt: time.Date(2026, 7, 29, 12, 0, 3, 999_999_999, time.UTC),
+		}},
+		ConfidenceBPS: 9_000,
+		Sensitivity:   SensitivityInternal,
+		Trust:         TrustUserAsserted,
+		Scope:         Scope{TenantID: "ten-1", WorkspaceID: "ws-1", SessionID: strptr("sess-1")},
+		CreatedAt:     time.Date(2026, 7, 29, 12, 0, 1, 123_456_789, time.UTC),
+		EffectiveAt:   time.Date(2026, 7, 29, 12, 0, 2, 0, time.UTC),
+		ExpiresAt:     &expires,
+		Supersedes:    []string{"old-1"},
+		Tombstone: &Tombstone{
+			TargetRecordID: "old-1",
+			ReasonDigest:   reasonDigest,
+			ActorID:        "u-1",
+			CreatedAt:      time.Date(2026, 7, 29, 13, 0, 0, 500_000_000, time.UTC),
+		},
+	}
+
+	want := `{"id":"t-1","kind":"journal","content":"a<b>&\"q\"` + "\u2028" + `end",` +
+		`"provenance":{"source":"user_input","source_id":"u-1",` +
+		`"content_digest":{"algorithm":"sha256","value":"` + MemoryContentDigest([]byte(content)).Value + `"},` +
+		`"captured_at":"2026-07-29T12:00:01.123Z",` +
+		`"correlation":{"request_id":"r-1","turn_id":"tn-1","session_id":"s-1","trace_id":"tr-1"}},` +
+		`"evidence_refs":[{"id":"e-1","source":"file","uri":"file://x","excerpt":"ex<c","hash":null,"created_at":"2026-07-29T12:00:03.999999999Z"}],` +
+		`"confidence_bps":9000,"sensitivity":"internal","trust":"user_asserted",` +
+		`"scope":{"tenant_id":"ten-1","workspace_id":"ws-1","session_id":"sess-1"},` +
+		`"created_at":"2026-07-29T12:00:01.123456789Z","effective_at":"2026-07-29T12:00:02Z","expires_at":"2026-07-30T00:00:00.123456Z",` +
+		`"supersedes":["old-1"],` +
+		`"tombstone":{"target_record_id":"old-1","reason_digest":{"algorithm":"sha256","value":"` + reasonDigest.Value + `"},"actor_id":"u-1","created_at":"2026-07-29T13:00:00.500Z"}}`
+
+	got, err := marshalCanonical(rec)
+	if err != nil {
+		t.Fatalf("marshalCanonical: %v", err)
+	}
+	if string(got) != want {
+		t.Fatalf("canonical bytes mismatch:\n got: %s\nwant: %s", got, want)
+	}
+
+	// The stored record_json round-trips: decode restores the exact record.
+	var decoded Record
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("decode canonical: %v", err)
+	}
+	if !reflect.DeepEqual(decoded, rec) {
+		t.Fatalf("canonical round trip mismatch:\n got: %+v\nwant: %+v", decoded, rec)
 	}
 }
 
