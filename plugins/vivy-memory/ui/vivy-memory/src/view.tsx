@@ -1,47 +1,81 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Brain, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { MasterDetail } from '@/components/layout/MasterDetail';
-import { getDemoMemories } from '@/lib/demo-api';
-import type { DemoMemoryItem } from '@/lib/types';
 import { dateTimeLocale } from '@/i18n';
-import { usePluginTranslation } from '@vivy/ui-sdk';
+import { usePluginHost, usePluginTranslation, type UITranslator } from '@vivy/ui-sdk';
 import { DemoLoadError } from '@/components/demo/DemoBanner';
+import { MemoryClient, type MemoryEntry } from './memory-client';
 
-export function MemoryDemoView() {
+const SEARCH_DEBOUNCE_MS = 250;
+
+const KNOWN_TRUST = new Set(['applied_authority', 'user_asserted', 'observed', 'inferred', 'untrusted', 'unknown']);
+
+export function MemoryView() {
+  const host = usePluginHost();
   const { t } = usePluginTranslation();
-  const [memories, setMemories] = useState<DemoMemoryItem[]>([]);
+  const client = useMemo(() => (host ? MemoryClient.fromRPC(host.rpc) : null), [host]);
+  const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const load = async () => {
+  const requestSeq = useRef(0);
+
+  // The search box drives vivy.memory.search; an empty box lists. A failed
+  // invoke surfaces as an error state — never as fabricated rows.
+  const load = useCallback(async (needle: string) => {
+    if (!client) return;
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const items = await getDemoMemories();
-      setMemories(items);
-      setSelectedId((current) => (current && items.some((item) => item.id === current) ? current : null));
+      const outcome = needle ? await client.search({ query: needle }) : await client.list({});
+      if (seq !== requestSeq.current) return;
+      if (outcome.status === 'listed') {
+        const entries = [...(outcome.entries ?? [])];
+        setMemories(entries);
+        setSelectedId((current) => (current && entries.some((item) => item.id === current) ? current : null));
+      } else {
+        setError(outcome.reason ?? outcome.status);
+      }
     } catch (cause) {
+      if (seq !== requestSeq.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  };
-  useEffect(() => { void load(); }, []);
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle ? memories.filter((item) => `${item.title} ${item.content}`.toLowerCase().includes(needle)) : memories;
-  }, [memories, query]);
+  }, [client]);
+
+  const firstLoad = useRef(true);
+  useEffect(() => {
+    const needle = query.trim();
+    if (firstLoad.current) {
+      firstLoad.current = false;
+      void load(needle);
+      return undefined;
+    }
+    const timer = setTimeout(() => { void load(needle); }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [load, query]);
+
   const selected = memories.find((item) => item.id === selectedId) ?? null;
+
+  if (!host) {
+    return (
+      <div className="h-full overflow-auto p-6">
+        <p className="text-sm text-muted-foreground">{t('plugin.vivy/memory.unavailable')}</p>
+      </div>
+    );
+  }
 
   if (error) {
     return (
       <div className="h-full overflow-auto p-6">
         <div className="mx-auto max-w-xl">
-          <DemoLoadError message={error} onRetry={() => void load()} />
+          <DemoLoadError message={error} onRetry={() => void load(query.trim())} />
         </div>
       </div>
     );
@@ -65,7 +99,7 @@ export function MemoryDemoView() {
                 <div className="h-16 animate-pulse rounded-lg bg-muted" />
                 <div className="h-16 animate-pulse rounded-lg bg-muted" />
               </div>
-            ) : filtered.length ? filtered.map((item) => (
+            ) : memories.length ? memories.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -73,10 +107,10 @@ export function MemoryDemoView() {
                 className={`mb-1 w-full rounded-lg p-3 text-left ${selectedId === item.id ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/50'}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{item.title}</span>
-                  <Badge variant="outline">{t(`plugin.vivy/memory.categories.${item.category}`)}</Badge>
+                  <span className="truncate text-sm font-medium">{firstLine(item.content)}</span>
+                  <Badge variant="outline">{trustLabel(t, item.trust)}</Badge>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{item.content}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString(dateTimeLocale())}</p>
               </button>
             )) : (
               <p className="px-3 py-10 text-center text-sm text-muted-foreground">{query ? t('plugin.vivy/memory.noMatch') : t('plugin.vivy/memory.empty')}</p>
@@ -91,13 +125,18 @@ export function MemoryDemoView() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Brain className="h-5 w-5 shrink-0 text-primary" />
-                  <span className="min-w-0">{selected.title}</span>
+                  <span className="min-w-0 truncate">{firstLine(selected.content)}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Badge>{t(`plugin.vivy/memory.categories.${selected.category}`)}</Badge>
-                <p className="mt-4 leading-7 break-words">{selected.content}</p>
-                <p className="mt-6 text-xs text-muted-foreground">{t('plugin.vivy/memory.updatedAt', { date: new Date(selected.updatedAt).toLocaleString(dateTimeLocale()) })}</p>
+                <Badge>{trustLabel(t, selected.trust)}</Badge>
+                <p className="mt-4 leading-7 break-words whitespace-pre-wrap">{selected.content}</p>
+                <p className="mt-6 text-xs text-muted-foreground">
+                  {t('plugin.vivy/memory.updatedAt', { date: new Date(selected.updated_at).toLocaleString(dateTimeLocale()) })}
+                  {' · '}
+                  {t('plugin.vivy/memory.revision', { revision: selected.revision })}
+                  {selected.provenance ? ` · ${t('plugin.vivy/memory.provenance', { source: selected.provenance })}` : ''}
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -107,4 +146,13 @@ export function MemoryDemoView() {
       }
     />
   );
+}
+
+function firstLine(content: string): string {
+  const line = content.split('\n', 1)[0]?.trim() ?? '';
+  return line || content.trim();
+}
+
+function trustLabel(t: UITranslator, trust: string): string {
+  return KNOWN_TRUST.has(trust) ? t(`plugin.vivy/memory.trust.${trust}`) : trust;
 }

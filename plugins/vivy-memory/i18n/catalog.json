@@ -17,28 +17,80 @@
         "zh": "记忆条目 · 搜索并查看每条记录"
       }
     },
-    "plugin.vivy/memory.categories.decision": {
-      "description": "Memory page copy: categories.decision",
-      "placeholders": [],
+    "plugin.vivy/memory.provenance": {
+      "description": "Memory page copy: record provenance source",
+      "placeholders": [
+        "source"
+      ],
       "messages": {
-        "en": "Decision",
-        "zh": "决策"
+        "en": "Source {{source}}",
+        "zh": "来源 {{source}}"
       }
     },
-    "plugin.vivy/memory.categories.preference": {
-      "description": "Memory page copy: categories.preference",
-      "placeholders": [],
+    "plugin.vivy/memory.revision": {
+      "description": "Memory page copy: record revision",
+      "placeholders": [
+        "revision"
+      ],
       "messages": {
-        "en": "Preference",
-        "zh": "偏好"
+        "en": "Revision {{revision}}",
+        "zh": "修订版本 {{revision}}"
       }
     },
-    "plugin.vivy/memory.categories.project": {
-      "description": "Memory page copy: categories.project",
+    "plugin.vivy/memory.trust.applied_authority": {
+      "description": "Memory page copy: trust level applied_authority",
       "placeholders": [],
       "messages": {
-        "en": "Project",
-        "zh": "项目"
+        "en": "Authority",
+        "zh": "权威"
+      }
+    },
+    "plugin.vivy/memory.trust.user_asserted": {
+      "description": "Memory page copy: trust level user_asserted",
+      "placeholders": [],
+      "messages": {
+        "en": "User asserted",
+        "zh": "用户声明"
+      }
+    },
+    "plugin.vivy/memory.trust.observed": {
+      "description": "Memory page copy: trust level observed",
+      "placeholders": [],
+      "messages": {
+        "en": "Observed",
+        "zh": "观测"
+      }
+    },
+    "plugin.vivy/memory.trust.inferred": {
+      "description": "Memory page copy: trust level inferred",
+      "placeholders": [],
+      "messages": {
+        "en": "Inferred",
+        "zh": "推断"
+      }
+    },
+    "plugin.vivy/memory.trust.untrusted": {
+      "description": "Memory page copy: trust level untrusted",
+      "placeholders": [],
+      "messages": {
+        "en": "Untrusted",
+        "zh": "不可信"
+      }
+    },
+    "plugin.vivy/memory.trust.unknown": {
+      "description": "Memory page copy: trust level unknown",
+      "placeholders": [],
+      "messages": {
+        "en": "Unknown",
+        "zh": "未知"
+      }
+    },
+    "plugin.vivy/memory.unavailable": {
+      "description": "Memory page copy: host/rpc unavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory backend is unavailable",
+        "zh": "记忆后端不可用"
       }
     },
     "plugin.vivy/memory.empty": {
