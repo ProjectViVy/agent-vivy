@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -240,6 +242,484 @@ func TestMemoryFTSAcceptsWritesAndQueries(t *testing.T) {
 	}
 	if id != "m-1" {
 		t.Fatalf("fts5 hit = %q, want m-1", id)
+	}
+}
+
+func openTestStore(t *testing.T, workspace string) *Store {
+	t.Helper()
+	s, err := Open(context.Background(), t.TempDir(), workspace)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func storeRecord(id, workspace, content string) Record {
+	now := time.Now().UTC().Add(-time.Minute)
+	return Record{
+		ID:      id,
+		Kind:    KindLongTerm,
+		Content: content,
+		Provenance: Provenance{
+			Source:        ProvenanceSourceUserInput,
+			SourceID:      "user-1",
+			ContentDigest: MemoryContentDigest([]byte(content)),
+			CapturedAt:    now,
+			Correlation: AuditCorrelation{
+				RequestID: "request-1",
+				TurnID:    "turn-1",
+				SessionID: "session-1",
+			},
+		},
+		EvidenceRefs:  []EvidenceRef{},
+		ConfidenceBPS: 9_000,
+		Sensitivity:   SensitivityInternal,
+		Trust:         TrustUserAsserted,
+		Scope:         Scope{TenantID: "tenant-1", WorkspaceID: workspace},
+		CreatedAt:     now,
+		EffectiveAt:   now,
+		Supersedes:    []string{},
+	}
+}
+
+func tombstoneRecord(id, workspace, target string) Record {
+	rec := storeRecord(id, workspace, "")
+	rec.Provenance.ContentDigest = MemoryContentDigest(nil)
+	rec.Supersedes = []string{target}
+	rec.Tombstone = &Tombstone{
+		TargetRecordID: target,
+		ReasonDigest:   MemoryContentDigest([]byte("removed")),
+		ActorID:        "user-1",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	}
+	return rec
+}
+
+func ftsRows(t *testing.T, s *Store, memoryID string) int {
+	t.Helper()
+	var n int
+	err := s.db.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM memory_fts WHERE memory_id = ?", memoryID).Scan(&n)
+	if err != nil {
+		t.Fatalf("count fts rows for %s: %v", memoryID, err)
+	}
+	return n
+}
+
+func TestPutGetListRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	storedB, err := s.Put(ctx, storeRecord("b", "workspace-1", "beta"), 0, nil)
+	if err != nil {
+		t.Fatalf("Put b: %v", err)
+	}
+	if storedB.Revision != 1 {
+		t.Fatalf("b revision = %d, want 1", storedB.Revision)
+	}
+	storedA, err := s.Put(ctx, storeRecord("a", "workspace-1", "alpha"), 1, nil)
+	if err != nil {
+		t.Fatalf("Put a: %v", err)
+	}
+	if storedA.Revision != 1 {
+		t.Fatalf("a revision = %d, want 1", storedA.Revision)
+	}
+
+	got, err := s.Get(ctx, "b")
+	if err != nil {
+		t.Fatalf("Get b: %v", err)
+	}
+	if got == nil || got.Record.Content != "beta" || got.Revision != 1 {
+		t.Fatalf("Get b = %+v", got)
+	}
+	missing, err := s.Get(ctx, "absent")
+	if err != nil {
+		t.Fatalf("Get absent: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("Get absent = %+v, want nil", missing)
+	}
+
+	list, err := s.List(ctx, 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	ids := make([]string, len(list))
+	for i, r := range list {
+		ids[i] = r.Record.ID
+	}
+	if !reflect.DeepEqual(ids, []string{"a", "b"}) {
+		t.Fatalf("List order = %v, want [a b]", ids)
+	}
+	limited, err := s.List(ctx, 1)
+	if err != nil {
+		t.Fatalf("List limit: %v", err)
+	}
+	if len(limited) != 1 || limited[0].Record.ID != "a" {
+		t.Fatalf("List limit = %+v", limited)
+	}
+
+	m, err := s.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	wantBytes := int64(len("beta") + len("alpha"))
+	if m.StoreRevision != 2 || m.RecordCount != 2 || m.ContentBytes != wantBytes {
+		t.Fatalf("metadata = %+v, want revision 2, count 2, bytes %d", m, wantBytes)
+	}
+	if ftsRows(t, s, "a") != 1 || ftsRows(t, s, "b") != 1 {
+		t.Fatal("missing FTS rows after put")
+	}
+}
+
+func TestPutUpdateAndRevisionConflicts(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.Put(ctx, storeRecord("a", "workspace-1", "alpha"), 0, nil); err != nil {
+		t.Fatalf("Put a: %v", err)
+	}
+	one := int64(1)
+	updated, err := s.Put(ctx, storeRecord("a", "workspace-1", "alpha v2"), 1, &one)
+	if err != nil {
+		t.Fatalf("update a: %v", err)
+	}
+	if updated.Revision != 2 {
+		t.Fatalf("updated revision = %d, want 2", updated.Revision)
+	}
+	got, err := s.Get(ctx, "a")
+	if err != nil || got.Record.Content != "alpha v2" {
+		t.Fatalf("Get a = %+v, %v", got, err)
+	}
+
+	stale, err := s.Put(ctx, storeRecord("a", "workspace-1", "alpha v3"), 0, nil)
+	if code := storeErrCode(t, err); code != ErrStoreRevisionConflict {
+		t.Fatalf("stale store revision: code = %q (stored %+v)", code, stale)
+	}
+	_, err = s.Put(ctx, storeRecord("a", "workspace-1", "alpha v3"), 2, nil)
+	if code := storeErrCode(t, err); code != ErrRecordRevisionConflict {
+		t.Fatalf("expected-revision none on existing row: code = %q", code)
+	}
+	zero := int64(0)
+	_, err = s.Put(ctx, storeRecord("a", "workspace-1", "alpha v3"), 2, &zero)
+	if code := storeErrCode(t, err); code != ErrRecordRevisionConflict {
+		t.Fatalf("stale record revision: code = %q", code)
+	}
+	m, err := s.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if m.StoreRevision != 2 || m.RecordCount != 1 {
+		t.Fatalf("metadata after failed puts = %+v, want revision 2 count 1", m)
+	}
+	if got, _ := s.Get(ctx, "a"); got.Record.Content != "alpha v2" {
+		t.Fatalf("content after failed puts = %q", got.Record.Content)
+	}
+}
+
+func TestPutWorkspaceMismatchAndInvalidRecord(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	_, err := s.Put(ctx, storeRecord("x", "workspace-2", "forbidden"), 0, nil)
+	if code := storeErrCode(t, err); code != ErrWorkspaceMismatch {
+		t.Fatalf("cross-workspace put: code = %q", code)
+	}
+
+	invalid := storeRecord("bad", "workspace-1", "secret sentinel content")
+	invalid.Provenance.ContentDigest = MemoryContentDigest([]byte("different"))
+	_, err = s.Put(ctx, invalid, 0, nil)
+	if code := storeErrCode(t, err); code != ErrInvalidRecord {
+		t.Fatalf("invalid record: code = %q", code)
+	}
+	if strings.Contains(err.Error(), "secret sentinel content") {
+		t.Fatalf("error leaked content: %q", err.Error())
+	}
+	m, err := s.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if m.RecordCount != 0 || m.StoreRevision != 0 {
+		t.Fatalf("invalid write was not atomic: %+v", m)
+	}
+}
+
+func TestTombstoneHidesContentAndIndexesSupersede(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.Put(ctx, storeRecord("old", "workspace-1", "needle private value"), 0, nil); err != nil {
+		t.Fatalf("Put old: %v", err)
+	}
+	if ftsRows(t, s, "old") != 1 {
+		t.Fatal("precondition: old should be indexed")
+	}
+	if err := s.PutTombstone(ctx, tombstoneRecord("forget-old", "workspace-1", "old"), 1, "old", 1); err != nil {
+		t.Fatalf("PutTombstone: %v", err)
+	}
+
+	got, err := s.Get(ctx, "old")
+	if err != nil || got == nil {
+		t.Fatalf("Get old: %+v, %v", got, err)
+	}
+	tomb, err := s.Get(ctx, "forget-old")
+	if err != nil || tomb == nil {
+		t.Fatalf("Get tombstone: %+v, %v", tomb, err)
+	}
+	if tomb.Record.Tombstone == nil || tomb.Record.Content != "" {
+		t.Fatalf("tombstone record = %+v", tomb.Record)
+	}
+	if ftsRows(t, s, "old") != 0 {
+		t.Fatal("tombstone left searchable FTS content for target")
+	}
+	if ftsRows(t, s, "forget-old") != 0 {
+		t.Fatal("tombstone record itself got an FTS row")
+	}
+	targets, err := s.SupersededTargetIDs(ctx)
+	if err != nil {
+		t.Fatalf("SupersededTargetIDs: %v", err)
+	}
+	if _, ok := targets["old"]; !ok || len(targets) != 1 {
+		t.Fatalf("SupersededTargetIDs = %v, want {old}", targets)
+	}
+	list, err := s.List(ctx, 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("List len = %d, want 2 (tombstone keeps record row)", len(list))
+	}
+}
+
+func TestPutTombstoneGuardsTargetRevision(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.Put(ctx, storeRecord("old", "workspace-1", "value"), 0, nil); err != nil {
+		t.Fatalf("Put old: %v", err)
+	}
+	err := s.PutTombstone(ctx, tombstoneRecord("t1", "workspace-1", "old"), 1, "old", 99)
+	if code := storeErrCode(t, err); code != ErrRecordRevisionConflict {
+		t.Fatalf("stale target revision: code = %q", code)
+	}
+	err = s.PutTombstone(ctx, tombstoneRecord("t1", "workspace-1", "missing"), 1, "missing", 1)
+	if code := storeErrCode(t, err); code != ErrRecordRevisionConflict {
+		t.Fatalf("missing target: code = %q", code)
+	}
+	if err := s.PutTombstone(ctx, tombstoneRecord("t1", "workspace-1", "old"), 1, "old", 1); err != nil {
+		t.Fatalf("guarded PutTombstone: %v", err)
+	}
+}
+
+func TestTombstoneSuppressionSurvivesTargetRewrite(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.Put(ctx, storeRecord("old", "workspace-1", "needle"), 0, nil); err != nil {
+		t.Fatalf("Put old: %v", err)
+	}
+	if _, err := s.Put(ctx, tombstoneRecord("forget-old", "workspace-1", "old"), 1, nil); err != nil {
+		t.Fatalf("Put tombstone: %v", err)
+	}
+	one := int64(1)
+	if _, err := s.Put(ctx, storeRecord("old", "workspace-1", "needle rewritten"), 2, &one); err != nil {
+		t.Fatalf("rewrite old: %v", err)
+	}
+	if ftsRows(t, s, "old") != 0 {
+		t.Fatal("rewritten record regained FTS row despite superseding tombstone")
+	}
+}
+
+func TestCapacityLimitsEnforced(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE schema_meta SET record_count = ? WHERE component = ?", MaxMemoryRecords, component); err != nil {
+		t.Fatalf("seed record_count: %v", err)
+	}
+	_, err := s.Put(ctx, storeRecord("over-count", "workspace-1", "x"), 0, nil)
+	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
+		t.Fatalf("record capacity: code = %q", code)
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE schema_meta SET record_count = 0, content_bytes = ? WHERE component = ?", MaxMemoryContentBytes, component); err != nil {
+		t.Fatalf("seed content_bytes: %v", err)
+	}
+	_, err = s.Put(ctx, storeRecord("over-bytes", "workspace-1", "x"), 0, nil)
+	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
+		t.Fatalf("content capacity: code = %q", code)
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE schema_meta SET content_bytes = 0 WHERE component = ?", component); err != nil {
+		t.Fatalf("reset content_bytes: %v", err)
+	}
+	oversized := storeRecord("oversized", "workspace-1", strings.Repeat("x", int(MaxMemoryContentBytes)+1))
+	oversized.Provenance.ContentDigest = MemoryContentDigest([]byte(oversized.Content))
+	_, err = s.Put(ctx, oversized, 0, nil)
+	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
+		t.Fatalf("oversized record: code = %q", code)
+	}
+}
+
+func TestConcurrentPutHasOneWinner(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	type result struct{ err error }
+	results := make(chan result, 2)
+	go func() {
+		_, err := s.Put(ctx, storeRecord("left", "workspace-1", "left"), 0, nil)
+		results <- result{err}
+	}()
+	go func() {
+		_, err := s.Put(ctx, storeRecord("right", "workspace-1", "right"), 0, nil)
+		results <- result{err}
+	}()
+	var ok, conflicts int
+	for i := 0; i < 2; i++ {
+		r := <-results
+		if r.err == nil {
+			ok++
+			continue
+		}
+		var se *StoreError
+		if errors.As(r.err, &se) && se.Code == ErrStoreRevisionConflict {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected error: %v", r.err)
+		}
+	}
+	if ok != 1 || conflicts != 1 {
+		t.Fatalf("concurrent put: ok=%d conflicts=%d", ok, conflicts)
+	}
+	m, err := s.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if m.StoreRevision != 1 || m.RecordCount != 1 {
+		t.Fatalf("metadata = %+v, want revision 1 count 1", m)
+	}
+}
+
+func TestImportRecords(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	batch := []Record{
+		storeRecord("i-1", "workspace-1", "first"),
+		storeRecord("i-2", "workspace-1", "second"),
+	}
+	n, err := s.ImportRecords(ctx, batch)
+	if err != nil {
+		t.Fatalf("ImportRecords: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("imported = %d, want 2", n)
+	}
+	m, err := s.Metadata(ctx)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if m.StoreRevision != 2 || m.RecordCount != 2 || m.ContentBytes != int64(len("first")+len("second")) {
+		t.Fatalf("metadata after import = %+v", m)
+	}
+	got, err := s.Get(ctx, "i-1")
+	if err != nil || got == nil || got.Revision != 1 || got.Record.Content != "first" {
+		t.Fatalf("Get i-1 = %+v, %v", got, err)
+	}
+	if ftsRows(t, s, "i-1") != 1 {
+		t.Fatal("imported record missing FTS row")
+	}
+
+	// Idempotent replay: identical canonical JSON is a no-op.
+	n, err = s.ImportRecords(ctx, batch)
+	if err != nil {
+		t.Fatalf("idempotent ImportRecords: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("re-imported = %d, want 0", n)
+	}
+	m, _ = s.Metadata(ctx)
+	if m.StoreRevision != 2 || m.RecordCount != 2 {
+		t.Fatalf("idempotent replay mutated metadata: %+v", m)
+	}
+
+	// Conflicting id aborts the whole batch.
+	conflict := storeRecord("i-1", "workspace-1", "different content")
+	fresh := storeRecord("i-3", "workspace-1", "third")
+	_, err = s.ImportRecords(ctx, []Record{conflict, fresh})
+	if code := storeErrCode(t, err); code != ErrImportConflict {
+		t.Fatalf("conflicting import: code = %q", code)
+	}
+	m, _ = s.Metadata(ctx)
+	if m.RecordCount != 2 {
+		t.Fatalf("conflict was not atomic: %+v", m)
+	}
+	if got, _ := s.Get(ctx, "i-3"); got != nil {
+		t.Fatal("conflicting batch partially applied")
+	}
+
+	// One invalid record aborts the batch.
+	invalid := storeRecord("i-4", "workspace-1", "fourth")
+	invalid.Provenance.ContentDigest = MemoryContentDigest([]byte("tampered"))
+	_, err = s.ImportRecords(ctx, []Record{invalid, storeRecord("i-5", "workspace-1", "fifth")})
+	if code := storeErrCode(t, err); code != ErrInvalidRecord {
+		t.Fatalf("invalid import: code = %q", code)
+	}
+	m, _ = s.Metadata(ctx)
+	if m.RecordCount != 2 {
+		t.Fatalf("invalid batch was not atomic: %+v", m)
+	}
+
+	// Cross-workspace record aborts the batch.
+	_, err = s.ImportRecords(ctx, []Record{storeRecord("i-6", "workspace-2", "sixth")})
+	if code := storeErrCode(t, err); code != ErrWorkspaceMismatch {
+		t.Fatalf("cross-workspace import: code = %q", code)
+	}
+
+	// Capacity: seeded counters plus batch must not exceed the bound.
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE schema_meta SET record_count = ? WHERE component = ?", MaxMemoryRecords-1, component); err != nil {
+		t.Fatalf("seed counters: %v", err)
+	}
+	_, err = s.ImportRecords(ctx, []Record{
+		storeRecord("i-7", "workspace-1", "seven"),
+		storeRecord("i-8", "workspace-1", "eight"),
+	})
+	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
+		t.Fatalf("capacity import: code = %q", code)
+	}
+	m, _ = s.Metadata(ctx)
+	if m.RecordCount != MaxMemoryRecords-1 {
+		t.Fatalf("capacity failure was not atomic: %+v", m)
+	}
+}
+
+func TestGetCorruptRecord(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, "workspace-1")
+
+	if _, err := s.Put(ctx, storeRecord("corrupt-me", "workspace-1", "private"), 0, nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE memory_records SET record_json = '{invalid' WHERE memory_id = ?", "corrupt-me"); err != nil {
+		t.Fatalf("corrupt row: %v", err)
+	}
+	_, err := s.Get(ctx, "corrupt-me")
+	if code := storeErrCode(t, err); code != ErrCorruptRecord {
+		t.Fatalf("corrupt get: code = %q", code)
+	}
+	if strings.Contains(err.Error(), "private") {
+		t.Fatalf("error leaked content: %q", err.Error())
+	}
+	_, err = s.List(ctx, 10)
+	if code := storeErrCode(t, err); code != ErrCorruptRecord {
+		t.Fatalf("corrupt list: code = %q", code)
 	}
 }
 

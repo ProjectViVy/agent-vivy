@@ -298,8 +298,8 @@ func (s *EvidenceSource) UnmarshalJSON(data []byte) error {
 // review.
 type EvidenceRef struct {
 	ID        string         `json:"id"`
-	URI       string         `json:"uri"`
 	Source    EvidenceSource `json:"source"`
+	URI       string         `json:"uri"`
 	Excerpt   *string        `json:"excerpt"`
 	Hash      *string        `json:"hash"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -374,8 +374,8 @@ func (p *Provenance) UnmarshalJSON(data []byte) error {
 // active use.
 type Tombstone struct {
 	TargetRecordID string        `json:"target_record_id"`
-	ActorID        string        `json:"actor_id"`
 	ReasonDigest   ContentDigest `json:"reason_digest"`
+	ActorID        string        `json:"actor_id"`
 	CreatedAt      time.Time     `json:"created_at"`
 }
 
