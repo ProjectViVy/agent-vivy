@@ -20,32 +20,31 @@ not implied by it.
 
 | Story | Requirements | Outcome | Immediate predecessor | Plan | State | Evidence / next gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| MEM-0A | REQ-MEM-13 | Pinned upstream revisions (agent-diva, laputa, mem0, memU, TencentDB) + drift reconciliation | none | [MEM-0A](MEM-0A.md) | Ready | research note under `docs/research/` |
-| MEM-0B | REQ-MEM-1,6,7,8 | Capability profile + trusted-scope/identity mapping contract | MEM-0A (pinned upstream facts) | [MEM-0B](MEM-0B.md) | Ready | `docs/architecture/VIVY-MEMORY-PROFILE.md` |
-| MEM-0C | REQ-MEM-9,10,11 | Host contracts closing GAP-A (persona projection) and GAP-B (session export) | MEM-0B (profile terms) | [MEM-0C](MEM-0C.md) | Ready | `docs/architecture/VIVY-MEMORY-HOST-CONTRACTS.md` |
-| MEM-0D | REQ-MEM-4,10 | Mutation authority resolution under Grants; Eino/EinoExt and Laputa readiness revalidation | MEM-0A | [MEM-0D](MEM-0D.md) | Ready | `docs/research/2026-09-26-memory-g0-readiness.md` |
-| MEM-0E | REQ-MEM-13 | Trackers and architecture docs updated; G0 outcomes folded back | MEM-0A–0D | [MEM-0E](MEM-0E.md) | Ready | `docs/TODO.md`, `docs/DEFER.MD`, SCX cross-refs |
-| MEM-1 | REQ-MEM-1,6,7,13 | **Phase 1 (authorized):** BML standalone Go library port — record model, typed SQLite+FTS5 store, MemoryHome facade, migration adapters. No Port wiring. | none (library-only scope; G0 contracts govern later adapter Stories) | [MEM-1](MEM-1.md) | Ready — executing via subagent-driven development | `bml/` module, `go test` green |
-| MEM-1A | REQ-MEM-2–5,9 | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | MEM-1, MEM-0B, MEM-0C, MEM-0D | — | Blocked | needs G0 contracts + landed library |
+| MEM-0A | REQ-MEM-13 | Pinned upstream revisions (agent-diva, laputa, mem0, memU, TencentDB) + drift reconciliation | none | [MEM-0A](MEM-0A.md) | Done 2026-09-26 | `docs/research/2026-09-26-memory-upstream-pin.md` |
+| MEM-0B | REQ-MEM-1,6,7,8 | Capability profile + trusted-scope/identity mapping contract | MEM-0A (pinned upstream facts) | [MEM-0B](MEM-0B.md) | Done 2026-09-26 | `docs/architecture/VIVY-MEMORY-PROFILE.md` |
+| MEM-0C | REQ-MEM-9,10,11 | Host contracts closing GAP-A (persona projection) and GAP-B (session export) | MEM-0B (profile terms) | [MEM-0C](MEM-0C.md) | Done 2026-09-26 | `docs/architecture/VIVY-MEMORY-HOST-CONTRACTS.md` |
+| MEM-0D | REQ-MEM-4,10 | Mutation authority resolution under Grants; Eino/EinoExt and Laputa readiness revalidation | MEM-0A | [MEM-0D](MEM-0D.md) | Done 2026-09-26 | `docs/research/2026-09-26-memory-g0-readiness.md` |
+| MEM-0E | REQ-MEM-13 | Trackers and architecture docs updated; G0 outcomes folded back | MEM-0A–0D | [MEM-0E](MEM-0E.md) | Done 2026-09-26 | `docs/TODO.md`, `docs/DEFER.MD`, `docs/research/OPEN-ITEMS.md`, SCX cross-refs; log `docs/logs/2026-09-26-memory-g0-contracts/` |
+| MEM-1 | REQ-MEM-1,6,7,13 | **Phase 1 (authorized):** BML standalone Go library port — record model, typed SQLite+FTS5 store, MemoryHome facade, migration adapters. No Port wiring. | none (library-only scope; G0 contracts govern later adapter Stories) | [MEM-1](MEM-1.md) | Done 2026-09-26 | `bml/` module + `bml/provider.go` trait contract + `bml/README.md`; PR #62; `go test` green; log `docs/logs/2026-09-26-memory-bml/notes.md` |
+| MEM-1A | REQ-MEM-2–5,9 | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | MEM-1, MEM-0B, MEM-0C, MEM-0D | — | Ready | G0 contracts frozen + `bml/` landed — both preconditions met |
 | MEM-2 | REQ-MEM-7,8,9 | One pinned remote provider (mem0) proving the profile | MEM-1A | — | Blocked | plan written after G1 evidence |
 | MEM-3 | REQ-MEM-11 | Independent Laputa persona governance | MEM-0C, MEM-0D | — | Blocked | needs GAP-A contract + upstream readiness verdict |
 | MEM-4 | REQ-MEM-12 | Garden connector + structured recall mapping | MEM-0C, MEM-3 | — | Blocked | needs governance path + Garden contract inspection |
 | MEM-5 | REQ-MEM-4,10 | memU completed-session extraction; TencentDB mapping | MEM-0C, MEM-2 | — | Blocked | needs session export contract + provider proof |
 
-Topological waves: phase 1 = `{MEM-1}` first (user-directed: restore BML as a
-standalone in-repo library before contract docs). G0 doc Stories stay Ready and
-run after or alongside MEM-1: `{MEM-0A}`, `{MEM-0B, MEM-0D}` (parallel),
-`{MEM-0C}`, `{MEM-0E}`. File conflicts: MEM-1 owns `bml/`; G0 stories own
-disjoint docs — no overlap. MEM-0E serializes after contract docs so tracker
-text cites real paths.
+Topological waves, as landed: phase 1 `{MEM-1}` ran first (user-directed:
+restore BML as a standalone in-repo library before contract docs) and landed
+2026-09-26 as `bml/`; the G0 doc Stories `{MEM-0A}`, `{MEM-0B, MEM-0D}`
+(parallel), `{MEM-0C}`, `{MEM-0E}` all landed alongside. MEM-1A is the next
+wave and is unblocked: its predecessors (MEM-1 + MEM-0B/0C/0D) are all in.
 
 ## Scope and readiness
 
 Ready = contract docs written against the verified seams listed in the spec;
 the gate for a doc Story is review plus `just ci` staying green (docs only).
-No Go/TS code changes are authorized by G0 Stories. MEM-1 is library-only Go
-work and proceeds first per maintainer direction; the G0 contracts still gate
-the adapter Story MEM-1A.
+No Go/TS code changes are authorized by G0 Stories. MEM-1 landed library-only
+Go work per maintainer direction; the landed G0 contracts now gate the adapter
+Story MEM-1A.
 
 Iteration-log rule applies: each landed Story files `docs/logs/<date>-<slug>/`
 (`summary.md` / `verification.md` / `acceptance.md`); unfinished gaps go to
