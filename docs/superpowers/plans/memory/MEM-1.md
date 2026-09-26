@@ -139,10 +139,10 @@
 - Test: `bml/maintenance_test.go`
 
 **Interfaces (produced):**
-- `func (s *Store) GCSessionScoped(ctx, sessionID string) (uint64, error)` (`:686`), `GCStaleSessionScoped(ctx, olderThan time.Duration) (uint64, error)` (`:715`).
-- `func (s *Store) Integrity(ctx) (IntegrityReport, error)` (`:1340`) — port `MemoryIntegrityReport`/`MemoryIntegrityFinding` from `record.rs:125-151`.
+- `func (s *Store) GCSessionScoped(ctx, sessionID string) (uint64, error)` (`:686`), `GCStaleSessionScoped(ctx, activeSessionIDs []string) (uint64, error)` (`:715` — takes active session IDs, NOT a duration; empty = no active sessions).
+- `func (s *Store) Integrity(ctx) (StoreIntegrity, error)` (`:1340`) — port `MemoryStoreIntegrity`/finding types from `typed_store.rs`; name it `StoreIntegrity` because `IntegrityReport` is already the record.go migration-comparison type.
 - `func (s *Store) Backup(ctx, dest string) error` / `Restore(ctx, backup string) (*Store, error)` (`:1405`,`:1420`).
-- `func OpenCanonical(ctx, dir, workspaceID string)` / `OpenExistingCanonical` / `RollbackCanonicalIdentity` (`:220`,`:233`,`:345`) — canonical identity migration + `WorkspaceIdentityMigrationManifest`/`State` (`:124-145`).
+- `func OpenCanonical(ctx, dir string)` / `OpenExistingCanonical` / `RollbackCanonicalIdentity` (`:220`,`:233`,`:345`) — Rust derives canonical+legacy workspace identities internally from the path (no workspaceID param); artifacts at `{dir}/migrations/workspace-identity-v1/`; + `WorkspaceIdentityMigrationManifest`/`State` (`:124-145`) and `CanonicalWorkspaceID`/`LegacyPathWorkspaceID` helpers.
 
 - [ ] Steps: failing tests per function group, implement, green, commit `feat(bml): gc, integrity, backup/restore, canonical identity`.
 
@@ -161,7 +161,7 @@
 - `func (h *Home) UpdateRecord(ctx, id, content string, baseRevision int64, evidence []EvidenceRef) (StoredRecord, error)` — port `:238-282` incl. not-found mapping and provenance rewrite (`user_input`/`memory_update`).
 - `func (h *Home) RemoveRecord(ctx, id, reason string, baseRevision int64) (StoredRecord, error)` — port `:284-346`: tombstone record `memory-tombstone-{unix_micros}`.
 - `type MemRulesDocument struct { Content string; Source MemRulesSource }`, `MemRulesSource{Default,File}`; `ReadMemRules()/WriteMemRules(content)` (`:348-373`) via `atomicWrite` (port `atomic.rs`).
-- `func (h *Home) ClearSessionCheckpoint(ctx, sessionID string) (uint64, error)` (`:374`), `RunStartupGC(ctx)` (`:381` — read the full body for stale-session policy).
+- `func (h *Home) ClearSessionCheckpoint(ctx, sessionID string) (uint64, error)` (`:374`), `RunStartupGC(ctx, activeSessionIDs []string) (uint64, error)` (`:381` — empty slice = GC all session-scoped records; see Rust body).
 - `type HomeError` with `Code() string` per Global Constraints.
 
 - [ ] Steps: failing tests for each facade method incl. error codes; implement; green; commit `feat(bml): MemoryHome facade`.
