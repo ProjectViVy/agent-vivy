@@ -358,6 +358,21 @@ func (h *Home) GetRecord(ctx context.Context, id string) (*StoredRecord, error) 
 	return &entry, nil
 }
 
+// SearchVisible runs FTS5 recall over the machine-home scope through the
+// store's own escaping and visibility semantics. A missing store yields no
+// hits; the caller may still restrict to a session via Scope.SessionID.
+func (h *Home) SearchVisible(ctx context.Context, query SearchQuery) ([]SearchHit, error) {
+	store, err := h.existingStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return []SearchHit{}, nil
+	}
+	query.Scope = machineScope(query.Scope.SessionID)
+	return store.SearchVisible(ctx, query)
+}
+
 // AddLongTerm appends a long-term record (add_long_term in memory_home.rs).
 func (h *Home) AddLongTerm(ctx context.Context, content string, evidence []EvidenceRef) (StoredRecord, error) {
 	return h.AddRecord(ctx, KindLongTerm, content, evidence)

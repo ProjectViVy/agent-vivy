@@ -39,6 +39,7 @@ import (
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
+	memorymodule "agent-vivy/internal/modules/memory"
 	modelmodule "agent-vivy/internal/modules/model"
 	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
@@ -252,6 +253,23 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	backend, err := storagemodule.Open(ctx, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	// The memory service is composition-owned: opened once after storage when
+	// the Generation compiled the memory action module, then resolved by the
+	// generated providers through the package-level registry.
+	memoryOwned := false
+	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/memory-bml") {
+		if _, err := memorymodule.Open(ctx, cfg); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: open memory service: %w", err)
+		}
+		memoryOwned = true
+		defer func() {
+			if memoryOwned {
+				_ = memorymodule.Close()
+			}
+		}()
 	}
 
 	// Provider metadata is part of the binary: there is no bundle directory,
@@ -1112,6 +1130,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	actionHostOwned = false
 	observerHostOwned = false
 	assemblyOwned = false
+	memoryOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
@@ -1189,6 +1208,7 @@ func (a *App) Close() error {
 		if a.assembly != nil {
 			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 		}
+		a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
 		if a.backend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
 		}
