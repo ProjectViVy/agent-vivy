@@ -102,11 +102,14 @@ require (
 )
 
 require (
+	agent-vivy/faces/headless v0.0.0
+	agent-vivy/faces/tui v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
+	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
