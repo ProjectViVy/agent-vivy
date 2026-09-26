@@ -215,6 +215,14 @@ func TestMemoryListToolRejectsInvisibleKindAndScope(t *testing.T) {
 	wantFailure(t, invokeToolOutcome(t, memory.ToolList, `{"cursor":"zzz"}`), bml.HomeCodeInvalidRequest)
 }
 
+// A zero limit cannot advance the cursor: it would emit empty pages whose
+// next_cursor replays the incoming cursor forever.
+func TestMemoryToolsRejectZeroLimit(t *testing.T) {
+	openService(t)
+	wantFailure(t, invokeToolOutcome(t, memory.ToolList, `{"limit":0}`), bml.HomeCodeInvalidRequest)
+	wantFailure(t, invokeToolOutcome(t, memory.ToolSearch, `{"query":"x","limit":0}`), bml.HomeCodeInvalidRequest)
+}
+
 func TestMemorySearchToolFindsContent(t *testing.T) {
 	openService(t)
 	added := invokeToolOutcome(t, memory.ToolAdd,

@@ -121,6 +121,12 @@ func recallPageBounds(cursor string, limit *uint32) (offset int, fetch uint32, o
 	if limit != nil {
 		page = *limit
 	}
+	// A zero page size cannot advance: it would emit empty pages whose
+	// next_cursor replays the incoming cursor forever.
+	if page == 0 {
+		bad := invalidInput()
+		return 0, 0, &bad
+	}
 	if int64(offset) > math.MaxUint32-int64(page)-1 {
 		bad := invalidInput()
 		return 0, 0, &bad
@@ -331,8 +337,8 @@ func invokeToolRemove(ctx context.Context, service *Service, raw json.RawMessage
 var (
 	addToolSchema    = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"]},"content":{"type":"string","minLength":1,"description":"The fact or preference to remember"},"trust":{"type":"string","enum":["user_asserted"],"description":"Authority-assigned trust; only user_asserted is accepted"},"provenance":{"type":"string","enum":["user_input"],"description":"Authority-assigned provenance; only user_input is accepted"},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["kind","content"],"additionalProperties":false}`)
 	getToolSchema    = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"description":"Stable record id"}},"required":["id"],"additionalProperties":false}`)
-	listToolSchema   = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"],"description":"Record kind; only long_term is visible"},"scope":{"type":"string","enum":["machine-memory-home"],"description":"Scope filter; only the machine memory home is served"},"limit":{"type":"integer","minimum":0,"maximum":4294967295,"description":"Maximum number of entries to return"},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"additionalProperties":false}`)
-	searchToolSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":4096,"description":"Search query"},"limit":{"type":"integer","minimum":0,"maximum":4294967295},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"required":["query"],"additionalProperties":false}`)
+	listToolSchema   = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"],"description":"Record kind; only long_term is visible"},"scope":{"type":"string","enum":["machine-memory-home"],"description":"Scope filter; only the machine memory home is served"},"limit":{"type":"integer","minimum":1,"maximum":4294967295,"description":"Maximum number of entries to return"},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"additionalProperties":false}`)
+	searchToolSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":4096,"description":"Search query"},"limit":{"type":"integer","minimum":1,"maximum":4294967295},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"required":["query"],"additionalProperties":false}`)
 	updateToolSchema = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"content":{"type":"string","minLength":1,"description":"Replacement content; omitted preserves the record's current content"},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64},"reason":{"type":"string","maxLength":1024,"description":"Advisory note; not persisted"}},"required":["id","base_revision"],"additionalProperties":false}`)
 	removeToolSchema = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"reason":{"type":"string","minLength":1,"maxLength":1024}},"required":["id","base_revision","reason"],"additionalProperties":false}`)
 )
