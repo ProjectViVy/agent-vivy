@@ -8,6 +8,8 @@ Task 5 remains **NO-GO**. Run:
 '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
 ```
 
+Evidence capture runs that exact target command under `timeout 120s`.
+
 The expected intentional non-zero result names
 `TestGraphConformanceBrokerReplayRisk` and says that two same-process direct
 calls to `ExecuteBrokerTool` re-invoked its in-memory fixture counter. The
