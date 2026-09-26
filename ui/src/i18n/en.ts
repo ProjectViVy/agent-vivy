@@ -143,6 +143,7 @@ export const en: Dictionary = {
   common: {
     save: 'Save',
     cancel: 'Cancel',
+    loading: 'Loading…',
     delete: 'Delete',
     retry: 'Retry',
     refresh: 'Refresh',

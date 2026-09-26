@@ -141,6 +141,7 @@ export const zh = {
   common: {
     save: '保存',
     cancel: '取消',
+    loading: '加载中…',
     delete: '删除',
     retry: '重试',
     refresh: '刷新',

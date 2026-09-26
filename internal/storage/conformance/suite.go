@@ -1361,6 +1361,14 @@ func cnFileVersionChain(t *testing.T, h Harness) {
 func cnRunsBySession(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
+	for _, s := range []domain.Session{
+		{ID: "sess-pin", Title: "pinned", CreatedAt: 1},
+		{ID: "sess-other", Title: "other", CreatedAt: 1},
+	} {
+		if err := b.CreateSession(ctx, s); err != nil {
+			t.Fatalf("CreateSession %s: %v", s.ID, err)
+		}
+	}
 	runs := []domain.Run{
 		{ID: "run-a", SessionID: "sess-pin", Status: domain.RunCompleted, CreatedAt: 1},
 		{ID: "run-b", SessionID: "sess-pin", Status: domain.RunActive, CreatedAt: 2},
@@ -1407,6 +1415,14 @@ func cnRunsBySession(t *testing.T, h Harness) {
 func cnCompactionsBySession(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
+	for _, s := range []domain.Session{
+		{ID: "sess-cp", Title: "compacted", CreatedAt: 1},
+		{ID: "sess-other", Title: "other", CreatedAt: 1},
+	} {
+		if err := b.CreateSession(ctx, s); err != nil {
+			t.Fatalf("CreateSession %s: %v", s.ID, err)
+		}
+	}
 	records := []storage.SessionCompaction{
 		{SessionID: "sess-cp", RunID: "run-c1", Summary: "older", TailFrom: 100, DroppedCount: 4, CreatedAt: 100},
 		{SessionID: "sess-cp", RunID: "run-c2", Summary: "newer", TailFrom: 200, DroppedCount: 6, CreatedAt: 200},
@@ -1449,6 +1465,15 @@ func cnCompactionsBySession(t *testing.T, h Harness) {
 func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
+	for _, s := range []domain.Session{
+		{ID: "sess-tw", Title: "rewind", CreatedAt: 1},
+		{ID: "sess-other", Title: "other", CreatedAt: 1},
+		{ID: "sess-un", Title: "union", CreatedAt: 1},
+	} {
+		if err := b.CreateSession(ctx, s); err != nil {
+			t.Fatalf("CreateSession %s: %v", s.ID, err)
+		}
+	}
 	if _, ok, err := b.LatestSessionTruncation(ctx, "sess-tw"); err != nil || ok {
 		t.Fatalf("no-marker read = ok=%v, %v; want false, nil", ok, err)
 	}
