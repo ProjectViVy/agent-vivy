@@ -1,7 +1,7 @@
 # AGENT-VIVY V0 — Open Items Index
 
 > **Status:** Living index. V0 is closed; remaining work matches `docs/TODO.md` §0.1.
-> **Updated:** 2026-08-30
+> **Updated:** 2026-09-26
 > **Owner:** 📋 John (PM) + user (mastwet)
 > **Purpose:** Single place to see "what still needs doing" without re-reading every sibling document.
 > **Archive:** `docs/logs/2026-08-25-todo-board-archive/summary.md`
