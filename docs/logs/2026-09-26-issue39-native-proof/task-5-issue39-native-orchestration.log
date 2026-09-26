@@ -1,17 +1,12 @@
-SOURCE_HEAD=b46998a67b9d17d9ab7cc1c9f27ad4c22506fe23
-COMMAND='/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run 'TestOrchestrationNative|GraphConformance' -count=1 -v
-=== RUN   TestOrchestrationNative
-    orchestration_conformance_test.go:53: invoke native orchestration workflow: [NodeRunError] runtime: native orchestration unimplemented
-        ------------------------
-        node path: [b]
---- FAIL: TestOrchestrationNative (0.42s)
+SOURCE_HEAD=9f26f091f851bfdbe3b878d2cf8480320192ea53
+COMMAND='/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
 === RUN   TestGraphConformanceBrokerReplayRisk
-    toolbroker_test.go:52: same broker operation executed 2 times across replay, want exactly one
+    toolbroker_test.go:58: same-process direct broker calls re-invoked in-memory fixture 2 times; crash/restart safety remains unproven
 --- FAIL: TestGraphConformanceBrokerReplayRisk (0.00s)
 FAIL
-FAIL	agent-vivy/internal/runtime	0.659s
+FAIL	agent-vivy/internal/runtime	0.632s
 FAIL
 EXIT_CODE=1
 VERDICT=NO-GO
-BINARY_OBSERVABLE=named Service/Eino test stopped at ErrNativeOrchestrationUnimplemented and named broker replay test observed effect_count=2
-DISTINGUISHING_GAP=broker has no durable operation/result boundary across external effect and later checkpoint
+BINARY_OBSERVABLE=two direct ExecuteBrokerTool calls with the same run and input in one process re-invoked the in-memory fixture counter
+LIMITATION=no Service/Engine/checkpoint/fresh-store recreation, injected crash/restart, stable operation ID, or real external side effect was exercised

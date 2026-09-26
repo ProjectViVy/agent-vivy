@@ -29,10 +29,16 @@ func (t *brokerReplayProbeTool) Spec() domain.ToolSpec { return t.spec }
 
 func (t *brokerReplayProbeTool) InvokableRun(_ context.Context, _ json.RawMessage) (string, error) {
 	t.calls++
-	return "effect applied", nil
+	return "fixture invoked", nil
 }
 
 func TestGraphConformanceBrokerReplayRisk(t *testing.T) {
+	// This intentionally failing, same-process probe makes two direct calls to
+	// ExecuteBrokerTool with the same run and input. It uses an in-memory fixture
+	// counter only: it does not create a Service, Engine, checkpoint, or fresh
+	// store, inject or recover a crash, or perform a real external side effect.
+	// It observes that this broker API seam has no durable operation/result
+	// identity that would let it return a prior result on a repeated direct call.
 	policy, err := NewPolicyEngine(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +46,7 @@ func TestGraphConformanceBrokerReplayRisk(t *testing.T) {
 	tool := &brokerReplayProbeTool{spec: domain.ToolSpec{
 		Name: "write_note", Params: map[string]domain.ToolParam{"text": {Required: true}},
 	}}
-	args := map[string]string{"text": "same admitted effect"}
+	args := map[string]string{"text": "same direct input"}
 
 	for attempt := 0; attempt < 2; attempt++ {
 		if _, err := ExecuteBrokerTool(context.Background(), tool, policy, nil, "child-replay", domain.PolicyProfileFullAuto, args, 1024); err != nil {
@@ -49,7 +55,7 @@ func TestGraphConformanceBrokerReplayRisk(t *testing.T) {
 	}
 
 	if tool.calls != 1 {
-		t.Fatalf("same broker operation executed %d times across replay, want exactly one", tool.calls)
+		t.Fatalf("same-process direct broker calls re-invoked in-memory fixture %d times; crash/restart safety remains unproven", tool.calls)
 	}
 }
 
