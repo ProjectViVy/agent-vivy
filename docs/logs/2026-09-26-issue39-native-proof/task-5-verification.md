@@ -10,7 +10,8 @@ scheduler, second runtime, or Tasks 6–14 work was added.
 
 ## 2. Baseline / RED
 
-Before the wording correction, the required focused command was run:
+Before the wording correction, the historical raw target command was run; it
+is retained as provenance only and is not current copy/paste guidance:
 
 ```text
 '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
@@ -21,6 +22,12 @@ directly calls `ExecuteBrokerTool` twice with the same run and input in one
 process and increments an in-memory fixture counter. That is an observation,
 not Service/Engine/store recreation, injected crash/restart evidence, or a
 real external side effect.
+
+The corresponding bounded evidence invocation is:
+
+```text
+timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
+```
 
 ## 3. Constraints
 
@@ -35,18 +42,19 @@ Post-change commands and their exact outputs are recorded in
 `task-5-issue39-native-orchestration.log` and this document. The focused and
 race commands intentionally exit `1`: that non-zero result is the named
 NO-GO probe, not product success. The unknown-effect control must exit `0`;
-`git diff --check` must exit `0`. Each displayed Go target command was
-executed under `timeout 120s`; the raw target remains the copy/paste Manual-QA
-invocation below.
+`git diff --check` must exit `0`. Every displayed Go invocation is the
+complete bounded command used for evidence.
 
-- Focused command: exit `1`; the captured artifact reports
+- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run
+  '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v`: exit `1`; the captured
+  artifact reports
   `same-process direct broker calls re-invoked in-memory fixture 2 times;
   crash/restart safety remains unproven`.
-- `'/mnt/c/Program Files/Go/bin/go.exe' test -race ./internal/runtime -run
+- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test -race ./internal/runtime -run
   '^TestGraphConformanceBrokerReplayRisk$' -count=3 -v`: exit `1`; all three
   executions reported that same two-call fixture observation and no race
   diagnostic appeared.
-- `'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run
+- `timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run
   '^TestToolFailureUnknownEffectsCountOnce$' -count=1 -v`: exit `0`; the named
   control passed.
 - `git diff --check`: exit `0`.
@@ -56,14 +64,13 @@ invocation below.
 Run:
 
 ```text
-'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
+timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
 ```
 
 PASS for this evidence correction means the named test runs and reports that
 the in-memory fixture was called twice, while the test comment and Task 5 docs
 explicitly state it is same-process only and G0 crash/restart remains
-unproven. Evidence capture wraps this target invocation in `timeout 120s`.
-Its non-zero exit is not product success.
+unproven. Its non-zero exit is not product success.
 
 ## 6. UltraQA
 

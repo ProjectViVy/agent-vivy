@@ -2,13 +2,13 @@
 
 ## Human-observable verdict
 
-Task 5 remains **NO-GO**. Run:
+Task 5 remains **NO-GO**. Run this bounded invocation:
 
 ```text
-'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
+timeout 120s '/mnt/c/Program Files/Go/bin/go.exe' test ./internal/runtime -run '^TestGraphConformanceBrokerReplayRisk$' -count=1 -v
 ```
 
-Evidence capture runs that exact target command under `timeout 120s`.
+This is the exact bounded evidence-capture invocation.
 
 The expected intentional non-zero result names
 `TestGraphConformanceBrokerReplayRisk` and says that two same-process direct
