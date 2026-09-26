@@ -524,6 +524,99 @@ func (h *Home) RemoveRecord(ctx context.Context, id, reason string, baseRevision
 	return entryFromStored(*current), nil
 }
 
+// AppendHistoryInput carries the caller-owned fields of an idempotent
+// history append. ID is the idempotency key: re-applying the same ID returns
+// the stored record with applied=false and writes nothing.
+type AppendHistoryInput struct {
+	// ID is the stable, caller-chosen record ID.
+	ID string
+	// Content is the bounded projection text indexed by FTS.
+	Content string
+	// Evidence carries the typed pointers backing the record.
+	Evidence []EvidenceRef
+	// SourceID anchors provenance.source_id — the stable delivery key of the
+	// event that produced this record.
+	SourceID string
+	// SessionID is recorded in the audit correlation; empty falls back to ID.
+	SessionID string
+	// CapturedAt is the source event's timestamp; zero falls back to now.
+	CapturedAt time.Time
+}
+
+// AppendHistory applies a history record under the machine scope. Unlike
+// AddRecord it permits KindHistory (committed-experience ingestion) and is
+// idempotent on ID: a redelivery returns the existing record with
+// applied=false instead of a conflict error.
+func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (StoredRecord, bool, error) {
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		return StoredRecord{}, false, homeInvalid("record id is empty")
+	}
+	content := strings.TrimSpace(input.Content)
+	if content == "" {
+		return StoredRecord{}, false, homeInvalid("content is empty")
+	}
+	sourceID := strings.TrimSpace(input.SourceID)
+	if sourceID == "" {
+		return StoredRecord{}, false, homeInvalid("provenance source id is empty")
+	}
+	at := input.CapturedAt.UTC()
+	if input.CapturedAt.IsZero() {
+		at = time.Now().UTC()
+	}
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID == "" {
+		sessionID = id
+	}
+	store, err := h.writableStore(ctx)
+	if err != nil {
+		return StoredRecord{}, false, err
+	}
+	record := Record{
+		ID:      id,
+		Kind:    KindHistory,
+		Content: content,
+		Provenance: Provenance{
+			Source:        ProvenanceSourceSessionSync,
+			SourceID:      sourceID,
+			ContentDigest: MemoryContentDigest([]byte(content)),
+			CapturedAt:    at,
+			Correlation: AuditCorrelation{
+				RequestID: "history_append-" + id,
+				TurnID:    "history_append",
+				SessionID: sessionID,
+			},
+		},
+		EvidenceRefs:  input.Evidence,
+		ConfidenceBPS: MaxConfidenceBPS,
+		Sensitivity:   SensitivityInternal,
+		Trust:         TrustObserved,
+		Scope:         machineScope(nil),
+		CreatedAt:     at,
+		EffectiveAt:   at,
+		Supersedes:    []string{},
+	}
+	metadata, err := store.Metadata(ctx)
+	if err != nil {
+		return StoredRecord{}, false, homeBmlUnavailable(err)
+	}
+	stored, err := store.Put(ctx, record, metadata.StoreRevision, nil)
+	if err != nil {
+		var se *StoreError
+		if errors.As(err, &se) && se.Code == ErrRecordRevisionConflict {
+			existing, getErr := store.Get(ctx, id)
+			if getErr != nil {
+				return StoredRecord{}, false, homeBmlUnavailable(getErr)
+			}
+			if existing != nil {
+				return *existing, false, nil
+			}
+		}
+		return StoredRecord{}, false, homeBmlUnavailable(err)
+	}
+	return entryFromStored(stored), true, nil
+}
+
 // ReadMemRules returns the MEMRULES.MD content, falling back to the
 // built-in rulebook when the file does not exist.
 func (h *Home) ReadMemRules() (MemRulesDocument, error) {

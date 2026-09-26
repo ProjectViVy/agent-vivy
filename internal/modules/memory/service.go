@@ -98,6 +98,34 @@ func (s *Service) Search(ctx context.Context, req bml.MemorySearchRequest) bml.M
 	return bml.MemoryCrudOutcome{Status: bml.CrudOutcomeListed, Entries: entries}
 }
 
+// Recall returns the FTS5 hits for the context-source plane: full stored
+// records (kind, provenance, revisions) rather than the MemoryEntry
+// projection. A non-nil sessionID narrows recall to records scoped to that
+// session plus the machine-global ones, matching the host's session clause.
+func (s *Service) Recall(ctx context.Context, query string, sessionID *string, limit uint32) ([]bml.SearchHit, error) {
+	if !s.live() {
+		return nil, errUnavailable
+	}
+	if limit == 0 {
+		limit = defaultRecallLimit
+	}
+	return s.home.SearchVisible(ctx, bml.SearchQuery{
+		Text:  query,
+		Scope: bml.Scope{SessionID: sessionID},
+		Limit: limit,
+	})
+}
+
+// AppendHistory applies an idempotent machine-scope history record for the
+// run-observer plane. applied=false means the record ID was already
+// committed — a redelivery, not a second write.
+func (s *Service) AppendHistory(ctx context.Context, input bml.AppendHistoryInput) (bml.StoredRecord, bool, error) {
+	if !s.live() {
+		return bml.StoredRecord{}, false, errUnavailable
+	}
+	return s.home.AppendHistory(ctx, input)
+}
+
 // Add applies a user-asserted long-term record and returns the applied
 // outcome with the stored entry.
 func (s *Service) Add(ctx context.Context, req bml.MemoryAddRequest) bml.MemoryCrudOutcome {
