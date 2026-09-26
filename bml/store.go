@@ -64,6 +64,10 @@ type StoreError struct {
 	// canonical-identity layer can recognize the legacy path binding.
 	Expected string
 	Actual   string
+	// ExpectedRevision/ActualRevision carry the record-level CAS values for
+	// ErrRecordRevisionConflict so facades can re-map the conflict.
+	ExpectedRevision *int64
+	ActualRevision   *int64
 }
 
 func (e *StoreError) Error() string { return e.Message }
@@ -117,8 +121,10 @@ func recordRevisionConflictErr(recordID string, expected, actual *int64) *StoreE
 		return fmt.Sprintf("Some(%d)", *v)
 	}
 	return &StoreError{
-		Code:    ErrRecordRevisionConflict,
-		Message: fmt.Sprintf("Memory record revision conflict for %s: expected %s, actual %s", recordID, fmtOpt(expected), fmtOpt(actual)),
+		Code:             ErrRecordRevisionConflict,
+		Message:          fmt.Sprintf("Memory record revision conflict for %s: expected %s, actual %s", recordID, fmtOpt(expected), fmtOpt(actual)),
+		ExpectedRevision: expected,
+		ActualRevision:   actual,
 	}
 }
 
