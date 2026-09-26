@@ -138,23 +138,41 @@ func (s *Service) Remove(ctx context.Context, req bml.MemoryRemoveRequest) bml.M
 	return bml.MemoryCrudOutcome{Status: bml.CrudOutcomeApplied, Entry: &entry}
 }
 
+// RulesView is the rules.read payload: the handbook plus the authority
+// revision it was read under, which WriteRules requires as its CAS base.
+type RulesView struct {
+	Content  string `json:"content"`
+	Source   string `json:"source"`
+	Revision int64  `json:"revision"`
+}
+
 // Rules reads MEMRULES.MD, falling back to the built-in rulebook.
-func (s *Service) Rules(_ context.Context) (bml.MemoryRulesResponse, bml.MemoryCrudOutcome) {
+func (s *Service) Rules(_ context.Context) (RulesView, bml.MemoryCrudOutcome) {
 	if !s.live() {
-		return bml.MemoryRulesResponse{}, unavailableOutcome()
+		return RulesView{}, unavailableOutcome()
 	}
 	doc, err := s.home.ReadMemRules()
 	if err != nil {
-		return bml.MemoryRulesResponse{}, outcomeFromError(err)
+		return RulesView{}, outcomeFromError(err)
 	}
-	return bml.MemoryRulesResponse{Content: doc.Content, Source: string(doc.Source)},
+	return RulesView{
+			Content:  doc.Content,
+			Source:   string(doc.Source),
+			Revision: int64(s.home.StartupRevision()),
+		},
 		bml.MemoryCrudOutcome{Status: bml.CrudOutcomeListed}
 }
 
-// WriteRules atomically replaces MEMRULES.MD.
-func (s *Service) WriteRules(_ context.Context, content string) bml.MemoryCrudOutcome {
+// WriteRules atomically replaces MEMRULES.MD under authority-revision CAS:
+// baseRevision must equal the current startup-projection revision (from
+// Rules or Status), else the outcome is failed memory_revision_conflict —
+// never a forced write.
+func (s *Service) WriteRules(_ context.Context, content string, baseRevision int64) bml.MemoryCrudOutcome {
 	if !s.live() {
 		return unavailableOutcome()
+	}
+	if baseRevision < 0 || uint64(baseRevision) != s.home.StartupRevision() {
+		return failedOutcome(bml.HomeCodeRevisionConflict)
 	}
 	if _, err := s.home.WriteMemRules(content); err != nil {
 		return outcomeFromError(err)
