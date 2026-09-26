@@ -199,29 +199,35 @@ func TestRulesReadWriteRoundTripWithCAS(t *testing.T) {
 		Status   bml.CrudOutcomeStatus `json:"status"`
 		Content  string                `json:"content"`
 		Source   string                `json:"source"`
-		Revision int64                 `json:"revision"`
+		Revision string                `json:"revision"`
 	}
 	if err := json.Unmarshal(raw, &read); err != nil {
 		t.Fatalf("rules.read output = %s: %v", raw, err)
 	}
-	if read.Status != bml.CrudOutcomeListed || read.Content == "" || read.Source == "" {
+	if read.Status != bml.CrudOutcomeListed || read.Content == "" || read.Source == "" || read.Revision == "" {
 		t.Fatalf("rules.read = %#v", read)
 	}
 
 	outcome := invokeOutcome(t, memory.ActionRulesWrite,
-		fmt.Sprintf(`{"content":"# Rules\nAlways cite evidence.","base_revision":%d}`, read.Revision+99))
+		`{"content":"# Rules\nAlways cite evidence.","base_revision":"stale-digest"}`)
 	wantFailure(t, outcome, bml.HomeCodeRevisionConflict)
 
 	outcome = invokeOutcome(t, memory.ActionRulesWrite,
-		fmt.Sprintf(`{"content":"# Rules\nAlways cite evidence.","base_revision":%d}`, read.Revision))
+		fmt.Sprintf(`{"content":"# Rules\nAlways cite evidence.","base_revision":%q}`, read.Revision))
 	wantStatus(t, outcome, bml.CrudOutcomeApplied)
+
+	// The digest CAS must reject an interleaved write holding the old base:
+	// a rules-vs-rules conflict, not just store-level record changes.
+	outcome = invokeOutcome(t, memory.ActionRulesWrite,
+		fmt.Sprintf(`{"content":"# Rules v2","base_revision":%q}`, read.Revision))
+	wantFailure(t, outcome, bml.HomeCodeRevisionConflict)
 
 	raw = invokeRaw(t, memory.ActionRulesRead, `{}`)
 	read = struct {
 		Status   bml.CrudOutcomeStatus `json:"status"`
 		Content  string                `json:"content"`
 		Source   string                `json:"source"`
-		Revision int64                 `json:"revision"`
+		Revision string                `json:"revision"`
 	}{}
 	if err := json.Unmarshal(raw, &read); err != nil {
 		t.Fatalf("rules.read after write = %s: %v", raw, err)
@@ -276,6 +282,8 @@ func TestInvalidInputsReturnExplicitOutcomes(t *testing.T) {
 		{"negative base revision", memory.ActionRemove, `{"id":"memory-1","reason":"r","base_revision":-1}`},
 		{"missing reason", memory.ActionRemove, `{"id":"memory-1","base_revision":1}`},
 		{"rules write missing revision", memory.ActionRulesWrite, `{"content":"x"}`},
+		{"rules write empty revision", memory.ActionRulesWrite, `{"content":"x","base_revision":""}`},
+		{"rules write numeric revision", memory.ActionRulesWrite, `{"content":"x","base_revision":0}`},
 		{"rules read with field", memory.ActionRulesRead, `{"verbose":true}`},
 	}
 	for _, tc := range cases {
@@ -305,7 +313,7 @@ func TestAllActionsReportUnavailableWithoutService(t *testing.T) {
 		memory.ActionUpdate:     `{"id":"memory-1","content":"x","base_revision":1}`,
 		memory.ActionRemove:     `{"id":"memory-1","reason":"r","base_revision":1}`,
 		memory.ActionRulesRead:  `{}`,
-		memory.ActionRulesWrite: `{"content":"x","base_revision":0}`,
+		memory.ActionRulesWrite: `{"content":"x","base_revision":"digest"}`,
 		memory.ActionStatus:     `{}`,
 	}
 	for _, provider := range memory.ActionProviders() {

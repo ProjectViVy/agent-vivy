@@ -2,7 +2,7 @@
 
 ## Status
 
-DONE_WITH_CONCERNS
+DONE (revised after T2 review: rules.write CAS moved to content digest)
 
 ## Changed files
 
@@ -16,11 +16,13 @@ DONE_WITH_CONCERNS
   per-action closed input schemas, 32 KiB input / 256 KiB output caps (masks
   precedent); an oversized marshaled result collapses to an explicit failed
   outcome, never a truncated payload.
-- `internal/modules/memory/service.go` — `Rules` now returns `RulesView`
-  (`content`, `source`, `revision`) so callers can obtain the CAS base;
-  `WriteRules` takes `baseRevision` and compares it against
-  `home.StartupRevision()` before writing — mismatch → `failed`/
-  `memory_revision_conflict`.
+- `internal/modules/memory/service.go` — `Rules` returns `RulesView`
+  (`content`, `source`, `revision`) where `revision` is the sha256 content
+  digest of the current MEMRULES document (`bml.MemoryContentDigest`);
+  `WriteRules` takes `baseRevision` and compares it against the digest of
+  current content before writing — mismatch → `failed`/
+  `memory_revision_conflict`. `StatusResponse` gains `rules_revision`
+  carrying the same digest.
 - `internal/modules/memory/actions_test.go` — new suite: closed inventory vs
   manifest IDs + effects, round trips for list/add/get/search/update/remove,
   stale-revision conflicts for update/remove/rules.write, `kind` enforcement,
@@ -29,17 +31,17 @@ DONE_WITH_CONCERNS
 
 ## Decisions
 
-- **`rules.write` CAS base.** The plan input sketch says `{content}` but the
-  constraint says `rules.write` "carries `base_revision` CAS" and a stale
-  revision "returns conflict, never a forced write". BML exposes no MEMRULES
-  document revision; the only revision on this surface is
-  `Home.StartupRevision()` (the authority revision `vivy.memory.status`
-  advertises). Implemented as a **required** `base_revision` compared against
-  `StartupRevision()`; `rules.read` returns that revision so the
-  read→modify→write loop is closed. Limitation: rules writes don't bump the
-  revision (it tracks the record projection), so two rules writes against the
-  same base both succeed — the CAS guards the memory state the caller read,
-  not rules-vs-rules lost updates.
+- **`rules.write` CAS base (revised per T2 review).** The plan input sketch
+  says `{content}` but the constraint says `rules.write` "carries
+  `base_revision` CAS" and a stale revision "returns conflict, never a
+  forced write". Implemented as a **required** `base_revision` equal to the
+  sha256 digest of the current MEMRULES content; `rules.read` and
+  `vivy.memory.status` (`rules_revision`) expose that digest so the
+  read→modify→write loop is closed. A content-digest CAS detects
+  rules-vs-rules interleaved writes and external MEMRULES edits, and
+  survives restarts — the earlier `StartupRevision()` proxy could not.
+  Note `base_revision` is therefore a digest string for `rules.write` while
+  remaining an integer record revision for `update`/`remove`.
 - **`add.kind` is required and must be `long_term`** (bml's only permitted
   kind); other kinds → `failed`/`memory_kind_forbidden`, absent →
   `memory_invalid_request`. `evidence` decodes as `[]bml.EvidenceRef`.
@@ -72,13 +74,8 @@ DONE_WITH_CONCERNS
 
 ## Concerns
 
-- The `rules.write` CAS semantics above are an interpretation of two
-  partially contradictory plan lines; if the intent was a MEMRULES-document
-  revision (content-hash) rather than the authority revision, the service
-  needs a small revision scheme added. Flagging for reviewer veto.
-- `StartupRevision()` is process-local (restarts at 0/1 on reopen), so a
-  base_revision captured before a restart will conflict — safe (stale fails
-  closed) but conservative.
+- None remaining from the CAS revision question — the reviewer-selected
+  content-digest base removes the process-local and lost-update weaknesses.
 - Go toolchain was absent on this box; Go 1.26.4 installed to `~/tools/go`
   with `GOPROXY=https://goproxy.cn,direct` per the justfile mirror note.
   `just ci` not run (no `just` binary).
