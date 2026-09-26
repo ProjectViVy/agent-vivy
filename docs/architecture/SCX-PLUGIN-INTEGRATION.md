@@ -36,6 +36,9 @@ Public Modules receive no raw Journal, storage, credentials or Eino objects.
 External memory may own its own database and jobs; its Vivy connector follows
 compiled Module/Host and instance rules. Personality importance never grants
 instruction authority. Local read permission never implies permission to export.
+Frozen G0 contracts: `VIVY-MEMORY-PROFILE.md` fixes the capability vocabulary
+every memory adapter must satisfy; `VIVY-MEMORY-HOST-CONTRACTS.md` fixes the
+persona-projection and session-export Host seams.
 
 ## Hook boundary
 
