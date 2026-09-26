@@ -26,7 +26,7 @@ not implied by it.
 | MEM-0D | REQ-MEM-4,10 | Mutation authority resolution under Grants; Eino/EinoExt and Laputa readiness revalidation | MEM-0A | [MEM-0D](MEM-0D.md) | Done 2026-09-26 | `docs/research/2026-09-26-memory-g0-readiness.md` |
 | MEM-0E | REQ-MEM-13 | Trackers and architecture docs updated; G0 outcomes folded back | MEM-0A–0D | [MEM-0E](MEM-0E.md) | Done 2026-09-26 | `docs/TODO.md`, `docs/DEFER.MD`, `docs/research/OPEN-ITEMS.md`, SCX cross-refs; log `docs/logs/2026-09-26-memory-g0-contracts/` |
 | MEM-1 | REQ-MEM-1,6,7,13 | **Phase 1 (authorized):** BML standalone Go library port — record model, typed SQLite+FTS5 store, MemoryHome facade, migration adapters. No Port wiring. | none (library-only scope; G0 contracts govern later adapter Stories) | [MEM-1](MEM-1.md) | Done 2026-09-26 | `bml/` module + `bml/provider.go` trait contract + `bml/README.md`; PR #62; `go test` green; log `docs/logs/2026-09-26-memory-bml/notes.md` |
-| MEM-1A | REQ-MEM-2–5,9 | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | MEM-1, MEM-0B, MEM-0C, MEM-0D | [MEM-1A](MEM-1A.md) | In progress | G0 contracts frozen + `bml/` landed — both preconditions met |
+| MEM-1A | REQ-MEM-2–5,9 | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | MEM-1, MEM-0B, MEM-0C, MEM-0D | [MEM-1A](MEM-1A.md) | Done 2026-09-26 | `internal/modules/memory` + two catalog records (`vivy/memory-bml`, `vivy/memory-bml-sync`); log `docs/logs/2026-09-26-memory-1a-wiring/` |
 | MEM-2 | REQ-MEM-7,8,9 | One pinned remote provider (mem0) proving the profile | MEM-1A | — | Blocked | plan written after G1 evidence |
 | MEM-3 | REQ-MEM-11 | Independent Laputa persona governance | MEM-0C, MEM-0D | — | Blocked | needs GAP-A contract + upstream readiness verdict |
 | MEM-4 | REQ-MEM-12 | Garden connector + structured recall mapping | MEM-0C, MEM-3 | — | Blocked | needs governance path + Garden contract inspection |
@@ -35,8 +35,9 @@ not implied by it.
 Topological waves, as landed: phase 1 `{MEM-1}` ran first (user-directed:
 restore BML as a standalone in-repo library before contract docs) and landed
 2026-09-26 as `bml/`; the G0 doc Stories `{MEM-0A}`, `{MEM-0B, MEM-0D}`
-(parallel), `{MEM-0C}`, `{MEM-0E}` all landed alongside. MEM-1A is the next
-wave and is unblocked: its predecessors (MEM-1 + MEM-0B/0C/0D) are all in.
+(parallel), `{MEM-0C}`, `{MEM-0E}` all landed alongside. MEM-1A landed 2026-09-26 on `feat/memory` (T1–T4
+Approved, 2 fix rounds; `just ci` controller-run green). The next wave is
+MEM-2, still Blocked until its plan is written on G1 evidence.
 
 ## Scope and readiness
 

@@ -119,8 +119,8 @@ authoritative per-story state lives in `docs/superpowers/plans/memory/index.md`.
 | MEM-0D | MEMORY G0: mutation authority + readiness revalidation | DONE 2026-09-26 | `docs/research/2026-09-26-memory-g0-readiness.md` |
 | MEM-0E | MEMORY G0: tracker foldback + SCX cross-refs | DONE 2026-09-26 | `docs/logs/2026-09-26-memory-g0-contracts/`; stage index `docs/superpowers/plans/memory/index.md` |
 | MEM-1 | BML standalone Go library port | DONE 2026-09-26 | `bml/` module (record model, typed SQLite+FTS5 store, maintenance, `MemoryHome` facade, migration adapters) + `bml/provider.go` trait contract + `bml/README.md`; PR #62 (`feat/memory`); log `docs/logs/2026-09-26-memory-bml/notes.md` |
-| MEM-1A | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | READY-NEXT | G0 contracts frozen and `bml/` landed — both preconditions met. Track: `docs/superpowers/plans/memory/index.md` |
-| MEM-2 | One pinned remote provider (mem0) proving the profile | BLOCKED | after MEM-1A; plan written after G1 evidence |
+| MEM-1A | Vivy adapter wiring for BML (context-source/observer/control-action/status + UI rewire) | DONE 2026-09-26 | `internal/modules/memory` + catalog records `vivy/memory-bml`/`vivy/memory-bml-sync`, 9 `vivy.memory.*` actions, `module.action.invoke` UI; log `docs/logs/2026-09-26-memory-1a-wiring/`; track: `docs/superpowers/plans/memory/index.md` |
+| MEM-2 | One pinned remote provider (mem0) proving the profile | BLOCKED | MEM-1A landed; plan written after G1 evidence |
 | MEM-3 | Independent Laputa persona governance | BLOCKED | needs GAP-A contract + upstream readiness verdict |
 | MEM-4 | Garden connector + structured recall mapping | BLOCKED | needs governance path + Garden contract inspection |
 | MEM-5 | memU completed-session extraction; TencentDB mapping | BLOCKED | needs session export contract + provider proof |

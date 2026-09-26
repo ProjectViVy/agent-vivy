@@ -20,7 +20,7 @@ Canonical table: `docs/TODO.md` §0.1.
 | CH-C wecom | OPEN (bind surface still the blocker; not this batch) |
 | ACP-1 remote control implementation | DEFERRED |
 | HITL-P1-1..7 | OPEN / DEFERRED |
-| MEM-1 Memory / BML track | BML library LANDED 2026-09-26 (PR #62, `bml/`); runtime wiring MEM-1A ready-next, MEM-2..5 deferred — stage rows in `docs/TODO.md` §0.1 |
+| MEM-1 Memory / BML track | BML library LANDED 2026-09-26 (PR #62, `bml/`); runtime wiring MEM-1A LANDED 2026-09-26 (`docs/logs/2026-09-26-memory-1a-wiring/`), MEM-2..5 deferred — stage rows in `docs/TODO.md` §0.1 |
 | MEM-CAP AutoDream / Evolution / RAG | DEFERRED |
 | P2-1 Diva inventory | OPEN |
 | P2-3 / SR-4 QwenPaw fsjournal | DEFERRED / OPEN |
