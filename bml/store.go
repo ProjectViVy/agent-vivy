@@ -47,6 +47,10 @@ const (
 	ErrIO                        StoreErrorCode = "io_error"
 	ErrCorruptRecord             StoreErrorCode = "corrupt_record"
 	ErrImportConflict            StoreErrorCode = "import_conflict"
+	ErrBackupExists              StoreErrorCode = "backup_exists"
+	ErrInvalidBackup             StoreErrorCode = "invalid_backup"
+	ErrIdentityMigrationRejected StoreErrorCode = "identity_migration_rejected"
+	ErrIdentityManifest          StoreErrorCode = "identity_manifest"
 )
 
 // StoreError is a stable typed-store failure. Message never contains Memory
@@ -55,6 +59,11 @@ type StoreError struct {
 	Code    StoreErrorCode
 	Message string
 	Err     error
+	// Expected/Actual carry the mismatched workspace identities for
+	// ErrWorkspaceMismatch and ErrDatabaseWorkspaceMismatch so the
+	// canonical-identity layer can recognize the legacy path binding.
+	Expected string
+	Actual   string
 }
 
 func (e *StoreError) Error() string { return e.Message }
@@ -70,15 +79,19 @@ func invalidRecordErr(err *ValidationError) *StoreError {
 
 func workspaceMismatchErr(expected, actual string) *StoreError {
 	return &StoreError{
-		Code:    ErrWorkspaceMismatch,
-		Message: fmt.Sprintf("record belongs to workspace %s, expected %s", actual, expected),
+		Code:     ErrWorkspaceMismatch,
+		Message:  fmt.Sprintf("record belongs to workspace %s, expected %s", actual, expected),
+		Expected: expected,
+		Actual:   actual,
 	}
 }
 
 func databaseWorkspaceMismatchErr(expected, actual string) *StoreError {
 	return &StoreError{
-		Code:    ErrDatabaseWorkspaceMismatch,
-		Message: fmt.Sprintf("stored database belongs to workspace %s, expected %s", actual, expected),
+		Code:     ErrDatabaseWorkspaceMismatch,
+		Message:  fmt.Sprintf("stored database belongs to workspace %s, expected %s", actual, expected),
+		Expected: expected,
+		Actual:   actual,
 	}
 }
 
@@ -183,18 +196,7 @@ func Open(ctx context.Context, dir, workspaceID string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, ioErr(dir, err)
 	}
-	path := filepath.Join(dir, storeFileName)
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
-	if err != nil {
-		return nil, ioErr(path, err)
-	}
-	db.SetMaxOpenConns(4)
-	s := &Store{db: db, path: path, workspaceID: workspaceID}
-	if err := s.initialize(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+	return openPath(ctx, filepath.Join(dir, storeFileName), workspaceID)
 }
 
 // OpenExisting opens the store at {dir}/memory.sqlite3 read-only, without
