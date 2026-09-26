@@ -3,13 +3,15 @@ package bml
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 const (
@@ -17,6 +19,9 @@ const (
 	component           = "embedded_laputa"
 	storeFileName       = "memory.sqlite3"
 	busyTimeoutMS       = 5000
+	// validationClockSkew is the future-timestamp tolerance on every write,
+	// matching chrono::Duration::minutes(5) in typed_store.rs.
+	validationClockSkew = 5 * time.Minute
 )
 
 // MaxMemoryRecords is the initial bounded-store record capacity.
@@ -40,6 +45,8 @@ const (
 	ErrCapacityExceeded          StoreErrorCode = "capacity_exceeded"
 	ErrFTSUnavailable            StoreErrorCode = "fts_unavailable"
 	ErrIO                        StoreErrorCode = "io_error"
+	ErrCorruptRecord             StoreErrorCode = "corrupt_record"
+	ErrImportConflict            StoreErrorCode = "import_conflict"
 )
 
 // StoreError is a stable typed-store failure. Message never contains Memory
@@ -114,6 +121,20 @@ func ftsUnavailableErr(err error) *StoreError {
 		Code:    ErrFTSUnavailable,
 		Message: "FTS5 is unavailable in the active SQLite runtime",
 		Err:     err,
+	}
+}
+
+func corruptRecordErr() *StoreError {
+	return &StoreError{
+		Code:    ErrCorruptRecord,
+		Message: "stored Memory row is corrupt",
+	}
+}
+
+func importConflictErr(recordID string) *StoreError {
+	return &StoreError{
+		Code:    ErrImportConflict,
+		Message: fmt.Sprintf("imported Memory record %s conflicts with existing content", recordID),
 	}
 }
 
@@ -346,4 +367,478 @@ func checkMetaRow(version int64, storedWorkspace, workspaceID string) error {
 		return databaseWorkspaceMismatchErr(workspaceID, storedWorkspace)
 	}
 	return nil
+}
+
+// StoredRecord is the canonical record plus the row revision owned by the
+// store (StoredMemoryRecord in typed_store.rs).
+type StoredRecord struct {
+	Record   Record
+	Revision int64
+}
+
+// targetRevisionGuard carries put_tombstone's extra CAS precondition: the
+// tombstone is written only while the target record is still at the revision
+// the caller observed.
+type targetRevisionGuard struct {
+	id       string
+	revision int64
+}
+
+const (
+	selectStoreRevisionSQL  = `SELECT store_revision FROM schema_meta WHERE component = ?`
+	reserveStoreRevisionSQL = `UPDATE schema_meta SET store_revision = store_revision + 1
+             WHERE component = ? AND store_revision = ?`
+	selectRecordRevisionSQL = `SELECT record_revision FROM memory_records WHERE memory_id = ?`
+	selectCountersSQL       = `SELECT record_count, content_bytes FROM schema_meta WHERE component = ?`
+	selectContentBytesSQL   = `SELECT COALESCE((SELECT content_bytes FROM memory_records WHERE memory_id = ?), 0)`
+	selectStoredSQL         = `SELECT record_revision, record_json FROM memory_records WHERE memory_id = ?`
+	selectRecordJSONSQL     = `SELECT record_json FROM memory_records WHERE memory_id = ?`
+	listStoredSQL           = `SELECT record_revision, record_json FROM memory_records
+             ORDER BY memory_id LIMIT ?`
+	selectSupersededTargetsSQL = `SELECT s.superseded_id
+             FROM memory_supersedes s
+             JOIN memory_records r ON r.memory_id = s.memory_id
+             WHERE r.tombstone = 1`
+	selectSuppressedByTombstoneSQL = `SELECT COUNT(*) FROM memory_supersedes s
+             JOIN memory_records r ON r.memory_id = s.memory_id
+             WHERE s.superseded_id = ? AND r.tombstone = 1`
+	upsertRecordSQL = `INSERT INTO memory_records(
+               memory_id, record_revision, kind, tenant_id, workspace_id, session_id,
+               trust, sensitivity, created_at, effective_at, expires_at, tombstone,
+               content_bytes, record_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(memory_id) DO UPDATE SET
+               record_revision=excluded.record_revision, kind=excluded.kind,
+               tenant_id=excluded.tenant_id, workspace_id=excluded.workspace_id,
+               session_id=excluded.session_id, trust=excluded.trust,
+               sensitivity=excluded.sensitivity, created_at=excluded.created_at,
+               effective_at=excluded.effective_at, expires_at=excluded.expires_at,
+               tombstone=excluded.tombstone, content_bytes=excluded.content_bytes,
+               record_json=excluded.record_json`
+	insertRecordSQL = `INSERT INTO memory_records(
+               memory_id, record_revision, kind, tenant_id, workspace_id, session_id,
+               trust, sensitivity, created_at, effective_at, expires_at, tombstone,
+               content_bytes, record_json
+             ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	deleteSupersedesSQL = `DELETE FROM memory_supersedes WHERE memory_id = ?`
+	insertSupersedesSQL = `INSERT INTO memory_supersedes(memory_id, superseded_id) VALUES (?, ?)`
+	deleteFTSSQL        = `DELETE FROM memory_fts WHERE memory_id = ?`
+	insertFTSSQL        = `INSERT INTO memory_fts(memory_id, tenant_id, workspace_id, session_id, content)
+             VALUES (?, ?, ?, ?, ?)`
+	updateCountersSQL = `UPDATE schema_meta SET record_count = ?, content_bytes = ?
+             WHERE component = ?`
+	bumpImportMetaSQL = `UPDATE schema_meta
+             SET store_revision = store_revision + ?, record_count = ?, content_bytes = ?
+             WHERE component = ?`
+)
+
+// Get returns the stored record for id, or nil when absent. Tombstone
+// records are returned like any other row; read-side visibility rules are a
+// search/list concern.
+func (s *Store) Get(ctx context.Context, id string) (*StoredRecord, error) {
+	var revision int64
+	var recordJSON string
+	err := s.db.QueryRowContext(ctx, selectStoredSQL, id).Scan(&revision, &recordJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	stored, err := decodeStored(revision, recordJSON)
+	if err != nil {
+		return nil, err
+	}
+	return &stored, nil
+}
+
+// List returns records in deterministic memory_id order, capped at limit and
+// at the bounded-store capacity.
+func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) {
+	if int64(limit) > MaxMemoryRecords {
+		limit = uint32(MaxMemoryRecords)
+	}
+	rows, err := s.db.QueryContext(ctx, listStoredSQL, limit)
+	if err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	defer rows.Close()
+	var out []StoredRecord
+	for rows.Next() {
+		var revision int64
+		var recordJSON string
+		if err := rows.Scan(&revision, &recordJSON); err != nil {
+			return nil, persistenceErr(s.path, err)
+		}
+		stored, err := decodeStored(revision, recordJSON)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, stored)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	return out, nil
+}
+
+// SupersededTargetIDs returns the IDs targeted by any supersedes tombstone
+// currently in the store. Read-side projections use this to exclude records
+// deposed by a later tombstone even when the target row has no tombstone
+// flag set.
+func (s *Store) SupersededTargetIDs(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, selectSupersededTargetsSQL)
+	if err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	defer rows.Close()
+	targets := map[string]struct{}{}
+	for rows.Next() {
+		var target string
+		if err := rows.Scan(&target); err != nil {
+			return nil, persistenceErr(s.path, err)
+		}
+		targets[target] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	return targets, nil
+}
+
+// Put inserts or replaces one canonical record under store and row CAS.
+// expectedRecordRevision nil means the record must not exist yet.
+func (s *Store) Put(ctx context.Context, record Record, expectedStoreRevision int64, expectedRecordRevision *int64) (StoredRecord, error) {
+	return s.putInner(ctx, record, expectedStoreRevision, expectedRecordRevision, nil)
+}
+
+// PutTombstone atomically writes a tombstone only if the target record still
+// has the revision observed by the caller.
+func (s *Store) PutTombstone(ctx context.Context, record Record, expectedStoreRevision int64, targetID string, targetRevision int64) error {
+	_, err := s.putInner(ctx, record, expectedStoreRevision, nil,
+		&targetRevisionGuard{id: targetID, revision: targetRevision})
+	return err
+}
+
+// putInner mirrors typed_store.rs put_inner minus the governed-apply seam:
+// validate -> workspace check -> store CAS reserve -> optional target guard
+// -> record revision check -> capacity -> upsert -> supersedes -> FTS ->
+// counters, all in one transaction.
+func (s *Store) putInner(
+	ctx context.Context,
+	record Record,
+	expectedStoreRevision int64,
+	expectedRecordRevision *int64,
+	targetGuard *targetRevisionGuard,
+) (StoredRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if verr := record.ValidateAt(time.Now().UTC(), validationClockSkew); verr != nil {
+		return StoredRecord{}, invalidRecordErr(verr)
+	}
+	if record.ValidateWorkspace(s.workspaceID) != nil {
+		return StoredRecord{}, workspaceMismatchErr(s.workspaceID, record.Scope.WorkspaceID)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	defer tx.Rollback()
+
+	var actualStore int64
+	if err := tx.QueryRowContext(ctx, selectStoreRevisionSQL, component).Scan(&actualStore); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	if actualStore != expectedStoreRevision {
+		return StoredRecord{}, storeRevisionConflictErr(expectedStoreRevision, actualStore)
+	}
+	if targetGuard != nil {
+		actualTarget, err := s.optionalRevision(ctx, tx, targetGuard.id)
+		if err != nil {
+			return StoredRecord{}, err
+		}
+		if actualTarget == nil || *actualTarget != targetGuard.revision {
+			expected := targetGuard.revision
+			return StoredRecord{}, recordRevisionConflictErr(targetGuard.id, &expected, actualTarget)
+		}
+	}
+	reserved, err := tx.ExecContext(ctx, reserveStoreRevisionSQL, component, expectedStoreRevision)
+	if err != nil {
+		if isSQLiteBusy(err) {
+			_ = tx.Rollback()
+			meta, merr := s.Metadata(ctx)
+			if merr != nil {
+				return StoredRecord{}, merr
+			}
+			return StoredRecord{}, storeRevisionConflictErr(expectedStoreRevision, meta.StoreRevision)
+		}
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	if affected, err := reserved.RowsAffected(); err != nil || affected != 1 {
+		var actual int64
+		if err := tx.QueryRowContext(ctx, selectStoreRevisionSQL, component).Scan(&actual); err != nil {
+			return StoredRecord{}, persistenceErr(s.path, err)
+		}
+		return StoredRecord{}, storeRevisionConflictErr(expectedStoreRevision, actual)
+	}
+
+	actualRecord, err := s.optionalRevision(ctx, tx, record.ID)
+	if err != nil {
+		return StoredRecord{}, err
+	}
+	if !equalRevisions(actualRecord, expectedRecordRevision) {
+		return StoredRecord{}, recordRevisionConflictErr(record.ID, expectedRecordRevision, actualRecord)
+	}
+
+	var currentCount, currentBytes int64
+	if err := tx.QueryRowContext(ctx, selectCountersSQL, component).Scan(&currentCount, &currentBytes); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	var replacedBytes int64
+	if err := tx.QueryRowContext(ctx, selectContentBytesSQL, record.ID).Scan(&replacedBytes); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	nextCount := currentCount
+	if actualRecord == nil {
+		nextCount++
+	}
+	nextBytes := currentBytes - replacedBytes + int64(len(record.Content))
+	if nextCount > MaxMemoryRecords || nextBytes > MaxMemoryContentBytes {
+		return StoredRecord{}, capacityExceededErr(nextCount, nextBytes)
+	}
+
+	nextRecordRevision := int64(1)
+	if actualRecord != nil {
+		nextRecordRevision = *actualRecord + 1
+	}
+	recordJSON, err := json.Marshal(record)
+	if err != nil {
+		return StoredRecord{}, corruptRecordErr()
+	}
+	if _, err := tx.ExecContext(ctx, upsertRecordSQL,
+		record.ID, nextRecordRevision, string(record.Kind),
+		record.Scope.TenantID, record.Scope.WorkspaceID, record.Scope.SessionID,
+		string(record.Trust), string(record.Sensitivity),
+		rfc3339UTC(record.CreatedAt), rfc3339UTC(record.EffectiveAt),
+		optionalRFC3339(record.ExpiresAt), boolInt(record.Tombstone != nil),
+		int64(len(record.Content)), string(recordJSON),
+	); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, deleteSupersedesSQL, record.ID); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	for _, supersededID := range record.Supersedes {
+		if _, err := tx.ExecContext(ctx, insertSupersedesSQL, record.ID, supersededID); err != nil {
+			return StoredRecord{}, persistenceErr(s.path, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, deleteFTSSQL, record.ID); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	var suppressedByTombstone int64
+	if err := tx.QueryRowContext(ctx, selectSuppressedByTombstoneSQL, record.ID).Scan(&suppressedByTombstone); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	if record.Tombstone == nil && suppressedByTombstone == 0 {
+		if _, err := tx.ExecContext(ctx, insertFTSSQL,
+			record.ID, record.Scope.TenantID, record.Scope.WorkspaceID,
+			record.Scope.SessionID, record.Content,
+		); err != nil {
+			return StoredRecord{}, persistenceErr(s.path, err)
+		}
+	}
+	if record.Tombstone != nil {
+		for _, supersededID := range record.Supersedes {
+			if _, err := tx.ExecContext(ctx, deleteFTSSQL, supersededID); err != nil {
+				return StoredRecord{}, persistenceErr(s.path, err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, updateCountersSQL, nextCount, nextBytes, component); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	return StoredRecord{Record: record, Revision: nextRecordRevision}, nil
+}
+
+// ImportRecords inserts a deterministic record set in one transaction.
+// Records already present with identical canonical JSON are idempotent
+// replays; any conflicting ID or validation failure aborts the complete
+// import without changing the store. Returns the number of newly inserted
+// records.
+func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	for i := range records {
+		if verr := records[i].ValidateAt(now, validationClockSkew); verr != nil {
+			return 0, invalidRecordErr(verr)
+		}
+		if records[i].ValidateWorkspace(s.workspaceID) != nil {
+			return 0, workspaceMismatchErr(s.workspaceID, records[i].Scope.WorkspaceID)
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, persistenceErr(s.path, err)
+	}
+	defer tx.Rollback()
+
+	type insert struct {
+		record    *Record
+		canonical string
+	}
+	var inserts []insert
+	for i := range records {
+		record := &records[i]
+		canonicalJSON, err := json.Marshal(record)
+		if err != nil {
+			return 0, corruptRecordErr()
+		}
+		canonical := string(canonicalJSON)
+		var existing string
+		err = tx.QueryRowContext(ctx, selectRecordJSONSQL, record.ID).Scan(&existing)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			inserts = append(inserts, insert{record: record, canonical: canonical})
+		case err != nil:
+			return 0, persistenceErr(s.path, err)
+		case existing == canonical:
+			continue
+		default:
+			return 0, importConflictErr(record.ID)
+		}
+	}
+
+	var currentCount, currentBytes int64
+	if err := tx.QueryRowContext(ctx, selectCountersSQL, component).Scan(&currentCount, &currentBytes); err != nil {
+		return 0, persistenceErr(s.path, err)
+	}
+	nextCount := currentCount + int64(len(inserts))
+	nextBytes := currentBytes
+	for _, ins := range inserts {
+		nextBytes += int64(len(ins.record.Content))
+	}
+	if nextCount > MaxMemoryRecords || nextBytes > MaxMemoryContentBytes {
+		return 0, capacityExceededErr(nextCount, nextBytes)
+	}
+
+	for _, ins := range inserts {
+		record := ins.record
+		if _, err := tx.ExecContext(ctx, insertRecordSQL,
+			record.ID, string(record.Kind),
+			record.Scope.TenantID, record.Scope.WorkspaceID, record.Scope.SessionID,
+			string(record.Trust), string(record.Sensitivity),
+			rfc3339UTC(record.CreatedAt), rfc3339UTC(record.EffectiveAt),
+			optionalRFC3339(record.ExpiresAt), boolInt(record.Tombstone != nil),
+			int64(len(record.Content)), ins.canonical,
+		); err != nil {
+			return 0, persistenceErr(s.path, err)
+		}
+		for _, supersededID := range record.Supersedes {
+			if _, err := tx.ExecContext(ctx, insertSupersedesSQL, record.ID, supersededID); err != nil {
+				return 0, persistenceErr(s.path, err)
+			}
+		}
+		if record.Tombstone == nil {
+			if _, err := tx.ExecContext(ctx, insertFTSSQL,
+				record.ID, record.Scope.TenantID, record.Scope.WorkspaceID,
+				record.Scope.SessionID, record.Content,
+			); err != nil {
+				return 0, persistenceErr(s.path, err)
+			}
+		}
+	}
+	if len(inserts) > 0 {
+		if _, err := tx.ExecContext(ctx, bumpImportMetaSQL, int64(len(inserts)), nextCount, nextBytes, component); err != nil {
+			return 0, persistenceErr(s.path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, persistenceErr(s.path, err)
+	}
+	return len(inserts), nil
+}
+
+// optionalRevision returns the record's revision, or nil when absent.
+func (s *Store) optionalRevision(ctx context.Context, tx *sql.Tx, memoryID string) (*int64, error) {
+	var revision sql.NullInt64
+	err := tx.QueryRowContext(ctx, selectRecordRevisionSQL, memoryID).Scan(&revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	if !revision.Valid {
+		return nil, nil
+	}
+	return &revision.Int64, nil
+}
+
+func equalRevisions(actual, expected *int64) bool {
+	if actual == nil || expected == nil {
+		return actual == nil && expected == nil
+	}
+	return *actual == *expected
+}
+
+func decodeStored(revision int64, recordJSON string) (StoredRecord, error) {
+	var record Record
+	if err := json.Unmarshal([]byte(recordJSON), &record); err != nil {
+		return StoredRecord{}, corruptRecordErr()
+	}
+	return StoredRecord{Record: record, Revision: revision}, nil
+}
+
+func boolInt(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func optionalRFC3339(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return rfc3339UTC(*t)
+}
+
+// rfc3339UTC formats like chrono's DateTime<Utc>::to_rfc3339(): UTC "+00:00"
+// offset with sub-second precision in AutoSi 0/3/6/9-digit groups.
+func rfc3339UTC(t time.Time) string {
+	t = t.UTC()
+	ns := t.Nanosecond()
+	base := t.Format("2006-01-02T15:04:05")
+	switch {
+	case ns == 0:
+	case ns%1_000_000 == 0:
+		base += fmt.Sprintf(".%03d", ns/1_000_000)
+	case ns%1_000 == 0:
+		base += fmt.Sprintf(".%06d", ns/1_000)
+	default:
+		base += fmt.Sprintf(".%09d", ns)
+	}
+	return base + "+00:00"
+}
+
+// isSQLiteBusy mirrors is_sqlite_busy in typed_store.rs: SQLITE_BUSY (5),
+// SQLITE_LOCKED (6), SQLITE_BUSY_RECOVERY (261), SQLITE_BUSY_SNAPSHOT (517).
+func isSQLiteBusy(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code() {
+	case 5, 6, 261, 517:
+		return true
+	}
+	return false
 }
