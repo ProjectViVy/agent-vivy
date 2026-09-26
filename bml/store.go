@@ -463,7 +463,7 @@ func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) 
 		return nil, persistenceErr(s.path, err)
 	}
 	defer rows.Close()
-	var out []StoredRecord
+	out := []StoredRecord{}
 	for rows.Next() {
 		var revision int64
 		var recordJSON string
@@ -612,7 +612,7 @@ func (s *Store) putInner(
 	if actualRecord != nil {
 		nextRecordRevision = *actualRecord + 1
 	}
-	recordJSON, err := json.Marshal(record)
+	recordJSON, err := marshalCanonical(record)
 	if err != nil {
 		return StoredRecord{}, corruptRecordErr()
 	}
@@ -666,29 +666,37 @@ func (s *Store) putInner(
 	return StoredRecord{Record: record, Revision: nextRecordRevision}, nil
 }
 
-// ImportRecords inserts a deterministic record set in one transaction.
-// Records already present with identical canonical JSON are idempotent
-// replays; any conflicting ID or validation failure aborts the complete
-// import without changing the store. Returns the number of newly inserted
-// records.
-func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error) {
+// ImportRecords inserts a deterministic record set in one transaction under
+// the store-revision CAS, and returns the post-import metadata. Records
+// already present with identical canonical JSON are idempotent replays; any
+// conflicting ID or validation failure aborts the complete import without
+// changing the store.
+func (s *Store) ImportRecords(ctx context.Context, records []Record, expectedStoreRevision int64) (StoreMetadata, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	for i := range records {
 		if verr := records[i].ValidateAt(now, validationClockSkew); verr != nil {
-			return 0, invalidRecordErr(verr)
+			return StoreMetadata{}, invalidRecordErr(verr)
 		}
 		if records[i].ValidateWorkspace(s.workspaceID) != nil {
-			return 0, workspaceMismatchErr(s.workspaceID, records[i].Scope.WorkspaceID)
+			return StoreMetadata{}, workspaceMismatchErr(s.workspaceID, records[i].Scope.WorkspaceID)
 		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, persistenceErr(s.path, err)
+		return StoreMetadata{}, persistenceErr(s.path, err)
 	}
 	defer tx.Rollback()
+
+	var actualStore int64
+	if err := tx.QueryRowContext(ctx, selectStoreRevisionSQL, component).Scan(&actualStore); err != nil {
+		return StoreMetadata{}, persistenceErr(s.path, err)
+	}
+	if actualStore != expectedStoreRevision {
+		return StoreMetadata{}, storeRevisionConflictErr(expectedStoreRevision, actualStore)
+	}
 
 	type insert struct {
 		record    *Record
@@ -697,9 +705,9 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error
 	var inserts []insert
 	for i := range records {
 		record := &records[i]
-		canonicalJSON, err := json.Marshal(record)
+		canonicalJSON, err := marshalCanonical(record)
 		if err != nil {
-			return 0, corruptRecordErr()
+			return StoreMetadata{}, corruptRecordErr()
 		}
 		canonical := string(canonicalJSON)
 		var existing string
@@ -708,17 +716,17 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error
 		case errors.Is(err, sql.ErrNoRows):
 			inserts = append(inserts, insert{record: record, canonical: canonical})
 		case err != nil:
-			return 0, persistenceErr(s.path, err)
+			return StoreMetadata{}, persistenceErr(s.path, err)
 		case existing == canonical:
 			continue
 		default:
-			return 0, importConflictErr(record.ID)
+			return StoreMetadata{}, importConflictErr(record.ID)
 		}
 	}
 
 	var currentCount, currentBytes int64
 	if err := tx.QueryRowContext(ctx, selectCountersSQL, component).Scan(&currentCount, &currentBytes); err != nil {
-		return 0, persistenceErr(s.path, err)
+		return StoreMetadata{}, persistenceErr(s.path, err)
 	}
 	nextCount := currentCount + int64(len(inserts))
 	nextBytes := currentBytes
@@ -726,7 +734,7 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error
 		nextBytes += int64(len(ins.record.Content))
 	}
 	if nextCount > MaxMemoryRecords || nextBytes > MaxMemoryContentBytes {
-		return 0, capacityExceededErr(nextCount, nextBytes)
+		return StoreMetadata{}, capacityExceededErr(nextCount, nextBytes)
 	}
 
 	for _, ins := range inserts {
@@ -739,11 +747,11 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error
 			optionalRFC3339(record.ExpiresAt), boolInt(record.Tombstone != nil),
 			int64(len(record.Content)), ins.canonical,
 		); err != nil {
-			return 0, persistenceErr(s.path, err)
+			return StoreMetadata{}, persistenceErr(s.path, err)
 		}
 		for _, supersededID := range record.Supersedes {
 			if _, err := tx.ExecContext(ctx, insertSupersedesSQL, record.ID, supersededID); err != nil {
-				return 0, persistenceErr(s.path, err)
+				return StoreMetadata{}, persistenceErr(s.path, err)
 			}
 		}
 		if record.Tombstone == nil {
@@ -751,24 +759,24 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record) (int, error
 				record.ID, record.Scope.TenantID, record.Scope.WorkspaceID,
 				record.Scope.SessionID, record.Content,
 			); err != nil {
-				return 0, persistenceErr(s.path, err)
+				return StoreMetadata{}, persistenceErr(s.path, err)
 			}
 		}
 	}
 	if len(inserts) > 0 {
 		if _, err := tx.ExecContext(ctx, bumpImportMetaSQL, int64(len(inserts)), nextCount, nextBytes, component); err != nil {
-			return 0, persistenceErr(s.path, err)
+			return StoreMetadata{}, persistenceErr(s.path, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, persistenceErr(s.path, err)
+		return StoreMetadata{}, persistenceErr(s.path, err)
 	}
-	return len(inserts), nil
+	return s.Metadata(ctx)
 }
 
 // optionalRevision returns the record's revision, or nil when absent.
 func (s *Store) optionalRevision(ctx context.Context, tx *sql.Tx, memoryID string) (*int64, error) {
-	var revision sql.NullInt64
+	var revision int64
 	err := tx.QueryRowContext(ctx, selectRecordRevisionSQL, memoryID).Scan(&revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -776,10 +784,7 @@ func (s *Store) optionalRevision(ctx context.Context, tx *sql.Tx, memoryID strin
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}
-	if !revision.Valid {
-		return nil, nil
-	}
-	return &revision.Int64, nil
+	return &revision, nil
 }
 
 func equalRevisions(actual, expected *int64) bool {
@@ -815,18 +820,7 @@ func optionalRFC3339(t *time.Time) any {
 // offset with sub-second precision in AutoSi 0/3/6/9-digit groups.
 func rfc3339UTC(t time.Time) string {
 	t = t.UTC()
-	ns := t.Nanosecond()
-	base := t.Format("2006-01-02T15:04:05")
-	switch {
-	case ns == 0:
-	case ns%1_000_000 == 0:
-		base += fmt.Sprintf(".%03d", ns/1_000_000)
-	case ns%1_000 == 0:
-		base += fmt.Sprintf(".%06d", ns/1_000)
-	default:
-		base += fmt.Sprintf(".%09d", ns)
-	}
-	return base + "+00:00"
+	return t.Format("2006-01-02T15:04:05") + chronoFraction(t.Nanosecond()) + "+00:00"
 }
 
 // isSQLiteBusy mirrors is_sqlite_busy in typed_store.rs: SQLITE_BUSY (5),

@@ -3,6 +3,7 @@
 package bml
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -305,12 +306,24 @@ type EvidenceRef struct {
 	CreatedAt time.Time      `json:"created_at"`
 }
 
-// MarshalJSON emits CreatedAt as RFC3339Nano UTC text.
+// MarshalJSON emits CreatedAt in chrono serde form.
 func (e EvidenceRef) MarshalJSON() ([]byte, error) {
-	type plain EvidenceRef
-	p := plain(e)
-	p.CreatedAt = e.CreatedAt.UTC()
-	return json.Marshal(p)
+	type wire struct {
+		ID        string         `json:"id"`
+		Source    EvidenceSource `json:"source"`
+		URI       string         `json:"uri"`
+		Excerpt   *string        `json:"excerpt"`
+		Hash      *string        `json:"hash"`
+		CreatedAt string         `json:"created_at"`
+	}
+	return marshalCanonical(wire{
+		ID:        e.ID,
+		Source:    e.Source,
+		URI:       e.URI,
+		Excerpt:   e.Excerpt,
+		Hash:      e.Hash,
+		CreatedAt: chronoSerdeTime(e.CreatedAt),
+	})
 }
 
 // UnmarshalJSON normalizes CreatedAt to UTC (chrono DateTime<Utc> semantics).
@@ -350,12 +363,22 @@ type Provenance struct {
 	Correlation   AuditCorrelation `json:"correlation"`
 }
 
-// MarshalJSON emits CapturedAt as RFC3339Nano UTC text.
+// MarshalJSON emits CapturedAt in chrono serde form.
 func (p Provenance) MarshalJSON() ([]byte, error) {
-	type plain Provenance
-	q := plain(p)
-	q.CapturedAt = p.CapturedAt.UTC()
-	return json.Marshal(q)
+	type wire struct {
+		Source        ProvenanceSource `json:"source"`
+		SourceID      string           `json:"source_id"`
+		ContentDigest ContentDigest    `json:"content_digest"`
+		CapturedAt    string           `json:"captured_at"`
+		Correlation   AuditCorrelation `json:"correlation"`
+	}
+	return marshalCanonical(wire{
+		Source:        p.Source,
+		SourceID:      p.SourceID,
+		ContentDigest: p.ContentDigest,
+		CapturedAt:    chronoSerdeTime(p.CapturedAt),
+		Correlation:   p.Correlation,
+	})
 }
 
 // UnmarshalJSON normalizes CapturedAt to UTC.
@@ -379,12 +402,20 @@ type Tombstone struct {
 	CreatedAt      time.Time     `json:"created_at"`
 }
 
-// MarshalJSON emits CreatedAt as RFC3339Nano UTC text.
+// MarshalJSON emits CreatedAt in chrono serde form.
 func (t Tombstone) MarshalJSON() ([]byte, error) {
-	type plain Tombstone
-	p := plain(t)
-	p.CreatedAt = t.CreatedAt.UTC()
-	return json.Marshal(p)
+	type wire struct {
+		TargetRecordID string        `json:"target_record_id"`
+		ReasonDigest   ContentDigest `json:"reason_digest"`
+		ActorID        string        `json:"actor_id"`
+		CreatedAt      string        `json:"created_at"`
+	}
+	return marshalCanonical(wire{
+		TargetRecordID: t.TargetRecordID,
+		ReasonDigest:   t.ReasonDigest,
+		ActorID:        t.ActorID,
+		CreatedAt:      chronoSerdeTime(t.CreatedAt),
+	})
 }
 
 // UnmarshalJSON normalizes CreatedAt to UTC.
@@ -417,24 +448,51 @@ type Record struct {
 	Tombstone     *Tombstone    `json:"tombstone"`
 }
 
-// MarshalJSON emits timestamps as RFC3339Nano UTC text and nil slices as
+// MarshalJSON emits timestamps in chrono serde form and nil slices as
 // empty arrays, matching the serde wire contract.
 func (r Record) MarshalJSON() ([]byte, error) {
-	type plain Record
-	p := plain(r)
-	p.CreatedAt = r.CreatedAt.UTC()
-	p.EffectiveAt = r.EffectiveAt.UTC()
+	type wire struct {
+		ID            string        `json:"id"`
+		Kind          Kind          `json:"kind"`
+		Content       string        `json:"content"`
+		Provenance    Provenance    `json:"provenance"`
+		EvidenceRefs  []EvidenceRef `json:"evidence_refs"`
+		ConfidenceBPS uint16        `json:"confidence_bps"`
+		Sensitivity   Sensitivity   `json:"sensitivity"`
+		Trust         Trust         `json:"trust"`
+		Scope         Scope         `json:"scope"`
+		CreatedAt     string        `json:"created_at"`
+		EffectiveAt   string        `json:"effective_at"`
+		ExpiresAt     *string       `json:"expires_at"`
+		Supersedes    []string      `json:"supersedes"`
+		Tombstone     *Tombstone    `json:"tombstone"`
+	}
+	w := wire{
+		ID:            r.ID,
+		Kind:          r.Kind,
+		Content:       r.Content,
+		Provenance:    r.Provenance,
+		EvidenceRefs:  r.EvidenceRefs,
+		ConfidenceBPS: r.ConfidenceBPS,
+		Sensitivity:   r.Sensitivity,
+		Trust:         r.Trust,
+		Scope:         r.Scope,
+		CreatedAt:     chronoSerdeTime(r.CreatedAt),
+		EffectiveAt:   chronoSerdeTime(r.EffectiveAt),
+		Supersedes:    r.Supersedes,
+		Tombstone:     r.Tombstone,
+	}
 	if r.ExpiresAt != nil {
-		expires := r.ExpiresAt.UTC()
-		p.ExpiresAt = &expires
+		expires := chronoSerdeTime(*r.ExpiresAt)
+		w.ExpiresAt = &expires
 	}
-	if p.EvidenceRefs == nil {
-		p.EvidenceRefs = []EvidenceRef{}
+	if w.EvidenceRefs == nil {
+		w.EvidenceRefs = []EvidenceRef{}
 	}
-	if p.Supersedes == nil {
-		p.Supersedes = []string{}
+	if w.Supersedes == nil {
+		w.Supersedes = []string{}
 	}
-	return json.Marshal(p)
+	return marshalCanonical(w)
 }
 
 // UnmarshalJSON normalizes all timestamps to UTC.
@@ -496,9 +554,9 @@ func (e *ValidationError) Error() string {
 // name as `{"missing_required_field": "<field>"}`.
 func (e ValidationError) MarshalJSON() ([]byte, error) {
 	if e.Code == "missing_required_field" {
-		return json.Marshal(map[string]string{e.Code: e.Field})
+		return marshalCanonical(map[string]string{e.Code: e.Field})
 	}
-	return json.Marshal(e.Code)
+	return marshalCanonical(e.Code)
 }
 
 // UnmarshalJSON accepts both wire forms emitted by MarshalJSON.
@@ -706,7 +764,7 @@ func (r IntegrityReport) MarshalJSON() ([]byte, error) {
 	if p.Findings == nil {
 		p.Findings = []IntegrityFinding{}
 	}
-	return json.Marshal(p)
+	return marshalCanonical(p)
 }
 
 // DefaultL1IndexLines is the default L1 startup index budget (B2): maximum
@@ -809,4 +867,78 @@ func enumString(data []byte) (string, error) {
 		return "", fmt.Errorf("bml: expected string enum value, got %s", data)
 	}
 	return s, nil
+}
+
+// marshalCanonical emits the exact bytes serde_json::to_string produces:
+// compact encoding, no HTML escaping (<>& preserved), and U+2028/U+2029
+// emitted as raw UTF-8 rather than \u escapes.
+func marshalCanonical(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return restoreLineSeparators(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))), nil
+}
+
+// restoreLineSeparators rewrites the \u2028/\u2029 escapes that encoding/json
+// emits unconditionally, matching serde_json which preserves both characters
+// verbatim. It walks encoded JSON bytes so escaped backslashes (the literal
+// text "\\u2028") are never mistaken for the escape itself.
+func restoreLineSeparators(b []byte) []byte {
+	if !bytes.Contains(b, []byte(`\u202`)) {
+		return b
+	}
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); {
+		if b[i] != '\\' || i+1 >= len(b) {
+			out = append(out, b[i])
+			i++
+			continue
+		}
+		// Inside a string the only escapes encoding/json emits are \", \\,
+		// \/, \b, \f, \n, \r, \t, and \uXXXX.
+		if b[i+1] == 'u' && i+5 < len(b) {
+			switch string(b[i+2 : i+6]) {
+			case "2028":
+				out = append(out, 0xE2, 0x80, 0xA8)
+				i += 6
+				continue
+			case "2029":
+				out = append(out, 0xE2, 0x80, 0xA9)
+				i += 6
+				continue
+			}
+			out = append(out, b[i:i+6]...)
+			i += 6
+			continue
+		}
+		out = append(out, b[i], b[i+1])
+		i += 2
+	}
+	return out
+}
+
+// chronoFraction renders the sub-second digits like chrono's
+// SecondsFormat::AutoSi: none, 3, 6, or 9 digits — the smallest group that
+// holds the value.
+func chronoFraction(ns int) string {
+	switch {
+	case ns == 0:
+		return ""
+	case ns%1_000_000 == 0:
+		return fmt.Sprintf(".%03d", ns/1_000_000)
+	case ns%1_000 == 0:
+		return fmt.Sprintf(".%06d", ns/1_000)
+	default:
+		return fmt.Sprintf(".%09d", ns)
+	}
+}
+
+// chronoSerdeTime formats like chrono DateTime<Utc> serde: RFC3339 with a "Z"
+// suffix and AutoSi fractional groups.
+func chronoSerdeTime(t time.Time) string {
+	t = t.UTC()
+	return t.Format("2006-01-02T15:04:05") + chronoFraction(t.Nanosecond()) + "Z"
 }
