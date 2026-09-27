@@ -9,9 +9,10 @@
 // is banned in plugins and the SDK verifier rejects its imports), no
 // slash-command suite (interactions never reach the adapter; command-type
 // messages are dropped by the shape filter), no webhook serving (the
-// Gateway websocket counts as transport poll, contract §14.3), no embeds
-// or media, no reactions, no typing indicators, no message edits, no
-// forum topics, no thread management. Plain TEXT only: DMs and guild text
+// Gateway websocket counts as transport poll, contract §14.3), no embeds,
+// no reactions, no forum topics, no thread management. Since the first
+// cut: typing, message edits/deletes, and the fixed-copy "Thinking…"
+// placeholder (contract §1/§12). Plain TEXT only: DMs and guild text
 // channels, Message Content Intent required (see below).
 //
 // Transport: an OUTBOUND websocket to the Discord Gateway (manifest
@@ -76,10 +77,13 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +102,70 @@ const ChannelName = "discord"
 // (contract §11): "discord:<user id>". The Host matches
 // InboundMessage.Sender against allow_from exactly.
 const senderPrefix = ChannelName + ":"
+
+// maxInboundImageBytes mirrors the Host's shared attachment bound
+// (internal/attachment, §1 media ruling): 5 MiB per image. The read is
+// capped one byte over so an over-limit payload is detected, rejected,
+// and never truncated into the turn.
+const maxInboundImageBytes = 5 << 20
+
+// imageRef is one pre-screened image attachment of an accepted message:
+// the CDN URL to download, the display name, and the platform's claimed
+// content type (provisional — the Host sniffs the actual bytes).
+type imageRef struct {
+	url         string
+	name        string
+	contentType string
+}
+
+// imageAttachment reports whether a Discord attachment is image-class by
+// content type first, extension second (picoclaw's table, rewritten).
+func imageAttachment(filename, contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "image/") {
+		return true
+	}
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return false
+	}
+	switch strings.ToLower(filename[dot:]) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+		return true
+	}
+	return false
+}
+
+// imageMimeClaim turns a filename into the provisional MIME claim sent to
+// the Host (which sniffs the real bytes against the whitelist anyway).
+func imageMimeClaim(filename string) string {
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return "application/octet-stream"
+	}
+	switch strings.ToLower(filename[dot:]) {
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default: // .jpg/.jpeg and anything else image-class
+		return "image/jpeg"
+	}
+}
+
+// envWarn logs through the Host logger when one is available; the surface
+// is advisory and must never panic on a nil logger (test doubles).
+func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
+	if logger := env.Logger(); logger != nil {
+		logger.Warn(msg, args...)
+	}
+}
+
+// placeholderText is the fixed live-surface copy (contract §12): not a
+// settings knob this generation.
+const placeholderText = "Thinking…"
 
 // wsRedialDelay is how often the supervisor offers the gateway a fresh
 // session after a connection died. discordgo's own reconnect loop is not
@@ -136,6 +204,17 @@ type session interface {
 	Open() error
 	Close() error
 	ChannelMessageSend(channelID string, content string, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageSendComplex is the structured send; the adapter uses
+	// it for reply threading (tier-1) via the MessageReference field.
+	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageEditComplex rewrites one sent message (interaction
+	// face); the adapter edits only the content.
+	ChannelMessageEditComplex(m *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageDelete removes one sent message (interaction face).
+	ChannelMessageDelete(channelID, messageID string, options ...discordgo.RequestOption) error
+	// ChannelTyping broadcasts one "typing" indicator ping (REST POST
+	// /channels/{id}/typing); the Host re-pings on its own cadence.
+	ChannelTyping(channelID string, options ...discordgo.RequestOption) error
 }
 
 // Plugin is the transport implementation bound by the v1 ChannelProvider.
@@ -182,6 +261,11 @@ type Plugin struct {
 	// every redial and the event handler before every publish, so
 	// neither a redial nor a late callback can resurrect a stopped ear.
 	stopped bool
+	// health is the live gateway state for the HealthChecker face
+	// (CH-R-1): nil while the gateway session is live, a temporary
+	// HealthError while redialing. Guarded by mu; written only by the
+	// supervisor loop, read through Health.
+	health error
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -337,7 +421,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 // adapter does not serve this slice is dropped locally (the Host
 // allow-list is the policy layer, not this shape filter).
 func (p *Plugin) messageHandler(env plugin.ChannelEnv) messageHandlerFunc {
-	return func(_ *discordgo.Session, m *discordgo.MessageCreate) {
+	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Fence late events: discordgo dispatches every event on its own
 		// goroutine, so a frame read before the session closed can still
 		// reach this handler after Stop has returned. A stopped ear must
@@ -348,9 +432,30 @@ func (p *Plugin) messageHandler(env plugin.ChannelEnv) messageHandlerFunc {
 		if stopped {
 			return
 		}
-		msg, publishable := normalizeMessage(m)
+		// The bot's own user id comes from the session's READY state; it
+		// is the mention-only anchor for guild messages. A session without
+		// it (never opened, or a nil test double) simply cannot trigger on
+		// groups — DMs are unaffected.
+		botUserID := ""
+		if s != nil && s.State != nil && s.State.User != nil {
+			botUserID = s.State.User.ID
+		}
+		msg, refs, publishable := normalizeMessage(m, botUserID)
 		if !publishable {
 			return
+		}
+		// Image downloads are best-effort (§12): each success appends the
+		// annotation plus the media part; a failure keeps the annotation so
+		// the sender's image never vanishes without a trace. The download
+		// runs on the publish context, not the session lifecycle — a Stop
+		// mid-download must not publish a half-fetched turn either way.
+		for _, ref := range refs {
+			ann := plugin.Part{Kind: plugin.PartText, Text: "[image: " + ref.name + "]"}
+			if media, ok := p.downloadAttachment(publishCtx, env, ref); ok {
+				msg.Parts = append(msg.Parts, ann, plugin.Part{Kind: plugin.PartMedia, Media: media})
+			} else {
+				msg.Parts = append(msg.Parts, ann)
+			}
 		}
 		// PublishInbound is synchronous (journal + run start). A dispatch
 		// failure must not kill the stream; the Host's structured logs own
@@ -424,6 +529,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("build session: %w", err)) {
 				return
 			}
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("build session: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
@@ -445,6 +553,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("gateway handshake: %w", err)) {
 				return
 			}
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("gateway handshake: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
@@ -460,6 +571,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		}
 
 		report(nil)
+		p.mu.Lock()
+		p.health = nil
+		p.mu.Unlock()
 
 		// Hold the attempt until the connection dies or the context (or a
 		// Stop) ends the run.
@@ -469,6 +583,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			// on their way out; the supervisor only retires the slot and
 			// schedules a fresh session.
 			p.retire(sess)
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: errors.New("gateway session died; redialing")}
+			p.mu.Unlock()
 		case <-ctx.Done():
 			// The supervisor — not Stop — closes the session: Stop must
 			// return even while a hanging Open holds the session mutex.
@@ -555,6 +672,17 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Health implements plugin.HealthChecker (CH-R-1): read-only gateway state,
+// no network I/O. A live gateway session is healthy; a broken link is
+// temporary — the supervise loop owns recovery, so no discord condition is
+// classified dead this generation (a failed handshake never starts the ear
+// and is retried).
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
+}
+
 // Send implements plugin.Channel: deliver each text part as one plain
 // REST message (POST /channels/{id}/messages) and return the platform
 // message ids it produced.
@@ -589,7 +717,21 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		sent, err := sender.ChannelMessageSend(msg.ChatID, part.Text)
+		var (
+			sent *discordgo.Message
+			err  error
+		)
+		if msg.ReplyTo != "" {
+			// Thread the reply to the triggering message (tier-1): the
+			// reference pins message and channel so the platform renders
+			// the quote header.
+			sent, err = sender.ChannelMessageSendComplex(msg.ChatID, &discordgo.MessageSend{
+				Content:   part.Text,
+				Reference: &discordgo.MessageReference{MessageID: msg.ReplyTo, ChannelID: msg.ChatID},
+			})
+		} else {
+			sent, err = sender.ChannelMessageSend(msg.ChatID, part.Text)
+		}
 		if err != nil {
 			return ids, fmt.Errorf("discord: send message to chat %q: %w", msg.ChatID, err)
 		}
@@ -600,67 +742,237 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 	return ids, nil
 }
 
+// Typing implements plugin.Typing: one ChannelTyping REST ping. The Host
+// owns the resend cadence and stops at the run's terminal; Discord's
+// indicator expires platform-side within ~8 seconds either way.
+func (p *Plugin) Typing(_ context.Context, chatID string) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	return sender.ChannelTyping(chatID)
+}
+
+// SendMedia implements plugin.MediaSender (§1 outbound media): one complex
+// send carrying every media part as multipart files with the platform
+// rendering the images inline. The reply's text has already gone out
+// through Send, so the message content stays empty — no caption this
+// batch. A part whose media is empty is skipped; a send failure fails the
+// whole batch (the Host retries it, at-least-once).
+func (p *Plugin) SendMedia(_ context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return nil, errors.New("discord: channel not started")
+	}
+	var files []*discordgo.File
+	for _, part := range parts {
+		if part.Kind != plugin.PartMedia || len(part.Media.Data) == 0 {
+			continue
+		}
+		files = append(files, &discordgo.File{
+			Name:        part.Media.Name,
+			ContentType: part.Media.MimeType,
+			Reader:      bytes.NewReader(part.Media.Data),
+		})
+	}
+	if len(files) == 0 {
+		return nil, nil
+	}
+	sent, err := sender.ChannelMessageSendComplex(chatID, &discordgo.MessageSend{Files: files})
+	if err != nil {
+		return nil, fmt.Errorf("discord: send media to chat %q: %w", chatID, err)
+	}
+	if sent == nil || strings.TrimSpace(sent.ID) == "" {
+		return nil, nil
+	}
+	return []string{strings.TrimSpace(sent.ID)}, nil
+}
+
+// editTextOf flattens an edit payload to one text body: an edit targets a
+// single sent message, so the payload's text parts join. Empty parts drop.
+func editTextOf(parts []plugin.Part) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Kind == plugin.PartText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// EditMessage implements plugin.MessageEditor: rewrite one sent message's
+// content on the never-opened send client (plain REST, like Send). The
+// content is sent as-is — Discord renders markdown natively — and Discord
+// has no "not modified" rejection, so no idempotency mapping exists.
+func (p *Plugin) EditMessage(_ context.Context, chatID, messageID string, msg plugin.OutboundMessage) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	text := editTextOf(msg.Parts)
+	if text == "" {
+		return errors.New("discord: edit payload has no text")
+	}
+	if _, err := sender.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID:      messageID,
+		Channel: chatID,
+		Content: &text,
+	}); err != nil {
+		return fmt.Errorf("discord: edit message %s in chat %q: %w", messageID, chatID, err)
+	}
+	return nil
+}
+
+// DeleteMessage implements plugin.MessageDeleter: remove one sent message
+// on the never-opened send client. Deleting an already-deleted message
+// surfaces as a platform error — the Host settles each live-surface
+// message exactly once, so a repeat is a caller bug worth seeing.
+func (p *Plugin) DeleteMessage(_ context.Context, chatID, messageID string) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	return sender.ChannelMessageDelete(chatID, messageID)
+}
+
+// Placeholder implements plugin.Placeholder: send the fixed "Thinking…"
+// marker as a plain REST message and return its id so the Host can delete
+// it at the turn's terminal.
+func (p *Plugin) Placeholder(_ context.Context, chatID string) (string, error) {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return "", errors.New("discord: channel not started")
+	}
+	sent, err := sender.ChannelMessageSend(chatID, placeholderText)
+	if err != nil {
+		return "", fmt.Errorf("discord: send placeholder to chat %q: %w", chatID, err)
+	}
+	if sent == nil || strings.TrimSpace(sent.ID) == "" {
+		return "", nil
+	}
+	return strings.TrimSpace(sent.ID), nil
+}
+
 // normalizeMessage maps one MESSAGE_CREATE event to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a human-authored
-// text message (DM or guild text channel) with a sender, a message id
-// and non-empty plain text content — and reports everything else as not
-// publishable: bot authors (the bot's own echo and any other bot's
-// messages — the echo guard), command-type payloads (slash and
-// context-menu commands arrive as message types 20/23; interaction
-// events proper never reach the adapter because only MESSAGE_CREATE is
-// registered), system messages (member joins, pins, boosts), media-only
-// messages (attachments/embeds/stickers; media in is a later slice),
-// empty content, and envelopes the Host dispatch would drop anyway
-// (missing sender, message id, or chat id).
+// envelope plus its pre-screened image attachments. It accepts a
+// human-authored message (DM or guild text channel) that carries text,
+// image-class attachments, or both; image attachments return as download
+// refs for the handler (governed transport, bounded read), every other
+// attachment survives as a `[file: name]` text annotation. Bot authors
+// are dropped (the bot's own echo and any other bot's messages — the echo
+// guard), as are command-type payloads (slash and context-menu commands
+// arrive as message types 20/23; interaction events proper never reach
+// the adapter because only MESSAGE_CREATE is registered), system messages
+// (member joins, pins, boosts), and envelopes with no publishable content
+// (embeds, stickers, a bare mention) or the ids the Host dispatch needs.
+//
+// Group trigger (tier-1 ruling, mention-only): a guild message publishes
+// only when its Mentions include the bot's own user id (the READY-state
+// identity the handler hands in); the mention markup is stripped from the
+// text and a bare "@bot" ping publishes nothing. DMs skip the gate.
 //
 // Addresses: ChatID is the channel id — for a DM the DM channel id,
 // which doubles as the ChannelMessageSend target; for a guild the text
 // channel id. Sender is "discord:<author id>". ReplyTo captures
-// referenced_message.id when Discord attaches it (type-19 replies); the
-// slot is filled but carries no threading behavior this slice. TopicID
-// stays empty (no forum topics).
-func normalizeMessage(m *discordgo.MessageCreate) (plugin.InboundMessage, bool) {
+// referenced_message.id when Discord attaches it (type-19 replies);
+// sendReply threads the outbound reply through it. TopicID stays empty
+// (no forum topics this slice).
+func normalizeMessage(m *discordgo.MessageCreate, botUserID string) (plugin.InboundMessage, []*imageRef, bool) {
 	if m == nil || m.Message == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	author := m.Author
 	if author == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	if author.Bot {
 		// Echo guard: the gateway delivers the bot's own outgoing
 		// messages (and every other bot's) as MESSAGE_CREATE; a bot
 		// sender must never loop back in as a new turn.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	senderID := strings.TrimSpace(author.ID)
 	if senderID == "" {
 		// No sender id: allow_from could never match this envelope.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	if m.Type != discordgo.MessageTypeDefault && m.Type != discordgo.MessageTypeReply {
 		// Slash commands (CHAT_INPUT_COMMAND, 20), context-menu commands
 		// (23), thread starters, system pings — none carry a
 		// conversational turn this slice. Interactions proper never reach
 		// this handler at all (only MESSAGE_CREATE is registered).
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	content := strings.TrimSpace(m.Content)
-	if content == "" {
-		// Attachments, embeds, stickers — no text part to publish.
-		return plugin.InboundMessage{}, false
+	// Group trigger (tier-1 ruling, mention-only): a guild message turns
+	// into a turn only when it explicitly mentions the bot. The mention
+	// markup is stripped from the text; a bare "@bot" ping has nothing
+	// left and is dropped by the empty-envelope guard below. DMs skip the
+	// gate entirely.
+	if m.GuildID != "" {
+		mentioned := false
+		for _, u := range m.Mentions {
+			if u != nil && u.ID == botUserID {
+				mentioned = true
+				break
+			}
+		}
+		if !mentioned {
+			return plugin.InboundMessage{}, nil, false
+		}
+		content = strings.TrimSpace(stripBotMention(content, botUserID))
+	}
+	// Media pre-screen (§12): image-class attachments become download refs
+	// (the handler fetches them through the governed transport); every
+	// other attachment survives as a [file: name] text annotation so the
+	// model keeps the signal without the bytes.
+	var refs []*imageRef
+	var parts []plugin.Part
+	if content != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: content})
+	}
+	for _, att := range m.Attachments {
+		if att == nil {
+			continue
+		}
+		name := strings.TrimSpace(att.Filename)
+		if imageAttachment(name, att.ContentType) {
+			url := strings.TrimSpace(att.URL)
+			if url == "" {
+				continue
+			}
+			refs = append(refs, &imageRef{url: url, name: name, contentType: att.ContentType})
+			continue
+		}
+		if name != "" {
+			parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: "[file: " + name + "]"})
+		}
+	}
+	if len(parts) == 0 && len(refs) == 0 {
+		// Embeds, stickers, a bare mention — nothing publishable.
+		return plugin.InboundMessage{}, nil, false
 	}
 	messageID := strings.TrimSpace(m.ID)
 	if messageID == "" {
 		// The Host dispatch drops envelopes without a message id; do not
 		// publish what cannot be journaled.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	chatID := strings.TrimSpace(m.ChannelID)
 	if chatID == "" {
 		// The channel id is the Send addressing key; without it Vivy
 		// could not reply.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	msg := plugin.InboundMessage{
 		Channel:   ChannelName,
@@ -669,11 +981,67 @@ func normalizeMessage(m *discordgo.MessageCreate) (plugin.InboundMessage, bool) 
 		MessageID: messageID,
 		// TopicID stays empty this slice (no forum topics).
 		TopicID: "",
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
+		Parts:   parts,
 	}
 	if m.ReferencedMessage != nil && strings.TrimSpace(m.ReferencedMessage.ID) != "" {
-		// Fill the reply slot; no threading behavior this slice.
+		// Fill the reply slot; sendReply threads the outbound reply
+		// through it.
 		msg.ReplyTo = strings.TrimSpace(m.ReferencedMessage.ID)
 	}
-	return msg, true
+	return msg, refs, true
+}
+
+// downloadAttachment fetches one image attachment through the governed
+// transport, reading at most maxInboundImageBytes+1 bytes. Every failure
+// drops only the image part — the caller keeps the text and the
+// annotation. Logs carry the attachment name and byte counts, never the
+// URL or a raw transport error.
+func (p *Plugin) downloadAttachment(ctx context.Context, env plugin.ChannelEnv, ref *imageRef) (plugin.Media, bool) {
+	if ref == nil || ref.url == "" {
+		return plugin.Media{}, false
+	}
+	client := &http.Client{Transport: env.HTTP().Transport} // nil transport = http.DefaultTransport
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.url, nil)
+	if err != nil {
+		envWarn(env, "discord: attachment request is invalid; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		envWarn(env, "discord: attachment download failed; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		envWarn(env, "discord: attachment download returned a non-200 status; dropping the image part",
+			"name", ref.name, "status", resp.StatusCode)
+		return plugin.Media{}, false
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxInboundImageBytes+1))
+	if err != nil {
+		envWarn(env, "discord: attachment download body failed; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	if len(data) == 0 || len(data) > maxInboundImageBytes {
+		envWarn(env, "discord: attachment is empty or over the inbound size bound; dropping the image part",
+			"name", ref.name, "bytes", len(data))
+		return plugin.Media{}, false
+	}
+	mime := strings.TrimSpace(ref.contentType)
+	if mime == "" {
+		mime = imageMimeClaim(ref.name)
+	}
+	// The claim is provisional: the Host sniffs the actual bytes against
+	// the shared whitelist before the part reaches the turn.
+	return plugin.Media{Name: ref.name, MimeType: mime, Data: data}, true
+}
+
+// stripBotMention removes the bot's own mention token from a guild
+// message's content — Discord renders mentions as <@userid> (plain and
+// nickname variants) — so the markup never reaches the model as literal
+// text.
+func stripBotMention(content, botUserID string) string {
+	content = strings.ReplaceAll(content, "<@"+botUserID+">", "")
+	content = strings.ReplaceAll(content, "<@!"+botUserID+">", "")
+	return content
 }

@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-17).
+// Package conformance is the D-032 backend suite (CN-01..CN-31).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-27.
+// Run executes CN-01..CN-31.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -74,18 +74,19 @@ func Run(t *testing.T, h Harness) {
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
+		{"CN-28", "channel delivery intent round-trip", cnChannelDeliveryIntent},
+		{"CN-29", "channel inbound retention prune", cnChannelInboundPrune},
+		{"CN-30", "channel failed delivery listing", cnChannelFailedListing},
+		{"CN-31", "session deletion removes channel deliveries", cnSessionDeleteChannelDeliveries},
 	}
-	if len(cases) != 27 {
-		t.Fatalf("conformance suite must carry exactly 27 cases, got %d", len(cases))
+	if len(cases) != 31 {
+		t.Fatalf("conformance suite must carry exactly 31 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
 	}
 }
 
-// cnSessionWorkspace catches three storage regressions: dropping the selected
-// directory during projection, allowing a started conversation to drift to a
-// different directory, and treating an unknown session as a conflict.
 func cnSessionWorkspace(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
@@ -1187,6 +1188,198 @@ func cnAttributedModelUsage(t *testing.T, h Harness) {
 	}
 }
 
+func cnChannelDeliveryIntent(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	deliveries, ok := b.(storage.ChannelDeliveryStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelDeliveryStore")
+	}
+	armed := storage.ChannelDelivery{
+		RunID: "chanin-run-1", SessionID: "sess-1", Channel: "telegram", ChatID: "chat-1",
+		TopicID: "topic-1", State: storage.ChannelDeliveryArmed, Attempts: 0,
+		CreatedAtMs: 100, UpdatedAtMs: 100,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, armed); err != nil {
+		t.Fatal(err)
+	}
+	pending := storage.ChannelDelivery{
+		RunID: "chanin-run-2", SessionID: "sess-2", Channel: "feishu", ChatID: "chat-2",
+		State: storage.ChannelDeliveryPending, Attempts: 1,
+		CreatedAtMs: 200, UpdatedAtMs: 250,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	failed := storage.ChannelDelivery{
+		RunID: "chanin-run-3", SessionID: "sess-3", Channel: "qq", ChatID: "chat-3",
+		State: storage.ChannelDeliveryFailed, Attempts: 3,
+		CreatedAtMs: 300, UpdatedAtMs: 400,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	open, err := deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 || open[0].RunID != "chanin-run-1" || open[1].RunID != "chanin-run-2" {
+		t.Fatalf("open rows = %+v, want armed then pending ordered by created_at", open)
+	}
+	if open[0].Channel != "telegram" || open[0].TopicID != "topic-1" || open[0].Attempts != 0 {
+		t.Fatalf("armed row round-trip mismatch: %+v", open[0])
+	}
+	// Upsert replaces every field of the existing row (state machine advance).
+	armed.State = storage.ChannelDeliveryPending
+	armed.Attempts = 2
+	armed.UpdatedAtMs = 150
+	if err := deliveries.UpsertChannelDelivery(ctx, armed); err != nil {
+		t.Fatal(err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 || open[0].RunID != "chanin-run-1" || open[0].State != storage.ChannelDeliveryPending || open[0].Attempts != 2 {
+		t.Fatalf("upsert did not advance the state machine: %+v", open)
+	}
+	if err := deliveries.DeleteChannelDelivery(ctx, armed.RunID); err != nil {
+		t.Fatal(err)
+	}
+	// Deleting an unknown row is not an error (delivery/reconcile race).
+	if err := deliveries.DeleteChannelDelivery(ctx, "chanin-unknown"); err != nil {
+		t.Fatalf("unknown delete: %v", err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 || open[0].RunID != "chanin-run-2" {
+		t.Fatalf("open rows after delete = %+v, want only chanin-run-2", open)
+	}
+	// failed rows survive as terminal visibility but never reopen.
+	if err := deliveries.UpsertChannelDelivery(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("failed row leaked into the open list: %+v", open)
+	}
+}
+
+// cnChannelFailedListing pins the operator-visible side of the ledger: the
+// failed listing returns only failed rows (never armed/pending), ordered
+// oldest first, and the two listings partition the table.
+func cnChannelFailedListing(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	deliveries, ok := b.(storage.ChannelDeliveryStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelDeliveryStore")
+	}
+	rows := []storage.ChannelDelivery{
+		{RunID: "chanin-run-1", SessionID: "sess-1", Channel: "telegram", ChatID: "chat-1",
+			State: storage.ChannelDeliveryFailed, Attempts: 3,
+			CreatedAtMs: 100, UpdatedAtMs: 400},
+		{RunID: "chanin-run-2", SessionID: "sess-2", Channel: "qq", ChatID: "chat-2",
+			State: storage.ChannelDeliveryArmed, Attempts: 0,
+			CreatedAtMs: 200, UpdatedAtMs: 200},
+		{RunID: "chanin-run-3", SessionID: "sess-3", Channel: "feishu", ChatID: "chat-3",
+			State: storage.ChannelDeliveryFailed, Attempts: 5,
+			CreatedAtMs: 300, UpdatedAtMs: 600},
+		{RunID: "chanin-run-4", SessionID: "sess-4", Channel: "dingtalk", ChatID: "chat-4",
+			State: storage.ChannelDeliveryPending, Attempts: 1,
+			CreatedAtMs: 400, UpdatedAtMs: 450},
+	}
+	for _, d := range rows {
+		if err := deliveries.UpsertChannelDelivery(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed, err := deliveries.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failed) != 2 || failed[0].RunID != "chanin-run-1" || failed[1].RunID != "chanin-run-3" {
+		t.Fatalf("failed rows = %+v, want only the two failed rows ordered by created_at", failed)
+	}
+	if failed[0].Attempts != 3 || failed[1].Attempts != 5 || failed[1].UpdatedAtMs != 600 {
+		t.Fatalf("failed row round-trip mismatch: %+v", failed)
+	}
+	// The listings partition the table: open + failed covers every row.
+	open, err := deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 {
+		t.Fatalf("open rows = %+v, want the armed and pending rows only", open)
+	}
+	// Redelivery is a state-machine advance through the existing upsert:
+	// failed -> pending removes the row from the failed listing.
+	rows[0].State = storage.ChannelDeliveryPending
+	if err := deliveries.UpsertChannelDelivery(ctx, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+	failed, err = deliveries.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failed) != 1 || failed[0].RunID != "chanin-run-3" {
+		t.Fatalf("failed rows after re-arm = %+v, want only chanin-run-3", failed)
+	}
+}
+
+func cnChannelInboundPrune(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	maintenance, ok := b.(storage.ChannelMaintenanceStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelMaintenanceStore")
+	}
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-prune", Title: "prune", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-real", SessionID: "sess-prune", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// One old chanin event, one fresh chanin event, one real run event at
+	// the old timestamp.
+	if _, err := b.Append(ctx, storage.Commit{RunID: "chanin_old", Events: []domain.RunEvent{
+		{Type: domain.EventChannelInbound, CreatedAt: 1000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: "chanin_new", Events: []domain.RunEvent{
+		{Type: domain.EventChannelInbound, CreatedAt: 5000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: "run-real", Events: []domain.RunEvent{
+		{Type: domain.EventRunStarted, CreatedAt: 1000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := maintenance.PruneChannelInboundEvents(ctx, time.UnixMilli(4000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d rows, want exactly the old chanin event", n)
+	}
+	if got := replayAll(t, b, "chanin_old", 0); len(got) != 0 {
+		t.Fatalf("old chanin event survived the prune: %+v", got)
+	}
+	if got := replayAll(t, b, "chanin_new", 0); len(got) != 1 {
+		t.Fatalf("fresh chanin event was pruned: %+v", got)
+	}
+	if got := replayAll(t, b, "run-real", 0); len(got) != 1 {
+		t.Fatalf("real run event was pruned: %+v", got)
+	}
+}
+
 func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Context, want domain.Message) {
 	t.Helper()
 	got, err := b.ListMessages(ctx, want.SessionID)
@@ -1198,5 +1391,40 @@ func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Co
 	}
 	if !storage.SameProjectedMessage(got[0], want) {
 		t.Fatalf("stored projection = %+v, want fields matching %+v", got[0], want)
+	}
+}
+
+func cnSessionDeleteChannelDeliveries(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-delete-deliveries")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "cleanup", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	for _, d := range []storage.ChannelDelivery{
+		{RunID: "run-delete-open", SessionID: sessionID, Channel: "fake", ChatID: "chat", State: storage.ChannelDeliveryPending, CreatedAtMs: 1, UpdatedAtMs: 1},
+		{RunID: "run-delete-failed", SessionID: sessionID, Channel: "fake", ChatID: "chat", State: storage.ChannelDeliveryFailed, Attempts: 3, CreatedAtMs: 2, UpdatedAtMs: 2},
+	} {
+		if err := b.UpsertChannelDelivery(ctx, d); err != nil {
+			t.Fatalf("UpsertChannelDelivery: %v", err)
+		}
+	}
+	if err := b.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	open, err := b.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListOpenChannelDeliveries: %v", err)
+	}
+	failed, err := b.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListFailedChannelDeliveries: %v", err)
+	}
+	for _, rows := range [][]storage.ChannelDelivery{open, failed} {
+		for _, row := range rows {
+			if row.SessionID == sessionID {
+				t.Fatalf("DeleteSession left channel delivery behind: %+v", row)
+			}
+		}
 	}
 }
