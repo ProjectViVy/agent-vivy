@@ -857,42 +857,81 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	}
 
 	if isPending {
-		settled := true
-		if p.questionID != "" && s.deps.Questions != nil {
-			if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
-				slog.Warn("cancel question failed", "question", p.questionID, "err", err)
-				settled = false
-			}
-		} else if s.deps.Approvals != nil {
-			if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
-				if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
-					slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
-					settled = false
-				}
-			}
-		}
-		if !settled {
-			// A concurrent answer/decision won the durable conditional
-			// transition. Leave the in-memory suspension for that response.
-			return true
-		}
-		s.mu.Lock()
-		if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
-			delete(s.pending, runID)
-		}
-		s.mu.Unlock()
-		terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
-		if p.execution.child != nil {
-			terminalCtx = withChildTerminal(terminalCtx)
-		}
-		s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
+		s.settlePendingCancellation(runID, p)
 		return true
 	}
 	if !active {
 		return false
 	}
 	cancel() // the drive closes the run via the run.cancelled path
+	// A suspension publishes its durable row and lifecycle event before the
+	// in-memory registration lands; if a durable suspension is already
+	// visible for this run, the registration is landing underneath the
+	// cancel, so wait boundedly and settle the parked suspension instead of
+	// orphaning it.
+	if s.hasDurableSuspension(runID) && s.waitPendingRegistration(runID) {
+		s.mu.Lock()
+		p, isPending := s.pending[runID]
+		s.mu.Unlock()
+		if isPending {
+			s.settlePendingCancellation(runID, p)
+		}
+	}
 	return true
+}
+
+// hasDurableSuspension reports whether the run holds a pending approval or
+// question row — the signal that the suspend path is between the durable
+// write and the in-memory pending registration.
+func (s *Service) hasDurableSuspension(runID domain.RunID) bool {
+	if s.deps.Approvals != nil {
+		if _, err := s.approvalForRun(context.Background(), runID); err == nil {
+			return true
+		}
+	}
+	if s.deps.Questions != nil {
+		if questions, err := s.deps.Questions.ListPendingQuestions(context.Background()); err == nil {
+			for _, question := range questions {
+				if question.RunID == runID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// settlePendingCancellation closes a parked suspension durably and emits the
+// cancelled terminal. A lost durable conditional transition (a concurrent
+// answer or decision won it) leaves the suspension for that response.
+func (s *Service) settlePendingCancellation(runID domain.RunID, p pendingRun) {
+	settled := true
+	if p.questionID != "" && s.deps.Questions != nil {
+		if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
+			slog.Warn("cancel question failed", "question", p.questionID, "err", err)
+			settled = false
+		}
+	} else if s.deps.Approvals != nil {
+		if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
+			if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+				slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
+				settled = false
+			}
+		}
+	}
+	if !settled {
+		return
+	}
+	s.mu.Lock()
+	if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
+		delete(s.pending, runID)
+	}
+	s.mu.Unlock()
+	terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
+	if p.execution.child != nil {
+		terminalCtx = withChildTerminal(terminalCtx)
+	}
+	s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
 }
 
 // cancelWorkflowChildren propagates explicit cancellation through the run
@@ -2947,10 +2986,11 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	return s.settleApproval(ctx, approval, decision, "local_user", reason)
 }
 
-// waitChildApprovalRegistration polls for the in-memory suspension a durable
-// child approval row precedes. Bounded: a suspension that never lands (a run
-// that died between the row write and the registration) still fails closed.
-func (s *Service) waitChildApprovalRegistration(ctx context.Context, runID domain.RunID) bool {
+// waitPendingRegistration polls for the in-memory suspension a durable
+// approval/question row precedes. Bounded: a suspension that never lands (a
+// run that died between the row write and the registration) still fails
+// closed.
+func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		s.mu.Lock()
@@ -2962,11 +3002,7 @@ func (s *Service) waitChildApprovalRegistration(ctx context.Context, runID domai
 		if !time.Now().Before(deadline) {
 			return false
 		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(25 * time.Millisecond):
-		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 
@@ -2982,7 +3018,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 		// The durable approval row precedes in-memory suspension registration
 		// on the suspend path, so a decider observing the row early must wait
 		// for the suspension to land rather than fail the resume.
-		nativeChildPending = s.waitChildApprovalRegistration(ctx, approval.RunID)
+		nativeChildPending = s.waitPendingRegistration(approval.RunID)
 	}
 	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
 		return errors.New("runtime: child approval is not active for Service resume")
