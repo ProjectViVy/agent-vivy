@@ -79,12 +79,20 @@ A real OpenAI-compatible provider was registered via Settings → Model and the 
 - `TestRecoveredLedgerReplaysJournalOnceAndCapsResumedRun` proves restart/reauthorization reconciliation: a recovered ledger replays the child's durable journal exactly once (2 model + 1 tool calls from `tool.requested`+`model.completed`), a second recovery reuses the same ledger without recharging, and resumed reservations consume only the remaining shared headroom (`ErrBudgetExceeded` at the cap).
 - Non-duplicating usage/cost projection holds by construction: usage derives from the append-only journal (each event journaled once; replay is read-only), sibling runs share one `budgetAccount` (`TestRecoveredSiblingRunsShareOneBudgetAccount`), and `sqliteCheckChildConcurrency`/`postgresCheckChildConcurrency` count child slots in-transaction against durable run rows — a crash between enqueue and child start cannot over-admit.
 
+## Windows CI fixes (this pass)
+
+Three preexisting Windows defects that kept `backend ci` red are fixed; CI is green end-to-end (backend ci on windows-2025 included):
+
+- Embedded mask prompt assets inherit the checkout's line endings, so a CRLF checkout failed "definition body is not normalized" and the packed default generation refused to boot (`TestMaskCatalogNormalizesCRLFAssetBytes` pins normalization before validation).
+- `settleApproval` could observe the durable child-approval row before in-memory suspension registration and fail closed with "child approval is not active"; `waitChildApprovalRegistration` now waits boundedly, mirroring `waitShellApprovalReady`.
+- The embedded bash interpreter (`mvdan.cc/sh`, every Windows `bash` call) returned `interp.ExitStatus`, which the job registry collapsed to `exit_code -1`; `tools.ExitStatusError` now preserves it (`TestCommandBackendEmbeddedBashReportsExitStatus` covers the `!shell` embedded path cross-platform; `TestNudgeAcceptanceCommandRetry` on Windows was the original witness).
+
 ## Still not verified (requires owner)
 
-- Literal `just ci`: the justfile is PowerShell-bound; the raw equivalents above all pass on Linux, but `just ci` itself needs the supported environment.
+- Literal `just ci` outside CI: the GitHub `just ci` aggregator job is green, but a local run still needs the PowerShell toolchain.
 - Live-model mask semantics eval (whether a mask persona measurably steers a real model) — wiring and transport are proven, persona quality was not in scope.
 - Owner E2E and final release review (G4).
 
 ## Gate disposition
 
-G0–G3: the previously missing machine-checkable, both-backend and browser evidence — including a real model path, full MASK-4 wiring, and R13 resource accounting — is now produced and recorded. Remaining gap is a literal `just ci` run on the PowerShell toolchain plus G4 owner E2E and release review, which remain **BLOCKED** — not delegated.
+G0–G3: the previously missing machine-checkable, both-backend and browser evidence — including a real model path, full MASK-4 wiring, and R13 resource accounting — is now produced and recorded. All four GitHub checks are green (backend ci on Windows included). Remaining gap is a local `just ci` run on the PowerShell toolchain plus G4 owner E2E and release review, which remain **BLOCKED** — not delegated.
