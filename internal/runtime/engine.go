@@ -312,6 +312,10 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
+	handlers = append(handlers, newWorkPlanGuidanceMiddleware())
+	// Same-batch work-control terminal actions must fence every later call in
+	// model order. Eino parallelizes calls by default, so execute this node in
+	// order and let the Service fence decide whether each call may run.
 	// Eino's first registered WrapModel handler is the outermost layer; the
 	// prompt middleware must see the final input after all compaction, skill,
 	// AGENTS.md, dynamic-tool, and mount projections.
@@ -329,7 +333,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		Model:         observeModelStreams(m),
 		Handlers:      handlers,
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools},
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
 		},
 	}
 	if cfg.MaxToolTurns > 0 {
@@ -396,9 +400,9 @@ func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.Message, opts ..
 }
 
 // Resume restarts a suspended run from its checkpoint, feeding the resume
-// payload (the approval decision) back to the interrupted tool via
-// params.Targets. The caller must pass the same checkpoint id the run was
-// started with (docs/eino-capability-verify.md §2.2).
+// payload (an approval, question answer, or Plan review decision) back to
+// the interrupted tool via params.Targets. The caller must pass the
+// checkpoint id used to start the run (docs/eino-capability-verify.md §2.2).
 func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.AgentEvent], error) {
 	return e.runner.ResumeWithParams(ctx, checkpointID, params, opts...)
 }

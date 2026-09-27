@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -586,16 +585,11 @@ func TestNudgeAcceptanceCancelWhileWaiting(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// G: a parallel batch finishing out of order still seals in request order;
-// the settled boundary emits exactly one notice naming the earliest
-// request position among threshold hits.
+// G: a model batch seals in request order; the settled boundary emits
+// exactly one notice naming the earliest request position among threshold hits.
 // ---------------------------------------------------------------------------
-func TestNudgeAcceptanceParallelOrdering(t *testing.T) {
-	releaseG1 := make(chan struct{})
-	gated := newContractTool(func(ctx context.Context, _ json.RawMessage) (string, error) {
-		if compose.GetToolCallID(ctx) == "call-g1" {
-			<-releaseG1
-		}
+func TestNudgeAcceptanceRequestOrder(t *testing.T) {
+	failing := newContractTool(func(context.Context, json.RawMessage) (string, error) {
 		return "", &tools.ArgError{Field: "text", Reason: "must be a string"}
 	})
 	batch := func(a, b string) *schema.Message {
@@ -611,31 +605,25 @@ func TestNudgeAcceptanceParallelOrdering(t *testing.T) {
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
-		extraTools: []tools.Tool{gated},
+		extraTools: []tools.Tool{failing},
 	})
 	h.openSession(t, "sess-acc-g", domain.ApprovalPolicyAuto)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-g", "parallel failures")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	// Force out-of-order finishing: release g1's tool only after g2's
-	// result is durable.
-	h.waitFor(t, "call-g2 result durable", func() bool {
-		return h.journal.hasEvent(domain.EventToolFinished, "call-g2")
-	})
-	close(releaseG1)
 	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
 
-	if idx2, idx1 := h.journal.indexOf(domain.EventToolFinished, "call-g2"),
-		h.journal.indexOf(domain.EventToolFinished, "call-g1"); idx2 < 0 || idx2 > idx1 {
-		t.Fatalf("expected out-of-order finishing (g2 before g1): %d vs %d", idx2, idx1)
+	if idx1, idx2 := h.journal.indexOf(domain.EventToolFinished, "call-g1"),
+		h.journal.indexOf(domain.EventToolFinished, "call-g2"); idx1 < 0 || idx2 < 0 || idx1 > idx2 {
+		t.Fatalf("tool results were not sealed in model request order (g1=%d, g2=%d)", idx1, idx2)
 	}
 	nudges := nudgeEvents(t, h.journal)
 	if len(nudges) != 1 {
 		t.Fatalf("tool.nudge events = %d, want 1 per settled boundary", len(nudges))
 	}
 	// Batch 2 records in request order: call-g3 hits count 3, call-g4 4
-	// (skipped). Had order followed finishing, the notice would name g4.
+	// (skipped).
 	if nudges[0].ToolCallID != "call-g3" || nudges[0].RepeatCount != 3 {
 		t.Fatalf("nudge named %+v, want call-g3 at count 3", nudges[0])
 	}
@@ -708,7 +696,7 @@ func TestNudgeAcceptanceResumeNoStaleNotice(t *testing.T) {
 func TestNudgeAcceptancePartialEffectNoReplay(t *testing.T) {
 	script := []*schema.Message{
 		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.BashName, "call-i1", `{"command":"touch partial.marker && exit 2"}`),
+			acceptanceCall(tools.BashName, "call-i1", `{"command":"echo marker > partial.marker && exit 2"}`),
 		}),
 		schema.AssistantMessage("done", nil),
 	}

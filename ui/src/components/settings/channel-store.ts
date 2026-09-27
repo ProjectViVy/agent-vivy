@@ -3,6 +3,9 @@ import {
   getChannel as fetchChannelEnvelope,
   inspectChannels,
   updateChannel,
+  listChannelDeliveries,
+  redeliverChannelDelivery,
+  type ChannelDelivery,
   type ChannelEnvelope,
   type ChannelStatus,
   type ChannelUpdateInput,
@@ -27,12 +30,14 @@ export interface ChannelsState {
   /** 各通道 envelope（文档真值）；单通道读取失败时缺省。 */
   envelopes: Record<string, ChannelEnvelope>;
   /** 首次 inspect 是否已返回（区分"加载中"与"这一代没有耳朵"）。 */
+  /** 失败投递意图（操作员可见的台账面）；与通道列表同批刷新。 */
+  failedDeliveries: ChannelDelivery[];
   loaded: boolean;
   /** inspect 失败原因；非空时列表不可信。 */
   error: string | null;
 }
 
-let state: ChannelsState = { statuses: [], envelopes: {}, loaded: false, error: null };
+let state: ChannelsState = { statuses: [], envelopes: {}, failedDeliveries: [], loaded: false, error: null };
 const listeners = new Set<() => void>();
 let refreshInFlight: Promise<void> | null = null;
 
@@ -92,7 +97,14 @@ export function refreshChannels(): Promise<void> {
       for (const [name, envelope] of entries) {
         if (envelope) envelopes[name] = envelope;
       }
-      setState({ statuses, envelopes, loaded: true, error: null });
+      // 失败投递列表独立于通道列表：拉取失败只清空该区块，不拖垮主视图。
+      let failedDeliveries: ChannelDelivery[] = [];
+      try {
+        failedDeliveries = (await listChannelDeliveries()).deliveries;
+      } catch {
+        failedDeliveries = [];
+      }
+      setState({ statuses, envelopes, failedDeliveries, loaded: true, error: null });
     })
     .catch((error) => {
       setState({ loaded: true, error: error instanceof Error ? error.message : String(error) });
@@ -142,6 +154,15 @@ export async function toggleChannel(name: string, enabled: boolean): Promise<Cha
  */
 export async function disableChannel(name: string): Promise<ChannelEnvelope> {
   return saveChannel(name, { enabled: false });
+}
+
+/**
+ * 重投一条失败投递意图：保留累计 attempts（预算 3 不变），成功后随刷新
+ * 从列表消失；服务端拒绝（通道未运行 / 正在排空）原样抛给调用方。
+ */
+export async function redeliverDelivery(runId: string): Promise<void> {
+  await redeliverChannelDelivery(runId);
+  await refreshChannels();
 }
 
 /**

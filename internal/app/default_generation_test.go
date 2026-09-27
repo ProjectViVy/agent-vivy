@@ -162,8 +162,11 @@ func TestDefaultGenerationComposesEstablishedOptionalHosts(t *testing.T) {
 			t.Fatalf("default Generation omitted %s: %v", moduleID, assembly.Manifest.Modules)
 		}
 	}
-	if got, ok := assembly.ContextSourceProviders().([]contextsource.Provider); !ok || len(got) != 1 || got[0].ID() != "vivy.project-context" {
+	if got, ok := assembly.ContextSourceProviders().([]contextsource.Provider); !ok || len(got) != 2 || got[0].ID() != "vivy.project-context" || got[1].ID() != "vivy.memory.bml" {
 		t.Fatalf("default ContextSource inventory = %#v (typed=%v)", got, ok)
+	}
+	if len(assembly.RunObservers) != 1 || assembly.RunObservers[0].ID() != "vivy.memory.bml" {
+		t.Fatalf("default RunObserver inventory = %#v", assembly.RunObservers)
 	}
 	if got, ok := assembly.SkillSourceProviders().([]skillsource.Provider); !ok || len(got) != 1 || got[0].ID() != "vivy.default-skills" {
 		t.Fatalf("default SkillSource inventory = %#v (typed=%v)", got, ok)

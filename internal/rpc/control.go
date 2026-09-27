@@ -24,6 +24,7 @@ import (
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
@@ -63,6 +64,8 @@ type ControlDeps struct {
 	Messages  storage.MessageStore
 	Runs      storage.RunStore
 	Journal   storage.Journal
+	Work      storage.WorkStore
+	WorkBus   *events.WorkBus
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
@@ -90,8 +93,24 @@ type ControlDeps struct {
 	// session/messages filtering and session/rewind. Nil leaves the full
 	// history in every view and disables the method.
 	Truncations storage.TruncationStore
-	Bus         *events.Bus
-	Service     *runtime.Service
+	// History is the single runtime-owned bounded projection shared by model
+	// tools and operator inspection RPCs. Nil disables history/*.
+	History tools.HistoryOperations
+	// References owns reference/preview composition. Nil disables the
+	// method; turn/start reference fields still decode and validate but the
+	// submission fails unavailable at admission.
+	References tools.ReferenceOperations
+	// Deliverables owns deliverables/list|get|read|close against trusted
+	// connection identity. Nil hides the method family and capability.
+	Deliverables tools.DeliverableOperations
+	Bus          *events.Bus
+	Service      *runtime.Service
+	Studio       *studio.Service
+	Live         studio.LiveView
+	Eval         eval.Starter
+	Children     ChildController
+	Bus          *events.Bus
+	Service      *runtime.Service
 	// CodeModeAvailable is projected from the runtime's accepted Face values.
 	// It is a capability of this composed control plane, independent of the
 	// selected mask catalog or any browser-side mask state.
@@ -328,7 +347,7 @@ func NewControlHandler(deps ControlDeps) (Handler, error) {
 		deps.Approvals == nil || deps.Questions == nil || deps.Bus == nil || deps.Service == nil {
 		return nil, errors.New("rpc: control dependencies are incomplete")
 	}
-	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc)}, nil
+	return &controlHandler{deps: deps, subscriptions: make(map[string]context.CancelFunc), processEpoch: newControlID("epoch_")}, nil
 }
 
 type controlHandler struct {
@@ -337,6 +356,7 @@ type controlHandler struct {
 	mu            sync.Mutex
 	subscriptions map[string]context.CancelFunc
 	modelChangeMu sync.Mutex
+	processEpoch  string
 }
 
 type sessionParams struct {
@@ -352,15 +372,30 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-	SessionID       string           `json:"session_id"`
-	Text            string           `json:"text"`
-	Mode            string           `json:"mode,omitempty"`
-	Face            string           `json:"face,omitempty"`
-	PolicyProfile   string           `json:"policy_profile,omitempty"`
-	Thinking        string           `json:"thinking,omitempty"`
-	Attachments     []turnAttachment `json:"attachments,omitempty"`
-	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
-	ContextPaths    []string         `json:"context_paths,omitempty"`
+	CollaborationMode    string           `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int              `json:"collaboration_version,omitempty"`
+	SessionID            string           `json:"session_id"`
+	Text                 string           `json:"text"`
+	Mode                 string           `json:"mode,omitempty"`
+	Face                 string           `json:"face,omitempty"`
+	PolicyProfile        string           `json:"policy_profile,omitempty"`
+	Thinking             string           `json:"thinking,omitempty"`
+	Attachments          []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
+	ContextPaths         []string         `json:"context_paths,omitempty"`
+	PolicyProfile        string           `json:"policy_profile,omitempty"`
+	Thinking             string           `json:"thinking,omitempty"`
+	Attachments          []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
+	ContextPaths         []string         `json:"context_paths,omitempty"`
+	// Continuity-bearing fields (SC-D4 §7): request_id plus optional
+	// operator-selected reference excerpts and a broader model read scope.
+	// Bodies decode raw first because each entry must satisfy a strict
+	// shape; forged fields inside an entry are rejected.
+	RequestID    string            `json:"request_id,omitempty"`
+	References   []json.RawMessage `json:"references,omitempty"`
+	HistoryScope json.RawMessage   `json:"history_scope,omitempty"`
+	continuity   *domain.ContinuityInput
 }
 
 // shellParams is intentionally smaller than turnParams. A direct shell
@@ -372,13 +407,15 @@ type shellParams struct {
 }
 
 type editSessionParams struct {
-	SessionID     string `json:"session_id"`
-	MessageID     string `json:"message_id"`
-	Text          string `json:"text"`
-	Mode          string `json:"mode,omitempty"`
-	Face          string `json:"face,omitempty"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
-	Thinking      string `json:"thinking,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	SessionID            string `json:"session_id"`
+	MessageID            string `json:"message_id"`
+	Text                 string `json:"text"`
+	Mode                 string `json:"mode,omitempty"`
+	Face                 string `json:"face,omitempty"`
+	PolicyProfile        string `json:"policy_profile,omitempty"`
+	Thinking             string `json:"thinking,omitempty"`
 }
 
 // turnAttachment carries one image on a turn/start call (VC-1g-2).
@@ -546,11 +583,11 @@ type messageProvenanceResult struct {
 }
 
 func messageProvenance(message domain.Message) *messageProvenanceResult {
-	if message.EffectiveSource() != "channel" {
+	if message.EffectiveSource() != domain.SourceChannel {
 		return nil
 	}
 	return &messageProvenanceResult{
-		Source:           "channel",
+		Source:           domain.SourceChannel,
 		Channel:          message.Channel,
 		ChatID:           message.ChatID,
 		ChannelMessageID: message.ChannelMessageID,
@@ -1016,6 +1053,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
 			"channel.inspect", "channel.get", "channel.update",
+			"channel.deliveries.list", "channel.deliveries.redeliver",
 			"session.context", "session.sidebar", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
@@ -1024,6 +1062,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		if _, ok := h.deps.Sessions.(storage.SessionWorkspaceStore); ok && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.set_workspace")
+		}
+		if h.deps.Work != nil && h.deps.Service != nil {
+			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
 		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
@@ -1045,6 +1086,15 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
+		}
+		if h.deps.History != nil {
+			capabilities = append(capabilities, "history/search", "history/read", "history/trace", "history/capabilities", "history/sessions")
+		}
+		if h.deps.References != nil {
+			capabilities = append(capabilities, "reference/preview", "reference/get")
+		}
+		if h.deps.Deliverables != nil {
+			capabilities = append(capabilities, "deliverables/list", "deliverables/get", "deliverables/read", "deliverables/close")
 		}
 		return map[string]any{
 			"protocol_version":    ProtocolVersion,
@@ -1077,6 +1127,44 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			bindPeerSessionResult(peer, result)
 		}
 		return result, rpcErr
+	case "session/work/get":
+		result, rpcErr := h.getWork(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "session/work/subscribe":
+		result, rpcErr := h.subscribeWork(ctx, peer, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "goal/create":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCreated)
+	case "goal/edit":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalEdited)
+	case "goal/pause":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalPaused)
+	case "goal/resume":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalResumed)
+	case "goal/complete":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCompleted)
+	case "goal/block":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalBlocked)
+	case "goal/clear":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventGoalCleared)
+	case "plan/get":
+		result, rpcErr := h.getPlan(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "plan/enter":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanEntered)
+	case "plan/leave":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanLeft)
+	case "plan/decide":
+		return h.handleWorkMutation(ctx, peer, request, domain.WorkEventPlanDecided)
 	case "session/rename":
 		result, rpcErr := h.renameSession(ctx, request)
 		if rpcErr == nil {
@@ -1091,6 +1179,28 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerSessionRequest(ctx, peer, request)
 		}
 		return result, rpcErr
+	case "history/search":
+		return h.historySearch(ctx, request)
+	case "history/read":
+		return h.historyRead(ctx, request)
+	case "history/trace":
+		return h.historyTrace(ctx, request)
+	case "history/capabilities":
+		return h.historyCapabilities(ctx)
+	case "history/sessions":
+		return h.historySessions(ctx, request)
+	case "reference/preview":
+		return h.referencePreview(ctx, request)
+	case "reference/get":
+		return h.referenceGet(ctx, request)
+	case "deliverables/list":
+		return h.deliverablesList(ctx, request)
+	case "deliverables/get":
+		return h.deliverablesGet(ctx, request)
+	case "deliverables/read":
+		return h.deliverablesRead(ctx, request)
+	case "deliverables/close":
+		return h.deliverablesClose(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {
@@ -1168,7 +1278,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
-		return h.cancelRun(request)
+		return h.cancelRun(ctx, request)
 	case "run/get":
 		result, rpcErr := h.getRun(ctx, request)
 		if rpcErr == nil {
@@ -1181,7 +1291,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerRunResult(ctx, peer, result)
 		}
 		return result, rpcErr
-	case "run/unsubscribe":
+	case "run/unsubscribe", "session/work/unsubscribe":
 		return h.unsubscribe(request)
 	case "run/log":
 		return h.runLog(ctx, request)
@@ -1286,6 +1396,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.getChannel(request)
 	case "channel/update":
 		return h.updateChannel(ctx, request)
+	case "channel/deliveries/list":
+		return h.listChannelDeliveries(ctx)
+	case "channel/deliveries/redeliver":
+		return h.redeliverChannelDelivery(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
 	case "skills/list":
@@ -2911,8 +3025,8 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		return nil, rpcErr
 	}
 	if len(params.AttachmentPaths) > 0 {
-		if len(attachments)+len(params.AttachmentPaths) > maxAttachmentCount {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+		if len(attachments)+len(params.AttachmentPaths) > attachment.MaxCount {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 		}
 		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
 		if err != nil {
@@ -2939,7 +3053,10 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		HumanAdmission: true,
+		Thinking:       domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts, Continuity: params.continuity,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -2974,7 +3091,10 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 		return nil, &Error{Code: InvalidParams, Message: "session_id, message_id and text are required"}
 	}
 	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile), Thinking: domain.ThinkingMode(params.Thinking),
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
+		Thinking:       domain.ThinkingMode(params.Thinking),
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -2982,12 +3102,16 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
 }
 
-func (h *controlHandler) cancelRun(request Request) (any, *Error) {
+func (h *controlHandler) cancelRun(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseRunParams(request)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if !h.deps.Service.Cancel(domain.RunID(params.RunID)) {
+	cancelled, err := h.deps.Service.CancelRun(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, workError(err)
+	}
+	if !cancelled {
 		return nil, &Error{Code: CodeNotFound, Message: "run is not active in this process"}
 	}
 	return map[string]any{"run_id": params.RunID, "status": "cancelling"}, nil
@@ -3468,6 +3592,9 @@ func parseTurnParams(request Request) (turnParams, *Error) {
 	if params.SessionID == "" {
 		return params, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
+	if err := decodeContinuityInput(&params); err != nil {
+		return params, err
+	}
 	return params, nil
 }
 
@@ -3494,53 +3621,28 @@ func parseShellParams(request Request) (shellParams, *Error) {
 	return params, nil
 }
 
-// Image attachment limits (VC-1g-2, aligned with the Crush client
-// surface): images only, 5 MiB per file, at most 4 per message.
-var attachmentMimeWhitelist = map[string]bool{
-	"image/png":  true,
-	"image/jpeg": true,
-	"image/gif":  true,
-	"image/webp": true,
-}
-
-const (
-	maxAttachmentBytes = 5 << 20
-	maxAttachmentCount = 4
-)
-
 // attachmentsFromParams decodes and validates the base64 image
-// attachments of a turn/start call.
+// attachments of a turn/start call. The limits are the shared
+// internal/attachment vocabulary (VC-1g-2), the same numbers the channel
+// inbound path enforces.
 func attachmentsFromParams(items []turnAttachment) ([]domain.Attachment, *Error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	if len(items) > maxAttachmentCount {
-		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+	if len(items) > attachment.MaxCount {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 	}
 	out := make([]domain.Attachment, 0, len(items))
 	for index, item := range items {
-		mime := strings.ToLower(strings.TrimSpace(item.MimeType))
-		if !attachmentMimeWhitelist[mime] {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: unsupported type %q (png, jpeg, gif and webp images only)", index+1, item.MimeType)}
-		}
 		data, err := base64.StdEncoding.DecodeString(item.Data)
 		if err != nil {
 			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must be base64-encoded image bytes", index+1)}
 		}
-		if len(data) == 0 {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must not be empty", index+1)}
+		mime, err := attachment.ValidateOne(item.MimeType, data)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: %v", index+1, err)}
 		}
-		if len(data) > maxAttachmentBytes {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: image exceeds the %d MiB limit", index+1, maxAttachmentBytes>>20)}
-		}
-		detected := sniffAttachmentMIME(data)
-		if detected == "" {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: file content is not a supported image", index+1)}
-		}
-		if detected != mime {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: MIME type does not match image content", index+1)}
-		}
-		out = append(out, domain.Attachment{Name: safeAttachmentName(item.Name), MimeType: mime, Data: data})
+		out = append(out, domain.Attachment{Name: attachment.SanitizeName(item.Name), MimeType: mime, Data: data})
 	}
 	return out, nil
 }
@@ -5064,12 +5166,24 @@ type channelCapsResult struct {
 	Health      bool `json:"health"`
 }
 
+// channelHealthResult is the live probe of a started HealthChecker adapter
+// (CH-R-1): ok=true means the transport is healthy; otherwise class carries
+// the classification (rate-limit / temporary / dead) and detail the
+// adapter's bounded reason. Null in JSON when the channel is not started or
+// the adapter has no Health face.
+type channelHealthResult struct {
+	OK     bool   `json:"ok"`
+	Class  string `json:"class,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // channelStatusResult is one channel/inspect entry: process truth from the
 // last StartAll. Settings writes apply on the next process restart, so the
 // UI derives "pending restart" by comparing this against channel/get.
 type channelStatusResult struct {
-	Name         string            `json:"name"`
-	Capabilities channelCapsResult `json:"capabilities"`
+	Name         string               `json:"name"`
+	Capabilities channelCapsResult    `json:"capabilities"`
+	Health       *channelHealthResult `json:"health"`
 	// Configured reports an effective channels.<name> envelope at startup.
 	Configured bool `json:"configured"`
 	// Enabled is the effective envelope switch; false when unconfigured.
@@ -5116,9 +5230,14 @@ func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
 	if allowFrom == nil {
 		allowFrom = []string{}
 	}
+	var health *channelHealthResult
+	if s.Health != nil {
+		health = &channelHealthResult{OK: s.Health.OK, Class: s.Health.Class, Detail: s.Health.Detail}
+	}
 	return channelStatusResult{
 		Name:         s.Name,
 		Capabilities: toChannelCapsResult(s.Capabilities),
+		Health:       health,
 		Configured:   s.Configured,
 		Enabled:      s.Enabled,
 		AllowFrom:    allowFrom,
@@ -5269,6 +5388,73 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 	h.notifySettingsChanged()
 	_ = ctx
 	return h.channelEnvelopeView(params.Name, saved), nil
+}
+
+// channelDeliveryResult is one failed delivery intent row (channel/
+// deliveries/list). Identifiers only — the reply content itself stays in
+// the message log (D-010).
+type channelDeliveryResult struct {
+	RunID       string `json:"run_id"`
+	SessionID   string `json:"session_id"`
+	Channel     string `json:"channel"`
+	ChatID      string `json:"chat_id"`
+	TopicID     string `json:"topic_id"`
+	State       string `json:"state"`
+	Attempts    int    `json:"attempts"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+	UpdatedAtMs int64  `json:"updated_at_ms"`
+}
+
+// listChannelDeliveries reports the failed delivery intents: the
+// operator-visible side of the delivery ledger (attempts exhausted, parked
+// by failDelivery). Open intents (armed/pending) are Host-internal and
+// never surface here.
+func (h *controlHandler) listChannelDeliveries(ctx context.Context) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	failed, err := h.deps.Channels.FailedDeliveries(ctx)
+	if err != nil {
+		return nil, &Error{Code: InternalError, Message: fmt.Sprintf("list failed deliveries: %v", err)}
+	}
+	out := make([]channelDeliveryResult, 0, len(failed))
+	for _, d := range failed {
+		out = append(out, channelDeliveryResult{
+			RunID: string(d.RunID), SessionID: string(d.SessionID),
+			Channel: d.Channel, ChatID: d.ChatID, TopicID: d.TopicID,
+			State: d.State, Attempts: d.Attempts,
+			CreatedAtMs: d.CreatedAtMs, UpdatedAtMs: d.UpdatedAtMs,
+		})
+	}
+	return map[string]any{"deliveries": out}, nil
+}
+
+// redeliverChannelDelivery re-arms one failed delivery intent. Operator
+// errors (unknown run, channel not running) come back as errors; a draining
+// host refuses so the operator retries after restart.
+func (h *controlHandler) redeliverChannelDelivery(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id is required"}
+	}
+	if err := h.deps.Channels.RedeliverDelivery(ctx, domain.RunID(params.RunID)); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "not running"), strings.Contains(msg, "shutting down"):
+			return nil, &Error{Code: CodeConflict, Message: msg}
+		default:
+			return nil, &Error{Code: CodeNotFound, Message: msg}
+		}
+	}
+	return map[string]any{"run_id": params.RunID, "redelivered": true}, nil
 }
 
 type mcpServerResult struct {
@@ -5857,7 +6043,7 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidCollaborationMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

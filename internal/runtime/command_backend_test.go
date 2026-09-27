@@ -87,6 +87,28 @@ func TestSelectedSessionWorkspaceDrivesFileAndCommandOperations(t *testing.T) {
 	}
 }
 
+func TestCommandBackendEmbeddedBashReportsExitStatus(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeDangerFullAccess, root, []string{"bash"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := NewCommandBackend(manager, sandbox, []string{"bash"}, 30*time.Second)
+	// The direct-shell marker selects the embedded interpreter, the same path
+	// Windows uses for every bash invocation.
+	result, err := backend.Execute(withDirectShell(context.Background()), "run-embedded", tools.CommandRequest{Command: "bash", Args: []string{"-c", "exit 7"}})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if result.ExitCode != 7 {
+		t.Fatalf("exit code = %d, want 7", result.ExitCode)
+	}
+}
+
 func TestCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T) {
 	manager, err := NewWorkspaceManager(t.TempDir())
 	if err != nil {

@@ -136,6 +136,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	svc, backend, sink := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -292,6 +293,7 @@ func TestServiceResumedRunDispatchesToolsAfterApproval(t *testing.T) {
 	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, model)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-after-approval")
 	runID, err := svc.Run(ctx, "sess-after-approval", "note that I need milk, then echo")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -352,6 +354,7 @@ func TestServiceSweepAutoApprovesSmartApprovalOnTimeout(t *testing.T) {
 	svc.SetApprovalSettleTimeout(50 * time.Millisecond)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-auto-1")
 	runID, err := svc.Run(ctx, "sess-auto-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -425,6 +428,7 @@ func TestServiceSweepExpiresSmartApprovalWhenAutoApproveDisabled(t *testing.T) {
 	svc.SetApprovalSettleTimeout(0)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-auto-2")
 	runID, err := svc.Run(ctx, "sess-auto-2", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -493,6 +497,7 @@ func TestServiceApprovalResumePersistsChunkBeforeProviderEOF(t *testing.T) {
 		}
 	}()
 	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, model)
+	mustCreateSession(t, backend, "sess-resume-stream")
 	runID, err := svc.Run(context.Background(), "sess-resume-stream", "note that I need milk")
 	if err != nil {
 		t.Fatal(err)
@@ -541,6 +546,7 @@ func TestServicePlanModeDoesNotOpenApprovalOrMutate(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-plan")
 	runID, err := svc.RunWithOptions(ctx, "sess-plan", "note that I need milk", RunOptions{Mode: domain.RunModePlan})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -593,6 +599,7 @@ func TestServiceApprovalDenyFlow(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note something")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -631,6 +638,7 @@ func TestServiceApprovalDecisionGuards(t *testing.T) {
 		t.Fatalf("unknown approval: %v, want ErrApprovalNotFound", err)
 	}
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note something")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -654,6 +662,7 @@ func TestServiceApprovalExpired(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, time.Millisecond)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note something")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -674,6 +683,7 @@ func TestServiceApprovalExpired(t *testing.T) {
 func TestServiceExpirySweeperClosesPendingApproval(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, time.Millisecond)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -700,6 +710,7 @@ func TestServiceCancelPendingRun(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "note something")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -741,6 +752,7 @@ func TestServiceCancelDuringApprovalPublishClosesDurableApproval(t *testing.T) {
 	svc, backend, sink := newApprovalService(t, 5*time.Minute)
 	svc.deps.Sink = &cancelOnApprovalPublishSink{service: svc, delegate: sink}
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "note something")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -830,5 +842,44 @@ func TestMapperInterruptDetailsFallback(t *testing.T) {
 	}
 	if d.Args["content"] != "x" {
 		t.Fatalf("fallback args = %+v", d.Args)
+	}
+}
+
+// TestServiceApprovalActorAttribution: DecideApprovalAsActor runs the exact
+// decide path with the actor recorded in the durable decision event and the
+// approval metadata — a channel decision is attributable without being a
+// second decision path — and an empty actor is rejected.
+func TestServiceApprovalActorAttribution(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
+
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", "  "); err == nil {
+		t.Fatal("empty actor accepted")
+	}
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", strings.Repeat("x", 201)); err == nil {
+		t.Fatal("over-long actor accepted")
+	}
+
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", "channel:telegram:12345"); err != nil {
+		t.Fatalf("decide as actor: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	decided := events[indexOfType(events, domain.EventToolApprovalDecided)]
+	var payload payloadApprovalDecided
+	mustUnmarshal(t, decided.Payload, &payload)
+	if payload.Actor != "channel:telegram:12345" {
+		t.Fatalf("decided actor = %q, want the channel attribution", payload.Actor)
+	}
+	if payload.Decision != domain.ApprovalApproved {
+		t.Fatalf("decided decision = %q", payload.Decision)
 	}
 }

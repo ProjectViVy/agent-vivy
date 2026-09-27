@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { AttachmentInput, Face, RunMode, ThinkingMode } from '@/lib/api';
+import type { AttachmentInput, Face, RunMode, ThinkingMode, TurnContinuity, TurnSubmission } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
@@ -10,9 +10,12 @@ import { useTranslation } from '@/i18n';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MessageBubble } from './MessageBubble';
 import { ReasoningRow } from './ReasoningRow';
+import { DeliverableCard } from './DeliverableCard';
+import { ReferenceDetail } from './ReferenceDetail';
 import { ToolRow } from './ToolRow';
 import { ChatInput } from './ChatInput';
 import { TodoProgressStrip } from './TodoProgressStrip';
+import { WorkControlBar } from './WorkControlBar';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { cn } from '@/lib/utils';
 
@@ -47,8 +50,27 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const face: Face | undefined = codeMode ? 'code' : undefined;
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
 
+  // 同一类型化提交对象贯穿直发与排队：引用选择与任务级读域不可被
+  // 位置参数漂移丢弃（SC-D4 §13.3）。发送/入队成功后清空草稿上下文；
+  // 发送失败保留全部草稿值供重试（request_id 保持不变）。
+  const continuityFor = (): TurnContinuity | undefined => {
+    const state = useVivyStore.getState();
+    if (state.draftReferences.length === 0 && !state.draftScope) return undefined;
+    return {
+      request_id: state.draftRequestId,
+      references: state.draftReferences.length ? state.draftReferences.map((draft) => draft.selection) : undefined,
+      history_scope: state.draftScope ?? undefined,
+    };
+  };
+  const clearDraftContext = useVivyStore((state) => state.clearDraftContext);
   const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
-    await startRun(sessionId, text, mode, face, attachments, thinking);
+    const submission: TurnSubmission = { text, mode, face, attachments, thinking, continuity: continuityFor() };
+    await startRun(sessionId, submission);
+    clearDraftContext();
+  };
+  const queue = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
+    enqueueMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() });
+    clearDraftContext();
   };
   // 重新生成（对照 Agent-DIVA）：Journal 是追加式事实源，无法就地覆盖，
   // 映射为用目标助手消息之前最近一条用户输入重新走一轮。
@@ -105,6 +127,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <WorkControlBar key={sessionId} sessionId={sessionId} />
         <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
@@ -118,7 +141,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}
         </div></ScrollArea>
         <TodoProgressStrip />
-        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => enqueueMessage(text, mode, face, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset} />
+        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}
@@ -132,6 +155,8 @@ function RunRowView({ row }: { row: RunRow }) {
   const { t } = useTranslation();
   if (row.kind === 'reasoning') return <ReasoningRow text={row.text} running={row.running} />;
   if (row.kind === 'tool') return <ToolRow call={row.call} />;
+  if (row.kind === 'context_reference') return <ReferenceDetail reference={row.reference} />;
+  if (row.kind === 'deliverables') return <DeliverableCard set={row.set} />;
   if (row.kind === 'assistant') return null;
   return (
     <div className="my-2 text-center text-[11px] text-muted-foreground">

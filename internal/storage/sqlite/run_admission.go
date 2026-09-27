@@ -50,6 +50,10 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	} else if exists {
 		return in.Started, storage.AdmissionConflict()
 	}
+	in.Message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, in.Message.SessionID)
+	if err != nil {
+		return in.Started, err
+	}
 	if in.Edit != nil {
 		marker := *in.Edit
 		if marker.RunID == "" {
@@ -158,9 +162,9 @@ func sqliteMessageExists(ctx context.Context, tx *sql.Tx, id string) (bool, erro
 func sqliteInsertAdmissionMessage(ctx context.Context, tx *sql.Tx, m domain.Message) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO messages
-			(id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
+			(id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel,
 		m.ChatID, m.ChannelMessageID); err != nil {
 		return storage.AdmissionUnavailable("insert admission message", err)
@@ -263,9 +267,9 @@ func sqliteReadAdmissionRun(ctx context.Context, tx *sql.Tx, runID domain.RunID)
 	var marker storage.SessionTruncation
 	var markerSessionID, markerRunID, markerForkSessionID string
 	err = tx.QueryRowContext(ctx, `
-		SELECT session_id, run_id, cutoff_message_id, tail_message_id, reason, fork_session_id, created_at
+		SELECT session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at
 		FROM session_truncations WHERE run_id = ? AND reason = ? ORDER BY id LIMIT 1`, runID, storage.TruncationEdit).
-		Scan(&markerSessionID, &markerRunID, &marker.CutoffMessageID, &marker.TailMessageID, &marker.Reason, &markerForkSessionID, &marker.CreatedAt)
+		Scan(&markerSessionID, &markerRunID, &marker.CutoffMessageID, &marker.TailMessageID, &marker.WorkSeq, &marker.Reason, &markerForkSessionID, &marker.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		// No admission edit marker is normal for an ordinary run. Continue
 		// reading the optional prompt snapshot below.
@@ -445,7 +449,7 @@ func sqliteSamePrompt(a, b storage.RunPromptSnapshot) bool {
 
 func sqliteSameAdmissionMarker(a, b storage.SessionTruncation) bool {
 	return a.SessionID == b.SessionID && a.CutoffMessageID == b.CutoffMessageID &&
-		a.TailMessageID == b.TailMessageID && a.Reason == b.Reason &&
+		a.TailMessageID == b.TailMessageID && a.WorkSeq == b.WorkSeq && a.Reason == b.Reason &&
 		a.ForkSessionID == b.ForkSessionID && a.CreatedAt == b.CreatedAt
 }
 
@@ -453,9 +457,9 @@ func sqliteAdmissionMarkerExists(ctx context.Context, tx *sql.Tx, marker storage
 	var count int
 	err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM session_truncations
-		WHERE session_id = ? AND cutoff_message_id = ? AND tail_message_id = ? AND reason = ?
+		WHERE session_id = ? AND cutoff_message_id = ? AND tail_message_id = ? AND work_seq = ? AND reason = ?
 		  AND fork_session_id = ? AND created_at = ?`, marker.SessionID, marker.CutoffMessageID,
-		marker.TailMessageID, marker.Reason, marker.ForkSessionID, marker.CreatedAt).Scan(&count)
+		marker.TailMessageID, int64(marker.WorkSeq), marker.Reason, marker.ForkSessionID, marker.CreatedAt).Scan(&count)
 	if err != nil {
 		return false, storage.AdmissionUnavailable("check admission edit marker", err)
 	}

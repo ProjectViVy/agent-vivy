@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -257,7 +258,8 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 
 	// Build the version-14 shape by hand: schema_migrations (created by
 	// the migration runner, so it is not part of the frozen DDL), the frozen v14
-	// DDL, the version-14 marker, and one legacy 9-column message row.
+	// DDL, the version-14 marker, one legacy 9-column message row, and an
+	// existing run.started event whose bytes must survive every later migration.
 	setup, err := openPool(dsn, schema)
 	if err != nil {
 		t.Fatalf("open setup pool: %v", err)
@@ -277,10 +279,18 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		14, time.Now().UnixMilli()); err != nil {
 		t.Fatalf("record version 14: %v", err)
 	}
+	if _, err := setup.ExecContext(ctx, `
+		INSERT INTO sessions (id, title, created_at) VALUES ('sess-upg', 'upgrade', 1);
+		INSERT INTO runs (id, session_id, status, created_at) VALUES ('run-upg', 'sess-upg', 'completed', 2);
+		INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload)
+		VALUES ('run-upg', 1, 'run.started', 3, 1, '{"provider":"legacy","model":"legacy-model"}');
+	`); err != nil {
+		t.Fatalf("insert legacy run.started fixture: %v", err)
+	}
 	if _, err := setup.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		"msg-upg-legacy", "sess-upg", "", "user", int64(1), []byte("hello from v14"),
+		"msg-upg-legacy", "sess-upg", "run-upg", "user", int64(1), []byte("hello from v14"),
 		"", "", []byte{}); err != nil {
 		t.Fatalf("insert legacy message row: %v", err)
 	}
@@ -387,6 +397,15 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if workspaceNullable != "NO" || workspaceDefault != "''" {
 		t.Fatalf("workspace_path = nullable %q default %q, want NO / ''", workspaceNullable, workspaceDefault)
 	}
+	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
+	if err := b.Close(); err != nil {
+		t.Fatalf("close upgraded database before reopen: %v", err)
+	}
+	b, err = OpenSchema(ctx, dsn, schema)
+	if err != nil {
+		t.Fatalf("reopen upgraded database: %v", err)
+	}
+	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
 
 	// (c) the legacy row survives the in-place upgrade with empty provenance.
 	got, err := b.ListMessages(ctx, "sess-upg")
@@ -432,6 +451,22 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	if got[0].ID != "msg-upg-legacy" {
 		t.Fatalf("legacy row displaced: %+v", got[0])
+	}
+}
+
+func assertPostgresRunStartedPreserved(t *testing.T, ctx context.Context, db *sql.DB, schema string) {
+	t.Helper()
+	var runID, eventType string
+	var seq, createdAt, payloadVersion int64
+	var payload []byte
+	if err := db.QueryRowContext(ctx,
+		`SELECT run_id, seq, type, created_at, payload_version, payload FROM `+schema+`.run_events WHERE run_id = 'run-upg' AND seq = 1`).
+		Scan(&runID, &seq, &eventType, &createdAt, &payloadVersion, &payload); err != nil {
+		t.Fatalf("read preserved run.started: %v", err)
+	}
+	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
+	if runID != "run-upg" || seq != 1 || eventType != "run.started" || createdAt != 3 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", runID, seq, eventType, createdAt, payloadVersion, payload, wantPayload)
 	}
 }
 

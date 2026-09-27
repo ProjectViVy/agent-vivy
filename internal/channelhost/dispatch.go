@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	plugin "agent-vivy/sdk/port/channel"
@@ -68,6 +71,40 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return nil
 	}
 
+	// Parts → turn input (§12): text parts join; media parts validate
+	// against the shared attachment limits and become turn attachments.
+	// Anything rejected is dropped with a log — bounded bytes only, never
+	// truncated, never journaled.
+	text, attachments := inboundTurnInput(h.logger, msg)
+
+	// HITL command surface (contract §12): an exact /approve, /deny, or
+	// /pending token is answered in place — journaled like any inbound
+	// message, but it opens no run, tracks no target, and records no
+	// delivery intent. Non-command text (including other "/" tokens) falls
+	// through to the ordinary turn path untouched. A command never carries
+	// media into a run: it opens none.
+	if cmd, arg, ok := parseApprovalCommand(text); ok {
+		sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
+		if err != nil {
+			return fmt.Errorf("channelhost: ensure session: %w", err)
+		}
+		if err := h.journalInbound(ctx, msg, sessionID); err != nil {
+			return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
+		}
+		ch := h.channelByName(msg.Channel)
+		if ch == nil {
+			h.logger.Warn("channelhost: dropping approval command for unregistered channel",
+				"channel", msg.Channel, "chat_id", msg.ChatID)
+			return nil
+		}
+		reply := channelReply{
+			ch: ch, chatID: msg.ChatID, topicID: msg.TopicID,
+			sessionID: sessionID, senderID: msg.Sender, maxRunes: runesLimit(ch),
+		}
+		h.handleApprovalCommand(ctx, reply, cmd, arg)
+		return nil
+	}
+
 	sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
 	if err != nil {
 		return fmt.Errorf("channelhost: ensure session: %w", err)
@@ -76,44 +113,146 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
 	}
 
-	// v1 carries text only; media-ref and structured parts are ignored
-	// with a log so a silent content loss stays visible in the gateway log.
-	var texts []string
-	for _, part := range msg.Parts {
-		switch part.Kind {
-		case plugin.PartText:
-			texts = append(texts, part.Text)
-		default:
-			h.logger.Warn("channelhost: ignoring non-text inbound part this slice",
-				"channel", msg.Channel, "message_id", msg.MessageID, "part_kind", string(part.Kind))
+	ch := h.channelByName(msg.Channel)
+	target := outboundTarget{
+		sessionID:   sessionID,
+		chatID:      msg.ChatID,
+		topicID:     msg.TopicID,
+		channelName: msg.Channel,
+		ch:          ch,
+		msgID:       msg.MessageID,
+		maxRunes:    runesLimit(ch),
+		createdAtMs: time.Now().UnixMilli(),
+	}
+	// The live-surface typing indicator (contract §7): starts only when the
+	// adapter has the face, never touches the Journal, and is bounded by
+	// the run's terminal below and a 5-minute cap.
+	if ch != nil && typingFor(ch) != nil {
+		target.stopTyping = make(chan struct{})
+	}
+	// The placeholder/reaction half of the live surface (contract §1/§12,
+	// 2026-09-15): an accepted turn announces itself with a "Thinking…"
+	// placeholder and (feishu) an ack reaction on the triggering message.
+	// Same live-surface rules as typing — in-process bookkeeping only, no
+	// Journal events, no delivery-ledger rows; the surface goroutine
+	// settles it at the terminal, at StopAll, or at the 10-minute TTL.
+	if newLiveTarget(ch) {
+		target.live = newLiveSurface()
+	}
+
+	// Register the durable reply intent and the in-memory target before the
+	// runtime can publish run events. This closes the fast-terminal race:
+	// OnRunEvent either sees an armed target or the run never starts.
+	var prepared domain.RunID
+	prepare := func(runID domain.RunID) error {
+		if runID == "" {
+			return errors.New("channelhost: runtime prepared an empty run ID")
+		}
+		if prepared != "" {
+			return fmt.Errorf("channelhost: run already prepared as %s", prepared)
+		}
+		candidate := target
+		candidate.runID = runID
+		if err := h.deps.Deliveries.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+			RunID: runID, SessionID: sessionID, Channel: msg.Channel,
+			ChatID: msg.ChatID, TopicID: msg.TopicID,
+			State:       storage.ChannelDeliveryArmed,
+			CreatedAtMs: candidate.createdAtMs, UpdatedAtMs: candidate.createdAtMs,
+		}); err != nil {
+			return fmt.Errorf("channelhost: record durable delivery intent: %w", err)
+		}
+		h.mu.Lock()
+		h.targets[runID] = candidate
+		h.mu.Unlock()
+		target = candidate
+		prepared = runID
+		return nil
+	}
+	rollback := func() {
+		if prepared == "" {
+			return
+		}
+		h.mu.Lock()
+		if tracked, ok := h.targets[prepared]; ok {
+			delete(h.targets, prepared)
+			closeTyping(tracked)
+			closeLive(tracked)
+		}
+		h.mu.Unlock()
+		if err := h.deps.Deliveries.DeleteChannelDelivery(context.Background(), prepared); err != nil {
+			h.logger.Error("channelhost: rollback durable delivery intent failed",
+				"run", string(prepared), "channel", msg.Channel, "err", err)
 		}
 	}
-	text := strings.Join(texts, "\n")
 
-	runID, err := h.deps.Run(ctx, sessionID, text, &domain.Provenance{
-		Source:           "channel",
+	prov := &domain.Provenance{
+		Source:           domain.SourceChannel,
 		Channel:          msg.Channel,
 		ChatID:           msg.ChatID,
 		ChannelMessageID: msg.MessageID,
-	})
+	}
+	var runID domain.RunID
+	if h.deps.RunPrepared != nil {
+		runID, err = h.deps.RunPrepared(ctx, sessionID, text, attachments, prov, prepare)
+	} else {
+		runID, err = h.deps.Run(ctx, sessionID, text, attachments, prov)
+		if err == nil {
+			err = prepare(runID)
+		}
+	}
 	if err != nil {
+		rollback()
 		return fmt.Errorf("channelhost: start run for channel %s: %w", msg.Channel, err)
 	}
-	ch := h.channelByName(msg.Channel)
-	maxRunes := 0
-	if rl, ok := ch.(plugin.RunesLimiter); ok {
-		maxRunes = rl.MaxMessageRunes()
+	if prepared != runID {
+		rollback()
+		return fmt.Errorf("channelhost: runtime returned run %s after preparing %s", runID, prepared)
 	}
-	h.mu.Lock()
-	h.targets[runID] = outboundTarget{
-		sessionID: sessionID,
-		chatID:    msg.ChatID,
-		topicID:   msg.TopicID,
-		ch:        ch,
-		maxRunes:  maxRunes,
-	}
-	h.mu.Unlock()
+	h.startTyping(target)
+	h.startLiveSurface(target)
 	return nil
+}
+
+// inboundTurnInput converts envelope parts into the run input: text parts
+// join in order; media parts validate against the shared image attachment
+// limits (count, whitelist, size, content sniff) and become user-turn
+// attachments. A rejected part never blocks the rest of the message — it
+// is dropped with a warning naming the reason, so content loss stays
+// visible in the gateway log. The channel.inbound event is journaled
+// before this runs and stays identifiers-only: media bytes never enter
+// the Journal (§12).
+func inboundTurnInput(logger *slog.Logger, msg plugin.InboundMessage) (string, []domain.Attachment) {
+	var texts []string
+	var attachments []domain.Attachment
+	for _, part := range msg.Parts {
+		switch part.Kind {
+		case plugin.PartText:
+			if part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		case plugin.PartMedia:
+			if len(attachments) >= attachment.MaxCount {
+				logger.Warn("channelhost: dropping inbound media part over the attachment count limit",
+					"channel", msg.Channel, "message_id", msg.MessageID, "mime_type", part.Media.MimeType)
+				continue
+			}
+			mime, err := attachment.ValidateOne(part.Media.MimeType, part.Media.Data)
+			if err != nil {
+				logger.Warn("channelhost: dropping invalid inbound media part",
+					"channel", msg.Channel, "message_id", msg.MessageID, "err", err)
+				continue
+			}
+			attachments = append(attachments, domain.Attachment{
+				Name:     attachment.SanitizeName(part.Media.Name),
+				MimeType: mime,
+				Data:     part.Media.Data,
+			})
+		default:
+			logger.Warn("channelhost: ignoring non-text inbound part this slice",
+				"channel", msg.Channel, "message_id", msg.MessageID, "part_kind", string(part.Kind))
+		}
+	}
+	return strings.Join(texts, "\n"), attachments
 }
 
 // journalInbound appends one channel.inbound event under a per-message
@@ -151,18 +290,32 @@ func (h *Host) journalInbound(ctx context.Context, msg plugin.InboundMessage, se
 }
 
 // OnRunEvent observes durable run events (runtime.RunHook satisfied
-// structurally). Only tracked channel runs are acted on: on run.completed
-// the run's last assistant message is delivered back to the originating
-// chat; run.failed / run.cancelled are logged and deliver nothing this
-// slice. The tracking entry is removed either way, so a terminal closes
-// exactly one delivery.
+// structurally). Non-terminal interception: a channel run suspended for
+// approval notifies its originating chat (contract §12) — the tracked
+// target is read, never consumed, so the terminal still delivers or settles
+// exactly one reply. Terminal handling: only tracked channel runs are acted
+// on; on run.completed the durable intent flips to pending and the run's
+// last assistant message is delivered back to the originating chat;
+// run.failed / run.cancelled settle the intent (the journal already records
+// why). Either way a terminal closes exactly one delivery.
 func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
+	if ev.Type == domain.EventToolApprovalRequired {
+		h.notifyApprovalRequired(ctx, ev)
+		return
+	}
 	if !ev.Type.Terminal() {
 		return
 	}
 	h.mu.Lock()
 	target, tracked := h.targets[ev.RunID]
 	delete(h.targets, ev.RunID)
+	closeTyping(target)
+	// The placeholder/reaction half settles on every terminal the same way
+	// typing does: closing wakes the surface goroutine, which deletes the
+	// placeholder and withdraws the ack on its own time — the simple
+	// semantics (contract §1): the reply, if any, is a fresh durable send,
+	// never an edit of the placeholder. A non-tracked run has no surface.
+	closeLive(target)
 	h.mu.Unlock()
 	if !tracked {
 		return
@@ -170,92 +323,40 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	if target.ch == nil {
 		// channelByName missed (a config envelope naming a channel no
 		// compiled-in plugin provides): there is no adapter to deliver
-		// through and no channel name to log. Drop with a warning — a
-		// method call on the nil interface would panic the goroutine.
+		// through and no channel name to log. Settle the intent with a
+		// warning — a method call on the nil interface would panic the
+		// goroutine.
 		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
 			"run", string(ev.RunID), "chat_id", target.chatID)
+		h.settleDelivery(target)
 		return
 	}
 	if ev.Type != domain.EventRunCompleted {
 		h.logger.Info("channelhost: channel run ended without delivery",
 			"run", string(ev.RunID), "type", string(ev.Type),
 			"channel", target.ch.Name(), "chat_id", target.chatID)
+		h.settleDelivery(target)
 		return
 	}
 	// Delivery hops off the runtime goroutine: platform Send latency must
-	// never stall event mapping. The fresh context survives the run's own
-	// cancellation (an inbound turn must be answered even if its caller
-	// is gone) and is bounded by outboundDeliveryTimeout.
-	go h.deliverCompleted(ev.RunID, target)
-}
-
-// deliverCompleted sends the run's last assistant message to the chat the
-// turn arrived from.
-func (h *Host) deliverCompleted(runID domain.RunID, target outboundTarget) {
-	if target.ch == nil {
-		// Defense at the goroutine boundary (the only unguarded hop): a
-		// nil-channel target is dropped with a warning, never dereferenced.
-		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
-			"run", string(runID), "chat_id", target.chatID)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), outboundDeliveryTimeout)
-	defer cancel()
-	msgs, err := h.deps.Messages.ListMessages(ctx, target.sessionID)
-	if err != nil {
-		h.logger.Error("channelhost: list messages for channel delivery failed",
-			"run", string(runID), "channel", target.ch.Name(), "err", err)
-		return
-	}
-	content := ""
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		// Tool-call rows project as assistant role too; the reply is the
-		// latest text assistant turn of this run.
-		if m.RunID == runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
-			content = m.Content
-			break
-		}
-	}
-	if content == "" {
-		h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
-			"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID)
-		return
-	}
-	// CH-C4-N1: an adapter-declared outbound bound splits the reply into
-	// several sends instead of one delivery the platform would reject (the
-	// telegram failure that motivated the row). Chunk boundaries prefer a
-	// newline inside the window; a mid-word hard break is the fallback.
-	// Runes approximate platform character limits; an astral-heavy text
-	// may still edge past a UTF-16-counting ceiling, but never by the
-	// order of magnitude that caused the original total loss.
-	var delivered int
-	for _, chunk := range splitRunes(content, target.maxRunes) {
-		ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
-			ChatID:  target.chatID,
-			TopicID: target.topicID,
-			Parts:   []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
-		})
-		if err != nil {
-			h.logger.Error("channelhost: outbound delivery failed",
-				"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "err", err)
-			if delivered > 0 {
-				h.logger.Warn("channelhost: outbound delivery stopped mid-reply",
-					"run", string(runID), "channel", target.ch.Name(),
-					"chat_id", target.chatID, "delivered", delivered)
-			}
-			return
-		}
-		delivered += len(ids)
-	}
-	h.logger.Info("channelhost: outbound delivered",
-		"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "ids", delivered)
+	// never stall event mapping. The durable intent flips to pending BEFORE
+	// the goroutine spawns, so a crash after this point redelivers instead
+	// of losing the reply.
+	h.markPending(target, 0)
+	h.enqueueDelivery(target, 0)
 }
 
 // splitRunes chunks content into pieces of at most limit runes. limit <= 0
 // returns the content unchanged. Each chunk breaks at the last newline
 // inside the window when one exists (keeps paragraph shapes readable);
 // otherwise it hard-breaks. No empty chunk escapes.
+//
+// Fenced code blocks are kept renderable: when the chosen cut would land
+// inside an open ``` fence, the chunk either extends to the block's real
+// closing fence (when it fits) or ends with a synthesized ``` closer while
+// the remainder reopens with the original fence line, so every delivered
+// chunk stands alone. Content without an open fence at the cut splits
+// exactly as before.
 func splitRunes(content string, limit int) []string {
 	runes := []rune(content)
 	if limit <= 0 || len(runes) <= limit {
@@ -265,6 +366,8 @@ func splitRunes(content string, limit int) []string {
 	for start := 0; start < len(runes); {
 		end := start + limit
 		if end >= len(runes) {
+			// The tail travels as-is; when the source itself never closed a
+			// fence, the tail stays open the same way.
 			out = append(out, string(runes[start:]))
 			break
 		}
@@ -272,10 +375,105 @@ func splitRunes(content string, limit int) []string {
 		if idx := lastNewline(runes[start:end]); idx > 0 {
 			cut = start + idx + 1
 		}
-		out = append(out, string(runes[start:cut]))
-		start = cut
+		open := lastUnclosedFence(runes[start:cut])
+		if open < 0 || limit < fenceMinLimit {
+			out = append(out, string(runes[start:cut]))
+			start = cut
+			continue
+		}
+		opener := start + open
+		// Prefer ending the chunk at the block's real closing fence.
+		if closer := nextFence(runes, opener+len(fenceMarker)); closer >= 0 && closer+len(fenceMarker)-start <= limit {
+			out = append(out, string(runes[start:closer+len(fenceMarker)]))
+			start = closer + len(fenceMarker)
+			continue
+		}
+		// The block does not fit in one chunk: close the fence here and
+		// reopen the remainder with the original fence line (info string
+		// included), so both halves render standalone.
+		header := fenceHeader(runes, opener)
+		bodyStart := opener + len(header)
+		inner := start + limit - len(fenceMarker) - 1 // keep room for "\n```"
+		if inner <= bodyStart {
+			// No body inside the window: let the block travel whole to the
+			// next chunk by ending just before its opener. When the opener
+			// owns the chunk start there is nowhere before it — hard-cut
+			// and reopen with a bare fence.
+			if opener > start {
+				out = append(out, string(runes[start:opener]))
+				start = opener
+				continue
+			}
+			out = append(out, string(runes[start:inner])+"\n"+fenceMarker)
+			runes = append([]rune("```\n"), runes[inner:]...)
+			start = 0
+			continue
+		}
+		if idx := lastNewline(runes[bodyStart:inner]); idx >= 0 {
+			inner = bodyStart + idx + 1
+		}
+		chunk := string(runes[start:inner])
+		if !strings.HasSuffix(chunk, "\n") {
+			chunk += "\n"
+		}
+		out = append(out, chunk+fenceMarker)
+		runes = append(append([]rune{}, header...), runes[inner:]...)
+		start = 0
 	}
 	return out
+}
+
+// fenceMarker is the fenced code block delimiter the splitter protects.
+const fenceMarker = "```"
+
+// fenceMinLimit is the smallest limit where fence-aware splitting stays
+// sane: room for an opener line, some body, and a "\n```" closer. Below it
+// the splitter falls back to plain cutting instead of mangling markers.
+const fenceMinLimit = 16
+
+// lastUnclosedFence returns the index of the last unmatched ``` opener in
+// r, or -1 when the range leaves no fence open. The model is deliberately
+// simple, matching the markdown most models emit: every ``` toggles fence
+// state — info strings are not parsed and line anchoring is not required.
+func lastUnclosedFence(r []rune) int {
+	inFence := false
+	last := -1
+	for i := 0; i+2 < len(r); i++ {
+		if r[i] == '`' && r[i+1] == '`' && r[i+2] == '`' {
+			if !inFence {
+				last = i
+			}
+			inFence = !inFence
+			i += 2
+		}
+	}
+	if !inFence {
+		return -1
+	}
+	return last
+}
+
+// nextFence returns the index of the first ``` in r at or after from, or
+// -1 when none follows.
+func nextFence(r []rune, from int) int {
+	for i := from; i+2 < len(r); i++ {
+		if r[i] == '`' && r[i+1] == '`' && r[i+2] == '`' {
+			return i
+		}
+	}
+	return -1
+}
+
+// fenceHeader returns the fence line starting at opener (the ``` plus its
+// info string) including the trailing newline; an opener line that never
+// ends before EOF gets one synthesized so the reopened chunk renders.
+func fenceHeader(r []rune, opener int) []rune {
+	for i := opener; i < len(r); i++ {
+		if r[i] == '\n' {
+			return r[opener : i+1]
+		}
+	}
+	return append(r[opener:], '\n')
 }
 
 // lastNewline returns the index of the last '\n' in r, or -1.
@@ -296,6 +494,19 @@ func lastNewline(r []rune) int {
 // nil target and drop with a warning instead of panicking on it.
 func (h *Host) channelByName(name string) plugin.Channel {
 	for _, ch := range h.deps.Channels {
+		if ch != nil && ch.Name() == name {
+			return ch
+		}
+	}
+	return nil
+}
+
+// startedChannelByName resolves only adapters whose Start succeeded. Recovery
+// must not send through a merely compiled, disabled, or failed instance.
+func (h *Host) startedChannelByName(name string) plugin.Channel {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.started {
 		if ch != nil && ch.Name() == name {
 			return ch
 		}

@@ -150,6 +150,8 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 
 	for _, stmt := range []struct{ sql string }{
+		{`DELETE FROM session_work_events WHERE session_id = ?`},
+		{`DELETE FROM channel_deliveries WHERE session_id = ?`},
 		{`DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},
 		{`DELETE FROM run_events WHERE run_id IN (SELECT run_id FROM session_compactions WHERE session_id = ?)`},
 		{`DELETE FROM run_prompt_snapshots WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},
@@ -160,6 +162,7 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		{`DELETE FROM session_compactions WHERE session_id = ?`},
 		{`DELETE FROM session_mask_selections WHERE session_id = ?`},
 		{`DELETE FROM session_truncations WHERE session_id = ?`},
+		{`DELETE FROM continuity_receipts WHERE session_id = ?`},
 		{`DELETE FROM file_versions WHERE session_id = ?`},
 		{`DELETE FROM file_reads WHERE session_id = ?`},
 		{`DELETE FROM sessions WHERE id = ?`},
