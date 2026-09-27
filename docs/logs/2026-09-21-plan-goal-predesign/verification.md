@@ -14,3 +14,10 @@ Documentation-only delivery; no implementation acceptance is claimed.
 Environment limitation: go was not found (exit 127). Therefore new Eino probe, just ci, PostgreSQL conformance, browser integration and live coding acceptance were not run. Product-contract CI remains pending under repository rules. No tests were weakened or replaced by documentation checks.
 
 The selected upstream API behavior and exact history anchors are unresolved; PG-0 names the investigation and its required evidence. This package is a detailed pre-design, not a completed implementation-ready test/code dump.
+## Execution update — 2026-09-22
+
+- Implementation was explicitly authorized after the pre-design round.
+- Baseline references in the plan package were refreshed to `a8d361b0244a1c40be513622bbdaebb5c9d40014`.
+- Source review accepted the session-scoped `WorkSeq` ordering anchor, atomic Goal admission through the existing Service seam, non-refundable Goal usage, and fork authority isolation.
+- A focused PG-0 sibling-fence attempt failed to observe the expected Eino interrupt context and was not committed. No runtime pass is claimed.
+- Local Go/`just` remain unavailable; full focused tests, PostgreSQL conformance, and `just ci` remain pending.

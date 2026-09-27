@@ -193,7 +193,12 @@ func (j *job) finish(waitErr error, ctxErr error) {
 		case errors.As(waitErr, &statusErr):
 			j.exitCode = statusErr.Code
 		default:
-			j.exitCode = -1
+			var exitCodeErr interface{ ExitCode() int }
+			if errors.As(waitErr, &exitCodeErr) {
+				j.exitCode = exitCodeErr.ExitCode()
+			} else {
+				j.exitCode = -1
+			}
 		}
 	default:
 		j.status, j.exitCode = JobCompleted, 0

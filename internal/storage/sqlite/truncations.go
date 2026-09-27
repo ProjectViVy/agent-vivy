@@ -16,9 +16,9 @@ var _ storage.TruncationStore = (*Backend)(nil)
 // updated: a new rewind is just a new row, and the newest one wins.
 func (b *Backend) RecordSessionTruncation(ctx context.Context, t storage.SessionTruncation) error {
 	_, err := b.db.ExecContext(ctx, `
-		INSERT INTO session_truncations (session_id, run_id, cutoff_message_id, tail_message_id, reason, fork_session_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, t.Reason, t.ForkSessionID, t.CreatedAt)
+		INSERT INTO session_truncations (session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("storage: record session truncation: %w", err)
 	}
@@ -34,10 +34,10 @@ func (b *Backend) LatestSessionTruncation(ctx context.Context, sessionID domain.
 		forkSessionID string
 	)
 	err := b.db.QueryRowContext(ctx, `
-		SELECT session_id, run_id, cutoff_message_id, tail_message_id, reason, fork_session_id, created_at
+		SELECT session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at
 		FROM session_truncations WHERE session_id = ?
 		ORDER BY id DESC LIMIT 1`, sessionID).
-		Scan(&sid, &t.RunID, &t.CutoffMessageID, &t.TailMessageID, &t.Reason, &forkSessionID, &t.CreatedAt)
+		Scan(&sid, &t.RunID, &t.CutoffMessageID, &t.TailMessageID, &t.WorkSeq, &t.Reason, &forkSessionID, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.SessionTruncation{}, false, nil
 	}
@@ -53,7 +53,7 @@ func (b *Backend) LatestSessionTruncation(ctx context.Context, sessionID domain.
 // in insertion order; the view folds their union of closed ranges.
 func (b *Backend) ListViewTruncations(ctx context.Context, sessionID domain.SessionID) ([]storage.SessionTruncation, error) {
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT session_id, run_id, cutoff_message_id, tail_message_id, reason, fork_session_id, created_at
+		SELECT session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at
 		FROM session_truncations
 		WHERE session_id = ? AND reason IN (?, ?)
 		ORDER BY id ASC`, sessionID, storage.TruncationRewind, storage.TruncationEdit)
@@ -68,7 +68,7 @@ func (b *Backend) ListViewTruncations(ctx context.Context, sessionID domain.Sess
 			sid           string
 			forkSessionID string
 		)
-		if err := rows.Scan(&sid, &t.RunID, &t.CutoffMessageID, &t.TailMessageID, &t.Reason, &forkSessionID, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&sid, &t.RunID, &t.CutoffMessageID, &t.TailMessageID, &t.WorkSeq, &t.Reason, &forkSessionID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("storage: scan view truncation: %w", err)
 		}
 		t.SessionID = domain.SessionID(sid)

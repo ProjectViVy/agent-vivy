@@ -6,7 +6,7 @@
 **Architecture:** Follow PG-D1 shared ownership and transaction contracts. Keep this slice within existing Service / Journal / Policy ownership.
 **Tech Stack:** Go, pinned Eino v0.9.13, SQLite/PostgreSQL, React/TypeScript where applicable.
 **Spec:** [PG-D1](../../architecture/PLAN-GOAL-PREDESIGN.md).
-**Baseline:** aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+**Baseline:** a8d361b0244a1c40be513622bbdaebb5c9d40014.
 **Epic:** Composition. **Requirements:** R8, R2, R5.
 **Status and predecessors:** [Authoritative index](README.md). Do not infer Ready from this file.
 
@@ -63,7 +63,7 @@ The owning scenario tests below and PG-6 cover these risks. Architecture evidenc
 
 Capture a session watermark, replay through it, then stream later committed events with no gap. Client deduplicates session+seq; reconnect refreshes process epoch and activation. Do not persist armed in localStorage.
 
-- [ ] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
+- [x] Write the scenario test first using existing fixtures in the listed packages. The following is **behavioral pseudocode**, not a claim of executable fixture APIs:
 ```text
 subscription_tests:
   new round commits between replay and live attach -> observed once
@@ -71,10 +71,10 @@ subscription_tests:
   reconnect after driver restart -> disarmed replaces old armed
   session switch before response -> old response ignored
 ```
-- [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
-- [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
+- [x] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Task 2: GUI actions
 
@@ -92,8 +92,8 @@ ui_tests:
 ```
 - [ ] Run the focused check and observe the intended missing-behavior failure; distinguish missing environment from a valid failing test.
 - [ ] Implement the smallest change following the shared signatures and ordering in PG-D1/accepted PG-D2.
-- [ ] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
-- [ ] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
+- [x] Re-run the scenario checks; inspect persisted records and externally visible state, not just reducer return values.
+- [x] Review diff for scope and shared-contract consistency. Record evidence; create a human-attributed commit only when version-control work is authorized.
 
 ## Verification
 

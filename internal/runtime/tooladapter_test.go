@@ -190,7 +190,10 @@ func TestToolAdapterPlanModeRefusesEffectfulToolBeforeApproval(t *testing.T) {
 func TestToolAdapterApprovalPolicyNeverRefusesEffectful(t *testing.T) {
 	tool := &planCountingTool{}
 	adapter := newToolAdapter(tool, 0, nil, nil, nil)
-	ctx := withSessionSandbox(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever)
+	ctx := withPolicyProfile(
+		withSessionSandbox(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever),
+		domain.PolicyProfileFullAuto,
+	)
 	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 	if err != nil {
 		t.Fatalf("'never' policy refusal failed the run: %v", err)

@@ -184,6 +184,11 @@ func (b *CommandBackend) executeBash(ctx context.Context, path string, args []st
 	return result, nil
 }
 
+type embeddedShellExitStatus uint8
+
+func (e embeddedShellExitStatus) Error() string { return fmt.Sprintf("exit status %d", e) }
+func (e embeddedShellExitStatus) ExitCode() int { return int(e) }
+
 func portableShellCommands(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 	return func(ctx context.Context, args []string) error {
 		if len(args) == 2 && args[0] == "sleep" {

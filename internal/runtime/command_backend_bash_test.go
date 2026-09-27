@@ -53,6 +53,17 @@ func TestBashBackendRunsShellOutsideAllowlist(t *testing.T) {
 	}
 }
 
+func TestBashBackendPreservesEmbeddedShellExitStatus(t *testing.T) {
+	backend, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	result, err := backend.Execute(withRunID(context.Background(), "run_bash_exit_status"), "run_bash_exit_status", tools.CommandRequest{Command: "bash", Args: []string{"-c", "exit 7"}})
+	if err != nil {
+		t.Fatalf("bash execute: %v", err)
+	}
+	if result.ExitCode != 7 {
+		t.Fatalf("bash exit code = %d, want 7", result.ExitCode)
+	}
+}
+
 func TestBashBackendDeniedInReadOnlySandbox(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash is not available on this host")
