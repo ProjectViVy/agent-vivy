@@ -2947,6 +2947,29 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	return s.settleApproval(ctx, approval, decision, "local_user", reason)
 }
 
+// waitChildApprovalRegistration polls for the in-memory suspension a durable
+// child approval row precedes. Bounded: a suspension that never lands (a run
+// that died between the row write and the registration) still fails closed.
+func (s *Service) waitChildApprovalRegistration(ctx context.Context, runID domain.RunID) bool {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		_, pending := s.pending[runID]
+		s.mu.Unlock()
+		if pending {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
 // settleApproval records a decision whose guards the caller already checked
 // and then routes it. The durable row is the no-replay boundary, so the
 // journal entry and the resume follow it; actor distinguishes a human
@@ -2955,6 +2978,12 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	s.mu.Lock()
 	_, nativeChildPending := s.pending[approval.RunID]
 	s.mu.Unlock()
+	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+		// The durable approval row precedes in-memory suspension registration
+		// on the suspend path, so a decider observing the row early must wait
+		// for the suspension to land rather than fail the resume.
+		nativeChildPending = s.waitChildApprovalRegistration(ctx, approval.RunID)
+	}
 	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
 		return errors.New("runtime: child approval is not active for Service resume")
 	}
