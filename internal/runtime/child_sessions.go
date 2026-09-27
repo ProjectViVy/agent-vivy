@@ -683,7 +683,9 @@ func (s *Service) readOnlyChildTools(names []string) []string {
 	}
 	filtered := make([]string, 0, len(names))
 	for _, name := range names {
-		if _, ok := readOnly[name]; ok && name != tools.AgentName && name != tools.WorkflowName && name != tools.ChildInboxName && !strings.HasPrefix(name, "mcp_") {
+		// Children are headless: human-interaction and orchestration tools can
+		// never be answered or supervised from inside a child run.
+		if _, ok := readOnly[name]; ok && name != tools.AgentName && name != tools.WorkflowName && name != tools.ChildInboxName && name != tools.AskUserName && !strings.HasPrefix(name, "mcp_") {
 			filtered = append(filtered, name)
 		}
 	}

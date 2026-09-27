@@ -54,12 +54,18 @@ A real OpenAI-compatible provider was registered via Settings → Model and the 
 - Persistence: reload and backend kill/restart rehydrate all state; the journal shows the 42-event run ending `run.completed`; no ghost `active` runs.
 - Provider compatibility: no console errors, panics, rate-limit or tool-call format failures; SenseNova streams `reasoning` + `content` and supports `tool_calls`.
 
-### New findings surfaced by the real-provider pass (recorded, not fixed here)
+### New findings surfaced by the real-provider pass
 
-1. **Node children can call `ask_user`, which always fails headless.** A vague node task led the node child to call `ask_user`; nobody answered → `run.failed` (`cause_category: human_timeout`) → workflow "The child task did not complete successfully." Machinery behaved correctly; the design gap is that human-interaction tools sit inside a node child's tool ceiling. Product decision needed.
+1. **FIXED — Node children could call `ask_user`, which always fails headless.** A vague node task led the node child to call `ask_user`; nobody answered → `run.failed` (`cause_category: human_timeout`) → workflow "The child task did not complete successfully." Owner decision: children must not hold human-interaction or other flow-affecting tools until a designed child-agent enhancement round (a child's question should route to the parent, which decides whether to escalate to the human). `ask_user` is now excluded from `readOnlyChildTools` (so continuable ceilings, reauthorization, and node descriptor validation all drop it) and explicitly rejected in the one-shot explicit-selection path; covered by `TestChildrenCannotSelectHumanInteractionTool`.
 2. **Composer queue did not auto-drain.** A message queued while a run waited on approval stayed queued after the gate cleared; had to be cleared and re-sent manually.
 3. **Inspector is currentRun-scoped with no run picker.** Previous runs' children/history/mailbox become unreachable in the UI once a newer run exists; a re-expanded child row does not refetch (stale history until reload).
 4. Cosmetic: `model.usage` payloads label the custom provider `"deepseek"`; a sandbox-denied `sleep` escalates to run failure via the pause path; message timestamps render in a different timezone than UTC.
+
+### Mask subsystem status (confirmed while scoping the ask_user fix)
+
+- PR #56 (`feat/issue43-mask-system`) is merged: `maskcontract`, revisioned storage, mask actions, prompt middleware, admission-time capture, and `vivy-masks-ui` module source are on main.
+- MASK-4 leftovers remain pending: `vivy/masks` is in no recipe and absent from the embedded `zz_default` assembly, so `maskManagerForAssembly` returns nil and the real mask subsystem is dormant in the shipped binary. The visible mask UI is the pre-existing placeholder (`mask-catalog.ts` static entries + `localStorage`), which also advertises masks the assembled backend cannot serve (SSOT: displayed truth does not derive from capability truth).
+- Masks are prompt-only by spec (M2: selection cannot change grants/tools/model), and child runs are deliberately unmasked. The ask_user exclusion is orthogonal to masks; mask→tool coupling is future work with a clean seam (mask field on child admission, ceiling = readOnly ∩ maskDeclared ∩ requested).
 
 ## Still not verified (requires owner)
 

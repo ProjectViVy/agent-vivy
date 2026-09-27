@@ -735,6 +735,56 @@ func TestOneShotChildCannotSelectEffectfulParentTool(t *testing.T) {
 	}
 }
 
+func TestChildrenCannotSelectHumanInteractionTool(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	registered, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.AskUserName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), registered, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.engine = engine
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-headless-child-parent")
+	parentRunID := domain.RunID("run-headless-child-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.AskUserName})
+
+	// A continuable child inherits the parent ceiling minus headless-unsafe
+	// tools: ask_user must be dropped even when the parent holds it.
+	created, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "headless-child-op", Task: "summarize this task",
+	})
+	if err != nil || !created.Created {
+		t.Fatalf("AdmitChildSession() = %+v, %v; want created", created, err)
+	}
+	for _, name := range created.Binding.AuthorityCeiling.ToolNames {
+		if name == tools.AskUserName {
+			t.Fatalf("child ceiling holds human-interaction tool: %+v", created.Binding.AuthorityCeiling.ToolNames)
+		}
+	}
+	if len(created.Binding.AuthorityCeiling.ToolNames) != 1 || created.Binding.AuthorityCeiling.ToolNames[0] != tools.EchoInfoName {
+		t.Fatalf("child ceiling = %+v, want echo_info only", created.Binding.AuthorityCeiling.ToolNames)
+	}
+	if _, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "ask-user-child-op", Task: "ask the user",
+		ToolNames: []string{tools.AskUserName},
+	}); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("continuable child selected ask_user: %v, want authority conflict", err)
+	}
+	if _, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "ask the user", ToolNames: []string{tools.AskUserName},
+	}); err == nil {
+		t.Fatal("one-shot child selected ask_user; want rejection")
+	}
+}
+
 func TestOneShotChildUsesNativeRunnerWithoutCreatingAddressableSessionOrParentMessages(t *testing.T) {
 	model := &captureDomainModel{inner: testsupport.NewEchoModel()}
 	svc, backend, _ := newTestService(t, model)

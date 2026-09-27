@@ -88,7 +88,7 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 		}
 	}
 	for _, name := range selectedTools {
-		if name == tools.AgentName || name == tools.WorkflowName || name == tools.ReplyParentName || strings.HasPrefix(name, "mcp_") {
+		if name == tools.AgentName || name == tools.WorkflowName || name == tools.ReplyParentName || name == tools.AskUserName || strings.HasPrefix(name, "mcp_") {
 			s.projectionMu.Unlock()
 			return OneShotChildResult{}, fmt.Errorf("runtime: tool %q is not available to one-shot children", name)
 		}
