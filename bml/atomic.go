@@ -37,12 +37,14 @@ func atomicWrite(path string, data []byte) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	dirHandle, err := os.Open(dir)
-	if err != nil {
-		return err
+	// Parent-directory fsync is best-effort like upstream sync_parent_dir:
+	// platforms that cannot fsync a directory (Windows) must not fail the
+	// write — the file data was already synced before the rename.
+	if dirHandle, err := os.Open(dir); err == nil {
+		_ = dirHandle.Sync()
+		_ = dirHandle.Close()
 	}
-	defer dirHandle.Close()
-	return dirHandle.Sync()
+	return nil
 }
 
 // atomicWriteJSON persists value as pretty JSON (serde_json
