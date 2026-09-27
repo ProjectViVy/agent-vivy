@@ -2685,8 +2685,8 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 	if len(seen) != len(view.Catalog) {
 		t.Fatalf("a vendor appears more than once: %d entries, %d vendors", len(view.Catalog), len(seen))
 	}
-	if len(view.Catalog) != 45 || endpoints != 47 {
-		t.Fatalf("catalog = %d vendors / %d endpoints, want 45/47", len(view.Catalog), endpoints)
+	if len(view.Catalog) != 46 || endpoints != 48 {
+		t.Fatalf("catalog = %d vendors / %d endpoints, want 46/48", len(view.Catalog), endpoints)
 	}
 	if deferred == 0 {
 		t.Fatal("the deferred openai-responses endpoint must appear in the catalog")
