@@ -34,7 +34,7 @@ describe('CodeModeControl', () => {
     await act(async () => root.render(<CodeModeControl />));
   }
 
-  it('toggles code mode without depending on the mask selection', async () => {
+  it('toggles code mode on and back off', async () => {
     await render();
     const toggle = container.querySelector<HTMLButtonElement>('[data-code-mode-control]');
     expect(toggle).not.toBeNull();
@@ -44,10 +44,8 @@ describe('CodeModeControl', () => {
     expect(useVivyStore.getState().codeMode).toBe(true);
     expect(toggle?.getAttribute('aria-pressed')).toBe('true');
 
-    // The mask catalog is a separate UI authority in the current shell. A
-    // mask event must not turn code mode off once the user chose it.
-    window.dispatchEvent(new Event('vivy.ui.activeMask.changed'));
-    expect(useVivyStore.getState().codeMode).toBe(true);
+    await act(async () => toggle?.click());
+    expect(useVivyStore.getState().codeMode).toBe(false);
   });
 
   it('does not render a toggle when the backend did not advertise code mode', async () => {

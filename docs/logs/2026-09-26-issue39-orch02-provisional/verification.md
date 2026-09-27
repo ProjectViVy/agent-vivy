@@ -15,15 +15,17 @@ This log records implementation checks for ORCH-02–07. It does not represent G
 | Command | Result |
 | --- | --- |
 | `gofmt -l` on all changed files (fmt-check equivalent) | PASS — clean |
-| `pnpm build` / `pnpm typecheck` / `pnpm test` (from `ui/`) | PASS — 51 test files, 402 tests |
+| `pnpm build` / `pnpm typecheck` / `pnpm test` (from `ui/`) | PASS — 56 test files, 416 tests |
 | `node scripts/check-i18n-completeness.js` + `node --test scripts/check-i18n-cross-face.test.js` + `node scripts/check-i18n-cross-face.js` | PASS — `common.loading` added to en/zh; 25 `runInspector.*` keys registered in the cross-face contract |
 | `GOFLAGS=-buildvcs=false go vet ./...` | PASS — repository-wide |
 | `GOFLAGS=-buildvcs=false go build ./cmd/vivy ./cmd/vivy-code` | PASS — includes headless-compile lane |
 | `GOFLAGS=-buildvcs=false go test -timeout 20m -count=1 ./...` | PASS — repository-wide, 72 packages ok, zero failures (includes `internal/provider`; no unapproved egress was attempted) |
-| `VIVY_POSTGRES_TEST_DSN=postgres://vivy:vivy@127.0.0.1:5432/vivy?sslmode=disable go test -count=1 ./internal/storage/postgres` | PASS — full CN-01..CN-33 conformance + migrations incl. V14 in-place upgrade on real Postgres 16 |
+| `VIVY_POSTGRES_TEST_DSN=postgres://vivy:vivy@127.0.0.1:5432/vivy?sslmode=disable go test -count=1 ./internal/storage/postgres` | PASS — full CN-01..CN-34 conformance + migrations incl. V14 in-place upgrade on real Postgres 16 |
 | `go test ./plugins/...` (plugin-ci equivalent, per prior pass) | PASS |
 | Browser E2E at `http://127.0.0.1:3015` (backend `:8787` + Vite dev) | PASS — recorded; details below |
 | Real model-path browser E2E (SenseNova `sensenova-6.8-flash-lite`, OpenAI-compatible custom provider) | PASS — recorded; details below |
+| `pnpm exec playwright test --config playwright.masks.config.ts` | PASS — 5/5 mask e2e against the packed `masks-selected` artifact |
+| `go run ./sdk pack` + `inspect-artifact` on `masks-selected` / `masks-omitted` / `masks-backend-only` recipes | PASS — mask UI refs 2/0/0; artifacts smoke-run |
 
 ## Fixes applied on this pass (commit `b8335280`)
 
@@ -57,22 +59,32 @@ A real OpenAI-compatible provider was registered via Settings → Model and the 
 ### New findings surfaced by the real-provider pass
 
 1. **FIXED — Node children could call `ask_user`, which always fails headless.** A vague node task led the node child to call `ask_user`; nobody answered → `run.failed` (`cause_category: human_timeout`) → workflow "The child task did not complete successfully." Owner decision: children must not hold human-interaction or other flow-affecting tools until a designed child-agent enhancement round (a child's question should route to the parent, which decides whether to escalate to the human). `ask_user` is now excluded from `readOnlyChildTools` (so continuable ceilings, reauthorization, and node descriptor validation all drop it) and explicitly rejected in the one-shot explicit-selection path; covered by `TestChildrenCannotSelectHumanInteractionTool`.
-2. **Composer queue did not auto-drain.** A message queued while a run waited on approval stayed queued after the gate cleared; had to be cleared and re-sent manually.
-3. **Inspector is currentRun-scoped with no run picker.** Previous runs' children/history/mailbox become unreachable in the UI once a newer run exists; a re-expanded child row does not refetch (stale history until reload).
-4. Cosmetic: `model.usage` payloads label the custom provider `"deepseek"`; a sandbox-denied `sleep` escalates to run failure via the pause path; message timestamps render in a different timezone than UTC.
+2. **FIXED — Composer queue did not auto-drain.** A message queued while a run waited on approval stayed queued after the gate cleared; queued messages now dispatch automatically when the pending approval settles.
+3. **FIXED — Inspector is currentRun-scoped with no run picker.** The Inspector now offers a run switcher covering previous runs, and re-expanding a child row refetches its history instead of showing stale data.
+4. **FIXED — `model.usage` mislabeled the custom provider.** Usage rows now carry the resolved provider profile id instead of hardcoding `"deepseek"`. Remaining cosmetic note: a sandbox-denied `sleep` escalates to run failure via the pause path; message timestamps render in a different timezone than UTC.
 
-### Mask subsystem status (confirmed while scoping the ask_user fix)
+### Mask subsystem status — MASK-4 now wired (this pass)
 
-- PR #56 (`feat/issue43-mask-system`) is merged: `maskcontract`, revisioned storage, mask actions, prompt middleware, admission-time capture, and `vivy-masks-ui` module source are on main.
-- MASK-4 leftovers remain pending: `vivy/masks` is in no recipe and absent from the embedded `zz_default` assembly, so `maskManagerForAssembly` returns nil and the real mask subsystem is dormant in the shipped binary. The visible mask UI is the pre-existing placeholder (`mask-catalog.ts` static entries + `localStorage`), which also advertises masks the assembled backend cannot serve (SSOT: displayed truth does not derive from capability truth).
+- `core/mask-service@v1` promoted to SUPPORTED; `vivy/masks` + `vivy-masks-ui` are selected in `recipes/default.vivy.yml` and present in the embedded `zz_default` assembly (baseline inventory golden updated).
+- Placeholder UI torn down: `ui/src/components/masks/mask-catalog.ts`, `MaskSelector`'s localStorage `vivy.ui.activeMask` authority, the core `masks.*` locale block, and the `ui/AGENTS.md` "chat/toolbox/面具 always rendered" clause are removed; mask UI now lives in the `vivy-masks-ui` module assembled by the recipe (`mask-omission.test.ts` asserts no core mask code survives in the shell).
+- Acceptance recipes `masks-selected`/`masks-omitted`/`masks-backend-only` packed and inspected: assembled UI carries exactly 2/0/0 mask refs; artifact smoke runs the packed binaries.
+- `ui/e2e/masks.spec.ts` (5 tests, Playwright, packed binary): catalog/navigation, selection persistence across reload, custom mask create + stale-revision conflict + in-use delete refusal, code-mode independence, next-run selection during an active run — all green.
+- Real defects fixed while writing those e2e tests: peer-bind race on `selection.get` after reload (bounded retry in `MaskClient`), `definition/loaded` dispatch leaving Save permanently disabled, error alert wiped by a trailing `catalog/load-success`, and `RpcClientError` dropping `error.data` (contract `data.code` now surfaces).
+- Sealed-generation semantics: `maskManagerForAssembly` keeps masks dormant for unsealed dev/test embedders (`go run`, unit tests) and fails closed only when a sealed composition selected `vivy/masks` without proving identity — same treatment as `primaryAdmissionForComposition`; `TestMaskManagerForAssemblyIsDormantWhenUnsealed` pins this.
 - Masks are prompt-only by spec (M2: selection cannot change grants/tools/model), and child runs are deliberately unmasked. The ask_user exclusion is orthogonal to masks; mask→tool coupling is future work with a clean seam (mask field on child admission, ceiling = readOnly ∩ maskDeclared ∩ requested).
+
+### R13 — descendant resource accounting (this pass)
+
+- `internal/storage/conformance` CN-34 "durable active-child slot limit" proves on BOTH backends (SQLite + Postgres 16): exactly `MaxActiveChildrenPerRun` (4) children are admitted, a 5th gets `ErrChildConcurrencyLimit` in-transaction, and completing a child reopens the slot.
+- `TestRecoveredLedgerReplaysJournalOnceAndCapsResumedRun` proves restart/reauthorization reconciliation: a recovered ledger replays the child's durable journal exactly once (2 model + 1 tool calls from `tool.requested`+`model.completed`), a second recovery reuses the same ledger without recharging, and resumed reservations consume only the remaining shared headroom (`ErrBudgetExceeded` at the cap).
+- Non-duplicating usage/cost projection holds by construction: usage derives from the append-only journal (each event journaled once; replay is read-only), sibling runs share one `budgetAccount` (`TestRecoveredSiblingRunsShareOneBudgetAccount`), and `sqliteCheckChildConcurrency`/`postgresCheckChildConcurrency` count child slots in-transaction against durable run rows — a crash between enqueue and child start cannot over-admit.
 
 ## Still not verified (requires owner)
 
 - Literal `just ci`: the justfile is PowerShell-bound; the raw equivalents above all pass on Linux, but `just ci` itself needs the supported environment.
-- Descendant budget/usage reconciliation and slot/backpressure accounting across reauthorization and restart (R13).
+- Live-model mask semantics eval (whether a mask persona measurably steers a real model) — wiring and transport are proven, persona quality was not in scope.
 - Owner E2E and final release review (G4).
 
 ## Gate disposition
 
-G0–G3: the previously missing machine-checkable, both-backend and browser evidence — including a real model path — is now produced and recorded. Remaining gaps concentrate in descendant resource accounting (R13) and the product decisions listed above. G4 remains **BLOCKED** — owner E2E and release review are not delegated.
+G0–G3: the previously missing machine-checkable, both-backend and browser evidence — including a real model path, full MASK-4 wiring, and R13 resource accounting — is now produced and recorded. Remaining gap is a literal `just ci` run on the PowerShell toolchain plus G4 owner E2E and release review, which remain **BLOCKED** — not delegated.

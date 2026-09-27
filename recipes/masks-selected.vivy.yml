@@ -1,5 +1,5 @@
 apiVersion: vivy.generation/v1
-profile: default
+profile: masks-selected
 modules:
   - vivy/loop
   - vivy/model

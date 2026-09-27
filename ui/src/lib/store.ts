@@ -222,6 +222,22 @@ function applySettingsError(error: unknown, operation: SettingsOperation | null)
 
 function stopSubscription(): void { subscription?.close(); subscription = null; }
 
+// 终态后派发队列（对照 Crush）：只在 run.completed 后自动发送；
+// 失败 / 取消保留队列由用户处置。runBusy 时短暂重试，避免与进行中的
+// startRun/editSession/cancel RPC 竞争；重试有上限，仍忙则留队。
+function drainQueueAfterCompleted(runId: string, retriesLeft = 25): void {
+  const next = useVivyStore.getState();
+  if (next.currentRun?.id !== runId || next.currentRun.status !== 'completed') return;
+  const item = next.queuedMessages[0];
+  if (!item || !next.activeSessionId) return;
+  if (next.runBusy) {
+    if (retriesLeft > 0) setTimeout(() => drainQueueAfterCompleted(runId, retriesLeft - 1), 200);
+    return;
+  }
+  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
+  void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
+}
+
 async function refreshAfterTerminal(runId: string): Promise<void> {
   const state = useVivyStore.getState();
   const sessionId = state.activeSessionId;
@@ -253,14 +269,7 @@ function handleRunEvent(event: RunEvent): void {
     stopSubscription();
     // 队列只在成功完成后派发（对照 Crush）：失败 / 取消保留队列，由用户处置。
     if (event.type === 'run.completed') {
-      void refreshAfterTerminal(event.run_id).then(() => {
-        const next = useVivyStore.getState();
-        const item = next.queuedMessages[0];
-        if (item && next.activeSessionId && !next.runBusy) {
-          useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-          void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
-        }
-      });
+      void refreshAfterTerminal(event.run_id).catch(() => undefined).finally(() => drainQueueAfterCompleted(event.run_id));
     } else {
       void refreshAfterTerminal(event.run_id);
     }
@@ -553,6 +562,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         : previous.runLogs;
       set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
+      else if (run.status === 'completed') drainQueueAfterCompleted(runId);
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {

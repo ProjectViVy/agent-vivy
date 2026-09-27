@@ -648,21 +648,18 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 	generationID := runtimeGenerationID(runtimeAssembly)
-	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID)
-	if err != nil {
-		_ = backend.Close()
-		return nil, err
-	}
 	// A sealed first-party composition must never silently downgrade to the
 	// legacy sequential primary admission path. An unpacked development/test
 	// embedder has no sealed identity and remains on the explicitly compatible
 	// path; a packed build is marked by presentation.SealedGeneration and a
 	// non-empty linker-derived identity is also treated as sealed.
-	admission, err := primaryAdmissionForComposition(
-		backend,
-		generationID,
-		presentation.SealedGeneration || generationID != "",
-	)
+	sealed := presentation.SealedGeneration || generationID != ""
+	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID, sealed)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	admission, err := primaryAdmissionForComposition(backend, generationID, sealed)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err

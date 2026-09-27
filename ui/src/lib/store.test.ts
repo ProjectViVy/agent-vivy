@@ -484,6 +484,19 @@ describe('Vivy store integrity', () => {
     expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
   });
 
+  it('drains the queue when opening a run that already completed', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'completed', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
+    await useVivyStore.getState().selectSession('s1');
+    useVivyStore.getState().enqueueMessage('sent while away');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'sent while away', 'normal', undefined, undefined, undefined));
+    expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
+
   it('clears the queue when switching sessions', async () => {
     api.listMessages.mockResolvedValue({ messages: [] });
     api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });

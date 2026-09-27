@@ -138,17 +138,33 @@ func TestMaskBackendDoesNotRequireUI(t *testing.T) {
 	}
 }
 
-func TestMaskProductionSelectionRejectedBeforeGenerationStart(t *testing.T) {
+func TestMaskProductionSelectionAccepted(t *testing.T) {
 	mask := testDescriptor("vivy/masks")
 	mask.Source.Ref = "file:internal"
 	mask.Provides = []module.PortRef{{Port: "core/mask-service@v1", ID: "vivy.mask-service"}}
 	storage := testDescriptor("vivy/storage")
 	storage.Source.Ref = "file:internal"
 	storage.Provides = []module.PortRef{{Port: "core/storage-engine@v1", ID: "vivy.storage-engine"}}
-	catalog, err := NewSourceCatalog([]SourceRecord{
+	records := []SourceRecord{
 		{Descriptor: mask, Trust: TrustT1},
 		{Descriptor: storage, Trust: TrustT1},
-	})
+	}
+	modules := []string{storage.Module.ID, mask.Module.ID}
+	for owner, provided := range map[string]module.PortRef{
+		"vivy/loop":       {Port: "core/loop-driver@v1", ID: "vivy.loop-driver"},
+		"vivy/model":      {Port: "core/chat-model-host@v1", ID: "vivy.chat-model-host"},
+		"vivy/tool-host":  {Port: "core/tool-host@v1", ID: "vivy.tool-host"},
+		"vivy/checkpoint": {Port: "core/checkpoint-store@v1", ID: "vivy.checkpoint-store"},
+		"vivy/credential": {Port: "core/credential-resolver@v1", ID: "vivy.credential-resolver"},
+		"vivy/sandbox":    {Port: "core/sandbox-backend@v1", ID: "vivy.sandbox-backend"},
+	} {
+		stub := testDescriptor(owner)
+		stub.Source.Ref = "file:internal"
+		stub.Provides = []module.PortRef{provided}
+		records = append(records, SourceRecord{Descriptor: stub, Trust: TrustT1})
+		modules = append(modules, stub.Module.ID)
+	}
+	catalog, err := NewSourceCatalog(records)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,16 +172,19 @@ func TestMaskProductionSelectionRejectedBeforeGenerationStart(t *testing.T) {
 	startGuard := &maskStartGuard{}
 	_, generation, err := compileThenStart(context.Background(), compiler, Recipe{
 		APIVersion: RecipeAPIVersionV1,
-		Modules:    []string{storage.Module.ID, mask.Module.ID},
+		Modules:    modules,
 	}, startGuard)
-	if generation != nil {
-		t.Fatal("SPECIFIED mask Provider unexpectedly started a generation")
+	if err != nil {
+		t.Fatalf("production mask selection rejected: %v", err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "core/mask-service@v1 is SPECIFIED and cannot be selected") {
-		t.Fatalf("production mask selection error = %v", err)
+	if generation == nil {
+		t.Fatal("production mask selection returned no started generation")
 	}
-	if startGuard.started != 0 {
-		t.Fatalf("production compile rejection started a Provider %d times", startGuard.started)
+	if startGuard.started != 1 {
+		t.Fatalf("successful mask compile started %d times, want 1", startGuard.started)
+	}
+	if err := generation.Close(context.Background()); err != nil {
+		t.Fatalf("close mask generation: %v", err)
 	}
 }
 

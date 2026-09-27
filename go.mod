@@ -17,8 +17,8 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/rivo/uniseg v0.4.7
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
@@ -107,14 +107,15 @@ require (
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
+	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
-	agent-vivy/plugins/vivy-persona v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
+	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
 	agent-vivy/plugins/vivy-notebook v0.0.0
+	agent-vivy/plugins/vivy-persona v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -128,7 +129,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/eino-contrib/jsonschema v1.0.3 // indirect
+	github.com/eino-contrib/jsonschema v1.0.3
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
 	github.com/google/uuid v1.6.0
@@ -158,7 +159,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/slongfield/pyfmt v0.0.0-20220222012616-ea85ff4c361f // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.8
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
@@ -196,3 +197,5 @@ replace agent-vivy/plugins/vivy-notebook => ./plugins/vivy-notebook
 replace agent-vivy/faces/headless => ./faces/headless
 
 replace agent-vivy/faces/tui => ./faces/tui
+
+replace agent-vivy/plugins/vivy-masks-ui => ./plugins/vivy-masks-ui

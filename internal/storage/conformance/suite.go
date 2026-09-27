@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-33).
+// Package conformance is the D-032 backend suite (CN-01..CN-34).
 package conformance
 
 import (
@@ -82,12 +82,46 @@ func Run(t *testing.T, h Harness) {
 		{"CN-31", "ordered durable child mailbox and receipt", cnChildMailbox},
 		{"CN-32", "parent deletion fences child session tree", cnChildSessionDelete},
 		{"CN-33", "immutable workflow revision admission", cnWorkflowRevisionAdmission},
+		{"CN-34", "durable active-child slot limit", cnChildSlotLimit},
 	}
-	if len(cases) != 33 {
-		t.Fatalf("conformance suite must carry exactly 33 cases, got %d", len(cases))
+	if len(cases) != 34 {
+		t.Fatalf("conformance suite must carry exactly 34 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+// cnChildSlotLimit proves the per-parent active-child ceiling is enforced
+// durably at admission: the MaxActiveChildrenPerRun-th free slot is consumed,
+// the next admission is refused, and a terminated child releases its slot.
+func cnChildSlotLimit(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	const parentSessionID = domain.SessionID("session-cn-slots-parent")
+	const parentRunID = domain.RunID("run-cn-slots-parent")
+	if err := b.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 2, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < storage.MaxActiveChildrenPerRun; i++ {
+		name := fmt.Sprintf("child-slot-%d", i)
+		input := conformanceChildAdmission(parentSessionID, parentRunID, name, "operation-"+name, "digest-"+name, int64(10+i), int64(20+i))
+		if _, err := b.CommitChildSessionAdmission(ctx, input); err != nil {
+			t.Fatalf("admission %d under the slot limit: %v", i, err)
+		}
+	}
+	overflow := conformanceChildAdmission(parentSessionID, parentRunID, "child-slot-overflow", "operation-overflow", "digest-overflow", 30, 40)
+	if _, err := b.CommitChildSessionAdmission(ctx, overflow); !errors.Is(err, storage.ErrChildConcurrencyLimit) {
+		t.Fatalf("admission beyond %d active children = %v, want ErrChildConcurrencyLimit", storage.MaxActiveChildrenPerRun, err)
+	}
+	if err := b.SetRunStatus(ctx, "run-child-slot-0", domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.CommitChildSessionAdmission(ctx, overflow); err != nil {
+		t.Fatalf("admission after a child terminated: %v, want the freed slot to admit", err)
 	}
 }
 

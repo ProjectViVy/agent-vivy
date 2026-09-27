@@ -30,6 +30,9 @@ export function RunInspector() {
   const reviewBusyIds = useVivyStore((state) => state.reviewBusyIds);
   const loadReviews = useVivyStore((state) => state.loadReviews);
   const respondReview = useVivyStore((state) => state.respondReview);
+  const openRun = useVivyStore((state) => state.openRun);
+  const activeSessionId = useVivyStore((state) => state.activeSessionId);
+  const sessionMessages = useVivyStore((state) => state.messages);
   const [childText, setChildText] = useState('');
   const [policy, setPolicy] = useState('');
   const [tools, setTools] = useState('');
@@ -125,10 +128,28 @@ export function RunInspector() {
       }
     });
     return () => { stale = true; };
-  }, [run?.id, selectedChild?.id, selectedChild?.session_id, selectedChild?.child_mode]);
+  }, [run?.id, selectedChild, selectedChild?.id, selectedChild?.session_id, selectedChild?.child_mode]);
   const runReviews = run ? reviews.filter((item) => item.run_id === run.id) : [];
+  const sessionRuns = (() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const item of background) if (item.session_id === activeSessionId && !seen.has(item.id)) { seen.add(item.id); ids.push(item.id); }
+    if (run && !seen.has(run.id)) { seen.add(run.id); ids.push(run.id); }
+    for (let index = sessionMessages.length - 1; index >= 0 && ids.length < 50; index -= 1) {
+      const id = sessionMessages[index].run_id;
+      if (id && !seen.has(id)) { seen.add(id); ids.push(id); }
+    }
+    return ids;
+  })();
 
   return <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
+    {sessionRuns.length ? <div className="mx-4 mt-4">
+      <label className="sr-only" htmlFor="run-inspector-run-picker">{t('runInspector.selectRun')}</label>
+      <select id="run-inspector-run-picker" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs" value={run?.id ?? ''} onChange={(event) => { const id = event.target.value; if (id && activeSessionId) void openRun(id, activeSessionId); }}>
+        {!run ? <option value="" disabled>{t('runInspector.noRun')}</option> : null}
+        {sessionRuns.map((id) => <option key={id} value={id}>{id}{id === run?.id ? ` · ${run.status}` : ''}</option>)}
+      </select>
+    </div> : null}
     <TabsList className="mx-4 mt-4 grid grid-cols-4">
       <TabsTrigger value="run">{t('runInspector.currentRun')}</TabsTrigger>
       <TabsTrigger value="background">{t('runInspector.background', { count: background.length })}</TabsTrigger>

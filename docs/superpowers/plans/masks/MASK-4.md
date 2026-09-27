@@ -46,21 +46,21 @@ their dedicated release gate.
 **Produces:** typed slot consumer, backend code_mode_available metadata, independent
 CodeModeControl. Keep code mode as session-view/run input state, never infer from mask.
 
-- [ ] Add slot tests with empty registry, unknown value, two ordered contributions,
+- [x] Add slot tests with empty registry, unknown value, two ordered contributions,
   thrown render, cleanup and changing session context. Reuse current host registry
   error boundary and registration ownership, not a new global event bus.
-- [ ] Add send/queue/edit/regenerate tests: choose Code then switch mask => FaceCode
+- [x] Add send/queue/edit/regenerate tests: choose Code then switch mask => FaceCode
   remains; choose No mask => code still works; backend unavailable => no false toggle.
-- [ ] Run `(cd ui && pnpm test src/plugins/presentation-host.test.tsx src/components/chat/CodeModeControl.test.tsx)`
+- [x] Run `(cd ui && pnpm test src/plugins/presentation-host.test.tsx src/components/chat/CodeModeControl.test.tsx)`
   and capture red; UI scripts stage generated assets automatically.
-- [ ] Implement the typed slot via existing components registry and spec shape.
+- [x] Implement the typed slot via existing components registry and spec shape.
   Split existing model selector without changing its provider/settings behavior.
   Server projects code capability from existing allowed Face logic; do not equate
   exclusive face provider selection with permission to accept FaceCode without tracing it.
-- [ ] Update typed host API projections and tests together. Existing UI API consumers
+- [x] Update typed host API projections and tests together. Existing UI API consumers
   see an additive optional boolean; absence disables the new code control until
   real backend support, rather than assuming support from a hard-coded list.
-- [ ] Rerun slot/code path tests, SDK UI tests with `(cd sdk/ui && pnpm test)`,
+- [x] Rerun slot/code path tests, SDK UI tests with `(cd sdk/ui && pnpm test)`,
   `pnpm typecheck` in ui, then commit `feat: add typed chat header and independent code mode`.
 
 ## Task 2: Mask extension, catalog and editor
@@ -77,7 +77,7 @@ separate application framework. Modify SDK internal source/UI binding tests if n
 **Consumes:** seven action DTOs/error taxonomy, host session store and typed header.
 **Produces:** page/sidebar/header contribution; draft-safe backend state transitions.
 
-- [ ] Write reducer/client interaction tests with deferred promises:
+- [x] Write reducer/client interaction tests with deferred promises:
 
 ```text
 load selection A; switch host active session to B; resolve B then A
@@ -86,20 +86,20 @@ edit custom C; another client updates C; save old revision
 assert conflict banner, draft preserved, committed state reread
 ```
 
-- [ ] Write UI tests for no active session, loading, switch pending, active run next-run
+- [x] Write UI tests for no active session, loading, switch pending, active run next-run
   label, built-in duplicate, in-use delete count, denied policy and reconnect refresh.
   Action mocks are for tests only, never imported by production Module.
-- [ ] Implement action client through SDK/host RPC, with exact schemas and committed
+- [x] Implement action client through SDK/host RPC, with exact schemas and committed
   response state. Maintain session request epoch/cancellation; errors never activate
   local selections. Refresh on open/focus/reconnect/mutation, no polling loop.
-- [ ] Implement list/get lazy body loading, draft editor, create operation UUID lifetime,
+- [x] Implement list/get lazy body loading, draft editor, create operation UUID lifetime,
   explicit update/delete expected revision, safe ambiguous-response reread. Show count
   for delete-in-use; do not automatically unmask other sessions.
-- [ ] Register navigation/page/header with cleanup handles and EN/ZH owned keys.
+- [x] Register navigation/page/header with cleanup handles and EN/ZH owned keys.
   Module imports usePluginHost/usePluginTranslation and permitted UI kit only.
   Header with no session is disabled; catalog CRUD remains available to authorized
   local operator. Current run identity, if displayed, comes from admitted metadata.
-- [ ] Run Module tests through the selected staged UI test path and existing SDK
+- [x] Run Module tests through the selected staged UI test path and existing SDK
   conformance harness. Staged tests under `ui/src/generated/ui/**` match the
   current `ui/vitest.config.ts` include `src/**/*.test.ts(x)`; assert staging
   preserves them and run `pnpm test src/generated/ui` from ui. If the stage tool
@@ -121,22 +121,22 @@ Update only necessary source/conformance evidence through the existing generator
 
 **Consumes:** complete backend and extension. Produces AC-08/09/10 and seven-artifact closure.
 
-- [ ] Before changing `ui/AGENTS.md`, obtain the focused approval already identified
+- [x] Before changing `ui/AGENTS.md`, obtain the focused approval already identified
   in the design: remove masks from the permanently rendered shell-entry clause;
   leave chat/toolbox and all other rules intact. If not authorized, keep that
   instruction edit and dependent UI movement blocked; don't silently override it.
-- [ ] Write omission assertions for routes/sidebar/header/locales/source import and
+- [x] Write omission assertions for routes/sidebar/header/locales/source import and
   artifact bytes; tests must fail against the current static shell mask imports.
-- [ ] Remove old localStorage authority and Face mapping. Do not migrate global mask
+- [x] Remove old localStorage authority and Face mapping. Do not migrate global mask
   preference to every session. Remove generated route through normal route generation,
   not manual edits. Preserve model control and existing non-mask locale keys.
-- [ ] Add explicit selected/omitted/backend-only recipes using compiler-supported
+- [x] Add explicit selected/omitted/backend-only recipes using compiler-supported
   module/UI separation. Default includes completed masks. Headless has no forced UI;
   do not rename existing product recipes or alter Channel selections incidentally.
-- [ ] Execute all seven Port artifacts; promote support only from actual accepted
+- [x] Execute all seven Port artifacts; promote support only from actual accepted
   conformance. Use normal source-hash/evidence workflow on the execution branch,
   not ad-hoc hash edits or invented passing result JSON.
-- [ ] Run from fresh output paths (remove only disposable task-owned outputs if rerunning):
+- [x] Run from fresh output paths (remove only disposable task-owned outputs if rerunning):
 
 ```bash
 go run ./sdk pack --recipe recipes/masks-selected.vivy.yml --output .workspace/mask-verify/selected
@@ -146,12 +146,12 @@ go run ./sdk inspect-artifact .workspace/mask-verify/omitted
 go run ./sdk pack --recipe recipes/masks-backend-only.vivy.yml --output .workspace/mask-verify/backend-only
 ```
 
-- [ ] Add a dedicated split Playwright configuration with baseURL `http://127.0.0.1:3015`,
+- [x] Add a dedicated split Playwright configuration with baseURL `http://127.0.0.1:3015`,
   disposable backend state/config, two webServer entries (backend :8787 + Vite :3015),
   one worker and the mask test only. Reuse `ui/e2e/global-setup.ts` preparation
   mechanics without touching production data. Existing playwright.config.ts targets
   embedded server; do not claim it is this split smoke.
-- [ ] Run `(cd ui && pnpm exec playwright test --config playwright.masks.config.ts)`.
+- [x] Run `(cd ui && pnpm exec playwright test --config playwright.masks.config.ts)`.
   Cover two browser contexts, persisted switch/reload, create/edit conflict, in-use
   delete, queued next-run application, code independently on/off, and no-mask artifact
   smoke. Backend-only artifact gets RPC/run smoke without browser extension.

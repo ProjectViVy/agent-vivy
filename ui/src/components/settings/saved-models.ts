@@ -9,7 +9,7 @@ import type { ProviderCatalogEntry } from '@/lib/api';
  * - 模型是运行三元组 (provider, base_url, model) 的扁平数组：无密钥、无冗余 displayName，
  *   显示名渲染时经 savedModelVendorLabel / matchMergedProviderEntry 解析，单一权威来源。
  *   provider 写侧是密封适配器 id（PROV-P4）；旧条目里的运行束名仍被归一读取。
- * - 与 mask-catalog.ts 同款持久化样板：模块级缓存 + useSyncExternalStore +
+ * - 模块级缓存 + useSyncExternalStore +
  *   自定义事件 / storage 事件广播，不进 zustand store。
  * - 移除只动本地列表，不会改写运行配置（不移植 Agent-Diva 的移除即清理副作用）。
  */

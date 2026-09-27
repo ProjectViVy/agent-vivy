@@ -53,6 +53,17 @@ func resolveStoredSelection(catalog *provider.Catalog, cfg config.Config, stored
 		vendorName = selection.LegacyVendor
 	}
 	if vendorName == "" {
+		// A user-registered provider declares no embedded vendor: label the
+		// selection by its registry entry so run/usage events do not blame
+		// the configured vendor for someone else's endpoint.
+		if entry, ok := stored.FindProvider(selection.Adapter, strings.TrimSpace(stored.BaseURL)); ok {
+			vendorName = strings.TrimSpace(entry.DisplayName)
+			if vendorName == "" {
+				vendorName = entry.ID
+			}
+		}
+	}
+	if vendorName == "" {
 		vendorName = cfg.Providers.Active
 	}
 	return resolveVendorSelection(catalog, vendorName, selection.Adapter, stored.BaseURL, stored.DefaultModel)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/testsupport"
 )
 
@@ -140,5 +141,62 @@ func TestRecoveredSiblingRunsShareOneBudgetAccount(t *testing.T) {
 	}
 	if err := first.ReserveModelCall(); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("third combined reservation = %v, want shared run-tree budget exhaustion", err)
+	}
+}
+
+// R13: a restarted run resumes against the usage its journal already charged.
+// Recovery replays durable events exactly once, a repeated recovery reuses the
+// same ledger without recharging, and post-restart reservations consume only
+// the remaining shared headroom.
+func TestRecoveredLedgerReplaysJournalOnceAndCapsResumedRun(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	svc.deps.Budget = BudgetPolicy{MaxModelCalls: 3}
+	const sessionID = domain.SessionID("session-recovered-budget-replay")
+	const rootID = domain.RunID("run-recovered-replay-root")
+	const childID = domain.RunID("run-recovered-replay-child")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "budget", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: rootID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2, RootID: rootID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{
+		ID: childID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 3,
+		Kind: domain.RunKindChild, ChildMode: domain.ChildModeOneShot,
+		ParentID: rootID, RootID: rootID, Depth: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Durable history before the restart: one tool.requested (model + tool
+	// call) and one model.completed (model call) on the child.
+	if _, err := backend.Append(ctx, storage.Commit{RunID: childID, Events: []domain.RunEvent{
+		{RunID: childID, Type: domain.EventToolRequested, CreatedAt: 4, Payload: []byte(`{}`)},
+		{RunID: childID, Type: domain.EventModelCompleted, CreatedAt: 5, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	ledger := svc.recoverBudgetLedger(ctx, childID)
+	if ledger == nil {
+		t.Fatal("recovered ledger is nil")
+	}
+	snap := ledger.Snapshot()
+	if snap.Usage.ModelCalls != 2 || snap.Usage.ToolCalls != 1 {
+		t.Fatalf("replayed usage = %+v, want 2 model calls and 1 tool call", snap.Usage)
+	}
+	// Reauthorization path reuses the recovered ledger; usage must not double.
+	if again := svc.recoverBudgetLedger(ctx, childID); again != ledger {
+		t.Fatal("second recovery rebuilt the ledger instead of reusing it")
+	}
+	if snap = ledger.Snapshot(); snap.Usage.ModelCalls != 2 {
+		t.Fatalf("usage after second recovery = %+v, replay double counted", snap.Usage)
+	}
+	// One model call of shared headroom remains; the next is refused.
+	if err := ledger.ReserveModelCall(); err != nil {
+		t.Fatalf("reservation within remaining headroom: %v", err)
+	}
+	if err := ledger.ReserveModelCall(); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("reservation past replayed headroom = %v, want budget exceeded", err)
 	}
 }

@@ -118,7 +118,11 @@ export class MaskClient {
   }
 
   getSelection(sessionId: string): Promise<MaskSelection> {
-    return this.invoke<MaskSelectionGetInput, MaskSelection>(MASK_ACTIONS.selectionGet, { session_id: sessionId });
+    // Selecting a session binds the caller peer asynchronously; retry briefly
+    // so a selection read raced by that bind does not strand the UI.
+    return retry(() =>
+      this.invoke<MaskSelectionGetInput, MaskSelection>(MASK_ACTIONS.selectionGet, { session_id: sessionId }),
+    );
   }
 
   setSelection(input: MaskSelectionSetInput): Promise<MaskSelection> {
@@ -128,4 +132,22 @@ export class MaskClient {
   private invoke<Input, Result>(actionId: string, input: Input): Promise<Result> {
     return this.actions.invoke<Input, Result>({ moduleId: MASK_MODULE_ID, actionId, input });
   }
+}
+
+const RETRY_ATTEMPTS = 4;
+const RETRY_DELAY_MS = 250;
+
+async function retry<T>(run: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await run();
+    } catch (cause) {
+      lastError = cause;
+      if (attempt + 1 < RETRY_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
 }

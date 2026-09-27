@@ -30,8 +30,9 @@
   to refresh (the pre-hooks already do).
 - A UI Module owns its page, its grouped sidebar entry, and its
   `plugin.<module-id>.*` catalog; the shell owns only the assembly mechanism
-  plus the entries it always renders (chat, toolbox, and 面具 in the VIVY
-  group). Module code reaches the host through `@vivy/ui-sdk`
+  plus the entries it always renders (chat and toolbox; the VIVY group is
+  contributed entirely by Modules, including 面具 when vivy/masks-ui is
+  selected). Module code reaches the host through `@vivy/ui-sdk`
   (`usePluginTranslation`, `usePluginHost`, `defineNavigationItem`) and the
   host UI kit through the `@/` alias; it never imports the shell's state store
   or another Module's internals.

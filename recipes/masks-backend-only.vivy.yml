@@ -1,5 +1,5 @@
 apiVersion: vivy.generation/v1
-profile: default
+profile: masks-backend-only
 modules:
   - vivy/loop
   - vivy/model
@@ -31,9 +31,8 @@ modules:
   - vivy/memory
   - vivy/notebook
   - vivy/masks
-  - vivy/masks-ui
 order:
-  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook, vivy/masks-ui]
+  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook]
 ui:
   sdkVersion: 1.0.0
   extensions:
@@ -41,7 +40,6 @@ ui:
     - {id: vivy.evolution.sidebar, moduleId: vivy/evolution, port: std/ui-extension@v1, entry: ./ui/vivy-evolution/src/index.tsx, export: extension}
     - {id: vivy.memory.sidebar, moduleId: vivy/memory, port: std/ui-extension@v1, entry: ./ui/vivy-memory/src/index.tsx, export: extension}
     - {id: vivy.notebook.sidebar, moduleId: vivy/notebook, port: std/ui-extension@v1, entry: ./ui/vivy-notebook/src/index.tsx, export: extension}
-    - {id: vivy.masks-ui.sidebar, moduleId: vivy/masks-ui, port: std/ui-extension@v1, entry: ./ui/vivy-masks/src/index.tsx, export: extension}
 grantApprovals:
   - {module: vivy/dingtalk, name: channel.poll}
   - {module: vivy/dingtalk, name: secret.read}
