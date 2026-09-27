@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
@@ -312,7 +313,27 @@ func waitForControlSubscriptionCount(t *testing.T, handler *controlHandler, want
 }
 
 func (childControllerStub) StartChild(_ context.Context, request ChildRequest) (ChildResult, error) {
-	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1}, nil
+	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1, ChildMode: request.Mode}, nil
+}
+
+func (childControllerStub) FollowupChild(context.Context, ChildFollowupRequest) (ChildResult, error) {
+	return ChildResult{ID: "child-followup-stub", Status: "active", ChildMode: string(domain.ChildModeContinuable)}, nil
+}
+
+func (childControllerStub) InterruptChild(context.Context, string) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", Status: "active", ChildMode: string(domain.ChildModeContinuable)}, nil
+}
+
+func (childControllerStub) ChildHistory(context.Context, string, string) ([]ChildHistoryMessage, error) {
+	return []ChildHistoryMessage{}, nil
+}
+
+func (childControllerStub) SendChildMessage(context.Context, ChildMessageRequest) (ChildMessageResult, bool, error) {
+	return ChildMessageResult{ID: "message-stub", Status: "pending"}, true, nil
+}
+
+func (childControllerStub) ListChildMessages(context.Context, ChildMessageListRequest) ([]ChildMessageResult, error) {
+	return []ChildMessageResult{}, nil
 }
 
 func (childControllerStub) GetChild(context.Context, string) (ChildResult, error) {
@@ -351,7 +372,7 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Journal: backend, Work: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
@@ -416,6 +437,22 @@ func TestControlSessionCreateKeepsEmptyTitleUntitled(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": string(session.ID)}); rpcErr != nil {
 		t.Fatal(rpcErr)
+	}
+}
+
+func TestWorkflowRPCValidatesAdmissionAndMapsMissingRuns(t *testing.T) {
+	env := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, env.handler, "workflow/start", map[string]any{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("workflow/start missing identity error = %v, want invalid params", rpcErr)
+	}
+	for _, method := range []string{"workflow/propose", "workflow/get", "workflow/cancel"} {
+		var params any = map[string]string{"run_id": "missing-workflow"}
+		if method == "workflow/propose" {
+			params = map[string]any{"parent_run_id": "missing-parent", "descriptor": map[string]any{}}
+		}
+		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != CodeNotFound {
+			t.Fatalf("%s missing resource error = %v, want not found", method, rpcErr)
+		}
 	}
 }
 
@@ -511,6 +548,45 @@ func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 	}
 	if len(logEnvelope.Events) == 0 || logEnvelope.Events[0].RunID != domain.RunID(accepted.RunID) {
 		t.Fatalf("run log = %+v", logEnvelope)
+	}
+}
+
+func TestInitializeProjectsCodeModeCapability(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.CodeModeAvailable = true
+	})
+	result, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		CodeModeAvailable bool `json:"code_mode_available"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=true", raw)
+	}
+
+	without := newControlTestEnv(t)
+	result, rpcErr = callControl(t, without.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=false when the face gate is absent", raw)
 	}
 }
 
@@ -663,6 +739,50 @@ func TestControlHandlerChildLifecycleContract(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("child/list returned nil")
+	}
+}
+
+func TestControlHandlerContinuableChildContract(t *testing.T) {
+	env := newControlTestEnv(t)
+	started, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{
+		ParentRunID: "run-parent", Text: "task", Mode: string(domain.ChildModeContinuable), OperationID: "start-op",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var child ChildResult
+	encoded, _ := json.Marshal(started)
+	if err := json.Unmarshal(encoded, &child); err != nil || child.ChildMode != string(domain.ChildModeContinuable) {
+		t.Fatalf("continuable child/start = %+v err=%v", child, err)
+	}
+	followup, rpcErr := callControl(t, env.handler, "child/followup", ChildFollowupRequest{
+		ChildSessionID: "csess_1", ParentRunID: "run-parent", OperationID: "followup-op", Text: "next task",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if followup == nil {
+		t.Fatal("child/followup returned nil")
+	}
+	for method, params := range map[string]any{
+		"child/interrupt":    map[string]string{"run_id": "child-stub"},
+		"child/history":      map[string]string{"child_session_id": "csess_1", "parent_run_id": "run-parent"},
+		"child/message/send": ChildMessageRequest{ChildSessionID: "csess_1", ParentRunID: "run-parent", OperationID: "message-op", Text: "mail"},
+		"child/message/list": ChildMessageListRequest{ChildSessionID: "csess_1", AuthorizerRunID: "run-parent"},
+	} {
+		if result, rpcErr := callControl(t, env.handler, method, params); rpcErr != nil || result == nil {
+			t.Fatalf("%s result=%v err=%v", method, result, rpcErr)
+		}
+	}
+	if _, rpcErr := callControl(t, env.handler, "child/followup", ChildFollowupRequest{
+		ChildSessionID: "csess_1", ParentRunID: "run-parent", Text: "missing operation id",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("follow-up without operation_id = %v, want invalid params", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{
+		ParentRunID: "run-parent", Text: "task", Mode: "unknown",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("unknown child mode = %v, want invalid params", rpcErr)
 	}
 }
 
@@ -2566,8 +2686,8 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 	if len(seen) != len(view.Catalog) {
 		t.Fatalf("a vendor appears more than once: %d entries, %d vendors", len(view.Catalog), len(seen))
 	}
-	if len(view.Catalog) != 45 || endpoints != 47 {
-		t.Fatalf("catalog = %d vendors / %d endpoints, want 45/47", len(view.Catalog), endpoints)
+	if len(view.Catalog) != 46 || endpoints != 48 {
+		t.Fatalf("catalog = %d vendors / %d endpoints, want 46/48", len(view.Catalog), endpoints)
 	}
 	if deferred == 0 {
 		t.Fatal("the deferred openai-responses endpoint must appear in the catalog")
@@ -3419,10 +3539,11 @@ func TestChannelInspectRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := channelhost.New(channelhost.Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
 			return "run-chan-inspect", nil
 		},
 		Channels:    []plugin.Channel{fakeCh},
@@ -3645,7 +3766,7 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 		}},
 		{"oversize", map[string]any{
 			"session_id": sessionID, "text": "hi",
-			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, maxAttachmentBytes+1))}},
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, attachment.MaxBytes+1))}},
 		}},
 		{"too many", map[string]any{
 			"session_id": sessionID, "text": "hi",
@@ -3801,7 +3922,7 @@ func TestAttachmentPathsFlowAndMessageDTOConsistency(t *testing.T) {
 		t.Fatalf("metadata-only attachment = %+v", metadataMessage)
 	}
 
-	inline := make([]map[string]string, maxAttachmentCount)
+	inline := make([]map[string]string, attachment.MaxCount)
 	for index := range inline {
 		inline[index] = map[string]string{
 			"name":      fmt.Sprintf("inline-%d.png", index),
@@ -4165,6 +4286,9 @@ func TestTrajectorySessionRoute(t *testing.T) {
 
 	sessionID := domain.SessionID("sess-traj")
 	runID := domain.RunID("run-traj")
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1000}); err != nil {
 		t.Fatal(err)
 	}
@@ -4411,5 +4535,119 @@ func TestSessionForkRoute(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "session/fork", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != InvalidParams {
 		t.Fatalf("missing message_id err = %v, want InvalidParams", rpcErr)
+	}
+}
+
+// TestChannelDeliveriesRPC covers the failed-delivery control surface:
+// the listing returns only failed rows, and redeliver rejects operator
+// errors (unknown run, channel not running) while the happy path re-arms
+// the intent through the live adapter.
+func TestChannelDeliveriesRPC(t *testing.T) {
+	env := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, env.handler, "channel/deliveries/list", nil); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("expected method-not-found without a channel host, got %v", rpcErr)
+	}
+
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "chan-deliveries.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	fakeCh := fake.New()
+	fakeCh.Publish = func(context.Context, plugin.ChannelEnv) error { return nil }
+	envelope := config.ChannelEnvelope{Enabled: true, AllowFrom: []string{"alice"}}
+	host := channelhost.New(channelhost.Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
+			return "run-chan-deliveries", nil
+		},
+		Channels: []plugin.Channel{fakeCh},
+		Config:   config.Channels{"fake": envelope},
+	})
+	envCh, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.Channels = host
+		deps.ConfigChannels = config.Channels{"fake": envelope}
+	})
+
+	// Seed one failed intent and one armed intent, plus the assistant row
+	// the delivery path reads back. The failed row is the operator-visible
+	// one; the armed row never surfaces in the listing.
+	failedRun := domain.RunID("run-chan-failed")
+	now := time.Now().UnixMilli()
+	if err := backend.AppendMessage(ctx, domain.Message{
+		ID: "msg-chan-failed", SessionID: "sess-chan-1", RunID: failedRun,
+		Role: domain.RoleAssistant, CreatedAt: now, Content: "channel reply",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: failedRun, SessionID: "sess-chan-1", Channel: "fake", ChatID: "chat-1",
+		State: storage.ChannelDeliveryFailed, Attempts: 3,
+		CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: "run-chan-armed", SessionID: "sess-chan-1", Channel: "fake", ChatID: "chat-1",
+		State: storage.ChannelDeliveryArmed, CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, rpcErr := callControl(t, envCh.handler, "channel/deliveries/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listed := got.(map[string]any)["deliveries"].([]channelDeliveryResult)
+	if len(listed) != 1 || listed[0].RunID != string(failedRun) || listed[0].State != storage.ChannelDeliveryFailed {
+		t.Fatalf("deliveries = %+v, want only the failed row", listed)
+	}
+	if listed[0].Channel != "fake" || listed[0].ChatID != "chat-1" || listed[0].Attempts != 3 {
+		t.Fatalf("failed row = %+v", listed[0])
+	}
+
+	// Redeliver guards.
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing run_id err = %v, want InvalidParams", rpcErr)
+	}
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{"run_id": "run-unknown"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown run err = %v, want CodeNotFound", rpcErr)
+	}
+
+	// Happy path: the adapter is live after StartAll, so the redeliver
+	// re-arms the intent and the row leaves the failed listing.
+	if err := host.StartAll(ctx); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{"run_id": string(failedRun)}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(fakeCh.Snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("redelivered intent never reached the fake channel")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if sent := fakeCh.Snapshot(); len(sent) != 1 {
+		t.Fatalf("sent = %+v, want exactly one redelivered envelope", sent)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		failed, err := backend.ListFailedChannelDeliveries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(failed) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("failed listing still holds rows after redeliver: %+v", failed)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

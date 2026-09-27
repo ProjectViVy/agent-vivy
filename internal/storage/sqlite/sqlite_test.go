@@ -26,6 +26,44 @@ func ev(typ domain.EventType) domain.RunEvent {
 	return domain.RunEvent{Type: typ, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{}`)}
 }
 
+func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	const sessionID domain.SessionID = "session-delete-work"
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{
+		ID: "run-delete-work", SessionID: sessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []domain.WorkMutation{{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "delete-enter-plan", RequestHash: "delete-enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}, {
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "delete-submit-plan", RequestHash: "delete-submit-plan",
+		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "delete-submission", PlanMarkdown: "delete this evidence with its owner",
+		PlanOriginRunID: "run-delete-work", PlanOriginToolCallID: "delete-tool-call",
+	}} {
+		if _, err := b.CommitWork(ctx, mutation); err != nil {
+			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)
+		}
+	}
+	var before int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&before); err != nil || before != 2 {
+		t.Fatalf("work rows before delete = %d, %v; want 2", before, err)
+	}
+	if err := b.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	var after int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&after); err != nil || after != 0 {
+		t.Fatalf("work rows after delete = %d, %v; want 0", after, err)
+	}
+}
+
 func TestJournalAppendReplay(t *testing.T) {
 	b := openBackend(t)
 	ctx := context.Background()
@@ -295,6 +333,14 @@ func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("migration017 marker count = %d, want 1", n)
 	}
+	var name, checksum string
+	if err := b.db.QueryRowContext(ctx,
+		`SELECT name, checksum FROM schema_migrations WHERE version = 17`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read repair metadata: %v", err)
+	}
+	if name != "cron_repair" || len(checksum) != 64 {
+		t.Fatalf("migration017 metadata = %q/%q", name, checksum)
+	}
 }
 
 func TestMessagesPersistImageAttachments(t *testing.T) {
@@ -342,11 +388,13 @@ func TestMessagesPersistImageAttachments(t *testing.T) {
 	}
 	// Re-appending the same message id must not resurrect stale attachment
 	// rows: a surviving attachment would attach itself to the new row.
-	if err := b.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: "s-att2", Role: domain.RoleUser, CreatedAt: 3, Content: "reborn"}); err != nil {
-		t.Fatalf("AppendMessage re-born: %v", err)
-	}
+	// The destination session must exist first: message position allocation
+	// is fail-closed against the session row.
 	if err := b.CreateSession(ctx, domain.Session{ID: "s-att2", Title: "reborn", CreatedAt: 3}); err != nil {
 		t.Fatalf("CreateSession s-att2: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: "s-att2", Role: domain.RoleUser, CreatedAt: 3, Content: "reborn"}); err != nil {
+		t.Fatalf("AppendMessage re-born: %v", err)
 	}
 	reborn, err := b.ListMessages(ctx, "s-att2")
 	if err != nil {

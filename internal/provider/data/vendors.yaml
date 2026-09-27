@@ -686,6 +686,41 @@
     entry: qiniu
     derived_at: "2026-09-18"
     note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: sensenova
+  display_name: SenseNova
+  env_key: SENSENOVA_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://token.sensenova.cn/v1
+      default_model: sensenova-6.8-flash-lite
+      models:
+        - id: sensenova-6.8-flash-lite
+          context_window: 262144
+          supports_images: true
+          supports_thinking: true
+        - id: sensenova-u1-fast
+          context_window: 262144
+          supports_thinking: true
+        - id: sensenova-u1.5-lite
+          context_window: 262144
+          supports_thinking: true
+        - id: deepseek-v4-flash
+          context_window: 1048576
+          supports_thinking: true
+        - id: deepseek-v4-pro
+          context_window: 1048576
+          supports_thinking: true
+        - id: glm-5.2
+          context_window: 1048576
+          supports_thinking: true
+        - id: kimi-k3
+          context_window: 1048576
+          supports_thinking: true
+  provenance:
+    source: https://token.sensenova.cn/v1/models
+    entry: sensenova
+    derived_at: "2026-09-27"
+    note: Not in the upstream catalog; authored from the live /v1/models response. u1-fast/u1.5-lite emit images; all listed models report tools + reasoning support. Prices report 0 on the free token plan, left unpriced.
 - name: silicon
   display_name: SiliconFlow
   env_key: SILICON_API_KEY

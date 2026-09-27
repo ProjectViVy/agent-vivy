@@ -1,17 +1,16 @@
 package rpc
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/runtime"
 )
 
 // projectAttachment is the server-owned result of resolving one project
@@ -128,8 +127,8 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	if len(paths) > maxAttachmentCount {
-		return nil, &attachmentPathError{index: -1, public: fmt.Sprintf("at most %d image attachments are allowed", maxAttachmentCount)}
+	if len(paths) > attachment.MaxCount {
+		return nil, &attachmentPathError{index: -1, public: fmt.Sprintf("at most %d image attachments are allowed", attachment.MaxCount)}
 	}
 
 	rootAbs, err := filepath.Abs(root)
@@ -160,7 +159,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: publicAttachmentPathError(err), cause: err}
 		}
-		if sensitiveProjectContextPath(clean) {
+		if runtime.SensitiveWorkspacePath(clean) {
 			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
 		// Inspect every component through the already-open root. This rejects
@@ -188,7 +187,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("open attachment within project root: %w", err)}
 		}
-		if canonicalRelative != "" && sensitiveProjectContextPath(canonicalRelative) {
+		if canonicalRelative != "" && runtime.SensitiveWorkspacePath(canonicalRelative) {
 			_ = file.Close()
 			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
@@ -209,11 +208,11 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 			_ = file.Close()
 			return nil, &attachmentPathError{index: index, public: "file content is not a supported image", cause: errAttachmentPathNotImage}
 		}
-		if info.Size() > maxAttachmentBytes {
+		if info.Size() > attachment.MaxBytes {
 			_ = file.Close()
 			return nil, &attachmentPathError{index: index, public: "image exceeds the 5 MiB limit", cause: errAttachmentPathTooLarge}
 		}
-		data, readErr := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
+		data, readErr := io.ReadAll(io.LimitReader(file, attachment.MaxBytes+1))
 		endInfo, statErr := file.Stat()
 		closeErr := file.Close()
 		if readErr != nil {
@@ -234,17 +233,17 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 		if err := validateAttachmentPathIdentity(rootHandle, clean, info); err != nil {
 			return nil, &attachmentPathError{index: index, public: "file changed while reading", cause: err}
 		}
-		if len(data) > maxAttachmentBytes {
+		if len(data) > attachment.MaxBytes {
 			return nil, &attachmentPathError{index: index, public: "image exceeds the 5 MiB limit", cause: errAttachmentPathTooLarge}
 		}
-		mime := sniffAttachmentMIME(data)
-		if !attachmentMimeWhitelist[mime] {
+		mime := attachment.SniffMIME(data)
+		if !attachment.MimeWhitelist[mime] {
 			return nil, &attachmentPathError{index: index, public: "file content is not a supported image", cause: fmt.Errorf("%w: detected MIME %q is not allowed", errAttachmentPathNotImage, mime)}
 		}
 
 		out = append(out, projectAttachment{
 			Path:     filepath.ToSlash(clean),
-			Name:     safeAttachmentName(filepath.Base(clean)),
+			Name:     attachment.SanitizeName(filepath.Base(clean)),
 			MimeType: mime,
 			Size:     int64(len(data)),
 			Data:     data,
@@ -254,7 +253,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 }
 
 func validateAttachmentPathIdentity(rootHandle *os.Root, clean string, opened os.FileInfo) error {
-	if sensitiveProjectContextPath(clean) {
+	if runtime.SensitiveWorkspacePath(clean) {
 		return errAttachmentPathSensitive
 	}
 	postInfo, err := attachmentPathInfo(rootHandle, clean)
@@ -292,26 +291,6 @@ func attachmentPathInfo(rootHandle *os.Root, clean string) (os.FileInfo, error) 
 		return nil, errAttachmentPathChanged
 	}
 	return info, nil
-}
-
-// safeAttachmentName keeps filenames inert when projected into terminal
-// chips or persisted history. The path used for the next server-side resolve
-// remains exact and separate; only display metadata is sanitized and bounded.
-func safeAttachmentName(name string) string {
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, strings.TrimSpace(name))
-	runes := []rune(name)
-	if len(runes) > 256 {
-		name = string(runes[:256])
-	}
-	if strings.TrimSpace(name) == "" {
-		return "image"
-	}
-	return name
 }
 
 func cleanProjectRelativePath(raw string) (string, error) {
@@ -367,35 +346,6 @@ func pathWithin(root, candidate string) bool {
 		return false
 	}
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// sniffAttachmentMIME is content based. The extension and any client MIME
-// claim are intentionally ignored, preventing a text file named *.png from
-// entering the existing multimodal pipeline.
-func sniffAttachmentMIME(data []byte) string {
-	// The first four PNG bytes are enough to distinguish the format for the
-	// existing inline attachment contract (which permits a short deterministic
-	// fixture); project-path attachments still use this same content sniffing
-	// seam and never trust an extension or client MIME claim.
-	if len(data) >= 4 && bytes.Equal(data[:4], []byte{0x89, 'P', 'N', 'G'}) {
-		return "image/png"
-	}
-	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
-		return "image/jpeg"
-	}
-	if len(data) >= 6 && (bytes.Equal(data[:6], []byte("GIF87a")) || bytes.Equal(data[:6], []byte("GIF89a"))) {
-		return "image/gif"
-	}
-	if len(data) >= 12 && bytes.Equal(data[:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")) {
-		return "image/webp"
-	}
-	// Keep net/http's maintained sniff table as a final guard for equivalent
-	// signatures while still applying the explicit whitelist.
-	detected := http.DetectContentType(data)
-	if attachmentMimeWhitelist[detected] {
-		return detected
-	}
-	return ""
 }
 
 func projectAttachmentDomainValues(items []projectAttachment) []domain.Attachment {

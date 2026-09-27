@@ -10,21 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
 )
 
-func verifySource(dir string, descriptor module.Descriptor) error {
-	digest, err := assemblyv1.HashSourceTree(dir, descriptor.Source.SHA256)
-	if err != nil {
-		return err
-	}
-	if digest != descriptor.Source.SHA256 {
-		return fmt.Errorf("source hash mismatch for %s: got %s, want %s", descriptor.Module.ID, digest, descriptor.Source.SHA256)
-	}
+func verifySource(dir string, _ module.Descriptor) error {
 	fset := token.NewFileSet()
 	constructors := map[string]bool{}
-	err = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -49,8 +41,6 @@ func verifySource(dir string, descriptor module.Descriptor) error {
 				"agent-vivy/sdk/internal/",
 				"agent-vivy/plugins/",
 				"agent-vivy/faces/",
-				"example.com/vivy/plugins/",
-				"example.com/vivy/faces/",
 				"github.com/cloudwego/eino",
 				"github.com/pion/",
 				"golang.org/x/sys",

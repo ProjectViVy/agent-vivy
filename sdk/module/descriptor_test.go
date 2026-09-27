@@ -109,6 +109,14 @@ func TestDescriptorValidateIsSideEffectFree(t *testing.T) {
 	}
 }
 
+func TestDescriptorAllowsPackBoundSourceHash(t *testing.T) {
+	descriptor := validDescriptor()
+	descriptor.Source.SHA256 = ""
+	if err := descriptor.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a descriptor awaiting pack binding: %v", err)
+	}
+}
+
 func TestDescriptorUsesCanonicalFlatPortWireShape(t *testing.T) {
 	descriptor := validDescriptor()
 	descriptor.Requires[0].Provider = "example/tool-host"

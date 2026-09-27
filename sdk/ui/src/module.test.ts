@@ -11,12 +11,16 @@ import {
   type FullUIHost,
   type FaceNavigationOptions,
   type FaceStoreState,
+  type FaceClientAPI,
+  type FaceTurnSubmission,
   type UICompositionInput,
   type UIExtension,
   type UIProvider,
   type UIExtensionProvider,
   type UIRootProvider,
   type UIRoot,
+  type ChatHeaderContext,
+  type ChatHeaderContribution,
   UI_EXTENSION_PORT,
   UI_ROOT_PORT,
 } from "./module";
@@ -59,6 +63,13 @@ const emptyFaceStoreState: FaceStoreState = {
   runError: null,
   runBusy: false,
   queuedMessages: [],
+  draftReferences: [],
+  draftScope: null,
+  draftRequestId: "fixture-request",
+  referenceViews: {},
+  deliverySets: [],
+  deliverySetsPhase: "empty",
+  deliveryItemStates: {},
   backgroundRuns: [],
   backgroundPhase: "empty",
   backgroundError: null,
@@ -79,6 +90,7 @@ const emptyFaceStoreState: FaceStoreState = {
   settingsPhase: "idle",
   settingsError: null,
   providers: [],
+  catalog: [],
   providersPhase: "empty",
   providersError: null,
   species: null,
@@ -91,7 +103,9 @@ const emptyFaceStoreState: FaceStoreState = {
   initialize: unavailableFaceOperation,
   retryInitialize: unavailableFaceOperation,
   loadSessions: unavailableFaceOperation,
+  chooseWorkspace: unavailableFaceOperation,
   createSession: unavailableFaceOperation,
+  chooseWorkspace: unavailableFaceOperation,
   renameSession: unavailableFaceOperation,
   setSessionPermission: unavailableFaceOperation,
   deleteSession: unavailableFaceOperation,
@@ -101,6 +115,26 @@ const emptyFaceStoreState: FaceStoreState = {
   enqueueMessage: () => undefined,
   removeQueuedMessage: () => undefined,
   clearQueue: () => undefined,
+  addDraftReference: () => undefined,
+  removeDraftReference: () => undefined,
+  setDraftScope: () => undefined,
+  clearDraftContext: () => undefined,
+  loadReferenceView: unavailableFaceOperation,
+  loadDeliverySets: unavailableFaceOperation,
+  checkDeliveryItem: unavailableFaceOperation,
+  previewDeliveryItem: unavailableFaceOperation,
+  downloadDeliveryItem: unavailableFaceOperation,
+  cancelDeliveryDownload: () => undefined,
+  loadWork: unavailableFaceOperation,
+  commitWork: unavailableFaceOperation,
+  createGoal: unavailableFaceOperation,
+  editGoal: unavailableFaceOperation,
+  pauseGoal: unavailableFaceOperation,
+  resumeGoal: unavailableFaceOperation,
+  clearGoal: unavailableFaceOperation,
+  enterPlan: unavailableFaceOperation,
+  leavePlan: unavailableFaceOperation,
+  decidePlan: unavailableFaceOperation,
   cancelCurrentRun: unavailableFaceOperation,
   openRun: unavailableFaceOperation,
   loadRunLog: unavailableFaceOperation,
@@ -139,6 +173,28 @@ const emptyFaceStoreState: FaceStoreState = {
 };
 
 describe("full-code UI composition", () => {
+  it("exposes the typed chat header slot contract", () => {
+    let received: ChatHeaderContext | undefined;
+    const contribution: ChatHeaderContribution = {
+      slot: "chat.header",
+      render: (context) => {
+        received = context;
+        return null;
+      },
+    };
+
+    expect(contribution.slot).toBe("chat.header");
+    expect(contribution.render({ sessionId: "session-fixture", running: true })).toBeNull();
+    expect(received).toEqual({ sessionId: "session-fixture", running: true });
+
+    // @ts-expect-error the slot is intentionally closed to typed consumers.
+    const wrongSlot: ChatHeaderContribution = { slot: "chat.footer", render: () => null };
+    // @ts-expect-error header renderers receive the host-owned context.
+    const wrongRenderer: ChatHeaderContribution = { slot: "chat.header", render: () => ({}) };
+    expect(wrongSlot).toBeDefined();
+    expect(wrongRenderer).toBeDefined();
+  });
+
   it("rejects duplicate root providers", () => {
     const input: UICompositionInput = {
       roots: [root("vivy/default-ui"), root("example/search-ui")],
@@ -278,7 +334,10 @@ describe("full-code UI composition", () => {
         initialize: async () => ({ protocol_version: "vivy/rpc-v1", capabilities: [] }),
         listWorkspaceFiles: unavailableFaceOperation,
         readWorkspaceFile: unavailableFaceOperation,
+        browseWorkspace: unavailableFaceOperation,
         listSessions: async () => ({ sessions: [] }),
+        browseWorkspace: unavailableFaceOperation,
+        setSessionWorkspace: unavailableFaceOperation,
         getSession: async () => ({
           session: { id: "fixture/session", title: "Fixture", created_at: 0 },
           messages: [],
@@ -286,8 +345,12 @@ describe("full-code UI composition", () => {
         createSession: async () => ({ id: "fixture/session", title: "Fixture", created_at: 0 }),
         renameSession: async () => ({ id: "fixture/session", title: "Renamed", created_at: 0 }),
         setSessionPermission: unavailableFaceOperation,
+        setSessionWorkspace: unavailableFaceOperation,
         deleteSession: unavailableFaceOperation,
         listMessages: async () => ({ messages: [] }),
+        getSessionWork: unavailableFaceOperation,
+        getPlan: unavailableFaceOperation,
+        commitWork: unavailableFaceOperation,
         getSessionContext: unavailableFaceOperation,
         compactSession: unavailableFaceOperation,
         rewindSession: unavailableFaceOperation,
@@ -297,6 +360,15 @@ describe("full-code UI composition", () => {
         listTodos: unavailableFaceOperation,
         updateTodo: unavailableFaceOperation,
         startTurn: unavailableFaceOperation,
+        historySearch: unavailableFaceOperation,
+        historySessions: unavailableFaceOperation,
+        previewReference: unavailableFaceOperation,
+        referenceGet: unavailableFaceOperation,
+        historyRead: unavailableFaceOperation,
+        deliverablesList: unavailableFaceOperation,
+        deliverablesGet: unavailableFaceOperation,
+        deliverablesRead: unavailableFaceOperation,
+        deliverablesClose: unavailableFaceOperation,
         interruptRun: unavailableFaceOperation,
         cancelRun: unavailableFaceOperation,
         getRun: async () => ({ id: "fixture/run", session_id: "fixture/session", status: "completed" as const, created_at: 0 }),
@@ -351,6 +423,8 @@ describe("full-code UI composition", () => {
         deleteMcpServer: unavailableFaceOperation,
         probeMcpServer: unavailableFaceOperation,
         inspectChannels: unavailableFaceOperation,
+        listChannelDeliveries: unavailableFaceOperation,
+        redeliverChannelDelivery: unavailableFaceOperation,
         getChannel: unavailableFaceOperation,
         updateChannel: unavailableFaceOperation,
         getTokenUsage: unavailableFaceOperation,
@@ -491,6 +565,45 @@ describe("full-code UI composition", () => {
     } as never;
     expect(() => composeUI({ roots: [extensionAsRoot] }))
       .toThrow("render");
+  });
+
+  it("threads one typed submission through queue and turn start", async () => {
+    const submission: FaceTurnSubmission = {
+      text: "resume the fix",
+      mode: "normal",
+      continuity: {
+        request_id: "req_t7",
+        references: [{
+          selection: {
+            source_session_id: "src-1",
+            refs: [{ session_id: "src-1", kind: "message", message_id: "m1", created_at: 1 }],
+          },
+          expected_digest: "d1",
+        }],
+        history_scope: { session_ids: [] },
+      },
+    };
+
+    let sent: FaceTurnSubmission | undefined;
+    let queued: FaceTurnSubmission | undefined;
+    const api: Pick<FaceClientAPI, "startTurn"> = {
+      startTurn: async (_sessionId, received) => {
+        sent = received;
+        return { run_id: "r1", status: "accepted" };
+      },
+    };
+    const store: Pick<FaceStoreState, "enqueueMessage"> = {
+      enqueueMessage: (received) => {
+        queued = received;
+      },
+    };
+
+    store.enqueueMessage(submission);
+    await api.startTurn("s1", queued!);
+
+    expect(sent!.continuity!.references).toEqual(queued!.continuity!.references);
+    expect(sent!.continuity!.history_scope!.session_ids).toEqual([]);
+    expect(sent!.continuity!.request_id).toBe(queued!.continuity!.request_id);
   });
 
   it("exposes a usable typed store subscription", () => {

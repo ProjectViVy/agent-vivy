@@ -18,8 +18,8 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
+	scxreference "agent-vivy/plugins/scxreference"
 	"agent-vivy/sdk/port/contextsource"
-	scxreference "example.com/vivy/plugins/scxreference"
 )
 
 type runtimeContextFixtureSource struct{}
@@ -158,6 +158,31 @@ func TestBuildRunContextEnforcesByteBudget(t *testing.T) {
 	}
 }
 
+func TestBuildRunContextReservesAuthoritativeInstructionBytes(t *testing.T) {
+	base := messageCost("preamble", "system") + messageCost("current", string(domain.RoleUser))
+	latest := messageCost("latest", string(domain.RoleAssistant))
+	instruction := projectedContextBytes([]*schema.Message{schema.SystemMessage("admitted instruction")})
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "old"},
+		{Role: domain.RoleAssistant, Content: "latest"},
+		{Role: domain.RoleUser, Content: "current"},
+	}
+
+	msgs, stats, err := buildRunContext(ContextPolicy{
+		MaxBytes:      base + latest + instruction,
+		ReservedBytes: instruction,
+	}, "preamble", stored, "current")
+	if err != nil {
+		t.Fatalf("build context with reserved instruction: %v", err)
+	}
+	if stats.IncludedHistoryMessages != 1 || stats.DroppedHistoryMessages != 1 {
+		t.Fatalf("history selection ignored reserved instruction: %+v", stats)
+	}
+	if len(msgs) != 3 || msgs[1].Content != "latest" {
+		t.Fatalf("reserved context = %+v", msgs)
+	}
+}
+
 func TestBuildRunContextRejectsMandatoryOverflow(t *testing.T) {
 	_, _, err := buildRunContext(ContextPolicy{MaxBytes: 1}, "preamble", nil, "current")
 	if err == nil || !strings.Contains(err.Error(), ErrContextBudgetExceeded.Error()) {
@@ -188,6 +213,7 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
 	})
 
+	mustCreateSession(t, backend, "session-context")
 	runID, err := svc.Run(ctx, "session-context", strings.Repeat("x", 200))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -232,6 +258,7 @@ func TestServiceRunProjectsGenericContextHostIntoModelInput(t *testing.T) {
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Truncations: backend,
 	})
+	mustCreateSession(t, backend, "sess-context-host")
 	runID, err := svc.Run(ctx, "sess-context-host", "find docs")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -279,6 +306,7 @@ func TestServiceRunFailsWhenRequiredContextVersionIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink()})
+	mustCreateSession(t, backend, "sess-required-context")
 	runID, err := svc.Run(ctx, "sess-required-context", "read exact plan")
 	if err != nil {
 		t.Fatal(err)
@@ -311,8 +339,12 @@ func TestRunMessagesFailsRequiredSourceWhenBaseInputConsumesBudget(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	reserved, err := promptInstructionReservation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("must not run", nil)), ts, EngineConfig{
-		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: projectedContextBytes(base),
+		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: projectedContextBytes(base) + reserved,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -433,6 +465,7 @@ func TestServiceRunPassesEnsuredWorkspaceIdentityToContextHost(t *testing.T) {
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Workspaces: fixedWorkspaceAllocator{}, TenantID: "tenant-actual",
 	})
+	mustCreateSession(t, backend, "sess-workspace")
 	runID, err := svc.Run(ctx, "sess-workspace", "workspace")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -487,6 +520,7 @@ func TestServiceRunReturnsContextViewAndBoundedSummaryThroughCommittedObserverPa
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Workspaces: fixedWorkspaceAllocator{},
 		TenantID: "tenant-actual", Hooks: []RunHook{observerHost},
 	})
+	mustCreateSession(t, backend, "sess-terminal-projection")
 	runID, err := svc.Run(ctx, "sess-terminal-projection", "read exact plan")
 	if err != nil {
 		t.Fatal(err)

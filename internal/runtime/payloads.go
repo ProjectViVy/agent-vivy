@@ -1,6 +1,10 @@
 package runtime
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"agent-vivy/internal/domain"
+)
 
 // Event payload structs. Field names and shapes mirror
 // schemas/events/payloads/*.json (A3) field for field. Most payloads remain
@@ -15,6 +19,43 @@ type payloadRunStarted struct {
 	PolicyHash     string `json:"policy_hash,omitempty"`
 	SandboxMode    string `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	// HistoryScope is accepted, host-resolved metadata. Its absence preserves
+	// legacy run.started encoding and means no continuity scope was admitted.
+	HistoryScope *domain.AcceptedHistoryScope `json:"history_scope,omitempty"`
+	// PromptSchema and PromptDigest identify the immutable prompt admitted
+	// beside this run. They are omitted for legacy embedders that do not wire
+	// RunAdmissionStore, preserving the v1 event shape on that path.
+	PromptSchema         int    `json:"prompt_schema,omitempty"`
+	PromptDigest         string `json:"prompt_digest,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+}
+
+// payloadContextReferenceAttached persists the destination-owned sanitized
+// snapshot only; it never contains browser-supplied source bodies.
+type payloadContextReferenceAttached struct {
+	Reference domain.ContextReference `json:"reference"`
+}
+
+// payloadDeliverablesPresented records immutable presentation metadata, not
+// delivered file bytes.
+type payloadDeliverablesPresented struct {
+	DeliverySet          domain.DeliverySet `json:"delivery_set"`
+	CollaborationMode    string             `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int                `json:"collaboration_version,omitempty"`
+	Provider             string             `json:"provider"`
+	Model                string             `json:"model"`
+	Mode                 string             `json:"mode"`
+	Face                 string             `json:"face"`
+	PolicyProfile        string             `json:"policy_profile,omitempty"`
+	PolicyHash           string             `json:"policy_hash,omitempty"`
+	SandboxMode          string             `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy       string             `json:"approval_policy,omitempty"`
+	// PromptSchema and PromptDigest identify the immutable prompt admitted
+	// beside this run. They are omitted for legacy embedders that do not wire
+	// RunAdmissionStore, preserving the v1 event shape on that path.
+	PromptSchema int    `json:"prompt_schema,omitempty"`
+	PromptDigest string `json:"prompt_digest,omitempty"`
 }
 
 type payloadModelDelta struct {
@@ -51,6 +92,9 @@ type payloadContextCompacted struct {
 	AfterTokens     int    `json:"after_tokens"`
 	DroppedMessages int    `json:"dropped_messages,omitempty"`
 	RetentionSuffix int    `json:"retention_suffix,omitempty"`
+	// ReferenceIDs is the explicit manifest of snapshots folded into the
+	// summary; they stay readable by ID against the destination journal.
+	ReferenceIDs []string `json:"reference_ids,omitempty"`
 }
 
 type payloadProviderRetry struct {
@@ -61,12 +105,9 @@ type payloadProviderStall struct {
 	ElapsedMs int64 `json:"elapsed_ms"`
 }
 
-type payloadModelCompleted struct {
-	Content string `json:"content"`
-}
-
 // payloadModelCompletedV2 commits the preceding bounded model.delta sequence.
-// Keeping it distinct prevents legacy v1 encoders from leaking v2 fields.
+// It is the only accepted model.completed payload shape; the pre-2026-09-05
+// content-bearing form is no longer readable.
 type payloadModelCompletedV2 struct {
 	ContentSHA256 string `json:"content_sha256"`
 	ByteLen       int    `json:"byte_len"`
@@ -100,12 +141,29 @@ type payloadToolStarted struct {
 }
 
 // payloadToolFinished carries a non-empty Error only when the call failed.
+// Outcome/Reason/Effects are the optional typed-failure classification
+// (ND-2): present only for failed invocations, so old rows lacking the
+// metadata stay readable and successful calls carry no vocabulary.
 type payloadToolFinished struct {
 	ToolCallID string            `json:"tool_call_id"`
 	ToolName   string            `json:"tool_name"`
 	Result     string            `json:"result"`
 	Parts      []json.RawMessage `json:"parts,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	Outcome    string            `json:"outcome,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Effects    string            `json:"effects,omitempty"`
+}
+
+// payloadToolNudge is the durable record of one reminder scheduled for
+// the next model invocation (NUDGE-DESIGN §7). It denotes scheduling
+// inside this run, not remote receipt.
+type payloadToolNudge struct {
+	ToolCallID      string `json:"tool_call_id"`
+	ToolName        string `json:"tool_name"`
+	Reason          string `json:"reason"`
+	RepeatCount     int    `json:"repeat_count"`
+	TemplateVersion string `json:"template_version"`
 }
 
 // payloadToolMounted journals the tools a mounting tool (today: skill_view)

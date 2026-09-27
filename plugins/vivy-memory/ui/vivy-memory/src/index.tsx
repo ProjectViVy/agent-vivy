@@ -18,7 +18,6 @@ export const extension = defineUIExtension({
         path: ROUTE,
         titleKey: 'plugin.vivy/memory.title',
         subtitleKey: 'plugin.vivy/memory.subtitle',
-        demo: true,
         render: () => <MemoryPage />,
       })),
       host.composition.navigation.register('vivy-memory', defineNavigationItem({

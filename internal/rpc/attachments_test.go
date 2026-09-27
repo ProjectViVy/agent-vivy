@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/attachment"
 )
 
 func TestResolveProjectAttachmentsRejectsUnsafeNames(t *testing.T) {
@@ -162,7 +164,7 @@ func TestResolveProjectAttachmentsRejectsDirectorySpoofAndOversize(t *testing.T)
 		t.Fatal(err)
 	}
 	writeTestAttachment(t, filepath.Join(root, "spoof.png"), []byte("this is not an image"))
-	oversize := append(testPNGBytes(), make([]byte, maxAttachmentBytes+1-len(testPNGBytes()))...)
+	oversize := append(testPNGBytes(), make([]byte, attachment.MaxBytes+1-len(testPNGBytes()))...)
 	writeTestAttachment(t, filepath.Join(root, "large.png"), oversize)
 
 	cases := []struct {
@@ -201,10 +203,10 @@ func TestResolveProjectAttachmentsRejectsTooManyAndUnconfiguredRoot(t *testing.T
 
 func TestResolveProjectAttachmentsAcceptsExactCountAndSizeLimits(t *testing.T) {
 	root := t.TempDir()
-	paths := make([]string, 0, maxAttachmentCount)
-	for index := 0; index < maxAttachmentCount; index++ {
+	paths := make([]string, 0, attachment.MaxCount)
+	for index := 0; index < attachment.MaxCount; index++ {
 		name := fmt.Sprintf("image-%d.png", index)
-		data := append(testPNGBytes(), make([]byte, maxAttachmentBytes-len(testPNGBytes()))...)
+		data := append(testPNGBytes(), make([]byte, attachment.MaxBytes-len(testPNGBytes()))...)
 		writeTestAttachment(t, filepath.Join(root, name), data)
 		paths = append(paths, name)
 	}
@@ -212,12 +214,12 @@ func TestResolveProjectAttachmentsAcceptsExactCountAndSizeLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve exact limits: %v", err)
 	}
-	if len(got) != maxAttachmentCount {
-		t.Fatalf("resolved count = %d, want %d", len(got), maxAttachmentCount)
+	if len(got) != attachment.MaxCount {
+		t.Fatalf("resolved count = %d, want %d", len(got), attachment.MaxCount)
 	}
-	for _, attachment := range got {
-		if attachment.Size != maxAttachmentBytes || len(attachment.Data) != maxAttachmentBytes {
-			t.Fatalf("resolved exact-size attachment = %d/%d", attachment.Size, len(attachment.Data))
+	for _, item := range got {
+		if item.Size != attachment.MaxBytes || len(item.Data) != attachment.MaxBytes {
+			t.Fatalf("resolved exact-size attachment = %d/%d", item.Size, len(item.Data))
 		}
 	}
 }
@@ -277,23 +279,23 @@ func TestResolveProjectAttachmentsSupportsAllWhitelistedMagic(t *testing.T) {
 		{mime: "image/webp", data: []byte("RIFFxxxxWEBP")},
 	}
 	for _, tc := range cases {
-		if got := sniffAttachmentMIME(tc.data); got != tc.mime {
+		if got := attachment.SniffMIME(tc.data); got != tc.mime {
 			t.Errorf("sniff(%s) = %q", tc.mime, got)
 		}
 	}
-	if got := sniffAttachmentMIME([]byte("not an image")); got != "" {
+	if got := attachment.SniffMIME([]byte("not an image")); got != "" {
 		t.Fatalf("spoof sniff = %q", got)
 	}
 }
 
 func TestSafeAttachmentNameRemovesTerminalControlsAndBoundsLength(t *testing.T) {
-	if got := safeAttachmentName("photo\x1b[31m.png"); strings.ContainsRune(got, '\x1b') || got != "photo[31m.png" {
+	if got := attachment.SanitizeName("photo\x1b[31m.png"); strings.ContainsRune(got, '\x1b') || got != "photo[31m.png" {
 		t.Fatalf("unsafe display name = %q", got)
 	}
-	if got := safeAttachmentName("\r\n\t"); got != "image" {
+	if got := attachment.SanitizeName("\r\n\t"); got != "image" {
 		t.Fatalf("empty sanitized display name = %q", got)
 	}
-	if got := safeAttachmentName(strings.Repeat("图", 300)); len([]rune(got)) != 256 {
+	if got := attachment.SanitizeName(strings.Repeat("图", 300)); len([]rune(got)) != 256 {
 		t.Fatalf("bounded display name length = %d", len([]rune(got)))
 	}
 }

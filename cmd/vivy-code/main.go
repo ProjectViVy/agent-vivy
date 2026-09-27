@@ -12,16 +12,11 @@ import (
 
 	"agent-vivy/internal/codeface"
 	"agent-vivy/internal/config"
-	"agent-vivy/internal/logging"
-	"agent-vivy/internal/worker"
 )
 
 const configPath = "config.yaml"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "worker" {
-		os.Exit(runWorker())
-	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--help", "-h":
@@ -70,34 +65,6 @@ func loadConfig(logger *slog.Logger) (config.Config, error) {
 		return config.Config{}, err
 	}
 	return cfg, nil
-}
-
-func runWorker() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	wlog, closeWLog, wlogPath, err := logging.SetupWorker()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if wlog != nil {
-		slog.SetDefault(wlog)
-		defer closeWLog.Close()
-		wlog.Info("worker started", "pid", os.Getpid(), "path", wlogPath)
-	}
-	err = worker.Run(ctx, os.Stdin, os.Stdout)
-	if wlog != nil {
-		if err != nil {
-			wlog.Error("worker ended", "err", err)
-		} else {
-			wlog.Info("worker ended")
-		}
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	return 0
 }
 
 const usage = `vivy-code — independent VIVY CODE terminal

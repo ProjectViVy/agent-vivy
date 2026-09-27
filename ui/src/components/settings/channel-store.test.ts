@@ -34,6 +34,7 @@ const telegramStatus: ChannelStatus = {
   token_env: 'TELEGRAM_BOT_TOKEN',
   token_env_set: false,
   note: 'disabled',
+  health: null,
 };
 
 const telegramEnvelope: ChannelEnvelope = {

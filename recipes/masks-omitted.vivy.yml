@@ -1,0 +1,67 @@
+apiVersion: vivy.generation/v1
+profile: masks-omitted
+modules:
+  - vivy/loop
+  - vivy/model
+  - vivy/storage
+  - vivy/checkpoint
+  - vivy/credential
+  - vivy/sandbox
+  - vivy/tool-host
+  - vivy/protected-tools
+  - vivy/mcp-host
+  - vivy/context-host
+  - vivy/context-source
+  - vivy/skill-host
+  - vivy/skill-source
+  - vivy/observer-host
+  - vivy/status-host
+  - vivy/presentation-host
+  - vivy/action-host
+  - vivy/channel-host
+  - vivy/face-host
+  - vivy/provider-profiles
+  - vivy/dingtalk
+  - vivy/discord
+  - vivy/feishu
+  - vivy/qq
+  - vivy/telegram
+  - vivy/persona
+  - vivy/evolution
+  - vivy/memory
+  - vivy/notebook
+order:
+  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook]
+ui:
+  sdkVersion: 1.0.0
+  extensions:
+    - {id: vivy.persona.sidebar, moduleId: vivy/persona, port: std/ui-extension@v1, entry: ./ui/vivy-persona/src/index.tsx, export: extension}
+    - {id: vivy.evolution.sidebar, moduleId: vivy/evolution, port: std/ui-extension@v1, entry: ./ui/vivy-evolution/src/index.tsx, export: extension}
+    - {id: vivy.memory.sidebar, moduleId: vivy/memory, port: std/ui-extension@v1, entry: ./ui/vivy-memory/src/index.tsx, export: extension}
+    - {id: vivy.notebook.sidebar, moduleId: vivy/notebook, port: std/ui-extension@v1, entry: ./ui/vivy-notebook/src/index.tsx, export: extension}
+grantApprovals:
+  - {module: vivy/dingtalk, name: channel.poll}
+  - {module: vivy/dingtalk, name: secret.read}
+  - module: vivy/dingtalk
+    name: net.client
+    constraints: {hosts: [api.dingtalk.com, wss-open-connection.dingtalk.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/discord, name: channel.poll}
+  - {module: vivy/discord, name: secret.read}
+  - module: vivy/discord
+    name: net.client
+    constraints: {hosts: [discord.com, gateway.discord.gg], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/feishu, name: channel.poll}
+  - {module: vivy/feishu, name: secret.read}
+  - module: vivy/feishu
+    name: net.client
+    constraints: {hosts: [open.feishu.cn, msg-frontier.feishu.cn, open.larksuite.com, msg-frontier.larksuite.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/qq, name: channel.poll}
+  - {module: vivy/qq, name: secret.read}
+  - module: vivy/qq
+    name: net.client
+    constraints: {hosts: [bots.qq.com, api.sgroup.qq.com, sandbox.api.sgroup.qq.com, wss.api.sgroup.qq.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/telegram, name: channel.poll}
+  - {module: vivy/telegram, name: secret.read}
+  - module: vivy/telegram
+    name: net.client
+    constraints: {hosts: [api.telegram.org], schemes: [https], ports: ["443"]}

@@ -154,6 +154,11 @@ func (e *fakeEnv) OnNotify(h func(string, json.RawMessage)) {
 
 func (e *fakeEnv) deliver(t *testing.T, runID, typ string, payload any) {
 	t.Helper()
+	e.deliverVersion(t, runID, typ, payload, 0)
+}
+
+func (e *fakeEnv) deliverVersion(t *testing.T, runID, typ string, payload any, version int) {
+	t.Helper()
 	e.mu.Lock()
 	if e.seq == nil {
 		e.seq = map[string]int{}
@@ -166,10 +171,11 @@ func (e *fakeEnv) deliver(t *testing.T, runID, typ string, payload any) {
 	params, _ := json.Marshal(map[string]any{
 		"subscription_id": "sub",
 		"event": map[string]any{
-			"run_id":  runID,
-			"seq":     seq,
-			"type":    typ,
-			"payload": json.RawMessage(rawPayload),
+			"run_id":          runID,
+			"seq":             seq,
+			"type":            typ,
+			"payload_version": version,
+			"payload":         json.RawMessage(rawPayload),
 		},
 	})
 	if h != nil {
@@ -604,6 +610,92 @@ func bootLive(t *testing.T, env *fakeEnv, opts Options) *Live {
 	}
 	live.Handle(boot)
 	return live
+}
+
+func TestInitUsesControlledTurnAndPreservesDraftPreferences(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%v", exists), func(t *testing.T) {
+			env := &fakeEnv{script: baseScript()}
+			env.script["initialize"] = func(json.RawMessage) (any, error) {
+				return map[string]any{"capabilities": []string{"project.init.status"}}, nil
+			}
+			env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+				return map[string]bool{"exists": exists}, nil
+			}
+			live := bootLive(t, env, Options{})
+			if err := live.client.setCapabilities(json.RawMessage(`{"capabilities":["project.init.status"]}`)); err != nil {
+				t.Fatal(err)
+			}
+			live.drafts[live.Active().ID] = []surface.Attachment{{Name: "unrelated.png", Path: "unrelated.png"}}
+			initialMode := "plan"
+			wantMode := "normal"
+			if exists {
+				initialMode, wantMode = "normal", "plan"
+			}
+			if err := live.SetRunMode(initialMode); err != nil {
+				t.Fatal(err)
+			}
+			msg := mustMsg[liveTurnStartedMsg](t, live.ExecuteCommand("init", nil))
+			if msg.Err != nil || msg.RunID != "run_1" || !env.saw("project/init/status") {
+				t.Fatalf("init result = %+v", msg)
+			}
+			var params struct {
+				SessionID       string   `json:"session_id"`
+				Text            string   `json:"text"`
+				Mode            string   `json:"mode"`
+				AttachmentPaths []string `json:"attachment_paths"`
+			}
+			if err := json.Unmarshal(env.params["turn/start"], &params); err != nil {
+				t.Fatal(err)
+			}
+			if params.Mode == "" {
+				params.Mode = "normal" // normal mode is the RPC default.
+			}
+			if params.SessionID != live.Active().ID || params.Mode != wantMode || len(params.AttachmentPaths) != 0 || live.RunMode() != initialMode || len(live.PendingAttachments()) != 1 {
+				t.Fatalf("init turn = %+v, draft mode=%q, attachments=%+v", params, live.RunMode(), live.PendingAttachments())
+			}
+			if !strings.Contains(params.Text, "AGENTS.md") || !strings.Contains(params.Text, "inspect") {
+				t.Fatalf("init skipped repository analysis: %q", params.Text)
+			}
+			if exists && !strings.Contains(params.Text, "suggest") {
+				t.Fatalf("existing file lacked read-only suggestions: %q", params.Text)
+			}
+			if !exists && !strings.Contains(params.Text, "create") {
+				t.Fatalf("missing file lacked creation instruction: %q", params.Text)
+			}
+		})
+	}
+}
+
+func TestInitPreflightErrorNeverStartsTurn(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["initialize"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"capabilities": []string{"project.init.status"}}, nil
+	}
+	env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+		return nil, errors.New("cannot inspect project instructions")
+	}
+	live := bootLive(t, env, Options{})
+	if err := live.client.setCapabilities(json.RawMessage(`{"capabilities":["project.init.status"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("init", nil))
+	if msg.Err == nil || env.saw("turn/start") || live.Meta().Busy {
+		t.Fatalf("failed /init started turn: %+v", msg)
+	}
+	withoutCap := bootLive(t, &fakeEnv{script: baseScript()}, Options{})
+	msg = mustMsg[surface.CommandResultMsg](t, withoutCap.ExecuteCommand("init", nil))
+	if msg.Err == nil {
+		t.Fatal("init ran without project capability")
+	}
+	// An older or malformed server response cannot be treated as "absent".
+	env.script["project/init/status"] = func(json.RawMessage) (any, error) {
+		return map[string]any{}, nil
+	}
+	msg = mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("init", nil))
+	if msg.Err == nil || env.saw("turn/start") {
+		t.Fatalf("missing status started turn: %+v", msg)
+	}
 }
 
 func TestLiveBootListsOrCreatesSession(t *testing.T) {
@@ -1411,7 +1503,11 @@ func TestPackedLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *tes
 	live.busy = true
 	live.mu.Unlock()
 
-	env.deliver(t, "run_1", "model.completed", map[string]string{"content": "completed only"})
+	env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "completed only"})
+	env.deliverVersion(t, "run_1", "model.completed", map[string]any{
+		"content_sha256": "28c5b3c0dd996e8ae746418d101da408a39e99916457849e52cc71214704cd6f",
+		"byte_len":       14,
+	}, 2)
 	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_1", "tool_name": "read_file", "args": map[string]string{"path": "a"}})
 	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_2", "tool_name": "read_file", "args": map[string]string{"path": "b"}})
 	env.deliver(t, "run_1", "tool.finished", map[string]string{"tool_call_id": "call_1", "tool_name": "read_file", "result": "a done"})

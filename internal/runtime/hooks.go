@@ -186,3 +186,23 @@ func emitGovernanceEvent(ctx context.Context, event GovernanceEvent) {
 		slog.Warn("governance event was not persisted", "type", event.Type, "tool", event.ToolName, "err", err)
 	}
 }
+
+type runEventPublisherKey struct{}
+
+// withRunEventPublisher carries the run's live EventSink into tool
+// contexts so events committed outside the mapper path (continuity
+// receipts) still reach live subscribers.
+func withRunEventPublisher(ctx context.Context, sink EventSink) context.Context {
+	if sink == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, runEventPublisherKey{}, sink)
+}
+
+// publishCommittedRunEvent fans one freshly committed run event out to the
+// live sink when the context carries one; outside a run it is a no-op.
+func publishCommittedRunEvent(ctx context.Context, event domain.RunEvent) {
+	if sink, ok := ctx.Value(runEventPublisherKey{}).(EventSink); ok && sink != nil {
+		sink.Publish(event)
+	}
+}

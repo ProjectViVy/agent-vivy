@@ -11,11 +11,13 @@ import (
 	"unicode/utf8"
 
 	einotool "github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	jsonschema "github.com/eino-contrib/jsonschema"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -158,6 +160,10 @@ type toolRefusal struct {
 	cause      error
 	reason     string
 	policyHash string
+	// classification is the §5 refusal vocabulary word the site assigns
+	// explicitly (invalid_arguments, policy_denied); it is never inferred
+	// from the human-readable reason text.
+	classification string
 	// journaled reports that this refusal reason is already recorded as the
 	// call's policy decision, so the adapter does not journal it twice.
 	journaled bool
@@ -166,14 +172,14 @@ type toolRefusal struct {
 func (r *toolRefusal) Error() string { return r.reason }
 func (r *toolRefusal) Unwrap() error { return r.cause }
 
-func refuseCall(reason string, cause error, policyHash string) error {
-	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash}
+func refuseCall(reason string, cause error, policyHash string, classification string) error {
+	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, classification: classification}
 }
 
 // refuseJournaledCall refuses a call whose reason was already journaled as the
 // evaluation decision for that call.
-func refuseJournaledCall(reason string, cause error, policyHash string) error {
-	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, journaled: true}
+func refuseJournaledCall(reason string, cause error, policyHash string, classification string) error {
+	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, classification: classification, journaled: true}
 }
 
 // asToolRefusal classifies an error raised before or by a tool invocation.
@@ -185,7 +191,12 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 	if errors.As(err, &refusal) {
 		return refusal, true
 	}
-	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) {
+	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) ||
+		errors.Is(err, ErrWorkUnavailable) || errors.Is(err, ErrWorkSessionRequired) ||
+		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
+		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
+		errors.Is(err, storage.ErrWorkInvalidMutation) || errors.Is(err, storage.ErrWorkRunConflict) ||
+		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrGoalArmed) || errors.Is(err, domain.ErrWorkRoundLimit) {
 		return &toolRefusal{cause: err, reason: publicRefusalReason(err)}, true
 	}
 	return nil, false
@@ -237,6 +248,9 @@ func authorizeToolDispatch(ctx context.Context, toolName string, arguments json.
 	}
 	switch decision {
 	case domain.ApprovalDenied:
+		if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
+			return "", true, err
+		}
 		return toolName + " was denied by the user and did not run; continue without it.", true, nil
 	case domain.ApprovalApproved:
 		if err := validateResumedToolApproval(ctx, toolName, arguments); err != nil {
@@ -497,6 +511,11 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	}
 	spec := a.t.Spec()
 	reason := tools.RedactSensitive(refusal.reason)
+	// Publish the typed refusal before the model-visible result so the
+	// leg's detector sees refused/not_executed on the failure channel.
+	if err := markInvocationFailure(ctx, refusalFailure(refusal.classification, reason)); err != nil {
+		return "", err
+	}
 	if !refusal.journaled {
 		// The refusal is recorded as a policy decision at the moment it
 		// happens, so the run inspector shows why the call did not run.
@@ -512,11 +531,44 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	return refusalToolResult(spec.Name, reason), nil
 }
 
+func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {
+	return spec.Name != tools.CreateGoalName && !spec.Readonly &&
+		spec.Interaction != domain.ToolInteractionQuestion &&
+		approvalPolicy(ctx) == domain.ApprovalPolicyNever
+}
+
+func workToolCallFenced(ctx context.Context) bool {
+	operations := tools.WorkControlFromContext(ctx)
+	fence, ok := operations.(interface {
+		WorkRunFenced(context.Context) bool
+	})
+	return ok && fence.WorkRunFenced(ctx)
+}
+
 // dispatch performs one governed call. Every per-call refusal leaves it as a
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
+	if operations := tools.WorkControlFromContext(ctx); operations != nil {
+		if gate, ok := operations.(interface {
+			WorkToolCall(context.Context, func() (string, error)) (string, error)
+		}); ok {
+			return gate.WorkToolCall(ctx, func() (string, error) {
+				return a.dispatchUngated(ctx, argumentsInJSON)
+			})
+		}
+	}
+	return a.dispatchUngated(ctx, argumentsInJSON)
+}
+
+func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
+	if result, handled, err := resumePlanReview(ctx, spec.Name, a.maxResultBytes); handled || err != nil {
+		return result, err
+	}
+	if workToolCallFenced(ctx) {
+		return "", refuseCall("a terminal work-control action has been committed for this run; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+	}
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
 		// A skill_view mount extends the selected surface for the rest of
@@ -533,17 +585,32 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 	// invocation never reaches the tool, and the model is told what was wrong
 	// so it can correct the arguments instead of losing the whole run.
 	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
 	}
 	// Shape-level hazards (NUL bytes, path traversal, blocked command syntax)
 	// are refused exactly like the deny table: the call does not run, and the
 	// run continues. Script-level hazards are the shell classifier's to judge.
 	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+	}
+	coordinator := toolOperationCoordinatorFromContext(ctx)
+	var operation *domain.ToolOperation
+	if coordinator != nil {
+		loaded, found, err := coordinator.Lookup(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON))
+		if err != nil {
+			return "", err
+		}
+		if found {
+			operation = &loaded
+		}
 	}
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
+	}
+	if approvalPolicyDeniesEffectful(ctx, spec) {
+		evaluation.Decision = domain.PolicyDeny
+		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
 	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
@@ -557,6 +624,7 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				"plan mode runs read-only tools; describe the change instead of applying it",
 				fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name),
 				evaluation.Snapshot.Hash,
+				toolFailureReasonPolicyDenied,
 			)
 		}
 		// The evaluation event above already journals this exact reason.
@@ -564,10 +632,31 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 			evaluation.Reason,
 			fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason),
 			evaluation.Snapshot.Hash,
+			toolFailureReasonPolicyDenied,
 		)
 	}
 	args := json.RawMessage(argumentsInJSON)
-	if a.hooks != nil {
+	var middlewareInput json.RawMessage
+	if operation != nil {
+		args = append(json.RawMessage(nil), operation.EffectiveArguments...)
+		if err := tools.ValidateArgs(spec, args); err != nil {
+			return "", fmt.Errorf("runtime: persisted tool operation has invalid arguments: %w", err)
+		}
+		if err := tools.ValidateArgsSafety(spec, args); err != nil {
+			return "", fmt.Errorf("runtime: persisted tool operation failed safety validation: %w", err)
+		}
+		evaluation, err = a.policy.Evaluate(profile, spec, args)
+		if err != nil {
+			return "", err
+		}
+		emitGovernanceEvent(ctx, GovernanceEvent{
+			Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
+			Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "revalidated persisted tool operation",
+		})
+		if evaluation.Decision == domain.PolicyDeny {
+			return "", refuseJournaledCall(evaluation.Reason, fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+		}
+	} else if a.hooks != nil {
 		args, err = a.hooks.PreToolUse(ctx, ToolHookCall{
 			RunID: contextRunID(ctx), ToolName: spec.Name, Arguments: args, Profile: profile,
 		})
@@ -575,10 +664,10 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 			return "", err
 		}
 		if err := tools.ValidateArgs(spec, args); err != nil {
-			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
 		}
 		if err := tools.ValidateArgsSafety(spec, args); err != nil {
-			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash)
+			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
 		}
 		// A hook rewrite is untrusted input. The policy must see the final
 		// arguments before the tool can observe them.
@@ -596,15 +685,36 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				if evaluation.Decision == domain.PolicyPrompt {
 					reason = "rewritten arguments for " + spec.Name + " need an approval a post-hook rewrite cannot request"
 				}
-				return "", refuseCall(reason, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash)
+				return "", refuseCall(reason, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
 			}
 		}
 	}
 
 	middlewareApprovalClasses := []string(nil)
-	args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
-	if err != nil {
-		return "", err
+	if operation == nil {
+		middlewareInput = append(json.RawMessage(nil), args...)
+		args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		// The operation row preserves the bytes that were admitted. On a
+		// replay, run the current public middleware against those bytes and
+		// require it to leave the admitted invocation unchanged. This catches
+		// policy drift after approval without rerunning tool hooks or silently
+		// substituting a new invocation.
+		middlewareInput = append(json.RawMessage(nil), operation.MiddlewareInputArguments...)
+		checked, nextEvaluation, classes, checkErr := a.applyGovernedMiddleware(ctx, spec, middlewareInput, profile, evaluation)
+		if checkErr != nil {
+			return "", checkErr
+		}
+		if string(checked) != string(operation.EffectiveArguments) {
+			if approvedToolArgumentsHash(ctx) != "" {
+				return "", staleToolApproval(ctx, spec.Name, "middleware changed arguments after human review")
+			}
+			return "", errors.New("runtime: middleware changed persisted tool operation arguments")
+		}
+		args, evaluation, middlewareApprovalClasses = append(json.RawMessage(nil), operation.EffectiveArguments...), nextEvaluation, classes
 	}
 	middlewareRequiresApproval := len(middlewareApprovalClasses) != 0
 
@@ -627,14 +737,21 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 			// receives the refusal as the tool result (the same shape a human
 			// denial uses) so it can choose another approach. The call never
 			// reaches the tool, on any profile or approval policy.
-			return "", refuseCall(reason, nil, evaluation.Snapshot.Hash)
+			return "", refuseCall(reason, nil, evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
 		}
 		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !middlewareRequiresApproval {
 			emitGovernanceEvent(ctx, GovernanceEvent{
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
 			})
-			return a.run(ctx, string(args))
+			if operation == nil && coordinator != nil {
+				admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
+				if err != nil {
+					return "", err
+				}
+				operation = &admitted
+			}
+			return a.run(ctx, string(args), operation)
 		}
 	}
 	if spec.Interaction == domain.ToolInteractionQuestion {
@@ -644,7 +761,15 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval {
+	if operation == nil && coordinator != nil {
+		admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
+		if err != nil {
+			return "", err
+		}
+		operation = &admitted
+	}
+	forceHumanApproval := spec.Name == tools.CreateGoalName
+	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
@@ -655,18 +780,30 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				return "", interruptForToolApproval(ctx, spec.Name, args, "still waiting for middleware approval of "+spec.Name)
 			}
 			if decision == domain.ApprovalDenied {
-				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+				if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
+					return "", err
+				}
+				refusal := spec.Name + " was denied by the user and did not run; continue without it."
+				if operation != nil {
+					return coordinator.Execute(ctx, *operation, func(context.Context) (string, error) { return refusal, nil })
+				}
+				return refusal, nil
 			}
 			if decision != domain.ApprovalApproved {
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
 			}
 		} else {
-			approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			var approvalEval ApprovalEvaluation
+			if forceHumanApproval {
+				approvalEval = ApprovalEvaluation{ShouldAsk: true, Reason: "human authorization is required to create a Goal"}
+			} else {
+				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			}
 			if approvalEval.AutoApprove {
-				return a.run(ctx, string(args))
+				return a.run(ctx, string(args), operation)
 			}
 			if !approvalEval.ShouldAsk {
-				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash)
+				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
 			}
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
@@ -680,33 +817,56 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				return "", interruptForToolApproval(ctx, spec.Name, args, "still waiting for approval of "+spec.Name)
 			}
 			if hasData && decision == domain.ApprovalDenied {
-				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+				if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
+					return "", err
+				}
+				refusal := spec.Name + " was denied by the user and did not run; continue without it."
+				if operation != nil {
+					return coordinator.Execute(ctx, *operation, func(context.Context) (string, error) { return refusal, nil })
+				}
+				return refusal, nil
 			}
 			if !hasData || decision != domain.ApprovalApproved {
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
 			}
 		}
 	}
-	return a.run(ctx, string(args))
+	return a.run(ctx, string(args), operation)
 }
 
-func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
+func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation ...*domain.ToolOperation) (string, error) {
 	if result, handled, err := authorizeToolDispatch(ctx, a.t.Spec().Name, json.RawMessage(argumentsInJSON)); handled || err != nil {
 		return result, err
 	}
-	result, err := a.invoke(ctx, argumentsInJSON)
-	if err != nil {
-		return "", err
+	execute := func(ctx context.Context) (string, error) {
+		result, err := a.invoke(ctx, argumentsInJSON)
+		if err != nil {
+			return "", err
+		}
+		if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
+			return "", err
+		}
+		if err := a.markCommandFailure(ctx, result); err != nil {
+			return "", err
+		}
+		result = untrustedToolResultHeader + tools.RedactSensitive(result)
+		// A multimodal parts envelope must reach normalizeEnhancedResult
+		// intact: byte compaction would corrupt it into unparseable JSON, so
+		// the budget is applied per part there instead. Media parts are sized
+		// at their source (e.g. the read_file image cap).
+		if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
+			return result, nil
+		}
+		return compactToolResult(result, a.maxResultBytes), nil
 	}
-	result = untrustedToolResultHeader + tools.RedactSensitive(result)
-	// A multimodal parts envelope must reach normalizeEnhancedResult
-	// intact: byte compaction would corrupt it into unparseable JSON, so
-	// the budget is applied per part there instead. Media parts are sized
-	// at their source (e.g. the read_file image cap).
-	if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
-		return result, nil
+	if len(operation) > 0 && operation[0] != nil {
+		coordinator := toolOperationCoordinatorFromContext(ctx)
+		if coordinator == nil {
+			return "", ErrToolOperationUnavailable
+		}
+		return coordinator.Execute(ctx, *operation[0], execute)
 	}
-	return compactToolResult(result, a.maxResultBytes), nil
+	return execute(ctx)
 }
 
 // invoke is the shared runtime-owned execution seam for direct tools. It
@@ -718,8 +878,14 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	// The runtime run identity is copied into the tools package context at the
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
+	toolCtx = tools.WithToolCallID(toolCtx, compose.GetToolCallID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
+	// The stable tool_call identity crosses the Eino boundary so effectful
+	// tools can receipt-key their committed operation.
+	if callID := compose.GetToolCallID(ctx); callID != "" {
+		toolCtx = tools.WithToolCallID(toolCtx, callID)
+	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	err = redactToolError(err)
@@ -729,6 +895,19 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 		}, tools.RedactSensitive(result), err)
 	}
 	if err != nil {
+		// §5 soft conversion applies only on a model-driven leg (a nudge
+		// side channel is bound): an allowlisted invocation error becomes
+		// a typed record plus the bounded untrusted diagnostic as an
+		// ordinary result, so the model can correct the next call in this
+		// Run. Non-model governed-shell callers keep the original error.
+		if state := nudgeStateFromContext(ctx); state != nil {
+			if failure, ok := classifyToolFailure(ctx, a.t.Spec(), err); ok {
+				if markErr := state.MarkFailure(compose.GetToolCallID(ctx), failure); markErr != nil {
+					return "", markErr
+				}
+				return failure.Diagnostic, nil
+			}
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "proposal stale") || strings.Contains(strings.ToLower(err.Error()), "target changed after human review") {
 			tools.ReportProposalStale(ctx, err.Error())
 		}
@@ -736,6 +915,44 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	}
 	emitToolMounts(ctx, a.t.Spec().Name, mountsBefore)
 	return result, nil
+}
+
+// markCommandFailure decodes the reserved command tools' CommandResult
+// before result framing (NUDGE-DESIGN §5): a nonzero exit_code is an
+// unsuccessful invocation even where a CLI uses it for "no match", so it
+// marks command_failed with effects unknown. The full typed result still
+// reaches the model. Background launches carry no terminal exit code and
+// stay unmarked. Nothing else interprets shell-service errors globally.
+func (a *toolAdapter) markCommandFailure(ctx context.Context, result string) error {
+	switch a.t.Spec().Name {
+	case tools.BashName, tools.ExecuteName, tools.CommandlineName:
+	default:
+		return nil
+	}
+	var commandResult tools.CommandResult
+	if err := json.Unmarshal([]byte(result), &commandResult); err != nil {
+		return nil
+	}
+	if commandResult.Background || commandResult.ExitCode == 0 {
+		return nil
+	}
+	diagnostic := fmt.Sprintf("command exited with code %d", commandResult.ExitCode)
+	if stderr := firstLine(strings.TrimSpace(commandResult.Stderr)); stderr != "" {
+		diagnostic += ": " + stderr
+	}
+	return markInvocationFailure(ctx, toolFailure{
+		Status:     toolFailureStatusRecoverable,
+		Reason:     toolFailureReasonCommandFailed,
+		Diagnostic: boundToolFailureDiagnostic(diagnostic),
+		Effects:    toolEffectsUnknown,
+	})
+}
+
+func firstLine(text string) string {
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		return text[:i]
+	}
+	return text
 }
 
 // emitToolMounts journals tools newly mounted during a successful

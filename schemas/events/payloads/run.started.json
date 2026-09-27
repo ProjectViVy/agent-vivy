@@ -45,6 +45,74 @@
       "type": "string",
       "minLength": 1,
       "description": "Digest of the policy definition used by the run."
+    },
+    "history_scope": {
+      "type": "object",
+      "description": "Host-resolved bounded history scope accepted at task admission; absent for legacy run.started events.",
+      "properties": {
+        "destination_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "source_session_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "scope_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": ["destination_session_id", "source_session_ids", "scope_hash"],
+      "additionalProperties": false
+    },
+    "collaboration_mode": {
+      "type": "string",
+      "enum": [
+        "plan"
+      ],
+      "description": "Soft Plan guidance mode; it does not change execution policy."
+    },
+    "collaboration_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of the orthogonal collaboration metadata."
+    },
+    "sandbox_mode": {
+      "type": "string",
+      "enum": [
+        "read_only",
+        "workspace_write",
+        "danger_full_access"
+      ],
+      "description": "Immutable sandbox mode selected for this run."
+    },
+    "approval_policy": {
+      "type": "string",
+      "enum": [
+        "ask",
+        "never",
+        "auto"
+      ],
+      "description": "Immutable approval policy selected for this run."
+    },
+    "prompt_schema": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Immutable prompt snapshot schema admitted for this run."
+    },
+    "prompt_digest": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SHA-256 digest of the admitted prompt snapshot payload."
     }
   },
   "required": [

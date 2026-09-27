@@ -324,6 +324,15 @@ func TestDefaultEnabledIncludesListDir(t *testing.T) {
 	t.Fatal("list_dir must be enabled by default")
 }
 
+func TestDefaultEnabledIncludesWorkflow(t *testing.T) {
+	for _, name := range Default().Tools.Enabled {
+		if name == "workflow" {
+			return
+		}
+	}
+	t.Fatal("workflow must be enabled by default for agent-authored DAGs")
+}
+
 func TestDefaultEnabledOmitsLegacyToolSearch(t *testing.T) {
 	for _, name := range Default().Tools.Enabled {
 		if name == LegacyToolSearchName {

@@ -99,7 +99,7 @@ describe('t() lookup', () => {
   it('uses English with no saved or backend value', () => {
     resetLocaleForTests();
     expect(getLocale()).toBe('en');
-    expect(t('nav.masks')).toBe('Masks');
+    expect(t('nav.toolbox')).toBe('Toolbox');
   });
 
   it('does not detect the locale from browser languages', async () => {
@@ -117,8 +117,7 @@ describe('t() lookup', () => {
   });
 
   it('interpolates {{params}}', () => {
-    expect(t('masks.current', { name: 'Programmer' })).toBe('Current: Programmer');
-    expect(t('masks.useMask', { name: 'Researcher' })).toBe('Use “Researcher”');
+    expect(t('sessionDrawer.confirmDelete', { title: 'My Chat' })).toBe('Delete session “My Chat”?');
   });
 
   it('indexes array leaves by dotted path', () => {
@@ -160,7 +159,7 @@ describe('locale switching', () => {
     expect(getLocale()).toBe('en');
     expect(storage['vivy.language']).toBe('en');
     expect((document.documentElement as { lang: string }).lang).toBe('en');
-    expect(t('nav.masks')).toBe('Masks');
+    expect(t('nav.toolbox')).toBe('Toolbox');
   });
 
   it('locale option labels follow the current language while nativeLabel stays constant', () => {

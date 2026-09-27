@@ -63,45 +63,24 @@ func TestProjectionCarriesApprovalPreviewIntoGateAndToolCard(t *testing.T) {
 	}
 }
 
-func TestProjectionCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
+func TestProjectionV2CompletionRequiresValidatedMetadata(t *testing.T) {
 	nextID := idFactory()
 	p := Projection{}
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "completed only", CompletedAuthoritative: true}, nextID)
-	if len(p.Messages) != 1 || p.Messages[0].Content != "completed only" || p.Messages[0].Streaming {
-		t.Fatalf("completed-only projection = %+v", p.Messages)
+	p.Apply(Notice{Kind: "delta", Delta: "streamed"}, nextID)
+	if done := p.Apply(Notice{Kind: "model_completed", HasCompleted: true}, nextID); !done {
+		t.Fatal("metadata-less completion was accepted")
+	}
+	if !strings.Contains(p.ProtocolError, "missing validated metadata") {
+		t.Fatalf("protocol error = %q", p.ProtocolError)
 	}
 
 	p = Projection{}
-	p.Apply(Notice{Kind: "delta", Delta: "streamed "}, nextID)
-	p.Apply(Notice{Kind: "delta", Delta: "answer"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer", CompletedAuthoritative: true}, nextID)
-	if len(p.Messages) != 1 || p.Messages[0].Content != "streamed answer" || p.Messages[0].Streaming {
-		t.Fatalf("streamed completion projection = %+v", p.Messages)
-	}
-}
-
-func TestProjectionTreatsCompletionAsAuthoritativeAndFencesRounds(t *testing.T) {
-	nextID := idFactory()
-	p := Projection{}
-	p.Apply(Notice{Kind: "delta", Delta: "stale"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, CompletedAuthoritative: true}, nextID)
-	if len(p.Messages) != 1 || p.Messages[0].Content != "" || p.Messages[0].Streaming {
-		t.Fatalf("empty completion did not replace partial: %+v", p.Messages)
-	}
-
-	p.Apply(Notice{Kind: "delta", Delta: "round one"}, nextID)
-	p.Apply(Notice{Kind: "model_request"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "round two", CompletedAuthoritative: true}, nextID)
-	if len(p.Messages) != 3 || p.Messages[1].Content != "round one" || p.Messages[1].Streaming || p.Messages[2].Content != "round two" {
-		t.Fatalf("model request did not fence rounds: %+v", p.Messages)
-	}
-
-	p.Apply(Notice{Kind: "delta", Delta: "old answer"}, nextID)
-	p.Apply(Notice{Kind: "reasoning", Delta: "new thought"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "new answer", CompletedAuthoritative: true}, nextID)
-	last := p.Messages[len(p.Messages)-1]
-	if last.Content != "new answer" || last.Reasoning || last.Streaming {
-		t.Fatalf("reasoning boundary did not create a fresh answer: %+v", p.Messages)
+	p.Apply(Notice{Kind: "delta", Delta: "streamed answer"}, nextID)
+	done := p.Apply(Notice{Kind: "model_completed", PayloadVersion: 2, HasCompleted: true, Completion: &ModelCompletionMetadata{
+		ContentSHA256: strings.Repeat("0", 64), ByteLen: 99,
+	}}, nextID)
+	if !done || p.ProtocolError == "" {
+		t.Fatalf("mismatched completion metadata was accepted: done=%v err=%q", done, p.ProtocolError)
 	}
 }
 

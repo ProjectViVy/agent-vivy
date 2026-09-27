@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message, RunLogEvent } from './api';
-import { UNTRUSTED_RESULT_HEADER, buildTranscriptRows, foldRunEvents, recentRunIds } from './run-rows';
+import { UNTRUSTED_RESULT_HEADER, buildTranscriptRows, foldContinuityRows, foldRunEvents, recentRunIds } from './run-rows';
 
 function event(seq: number, type: string, payload: Record<string, unknown>, createdAt = seq): RunLogEvent {
   return { run_id: 'run-1', seq, type, created_at: createdAt, payload_version: 2, payload };
@@ -88,6 +88,30 @@ describe('foldRunEvents', () => {
     expect(stopped[0].call.status).toBe('stopped');
   });
 
+  it('keeps soft-converted failures failed on tool.finished.error', () => {
+    // ND-3：可恢复失败把诊断放进了 result 供模型纠错，但行状态必须由
+    // tool.finished.error 决定，outcome=recoverable 也不能翻回 ok。
+    const rows = foldRunEvents('run-1', [
+      event(1, 'tool.requested', { tool_call_id: 'c1', tool_name: 'read_file', args: { path: 'missing.go' } }),
+      event(2, 'tool.finished', {
+        tool_call_id: 'c1',
+        tool_name: 'read_file',
+        result: 'read "missing.go": file does not exist',
+        error: 'read "missing.go": file does not exist',
+        outcome: 'recoverable',
+        reason: 'not_found',
+        effects: 'none',
+      }),
+    ]);
+    const tool = rows[0];
+    if (tool?.kind !== 'tool') throw new Error('expected a tool row');
+    expect(tool.call).toMatchObject({
+      status: 'error',
+      error: 'read "missing.go": file does not exist',
+      result: 'read "missing.go": file does not exist',
+    });
+  });
+
   it('emits a compaction notice', () => {
     const rows = foldRunEvents('run-1', [event(1, 'context.compacted', { mode: 'auto', before_tokens: 900, after_tokens: 300 })]);
     expect(rows[0]).toMatchObject({ kind: 'notice', text: 'auto · 900 → 300 tokens' });
@@ -138,5 +162,131 @@ describe('recentRunIds', () => {
       message({ id: '4', run_id: 'run-c' }),
     ], 2);
     expect(ids).toEqual(['run-c', 'run-a']);
+  });
+});
+
+const refSnapshot = (id: string, text = 'saved item') => ({
+  id,
+  destination_session_id: 'dest-1',
+  destination_run_id: 'run-1',
+  source_session_id: 'src-1',
+  source_workspace: 'ws',
+  captured_at: 100,
+  items: [{ ref: { session_id: 'src-1', kind: 'message', message_id: 'm1', created_at: 1 }, author: 'user', text, redacted: false, truncated: false }],
+  digest: 'd1',
+  origin: 'user_selection',
+});
+
+const attached = (seq: number, id = 'ref-1'): RunLogEvent =>
+  event(seq, 'context.reference_attached', { reference: refSnapshot(id) });
+
+describe('foldContinuityRows', () => {
+  it('deduplicates the same committed event replayed through live and log union', () => {
+    const rows = foldContinuityRows([attached(2), attached(2)]);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
+  });
+
+  it('keeps distinct committed references in event order', () => {
+    const rows = foldContinuityRows([attached(2, 'ref-1'), attached(4, 'ref-2')]);
+    expect(rows.map((row) => row.kind)).toEqual(['context_reference', 'context_reference']);
+    expect(rows[0]).toMatchObject({ reference: { id: 'ref-1', source_session_id: 'src-1', digest: 'd1', origin: 'user_selection' } });
+    expect(rows[1]).toMatchObject({ reference: { id: 'ref-2' } });
+    const first = rows[0];
+    if (first?.kind !== 'context_reference') throw new Error('expected a reference row');
+    expect(first.reference.items).toHaveLength(1);
+    expect(first.reference.items[0]?.text).toBe('saved item');
+  });
+
+  it('skips reference events whose snapshot is missing or malformed', () => {
+    const rows = foldContinuityRows([
+      event(2, 'context.reference_attached', {}),
+      event(3, 'context.reference_attached', { reference: { source_session_id: 'src-1' } }),
+      event(4, 'context.reference_attached', { reference: 'bogus' }),
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe('foldRunEvents with continuity', () => {
+  it('emits one reference card at its event position and none from the tool result', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'run.started', {}),
+      attached(2),
+      event(3, 'model.request', {}),
+      event(4, 'tool.requested', { tool_call_id: 'c1', tool_name: 'reference_preview', args: { selection: 'x' } }),
+      event(5, 'tool.finished', { tool_call_id: 'c1', tool_name: 'reference_preview', result: 'preview body' }),
+      event(6, 'model.delta', { delta: 'done' }),
+      event(7, 'model.completed', {}),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(['context_reference', 'tool', 'assistant']);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
+  });
+
+  it('survives replay/live union where the same seq arrives twice', () => {
+    const events = [
+      event(1, 'run.started', {}),
+      attached(2),
+      attached(2), // live event replayed after log fetch
+      event(3, 'model.delta', { delta: 'x' }),
+    ].sort((a, b) => a.seq - b.seq);
+    const rows = foldRunEvents('run-1', events);
+    expect(rows.filter((row) => row.kind === 'context_reference')).toHaveLength(1);
+  });
+});
+
+describe('foldRunEvents with deliverables', () => {
+  const deliverySet = (id: string, paths: string[]) => ({
+    id,
+    session_id: 'ses-1',
+    run_id: 'run-1',
+    tool_call_id: 'call-1',
+    created_at: 100,
+    status: paths.length === 0 ? 'failed' : 'ok',
+    items: paths.map((path, index) => ({
+      id: `${id}-itm-${index}`,
+      session_id: 'ses-1',
+      run_id: 'run-1',
+      workspace_id: 'ws-1',
+      path,
+      name: path.split('/').pop(),
+      description: '',
+      size: 10,
+      sha256: 'a'.repeat(64),
+      media_type: 'text/plain',
+      captured_at: 100,
+      origin_tool_call_id: 'call-1',
+    })),
+    failures: [],
+  });
+  const presented = (seq: number, id: string, paths = ['out/a.txt']) =>
+    event(seq, 'deliverables.presented', { delivery_set: deliverySet(id, paths) });
+
+  it('emits one delivery-group card at the committed event position', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'run.started', {}),
+      event(2, 'tool.requested', { tool_call_id: 'c1', tool_name: 'present_files', args: { files: [{ path: 'out/a.txt' }] } }),
+      event(3, 'tool.finished', { tool_call_id: 'c1', tool_name: 'present_files', result: '{"set_id":"dvs-1"}' }),
+      presented(4, 'dvs-1'),
+      event(5, 'model.delta', { delta: 'done' }),
+      event(6, 'model.completed', {}),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(['tool', 'deliverables', 'assistant']);
+    const card = rows.find((row) => row.kind === 'deliverables');
+    expect(card && card.kind === 'deliverables' ? card.set.id : '').toBe('dvs-1');
+  });
+
+  it('keeps additive groups chronological and deduplicates replayed seq', () => {
+    const rows = foldRunEvents('run-1', [
+      presented(2, 'dvs-1'),
+      presented(2, 'dvs-1'), // live/log union replay of the same commit
+      presented(5, 'dvs-2'),
+    ]);
+    const cards = rows.filter((row) => row.kind === 'deliverables');
+    expect(cards.map((row) => (row.kind === 'deliverables' ? row.set.id : ''))).toEqual(['dvs-1', 'dvs-2']);
+  });
+
+  it('emits no card when the payload lacks a committed set id', () => {
+    const rows = foldRunEvents('run-1', [event(2, 'deliverables.presented', { delivery_set: { items: [] } })]);
+    expect(rows.filter((row) => row.kind === 'deliverables')).toHaveLength(0);
   });
 });

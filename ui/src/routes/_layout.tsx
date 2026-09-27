@@ -11,7 +11,7 @@ import { WelcomeWizard } from '@/components/layout/WelcomeWizard';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { isWelcomeCompleted, openWelcome } from '@/hooks/use-welcome';
-import { MaskAndModelSwitcher } from '@/components/chat/MaskAndModelSwitcher';
+import { ModelSwitcher } from '@/components/chat/ModelSwitcher';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
@@ -126,7 +126,7 @@ function Layout() {
             </div>
           </div>
           <div className="flex min-w-0 flex-1 justify-center">
-            <MaskAndModelSwitcher />
+            <ModelSwitcher />
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button

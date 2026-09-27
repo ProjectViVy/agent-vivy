@@ -71,7 +71,9 @@ Since 2022, Discord has classified message content as a **privileged intent**:
 - slash commands, buttons/components, modals, context menus, or interactions of any form
 - Group trigger-word/@ filtering (all readable text in server channels passes
   through Host’s allow_from allowlist gate), embeds, media/attachments,
-  reactions, typing indicators, message editing/deletion, forum posts, or thread management
+  reactions, forum posts, or thread management (typing and message
+  editing/deletion plus the Thinking… placeholder landed later; see
+  VIVY-CHANNEL-PACK.md §1/§12)
 
 ## Permission and policy boundaries
 
@@ -178,7 +180,7 @@ vivy-sdk pack --with discord --out dist/  # Produce candidate EXE (linked with d
 vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins contains discord
 ```
 
-The standalone go.mod (`example.com/vivy/plugins/discord`) is mandatory: the
+The standalone go.mod (`agent-vivy/plugins/discord`) is mandatory: the
 default `just ci` and the species’ `go build ./cmd/vivy` import graphs do not
 reach `github.com/bwmarrin/discordgo`—only the generation produced by pack has
 the ear in its body.
@@ -205,4 +207,4 @@ deviations (all recorded above and in the package comment):
    redial performs a fresh IDENTIFY and events during the redial gap are lost
    (within a bound);
 3. **No slash/interaction support**: register only `MESSAGE_CREATE`; voice/
-   media/embed/reaction/typing/edit are all outside this slice.
+   media/embed/reaction are all outside this slice.

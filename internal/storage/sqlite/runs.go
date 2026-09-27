@@ -18,26 +18,159 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	if !kind.Valid() {
 		kind = domain.RunKindPrimary
 	}
+	childMode := r.EffectiveChildMode()
+	if !childMode.Valid() && r.Kind == domain.RunKindChild {
+		return fmt.Errorf("storage: invalid child mode %q", r.ChildMode)
+	}
 	rootID := r.RootID
 	if rootID == "" {
 		rootID = r.ID
 	}
-	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth); err != nil {
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("storage: begin create run %s: %w", r.ID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if kind == domain.RunKindPrimary && (r.Status == domain.RunAccepted || r.Status == domain.RunQueued || r.Status == domain.RunActive) {
+		var active int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM runs WHERE session_id = ? AND kind = ? AND status IN ('queued','active')`,
+			r.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
+			return fmt.Errorf("storage: inspect active run for %s: %w", r.ID, err)
+		}
+		if active != 0 {
+			return storage.ErrWorkRunConflict
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth, child_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth, string(childMode)); err != nil {
 		return fmt.Errorf("storage: create run %s: %w", r.ID, err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit create run %s: %w", r.ID, err)
+	}
 	return nil
+}
+
+// CommitPrimaryRun persists the user message, active primary run and
+// run.started event in one transaction. The session write lock is acquired
+// before checking active runs so concurrent backend handles serialize.
+func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.PrimaryRunCommit) (domain.RunEvent, error) {
+	if err := storage.ValidatePrimaryRunCommit(admission); err != nil {
+		return domain.RunEvent{}, err
+	}
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: begin primary run admission: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	createdAt := admission.Message.CreatedAt
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO sessions (id, title, created_at) VALUES (?, '', ?) ON CONFLICT(id) DO NOTHING`,
+		admission.Message.SessionID, createdAt); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: ensure primary session: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = updated_at WHERE id = ?", admission.Message.SessionID)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: inspect primary session: %w", err)
+	}
+	if affected == 0 {
+		return domain.RunEvent{}, storage.ErrNotFound
+	}
+	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+		return domain.RunEvent{}, err
+	}
+	message := admission.Message
+	message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+
+	var active int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM runs WHERE session_id = ? AND kind = ? AND status IN "+activeStatuses,
+		admission.Run.SessionID, string(domain.RunKindPrimary)).Scan(&active); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: inspect active primary run: %w", err)
+	}
+	if active != 0 {
+		return domain.RunEvent{}, storage.ErrWorkRunConflict
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, int64(message.WorkSeq), message.Content,
+		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
+		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: append primary message: %w", err)
+	}
+	for position, attachment := range message.Attachments {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_attachments (message_id, position, name, mime_type, data) VALUES (?, ?, ?, ?, ?)",
+			message.ID, position, attachment.Name, attachment.MimeType, attachment.Data); err != nil {
+			return domain.RunEvent{}, fmt.Errorf("storage: append primary attachment: %w", err)
+		}
+	}
+	for position, file := range message.FileContexts {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO message_file_contexts (message_id, position, path, name, size, content) VALUES (?, ?, ?, ?, ?, ?)",
+			message.ID, position, file.Path, file.Name, file.Size, file.Content); err != nil {
+			return domain.RunEvent{}, fmt.Errorf("storage: append primary file context: %w", err)
+		}
+	}
+	at := messageActivityAt(message.CreatedAt)
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?",
+		at, at, message.SessionID); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: touch primary session: %w", err)
+	}
+
+	run := admission.Run
+	kind := run.Kind
+	if !kind.Valid() {
+		kind = domain.RunKindPrimary
+	}
+	rootID := run.RootID
+	if rootID == "" {
+		rootID = run.ID
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		run.ID, run.SessionID, string(run.Status), run.CreatedAt, string(kind), run.ParentID, rootID, run.Depth); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: create primary run: %w", err)
+	}
+	if admission.Prompt != nil {
+		if err := sqliteInsertAdmissionPrompt(ctx, tx, *admission.Prompt); err != nil {
+			return domain.RunEvent{}, err
+		}
+	}
+
+	started := admission.Started
+	started.Seq = 1
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?)",
+		started.RunID, int64(started.Seq), string(started.Type), started.CreatedAt, started.PayloadVersion, started.Payload); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: append primary run.started: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.RunEvent{}, fmt.Errorf("storage: commit primary run admission: %w", err)
+	}
+	return started, nil
 }
 
 // GetRun loads one run; absent ids yield storage.ErrNotFound.
 func (b *Backend) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
 	var r domain.Run
-	var rid, sid, status, kind, parentID, rootID string
+	var rid, sid, status, kind, childMode, parentID, rootID string
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth FROM runs WHERE id = ?`, id).
-		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &parentID, &rootID, &r.Depth)
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth FROM runs WHERE id = ?`, id).
+		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Run{}, storage.ErrNotFound
 	}
@@ -48,6 +181,7 @@ func (b *Backend) GetRun(ctx context.Context, id domain.RunID) (domain.Run, erro
 	r.SessionID = domain.SessionID(sid)
 	r.Status = domain.RunStatus(status)
 	r.Kind = domain.RunKind(kind)
+	r.ChildMode = domain.ChildMode(childMode)
 	r.ParentID = domain.RunID(parentID)
 	r.RootID = domain.RunID(rootID)
 	return r, nil
@@ -69,7 +203,7 @@ func (b *Backend) SetRunStatus(ctx context.Context, id domain.RunID, status doma
 // recovery input, E2).
 func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth FROM runs
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth FROM runs
 		 WHERE status IN `+activeStatuses+` ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list active runs: %w", err)
@@ -79,14 +213,15 @@ func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 	out := []domain.Run{}
 	for rows.Next() {
 		var r domain.Run
-		var rid, sid, status, kind, parentID, rootID string
-		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &parentID, &rootID, &r.Depth); err != nil {
+		var rid, sid, status, kind, childMode, parentID, rootID string
+		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth); err != nil {
 			return nil, fmt.Errorf("storage: scan run: %w", err)
 		}
 		r.ID = domain.RunID(rid)
 		r.SessionID = domain.SessionID(sid)
 		r.Status = domain.RunStatus(status)
 		r.Kind = domain.RunKind(kind)
+		r.ChildMode = domain.ChildMode(childMode)
 		r.ParentID = domain.RunID(parentID)
 		r.RootID = domain.RunID(rootID)
 		out = append(out, r)
@@ -114,12 +249,12 @@ func (b *Backend) ListRunsBySession(ctx context.Context, sessionID domain.Sessio
 // never replace the primary conversation workspace in session/sidebar.
 func (b *Backend) LatestPrimaryRunBySession(ctx context.Context, sessionID domain.SessionID) (domain.Run, error) {
 	var r domain.Run
-	var rid, sid, status, kind, parentID, rootID string
+	var rid, sid, status, kind, childMode, parentID, rootID string
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth
 		 FROM runs WHERE session_id = ? AND kind = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
 		sessionID, string(domain.RunKindPrimary)).
-		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &parentID, &rootID, &r.Depth)
+		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Run{}, storage.ErrNotFound
 	}
@@ -127,13 +262,13 @@ func (b *Backend) LatestPrimaryRunBySession(ctx context.Context, sessionID domai
 		return domain.Run{}, fmt.Errorf("storage: latest primary run for session %s: %w", sessionID, err)
 	}
 	r.ID, r.SessionID, r.Status = domain.RunID(rid), domain.SessionID(sid), domain.RunStatus(status)
-	r.Kind, r.ParentID, r.RootID = domain.RunKind(kind), domain.RunID(parentID), domain.RunID(rootID)
+	r.Kind, r.ChildMode, r.ParentID, r.RootID = domain.RunKind(kind), domain.ChildMode(childMode), domain.RunID(parentID), domain.RunID(rootID)
 	return r, nil
 }
 
 func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...any) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth
 		 FROM runs WHERE `+predicate+` ORDER BY created_at, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list run tree: %w", err)
@@ -142,12 +277,12 @@ func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...a
 	var out []domain.Run
 	for rows.Next() {
 		var r domain.Run
-		var rid, sid, status, kind, parentID, rootID string
-		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &parentID, &rootID, &r.Depth); err != nil {
+		var rid, sid, status, kind, childMode, parentID, rootID string
+		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth); err != nil {
 			return nil, fmt.Errorf("storage: scan tree run: %w", err)
 		}
 		r.ID, r.SessionID, r.Status = domain.RunID(rid), domain.SessionID(sid), domain.RunStatus(status)
-		r.Kind, r.ParentID, r.RootID = domain.RunKind(kind), domain.RunID(parentID), domain.RunID(rootID)
+		r.Kind, r.ChildMode, r.ParentID, r.RootID = domain.RunKind(kind), domain.ChildMode(childMode), domain.RunID(parentID), domain.RunID(rootID)
 		out = append(out, r)
 	}
 	return out, rows.Err()

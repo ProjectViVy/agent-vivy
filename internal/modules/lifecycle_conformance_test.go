@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	maskmodule "agent-vivy/internal/modules/masks"
 )
 
 type lifecycleProbe struct {
@@ -54,6 +56,79 @@ func TestGenerationStartupFailureRollsBackInReverseAndPreservesCauses(t *testing
 	if !reflect.DeepEqual(log, want) {
 		t.Fatalf("lifecycle = %v, want %v", log, want)
 	}
+}
+
+func TestMaskGenerationStartupFailureRollsBackLabeledOwnerExactlyOnce(t *testing.T) {
+	var log []string
+	maskModule := maskmodule.NewModule()
+	maskDescriptor := maskModule.Descriptor()
+	maskOwner, err := maskModule.Construct(context.Background(), maskLifecycleHost{id: maskDescriptor.Module.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startCause := errors.New("mask owner start failed")
+	owners := []Instance{
+		&countedMaskInstance{id: maskDescriptor.Module.ID, inner: maskOwner, log: &log},
+		&lifecycleProbe{id: "mask-failing", log: &log, startErr: startCause},
+		&lifecycleProbe{id: "mask-after", log: &log},
+	}
+	_, err = Start(context.Background(), owners)
+	if !errors.Is(err, startCause) {
+		t.Fatalf("mask Start() error = %v, want %v", err, startCause)
+	}
+	want := []string{
+		"start:" + maskDescriptor.Module.ID, "ready:" + maskDescriptor.Module.ID, "start:mask-failing",
+		"stop:mask-failing", "stop:" + maskDescriptor.Module.ID,
+		"close:mask-after", "close:mask-failing", "close:" + maskDescriptor.Module.ID,
+	}
+	if !reflect.DeepEqual(log, want) {
+		t.Fatalf("mask rollback lifecycle = %v, want %v", log, want)
+	}
+	for _, action := range []string{"stop:" + maskDescriptor.Module.ID, "stop:mask-failing", "close:" + maskDescriptor.Module.ID, "close:mask-failing", "close:mask-after"} {
+		count := 0
+		for _, event := range log {
+			if event == action {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("mask rollback action %q count = %d, want 1", action, count)
+		}
+	}
+}
+
+type maskLifecycleHost struct{ id string }
+
+func (host maskLifecycleHost) ModuleID() string { return host.id }
+
+type countedMaskInstance struct {
+	id    string
+	inner Instance
+	log   *[]string
+}
+
+func (instance *countedMaskInstance) record(action string) {
+	*instance.log = append(*instance.log, action+":"+instance.id)
+}
+
+func (instance *countedMaskInstance) Start(ctx context.Context) error {
+	instance.record("start")
+	return instance.inner.Start(ctx)
+}
+
+func (instance *countedMaskInstance) Ready(ctx context.Context) error {
+	instance.record("ready")
+	return instance.inner.Ready(ctx)
+}
+
+func (instance *countedMaskInstance) Stop(ctx context.Context) error {
+	instance.record("stop")
+	return instance.inner.Stop(ctx)
+}
+
+func (instance *countedMaskInstance) Close(ctx context.Context) error {
+	instance.record("close")
+	return instance.inner.Close(ctx)
 }
 
 func TestGenerationCloseIsReverseAndIdempotent(t *testing.T) {

@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/qq
+module agent-vivy/plugins/qq
 
 go 1.26.4
 

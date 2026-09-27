@@ -35,6 +35,7 @@ type GoBinding struct {
 	Constructor                  string
 	ProviderConstructor          string
 	ProviderCollection           bool
+	MaskFactory                  string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool

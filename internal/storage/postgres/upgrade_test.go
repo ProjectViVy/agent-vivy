@@ -1,20 +1,24 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage/migrations"
 )
 
-// schemaV14Fixture freezes the pre-provenance Journal DDL (the schemaV14
-// body as of commit 82ecf14, when schemaV15Upgrade was introduced). It is
+// schemaV14Fixture freezes the pre-provenance Journal DDL (the historical
+// version-14 body as of commit 82ecf14). It is
 // copied verbatim on purpose: future DDL drift must not silently invalidate
-// the v14 -> v15 in-place upgrade test below.
+// the v14 -> latest in-place upgrade test below.
 const schemaV14Fixture = `
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
@@ -229,9 +233,10 @@ var upgradeSeq atomic.Uint64
 
 // TestMigrateUpgradesV14InPlace drives the production OpenSchema path over a
 // hand-built version-14 database: the upgrade must ALTER messages in place
-// (legacy rows survive with empty provenance), record all pending versions, and keep
-// accepting provenance-bearing appends. Conformance always bootstraps fresh
-// schemas, so without this test the upgrade branch never executes in CI.
+// (legacy rows survive with empty provenance), normalize the legacy marker
+// sequence, and keep accepting provenance-bearing appends. Conformance always
+// bootstraps fresh schemas, so without this test the upgrade branch never
+// executes in CI.
 func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
 	if dsn == "" {
@@ -253,8 +258,9 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 
 	// Build the version-14 shape by hand: schema_migrations (created by
-	// migrate() itself, so it is not part of the frozen DDL), the frozen v14
-	// DDL, the version-14 marker, and one legacy 9-column message row.
+	// the migration runner, so it is not part of the frozen DDL), the frozen v14
+	// DDL, the version-14 marker, one legacy 9-column message row, and an
+	// existing run.started event whose bytes must survive every later migration.
 	setup, err := openPool(dsn, schema)
 	if err != nil {
 		t.Fatalf("open setup pool: %v", err)
@@ -274,10 +280,18 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		14, time.Now().UnixMilli()); err != nil {
 		t.Fatalf("record version 14: %v", err)
 	}
+	if _, err := setup.ExecContext(ctx, `
+		INSERT INTO sessions (id, title, created_at) VALUES ('sess-upg', 'upgrade', 1);
+		INSERT INTO runs (id, session_id, status, created_at) VALUES ('run-upg', 'sess-upg', 'completed', 2);
+		INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload)
+		VALUES ('run-upg', 1, 'run.started', 3, 1, '{"provider":"legacy","model":"legacy-model"}');
+	`); err != nil {
+		t.Fatalf("insert legacy run.started fixture: %v", err)
+	}
 	if _, err := setup.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		"msg-upg-legacy", "sess-upg", "", "user", int64(1), []byte("hello from v14"),
+		"msg-upg-legacy", "sess-upg", "run-upg", "user", int64(1), []byte("hello from v14"),
 		"", "", []byte{}); err != nil {
 		t.Fatalf("insert legacy message row: %v", err)
 	}
@@ -289,31 +303,63 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close() })
 
-	// (a) migrate recorded versions 15 through 21 alongside the pre-existing 14.
+	// (a) normalize the old marker and record the canonical 001–023 history;
+	// the normal runner then applies the new 024 mask schema.
 	var versions []int64
+	var names []string
+	var checksums []string
 	rows, err := admin.QueryContext(ctx,
-		`SELECT version FROM `+schema+`.schema_migrations ORDER BY version`)
+		`SELECT version, name, checksum FROM `+schema+`.schema_migrations ORDER BY version`)
 	if err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
 	for rows.Next() {
 		var v int64
-		if err := rows.Scan(&v); err != nil {
+		var name, checksum string
+		if err := rows.Scan(&v, &name, &checksum); err != nil {
 			t.Fatalf("scan version: %v", err)
 		}
 		versions = append(versions, v)
+		names = append(names, name)
+		checksums = append(checksums, checksum)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate schema_migrations: %v", err)
 	}
-	wantVersions := []int64{14, 15, 16, 17, 18, 19, 20, 21}
+	wantMigrations, err := migrations.Embedded()
+	if err != nil {
+		t.Fatalf("load migration manifest: %v", err)
+	}
+	want := wantMigrations.Migrations(migrations.Postgres)
+	wantVersions := make([]int64, len(want))
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("schema_migrations = %v, want %v", versions, wantVersions)
 	}
-	for i, want := range wantVersions {
-		if versions[i] != want {
-			t.Fatalf("schema_migrations = %v, want %v", versions, wantVersions)
+	for i, migration := range want {
+		wantVersions[i] = migration.Version
+		if versions[i] != migration.Version || names[i] != migration.Name || checksums[i] != migration.Checksum {
+			t.Fatalf("schema_migrations[%d] = %d/%q/%q, want %d/%q/%q", i, versions[i], names[i], checksums[i], migration.Version, migration.Name, migration.Checksum)
 		}
+	}
+
+	// A fresh database and this upgraded historical database must expose the
+	// same logical table/column contract, even though their paths differ.
+	freshSchema := fmt.Sprintf("fresh_%d_%d", time.Now().UnixNano(), upgradeSeq.Add(1))
+	fresh, err := OpenSchema(ctx, dsn, freshSchema)
+	if err != nil {
+		t.Fatalf("OpenSchema fresh database: %v", err)
+	}
+	t.Cleanup(func() { _ = fresh.Close() })
+	upgradedSignature, err := postgresSchemaSignature(ctx, admin, schema)
+	if err != nil {
+		t.Fatalf("read upgraded schema signature: %v", err)
+	}
+	freshSignature, err := postgresSchemaSignature(ctx, admin, freshSchema)
+	if err != nil {
+		t.Fatalf("read fresh schema signature: %v", err)
+	}
+	if fmt.Sprint(upgradedSignature) != fmt.Sprint(freshSignature) {
+		t.Fatalf("fresh/upgraded schema signatures differ:\nupgraded=%v\nfresh=%v", upgradedSignature, freshSignature)
 	}
 
 	var cronTables int
@@ -327,6 +373,11 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 
 	// (b) information_schema reports the 4 new columns as NOT NULL DEFAULT ''.
+	// Postgres renders a text default as ''::text, so compare the expression
+	// before the cast annotation.
+	emptyTextDefault := func(def string) bool {
+		return def == "''" || strings.HasPrefix(def, "''::")
+	}
 	for _, col := range []string{"source", "channel", "chat_id", "channel_message_id"} {
 		var nullable, def string
 		err := admin.QueryRowContext(ctx,
@@ -337,7 +388,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("information_schema column %s: %v", col, err)
 		}
-		if nullable != "NO" || def != "''" {
+		if nullable != "NO" || !emptyTextDefault(def) {
 			t.Fatalf("column %s = nullable %q default %q, want NO / ''", col, nullable, def)
 		}
 	}
@@ -349,9 +400,18 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		schema).Scan(&workspaceNullable, &workspaceDefault); err != nil {
 		t.Fatalf("information_schema workspace_path: %v", err)
 	}
-	if workspaceNullable != "NO" || workspaceDefault != "''" {
+	if workspaceNullable != "NO" || !emptyTextDefault(workspaceDefault) {
 		t.Fatalf("workspace_path = nullable %q default %q, want NO / ''", workspaceNullable, workspaceDefault)
 	}
+	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
+	if err := b.Close(); err != nil {
+		t.Fatalf("close upgraded database before reopen: %v", err)
+	}
+	b, err = OpenSchema(ctx, dsn, schema)
+	if err != nil {
+		t.Fatalf("reopen upgraded database: %v", err)
+	}
+	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
 
 	// (c) the legacy row survives the in-place upgrade with empty provenance.
 	got, err := b.ListMessages(ctx, "sess-upg")
@@ -398,4 +458,41 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if got[0].ID != "msg-upg-legacy" {
 		t.Fatalf("legacy row displaced: %+v", got[0])
 	}
+}
+
+func assertPostgresRunStartedPreserved(t *testing.T, ctx context.Context, db *sql.DB, schema string) {
+	t.Helper()
+	var runID, eventType string
+	var seq, createdAt, payloadVersion int64
+	var payload []byte
+	if err := db.QueryRowContext(ctx,
+		`SELECT run_id, seq, type, created_at, payload_version, payload FROM `+schema+`.run_events WHERE run_id = 'run-upg' AND seq = 1`).
+		Scan(&runID, &seq, &eventType, &createdAt, &payloadVersion, &payload); err != nil {
+		t.Fatalf("read preserved run.started: %v", err)
+	}
+	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
+	if runID != "run-upg" || seq != 1 || eventType != "run.started" || createdAt != 3 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", runID, seq, eventType, createdAt, payloadVersion, payload, wantPayload)
+	}
+}
+
+func postgresSchemaSignature(ctx context.Context, db *sql.DB, schema string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT table_name, column_name, data_type, is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = $1
+		ORDER BY table_name, column_name`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var signature []string
+	for rows.Next() {
+		var table, column, dataType, nullable string
+		if err := rows.Scan(&table, &column, &dataType, &nullable); err != nil {
+			return nil, err
+		}
+		signature = append(signature, table+"."+column+":"+dataType+":"+nullable)
+	}
+	return signature, rows.Err()
 }

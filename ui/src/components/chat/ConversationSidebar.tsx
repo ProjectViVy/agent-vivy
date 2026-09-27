@@ -31,14 +31,10 @@ const TOOLBOX_ITEMS: NavItem[] = [
   { to: '/approvals', icon: 'shield-check', labelKey: 'nav.approvals' },
 ];
 /**
- * The VIVY group is assembled: 面具 is a core entry this shell always owns, and
- * 人格 / 进化 / 记忆 / 记事本 arrive as grouped navigation contributions from
- * the Modules the Recipe selected. Order 20 keeps 面具 second in the default
- * profile without pinning it ahead of a Module that claims an earlier slot.
+ * The VIVY group is fully assembled from Module navigation contributions
+ * (人格 / 进化 / 记忆 / 记事本 / 面具) — the shell owns no hard-coded entry
+ * here; the Recipe decides which Modules exist.
  */
-const CORE_VIVY_ITEMS: OrderedNavItem[] = [
-  { order: 20, item: { to: '/masks', icon: 'venetian-mask', labelKey: 'nav.masks' } },
-];
 const VIEW_MODES: SessionListView[] = ['grouped', 'flat'];
 
 function viewForPath(pathname: string, vivyItems: readonly NavItem[]): SidebarView {
@@ -48,9 +44,9 @@ function viewForPath(pathname: string, vivyItems: readonly NavItem[]): SidebarVi
   return 'root';
 }
 
-/** Merges core and Module entries by order; ties keep core first, then Recipe order. */
-function assembleVivyItems(core: readonly OrderedNavItem[], contributed: readonly OrderedNavItem[]): NavItem[] {
-  return [...core, ...contributed]
+/** Orders Module entries; ties keep Recipe registration order. */
+function assembleVivyItems(contributed: readonly OrderedNavItem[]): NavItem[] {
+  return contributed
     .map((entry, index) => ({ entry, index }))
     .sort((left, right) => left.entry.order - right.entry.order || left.index - right.index)
     .map((ranked) => ranked.entry.item);
@@ -79,7 +75,7 @@ export function ConversationSidebar({
   // `plugin.*` copy and still falls back to the core dictionary the shell owns.
   const navT = pluginHost?.t ?? t;
   const contributedVivy = useGroupedNavigation(SIDEBAR_VIVY_GROUP, pluginHost);
-  const vivyItems = useMemo(() => assembleVivyItems(CORE_VIVY_ITEMS, contributedVivy.map((entry) => ({
+  const vivyItems = useMemo(() => assembleVivyItems(contributedVivy.map((entry) => ({
     order: entry.order,
     item: {
       to: entry.to,

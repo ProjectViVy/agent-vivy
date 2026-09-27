@@ -12,6 +12,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -103,6 +104,7 @@ func TestServiceCancelMidTool(t *testing.T) {
 	svc, backend := newCancelService(t, wait)
 	ctx := context.Background()
 
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(ctx, "sess-1", "wait for me")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -131,6 +133,7 @@ func TestServiceCancelMidTool(t *testing.T) {
 // close it as cancelled (no model output can land first).
 func TestServiceCancelPreStart(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "cancel me instantly")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -152,6 +155,7 @@ func TestServiceCancelPreStart(t *testing.T) {
 // exactly one terminal no matter how many callers win the map (D-008).
 func TestServiceCancelConcurrentIdempotent(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "race the cancel")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -174,4 +178,34 @@ func TestServiceCancelConcurrentIdempotent(t *testing.T) {
 		t.Fatal("cancel of an already-cancelled run must report false")
 	}
 	assertCancelledClose(t, backend, runID)
+}
+
+func TestCancelParentPropagatesToOrdinaryChildRuns(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	parentID := domain.RunID("cancel-parent")
+	childID := domain.RunID("cancel-child")
+	if err := backend.CreateRun(ctx, domain.Run{ID: parentID, SessionID: "cancel-session", Status: domain.RunActive, CreatedAt: 1, RootID: parentID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: childID, SessionID: "cancel-session", Status: domain.RunActive, CreatedAt: 2, Kind: domain.RunKindChild, ChildMode: domain.ChildModeOneShot, ParentID: parentID, RootID: parentID, Depth: 1}); err != nil {
+		t.Fatal(err)
+	}
+	_, cancelParent := context.WithCancel(ctx)
+	childCtx, cancelChild := context.WithCancel(ctx)
+	defer cancelParent()
+	defer cancelChild()
+	childDone := childCtx.Done()
+	svc.mu.Lock()
+	svc.active[parentID] = cancelParent
+	svc.active[childID] = cancelChild
+	svc.mu.Unlock()
+	if !svc.Cancel(parentID) {
+		t.Fatal("parent cancellation was rejected")
+	}
+	select {
+	case <-childDone:
+	case <-time.After(time.Second):
+		t.Fatal("ordinary child run remained active after parent cancellation")
+	}
 }

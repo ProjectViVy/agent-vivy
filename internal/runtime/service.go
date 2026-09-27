@@ -3,11 +3,13 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -34,6 +37,13 @@ type EventSink interface {
 	Publish(domain.RunEvent)
 }
 
+// WorkEventSink receives committed session work events for live fan-out.
+// Durable work storage remains the source of truth; this is only a wake-up
+// optimization for connected control-plane clients.
+type WorkEventSink interface {
+	Publish(domain.WorkEvent)
+}
+
 // RunHook observes durable lifecycle events after they are handed to the
 // live sink. Hooks are advisory and cannot change run state.
 type RunHook interface {
@@ -46,19 +56,12 @@ type WorkspaceAllocator interface {
 	Ensure(context.Context, domain.RunID) (Workspace, error)
 }
 
-// ChildApprovalRouter receives a durable decision for an approval owned by a
-// supervised child. The router is app-owned because it holds live worker
-// waiters; runtime still owns validation and first-writer-wins persistence.
-type ChildApprovalRouter interface {
-	ResolveChildApproval(context.Context, domain.Approval, string) error
-}
-
-// ChildRunCanceller stops app-owned supervised worker processes. The runtime
-// calls it while deleting a session so sealing Journal writes also stops any
-// in-flight model/tool side effects.
-type ChildRunCanceller interface {
-	CancelChildRun(domain.RunID) bool
-	CancelSessionChildren(domain.SessionID)
+// WorkspaceReleaser is an optional rollback seam for allocators that create
+// filesystem state during Ensure. Admission failures must not leave an
+// unowned per-run directory behind; selected project and local workspaces may
+// implement this as a no-op.
+type WorkspaceReleaser interface {
+	Release(context.Context, Workspace) error
 }
 
 // ChannelDeliverer delivers outbound content to an external channel (CH-0).
@@ -85,13 +88,39 @@ var (
 	// fail-closed method-not-found response; callers must never fall back to a
 	// local process invocation.
 	ErrShellUnavailable = errors.New("runtime: governed shell is unavailable")
+	// ErrContinuityUnavailable rejects a continuity submission when the wired
+	// backend does not implement the atomic ContinuityStore seam; submissions
+	// must fail unavailable rather than silently degrade to a non-atomic write.
+	ErrContinuityUnavailable = errors.New("runtime: continuity storage is unavailable")
 )
+
+// ChildApprovalRouter receives a durable decision for an approval owned by a
+// supervised child. The router is app-owned because it holds live worker
+// waiters; runtime still owns validation and first-writer-wins persistence.
+type ChildApprovalRouter interface {
+	ResolveChildApproval(context.Context, domain.Approval, string) error
+}
+
+// ChildRunCanceller stops app-owned supervised worker processes. The runtime
+// calls it while deleting a session so sealing Journal writes also stops any
+// in-flight model/tool side effects.
+type ChildRunCanceller interface {
+	CancelChildRun(domain.RunID) bool
+	CancelSessionChildren(domain.SessionID)
+}
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
-	Journal  storage.Journal
-	Runs     storage.RunStore
-	Messages storage.MessageStore
+	Journal storage.Journal
+	// ToolOperations is the Journal-transactional recovery index for logical
+	// tool calls. NewService discovers it from Journal when the backend also
+	// implements storage.ToolOperationStore.
+	ToolOperations storage.ToolOperationStore
+	Runs           storage.RunStore
+	Messages       storage.MessageStore
+	Work           storage.WorkStore
+	GoalRuns       storage.GoalRunStore
+	PrimaryRuns    storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -120,6 +149,7 @@ type ServiceDeps struct {
 	PolicyDefaultProfile domain.PolicyProfile
 	Hooks                []RunHook
 	Sink                 EventSink
+	WorkSink             WorkEventSink
 	ChildApprovals       ChildApprovalRouter
 	ChildRuns            ChildRunCanceller
 	// Compactions persists session-level durable compaction summaries
@@ -135,6 +165,41 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// Continuity commits task admissions and guarded operations atomically
+	// (SC-D4 §7/§9). Nil keeps ordinary submission working; a continuity
+	// submission then fails unavailable instead of silently degrading to a
+	// non-atomic write.
+	Continuity storage.ContinuityStore
+	// References snapshots operator-selected context excerpts during
+	// admission (SC-D4 §7). Nil fails a reference-bearing submission
+	// unavailable; ordinary runs and model-side preview/attach are
+	// unaffected by this dep.
+	References *ReferenceService
+	// Deliverables closes live verified-download transfers when a session is
+	// deleted (SC-D4 §8/§9). Nil leaves delivery presentation unwired.
+	Deliverables SessionTransferCloser
+	// Admission is the optional atomic primary-run boundary. First-party App
+	// wiring supplies it when prompt snapshots are enabled; legacy embedders
+	// retain the existing sequential path when it is absent.
+	Admission storage.RunAdmissionStore
+	// ChildSessions is the atomic addressable-child admission boundary. NewService
+	// discovers it from Sessions when the backend supports continuable children.
+	ChildSessions storage.ChildSessionStore
+	// ChildMailbox persists direct parent-child messages. NewService discovers
+	// it from Sessions when the backend supports continuable children.
+	ChildMailbox storage.ChildMailboxStore
+	// WorkflowRevisions stores immutable validated workflow descriptors. NewService
+	// discovers it from Sessions when the backend supports workflow admission.
+	WorkflowRevisions storage.WorkflowRevisionStore
+	// MaskResolver is the selected generation's narrow runtime-facing mask
+	// seam. Runtime never holds the provider's control-plane Manager.
+	MaskResolver maskcontract.Resolver
+	// MaskFrame and MaskFrameDigest are immutable provider assets copied by the
+	// composition root. Keeping them separate prevents runtime from reaching
+	// through the control-plane service for prompt data.
+	MaskFrame       string
+	MaskFrameDigest string
+	GenerationID    string
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -165,17 +230,36 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu     sync.Mutex
-	active map[domain.RunID]context.CancelFunc
+	mu               sync.Mutex
+	active           map[domain.RunID]context.CancelFunc
+	workflowStartMu  sync.Mutex
+	workflowNodeMu   sync.Mutex
+	operationMu      sync.Mutex
+	operationFlights map[string]*toolOperationFlight
+	goalStarting     map[domain.SessionID]struct{}
+	goalRuns         map[domain.SessionID]domain.RunID
+	goalDisarmed     map[domain.SessionID]struct{}
+	planTransitions  map[domain.SessionID]uint64
+	planCancelling   map[domain.SessionID]uint64
+	goalRunSessions  map[domain.RunID]domain.SessionID
+	goalRunRefs      map[domain.RunID]domain.GoalRef
+	admissionLocksMu sync.Mutex
+	admissionLocks   map[domain.SessionID]*sync.Mutex
+	humanIntentLocks map[domain.SessionID]*sync.Mutex
+	goalWakeRunning  map[domain.SessionID]struct{}
+	goalWakePending  map[domain.SessionID]struct{}
+	goalWG           sync.WaitGroup
+	stopping         bool
+	humanPending     map[domain.SessionID]int
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
 	// starts, no later event or projection may resurrect that session.
 	runSessions     map[domain.RunID]domain.SessionID
 	deletedSessions map[domain.SessionID]struct{}
-	// pending tracks runs suspended on an approval: no engine work is in
-	// flight, the checkpoint is durable, and the run row stays active
-	// until a decision resumes it or Cancel closes it (C6).
+	// pending tracks runs suspended on a review or question: no engine work is
+	// in flight, the checkpoint is durable, and the run row stays active until
+	// a response resumes it or Cancel closes it.
 	pending map[domain.RunID]pendingRun
 	// shellPending tracks direct governed-shell runs suspended on a durable
 	// approval. It is intentionally separate from Eino pending state: shell
@@ -187,14 +271,22 @@ type Service struct {
 	shellStates map[string]shellState
 	// ledgers survive approval/question suspension and are shared by every
 	// resume of the same run.
-	ledgers map[domain.RunID]*BudgetLedger
+	ledgers                map[domain.RunID]*BudgetLedger
+	recoveredBudgetLedgers map[domain.RunID]*BudgetLedger
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
 	// runTools pins the compiler/runtime-selected ToolHost surface for each
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
-	runTools map[domain.RunID]map[string]struct{}
+	runTools   map[domain.RunID]map[string]struct{}
+	workFenced map[domain.RunID]struct{}
+	workGates  map[domain.RunID]*sync.Mutex
+	// workBlockedCalls records the sibling tool-call IDs from a model batch
+	// interrupted by submit_plan. Fresh model calls remain eligible after the
+	// human decision, while unreviewed siblings from the original batch stay
+	// fenced for the rest of that run.
+	workBlockedCalls map[domain.RunID]map[string]struct{}
 	// contextViews memoizes each live run's committed Context View so resume
 	// paths skip a full Journal replay. Entries die with the run in
 	// cleanupRunState.
@@ -233,6 +325,9 @@ type Service struct {
 var ErrModelChangeBusy = errors.New("runtime: model cannot change while runs are active or suspended")
 
 type pendingRun struct {
+	// runCtx keeps the same cancellation lifetime across suspend/resume.
+	// Recovered pending runs receive a fresh process-owned context.
+	runCtx        context.Context
 	sessionID     domain.SessionID
 	workspaceID   string
 	mapper        *eventMapper
@@ -240,21 +335,44 @@ type pendingRun struct {
 	// mounted is the run's skill-mount registry captured at suspend time.
 	// Restart recovery rebuilds it from the journal's tool.mounted events
 	// (recoveredMounts); nil means the run mounted nothing.
-	mounted        *tools.MountedTools
-	mode           domain.RunMode
-	profile        domain.PolicyProfile
-	snapshot       domain.PolicySnapshot
-	sandboxMode    domain.SandboxMode
-	approvalPolicy domain.ApprovalPolicy
-	face           domain.Face
-	questionID     string
-	ledger         *BudgetLedger
+	mounted          *tools.MountedTools
+	mode             domain.RunMode
+	profile          domain.PolicyProfile
+	snapshot         domain.PolicySnapshot
+	sandboxMode      domain.SandboxMode
+	approvalPolicy   domain.ApprovalPolicy
+	face             domain.Face
+	questionID       string
+	ledger           *BudgetLedger
+	engine           *Engine
+	execution        runExecutionOptions
+	planSubmissionID string
+	planToolCallID   string
+	planResumeTarget string
+	planBlockedCalls []string
+}
+
+// RunOptions controls the physical policy applied to one run.
+// GoalRoundAdmission carries the host-authenticated admission envelope for
+// one automatic Goal round. RunID is allocated before the durable commit so
+// retries can identify the same accepted run.
+type GoalRoundAdmission struct {
+	ExpectedVersion domain.WorkVersion
+	RequestID       string
+	RequestHash     string
+	Goal            domain.GoalRef
+	Round           int
+	RunID           domain.RunID
 }
 
 // RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
 	Mode    domain.RunMode
 	Profile domain.PolicyProfile
+	// CollaborationMode is orthogonal soft guidance. It never changes
+	// execution policy; legacy RunModePlan remains hard policy.
+	CollaborationMode    domain.CollaborationMode
+	CollaborationVersion int
 	// Face attributes the run to its serving assembly (domain.Face).
 	// Empty keeps the web face.
 	Face domain.Face
@@ -276,11 +394,40 @@ type RunOptions struct {
 	// RunWithOptions; the runtime validates and persists the snapshot without
 	// reading the host filesystem.
 	FileContexts []domain.FileContext
+	// Continuity carries an atomic task admission request (SC-D4 §7): a
+	// caller-stable request_id deduplicates retries, HistoryScope resolves
+	// into the accepted scope journaled on run.started, and reference
+	// selectors pin source expectations the commit transaction rechecks.
+	// Nil keeps the ordinary admission path.
+	Continuity *domain.ContinuityInput
+	// GoalRound requests the atomic Goal admission path. Ordinary callers
+	// leave it nil and retain the legacy startup sequence.
+	GoalRound *GoalRoundAdmission
+	// HumanAdmission registers a process-local startup intent before it waits
+	// on the session gate. It is set only by the authenticated control plane,
+	// never by model/tool JSON; it is not a durable queued Run or ticket.
+	HumanAdmission bool
+	// BeforeStart runs synchronously after the run ID is minted and before
+	// any run state is persisted or published. Channel ingress uses it to
+	// durably arm the outbound delivery target before terminal events can race.
+	BeforeStart func(domain.RunID) error
 }
 
 // NewService wires the run service over an engine and its dependencies.
 // provider and modelID label the run.started payload.
 func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Service {
+	if deps.ToolOperations == nil {
+		deps.ToolOperations, _ = deps.Journal.(storage.ToolOperationStore)
+	}
+	if deps.ChildSessions == nil {
+		deps.ChildSessions, _ = deps.Sessions.(storage.ChildSessionStore)
+	}
+	if deps.ChildMailbox == nil {
+		deps.ChildMailbox, _ = deps.Sessions.(storage.ChildMailboxStore)
+	}
+	if deps.WorkflowRevisions == nil {
+		deps.WorkflowRevisions, _ = deps.Sessions.(storage.WorkflowRevisionStore)
+	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"
 	} else {
@@ -292,42 +439,93 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	if !deps.PolicyDefaultProfile.Valid() {
 		deps.PolicyDefaultProfile = domain.PolicyProfileDefault
 	}
+	if deps.PrimaryRuns == nil {
+		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
+	}
 	return &Service{
-		engine:          eng,
-		deps:            deps,
-		provider:        provider,
-		modelID:         modelID,
-		defaultProfile:  deps.PolicyDefaultProfile,
-		approvalSettle:  deps.ApprovalSettleTimeout,
-		active:          make(map[domain.RunID]context.CancelFunc),
-		runSessions:     make(map[domain.RunID]domain.SessionID),
-		deletedSessions: make(map[domain.SessionID]struct{}),
-		pending:         make(map[domain.RunID]pendingRun),
-		shellPending:    make(map[domain.RunID]shellPendingRun),
-		shellStates:     make(map[string]shellState),
-		ledgers:         make(map[domain.RunID]*BudgetLedger),
-		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
-		runTools:        make(map[domain.RunID]map[string]struct{}),
-		contextViews:    make(map[domain.RunID]string),
-		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
+		engine:           eng,
+		deps:             deps,
+		provider:         provider,
+		modelID:          modelID,
+		defaultProfile:   deps.PolicyDefaultProfile,
+		approvalSettle:   deps.ApprovalSettleTimeout,
+		active:           make(map[domain.RunID]context.CancelFunc),
+		operationFlights: make(map[string]*toolOperationFlight),
+		goalStarting:     make(map[domain.SessionID]struct{}),
+		goalRuns:         make(map[domain.SessionID]domain.RunID),
+		goalDisarmed:     make(map[domain.SessionID]struct{}),
+		planTransitions:  make(map[domain.SessionID]uint64),
+		planCancelling:   make(map[domain.SessionID]uint64),
+		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
+		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
+		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
+		humanIntentLocks: make(map[domain.SessionID]*sync.Mutex),
+		goalWakeRunning:  make(map[domain.SessionID]struct{}),
+		goalWakePending:  make(map[domain.SessionID]struct{}),
+		runSessions:      make(map[domain.RunID]domain.SessionID),
+		deletedSessions:  make(map[domain.SessionID]struct{}),
+		pending:          make(map[domain.RunID]pendingRun),
+		shellPending:     make(map[domain.RunID]shellPendingRun),
+		shellStates:      make(map[string]shellState),
+		ledgers:          make(map[domain.RunID]*BudgetLedger),
+		snapshots:        make(map[domain.RunID]domain.PolicySnapshot),
+		runTools:         make(map[domain.RunID]map[string]struct{}),
+		contextViews:     make(map[domain.RunID]string),
+		lastCompaction:   make(map[domain.SessionID]*LastCompaction),
+		humanPending:     make(map[domain.SessionID]int),
+		workFenced:       make(map[domain.RunID]struct{}),
+		workGates:        make(map[domain.RunID]*sync.Mutex),
+		workBlockedCalls: make(map[domain.RunID]map[string]struct{}),
 	}
 }
 
-// SetChildApprovalRouter wires the app-owned live worker registry after the
-// runtime service has been constructed. This avoids a composition cycle:
-// the manager depends on Service, while Service only calls the small router
-// seam when a child approval is decided.
-func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
-	s.mu.Lock()
-	s.deps.ChildApprovals = router
-	s.mu.Unlock()
+// sessionAdmission returns the process-local startup gate for one session.
+// It serializes human and automatic primary admissions without blocking
+// unrelated sessions.
+func (s *Service) sessionAdmission(sessionID domain.SessionID) *sync.Mutex {
+	s.admissionLocksMu.Lock()
+	defer s.admissionLocksMu.Unlock()
+	if s.admissionLocks == nil {
+		s.admissionLocks = make(map[domain.SessionID]*sync.Mutex)
+	}
+	gate := s.admissionLocks[sessionID]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		s.admissionLocks[sessionID] = gate
+	}
+	return gate
 }
 
-// SetChildRunCanceller wires the app-owned live worker registry.
-func (s *Service) SetChildRunCanceller(canceller ChildRunCanceller) {
-	s.mu.Lock()
-	s.deps.ChildRuns = canceller
-	s.mu.Unlock()
+// humanIntentGate linearizes human intent registration against the final
+// Goal-round commit. It is separate from the startup gate so a human request
+// can register while an uncommitted Goal candidate owns session admission.
+func (s *Service) humanIntentGate(sessionID domain.SessionID) *sync.Mutex {
+	s.admissionLocksMu.Lock()
+	defer s.admissionLocksMu.Unlock()
+	gate := s.humanIntentLocks[sessionID]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		s.humanIntentLocks[sessionID] = gate
+	}
+	return gate
+}
+
+// withAdmissionIntent linearizes the durable startup commit against human
+// intent registration. Human callers may commit despite their own registered
+// intent; automatic callers yield without writing when a human is pending.
+func (s *Service) withAdmissionIntent(sessionID domain.SessionID, human bool, commit func() error) error {
+	gate := s.humanIntentGate(sessionID)
+	gate.Lock()
+	defer gate.Unlock()
+	if !human {
+		s.mu.Lock()
+		pending := s.humanPending[sessionID] > 0
+		s.mu.Unlock()
+		if pending {
+			return storage.ErrWorkRunConflict
+		}
+	}
+	return commit()
 }
 
 // SetCatalog wires the provider catalog so the service can query model
@@ -459,8 +657,12 @@ func (s *Service) MaxEventPayloadBytes() int {
 // deletion with run startup and Journal-to-message projection. The tombstone
 // prevents a cancelled drive from appending a late event after storage delete.
 func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
+	// Serialize the tombstone with the final Plan entry check. A deletion
+	// beginning during an unlocked Goal drain wins before Plan can commit.
+	s.projectionMu.Lock()
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
+	s.planTransitions[id]++
 	liveRunIDs := make([]domain.RunID, 0)
 	for runID, sessionID := range s.runSessions {
 		if sessionID == id {
@@ -469,6 +671,11 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 	childRuns := s.deps.ChildRuns
 	s.mu.Unlock()
+	// Child admission and activation share projectionMu with this enumeration.
+	// Once the root tombstone is installed, no new direct child can be admitted;
+	// marking each discovered ChildSession before releasing the lock also fences
+	// continuation started through a descendant Session.
+	s.projectionMu.Unlock()
 	if childRuns != nil {
 		childRuns.CancelSessionChildren(id)
 	}
@@ -477,15 +684,44 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 
 	s.projectionMu.Lock()
-	runs, err := s.deps.Runs.ListRunsBySession(ctx, id)
-	s.projectionMu.Unlock()
-	if err != nil {
-		return err
-	}
-	for _, run := range runs {
-		if run.Kind == domain.RunKindChild && childRuns != nil {
-			childRuns.CancelChildRun(run.ID)
+	sessionIDs := []domain.SessionID{id}
+	if childStore, ok := s.deps.Sessions.(storage.ChildSessionStore); ok {
+		seen := map[domain.SessionID]struct{}{id: {}}
+		for index := 0; index < len(sessionIDs); index++ {
+			bindings, err := childStore.ListChildSessions(ctx, sessionIDs[index])
+			if err != nil {
+				s.projectionMu.Unlock()
+				return err
+			}
+			for _, binding := range bindings {
+				if _, found := seen[binding.ChildSessionID]; found {
+					continue
+				}
+				seen[binding.ChildSessionID] = struct{}{}
+				sessionIDs = append(sessionIDs, binding.ChildSessionID)
+				s.mu.Lock()
+				s.deletedSessions[binding.ChildSessionID] = struct{}{}
+				s.mu.Unlock()
+			}
 		}
+	}
+	allRuns := make([]domain.Run, 0)
+	for _, sessionID := range sessionIDs {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			s.projectionMu.Unlock()
+			return err
+		}
+		allRuns = append(allRuns, runs...)
+	}
+	s.projectionMu.Unlock()
+
+	seenRuns := make(map[domain.RunID]struct{}, len(allRuns))
+	for _, run := range allRuns {
+		if _, found := seenRuns[run.ID]; found {
+			continue
+		}
+		seenRuns[run.ID] = struct{}{}
 		s.Cancel(run.ID)
 	}
 	s.projectionMu.Lock()
@@ -495,6 +731,9 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		// sealed so a partial backend failure cannot revive producers after
 		// their in-memory authority has been removed; deletion may be retried.
 		return err
+	}
+	if s.deps.Deliverables != nil {
+		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
 	return nil
 }
@@ -553,14 +792,49 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 // RunWithOptions starts one run with an explicit harness policy. The mode is
 // validated before any user message, run row, or event is persisted.
 func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions) (domain.RunID, error) {
-	return s.runWithOptions(ctx, sessionID, userText, options, nil)
+	return s.runWithAdmissionGate(ctx, sessionID, userText, options, nil, false)
 }
 
-type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.RunEvent, error)
+type runPersistence func(storage.RunAdmission) (domain.RunEvent, error)
 
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
+	return s.runWithAdmissionGate(ctx, sessionID, userText, options, persist, false)
+}
+
+func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence, startupGateHeld bool) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
+	}
+	if startupGateHeld && options.GoalRound == nil {
+		return "", errors.New("runtime: only a Goal candidate may reuse a held startup gate")
+	}
+	if options.HumanAdmission && options.GoalRound == nil {
+		intentGate := s.humanIntentGate(sessionID)
+		intentGate.Lock()
+		s.mu.Lock()
+		s.humanPending[sessionID]++
+		s.mu.Unlock()
+		intentGate.Unlock()
+
+		defer func() {
+			intentGate.Lock()
+			defer intentGate.Unlock()
+			s.mu.Lock()
+			if pending := s.humanPending[sessionID]; pending <= 1 {
+				delete(s.humanPending, sessionID)
+			} else {
+				s.humanPending[sessionID] = pending - 1
+			}
+			s.mu.Unlock()
+		}()
+	}
+	if !startupGateHeld {
+		sessionAdmission := s.sessionAdmission(sessionID)
+		sessionAdmission.Lock()
+		defer sessionAdmission.Unlock()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
@@ -570,6 +844,17 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if s.sessionDeleted(sessionID) {
 		return "", storage.ErrNotFound
 	}
+	if options.GoalRound == nil {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
+		}
+		for _, existing := range runs {
+			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
+				return "", storage.ErrWorkRunConflict
+			}
+		}
+	}
 	// A deferred settings-save engine rebuild applies here, while no run
 	// is registered.
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
@@ -578,7 +863,8 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if options.Profile == "" {
 		options.Profile = s.defaultProfile
 	}
-	mode, profile, err := normalizeRunPolicy(options.Mode, options.Profile)
+	mode, profile, collaborationMode, collaborationVersion, err := normalizeRunOptions(
+		options.Mode, options.Profile, options.CollaborationMode, options.CollaborationVersion)
 	if err != nil {
 		return "", err
 	}
@@ -595,11 +881,13 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	// Provenance is validated before anything is persisted so an invalid
-	// world entry cannot leave a half-labeled user message behind.
-	provenance := domain.Provenance{Source: "ui"}
+	// world entry cannot leave a half-labeled user message behind. The
+	// source must name a member of the closed ui|channel|headless
+	// vocabulary (CH-C1-N4); the platform name travels in Channel.
+	provenance := domain.Provenance{Source: domain.SourceUI}
 	if options.Provenance != nil {
-		if strings.TrimSpace(options.Provenance.Source) == "" {
-			return "", errors.New("runtime: run provenance requires a non-empty source")
+		if !domain.ValidMessageSource(options.Provenance.Source) {
+			return "", fmt.Errorf("runtime: run provenance source %q is outside the ui|channel|headless vocabulary", options.Provenance.Source)
 		}
 		provenance = *options.Provenance
 	}
@@ -615,14 +903,124 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err := ledger.ReserveEvent(); err != nil {
 		return "", err
 	}
-	runID := newRunID()
-	workspaceID := ""
-	if s.deps.Workspaces != nil {
-		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
-		if err != nil {
-			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+
+	if options.Continuity != nil && persist != nil {
+		return "", errors.New("runtime: continuity admission does not compose with a persistence override")
+	}
+	var continuityScope *domain.AcceptedHistoryScope
+	var continuityExpectations []storage.SourceExpectation
+	var continuityHash string
+	admissionAlloc, _ := s.deps.Workspaces.(AdmissionWorkspaceAllocator)
+	if options.Continuity != nil {
+		if s.deps.Continuity == nil {
+			return "", ErrContinuityUnavailable
 		}
-		workspaceID = workspace.ID
+		if s.deps.Workspaces != nil && admissionAlloc == nil {
+			return "", ErrContinuityUnavailable
+		}
+		input := options.Continuity
+		if err := input.Validate(domain.DefaultContinuityLimits()); err != nil {
+			return "", err
+		}
+		resolved, err := ResolveHistoryScope(sessionID, input.HistoryScope.SessionIDs, admissionAllowedSessions(sessionID, input.HistoryScope.SessionIDs))
+		if err != nil {
+			return "", err
+		}
+		scope, err := domain.NewAcceptedHistoryScope(sessionID, resolved)
+		if err != nil {
+			return "", err
+		}
+		continuityScope = &scope
+		if continuityExpectations, err = s.continuityExpectations(ctx, input); err != nil {
+			return "", err
+		}
+		continuityHash = continuityInputHash(userText, input)
+		// Cheap receipt pre-check: a lost-response retry returns the
+		// original run without allocating anything. The in-transaction
+		// recheck still guards the racing first commit.
+		receipt, found, err := s.deps.Continuity.FindContinuityReceipt(ctx, sessionID, storage.ContinuityOperationAdmission, input.RequestID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: read continuity receipt: %w", err)
+		}
+		if found {
+			if receipt.InputHash != continuityHash {
+				return "", storage.ErrConflict
+			}
+			return receipt.RunID, nil
+		}
+	}
+	runID := newRunID()
+	if options.GoalRound != nil && options.GoalRound.RunID != "" {
+		runID = options.GoalRound.RunID
+	}
+	if options.BeforeStart != nil {
+		if err := options.BeforeStart(runID); err != nil {
+			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
+		}
+	}
+	var capture maskcontract.Capture
+	var prompt *storage.RunPromptSnapshot
+	var expectedMask *storage.MaskCaptureCheck
+	if s.deps.Admission != nil {
+		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
+		if s.deps.MaskResolver != nil {
+			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: capture session mask: %w", err)
+			}
+			if capture.Selection.SessionID != sessionID {
+				return "", maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask capture belongs to another session"))
+			}
+			expectedMask = &storage.MaskCaptureCheck{
+				SessionID: sessionID, SelectionRevision: capture.Selection.Revision,
+				MaskID: capture.Selection.MaskID,
+			}
+			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
+				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
+				expectedMask.DefinitionDigest = capture.Mask.Digest
+			}
+		}
+		built, buildErr := buildPromptSnapshot(PromptInput{
+			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
+			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+		})
+		if buildErr != nil {
+			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
+		}
+		prompt = &built
+	}
+	workspaceID := ""
+	admissionNewPrivate := false
+	var workspace Workspace
+	workspaceReady := false
+	releaseWorkspace := func() {
+		if !workspaceReady || s.deps.Workspaces == nil {
+			return
+		}
+		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
+			if err := releaser.Release(context.WithoutCancel(ctx), workspace); err != nil {
+				slog.Warn("run admission rollback could not release workspace", "run", string(runID), "err", err)
+			}
+		}
+		workspaceReady = false
+	}
+	if s.deps.Workspaces != nil {
+		if options.Continuity != nil {
+			workspace, newly, err := admissionAlloc.EnsureForAdmission(withSessionID(ctx, sessionID), runID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+			}
+			workspaceID = workspace.ID
+			admissionNewPrivate = newly
+		} else {
+			var err error
+			workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+			}
+			workspaceReady = true
+			workspaceID = workspace.ID
+		}
 	}
 	now := time.Now().UnixMilli()
 
@@ -648,33 +1046,214 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
+	var admittedScope *domain.AcceptedHistoryScope
+	if continuityScope != nil {
+		admittedScope = continuityScope
+	}
+	collaborationPayloadMode, collaborationPayloadVersion := collaborationPayload(collaborationMode, collaborationVersion)
+	promptSchema, promptDigest := 0, ""
+	if prompt != nil {
+		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+	}
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
+		CollaborationMode: collaborationPayloadMode, CollaborationVersion: collaborationPayloadVersion,
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		HistoryScope: admittedScope,
+		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
-	if persist != nil {
-		started, err = persist(message, run, started)
+	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
+	var goalAdmissionEvent *domain.WorkEvent
+	startupEvents := []domain.RunEvent{started}
+	if options.Continuity != nil {
+		// The atomic admission commits run.started alongside the run row, so
+		// the committed row is already active rather than accepted.
+		run.Status = domain.RunActive
+		// Reference snapshots are built and bounded before commit and land
+		// in the same startup set; no engine step ever touches their content.
+		for _, selection := range options.Continuity.References {
+			if s.deps.References == nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", ErrContinuityUnavailable
+			}
+			reference, refErr := s.deps.References.AttachForAdmission(ctx, selection, sessionID, runID)
+			if refErr == nil {
+				var event domain.RunEvent
+				event, refErr = ReferenceEvent(reference, now)
+				if refErr == nil {
+					startupEvents = append(startupEvents, event)
+					refErr = ledger.ReserveEvent()
+				}
+			}
+			if refErr != nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", fmt.Errorf("runtime: snapshot admission reference: %w", refErr)
+			}
+		}
+		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
+			SessionID:    sessionID,
+			Message:      message,
+			Run:          run,
+			Events:       startupEvents,
+			Scope:        *continuityScope,
+			Expectations: continuityExpectations,
+			Receipt: domain.ContinuityReceipt{
+				SessionID: sessionID,
+				Operation: storage.ContinuityOperationAdmission,
+				RequestID: options.Continuity.RequestID,
+				InputHash: continuityHash,
+			},
+		})
+		if commitErr != nil {
+			// A definite pre-commit failure rolls the just-created empty
+			// private directory back; an uncertain commit preserves it
+			// because the rows may already be durable.
+			if admissionNewPrivate && !errors.Is(commitErr, storage.ErrCommitUncertain) {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			return "", fmt.Errorf("runtime: commit continuity admission: %w", commitErr)
+		}
+		if !result.NewlyCommitted {
+			// The receipt recheck inside the transaction raced a first
+			// commit and lost: the original run stands; the never-committed
+			// private directory is reaped before returning its identity.
+			if admissionNewPrivate {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			return result.RunID, nil
+		}
+		startupEvents = result.Events
+		started = result.Events[0]
+	} else if persist != nil {
+		if options.GoalRound != nil {
+			return "", errors.New("runtime: goal admission cannot use custom persistence")
+		}
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			started, err = persist(admission)
+			return err
+		})
 		if err != nil {
+			releaseWorkspace()
 			return "", err
 		}
+	} else if options.GoalRound != nil {
+		if s.deps.GoalRuns == nil {
+			releaseWorkspace()
+			return "", errors.New("runtime: goal admission store is not wired")
+		}
+		goal := options.GoalRound
+		run.Status = domain.RunActive
+		mutation := domain.WorkMutation{
+			SessionID:       sessionID,
+			ExpectedVersion: goal.ExpectedVersion,
+			RequestID:       goal.RequestID,
+			RequestHash:     goal.RequestHash,
+			Kind:            domain.WorkEventGoalRoundAdmitted,
+			Admission: domain.GoalRunAdmission{
+				SessionID: sessionID,
+				Goal:      goal.Goal,
+				Round:     goal.Round,
+				RunID:     runID,
+			},
+		}
+		var admitted storage.GoalRunCommitResult
+		err = s.withAdmissionIntent(sessionID, false, func() error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			_, disarmed := s.goalDisarmed[sessionID]
+			if s.stopping || disarmed {
+				return nil
+			}
+			var commitErr error
+			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
+				Mutation:     mutation,
+				Message:      message,
+				Run:          run,
+				Started:      started,
+				Prompt:       prompt,
+				ExpectedMask: expectedMask,
+			})
+			return commitErr
+		})
+		if err != nil {
+			releaseWorkspace()
+			if errors.Is(err, storage.ErrWorkRunConflict) {
+				return "", err
+			}
+			return "", fmt.Errorf("runtime: admit goal round: %w", err)
+		}
+		if admitted.Run.ID == "" {
+			releaseWorkspace()
+			return "", nil
+		}
+		if admitted.Work.Replayed {
+			return admitted.Run.ID, nil
+		}
+		run = admitted.Run
+		runID = run.ID
+		started = admitted.Started
+		goalAdmissionEvent = &admitted.Work.Event
+	} else if s.deps.PrimaryRuns != nil {
+		run.Status = domain.RunActive
+		run.Kind = domain.RunKindPrimary
+		run.RootID = runID
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			var commitErr error
+			started, commitErr = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+				Message:      message,
+				Run:          run,
+				Started:      started,
+				Prompt:       prompt,
+				ExpectedMask: expectedMask,
+			})
+			return commitErr
+		})
+		if err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: commit primary run: %w", err)
+		}
+	} else if s.deps.Admission != nil {
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			var commitErr error
+			started, commitErr = s.deps.Admission.CommitRunAdmission(ctx, admission)
+			return commitErr
+		})
+		if err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: commit run admission: %w", err)
+		}
 	} else {
-		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
-			return "", fmt.Errorf("runtime: append user message: %w", err)
-		}
-		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
-			return "", fmt.Errorf("runtime: create run: %w", err)
-		}
-		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
-		if appendErr != nil {
-			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
-		}
-		started.Seq = seq
-		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
-			return "", fmt.Errorf("runtime: activate run: %w", err)
+		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
+			if appendErr := s.deps.Messages.AppendMessage(ctx, message); appendErr != nil {
+				return fmt.Errorf("runtime: append user message: %w", appendErr)
+			}
+			if createErr := s.deps.Runs.CreateRun(ctx, run); createErr != nil {
+				return fmt.Errorf("runtime: create run: %w", createErr)
+			}
+			seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
+			if appendErr != nil {
+				return fmt.Errorf("runtime: persist run.started: %w", appendErr)
+			}
+			started.Seq = seq
+			if statusErr := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); statusErr != nil {
+				return fmt.Errorf("runtime: activate run: %w", statusErr)
+			}
+			return nil
+		})
+		if err != nil {
+			releaseWorkspace()
+			return "", err
 		}
 	}
-	s.publish(ctx, started)
+	startupEvents[0] = started
+	for _, committed := range startupEvents {
+		s.publish(ctx, committed)
+	}
 
 	// Detach the run from the request lifecycle: RPC disconnects and page
 	// refreshes must not cancel the work (AS-7). Cancel/CancelAll hold the
@@ -688,17 +1267,102 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.runSessions[runID] = sessionID
+	if options.GoalRound != nil {
+		s.goalRuns[sessionID] = runID
+		s.goalRunSessions[runID] = sessionID
+		s.goalRunRefs[runID] = options.GoalRound.Goal
+	}
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.runTools[runID] = selectedToolSet
+	s.workGates[runID] = &sync.Mutex{}
 	s.mu.Unlock()
+	// The durable admission is already committed. Register its process-local
+	// RunID before notifying subscribers that refresh WorkView on this event.
+	if goalAdmissionEvent != nil && s.deps.WorkSink != nil {
+		s.deps.WorkSink.Publish(*goalAdmissionEvent)
+	}
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, collaborationMode, snapshot, sandboxMode, approvalPolicy, face, workspaceID, admittedScope)
 	}()
 	return runID, nil
+}
+
+// admissionAllowedSessions enumerates the sessions an operator-directed
+// continuity submission may read: the destination plus its explicit
+// selection. Operator selection is the grant for the local organism; any
+// future cross-session policy narrows this list before resolution.
+func admissionAllowedSessions(current domain.SessionID, selected []domain.SessionID) []domain.SessionID {
+	allowed := make([]domain.SessionID, 0, len(selected)+1)
+	allowed = append(allowed, current)
+	return append(allowed, selected...)
+}
+
+// continuityExpectations maps the caller's reference selectors onto the
+// source expectations the admission transaction rechecks. Each distinct
+// source pins its current view-truncation revision so a source rewind or
+// deletion between selection and commit fails the submission.
+func (s *Service) continuityExpectations(ctx context.Context, input *domain.ContinuityInput) ([]storage.SourceExpectation, error) {
+	if len(input.References) == 0 {
+		return nil, nil
+	}
+	seen := make(map[domain.SessionID]struct{}, len(input.References))
+	var out []storage.SourceExpectation
+	for _, ref := range input.References {
+		sid := ref.Selection.SourceSessionID
+		if sid == "" {
+			return nil, errors.New("runtime: continuity reference is missing its source session")
+		}
+		if _, dup := seen[sid]; dup {
+			continue
+		}
+		seen[sid] = struct{}{}
+		revision := int64(-1)
+		if s.deps.Truncations != nil {
+			markers, err := s.deps.Truncations.ListViewTruncations(ctx, sid)
+			if err != nil {
+				return nil, fmt.Errorf("runtime: read source truncation revision: %w", err)
+			}
+			revision = int64(len(markers))
+		}
+		out = append(out, storage.SourceExpectation{
+			SourceSessionID:   sid,
+			TruncationMarkers: revision,
+			Digest:            ref.ExpectedDigest,
+		})
+	}
+	return out, nil
+}
+
+// continuityInputHash fingerprints one admission request: identical retries
+// hash identically while a changed payload under the same request_id is a
+// conflict. The encoding is the canonical JSON of the caller-visible input.
+func continuityInputHash(userText string, input *domain.ContinuityInput) string {
+	canonical, err := json.Marshal(struct {
+		Text  string                 `json:"text"`
+		Input domain.ContinuityInput `json:"input"`
+	}{Text: userText, Input: *input})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
+// discardAdmissionWorkspace reaps the empty private directory created for a
+// never-committed admission. Failure to discard only leaks an empty
+// directory, so it is logged rather than surfaced.
+func (s *Service) discardAdmissionWorkspace(sessionID domain.SessionID, runID domain.RunID, alloc AdmissionWorkspaceAllocator) {
+	if alloc == nil {
+		return
+	}
+	ctx := withSessionID(context.WithoutCancel(context.Background()), sessionID)
+	if err := alloc.DiscardNewPrivateAdmission(ctx, runID); err != nil {
+		slog.Warn("discard admission workspace failed", "run", string(runID), "err", err)
+	}
 }
 
 // Cancel ends an in-flight run of this process. It reports false when the
@@ -712,6 +1376,9 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	p, isPending := s.pending[runID]
 	sp, isShellPending := s.shellPending[runID]
 	s.mu.Unlock()
+	if active || isPending || isShellPending {
+		s.cancelWorkflowChildren(runID)
+	}
 
 	if isShellPending {
 		if err := s.waitShellApprovalReady(context.Background(), runID); err != nil {
@@ -750,39 +1417,101 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	}
 
 	if isPending {
-		settled := true
-		if p.questionID != "" && s.deps.Questions != nil {
-			if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
-				slog.Warn("cancel question failed", "question", p.questionID, "err", err)
-				settled = false
-			}
-		} else if s.deps.Approvals != nil {
-			if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
-				if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
-					slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
-					settled = false
-				}
-			}
-		}
-		if !settled {
-			// A concurrent answer/decision won the durable conditional
-			// transition. Leave the in-memory suspension for that response.
-			return true
-		}
-		s.mu.Lock()
-		if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
-			delete(s.pending, runID)
-		}
-		s.mu.Unlock()
-		s.emitTerminal(context.Background(), p.mapper,
-			p.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		s.settlePendingCancellation(runID, p)
 		return true
 	}
 	if !active {
 		return false
 	}
 	cancel() // the drive closes the run via the run.cancelled path
+	// A suspension publishes its durable row and lifecycle event before the
+	// in-memory registration lands; if a durable suspension is already
+	// visible for this run, the registration is landing underneath the
+	// cancel, so wait boundedly and settle the parked suspension instead of
+	// orphaning it.
+	if s.hasDurableSuspension(runID) && s.waitPendingRegistration(runID) {
+		s.mu.Lock()
+		p, isPending := s.pending[runID]
+		s.mu.Unlock()
+		if isPending {
+			s.settlePendingCancellation(runID, p)
+		}
+	}
 	return true
+}
+
+// hasDurableSuspension reports whether the run holds a pending approval or
+// question row — the signal that the suspend path is between the durable
+// write and the in-memory pending registration.
+func (s *Service) hasDurableSuspension(runID domain.RunID) bool {
+	if s.deps.Approvals != nil {
+		if _, err := s.approvalForRun(context.Background(), runID); err == nil {
+			return true
+		}
+	}
+	if s.deps.Questions != nil {
+		if questions, err := s.deps.Questions.ListPendingQuestions(context.Background()); err == nil {
+			for _, question := range questions {
+				if question.RunID == runID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// settlePendingCancellation closes a parked suspension durably and emits the
+// cancelled terminal. A lost durable conditional transition (a concurrent
+// answer or decision won it) leaves the suspension for that response.
+func (s *Service) settlePendingCancellation(runID domain.RunID, p pendingRun) {
+	settled := true
+	if p.questionID != "" && s.deps.Questions != nil {
+		if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
+			slog.Warn("cancel question failed", "question", p.questionID, "err", err)
+			settled = false
+		}
+	} else if s.deps.Approvals != nil {
+		if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
+			if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+				slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
+				settled = false
+			}
+		}
+	}
+	if !settled {
+		return
+	}
+	s.mu.Lock()
+	if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
+		delete(s.pending, runID)
+	}
+	s.mu.Unlock()
+	terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
+	if p.execution.child != nil {
+		terminalCtx = withChildTerminal(terminalCtx)
+	}
+	s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
+}
+
+// cancelWorkflowChildren propagates explicit cancellation through the run
+// tree. Workflow runs also cancel their currently executing graph node via
+// context cancellation; ordinary one-shot and continuable children are
+// cancelled directly because their execution contexts are detached.
+func (s *Service) cancelWorkflowChildren(parentID domain.RunID) {
+	if s == nil || s.deps.Runs == nil {
+		return
+	}
+	children, err := s.deps.Runs.ListChildRuns(context.Background(), parentID)
+	if err != nil {
+		slog.Warn("list workflow children for cancellation", "run", string(parentID), "err", err)
+		return
+	}
+	for _, child := range children {
+		if !child.Status.Terminal() {
+			s.Cancel(child.ID)
+		}
+	}
 }
 
 // CancelAll cancels every in-flight run. Shutdown calls it before closing
@@ -819,6 +1548,7 @@ func (s *Service) WaitIdle(ctx context.Context) bool {
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
+		s.goalWG.Wait()
 		close(done)
 	}()
 	select {
@@ -950,10 +1680,26 @@ func (s *Service) recover(ctx context.Context) error {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
 		return errors.New("runtime: service not wired")
 	}
+	s.mu.Lock()
+	s.recoveredBudgetLedgers = make(map[domain.RunID]*BudgetLedger)
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.recoveredBudgetLedgers = nil
+		s.mu.Unlock()
+	}()
 	runs, err := s.deps.Runs.ListActiveRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
 	}
+	// Every recovered session starts without process-local automatic Goal
+	// authority, including when its active Goal was created by a human run
+	// that suspended before any Goal round was admitted.
+	s.mu.Lock()
+	for _, run := range runs {
+		s.goalDisarmed[run.SessionID] = struct{}{}
+	}
+	s.mu.Unlock()
 	s.cleanupOrphanedShellState(ctx)
 	if len(runs) == 0 {
 		return nil
@@ -987,12 +1733,11 @@ func (s *Service) recover(ctx context.Context) error {
 	}
 
 	now := time.Now().UnixMilli()
+	var workflowRuns []domain.Run
 	for _, run := range runs {
-		// Child processes are intentionally not re-executed after restart:
-		// replaying a side-effecting child could duplicate an external action.
-		// Close it before considering approvals or checkpoints.
-		if run.Kind == domain.RunKindChild {
-			s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
+		s.rememberRecoveredGoalRun(ctx, run)
+		if run.Kind == domain.RunKindWorkflow {
+			workflowRuns = append(workflowRuns, run)
 			continue
 		}
 		workspaceID := ""
@@ -1006,8 +1751,48 @@ func (s *Service) recover(ctx context.Context) error {
 		}
 		approval, hasApproval := pendingByRun[run.ID]
 		question, hasQuestion := pendingQuestionsByRun[run.ID]
+		var planReview domain.PlanState
+		hasPlanReview := false
+		if !hasApproval && !hasQuestion && s.deps.Work != nil {
+			workState, workErr := s.deps.Work.ReadWork(ctx, run.SessionID)
+			if workErr != nil && !errors.Is(workErr, storage.ErrNotFound) {
+				slog.Warn("restart recovery: read Plan review state failed", "run", string(run.ID), "err", workErr)
+				s.failUnrecoverable(ctx, run.ID, "Plan review state unavailable")
+				continue
+			}
+			planReview = workState.Plan
+			hasPlanReview = workErr == nil && planReview.ReviewStatus == domain.PlanReviewPending &&
+				planReview.OriginRunID == run.ID && planReview.OriginToolCallID != "" && planReview.ResumeTarget != ""
+		}
+		if run.Kind == domain.RunKindChild {
+			switch {
+			case hasApproval && hasQuestion:
+				s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
+			case hasApproval && approval.ExpiresAt <= now:
+				if err := s.expireApproval(ctx, approval, "human review timed out during restart"); err != nil {
+					slog.Warn("restart recovery: child approval expiry failed", "approval", approval.ID, "err", err)
+				}
+				s.failUnrecoverable(ctx, run.ID, "child approval expired during restart")
+			case hasApproval && approval.Kind == domain.ApprovalKindChild && !isShellApproval(approval):
+				if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+					s.failUnrecoverable(ctx, run.ID, "child prompt snapshot could not be recovered")
+				} else if blocked {
+					s.failUnrecoverable(ctx, run.ID, "child prompt snapshot is not compatible")
+				} else if !s.checkpointReadable(ctx, run.ID) {
+					s.failUnrecoverable(ctx, run.ID, "child checkpoint not readable")
+				} else if err := s.rebuildPendingChild(ctx, run, approval, workspaceID); err != nil {
+					slog.Warn("restart recovery: child approval could not be rebuilt", "run", string(run.ID), "err", err)
+					s.failUnrecoverable(ctx, run.ID, "child approval runner could not be rebuilt")
+				}
+			default:
+				// A child without a pending approval is not replayed after restart:
+				// its last external operation may have crossed the effect boundary.
+				s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
+			}
+			continue
+		}
 		switch {
-		case hasApproval && hasQuestion:
+		case (hasApproval && hasQuestion) || ((hasApproval || hasQuestion) && hasPlanReview):
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
 		case hasApproval && approval.ExpiresAt <= now:
 			if isShellApproval(approval) {
@@ -1024,22 +1809,63 @@ func (s *Service) recover(ctx context.Context) error {
 				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
 				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
-		case hasApproval && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
-			s.rebuildPending(ctx, run, approval, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				// Keep the review row and in-memory suspension visible while this
+				// process lacks the immutable prompt needed to resume it. A later
+				// generation/module restore can retry recovery; no model or tool is
+				// allowed to consume the opaque checkpoint in the meantime.
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			}
 		case hasQuestion && question.ExpiresAt <= now:
 			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
 				s.failUnrecoverable(ctx, run.ID, "question expiry could not be persisted")
 			}
-		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
-			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			}
+		case hasPlanReview:
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+			} else {
+				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
+			}
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
+		}
+	}
+	for _, run := range workflowRuns {
+		workspaceID := ""
+		if s.deps.Workspaces != nil {
+			workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, run.SessionID), run.ID)
+			if err != nil {
+				s.failUnrecoverable(ctx, run.ID, "workflow workspace is unavailable")
+				continue
+			}
+			workspaceID = workspace.ID
+		}
+		if err := s.recoverWorkflowRun(ctx, run, workspaceID); err != nil {
+			slog.Warn("restart recovery: workflow could not be resumed", "run", string(run.ID), "err", err)
+			s.failUnrecoverable(ctx, run.ID, "workflow authority or checkpoint could not be recovered")
 		}
 	}
 	return nil
@@ -1181,10 +2007,9 @@ func (s *Service) CreateWorkerRun(ctx context.Context, run domain.Run) error {
 	return s.deps.Runs.CreateRun(ctx, run)
 }
 
-// RegisterWorkerProcess atomically installs an app-owned live child handle
-// under the session deletion fence. If deletion wins, registration is
-// rejected; if registration wins, DeleteSession cannot enumerate the run
-// and invoke ChildRunCanceller until the callback has completed.
+// RegisterWorkerProcess activates native child cancellation state under the
+// session deletion fence. If deletion wins, registration is rejected; if
+// registration wins, DeleteSession sees the child Run and cancels it.
 func (s *Service) RegisterWorkerProcess(ctx context.Context, runID domain.RunID, register func()) error {
 	if register == nil || s.deps.Runs == nil {
 		return errors.New("runtime: worker process registration is not wired")
@@ -1248,6 +2073,12 @@ func (s *Service) RecordExternalRunEventVersion(ctx context.Context, runID domai
 func (s *Service) appendRunEvent(ctx context.Context, event domain.RunEvent, updateTerminalStatus bool) (domain.RunEvent, error) {
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
+	return s.appendRunEventLocked(ctx, event, updateTerminalStatus)
+}
+
+// appendRunEventLocked is the common deletion-safe path for callers that
+// already hold projectionMu while committing a related projection mutation.
+func (s *Service) appendRunEventLocked(ctx context.Context, event domain.RunEvent, updateTerminalStatus bool) (domain.RunEvent, error) {
 	run, err := s.deps.Runs.GetRun(ctx, event.RunID)
 	if err != nil {
 		return domain.RunEvent{}, err
@@ -1301,8 +2132,119 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 	if s.engine.cfg.Checkpoints == nil {
 		return false
 	}
-	_, ok, err := s.engine.cfg.Checkpoints.Get(ctx, checkpointIDFor(runID))
+	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return false
+	}
+	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
 	return err == nil && ok
+}
+
+// promptBlocksRecovery distinguishes a recoverable prompt incompatibility
+// from an unreadable Eino checkpoint. The former keeps the approval/question
+// pending so a compatible generation can retry; the latter is an unrecoverable
+// lost continuation and is closed by the existing recovery policy.
+func (s *Service) promptBlocksRecovery(ctx context.Context, runID domain.RunID) (bool, error) {
+	_, _, err := s.promptSnapshotContext(ctx, runID)
+	if err == nil {
+		return false, nil
+	}
+	var typed *maskcontract.Error
+	if !errors.As(err, &typed) {
+		return false, err
+	}
+	switch typed.Code {
+	case maskcontract.CodeSnapshotMissing, maskcontract.CodeSnapshotCorrupt,
+		maskcontract.CodeIncompatiblePrompt, maskcontract.CodeMaskUnavailable:
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+// promptSnapshotContext loads the durable prompt marker and snapshot before
+// any Eino checkpoint is read. Legacy runs have no marker and retain their
+// historical static instruction; a new-format run must have a matching,
+// same-generation snapshot or it is rejected fail-closed.
+func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID) (context.Context, bool, error) {
+	if s.deps.Admission == nil {
+		return ctx, false, nil
+	}
+	schemaVersion, digest, marked, err := s.runPromptMarker(ctx, runID)
+	if err != nil {
+		return ctx, false, err
+	}
+	if !marked {
+		return ctx, false, nil
+	}
+	snapshot, err := s.deps.Admission.LoadRunPrompt(ctx, runID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotMissing, err)
+		}
+		return ctx, false, fmt.Errorf("runtime: load run prompt snapshot: %w", err)
+	}
+	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion || snapshot.PayloadSHA256 != digest {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run prompt marker does not match snapshot"))
+	}
+	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt belongs to another generation"))
+	}
+	if snapshot.ComposerVersion != promptComposerVersion {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt was composed by an unsupported version"))
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil {
+		return ctx, false, err
+	}
+	if payload.Mask != nil && s.deps.MaskResolver == nil {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeMaskUnavailable, errors.New("the mask provider is not present for this run"))
+	}
+	return withRunPrompt(ctx, snapshot), true, nil
+}
+
+func (s *Service) promptSnapshotForRun(ctx context.Context, runID domain.RunID) (storage.RunPromptSnapshot, bool, error) {
+	promptCtx, hasPrompt, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return storage.RunPromptSnapshot{}, false, err
+	}
+	if !hasPrompt {
+		return storage.RunPromptSnapshot{}, false, nil
+	}
+	snapshot, _ := runPrompt(promptCtx)
+	return snapshot, true, nil
+}
+
+func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, digest string, marked bool, err error) {
+	if s.deps.Journal == nil {
+		return 0, "", false, errors.New("runtime: journal not wired")
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventRunStarted {
+			continue
+		}
+		var payload payloadRunStarted
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return 0, "", false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
+		}
+		if payload.PromptSchema == 0 && payload.PromptDigest == "" {
+			return 0, "", false, nil
+		}
+		if payload.PromptSchema <= 0 || strings.TrimSpace(payload.PromptDigest) == "" {
+			return 0, "", false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
+		}
+		return payload.PromptSchema, payload.PromptDigest, true, nil
+	}
+	if err := it.Err(); err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	return 0, "", false, storage.ErrNotFound
 }
 
 // rebuildPending restores the in-memory suspend state of one run so the
@@ -1325,12 +2267,21 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		// recoverable, but only the interrupted tool is allowed on resume.
 		selectedTools = []string{toolName}
 	}
+	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	m.registerOpenCall(openToolCall{
 		id:   approval.ToolCallID,
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	if isGoalRun {
+		s.goalRuns[run.SessionID] = run.ID
+		s.goalRunSessions[run.ID] = run.SessionID
+		s.goalRunRefs[run.ID] = goalRef
+	}
+	s.workGates[run.ID] = &sync.Mutex{}
+	s.active[run.ID] = cancelRun
+	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -1362,10 +2313,19 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	m.setContextViewID(s.contextViewForRun(ctx, run.ID))
 	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
+	if isGoalRun {
+		s.goalRuns[run.SessionID] = run.ID
+		s.goalRunSessions[run.ID] = run.SessionID
+		s.goalRunRefs[run.ID] = goalRef
+	}
+	s.workGates[run.ID] = &sync.Mutex{}
+	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
-		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
+		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
 	}
 	s.runSessions[run.ID] = run.SessionID
@@ -1457,28 +2417,99 @@ func (s *Service) storeContextView(runID domain.RunID, view string) {
 // events before a suspended run becomes resumable. If the current policy is
 // already exceeded, recovery fails closed instead of resetting the budget.
 func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *BudgetLedger {
-	ledger, err := NewBudgetLedger(s.deps.Budget)
+	s.mu.Lock()
+	if ledger := s.recoveredBudgetLedgers[runID]; ledger != nil {
+		s.mu.Unlock()
+		return ledger
+	}
+	s.mu.Unlock()
+	ledgers, err := s.recoverBudgetLedgers(ctx, runID)
 	if err != nil {
-		s.failUnrecoverable(ctx, runID, "invalid budget policy")
+		s.failUnrecoverable(ctx, runID, "run-tree budget replay failed")
 		return nil
 	}
-	it, err := s.deps.Journal.Replay(ctx, runID, 0)
-	if err != nil {
-		s.failUnrecoverable(ctx, runID, "budget replay failed")
-		return nil
+	s.mu.Lock()
+	if s.recoveredBudgetLedgers == nil {
+		s.recoveredBudgetLedgers = make(map[domain.RunID]*BudgetLedger)
 	}
-	defer func() { _ = it.Close() }()
-	for it.Next() {
-		if err := ledger.ReplayEvent(it.Value().Event); err != nil {
-			s.failUnrecoverable(ctx, runID, "budget exceeded before restart")
-			return nil
+	for id, rebuilt := range ledgers {
+		if s.recoveredBudgetLedgers[id] == nil {
+			s.recoveredBudgetLedgers[id] = rebuilt
 		}
 	}
-	if err := it.Err(); err != nil {
-		s.failUnrecoverable(ctx, runID, "budget replay failed")
-		return nil
+	ledger := s.recoveredBudgetLedgers[runID]
+	s.mu.Unlock()
+	if ledger == nil {
+		s.failUnrecoverable(ctx, runID, "run-tree budget target is missing")
 	}
 	return ledger
+}
+
+func (s *Service) recoverBudgetLedgers(ctx context.Context, runID domain.RunID) (map[domain.RunID]*BudgetLedger, error) {
+	if s.deps.Runs == nil {
+		return nil, errors.New("runtime: run-tree budget replay is unavailable")
+	}
+	target, err := s.deps.Runs.GetRun(ctx, runID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget target is unavailable")
+	}
+	rootID := target.RootID
+	if rootID == "" {
+		rootID = target.ID
+	}
+	root, err := s.deps.Runs.GetRun(ctx, rootID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget root is unavailable")
+	}
+	runs, err := s.deps.Runs.ListRunTree(ctx, root.ID)
+	if err != nil {
+		return nil, errors.New("runtime: run-tree budget listing failed")
+	}
+	all := append([]domain.Run{root}, runs...)
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Depth != all[j].Depth {
+			return all[i].Depth < all[j].Depth
+		}
+		if all[i].CreatedAt != all[j].CreatedAt {
+			return all[i].CreatedAt < all[j].CreatedAt
+		}
+		return all[i].ID < all[j].ID
+	})
+	ledgers := make(map[domain.RunID]*BudgetLedger, len(all))
+	for _, run := range all {
+		var ledger *BudgetLedger
+		if run.ID == root.ID || run.ParentID == "" {
+			ledger, err = NewBudgetLedger(s.deps.Budget)
+		} else if parent := ledgers[run.ParentID]; parent != nil {
+			ledger, err = parent.Child(s.deps.Budget)
+		} else {
+			err = fmt.Errorf("budget lineage parent %s is missing", run.ParentID)
+		}
+		if err != nil {
+			return nil, errors.New("runtime: invalid run-tree budget policy or lineage")
+		}
+		it, replayErr := s.deps.Journal.Replay(ctx, run.ID, 0)
+		if replayErr != nil {
+			return nil, errors.New("runtime: run-tree budget replay failed")
+		}
+		for it.Next() {
+			if replayErr = ledger.ReplayEvent(it.Value().Event); replayErr != nil {
+				break
+			}
+		}
+		if replayErr == nil {
+			replayErr = it.Err()
+		}
+		_ = it.Close()
+		if replayErr != nil {
+			return nil, errors.New("runtime: budget exceeded or replay failed before restart")
+		}
+		ledgers[run.ID] = ledger
+	}
+	if ledgers[runID] == nil {
+		return nil, errors.New("runtime: run-tree budget target is missing")
+	}
+	return ledgers, nil
 }
 
 // recoveredMounts rebuilds the run's skill-mount registry from the
@@ -1661,7 +2692,7 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
-// run.failed so no non-terminal row outlives the process (FR-8).
+// terminal event so no non-terminal row outlives the process (FR-8).
 func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
 	m := newEventMapper(runID, 0)
 	if run, err := s.deps.Runs.GetRun(ctx, runID); err == nil && run.Kind == domain.RunKindChild {
@@ -1688,15 +2719,97 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, collaboration domain.CollaborationMode, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string, historyScope *domain.AcceptedHistoryScope) {
+	s.driveWithExecution(ctx, m, sessionID, userText, mode, profile, collaboration, snapshot, sandboxMode, approvalPolicy, face, workspaceID, historyScope, runExecutionOptions{})
+}
+
+type runExecutionOptions struct {
+	engine                           *Engine
+	child                            *childActivationDrive
+	oneShotChild                     bool
+	suppressSessionMessageProjection bool
+}
+
+type runExecutionContextKey struct{}
+type runEngineContextKey struct{}
+type childTerminalContextKey struct{}
+type suppressSessionMessageProjectionContextKey struct{}
+
+func withRunExecution(ctx context.Context, eng *Engine, execution runExecutionOptions) context.Context {
+	ctx = context.WithValue(ctx, runExecutionContextKey{}, execution)
+	return context.WithValue(ctx, runEngineContextKey{}, eng)
+}
+
+func executionFromContext(ctx context.Context) runExecutionOptions {
+	execution, _ := ctx.Value(runExecutionContextKey{}).(runExecutionOptions)
+	return execution
+}
+
+func engineFromContext(ctx context.Context) *Engine {
+	eng, _ := ctx.Value(runEngineContextKey{}).(*Engine)
+	return eng
+}
+
+func withChildTerminal(ctx context.Context) context.Context {
+	return context.WithValue(ctx, childTerminalContextKey{}, true)
+}
+
+func isChildTerminal(ctx context.Context) bool {
+	value, _ := ctx.Value(childTerminalContextKey{}).(bool)
+	return value
+}
+
+func withSessionMessageProjectionDisabled(ctx context.Context) context.Context {
+	return context.WithValue(ctx, suppressSessionMessageProjectionContextKey{}, true)
+}
+
+func sessionMessageProjectionDisabled(ctx context.Context) bool {
+	value, _ := ctx.Value(suppressSessionMessageProjectionContextKey{}).(bool)
+	return value
+}
+
+func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, collaboration domain.CollaborationMode, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string, historyScope *domain.AcceptedHistoryScope, execution runExecutionOptions) {
+	if execution.child != nil {
+		ctx = withChildTerminal(ctx)
+	}
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
-	eng := s.engine
+	eng := execution.engine
+	if eng == nil {
+		eng = s.engine
+	}
+	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
+	if promptErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		// Bind before history selection so the admitted instruction is reserved
+		// from the same byte budget that chooses transcript rows.
+		ctx = withRunPrompt(ctx, promptSnapshot)
+	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
+	var msgs []*schema.Message
+	var selection tools.Selection
+	var stats ContextStats
+	var err error
+	var parentReplies []parentReplyDelivery
+	if execution.child == nil {
+		parentReplies, err = s.pendingParentReplies(ctx, sessionID, m.runID)
+		if err != nil {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+		if len(parentReplies) > 0 {
+			userText = formatParentReplies(parentReplies, userText)
+		}
+		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, collaboration)
+	} else {
+		msgs, selection, stats, execution.child.included, err = s.runMessagesForChild(ctx, userText, execution.child.pending, eng)
+	}
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -1710,23 +2823,62 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
+	runCtx = withRunExecution(runCtx, eng, execution)
+	if execution.suppressSessionMessageProjection {
+		runCtx = withSessionMessageProjectionDisabled(runCtx)
+	}
+	runCtx = withToolOperationCoordinator(runCtx, s.newToolOperationCoordinator(m.runID, sessionID))
+	if hasPrompt {
+		runCtx = withRunPrompt(runCtx, promptSnapshot)
+	}
 	// Per-run mount registry: skill_view records declared tools here so the
 	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
 	// seeded with the mounts prior runs of this session accumulated, so a
 	// skill mounted once stays callable without re-viewing.
 	mounts := s.sessionMounts(ctx, sessionID, m.runID)
+	if execution.child != nil {
+		mounts = tools.NewMountedTools()
+	}
 	if mounts == nil {
 		mounts = tools.NewMountedTools()
 	}
 	runCtx = tools.WithMountedTools(runCtx, mounts)
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
+	runCtx = tools.WithWorkControl(runCtx, s)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
+	if historyScope != nil {
+		runCtx = WithHistoryScope(runCtx, *historyScope)
+	}
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
-	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
+	runCtx = withRunEventPublisher(runCtx, s.deps.Sink)
+	var onDelta func(string)
+	if execution.child != nil {
+		onDelta = execution.child.appendOutput
+	}
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta)
+	// One fresh detector per drive leg (ND-2): the consume loop drives it
+	// from the durable journal stream; the same pointer travels on the
+	// context so in-context seams share exactly this instance.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	runCtx = withNudgeState(runCtx, state)
+	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
+	if execution.child != nil {
+		if err := s.beginChildMailboxSafePoint(runCtx, execution.child); err != nil {
+			s.emitTerminal(runCtx, m, s.terminalEvent(runCtx, m, err))
+			return
+		}
+	}
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
+	var beforeComplete func() error
+	if execution.child != nil {
+		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(runCtx, execution.child) }
+	} else if len(parentReplies) > 0 {
+		beforeComplete = func() error { return s.consumeParentReplies(runCtx, parentReplies, m.runID) }
+	}
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state, beforeComplete, execution)
 }
 
 // withLiveModelStreamObserver installs the producer-path stream seam used by
@@ -1735,10 +2887,13 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // fail-closed errors, or the tool-settled barrier on the Recv→Send path.
 // Keeping the construction in one place prevents approval/question resumes
 // from reverting to EOF-batched output.
-func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) context.Context {
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string)) context.Context {
 	return withModelStreamObserver(ctx, modelStreamObserver{
 		Begin: m.beginObservedStream,
 		Chunk: func(chunk *schema.Message) error {
+			if chunk != nil && onDelta != nil {
+				onDelta(chunk.Content)
+			}
 			if err := m.waitForToolsSettled(ctx); err != nil {
 				return err
 			}
@@ -1756,6 +2911,27 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 	})
 }
 
+// nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
+// the boundary middleware delegates persistence to the Service — one
+// audited event per scheduled reminder, journaled and published through
+// the normal path. A failed append aborts the model call rather than
+// degrading the reminder into an unrecorded injection.
+func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudgeEmitter {
+	return func(ctx context.Context, notice nudgeNotice) error {
+		re := m.build(domain.EventToolNudge, payloadToolNudge{
+			ToolCallID:      notice.CallID,
+			ToolName:        notice.ToolName,
+			Reason:          notice.Reason,
+			RepeatCount:     notice.Count,
+			TemplateVersion: notice.TemplateVersion,
+		})
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: nudge scheduling event could not be journaled")
+		}
+		return nil
+	}
+}
+
 // runMessages rebuilds the session transcript for the engine (ADR-010):
 // user, assistant, and paired tool turns in store order, with the current
 // turn's user message last (Run persists it before driving, so the store
@@ -1767,12 +2943,20 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 }
 
 func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
+	return s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, domain.CollaborationModeNone)
+}
+
+func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string, collaboration domain.CollaborationMode) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
+	reservedPromptBytes, err := promptInstructionReservation(ctx)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
 	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
 	// official middleware.
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face)
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face, collaboration)
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
@@ -1788,17 +2972,22 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 		return nil, selection, ContextStats{}, err
 	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
-	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
+	attachedRefs, refErr := s.sessionAttachedReferences(ctx, sessionID)
+	if refErr != nil {
+		return nil, selection, ContextStats{}, fmt.Errorf("runtime: gather session references: %w", refErr)
+	}
+	msgs, stats, err := buildRunContextWithReferences(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
-	}, preamble, folded, userText)
+		ReservedBytes:      reservedPromptBytes,
+	}, preamble, folded, userText, attachedRefs)
 	if err != nil {
 		return nil, selection, stats, err
 	}
 	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
 		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sessionID), WorkspaceID: workspaceID}
 		if eng.cfg.MaxContextBytes > 0 {
-			used := projectedContextBytes(msgs)
+			used := projectedContextBytes(msgs) + reservedPromptBytes
 			request.EnforceByteBudget = true
 			request.ByteBudget = max(0, eng.cfg.MaxContextBytes-used)
 			// Keep the Host's token bound coupled to the same final
@@ -1825,8 +3014,9 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 			}
 		}
 	}
-	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs) > eng.cfg.MaxContextBytes {
-		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectedContextBytes(msgs), eng.cfg.MaxContextBytes)
+	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs)+reservedPromptBytes > eng.cfg.MaxContextBytes {
+		used := projectedContextBytes(msgs) + reservedPromptBytes
+		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, used, eng.cfg.MaxContextBytes)
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -1916,15 +3106,32 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+//
+// The leg's nudge detector is driven from this loop in journal order
+// (ND-2): a turn's tool.requested batch registers after its events are
+// durably appended, each tool.finished records completion on append
+// success, and the batch seals only once every one of its results is
+// durable — so the detector can never release a model handoff ahead of
+// the Journal. Any exit aborts the waiters the terminal transition
+// leaves behind.
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState, beforeComplete func() error, execution runExecutionOptions) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
 		}
 	}
+	if state != nil {
+		// Every exit path releases a waiting model boundary with the
+		// leg's last cause, even when the consume loop itself stranded.
+		defer state.Abort(context.Canceled)
+	}
+	var outstanding map[string]struct{}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -1935,43 +3142,126 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if err := reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
+			var requested []string
 			for _, re := range events {
+				if execution.child != nil && re.Type == domain.EventToolRequested {
+					execution.child.resetOutput()
+				}
 				if !s.persistAndPublish(ctx, sessionID, re) {
 					persistStopped = true
 					return context.Canceled
+				}
+				if state == nil {
+					continue
+				}
+				switch re.Type {
+				case domain.EventToolRequested:
+					var p payloadToolRequested
+					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
+						requested = append(requested, p.ToolCallID)
+					}
+				case domain.EventToolFinished:
+					var p payloadToolFinished
+					if err := json.Unmarshal(re.Payload, &p); err != nil {
+						return fmt.Errorf("runtime: decode tool.finished payload: %w", err)
+					}
+					call, ok := m.takeCompletion(p.ToolCallID)
+					if !ok {
+						// Resume legs replay the decided call without a
+						// parked record; rebuild the outcome from the
+						// journaled payload instead.
+						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
+					}
+					if err := state.Complete(call); err != nil {
+						return err
+					}
+					if _, tracked := outstanding[p.ToolCallID]; tracked {
+						delete(outstanding, p.ToolCallID)
+						if len(outstanding) == 0 {
+							state.Seal(nil)
+							if cause := state.terminalErr(); cause != nil {
+								return cause
+							}
+						}
+					}
+				}
+			}
+			if state != nil && len(requested) > 0 {
+				if err := state.Register(requested); err != nil {
+					return err
+				}
+				if outstanding == nil {
+					outstanding = map[string]struct{}{}
+				}
+				for _, id := range requested {
+					outstanding[id] = struct{}{}
 				}
 			}
 			return nil
 		})
 		if persistStopped {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			if state != nil {
+				state.Abort(errRunInterrupted)
+			}
 			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
 		}
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			// A failed first exchange still leaves a user message worth a
 			// title; the generator's truncation fallback names it when no
 			// model is reachable.
-			s.maybeAutoTitle(ctx, sessionID)
+			if execution.child == nil {
+				s.maybeAutoTitle(ctx, sessionID)
+			}
 			return
 		}
 	}
 
 	turnEnd := m.onTurnEnd()
 	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+		if state != nil {
+			state.Abort(err)
+		}
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
 	for _, re := range turnEnd {
 		if !s.persistAndPublish(ctx, sessionID, re) {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 	}
-	s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
-	s.maybeAutoTitle(ctx, sessionID)
+	if beforeComplete != nil {
+		if err := beforeComplete(); err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, fmt.Errorf("runtime: settle child mailbox: %w", err)))
+			return
+		}
+	}
+	if execution.child != nil {
+		summary := ""
+		summary = boundedChildSummary(execution.child.result())
+		s.emitTerminal(ctx, m, m.build(domain.EventChildCompleted, map[string]any{"summary": summary}))
+	} else {
+		s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
+	}
+	if execution.child == nil {
+		s.maybeAutoTitle(ctx, sessionID)
+	}
 }
 
 // reserveMappedBudget charges durable non-terminal events and the logical
@@ -2012,19 +3302,25 @@ func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 	return nil
 }
 
-// handleInterrupt suspends the run on a server-side approval (D-029 write
-// order): verify the checkpoint is readable, persist the pending approval
-// row, commit the single tool.approval_required event, publish it, and
-// register the run as pending. The run row stays active and no terminal
-// event is emitted; DecideApproval (or Cancel) closes it later.
+// handleInterrupt routes one exact Eino checkpoint target to its durable
+// human-interaction lifecycle. Suspended runs remain active without a
+// terminal event until a response resumes them or Cancel closes them.
 func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
 	if m.interrupt != nil && m.interrupt.ToolName == tools.AskUserName {
 		s.handleQuestionInterrupt(ctx, m, sessionID, selectedTools, mode)
 		return
 	}
+	if m.interrupt != nil && m.interrupt.PlanSubmissionID != "" {
+		s.handlePlanReviewInterrupt(ctx, m, sessionID, selectedTools, mode)
+		return
+	}
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("interrupt handling failed", "run", string(runID), "err", err)
+		if isChildTerminal(ctx) {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run could not be paused for approval. Please try again.",
@@ -2079,6 +3375,17 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(bindErr)
 		return
 	}
+	approvalKind := domain.ApprovalKindRun
+	if s.deps.Runs != nil {
+		run, runErr := s.deps.Runs.GetRun(persistCtx, runID)
+		if runErr != nil {
+			fail(fmt.Errorf("load run for approval ownership: %w", runErr))
+			return
+		}
+		if run.Kind == domain.RunKindChild {
+			approvalKind = domain.ApprovalKindChild
+		}
+	}
 	approval := domain.Approval{
 		ID:               newPrefixedID("apr_"),
 		RunID:            runID,
@@ -2094,6 +3401,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Preview:          proposal.Preview,
 		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
 		ProposalData:     boundProposalData,
+		Kind:             approvalKind,
 		SandboxMode:      string(sandboxMode(ctx)),
 		ApprovalPolicy:   string(approvalPolicy(ctx)),
 	}
@@ -2126,6 +3434,15 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(err)
 		return
 	}
+	if isChildTerminal(ctx) {
+		lifecycle := m.build(domain.EventChildSuspended, map[string]string{
+			"approval_id": approval.ID, "tool_call_id": approval.ToolCallID,
+		})
+		if _, err := s.appendRunEvent(persistCtx, lifecycle, false); err != nil {
+			fail(err)
+			return
+		}
+	}
 
 	if ctx.Err() != nil {
 		// Cancelled while suspending: close the durable approval before the
@@ -2134,17 +3451,18 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		if err := s.cancelApproval(persistCtx, approval, "run cancelled while suspending"); err != nil {
 			slog.Warn("cancel approval while suspending failed", "approval", approval.ID, "err", err)
 		}
-		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, context.Canceled))
 		return
 	}
 
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m, selectedTools: append([]string(nil), selectedTools...),
+		runCtx: ctx, sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m, selectedTools: append([]string(nil), selectedTools...),
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
+		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -2155,6 +3473,10 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("question handling failed", "run", string(runID), "err", err)
+		if isChildTerminal(ctx) {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run could not be paused for a user question. Please try again.",
@@ -2227,12 +3549,13 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
+		runCtx: ctx, sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
 		mounted:       tools.MountedToolsFromContext(ctx),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
 		face: runFace(ctx), questionID: question.ID, ledger: ledger,
+		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -2247,7 +3570,31 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 
 // DecideApprovalWithReason records an optional bounded human rationale and
 // emits a durable decision event before any resumed model work is visible.
+// The decision is attributed to the local user.
 func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, decision, reason string) error {
+	return s.decideApprovalWithReason(ctx, approvalID, decision, reason, "local_user")
+}
+
+// DecideApprovalAsActor settles a pending approval attributed to the named
+// actor (e.g. "channel:telegram:12345"). It runs the exact same validation,
+// journaling, and resume machinery as the local path — the actor only
+// changes the attribution recorded in the journal and the approval store,
+// so a channel-side decision stays auditable without becoming a second
+// decision path. The authorization boundary lives with the caller: the
+// ChannelHost only forwards decisions from allow-listed senders scoped to
+// the originating session (contract §12).
+func (s *Service) DecideApprovalAsActor(ctx context.Context, approvalID, decision, reason, actor string) error {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return errors.New("runtime: approval actor is required")
+	}
+	if len(actor) > 200 {
+		return errors.New("runtime: approval actor is too long")
+	}
+	return s.decideApprovalWithReason(ctx, approvalID, decision, reason, actor)
+}
+
+func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, decision, reason, actor string) error {
 	if decision != domain.ApprovalApproved && decision != domain.ApprovalDenied {
 		return ErrApprovalInvalidDecision
 	}
@@ -2281,7 +3628,27 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
 	}
-	return s.settleApproval(ctx, approval, decision, "local_user", reason)
+	return s.settleApproval(ctx, approval, decision, actor, reason)
+}
+
+// waitPendingRegistration polls for the in-memory suspension a durable
+// approval/question row precedes. Bounded: a suspension that never lands (a
+// run that died between the row write and the registration) still fails
+// closed.
+func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		_, pending := s.pending[runID]
+		s.mu.Unlock()
+		if pending {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // settleApproval records a decision whose guards the caller already checked
@@ -2289,6 +3656,26 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	s.mu.Lock()
+	_, nativeChildPending := s.pending[approval.RunID]
+	s.mu.Unlock()
+	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+		// The durable approval row precedes in-memory suspension registration
+		// on the suspend path, so a decider observing the row early must wait
+		// for the suspension to land rather than fail the resume.
+		nativeChildPending = s.waitPendingRegistration(approval.RunID)
+	}
+	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+		return errors.New("runtime: child approval is not active for Service resume")
+	}
+	if (approval.Kind != domain.ApprovalKindChild || nativeChildPending) && !isShellApproval(approval) {
+		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
+			// Validate before first-writer settlement. A corrupt or incompatible
+			// snapshot leaves the review pending, so recovery can surface the
+			// same fail-closed state without losing the user's decision slot.
+			return fmt.Errorf("runtime: approval resume rejected by prompt snapshot: %w", err)
+		}
+	}
 	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
@@ -2300,16 +3687,6 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	decisionPersisted := s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
 		ApprovalID: approval.ID, Decision: decision, Actor: actor, Reason: reason, DecidedAt: time.Now().UnixMilli(),
 	})
-	if approval.Kind == domain.ApprovalKindChild {
-		if s.deps.ChildApprovals == nil {
-			return errors.New("runtime: child approval router is not wired")
-		}
-		if err := s.deps.ChildApprovals.ResolveChildApproval(ctx, approval, decision); err != nil {
-			return fmt.Errorf("runtime: resolve child approval: %w", err)
-		}
-		return nil
-	}
-
 	s.mu.Lock()
 	p, ok := s.pending[approval.RunID]
 	if ok {
@@ -2348,6 +3725,21 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 		slog.Warn("approval decided without a pending run", "approval", approval.ID, "run", string(approval.RunID))
 		return nil
 	}
+	if isNativeOrchestrationResumeTarget(approval.ResumeTarget) {
+		if !decisionPersisted {
+			s.emitTerminal(context.WithoutCancel(ctx), p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError,
+				Message:       "The workflow approval decision could not be recorded; the node did not run.",
+			}))
+			return errors.New("runtime: persist workflow approval decision failed")
+		}
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.resumeNativeOrchestrationApproval(p, approval, decision)
+		}()
+		return nil
+	}
 
 	// Recover the tool name from the suspended mapper so the resumed
 	// tool result events keep their call identity.
@@ -2362,8 +3754,8 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
-			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
+		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID, nil)
 	}()
 	return nil
 }
@@ -2515,10 +3907,16 @@ func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, 
 	}
 	s.mu.Unlock()
 	if pending {
-		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeHumanTimeout,
-			Message:       "The run stopped because human review timed out.",
-		}))
+		if p.execution.child != nil {
+			terminalCtx := withRunExecution(ctx, p.engine, p.execution)
+			terminalCtx = withChildTerminal(terminalCtx)
+			s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, context.DeadlineExceeded))
+		} else {
+			s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeHumanTimeout,
+				Message:       "The run stopped because human review timed out.",
+			}))
+		}
 	} else if shellPending {
 		s.deleteShellState(sp.stateRef)
 		s.emitTerminal(ctx, sp.mapper, sp.mapper.build(domain.EventRunFailed, payloadRunFailed{
@@ -2591,6 +3989,12 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if time.Now().UnixMilli() >= question.ExpiresAt {
 		return ErrQuestionExpired
 	}
+	if _, _, err := s.promptSnapshotContext(ctx, question.RunID); err != nil {
+		// Keep the durable question pending when the immutable prompt cannot be
+		// reconstructed. Answering it would otherwise consume the only resume
+		// opportunity while no model/tool call is allowed to proceed.
+		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
+	}
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
@@ -2625,8 +4029,8 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
-			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
+		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
 	}()
 	return nil
 }
@@ -2689,9 +4093,9 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 	return s.ledgers[runID]
 }
 
-// resumeRun feeds the decision back into the engine and maps the resumed
+// resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -2701,6 +4105,9 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		s.runTools[runID] = selected
 	}
 	s.mu.Unlock()
+	if eng == nil {
+		eng = s.engine
+	}
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -2712,9 +4119,28 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		// call so reconstructed tool.started/finished keep the call id.
 		m.registerOpenCall(openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
+	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(parent, selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
+	ctx = withRunExecution(ctx, eng, execution)
+	if execution.child != nil {
+		ctx = withChildTerminal(ctx)
+	}
+	if execution.suppressSessionMessageProjection {
+		ctx = withSessionMessageProjectionDisabled(ctx)
+	}
+	ctx = withToolOperationCoordinator(ctx, s.newToolOperationCoordinator(runID, sessionID))
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
+	if approvalID != "" && isChildTerminal(ctx) {
+		lifecycle := m.build(domain.EventChildResumed, map[string]string{
+			"approval_id": approvalID, "decision": resumeValue,
+		})
+		if _, err := s.appendRunEvent(context.Background(), lifecycle, false); err != nil {
+			slog.Warn("persist child resume lifecycle failed", "run", string(runID), "approval", approvalID, "err", err)
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+	}
+	ctx = tools.WithWorkControl(ctx, s)
 	// Restore the skill mounts captured at suspend time so tools mounted
 	// before the interrupt stay callable after resume (TT-2). A nil
 	// registry (restart recovery) falls back to a fresh one so a
@@ -2724,12 +4150,29 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		mounts = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
+	promptCtx, hasPrompt, promptErr := s.promptSnapshotContext(ctx, runID)
+	if promptErr != nil {
+		// Validate the immutable prompt before consuming proposal bytes or
+		// handing a durable approval/question to Eino. The decision has already
+		// been recorded by the caller, so close the run visibly if recovery is
+		// no longer possible instead of leaving an active dangling run.
+		slog.Warn("resume rejected prompt snapshot", "run", string(runID), "err", promptErr)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		ctx = promptCtx
+	}
 	approvedArgumentsHash := ""
 	if approvalID != "" {
 		var unbindErr error
 		proposalData, approvedArgumentsHash, unbindErr = unbindToolApprovalProposal(proposalData)
 		if unbindErr != nil {
 			slog.Warn("resume rejected invalid tool approval binding", "run", string(runID), "approval", approvalID, "err", unbindErr)
+			if isChildTerminal(ctx) {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, unbindErr))
+				return
+			}
 			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 				CauseCategory: causeInternalError,
 				Message:       "The approved tool request could not be verified and did not run.",
@@ -2754,26 +4197,128 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		})
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
-	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
+	ctx = withRunEventPublisher(ctx, s.deps.Sink)
+	var onDelta func(string)
+	if execution.child != nil {
+		onDelta = execution.child.appendOutput
+	}
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
+	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
+	// window state carries over from the suspended leg.
+	state := newNudgeState()
+	if err := s.restoreResumeNudgeBatch(context.Background(), state, runID, toolCallID, resumeBatchIDs); err != nil {
+		slog.Warn("resume could not restore tool result barrier", "run", string(runID), "err", err)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+		return
+	}
+	m.setNudgeState(state)
+	ctx = withNudgeState(ctx, state)
+	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
+	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	iter, err := eng.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
-		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeInternalError,
-			Message:       "The run could not be resumed. Please try again.",
-		}))
+		if ctx.Err() != nil {
+			s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		} else {
+			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError,
+				Message:       "The run could not be resumed. Please try again.",
+			}))
+		}
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter)
+	var beforeComplete func() error
+	if execution.child != nil {
+		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(ctx, execution.child) }
+	}
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state, beforeComplete, execution)
+	if execution.child != nil {
+		s.failUnsettledChildMail(execution.child)
+	}
+}
+
+func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState, runID domain.RunID, toolCallID string, batchIDs []string) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	containsTarget := false
+	siblings := make(map[string]struct{}, len(batchIDs))
+	for _, id := range batchIDs {
+		if id == toolCallID {
+			containsTarget = true
+			continue
+		}
+		siblings[id] = struct{}{}
+	}
+	if !containsTarget {
+		return errors.New("runtime: resume tool batch does not contain its interrupted call")
+	}
+	if err := state.Register(batchIDs); err != nil {
+		return err
+	}
+	if len(siblings) == 0 {
+		return nil
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	settled := make(map[string]struct{}, len(siblings))
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var finished payloadToolFinished
+		if err := json.Unmarshal(event.Payload, &finished); err != nil {
+			return fmt.Errorf("runtime: decode resumed tool result: %w", err)
+		}
+		if _, ok := siblings[finished.ToolCallID]; !ok {
+			continue
+		}
+		if _, done := settled[finished.ToolCallID]; done {
+			continue
+		}
+		if err := state.SatisfyDurable(finished.ToolCallID); err != nil {
+			return err
+		}
+		settled[finished.ToolCallID] = struct{}{}
+	}
+	if err := it.Err(); err != nil {
+		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+	}
+	return nil
 }
 
 // terminalEvent classifies the failure path: context cancellation and
 // engine CancelErrors close the run as cancelled; everything else fails
 // it with a structured, user-visible message (FR-11).
 func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error) domain.RunEvent {
+	if isChildTerminal(ctx) {
+		var cancelErr *adk.CancelError
+		if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) ||
+			errors.Is(cause, errRunCancelled) || errors.As(cause, &cancelErr) {
+			return m.build(domain.EventChildCancelled, map[string]any{"reason": reasonUserRequested})
+		}
+		message := "The child task could not be completed. Please retry."
+		if providerMessage, ok := keyMissingMessage(cause); ok {
+			message = providerMessage
+		} else if isProviderTransportError(cause) {
+			message = providerUnavailableMessage
+		} else if errors.Is(cause, adk.ErrExceedMaxIterations) {
+			message = "The child task reached its tool-call limit."
+		} else if errors.Is(cause, ErrContextBudgetExceeded) {
+			message = "The child task context exceeds the configured limit."
+		}
+		return m.build(domain.EventChildFailed, map[string]any{
+			"cause_category": causeCategoryOf(cause), "message": message,
+		})
+	}
 	var ce *adk.CancelError
 	if errors.Is(cause, errRunCancelled) || ctx.Err() != nil || errors.As(cause, &ce) {
 		return m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested})
@@ -2907,7 +4452,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		return false
 	}
 	re.Seq = seq
-	if re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished {
+	if !sessionMessageProjectionDisabled(ctx) && (re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished) {
 		projectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		err := s.projectRunMessagesLocked(projectCtx, sessionID, re.RunID)
 		cancel()
@@ -2930,9 +4475,9 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
 	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
 	if s.runSessionDeleted(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
+		s.projectionMu.Unlock()
 		return
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
@@ -2944,6 +4489,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
 		s.cleanupRunState(terminal.RunID)
+		s.projectionMu.Unlock()
 		return
 	}
 	terminal.Seq = seq
@@ -2959,6 +4505,17 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 
 	s.mu.Lock()
 	var shellStateRefToDelete string
+	var goalSession domain.SessionID
+	var goalRef domain.GoalRef
+	var runSession domain.SessionID
+	goalSession = s.goalRunSessions[terminal.RunID]
+	goalRef = s.goalRunRefs[terminal.RunID]
+	runSession = s.runSessions[terminal.RunID]
+	delete(s.goalRunSessions, terminal.RunID)
+	delete(s.goalRunRefs, terminal.RunID)
+	if goalSession != "" && s.goalRuns[goalSession] == terminal.RunID {
+		delete(s.goalRuns, goalSession)
+	}
 	if c, ok := s.active[terminal.RunID]; ok {
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
@@ -2970,9 +4527,25 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
 	delete(s.runTools, terminal.RunID)
+	delete(s.workFenced, terminal.RunID)
+	delete(s.workBlockedCalls, terminal.RunID)
+	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
+	s.projectionMu.Unlock()
+	if runSession != "" {
+		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)
+	}
+	if goalSession != "" {
+		settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+		s.settleGoalRound(settleCtx, goalSession, terminal.RunID, status, goalRef)
+		settleCancel()
+	} else if runSession != "" && (status == domain.RunCompleted || s.goalCreatedByRun(persistCtx, runSession, terminal.RunID)) {
+		// A completed human turn, or a failed/cancelled turn that created
+		// the current Goal, releases the session for the next candidate.
+		s.wakeGoal(runSession, false)
+	}
 }
 
 func (s *Service) cleanupRunState(runID domain.RunID) {
@@ -2990,7 +4563,14 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.ledgers, runID)
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
+	delete(s.workFenced, runID)
+	delete(s.workBlockedCalls, runID)
+	delete(s.workGates, runID)
 	delete(s.runSessions, runID)
+	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {
+		delete(s.goalRuns, goalSession)
+	}
+	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)

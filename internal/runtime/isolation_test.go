@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,6 +76,24 @@ func TestWorkspaceManagerExistingNeverCreates(t *testing.T) {
 	got, exists, err := manager.Existing(context.Background(), "run_present")
 	if err != nil || !exists || got != want {
 		t.Fatalf("existing workspace = %+v/%v/%v, want %+v", got, exists, err, want)
+	}
+}
+
+func TestWorkspaceManagerReleaseRemovesPrivateRunWorkspace(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sandboxes")
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := manager.Ensure(context.Background(), "run_release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Release(context.Background(), workspace); err != nil {
+		t.Fatalf("release workspace: %v", err)
+	}
+	if _, err := os.Stat(workspace.Path); !os.IsNotExist(err) {
+		t.Fatalf("released workspace still exists: %v", err)
 	}
 }
 
@@ -185,5 +204,108 @@ func TestSessionWorkspaceManagerResolvesDefaultAndSelectedRoots(t *testing.T) {
 	durableOwner, err := manager.Ensure(withSessionID(context.Background(), "sess-beta"), "run-alpha")
 	if err != nil || durableOwner.Path != canonicalAlpha {
 		t.Fatalf("durable run owner lost to stale context = %+v, err=%v", durableOwner, err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// AdmissionWorkspaceAllocator (SC-D4 §7): admission allocation reports
+// whether it created a fresh private directory; rollback removes only an
+// empty, root-contained, run-ID-named private dir and never a user dir.
+
+func TestEnsureForAdmissionPrivateLifecycle(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ws")
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	workspace, newly, err := manager.EnsureForAdmission(ctx, "run-admission")
+	if err != nil {
+		t.Fatalf("EnsureForAdmission: %v", err)
+	}
+	if !newly {
+		t.Fatal("fresh private allocation must report newly=true")
+	}
+	if workspace.Path != filepath.Join(root, "run-admission") {
+		t.Fatalf("workspace path = %q", workspace.Path)
+	}
+	if _, newly, err = manager.EnsureForAdmission(ctx, "run-admission"); err != nil || newly {
+		t.Fatalf("pre-existing private dir: newly=%v err=%v, want preserved", newly, err)
+	}
+	if err := manager.DiscardNewPrivateAdmission(ctx, "run-admission"); err != nil {
+		t.Fatalf("discard: %v", err)
+	}
+	if _, err := os.Stat(workspace.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("discarded workspace still exists: %v", err)
+	}
+	if err := manager.DiscardNewPrivateAdmission(ctx, "run-admission"); err != nil {
+		t.Fatalf("repeat discard must be a no-op: %v", err)
+	}
+}
+
+func TestDiscardNewPrivateAdmissionPreservesNonEmptyDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ws")
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	workspace, newly, err := manager.EnsureForAdmission(ctx, "run-content")
+	if err != nil || !newly {
+		t.Fatalf("ensure: newly=%v err=%v", newly, err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace.Path, "artifact.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.DiscardNewPrivateAdmission(ctx, "run-content"); err == nil {
+		t.Fatal("discard of a non-empty workspace must fail, not remove content")
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Path, "artifact.txt")); err != nil {
+		t.Fatalf("workspace content was destroyed: %v", err)
+	}
+}
+
+func TestAdmissionAllocatorNeverRemovesUserDirectories(t *testing.T) {
+	ctx := context.Background()
+
+	local := t.TempDir()
+	localManager, err := NewLocalWorkspaceManager(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, newly, err := localManager.EnsureForAdmission(ctx, "run-local"); err != nil || newly {
+		t.Fatalf("local workspace: newly=%v err=%v, want reused user dir", newly, err)
+	}
+	if err := localManager.DiscardNewPrivateAdmission(ctx, "run-local"); err != nil {
+		t.Fatalf("local discard must be a no-op: %v", err)
+	}
+	if _, err := os.Stat(local); err != nil {
+		t.Fatalf("local workspace was removed: %v", err)
+	}
+
+	selected := t.TempDir()
+	canonicalSelected, err := filepath.EvalSymlinks(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultRoot := filepath.Join(t.TempDir(), "default")
+	sessions := workspaceSessionLookup{"sess-sel": {ID: "sess-sel", WorkspacePath: selected}}
+	manager, err := NewSessionWorkspaceManager(defaultRoot, sessions, workspaceRunLookup{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selCtx := withSessionID(ctx, "sess-sel")
+	workspace, newly, err := manager.EnsureForAdmission(selCtx, "run-selected")
+	if err != nil || newly {
+		t.Fatalf("selected workspace: newly=%v err=%v, want reused user dir", newly, err)
+	}
+	if workspace.Path != canonicalSelected {
+		t.Fatalf("selected workspace path = %q, want %q", workspace.Path, canonicalSelected)
+	}
+	if err := manager.DiscardNewPrivateAdmission(selCtx, "run-selected"); err != nil {
+		t.Fatalf("selected discard must be a no-op: %v", err)
+	}
+	if _, err := os.Stat(selected); err != nil {
+		t.Fatalf("selected workspace was removed: %v", err)
 	}
 }

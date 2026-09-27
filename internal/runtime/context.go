@@ -23,6 +23,12 @@ type ContextPolicy struct {
 	// means unbounded for direct runtime tests; the current user message is
 	// always retained separately.
 	MaxHistoryMessages int
+	// ReservedBytes is a fixed portion of the final model input that is
+	// supplied outside this transcript, such as an admitted authoritative
+	// instruction. History selection deducts it before choosing rows, so the
+	// model-boundary budget check does not reject a context that could have
+	// fit by dropping older history.
+	ReservedBytes int
 }
 
 // ContextStats describes how the policy shaped one run's context.
@@ -66,6 +72,16 @@ var ErrContextBudgetExceeded = errors.New("runtime: context budget exceeded")
 
 const contextMessageOverhead = 16
 
+// sessionAttachedReferences gathers the snapshots destined for this
+// session's turns. A nil References service means no reference surface is
+// wired; a scan failure is surfaced, never swapped for an empty success.
+func (s *Service) sessionAttachedReferences(ctx context.Context, sessionID domain.SessionID) (map[domain.RunID][]domain.ContextReference, error) {
+	if s.deps.References == nil {
+		return nil, nil
+	}
+	return s.deps.References.AttachedReferences(ctx, sessionID)
+}
+
 // buildRunContext creates the exact message list sent to the engine. The
 // preamble and current user request are mandatory; older transcript rows are
 // retained from newest to oldest until the message and byte budgets are
@@ -75,7 +91,15 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 }
 
 func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
-	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 {
+	return buildRunContextWithReferences(ctx, contextHost, policy, preamble, stored, currentUserText, nil)
+}
+
+// buildRunContextWithReferences additionally projects the committed
+// reference snapshots that belong to each selected turn's run. Only startup
+// (admission) and fork-copied snapshots reach here: a same-run model attach
+// is delivered by its tool result and is never re-injected.
+func buildRunContextWithReferences(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string, references map[domain.RunID][]domain.ContextReference) ([]*schema.Message, ContextStats, error) {
+	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 || policy.ReservedBytes < 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: policy values must not be negative", ErrContextBudgetExceeded)
 	}
 
@@ -97,7 +121,7 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 	history := transcript[:len(transcript)-1]
 
 	stats := ContextStats{OriginalHistoryMessages: len(history)}
-	baseBytes := messageCost(preamble, "system") + messageCostForMessage(current)
+	baseBytes := policy.ReservedBytes + messageCost(preamble, "system") + messageCostForMessage(current)
 	if policy.MaxBytes > 0 && baseBytes > policy.MaxBytes {
 		return nil, stats, fmt.Errorf("%w: preamble and current request require %d bytes; budget is %d", ErrContextBudgetExceeded, baseBytes, policy.MaxBytes)
 	}
@@ -125,23 +149,23 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 	stats.DroppedHistoryMessages = len(history) - stats.IncludedHistoryMessages
 
 	msgs := make([]*schema.Message, 0, len(selected)+2)
-	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes}
+	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes, used: policy.ReservedBytes}
 	preambleMessage := schema.SystemMessage(preamble)
 	msgs = append(msgs, preambleMessage)
 	projectionBudget.add(preambleMessage)
-	feed, err := projectFeedWithContextBudget(ctx, contextHost, selected, projectionBudget)
+	feed, err := projectFeedWithContextBudget(ctx, contextHost, selected, projectionBudget, references)
 	if err != nil {
 		return nil, stats, err
 	}
 	msgs = append(msgs, feed...)
-	currentMessage, err := userFeedMessageWithContextBudget(ctx, contextHost, current, projectionBudget)
+	currentMessage, err := userFeedMessageWithContextBudget(ctx, contextHost, current, projectionBudget, references[current.RunID])
 	if err != nil {
 		return nil, stats, err
 	}
 	msgs = append(msgs, currentMessage)
-	stats.Bytes = projectionBudget.used
-	if policy.MaxBytes > 0 && stats.Bytes > policy.MaxBytes {
-		return nil, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, stats.Bytes, policy.MaxBytes)
+	stats.Bytes = projectionBudget.used - policy.ReservedBytes
+	if policy.MaxBytes > 0 && projectionBudget.used > policy.MaxBytes {
+		return nil, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectionBudget.used, policy.MaxBytes)
 	}
 	return msgs, stats, nil
 }
@@ -242,15 +266,15 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 }
 
 func projectFeedWithContext(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message) ([]*schema.Message, error) {
-	return projectFeedWithContextBudget(ctx, contextHost, msgs, nil)
+	return projectFeedWithContextBudget(ctx, contextHost, msgs, nil, nil)
 }
 
-func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget) ([]*schema.Message, error) {
+func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget, references map[domain.RunID][]domain.ContextReference) ([]*schema.Message, error) {
 	out := make([]*schema.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); {
 		msg := msgs[i]
 		if msg.Role == domain.RoleUser {
-			projected, err := userFeedMessageWithContextBudget(ctx, contextHost, msg, budget)
+			projected, err := userFeedMessageWithContextBudget(ctx, contextHost, msg, budget, references[msg.RunID])
 			if err != nil {
 				return nil, err
 			}

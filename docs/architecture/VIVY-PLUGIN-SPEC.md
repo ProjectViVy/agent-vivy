@@ -317,17 +317,19 @@ external sources explicitly pinned by the Recipe. There is no v0 command or
 compatibility path.
 
 `verify` checks Descriptor schema, typed Port declarations, import firewall,
-source identity, Grant requests, catalog schema, confinement, namespace,
-placeholder parity and limits, and UI build metadata. It does not execute a
-Provider: focused conformance remains a separate release/CI gate.
+source reference and linkability, Grant requests, catalog schema, confinement,
+namespace, placeholder parity and limits, and UI build metadata. It does not
+calculate or compare source-tree SHA-256, and it does not execute a Provider:
+focused conformance remains a separate release/CI gate.
 
 `pack` compiles the complete Recipe graph, creates typed generated wiring,
-builds backend and UI contributions, binds complete checked-in conformance
-results only when they match a selected Provider and source hash, embeds the
-immutable Manifest, and emits no artifact on failure. It never relabels a
-result onto an unattested third-party Provider. `pack` does not run test
-suites; the executable result-reproduction gate, Generation matrix, and
-focused suites must pass before their immutable result bundle is advanced.
+derives source hashes from the exact selected source trees, builds backend and
+UI contributions, binds complete checked-in conformance results only when
+they match a selected Provider and derived source hash, embeds the immutable
+Manifest, and emits no artifact on failure. It never relabels a result onto
+an unattested third-party Provider. `pack` does not run test suites; the
+executable result-reproduction gate, Generation matrix, and focused suites
+must pass before their immutable result bundle is advanced.
 
 `inspect-artifact` displays Module/Port graph, Trust assignment, effective
 Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,

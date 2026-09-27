@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	einotoolsearch "github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch"
@@ -31,6 +33,10 @@ type SummaryModel = model.BaseModel[*schema.Message]
 
 // EngineConfig carries the tunables the app layer reads from config.
 type EngineConfig struct {
+	// StaticInstructionOverride replaces the default assistant instruction.
+	// Child task engines use a neutral instruction so they do not inherit the
+	// parent assistant's persona.
+	StaticInstructionOverride *string
 	// ContextHost is the composed, bounded source surface. It is optional so
 	// direct runtime tests and builds without an explicit bridge stay inert.
 	ContextHost *contexthost.Host
@@ -254,7 +260,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	// With no deferred tools every active tool is fixed-visible, so the
 	// staticTools slice already contains the complete active surface.
-	handlers := make([]adk.ChatModelAgentMiddleware, 0, 1+len(cfg.HiddenTools))
+	handlers := make([]adk.ChatModelAgentMiddleware, 0, 2+len(cfg.HiddenTools))
 	var searchHandler adk.ChatModelAgentMiddleware
 	if len(dynamicTools) > 0 {
 		var err error
@@ -312,14 +318,36 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
+	handlers = append(handlers, newWorkPlanGuidanceMiddleware())
+	// Same-batch work-control terminal actions must fence every later call in
+	// model order. Eino parallelizes calls by default, so execute this node in
+	// order and let the Service fence decide whether each call may run.
+	// Eino's first registered WrapModel handler is the outermost layer; the
+	// prompt middleware must see the final input after all compaction, skill,
+	// AGENTS.md, dynamic-tool, and mount projections.
+	handlers = append(handlers, newPromptMiddleware(cfg.MaxContextBytes))
+	// ND-3 (NUDGE-DESIGN §6/§7): the reminder boundary is registered last
+	// so its WrapModel sits innermost — after compaction, tool search and
+	// the mount projection — and sees only the final shaped input. Its
+	// injected message is transient, never visible to the other handlers.
+	handlers = append(handlers, newNudgeMiddleware(cfg.MaxContextBytes))
+	instruction := composeStaticInstruction()
+	agentName := "vivy"
+	agentDescription := "Vivy, a precise personal assistant."
+	if cfg.StaticInstructionOverride != nil {
+		instruction = *cfg.StaticInstructionOverride
+		agentName = "task-child"
+		agentDescription = "Bounded task runner."
+	}
 	agentCfg := &adk.ChatModelAgentConfig{
-		Name:        "vivy",
-		Description: "Vivy, a precise personal assistant.",
-		Instruction: composeStaticInstruction(),
-		Model:       observeModelStreams(m),
-		Handlers:    handlers,
+		Name:          agentName,
+		Description:   agentDescription,
+		Instruction:   instruction,
+		GenModelInput: literalGenModelInput,
+		Model:         observeModelStreams(m),
+		Handlers:      handlers,
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools},
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
 		},
 	}
 	if cfg.MaxToolTurns > 0 {
@@ -341,6 +369,73 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
 	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
+}
+
+const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."
+
+const maxChildToolTurns = 8
+
+// ChildView builds the same Eino Service runner over a strictly selected
+// read-only tool subset and a clean instruction/context surface.
+func (e *Engine) ChildView(ctx context.Context, names []string) (*Engine, error) {
+	return e.restrictedView(ctx, names, true)
+}
+
+// OneShotView builds a clean-context runner over an explicitly selected
+// parent-bounded tool subset. Service policy and approval middleware remain
+// active for any selected effectful tool.
+func (e *Engine) OneShotView(ctx context.Context, names []string) (*Engine, error) {
+	return e.restrictedView(ctx, names, false)
+}
+
+func (e *Engine) restrictedView(ctx context.Context, names []string, readOnlyOnly bool) (*Engine, error) {
+	if e == nil || e.chatModel == nil {
+		return nil, errors.New("runtime: child engine requires a configured model")
+	}
+	selectedNames, err := domain.CanonicalToolNames(names)
+	if err != nil {
+		return nil, err
+	}
+	requested := make(map[string]struct{}, len(selectedNames))
+	for _, name := range selectedNames {
+		requested[name] = struct{}{}
+	}
+	selected := make([]tools.Tool, 0, len(selectedNames))
+	for _, tool := range e.activeTools {
+		if _, ok := requested[tool.Spec().Name]; !ok {
+			continue
+		}
+		if readOnlyOnly && !tool.Spec().Readonly {
+			return nil, fmt.Errorf("runtime: child tool %q is not read-only", tool.Spec().Name)
+		}
+		selected = append(selected, tool)
+		delete(requested, tool.Spec().Name)
+	}
+	if len(requested) != 0 {
+		missing := make([]string, 0, len(requested))
+		for name := range requested {
+			missing = append(missing, name)
+		}
+		sort.Strings(missing)
+		return nil, fmt.Errorf("runtime: child tool selection contains unavailable tools: %s", strings.Join(missing, ", "))
+	}
+	cfg := e.cfg
+	neutralInstruction := childStaticInstruction
+	cfg.StaticInstructionOverride = &neutralInstruction
+	cfg.ContextHost = nil
+	cfg.SkillBackend = nil
+	cfg.SkillSources = nil
+	cfg.SkillActiveIDs = nil
+	cfg.SkillAuthorize = nil
+	cfg.AgentsMDBackend = nil
+	cfg.AgentsMDFiles = nil
+	cfg.HiddenTools = nil
+	cfg.OffloadBackend = nil
+	cfg.Compaction = nil
+	if cfg.MaxToolTurns <= 0 || cfg.MaxToolTurns > maxChildToolTurns {
+		cfg.MaxToolTurns = maxChildToolTurns
+	}
+	return NewEngine(ctx, e.chatModel, selected, cfg)
 }
 
 // PrepareProposal asks an effectful tool for a bounded review plan before the
@@ -386,9 +481,9 @@ func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.Message, opts ..
 }
 
 // Resume restarts a suspended run from its checkpoint, feeding the resume
-// payload (the approval decision) back to the interrupted tool via
-// params.Targets. The caller must pass the same checkpoint id the run was
-// started with (docs/eino-capability-verify.md §2.2).
+// payload (an approval, question answer, or Plan review decision) back to
+// the interrupted tool via params.Targets. The caller must pass the
+// checkpoint id used to start the run (docs/eino-capability-verify.md §2.2).
 func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.AgentEvent], error) {
 	return e.runner.ResumeWithParams(ctx, checkpointID, params, opts...)
 }

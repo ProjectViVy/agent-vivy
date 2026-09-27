@@ -30,6 +30,7 @@ func TestServiceToolLoopDetected(t *testing.T) {
 	// Turn cap kept above the 6 repeats the detector needs, so the
 	// repetition guard - not MaxIterations - stops the run.
 	svc, backend, _ := newLoopGuardService(t, 20, loopCallScript(8))
+	mustCreateSession(t, backend, "sess-loop-repeat")
 
 	runID, err := svc.Run(context.Background(), "sess-loop-repeat", "echo the same thing")
 	if err != nil {
@@ -56,10 +57,11 @@ func TestServiceToolLoopDetected(t *testing.T) {
 	if n := countTerminal(events); n != 1 {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
-	// The run looped before detection: five identical results are
-	// journaled (the trip batch is discarded with the failure).
-	if got := countToolFinished(events); got != 5 {
-		t.Fatalf("tool.finished events = %d, want 5", got)
+	// Every durable outcome is journaled before the hard stop (ND-2):
+	// the sixth identical tool.finished stays visible ahead of the run's
+	// single terminal event instead of being discarded with the trip.
+	if got := countToolFinished(events); got != 6 {
+		t.Fatalf("tool.finished events = %d, want 6", got)
 	}
 }
 
@@ -68,6 +70,7 @@ func TestServiceToolLoopDetected(t *testing.T) {
 func TestServiceToolLoopWithinLimit(t *testing.T) {
 	script := append(loopCallScript(5), schema.AssistantMessage("Done repeating.", nil))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
+	mustCreateSession(t, backend, "sess-loop-ok")
 
 	runID, err := svc.Run(context.Background(), "sess-loop-ok", "echo five times")
 	if err != nil {
@@ -90,48 +93,48 @@ func TestLoopWindowCountsAndEvicts(t *testing.T) {
 	argsB := "{\"text\":\"b\"}"
 
 	var w loopWindow
-	if err := w.record("echo_info", argsA, "a", ""); err != nil {
+	if _, err := w.record("echo_info", argsA, "a", ""); err != nil {
 		t.Fatalf("first record: %v", err)
 	}
 	// Window of 10 alternating signatures never exceeds 5 repeats of
 	// either, and evicts older entries.
 	for i := 0; i < 9; i++ {
 		if i%2 == 0 {
-			if err := w.record("echo_info", argsB, "b", ""); err != nil {
+			if _, err := w.record("echo_info", argsB, "b", ""); err != nil {
 				t.Fatalf("record %d: %v", i+2, err)
 			}
 			continue
 		}
-		if err := w.record("echo_info", argsA, "a", ""); err != nil {
+		if _, err := w.record("echo_info", argsA, "a", ""); err != nil {
 			t.Fatalf("record %d: %v", i+2, err)
 		}
 	}
 	// The 11th record keeps five of each signature in the window; the
 	// 12th makes six of the first: the guardrail must trip.
-	if err := w.record("echo_info", argsA, "a", ""); err != nil {
+	if _, err := w.record("echo_info", argsA, "a", ""); err != nil {
 		t.Fatalf("record 11: %v", err)
 	}
-	if err := w.record("echo_info", argsA, "a", ""); !errors.Is(err, errLoopDetected) {
+	if _, err := w.record("echo_info", argsA, "a", ""); !errors.Is(err, errLoopDetected) {
 		t.Fatalf("err = %v, want errLoopDetected", err)
 	}
 	// A different tool name with the same payload is a different call.
 	var w2 loopWindow
 	for i := 0; i < loopRepeatLimit; i++ {
-		if err := w2.record("echo_info", argsA, "a", ""); err != nil {
+		if _, err := w2.record("echo_info", argsA, "a", ""); err != nil {
 			t.Fatalf("record %d: %v", i+1, err)
 		}
 	}
-	if err := w2.record("other_tool", argsA, "a", ""); err != nil {
+	if _, err := w2.record("other_tool", argsA, "a", ""); err != nil {
 		t.Fatalf("distinct tool flagged: %v", err)
 	}
 	// Tool errors participate: identical failing calls loop too.
 	var w3 loopWindow
 	for i := 0; i < loopRepeatLimit; i++ {
-		if err := w3.record("echo_info", argsA, "", "boom"); err != nil {
+		if _, err := w3.record("echo_info", argsA, "", "boom"); err != nil {
 			t.Fatalf("record %d: %v", i+1, err)
 		}
 	}
-	if err := w3.record("echo_info", argsA, "", "boom"); !errors.Is(err, errLoopDetected) {
+	if _, err := w3.record("echo_info", argsA, "", "boom"); !errors.Is(err, errLoopDetected) {
 		t.Fatalf("err = %v, want errLoopDetected", err)
 	}
 }

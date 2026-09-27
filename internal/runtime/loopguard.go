@@ -26,9 +26,10 @@ type loopWindow struct {
 	sigs []uint64
 }
 
-// record appends one completed call signature and reports whether the
-// repetition limit is exceeded. argsJSON must already be canonical.
-func (w *loopWindow) record(toolName, argsJSON, result, errMsg string) error {
+// record appends one completed call signature and returns how many
+// identical signatures the window now holds, plus errLoopDetected once
+// the repetition limit is exceeded. argsJSON must already be canonical.
+func (w *loopWindow) record(toolName, argsJSON, result, errMsg string) (int, error) {
 	h := fnv.New64a()
 	for _, part := range []string{toolName, argsJSON, result, errMsg} {
 		_, _ = h.Write([]byte(part))
@@ -46,7 +47,7 @@ func (w *loopWindow) record(toolName, argsJSON, result, errMsg string) error {
 		}
 	}
 	if count > loopRepeatLimit {
-		return errLoopDetected
+		return count, errLoopDetected
 	}
-	return nil
+	return count, nil
 }

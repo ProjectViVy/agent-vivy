@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/discord
+module agent-vivy/plugins/discord
 
 go 1.26.4
 

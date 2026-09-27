@@ -78,7 +78,7 @@ func redactAttr(a slog.Attr) slog.Attr {
 // redactingHandler wraps a slog.Handler and redacts every record before
 // the inner handler formats it: the message and all string attributes go
 // through Redact, sensitive-keyed attributes collapse to a marker. It is
-// always on for both kernel sinks (Setup and SetupWorker) — defense in
+// always on for the kernel sink (Setup) — defense in
 // depth behind D-010 call-site discipline (LOGGING.md §5), with no config
 // knob to switch the guard off.
 type redactingHandler struct {

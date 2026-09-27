@@ -34,12 +34,13 @@ var validTransitions = map[RunStatus][]RunStatus{
 type RunKind string
 
 const (
-	RunKindPrimary RunKind = "primary"
-	RunKindChild   RunKind = "child"
+	RunKindPrimary  RunKind = "primary"
+	RunKindChild    RunKind = "child"
+	RunKindWorkflow RunKind = "workflow"
 )
 
 func (k RunKind) Valid() bool {
-	return k == RunKindPrimary || k == RunKindChild
+	return k == RunKindPrimary || k == RunKindChild || k == RunKindWorkflow
 }
 
 // Terminal returns true for completed/failed/cancelled.
@@ -88,7 +89,17 @@ type Run struct {
 	Status    RunStatus
 	CreatedAt int64 // unix milli
 	Kind      RunKind
+	ChildMode ChildMode
 	ParentID  RunID
 	RootID    RunID
 	Depth     int
+}
+
+// EffectiveChildMode returns the persisted D14 mode for a child Run. Old
+// child rows and callers with an empty field retain one-shot behavior.
+func (r Run) EffectiveChildMode() ChildMode {
+	if r.Kind != RunKindChild {
+		return ""
+	}
+	return r.ChildMode.Effective()
 }

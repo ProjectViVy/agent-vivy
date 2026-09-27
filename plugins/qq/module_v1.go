@@ -39,5 +39,5 @@ func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]str
 	return c.adapter.Send(x, m)
 }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/qq", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/qq", SHA256: "e422eccce4aa9ca7b2953739f3c7024b89989e4a39898e64ea872728173215ee"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.qq"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/qq", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/qq", SHA256: "2a4f3d9bade5aa819ee580f2a254b34ad9d0f3321e7e29677a618349dcfd713e"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.qq"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
