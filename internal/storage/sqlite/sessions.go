@@ -162,6 +162,8 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	for i := len(subtree) - 1; i >= 0; i-- {
 		sessionID := subtree[i]
 		for _, stmt := range []struct{ sql string }{
+			{`DELETE FROM session_work_events WHERE session_id = ?`},
+			{`DELETE FROM channel_deliveries WHERE session_id = ?`},
 			{`DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},
 			{`DELETE FROM run_events WHERE run_id IN (SELECT run_id FROM session_compactions WHERE session_id = ?)`},
 			{`DELETE FROM run_prompt_snapshots WHERE run_id IN (SELECT id FROM runs WHERE session_id = ?)`},

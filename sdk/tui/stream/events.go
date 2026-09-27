@@ -37,17 +37,11 @@ type Notice struct {
 	ToolCallID     string
 	Line           string
 	Delta          string
-	Completed      string
 	HasCompleted   bool
 	// Completion contains the structurally validated v2 metadata. It is nil
-	// for v1 (which carries authoritative content) and for malformed v2
-	// notices. The stream consumer still verifies it against the deltas it has
-	// applied before accepting the completion boundary.
+	// for malformed v2 notices. The stream consumer still verifies it against
+	// the deltas it has applied before accepting the completion boundary.
 	Completion *ModelCompletionMetadata
-	// CompletedAuthoritative is true only for legacy completions carrying a
-	// whole content field. V2 completion is a boundary whose body is already
-	// present in model.delta events.
-	CompletedAuthoritative bool
 	// ProtocolError is a fail-closed event decoding/verification error. It is
 	// kept on the notice so each face can make the error visible and close its
 	// local run state instead of silently treating a bad completion as done.
@@ -212,35 +206,22 @@ func (t *ModelCompletionTracker) VerifyMetadata(metadata ModelCompletionMetadata
 	return nil
 }
 
-// Complete consumes a model.completed event. V1 (and an unversioned legacy
-// event that carries content) returns its authoritative content; v2 returns
-// an empty string because its body is the already streamed delta sequence.
-func (t *ModelCompletionTracker) Complete(payloadVersion int, raw json.RawMessage) (string, error) {
-	version := payloadVersion
-	if version == 0 && modelCompletedHasContent(raw) {
-		version = 1
+// Complete consumes a model.completed event. Only the v2 metadata-only shape
+// is accepted: the body is the already streamed delta sequence, verified here
+// against the tracked digest. Any other payload version is a protocol error.
+func (t *ModelCompletionTracker) Complete(payloadVersion int, raw json.RawMessage) error {
+	if payloadVersion != 2 {
+		return fmt.Errorf("unsupported model.completed payload version %d", payloadVersion)
 	}
-	switch version {
-	case 1:
-		content, err := parseLegacyCompletedContent(raw)
-		if err != nil {
-			return "", err
-		}
-		t.Reset()
-		return content, nil
-	case 2:
-		metadata, err := ParseModelCompletedV2(raw)
-		if err != nil {
-			return "", err
-		}
-		if err := t.VerifyMetadata(metadata); err != nil {
-			return "", err
-		}
-		t.Reset()
-		return "", nil
-	default:
-		return "", fmt.Errorf("unsupported model.completed payload version %d", version)
+	metadata, err := ParseModelCompletedV2(raw)
+	if err != nil {
+		return err
 	}
+	if err := t.VerifyMetadata(metadata); err != nil {
+		return err
+	}
+	t.Reset()
+	return nil
 }
 
 // ObserveEvent applies the model stream portions of a normalized event. It
@@ -258,8 +239,7 @@ func (t *ModelCompletionTracker) ObserveEvent(event Event) error {
 		}
 		return t.AddDelta(delta)
 	case "model.completed":
-		_, err := t.Complete(event.PayloadVersion, event.Payload)
-		return err
+		return t.Complete(event.PayloadVersion, event.Payload)
 	default:
 		return nil
 	}
@@ -278,10 +258,6 @@ func (t *ModelCompletionTracker) ObserveNotice(notice Notice) error {
 	case "delta":
 		return t.AddDelta(notice.Delta)
 	case "model_completed":
-		if notice.CompletedAuthoritative {
-			t.Reset()
-			return nil
-		}
 		if notice.Completion == nil {
 			return fmt.Errorf("model.completed v2: missing validated metadata")
 		}
@@ -291,34 +267,6 @@ func (t *ModelCompletionTracker) ObserveNotice(notice Notice) error {
 		t.Reset()
 	}
 	return nil
-}
-
-func modelCompletedHasContent(raw json.RawMessage) bool {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || fields == nil {
-		return false
-	}
-	_, ok := fields["content"]
-	return ok
-}
-
-func parseLegacyCompletedContent(raw json.RawMessage) (string, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		if err == nil {
-			err = fmt.Errorf("payload must be an object")
-		}
-		return "", fmt.Errorf("model.completed v1: invalid payload: %w", err)
-	}
-	rawContent, ok := fields["content"]
-	if !ok {
-		return "", fmt.Errorf("model.completed v1: missing content")
-	}
-	var content string
-	if err := json.Unmarshal(rawContent, &content); err != nil {
-		return "", fmt.Errorf("model.completed v1: content must be a string")
-	}
-	return content, nil
 }
 
 // GatePrompt is the normalized interaction overlay attached to a notice.
@@ -415,31 +363,14 @@ func Interpret(event Event) Notice {
 	case "model.completed":
 		base.Kind = "model_completed"
 		base.HasCompleted = true
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(event.Payload, &fields) != nil {
-			base.Kind, base.Done, base.Failed, base.Message = "done", true, true, "invalid model.completed payload"
-			return base
+		if event.PayloadVersion != 2 {
+			return protocolFailure(base, fmt.Errorf("unsupported model.completed payload version %d", event.PayloadVersion))
 		}
-		raw, hasContent := fields["content"]
-		version := event.PayloadVersion
-		if version == 0 && hasContent { // direct/legacy adapters predating the envelope version
-			version = 1
+		metadata, err := ParseModelCompletedV2(event.Payload)
+		if err != nil {
+			return protocolFailure(base, err)
 		}
-		switch version {
-		case 1:
-			if !hasContent || json.Unmarshal(raw, &base.Completed) != nil {
-				return protocolFailure(base, fmt.Errorf("model.completed v1: missing or invalid content"))
-			}
-			base.CompletedAuthoritative = true
-		case 2:
-			metadata, err := ParseModelCompletedV2(event.Payload)
-			if err != nil {
-				return protocolFailure(base, err)
-			}
-			base.Completion = &metadata
-		default:
-			return protocolFailure(base, fmt.Errorf("unsupported model.completed payload version %d", version))
-		}
+		base.Completion = &metadata
 		return base
 	case "tool.requested":
 		name := PayloadString(event.Payload, "tool_name")

@@ -9,6 +9,7 @@ import type { ChildHistoryMessage, ChildMailboxMessage } from '@/lib/api';
 import * as childApi from '@/lib/child-api';
 import * as workflowApi from '@/lib/workflow-api';
 import type { WorkflowDescriptor, WorkflowProposal, WorkflowResult } from '@/lib/workflow-api';
+import { foldContinuityRows } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
@@ -130,6 +131,7 @@ export function RunInspector() {
     return () => { stale = true; };
   }, [run?.id, selectedChild, selectedChild?.id, selectedChild?.session_id, selectedChild?.child_mode]);
   const runReviews = run ? reviews.filter((item) => item.run_id === run.id) : [];
+  const attachedRefs = foldContinuityRows(events);
   const sessionRuns = (() => {
     const ids: string[] = [];
     const seen = new Set<string>();
@@ -172,6 +174,10 @@ export function RunInspector() {
               {openSeq === event.seq ? <pre className="mb-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-2 font-mono text-[11px] leading-4">{JSON.stringify(event.payload ?? null, null, 2)}</pre> : null}
             </div>)}</div>
           </div>
+          {attachedRefs.length > 0 ? <div>
+            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+          </div> : null}
         </> : <p className="py-10 text-center text-sm text-muted-foreground">{t('runInspector.noRun')}</p>}
       </TabsContent>
 
@@ -343,7 +349,15 @@ export function RunInspector() {
                   <Button type="submit" size="sm" disabled={!messageText.trim() || busyId === selectedChild.session_id || childActionBusyId === selectedChild.session_id}>{t('runInspector.sendMessage')}</Button>
                 </form>
                 {messageAcknowledgement ? <p role="status" className="mt-1 text-xs text-muted-foreground">{messageAcknowledgement}</p> : null}
+          {attachedRefs.length > 0 ? <div>
+            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+          </div> : null}
               </> : null}
+          {attachedRefs.length > 0 ? <div>
+            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+          </div> : null}
             </> : null}
             {active(child.status) ? <div className="mt-2 flex gap-2">
               <Button size="sm" variant="outline" disabled={busyId === child.id} onClick={() => void waitChild(child.id)}>{t('runInspector.waitComplete')}</Button>

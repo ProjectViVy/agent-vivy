@@ -1,9 +1,11 @@
 package migrations
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,8 +24,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 28 {
-		t.Fatalf("migration count = %d, want 28", count)
+	if count != 33 {
+		t.Fatalf("migration count = %d, want 33", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -45,6 +47,15 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 			t.Fatalf("migration 24 did not create %s", table)
 		}
 	}
+	for version, want := range map[int]string{26: "session_work_events", 27: "history_work_anchors"} {
+		if err := db.QueryRowContext(ctx,
+			`SELECT name FROM schema_migrations WHERE version = ?`, version).Scan(&name); err != nil {
+			t.Fatalf("read migration %d: %v", version, err)
+		}
+		if name != want {
+			t.Fatalf("migration %d name = %q, want %q", version, name, want)
+		}
+	}
 
 	if err := Apply(ctx, db, SQLite); err != nil {
 		t.Fatalf("Apply again: %v", err)
@@ -58,6 +69,7 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 }
 
+func TestApplyUpgradesSQLite23To27AndReopens(t *testing.T) {
 func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	ctx := context.Background()
 	manifest, err := Embedded()
@@ -85,12 +97,15 @@ func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (id, title, created_at) VALUES ('upgrade-session', 'preserved', 11);
 		INSERT INTO runs (id, session_id, status, created_at) VALUES ('upgrade-run', 'upgrade-session', 'completed', 12);
+		INSERT INTO run_events (run_id, seq, type, created_at, payload_version, payload)
+		VALUES ('upgrade-run', 1, 'run.started', 13, 1, '{"provider":"legacy","model":"legacy-model"}');
 		INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth)
 		VALUES ('upgrade-child-run', 'upgrade-session', 'completed', 13, 'child', 'upgrade-run', 'upgrade-run', 1);
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("upgrade 23 to 27: %v", err)
 		t.Fatalf("upgrade 23 to latest: %v", err)
 	}
 	assertSQLiteLatestMigrations(t, db)
@@ -142,6 +157,71 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	}
 	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
 		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
+	}
+	var eventRunID, eventType string
+	var eventSeq, eventCreatedAt, payloadVersion int64
+	var payload []byte
+	if err := db.QueryRow(`SELECT run_id, seq, type, created_at, payload_version, payload FROM run_events WHERE run_id = 'upgrade-run' AND seq = 1`).
+		Scan(&eventRunID, &eventSeq, &eventType, &eventCreatedAt, &payloadVersion, &payload); err != nil {
+		t.Fatalf("read preserved run.started: %v", err)
+	}
+	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
+	if eventRunID != "upgrade-run" || eventSeq != 1 || eventType != "run.started" || eventCreatedAt != 13 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", eventRunID, eventSeq, eventType, eventCreatedAt, payloadVersion, payload, wantPayload)
+	}
+}
+
+func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing.T) {
+	db := openMigrationTestDB(t)
+	ctx := context.Background()
+	full, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := Manifest{byDialect: map[Dialect][]Migration{
+		SQLite:   append([]Migration(nil), full.Migrations(SQLite)[:23]...),
+		Postgres: append([]Migration(nil), full.Migrations(Postgres)[:23]...),
+	}}
+	if err := ApplyManifest(ctx, db, SQLite, legacy); err != nil {
+		t.Fatalf("Apply legacy: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES ('s','s',1,1,'workspace_write','ask','')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		id string
+		at int64
+	}{{"late-id", 10}, {"early-z", 1}, {"early-a", 1}} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?, '', 'user', ?, x'', '', '', x'', '', '', '', '')`, row.id, "s", row.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("Apply 024: %v", err)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, position FROM messages WHERE session_id = 's' ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var id string
+		var position int
+		if err := rows.Scan(&id, &position); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, id+":"+strconv.Itoa(position))
+	}
+	if strings.Join(got, ",") != "early-a:1,early-z:2,late-id:3" {
+		t.Fatalf("legacy backfill = %v", got)
+	}
+	var next int
+	if err := db.QueryRowContext(ctx, `SELECT next_message_position FROM sessions WHERE id = 's'`).Scan(&next); err != nil || next != 4 {
+		t.Fatalf("next position = %d, %v", next, err)
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("reapply 024: %v", err)
 	}
 	var childMode string
 	if err := db.QueryRow(`SELECT child_mode FROM runs WHERE id = 'upgrade-child-run'`).Scan(&childMode); err != nil {

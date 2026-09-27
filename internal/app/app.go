@@ -38,6 +38,7 @@ import (
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
+	memorymodule "agent-vivy/internal/modules/memory"
 	modelmodule "agent-vivy/internal/modules/model"
 	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
@@ -252,6 +253,39 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 
+	workStore, ok := backend.(storage.WorkStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement work store")
+	}
+	goalRunStore, ok := backend.(storage.GoalRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement Goal run store")
+	}
+	primaryRunStore, ok := backend.(storage.PrimaryRunStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement primary run store")
+	}
+
+	// The memory service is composition-owned: opened once after storage when
+	// the Generation compiled the memory action module, then resolved by the
+	// generated providers through the package-level registry.
+	memoryOwned := false
+	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/memory-bml") {
+		if _, err := memorymodule.Open(ctx, cfg); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: open memory service: %w", err)
+		}
+		memoryOwned = true
+		defer func() {
+			if memoryOwned {
+				_ = memorymodule.Close()
+			}
+		}()
+	}
+
 	// Provider metadata is part of the binary: there is no bundle directory,
 	// no working-directory dependency, and nothing a running instance can be
 	// pointed at (PROV-P1, decision D3). The embedded data is reconciled
@@ -375,6 +409,33 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(dataRoot, "todos"))
 	todoOps = todoBackend
+	historyService := runtime.NewHistoryService(backend, backend)
+	// The reference snapshot authority shares the history read path and the
+	// atomic continuity seam; a backend without ContinuityStore leaves it
+	// nil-continuity, which only disables model-side attach commits.
+	continuityStore, _ := backend.(storage.ContinuityStore)
+	referenceService := runtime.NewReferenceService(historyService, backend, backend, backend, continuityStore)
+	referenceService.SetViewStores(backend, backend)
+	historyService.SetReferenceLookup(referenceService.Lookup)
+	// Deliverable presentation shares the WorkspaceManager's trusted run
+	// root, the Journal and the T4 receipt seam; transfer snapshots live in
+	// a dedicated scratch that startup purges and nothing else touches.
+	var deliverableOps tools.DeliverableOperations
+	var deliverableService *runtime.DeliverableService
+	if workspaceManager != nil {
+		scratch := filepath.Join(dataRoot, "transfers")
+		if mkErr := os.MkdirAll(scratch, 0o700); mkErr != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: create transfer scratch: %w", mkErr)
+		}
+		deliverableService, err = runtime.NewDeliverableService(workspaceManager, backend, backend, continuityStore, scratch)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build deliverable service: %w", err)
+		}
+		deliverableService.SetViewStores(backend, backend)
+		deliverableOps = deliverableService
+	}
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
@@ -448,7 +509,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if stageErr != nil {
 			return stageErr
 		}
-		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps)
+		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
 		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
 		if stageErr != nil {
@@ -594,6 +655,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
+	workBus := events.NewWorkBus(cfg.Runtime.StreamBuffer)
 	svcSink := runtime.EventSink(bus)
 	if ao.sink != nil {
 		svcSink = fanoutSink{primary: bus, extra: ao.sink}
@@ -614,14 +676,42 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, err
 		}
 		channelHost = channelhost.New(channelhost.Deps{
-			Journal:  backend,
-			Messages: backend,
-			Sessions: backend,
-			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+			Journal:    backend,
+			Messages:   backend,
+			Sessions:   backend,
+			Deliveries: backend,
+			RunPrepared: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance, prepare channelhost.PrepareRunFunc) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+				// Channel inbound media (channel tier 2) rides the same
+				// RunOptions.Attachments contract as the UI boundary. The
+				// RPC path rejects images for a model without vision; the
+				// channel path cannot bounce a platform message, so it
+				// degrades visibly instead: attachments drop with a
+				// warning and the text still runs.
+				if len(attachments) > 0 {
+					if info := svc.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+						channel := ""
+						if prov != nil {
+							channel = prov.Channel
+						}
+						logger.Warn("app: dropping channel image attachments; the active model does not support images",
+							"session", string(sessionID), "channel", channel, "attachments", len(attachments))
+						attachments = nil
+					}
+				}
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{
+					Provenance: prov, Attachments: attachments, BeforeStart: prepare, HumanAdmission: true,
+				})
+			},
+			Approvals: backend,
+			Runs:      backend,
+			DecideApproval: func(ctx context.Context, approvalID, decision, actor string) error {
+				if svc == nil {
+					return errors.New("app: runtime service is not wired")
+				}
+				return svc.DecideApprovalAsActor(ctx, approvalID, decision, "", actor)
 			},
 			Channels:    channelPlugins,
 			Config:      cfg.Channels,
@@ -670,8 +760,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
+		Work:                  workStore,
 		Runs:                  backend,
 		Messages:              backend,
+		GoalRuns:              goalRunStore,
+		PrimaryRuns:           primaryRunStore,
 		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
@@ -689,14 +782,23 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
-		Admission:            admission,
-		MaskResolver:         maskService,
-		MaskFrame:            maskFrame,
-		MaskFrameDigest:      maskFrameDigest,
-		GenerationID:         generationID,
-		Crons:                backend,
-		Channels:             channelHost,
-		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		// A backend without the atomic ContinuityStore seam leaves the dep
+		// nil; continuity submissions then fail unavailable rather than
+		// degrading to a non-atomic write (SC-D4).
+		Continuity:      func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
+		References:      referenceService,
+		Deliverables:    deliverableService,
+		Crons:           backend,
+		Channels:        channelHost,
+		Titles:          provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		Admission:       admission,
+		MaskResolver:    maskService,
+		MaskFrame:       maskFrame,
+		MaskFrameDigest: maskFrameDigest,
+		GenerationID:    generationID,
+		Crons:           backend,
+		Channels:        channelHost,
+		Titles:          provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -797,7 +899,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if !ok || identity.SessionID == "" || strings.TrimSpace(request.SessionID) != identity.SessionID {
 					return actionport.RunResult{}, actionport.ErrUnauthenticated
 				}
-				id, runErr := svc.Run(ctx, domain.SessionID(identity.SessionID), request.Text)
+				id, runErr := svc.RunWithOptions(ctx, domain.SessionID(identity.SessionID), request.Text, runtime.RunOptions{HumanAdmission: true})
 				if runErr != nil {
 					return actionport.RunResult{}, actionport.ErrRunDenied
 				}
@@ -863,8 +965,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
-		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: workStore, WorkBus: workBus,
+		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc, History: historyService, References: referenceService, Deliverables: deliverableService,
+
 		CodeModeAvailable: svc.FaceAvailable(domain.FaceCode),
 		ActionHost:        actionHost,
 		Marketplace:       marketplace,
@@ -1064,6 +1167,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
+	// Channel inbound retention (CH-C3-N1): chanin_* provenance events are
+	// bounded operational records, pruned once per process start. A prune
+	// failure never blocks startup — the next start retries it.
+	if maint, ok := backend.(storage.ChannelMaintenanceStore); ok {
+		if n, err := maint.PruneChannelInboundEvents(ctx, time.Now().Add(-storage.ChannelInboundRetention)); err != nil {
+			logger.Warn("channel inbound event prune failed", "err", err)
+		} else if n > 0 {
+			logger.Info("channel inbound events pruned", "rows", n)
+		}
+	}
 	// Start the channel ears before the server listens (C3). Unconfigured
 	// and disabled channels are skipped; empty allow_from refuses Start
 	// for that channel. A wiring failure here aborts startup. The headless
@@ -1102,6 +1215,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	actionHostOwned = false
 	observerHostOwned = false
 	assemblyOwned = false
+	memoryOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
@@ -1153,6 +1267,9 @@ func (a *App) Close() error {
 	a.closeOnce.Do(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		if a.service != nil {
+			a.service.StopAutomaticWork()
+		}
 		if a.actionHost != nil {
 			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
 		}
@@ -1179,6 +1296,7 @@ func (a *App) Close() error {
 		if a.assembly != nil {
 			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 		}
+		a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
 		if a.backend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
 		}
@@ -1621,6 +1739,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.logger.Info("vivy shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
+	a.service.StopAutomaticWork()
 
 	// Reverse startup order with hard ordering guarantees (E4): channels
 	// stop first so an adapter's Stop never races a cancelled run's final

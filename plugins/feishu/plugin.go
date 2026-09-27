@@ -4,10 +4,13 @@
 // plugins/telegram and carried on by plugins/dingtalk — same file layout,
 // same Start/Stop/Send skeleton, same supervised-redial lifecycle.
 //
-// First-cut scope (what this adapter deliberately does NOT do): no group
-// chats, no rich-text (post) or interactive-card messages, no media, no
-// reactions, no reply threading or topics, no webhook-mode event
-// subscription. P2P TEXT only.
+// First-cut scope (what this adapter deliberately does NOT do): no
+// rich-text (post) messages, no reply threading or topics, no webhook-mode
+// event subscription. Since the first cut: group chats (mention-only,
+// tier-1), image media, outbound cards (every text part as a schema-2.0
+// markdown card with the 11310 plain-text fallback), the interaction faces
+// — edit (card Patch), delete, the "Thinking…" card placeholder, and the
+// ack reaction (ack_emojis pool, idempotent withdrawal) — contract §1/§12.
 //
 // Transport: an OUTBOUND websocket to the Feishu/Lark event gateway
 // (manifest transport "poll", grant channel.poll). The adapter never opens
@@ -26,11 +29,15 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/rand"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -54,14 +61,60 @@ const ChannelName = "feishu"
 const senderPrefix = ChannelName + ":"
 
 // p2pChatType is the Feishu chat_type for one-to-one (single) chats; group
-// chats report "group" and are ignored this slice.
+// chats report "group" and publish only under the tier-1 mention-only
+// gate.
 const p2pChatType = "p2p"
+
+// groupChatType is the Feishu chat_type for group chats.
+const groupChatType = "group"
+
+// reMentionPlaceholder matches a leftover @_user_N mention placeholder the
+// mentions array did not key.
+var reMentionPlaceholder = regexp.MustCompile(`@_user_\d+`)
+
+// maxInboundImageBytes mirrors the Host's shared attachment bound
+// (internal/attachment, §1 media ruling): 5 MiB per image. The read is
+// capped one byte over so an over-limit payload is detected, rejected,
+// and never truncated into the turn.
+const maxInboundImageBytes = 5 << 20
+
+// imageRef is one pre-screened inbound image: the message id (the
+// MessageResource.Get key) and the image key both APIs address.
+type imageRef struct {
+	messageID string
+	imageKey  string
+}
+
+// envWarn logs through the Host logger when one is available; the surface
+// is advisory and must never panic on a nil logger (test doubles).
+func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
+	if logger := env.Logger(); logger != nil {
+		logger.Warn(msg, args...)
+	}
+}
+
+// imageKeyFromContent parses the image message content JSON
+// ({"image_key":"img_v2_..."}) minimally: the image_key field, nothing
+// else. A payload that does not decode to a non-empty string yields "".
+func imageKeyFromContent(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var payload struct {
+		ImageKey string `json:"image_key"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.ImageKey)
+}
 
 // wsRedialDelay is how often the supervisor offers the event gateway a
 // fresh websocket after a healthy connection died. The SDK's own
 // auto-reconnect is disabled (its retry loop would keep redialing under a
-// dead context); this loop is the context-aware replacement.
-const wsRedialDelay = 3 * time.Second
+// dead context); this loop is the context-aware replacement. A var, like
+// the sibling adapters, so lifecycle tests can shrink it.
+var wsRedialDelay = 3 * time.Second
 
 // wsCreds carries the credentials the two SDK clients need between Start
 // and the client factories. AppID/AppSecret are values resolved through
@@ -108,6 +161,9 @@ type Plugin struct {
 	creds wsCreds
 	// domain is the platform base URL (feishu/lark/open_base_url).
 	domain string
+	// settings are the decoded Start settings; the reaction ack reads the
+	// emoji pool from them. Set once by Start, never swapped afterwards.
+	settings Settings
 	// onEvent is the env-bound event handler handed to the websocket
 	// factory; set once by Start.
 	onEvent eventFunc
@@ -134,6 +190,11 @@ type Plugin struct {
 	// redial and the event handler before every publish, so neither a
 	// redial nor a late callback can resurrect a stopped ear.
 	stopped bool
+	// health is the live gateway state for the HealthChecker face (CH-R-1):
+	// nil while a connection is live, a temporary HealthError while
+	// redialing. Guarded by mu; written only by the supervisor loop, read
+	// through Health.
+	health error
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -229,6 +290,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	p.host = env
 	p.creds = wsCreds{AppID: appID, AppSecret: appSecret, EncryptKey: settings.EncryptKey}
 	p.domain = domainFor(settings)
+	p.settings = settings
 	p.onEvent = p.messageHandler(env)
 	creds, domain := p.creds, p.domain
 	p.mu.Unlock()
@@ -314,8 +376,23 @@ func (p *Plugin) messageHandler(env plugin.ChannelEnv) eventFunc {
 		if stopped {
 			return nil
 		}
-		msg, publishable := normalizeEvent(event)
+		msg, refs, publishable := normalizeEvent(event)
 		if !publishable {
+			return nil
+		}
+		// Image downloads are best-effort (§12): each success appends the
+		// annotation plus the media part; a failure keeps the annotation so
+		// the sender's image never vanishes without a trace.
+		for _, ref := range refs {
+			ann := plugin.Part{Kind: plugin.PartText, Text: "[image: " + ref.imageKey + "]"}
+			if media, ok := p.downloadImage(ctx, env, ref); ok {
+				msg.Parts = append(msg.Parts, ann, plugin.Part{Kind: plugin.PartMedia, Media: media})
+			} else {
+				msg.Parts = append(msg.Parts, ann)
+			}
+		}
+		if len(msg.Parts) == 0 {
+			// Image-only message whose download failed — nothing to publish.
 			return nil
 		}
 		// PublishInbound is synchronous (journal + run start). A dispatch
@@ -388,11 +465,20 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 				report(err)
 				return
 			}
+			// A later failed attempt is a redial: the classified health
+			// (CH-R-1) keeps the broken link visible to the Host inspect
+			// surface, exactly like the CH-C6-N1 log line would.
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("gateway redial failed: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
 			continue
 		case <-ready:
+			p.mu.Lock()
+			p.health = nil
+			p.mu.Unlock()
 		case <-ctx.Done():
 			client.Close()
 			p.retire(client)
@@ -506,15 +592,27 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Health implements plugin.HealthChecker (CH-R-1): read-only gateway state,
+// no network I/O. A live websocket is healthy; a broken link is temporary —
+// the supervise loop owns recovery, so no feishu condition is classified
+// dead this generation (a failed first connect never starts the ear).
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
+}
+
 // Send implements plugin.Channel: deliver each text part as one
-// im.v1.message Create call (receive_id_type chat_id, msg_type text) and
-// return the platform message ids produced.
+// im.v1.message Create call (receive_id_type chat_id) and return the
+// platform message ids produced. Every text part goes out as a schema-2.0
+// markdown interactive card (contract §1, 2026-09-15); a platform 11310
+// (card content limit) falls back to a plain text message, and every other
+// non-zero code keeps the failure semantics.
 //
-// OutboundMessage.ReplyTo and TopicID are ignored this slice — p2p text
-// has no reply threading or forum topics in the first cut. Non-text parts
-// are skipped (media is a later slice); an envelope with no text parts
-// sends nothing and returns no ids. A platform success without a message
-// id contributes no id.
+// OutboundMessage.ReplyTo and TopicID are ignored — p2p/group text has no
+// outbound quote semantics (tier-1 ruling). Non-text parts are skipped; an
+// envelope with no text parts sends nothing and returns no ids. A platform
+// success without a message id contributes no id.
 //
 // The SDK resolves the tenant_access_token from the app credentials on
 // the first call; this adapter never handles tokens.
@@ -536,7 +634,7 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		messageID, err := sendText(ctx, api, msg.ChatID, part.Text)
+		messageID, err := sendCardOrText(ctx, api, msg.ChatID, part.Text)
 		if err != nil {
 			return ids, fmt.Errorf("feishu: send message to chat %q: %w", msg.ChatID, err)
 		}
@@ -545,6 +643,171 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		}
 	}
 	return ids, nil
+}
+
+// SendMedia implements plugin.MediaSender (§1 outbound media) as the
+// two-step Feishu contract: each image uploads through im.v1.image Create
+// (image_type "message") and the returned key leaves as one im.v1.message
+// Create with msg_type image. The reply's text has already gone out
+// through Send — Feishu image messages carry no caption this batch. A
+// failure fails the whole batch; the Host's ledger retries it with a
+// fresh upload (at-least-once).
+func (p *Plugin) SendMedia(ctx context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return nil, errors.New("feishu: channel not started")
+	}
+	if strings.TrimSpace(chatID) == "" {
+		return nil, errors.New("feishu: outbound chat id is empty")
+	}
+	var ids []string
+	for _, part := range parts {
+		if part.Kind != plugin.PartMedia || len(part.Media.Data) == 0 {
+			continue
+		}
+		key, err := uploadImage(ctx, api, part.Media)
+		if err != nil {
+			return ids, fmt.Errorf("feishu: upload image %q: %w", part.Media.Name, err)
+		}
+		messageID, err := sendImage(ctx, api, chatID, key)
+		if err != nil {
+			return ids, fmt.Errorf("feishu: send image to chat %q: %w", chatID, err)
+		}
+		if messageID != "" {
+			ids = append(ids, messageID)
+		}
+	}
+	return ids, nil
+}
+
+// uploadImage runs step one: the image upload, typed "message" per the
+// im contract. A non-zero platform code is an error even on HTTP 200.
+func uploadImage(ctx context.Context, api *lark.Client, m plugin.Media) (string, error) {
+	req := larkim.NewCreateImageReqBuilder().
+		Body(larkim.NewCreateImageReqBodyBuilder().
+			ImageType("message").
+			Image(bytes.NewReader(m.Data)).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Image.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	if resp.Data == nil || resp.Data.ImageKey == nil || *resp.Data.ImageKey == "" {
+		return "", errors.New("upload succeeded but no image key came back")
+	}
+	return *resp.Data.ImageKey, nil
+}
+
+// sendImage posts step two: the image message carrying the uploaded key.
+func sendImage(ctx context.Context, api *lark.Client, chatID, imageKey string) (string, error) {
+	content, err := json.Marshal(map[string]string{"image_key": imageKey})
+	if err != nil {
+		return "", err
+	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType(larkim.MsgTypeImage).
+			Content(string(content)).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	if resp.Data != nil && resp.Data.MessageId != nil {
+		return *resp.Data.MessageId, nil
+	}
+	return "", nil
+}
+
+// feishuAPIError is a non-zero platform code on an otherwise-successful
+// HTTP call. The typed code lets callers branch on known codes (the 11310
+// card-limit fallback) without parsing error strings.
+type feishuAPIError struct {
+	Code int
+	Msg  string
+}
+
+func (e *feishuAPIError) Error() string {
+	return fmt.Sprintf("api error (code=%d msg=%s)", e.Code, e.Msg)
+}
+
+// cardLimitCode is the Feishu code for rejected interactive-card content
+// (schema/size limits). The reply is then redelivered as plain text so a
+// formatting ceiling degrades the rendering, never the reply.
+const cardLimitCode = 11310
+
+// sendCardOrText delivers one text part as a markdown card, falling back
+// to plain text exactly on the card-limit code.
+func sendCardOrText(ctx context.Context, api *lark.Client, chatID, text string) (string, error) {
+	messageID, err := sendCard(ctx, api, chatID, text)
+	if err == nil {
+		return messageID, nil
+	}
+	var apiErr *feishuAPIError
+	if errors.As(err, &apiErr) && apiErr.Code == cardLimitCode {
+		return sendText(ctx, api, chatID, text)
+	}
+	return "", err
+}
+
+// buildMarkdownCard renders one schema-2.0 interactive card with a single
+// markdown element — the minimal shape that lets Feishu render model
+// markdown natively (CommonMark per the card 2.0 spec).
+func buildMarkdownCard(content string) (string, error) {
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{"tag": "markdown", "content": content},
+			},
+		},
+	}
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// sendCard posts one interactive markdown-card message through the SDK
+// messaging API. A non-zero platform code comes back as *feishuAPIError
+// even on HTTP 200.
+func sendCard(ctx context.Context, api *lark.Client, chatID, text string) (string, error) {
+	content, err := buildMarkdownCard(text)
+	if err != nil {
+		return "", err
+	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(content).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", &feishuAPIError{Code: resp.Code, Msg: resp.Msg}
+	}
+	if resp.Data != nil && resp.Data.MessageId != nil {
+		return *resp.Data.MessageId, nil
+	}
+	return "", nil
 }
 
 // sendText posts one plain-text message to a chat through the SDK
@@ -577,70 +840,345 @@ func sendText(ctx context.Context, api *lark.Client, chatID, text string) (strin
 	return "", nil
 }
 
+// placeholderText is the fixed live-surface copy (contract §12); the
+// feishu placeholder is a card so the terminal edit path stays uniform
+// (Patch only updates card content).
+const placeholderText = "Thinking…"
+
+// editContentOf flattens an edit payload to one text body: an edit targets
+// a single sent message, so the payload's text parts join.
+func editContentOf(parts []plugin.Part) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Kind == plugin.PartText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// EditMessage implements plugin.MessageEditor: Feishu edits a message by
+// Patching new content onto it, and Patch only accepts interactive-card
+// content — which is why feishu outbound is card-first. The replacement
+// body goes through the same card build as Send; no plain-text fallback
+// exists for Patch (the message being edited is already a card).
+func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID string, msg plugin.OutboundMessage) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	text := editContentOf(msg.Parts)
+	if text == "" {
+		return errors.New("feishu: edit payload has no text")
+	}
+	content, err := buildMarkdownCard(text)
+	if err != nil {
+		return fmt.Errorf("feishu: edit card build: %w", err)
+	}
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().Content(content).Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Patch(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: edit message %s in chat %q: %w", messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: edit message %s: %w", messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
+}
+
+// DeleteMessage implements plugin.MessageDeleter: remove one sent message.
+// Deleting an already-deleted message surfaces as a platform error — the
+// Host settles each live-surface message exactly once, so a repeat is a
+// caller bug worth seeing.
+func (p *Plugin) DeleteMessage(ctx context.Context, chatID, messageID string) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	req := larkim.NewDeleteMessageReqBuilder().MessageId(messageID).Build()
+	resp, err := api.Im.V1.Message.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: delete message %s in chat %q: %w", messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: delete message %s: %w", messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
+}
+
+// Placeholder implements plugin.Placeholder: send the fixed "Thinking…"
+// copy as a card and return its message id so the Host can delete it at
+// the turn's terminal.
+func (p *Plugin) Placeholder(ctx context.Context, chatID string) (string, error) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return "", errors.New("feishu: channel not started")
+	}
+	messageID, err := sendCard(ctx, api, chatID, placeholderText)
+	if err != nil {
+		return "", fmt.Errorf("feishu: send placeholder to chat %q: %w", chatID, err)
+	}
+	return messageID, nil
+}
+
+// React implements plugin.ReactionSender: add one ack emoji to a message
+// and return the platform reaction id the withdrawal needs. The emoji is
+// drawn randomly from the ack pool (settings.ack_emojis, default
+// THUMBSUP); the requested-emoji parameter is ignored because the
+// vocabulary is platform-specific — an empty pool (an explicit empty
+// ack_emojis list) disables the ack with a reported error.
+func (p *Plugin) React(ctx context.Context, chatID, messageID, _ string) (string, error) {
+	p.mu.Lock()
+	api, settings := p.api, p.settings
+	p.mu.Unlock()
+	if api == nil {
+		return "", errors.New("feishu: channel not started")
+	}
+	pool := settings.ackEmojiPool()
+	if len(pool) == 0 {
+		return "", errors.New("feishu: reaction ack disabled (ack_emojis is empty)")
+	}
+	emoji := pool[rand.Intn(len(pool))]
+	req := larkim.NewCreateMessageReactionReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+			ReactionType(larkim.NewEmojiBuilder().EmojiType(emoji).Build()).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.MessageReaction.Create(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("feishu: react %s to message %s in chat %q: %w", emoji, messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("feishu: react %s to message %s: %w", emoji, messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	if resp.Data != nil && resp.Data.ReactionId != nil {
+		return *resp.Data.ReactionId, nil
+	}
+	return "", nil
+}
+
+// RemoveReaction implements plugin.ReactionRemover: withdraw one reaction
+// by the id React returned. Errors surface — the Host logs them
+// best-effort, and a double withdrawal is a caller bug worth seeing.
+func (p *Plugin) RemoveReaction(ctx context.Context, chatID, messageID, reactionID string) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	req := larkim.NewDeleteMessageReactionReqBuilder().
+		MessageId(messageID).
+		ReactionId(reactionID).
+		Build()
+	resp, err := api.Im.V1.MessageReaction.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: remove reaction %s from message %s in chat %q: %w", reactionID, messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: remove reaction %s from message %s: %w", reactionID, messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
+}
+
 // normalizeEvent maps one im.message.receive_v1 event to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a p2p (single-chat)
-// TEXT message from a human sender — and reports everything else as not
-// publishable: group chats, non-text message types (post, image, audio,
-// interactive cards, ...), bot senders (the platform's or another bot's
-// echo), unparseable or empty text, and envelopes the Host dispatch would
-// drop anyway (missing sender, message id, or chat id).
+// envelope. P2p (single-chat) TEXT messages from a human sender publish as
+// before. Group chats follow the tier-1 mention-only ruling: a group text
+// message publishes only when a mention entry typed "bot" is present (the
+// event model does not carry our own open_id, so the check is by mention
+// type — a mention of ANOTHER bot would also trigger; recorded in the
+// batch log), and the @_user_N placeholders are stripped from the text.
+// Everything else reports as not publishable: other chat types, non-text
+// message types (post, image, audio, interactive cards, ...), bot senders
+// (the platform's or another bot's echo), unmentioned group messages,
+// unparseable or empty text, and envelopes the Host dispatch would drop
+// anyway (missing sender, message id, or chat id).
 //
 // Reaction events are separate event types (im.message.reaction.*), so
 // they never reach this handler; the dispatcher registers
 // im.message.receive_v1 only.
-func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bool) {
+func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, []*imageRef, bool) {
 	if event == nil || event.Event == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	message, sender := event.Event.Message, event.Event.Sender
 	if message == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
-	if strings.TrimSpace(str(message.ChatType)) != p2pChatType {
-		return plugin.InboundMessage{}, false
-	}
-	if str(message.MessageType) != larkim.MsgTypeText {
-		// Pictures, rich text, cards, audio — no text part to publish
-		// (media in is a later slice).
-		return plugin.InboundMessage{}, false
+	chatType := strings.TrimSpace(str(message.ChatType))
+	isGroup := chatType == groupChatType
+	if chatType != p2pChatType && !isGroup {
+		return plugin.InboundMessage{}, nil, false
 	}
 	if sender != nil && strings.TrimSpace(str(sender.SenderType)) == "bot" {
 		// The bot's own echo (or another bot's message) must not loop back
 		// in as a new turn.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
-	content := textFromContent(str(message.Content))
-	if content == "" {
-		return plugin.InboundMessage{}, false
+	var refs []*imageRef
+	var content string
+	switch messageType := strings.TrimSpace(str(message.MessageType)); messageType {
+	case larkim.MsgTypeText:
+		content = textFromContent(str(message.Content))
+	case larkim.MsgTypeImage:
+		// An image message: the content carries the image key; the bytes
+		// are fetched by the handler through the dual-API download.
+		if key := imageKeyFromContent(str(message.Content)); key != "" {
+			refs = append(refs, &imageRef{
+				messageID: strings.TrimSpace(str(message.MessageId)),
+				imageKey:  key,
+			})
+		}
+	default:
+		// Rich text, cards, audio, video, media — not served (the §12
+		// ruling scopes inbound media to images).
+		return plugin.InboundMessage{}, nil, false
+	}
+	if content == "" && len(refs) == 0 {
+		return plugin.InboundMessage{}, nil, false
+	}
+	if isGroup {
+		if !botMentioned(message.Mentions) {
+			// Mention-only: group chatter that never @-addresses a bot
+			// never becomes a turn.
+			return plugin.InboundMessage{}, nil, false
+		}
+		content = strings.TrimSpace(stripMentionPlaceholders(content, message.Mentions))
+		if content == "" && len(refs) == 0 {
+			// A bare "@vivy" ping has nothing left to answer.
+			return plugin.InboundMessage{}, nil, false
+		}
 	}
 	senderID := extractSenderID(sender)
 	if senderID == "" {
 		// No sender id: allow_from could never match this envelope.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	messageID := strings.TrimSpace(str(message.MessageId))
 	if messageID == "" {
 		// The Host dispatch drops envelopes without a message id; do not
 		// publish what cannot be journaled.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	chatID := strings.TrimSpace(str(message.ChatId))
 	if chatID == "" {
-		// The p2p chat id is the Send addressing key; without it Vivy
-		// could not reply.
-		return plugin.InboundMessage{}, false
+		// The chat id is the Send addressing key; without it Vivy could
+		// not reply.
+		return plugin.InboundMessage{}, nil, false
+	}
+	var parts []plugin.Part
+	if content != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: content})
 	}
 	return plugin.InboundMessage{
 		Channel:   ChannelName,
 		ChatID:    chatID,
 		Sender:    senderPrefix + senderID,
 		MessageID: messageID,
-		// ReplyTo/TopicID stay empty this slice (p2p text, no reply
-		// threading, no forum topics).
+		// ReplyTo/TopicID stay empty (no reply threading this batch, no
+		// forum topics).
 		ReplyTo: "",
 		TopicID: "",
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	}, true
+		Parts:   parts,
+	}, refs, true
+}
+
+// downloadImage fetches one inbound image through the SDK client: the
+// message-resource API first (scoped to the message that carried it); on
+// a transport error, a non-success envelope, or an empty body it falls
+// back to the image API — picoclaw's dual-API semantics, rewritten on the
+// pinned SDK. The read is bounded by maxInboundImageBytes; every failure
+// drops only the image part. Logs carry keys and byte counts, never
+// tokens or raw transport errors.
+func (p *Plugin) downloadImage(ctx context.Context, env plugin.ChannelEnv, ref *imageRef) (plugin.Media, bool) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil || ref == nil || ref.imageKey == "" {
+		return plugin.Media{}, false
+	}
+	read := func(file io.Reader) ([]byte, bool) {
+		if file == nil {
+			return nil, false
+		}
+		data, err := io.ReadAll(io.LimitReader(file, maxInboundImageBytes+1))
+		if err != nil || len(data) == 0 || len(data) > maxInboundImageBytes {
+			return nil, false
+		}
+		return data, true
+	}
+	if ref.messageID != "" {
+		resp, err := api.Im.MessageResource.Get(ctx, larkim.NewGetMessageResourceReqBuilder().
+			MessageId(ref.messageID).FileKey(ref.imageKey).Type("image").Build())
+		switch {
+		case err == nil && resp.Success():
+			if data, ok := read(resp.File); ok {
+				return plugin.Media{Name: ref.imageKey, MimeType: "image/jpeg", Data: data}, true
+			}
+			envWarn(env, "feishu: message-resource image body empty or over the bound; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey)
+		case err != nil:
+			envWarn(env, "feishu: message-resource image fetch failed; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey)
+		default:
+			envWarn(env, "feishu: message-resource image not successful; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey, "code", resp.Code)
+		}
+	}
+	resp, err := api.Im.Image.Get(ctx, larkim.NewGetImageReqBuilder().ImageKey(ref.imageKey).Build())
+	if err != nil {
+		envWarn(env, "feishu: image API fetch failed; dropping the image part", "image_key", ref.imageKey)
+		return plugin.Media{}, false
+	}
+	if !resp.Success() {
+		envWarn(env, "feishu: image API not successful; dropping the image part",
+			"image_key", ref.imageKey, "code", resp.Code)
+		return plugin.Media{}, false
+	}
+	data, ok := read(resp.File)
+	if !ok {
+		envWarn(env, "feishu: image API body empty or over the bound; dropping the image part",
+			"image_key", ref.imageKey)
+		return plugin.Media{}, false
+	}
+	// The MIME claim is provisional: the Host sniffs the actual bytes
+	// against the shared whitelist before the part reaches the turn.
+	return plugin.Media{Name: ref.imageKey, MimeType: "image/jpeg", Data: data}, true
+}
+
+// botMentioned reports whether any mention entry is of type "bot" — the
+// closest identity signal the event model carries (the payload names the
+// mentioned party by key and open_id, but the adapter cannot learn its own
+// open_id from the pinned SDK).
+func botMentioned(mentions []*larkim.MentionEvent) bool {
+	for _, m := range mentions {
+		if m != nil && strings.TrimSpace(str(m.MentionedType)) == "bot" {
+			return true
+		}
+	}
+	return false
+}
+
+// stripMentionPlaceholders removes every @_user_N token the mentions array
+// keys, plus any leftover placeholder the payload referenced, so the
+// markup never reaches the model as literal text.
+func stripMentionPlaceholders(content string, mentions []*larkim.MentionEvent) string {
+	for _, m := range mentions {
+		if m != nil && m.Key != nil && *m.Key != "" {
+			content = strings.ReplaceAll(content, *m.Key, "")
+		}
+	}
+	return reMentionPlaceholder.ReplaceAllString(content, "")
 }
 
 // extractSenderID picks the sender identity for the allow_from entry:

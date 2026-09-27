@@ -56,9 +56,10 @@ func TestInterpretKeepsUnknownSequence(t *testing.T) {
 }
 
 func TestInterpretCompletedAndToolIdentity(t *testing.T) {
-	completed := Interpret(Event{Type: "model.completed", Payload: json.RawMessage(`{"content":"final"}`)})
-	if completed.Kind != "model_completed" || !completed.HasCompleted || completed.Completed != "final" || !completed.CompletedAuthoritative {
-		t.Fatalf("completed = %+v", completed)
+	completed := Interpret(Event{Type: "model.completed", PayloadVersion: 1, Payload: json.RawMessage(`{"content":"final"}`)})
+	if completed.Kind != "done" || !completed.Done || !completed.Failed ||
+		!strings.Contains(completed.Message, "unsupported model.completed payload version 1") {
+		t.Fatalf("legacy content completion was accepted: %+v", completed)
 	}
 	request := Interpret(Event{Type: "model.request"})
 	if request.Kind != "model_request" {
@@ -80,7 +81,7 @@ func TestInterpretRejectsUnknownCompletionPayloadVersion(t *testing.T) {
 		PayloadVersion: 9,
 		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
 	})
-	if notice.Kind != "done" || !notice.Done || !notice.Failed || notice.CompletedAuthoritative {
+	if notice.Kind != "done" || !notice.Done || !notice.Failed {
 		t.Fatalf("unknown completion version was accepted: %+v", notice)
 	}
 	if !strings.Contains(notice.Message, "unsupported model.completed payload version 9") {
@@ -94,7 +95,7 @@ func TestInterpretV2CompletionIsDeltaBoundary(t *testing.T) {
 		PayloadVersion: 2,
 		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
 	})
-	if notice.Kind != "model_completed" || !notice.HasCompleted || notice.Completed != "" || notice.CompletedAuthoritative {
+	if notice.Kind != "model_completed" || !notice.HasCompleted || notice.Completion == nil {
 		t.Fatalf("v2 completion notice = %+v", notice)
 	}
 	if notice.PayloadVersion != 2 {

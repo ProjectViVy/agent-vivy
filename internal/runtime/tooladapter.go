@@ -17,6 +17,7 @@ import (
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -190,7 +191,12 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 	if errors.As(err, &refusal) {
 		return refusal, true
 	}
-	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) {
+	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) ||
+		errors.Is(err, ErrWorkUnavailable) || errors.Is(err, ErrWorkSessionRequired) ||
+		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
+		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
+		errors.Is(err, storage.ErrWorkInvalidMutation) || errors.Is(err, storage.ErrWorkRunConflict) ||
+		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrGoalArmed) || errors.Is(err, domain.ErrWorkRoundLimit) {
 		return &toolRefusal{cause: err, reason: publicRefusalReason(err)}, true
 	}
 	return nil, false
@@ -525,11 +531,44 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	return refusalToolResult(spec.Name, reason), nil
 }
 
+func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {
+	return spec.Name != tools.CreateGoalName && !spec.Readonly &&
+		spec.Interaction != domain.ToolInteractionQuestion &&
+		approvalPolicy(ctx) == domain.ApprovalPolicyNever
+}
+
+func workToolCallFenced(ctx context.Context) bool {
+	operations := tools.WorkControlFromContext(ctx)
+	fence, ok := operations.(interface {
+		WorkRunFenced(context.Context) bool
+	})
+	return ok && fence.WorkRunFenced(ctx)
+}
+
 // dispatch performs one governed call. Every per-call refusal leaves it as a
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
+	if operations := tools.WorkControlFromContext(ctx); operations != nil {
+		if gate, ok := operations.(interface {
+			WorkToolCall(context.Context, func() (string, error)) (string, error)
+		}); ok {
+			return gate.WorkToolCall(ctx, func() (string, error) {
+				return a.dispatchUngated(ctx, argumentsInJSON)
+			})
+		}
+	}
+	return a.dispatchUngated(ctx, argumentsInJSON)
+}
+
+func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
+	if result, handled, err := resumePlanReview(ctx, spec.Name, a.maxResultBytes); handled || err != nil {
+		return result, err
+	}
+	if workToolCallFenced(ctx) {
+		return "", refuseCall("a terminal work-control action has been committed for this run; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+	}
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
 		// A skill_view mount extends the selected surface for the rest of
@@ -568,6 +607,10 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
+	}
+	if approvalPolicyDeniesEffectful(ctx, spec) {
+		evaluation.Decision = domain.PolicyDeny
+		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
 	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
@@ -725,7 +768,8 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 		}
 		operation = &admitted
 	}
-	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval {
+	forceHumanApproval := spec.Name == tools.CreateGoalName
+	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
@@ -749,7 +793,12 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
 			}
 		} else {
-			approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			var approvalEval ApprovalEvaluation
+			if forceHumanApproval {
+				approvalEval = ApprovalEvaluation{ShouldAsk: true, Reason: "human authorization is required to create a Goal"}
+			} else {
+				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			}
 			if approvalEval.AutoApprove {
 				return a.run(ctx, string(args), operation)
 			}
@@ -794,6 +843,9 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation
 		if err != nil {
 			return "", err
 		}
+		if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
+			return "", err
+		}
 		if err := a.markCommandFailure(ctx, result); err != nil {
 			return "", err
 		}
@@ -829,6 +881,11 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	toolCtx = tools.WithToolCallID(toolCtx, compose.GetToolCallID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
+	// The stable tool_call identity crosses the Eino boundary so effectful
+	// tools can receipt-key their committed operation.
+	if callID := compose.GetToolCallID(ctx); callID != "" {
+		toolCtx = tools.WithToolCallID(toolCtx, callID)
+	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	err = redactToolError(err)

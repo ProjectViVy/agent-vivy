@@ -29,6 +29,9 @@ modules:
   - vivy/persona
   - vivy/evolution
   - vivy/memory
+  - vivy/memory-bml
+  - vivy/memory-bml-sync
+  - vivy/memory-bml-tools
   - vivy/notebook
   - vivy/masks
   - vivy/masks-ui

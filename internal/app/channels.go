@@ -31,7 +31,11 @@ func bindChannels(providers []channel.ChannelProvider, grants map[string][]modul
 			return nil, fmt.Errorf("app: duplicate channel provider name %q", name)
 		}
 		byName[name] = true
-		out = append(out, &providerChannel{name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes})
+		var capabilityTarget any
+		if source, ok := provider.(channel.CapabilitySource); ok {
+			capabilityTarget = source.CapabilityTarget()
+		}
+		out = append(out, &providerChannel{name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes, capabilityTarget: capabilityTarget})
 	}
 	for name := range configured {
 		if !byName[name] {
@@ -59,11 +63,12 @@ func compiledChannelNames(providers []channel.ChannelProvider) []string {
 }
 
 type providerChannel struct {
-	name     string
-	provider channel.ChannelProvider
-	grants   []module.GrantBinding
-	instance channel.Instance
-	maxRunes int
+	name             string
+	provider         channel.ChannelProvider
+	grants           []module.GrantBinding
+	instance         channel.Instance
+	maxRunes         int
+	capabilityTarget any
 }
 
 func (c *providerChannel) Name() string { return c.name }
@@ -101,6 +106,24 @@ func (c *providerChannel) Send(ctx context.Context, msg channel.OutboundMessage)
 	return c.instance.Send(ctx, msg)
 }
 func (c *providerChannel) MaxMessageRunes() int { return c.maxRunes }
+
+// CapabilityTarget implements plugin.CapabilitySource: discovery and host
+// call paths follow it to the adapter behind this wrapper. Before Start has
+// constructed the instance, the bind-time typed-nil probe from the provider
+// is returned — valid for method-set assertions only. After Start, the
+// instance's own disclosure (the live adapter) wins, so calls such as
+// typing and health probes reach the real method set. A provider without
+// the bind-time seam leaves that target nil and the chain falls back to
+// this wrapper, which honestly reports (and can serve) no optional
+// capability.
+func (c *providerChannel) CapabilityTarget() any {
+	if cs, ok := c.instance.(channel.CapabilitySource); ok {
+		if t := cs.CapabilityTarget(); t != nil {
+			return t
+		}
+	}
+	return c.capabilityTarget
+}
 
 func cloneGrantBindings(bindings []module.GrantBinding) []module.GrantBinding {
 	out := make([]module.GrantBinding, len(bindings))

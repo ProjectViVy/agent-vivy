@@ -293,7 +293,7 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 	go func() {
 		defer s.wg.Done()
 		s.driveWithExecution(runCtx, mapper, parent.SessionID, request.Task, domain.RunModeNormal,
-			snapshot.Profile, snapshot, sandboxMode, approvalPolicy, domain.FaceWeb, workspaceID,
+			snapshot.Profile, "", snapshot, sandboxMode, approvalPolicy, domain.FaceWeb, workspaceID, nil,
 			runExecutionOptions{engine: childEngine, child: state, oneShotChild: true, suppressSessionMessageProjection: true})
 	}()
 	started, err := s.deps.Runs.GetRun(context.WithoutCancel(ctx), child.ID)

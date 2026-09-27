@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,9 +9,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,10 +98,20 @@ func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 	return append([]plugin.InboundMessage(nil), e.published...)
 }
 
+func (e *fakeEnv) reset() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.published = nil
+}
+
 // sentCall records one ChannelMessageSend invocation.
 type sentCall struct {
 	channelID string
 	content   string
+	// reference is the reply-threading message id ("" for plain sends).
+	reference string
+	// fileNames lists the multipart file names of a complex send (media).
+	fileNames []string
 }
 
 // fakeSession is an in-memory session. It records the factory inputs and
@@ -115,10 +128,26 @@ type fakeSession struct {
 	sendFailAt int  // 1-based call index that starts failing (0 = never)
 	hanging    bool // Open blocks, then self-releases (dialer-timeout stand-in)
 
-	mu         sync.Mutex
-	openCalls  int
-	closeCalls int
-	sent       []sentCall
+	mu          sync.Mutex
+	openCalls   int
+	closeCalls  int
+	sent        []sentCall
+	typingCalls []string
+	edits       []editCall
+	deleteCalls []deleteCall
+}
+
+// editCall records one edit invocation.
+type editCall struct {
+	channelID string
+	messageID string
+	content   string
+}
+
+// deleteCall records one delete invocation.
+type deleteCall struct {
+	channelID string
+	messageID string
 }
 
 // Open implements session. A hanging Open blocks briefly and fails: the
@@ -159,6 +188,82 @@ func (f *fakeSession) ChannelMessageSend(channelID, content string, _ ...discord
 		return nil, err
 	}
 	return &discordgo.Message{ID: fmt.Sprintf("sent-%d", call)}, nil
+}
+
+// ChannelMessageSendComplex implements session: records the call including
+// the reply reference.
+func (f *fakeSession) ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	ref := ""
+	if data.Reference != nil {
+		ref = data.Reference.MessageID
+	}
+	var fileNames []string
+	for _, file := range data.Files {
+		fileNames = append(fileNames, file.Name)
+	}
+	f.mu.Lock()
+	f.sent = append(f.sent, sentCall{channelID: channelID, content: data.Content, reference: ref, fileNames: fileNames})
+	call := len(f.sent)
+	err, failAt := f.sendErr, f.sendFailAt
+	f.mu.Unlock()
+	if err != nil && (failAt == 0 || call >= failAt) {
+		return nil, err
+	}
+	return &discordgo.Message{ID: fmt.Sprintf("sent-%d", call)}, nil
+}
+
+// ChannelTyping implements session: records the indicator ping target.
+func (f *fakeSession) ChannelTyping(channelID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	f.typingCalls = append(f.typingCalls, channelID)
+	f.mu.Unlock()
+	return nil
+}
+
+// ChannelMessageEditComplex implements session: records the edit.
+func (f *fakeSession) ChannelMessageEditComplex(m *discordgo.MessageEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	content := ""
+	if m.Content != nil {
+		content = *m.Content
+	}
+	f.mu.Lock()
+	f.edits = append(f.edits, editCall{channelID: m.Channel, messageID: m.ID, content: content})
+	err := f.sendErr
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &discordgo.Message{ID: m.ID, Content: content}, nil
+}
+
+// ChannelMessageDelete implements session: records the delete.
+func (f *fakeSession) ChannelMessageDelete(channelID, messageID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	f.deleteCalls = append(f.deleteCalls, deleteCall{channelID: channelID, messageID: messageID})
+	err := f.sendErr
+	f.mu.Unlock()
+	return err
+}
+
+// editsSnapshot returns the recorded edit invocations.
+func (f *fakeSession) editsSnapshot() []editCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]editCall(nil), f.edits...)
+}
+
+// deletesSnapshot returns the recorded delete invocations.
+func (f *fakeSession) deletesSnapshot() []deleteCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]deleteCall(nil), f.deleteCalls...)
+}
+
+// typingSnapshot returns the recorded typing target channel ids.
+func (f *fakeSession) typingSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.typingCalls...)
 }
 
 // calls snapshots the counters.
@@ -296,7 +401,22 @@ func (h *harness) drop(t *testing.T, n int) {
 
 // message builds a minimal guild text MESSAGE_CREATE payload.
 func message(msgID, authorID, content string) *discordgo.MessageCreate {
+	// A DM-shaped message: the group (guild) trigger path has its own
+	// builder below, since mention-only gating applies there.
 	return &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        msgID,
+		ChannelID: "chan-1",
+		Content:   content,
+		Author:    &discordgo.User{ID: authorID},
+		Type:      discordgo.MessageTypeDefault,
+	}}
+}
+
+// groupMessage builds one guild text-channel message; mentioned records
+// whether the bot itself is among the Mentions (and renders the markup
+// into the content like Discord does).
+func groupMessage(msgID, authorID, content string, mentioned bool) *discordgo.MessageCreate {
+	m := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        msgID,
 		ChannelID: "chan-1",
 		GuildID:   "guild-1",
@@ -304,6 +424,17 @@ func message(msgID, authorID, content string) *discordgo.MessageCreate {
 		Author:    &discordgo.User{ID: authorID},
 		Type:      discordgo.MessageTypeDefault,
 	}}
+	if mentioned {
+		m.Message.Content = "<@bot-1> " + content
+		m.Message.Mentions = []*discordgo.User{{ID: "bot-1"}}
+	}
+	return m
+}
+
+// gatewaySession is a minimal live-session stand-in carrying the READY
+// state the group trigger reads the bot identity from.
+func gatewaySession(botUserID string) *discordgo.Session {
+	return &discordgo.Session{State: &discordgo.State{Ready: discordgo.Ready{User: &discordgo.User{ID: botUserID}}}}
 }
 
 // --- settings ----------------------------------------------------------------
@@ -539,7 +670,7 @@ func TestNormalizeMessage(t *testing.T) {
 		{
 			name: "reply captures the referenced message id",
 			m: &discordgo.MessageCreate{Message: &discordgo.Message{
-				ID: "m-3", ChannelID: "chan-1", GuildID: "guild-1", Content: "a reply",
+				ID: "m-3", ChannelID: "chan-1", Content: "a reply",
 				Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeReply,
 				ReferencedMessage: &discordgo.Message{ID: "orig-9"},
 			}},
@@ -552,6 +683,53 @@ func TestNormalizeMessage(t *testing.T) {
 				ReplyTo:   "orig-9",
 				Parts:     []plugin.Part{{Kind: plugin.PartText, Text: "a reply"}},
 			},
+		},
+		{
+			name: "guild message with the bot mention publishes stripped",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-13", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "<@bot-1> what is up", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "bot-1"}},
+			}},
+			want: true,
+			msg: plugin.InboundMessage{
+				Channel:   "discord",
+				ChatID:    "chan-1",
+				Sender:    "discord:U1",
+				MessageID: "m-13",
+				Parts:     []plugin.Part{{Kind: plugin.PartText, Text: "what is up"}},
+			},
+		},
+		{
+			name: "guild message without the bot mention drops",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-14", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "just chatting", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "U2"}},
+			}},
+			want: false,
+		},
+		{
+			name: "guild message mentioning another user drops",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-15", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "hey <@U2> look", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "U2"}},
+			}},
+			want: false,
+		},
+		{
+			name: "guild bare mention leaves nothing to publish",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-16", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "<@!bot-1>", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "bot-1"}},
+			}},
+			want: false,
 		},
 		{name: "nil event", m: nil, want: false},
 		{name: "nil message", m: &discordgo.MessageCreate{}, want: false},
@@ -638,7 +816,7 @@ func TestNormalizeMessage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, publishable := normalizeMessage(tc.m)
+			got, _, publishable := normalizeMessage(tc.m, "bot-1")
 			if publishable != tc.want {
 				t.Fatalf("publishable = %v, want %v", publishable, tc.want)
 			}
@@ -996,5 +1174,398 @@ func TestLateDeathSignalAfterStopIsBenign(t *testing.T) {
 	}
 	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{ChatID: "chan-1"}); err == nil {
 		t.Fatalf("Send after Stop must fail")
+	}
+}
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a dropped gateway session
+// surfaces as a temporary HealthError while the loop redials, and Health
+// returns to nil once the replacement session opens.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	old := wsRedialDelay
+	wsRedialDelay = 20 * time.Millisecond
+	t.Cleanup(func() { wsRedialDelay = old })
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.drop(t, 0)
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return h.p.Health(context.Background()) == nil
+	})
+}
+
+// --- Typing ------------------------------------------------------------------
+
+// TestTypingPingsTheSendClient: plugin.Typing rides the never-opened REST
+// send client — one ChannelTyping ping per call; the Host owns the resend
+// cadence and the stop. Typing before Start fails closed like Send.
+func TestTypingPingsTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.Typing(context.Background(), "chan-1"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	calls := h.sender().typingSnapshot()
+	if len(calls) != 1 || calls[0] != "chan-1" {
+		t.Fatalf("typing calls = %v, want [chan-1]", calls)
+	}
+
+	if err := newAdapter().Typing(context.Background(), "chan-1"); err == nil {
+		t.Fatal("typing before start must fail closed")
+	}
+}
+
+// TestSendThreadsViaMessageReference: a non-empty ReplyTo routes the send
+// through the complex send with a MessageReference (the host quotes only
+// the first chunk; the adapter threads whatever envelope it is given); an
+// envelope without ReplyTo travels as a plain send.
+func TestSendThreadsViaMessageReference(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "chan-1",
+		ReplyTo: "msg-9",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("threaded send: %v", err)
+	}
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "chan-1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "plain"}},
+	}); err != nil {
+		t.Fatalf("plain send: %v", err)
+	}
+	calls := h.sender().sentCalls()
+	if len(calls) != 2 {
+		t.Fatalf("send calls = %d, want 2", len(calls))
+	}
+	if calls[0].reference != "msg-9" {
+		t.Fatalf("call 0 reference = %q, want msg-9", calls[0].reference)
+	}
+	if calls[1].reference != "" || calls[1].content != "plain" {
+		t.Fatalf("call 1 = %+v, want a plain unthreaded send", calls[1])
+	}
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// dispatchFromSession feeds one MESSAGE_CREATE through the ear attempt's
+// handler with a live-shaped session (the group trigger reads the bot
+// identity from the session's READY state).
+func (h *harness) dispatchFromSession(t *testing.T, n int, s *discordgo.Session, m *discordgo.MessageCreate) {
+	t.Helper()
+	f := h.ear(n)
+	if f == nil {
+		t.Fatalf("no gateway attempt #%d built", n)
+	}
+	f.onMessage(s, m)
+}
+
+// TestGroupMentionOnlyGatesGuildMessages: a guild message mentioning the
+// bot publishes with the mention markup stripped (the identity comes from
+// the session's READY state); without the mention nothing publishes; a DM
+// skips the gate entirely.
+func TestGroupMentionOnlyGatesGuildMessages(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.dispatchFromSession(t, 0, gatewaySession("bot-1"), groupMessage("g-1", "U1", "what is up", true))
+	waitFor(t, "guild mention envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	got := h.env.snapshot()[0]
+	if got.Parts[0].Text != "what is up" || got.Sender != "discord:U1" || got.ChatID != "chan-1" {
+		t.Fatalf("guild envelope = %+v, want the stripped text from U1", got)
+	}
+
+	h.dispatchFromSession(t, 0, gatewaySession("bot-1"), groupMessage("g-2", "U1", "chatting", false))
+	if got := len(h.env.snapshot()); got != 1 {
+		t.Fatalf("envelopes = %d, want still 1 (unmentioned guild message must not publish)", got)
+	}
+
+	// A DM skips the gate (the nil-session dispatch stays legal there).
+	h.dispatch(t, 0, message("d-1", "U1", "dm hello"))
+	waitFor(t, "dm envelope", func() bool { return len(h.env.snapshot()) == 2 })
+}
+
+// stubImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// TestNormalizeMessageImagePreScreen: image attachments return as download
+// refs (DM and guild alike), non-image attachments survive as [file: name]
+// annotations, and a captionless image message is a valid turn.
+func TestNormalizeMessageImagePreScreen(t *testing.T) {
+	withMedia := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-1", ChannelID: "chan-1", Content: "look",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic.jpg", Filename: "pic.jpg", ContentType: "image/jpeg"},
+			{ID: "a2", URL: "https://cdn.example.com/notes.txt", Filename: "notes.txt", ContentType: "text/plain"},
+		},
+	}}
+	msg, refs, publishable := normalizeMessage(withMedia, "bot-1")
+	if !publishable {
+		t.Fatal("text + media message must be publishable")
+	}
+	if len(refs) != 1 || refs[0].url != "https://cdn.example.com/pic.jpg" ||
+		refs[0].name != "pic.jpg" || refs[0].contentType != "image/jpeg" {
+		t.Fatalf("image refs = %+v", refs)
+	}
+	if len(msg.Parts) != 2 || msg.Parts[0].Text != "look" || msg.Parts[1].Text != "[file: notes.txt]" {
+		t.Fatalf("parts = %+v, want text then the file annotation", msg.Parts)
+	}
+
+	captionless := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-2", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic.png", Filename: "pic.png", ContentType: "image/png"},
+		},
+	}}
+	msg, refs, publishable = normalizeMessage(captionless, "bot-1")
+	if !publishable || len(refs) != 1 || len(msg.Parts) != 0 {
+		t.Fatalf("captionless image: publishable=%v refs=%d parts=%+v", publishable, len(refs), msg.Parts)
+	}
+
+	// An image-class attachment by extension alone (no content type) is
+	// still pre-screened.
+	byExt := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-3", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic", Filename: "photo.webp"},
+		},
+	}}
+	if _, refs, publishable := normalizeMessage(byExt, "bot-1"); !publishable || len(refs) != 1 {
+		t.Fatalf("extension-only image: publishable=%v refs=%d", publishable, len(refs))
+	}
+
+	// A lone non-image attachment still publishes its annotation.
+	junk := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-4", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/data.bin", Filename: "data.bin", ContentType: "application/octet-stream"},
+		},
+	}}
+	if _, _, publishable := normalizeMessage(junk, "bot-1"); !publishable {
+		t.Fatal("a lone non-image attachment must publish its [file: name] annotation")
+	}
+}
+
+// TestInboundImageDownloadsBounded: the handler downloads image attachments
+// through the governed transport with the shared bound — a good image
+// lands as annotation plus media part, an oversize or failing one keeps
+// only the annotation.
+func TestInboundImageDownloadsBounded(t *testing.T) {
+	oversize := append([]byte{0x89, 'P', 'N', 'G'}, bytes.Repeat([]byte{0x00}, 5<<20)...) // > 5 MiB
+	var mode atomic.Value                                                                 // "ok" | "oversize" | "missing"
+	mode.Store("ok")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch mode.Load() {
+		case "ok":
+			_, _ = w.Write(stubImageBytes)
+		case "oversize":
+			_, _ = w.Write(oversize)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	withImage := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-dl-1", ChannelID: "chan-1", Content: "look",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: srv.URL + "/pic.jpg", Filename: "pic.jpg", ContentType: "image/jpeg"},
+		},
+	}}
+
+	// A good image arrives as annotation + bounded media part.
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "downloaded envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env1 := h.env.snapshot()[0]
+	if len(env1.Parts) != 3 ||
+		env1.Parts[0].Text != "look" ||
+		env1.Parts[1].Text != "[image: pic.jpg]" ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubImageBytes) ||
+		env1.Parts[2].Media.MimeType != "image/jpeg" {
+		t.Fatalf("envelope parts = %+v", env1.Parts)
+	}
+
+	// An over-bound image keeps the text and the annotation, drops bytes.
+	h.env.reset()
+	mode.Store("oversize")
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "oversize envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env2 := h.env.snapshot()[0]
+	if len(env2.Parts) != 2 || env2.Parts[0].Text != "look" || env2.Parts[1].Text != "[image: pic.jpg]" {
+		t.Fatalf("oversize envelope parts = %+v", env2.Parts)
+	}
+
+	// A failing download keeps the text and the annotation too.
+	h.env.reset()
+	mode.Store("missing")
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "failed-download envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env3 := h.env.snapshot()[0]
+	if len(env3.Parts) != 2 || env3.Parts[0].Text != "look" || env3.Parts[1].Text != "[image: pic.jpg]" {
+		t.Fatalf("failed-download envelope parts = %+v", env3.Parts)
+	}
+}
+
+// TestSendMediaOneComplexSend: the batch of media parts leaves as ONE
+// complex send with multipart files and no content (the reply text already
+// went out through Send); a failed batch fails whole.
+func TestSendMediaOneComplexSend(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	ids, err := h.p.SendMedia(context.Background(), "chan-9", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", MimeType: "image/png", Data: []byte("png-bytes")}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "", MimeType: "image/jpeg"}}, // empty: skipped
+		{Kind: plugin.PartText, Text: "not media"},                                      // ignored
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "b.jpg", MimeType: "image/jpeg", Data: []byte("jpg-bytes")}},
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "sent-1" {
+		t.Fatalf("ids = %v, want one complex send", ids)
+	}
+	calls := h.sender().sentCalls()
+	if len(calls) != 1 {
+		t.Fatalf("send client calls = %d, want 1", len(calls))
+	}
+	call := calls[0]
+	if call.channelID != "chan-9" || call.content != "" {
+		t.Fatalf("call = %+v, want empty content to chan-9", call)
+	}
+	if len(call.fileNames) != 2 || call.fileNames[0] != "a.png" || call.fileNames[1] != "b.jpg" {
+		t.Fatalf("file names = %v, want both images", call.fileNames)
+	}
+	if ear := h.ear(0); len(ear.sentCalls()) != 0 {
+		t.Fatalf("ear session carried media, want send-client only")
+	}
+}
+
+// TestSendMediaFailClosed: not started fails closed; a send failure
+// surfaces so the Host burns the delivery attempt.
+func TestSendMediaFailClosed(t *testing.T) {
+	p := newAdapter()
+	if _, err := p.SendMedia(context.Background(), "chan-1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", Data: []byte("x")}},
+	}); err == nil {
+		t.Fatal("send media before start must fail closed")
+	}
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	h.sender().sendErr = errors.New("413 payload too large")
+	if _, err := h.p.SendMedia(context.Background(), "chan-1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", MimeType: "image/png", Data: []byte("x")}},
+	}); err == nil {
+		t.Fatal("a failed complex send must surface")
+	}
+}
+
+// --- interaction capabilities (edit / delete / placeholder) -------------------
+
+// TestEditMessageRewritesOnTheSendClient: the edit lands on the
+// never-opened send client (never the ear), rewriting the content as-is.
+func TestEditMessageRewritesOnTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	err := h.p.EditMessage(context.Background(), "chan-1", "msg-9", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "edited body"}},
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	edits := h.sender().editsSnapshot()
+	if len(edits) != 1 || edits[0].channelID != "chan-1" || edits[0].messageID != "msg-9" || edits[0].content != "edited body" {
+		t.Fatalf("edits = %+v", edits)
+	}
+	// The ear sessions carry no REST writes.
+	for i := range h.spy.count() - 1 {
+		if got := len(h.ear(i).editsSnapshot()); got != 0 {
+			t.Fatalf("ear #%d carried %d edits, want 0", i, got)
+		}
+	}
+}
+
+// TestEditMessageRejectsEmptyPayload: no text, no platform call.
+func TestEditMessageRejectsEmptyPayload(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.EditMessage(context.Background(), "chan-1", "msg-9", plugin.OutboundMessage{}); err == nil {
+		t.Fatal("empty edit payload must fail")
+	}
+	if got := len(h.sender().editsSnapshot()); got != 0 {
+		t.Fatalf("edit calls for an empty payload = %d, want none", got)
+	}
+}
+
+// TestDeleteMessageRemovesOnTheSendClient: the delete names channel and
+// message ids and never touches an ear session.
+func TestDeleteMessageRemovesOnTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.DeleteMessage(context.Background(), "chan-1", "msg-9"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	deletes := h.sender().deletesSnapshot()
+	if len(deletes) != 1 || deletes[0].channelID != "chan-1" || deletes[0].messageID != "msg-9" {
+		t.Fatalf("deletes = %+v", deletes)
+	}
+}
+
+// TestPlaceholderSendsFixedCopyAndReturnsTheID: the placeholder is a plain
+// send of the fixed copy; the returned id is the one the Host deletes at
+// the terminal.
+func TestPlaceholderSendsFixedCopyAndReturnsTheID(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	id, err := h.p.Placeholder(context.Background(), "chan-1")
+	if err != nil {
+		t.Fatalf("placeholder: %v", err)
+	}
+	sends := h.sender().sentCalls()
+	if len(sends) != 1 || sends[0].content != placeholderText || sends[0].channelID != "chan-1" {
+		t.Fatalf("placeholder sends = %+v", sends)
+	}
+	if id != "sent-1" {
+		t.Fatalf("placeholder id = %q, want the canned send id", id)
+	}
+}
+
+// TestInteractionFacesFailClosedWhenNotStarted: before Start there is no
+// send client, so the faces must say so.
+func TestInteractionFacesFailClosedWhenNotStarted(t *testing.T) {
+	t.Setenv(stubTokenEnvName, stubTokenValue)
+	p := newAdapter()
+	ctx := context.Background()
+	if err := p.EditMessage(ctx, "c", "m", plugin.OutboundMessage{Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
+		t.Fatal("edit before start must fail")
+	}
+	if err := p.DeleteMessage(ctx, "c", "m"); err == nil {
+		t.Fatal("delete before start must fail")
+	}
+	if _, err := p.Placeholder(ctx, "c"); err == nil {
+		t.Fatal("placeholder before start must fail")
 	}
 }

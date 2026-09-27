@@ -97,7 +97,7 @@ describe('ChatView transcript', () => {
       runEvents: [
         event(1, 'model.reasoning_delta', { delta: '第一行\n第二行' }),
         event(2, 'model.delta', { delta: '答案' }),
-        event(3, 'model.completed', { content: '答案' }),
+        event(3, 'model.completed', { byte_len: 6, content_sha256: 'x' }),
         event(4, 'run.completed', {}),
       ],
     };
@@ -118,5 +118,19 @@ describe('ChatView transcript', () => {
     expect(container.querySelectorAll('[data-reasoning-row]')).toHaveLength(0);
     expect(container.querySelector('[data-message-id="m2"]')).not.toBeNull();
     expect(container.textContent).toContain('历史答案');
+  });
+
+  it('does not carry a Goal creation draft into another session', async () => {
+    hydrateLocale('en');
+    view.state = { activeSessionId: 's1', messages: [], messagesPhase: 'empty', currentRun: null, runEvents: [], runLogs: {},
+      work: { session_id: 's1', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' } }, workPhase: 'ready',
+    };
+    await render();
+    await act(async () => { [...container.querySelectorAll('button')].find((button) => button.textContent === 'Create Goal')?.click(); });
+    expect(container.querySelector('textarea[placeholder="What should Vivy accomplish?"]')).not.toBeNull();
+
+    view.state = { ...view.state, activeSessionId: 's2', work: { session_id: 's2', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' } } };
+    await act(async () => root.render(<ChatView sessionId="s2" />));
+    expect(container.querySelector('textarea[placeholder="What should Vivy accomplish?"]')).toBeNull();
   });
 });

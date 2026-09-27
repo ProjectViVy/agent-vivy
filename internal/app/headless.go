@@ -130,8 +130,9 @@ func newHeadlessSessionID() (domain.SessionID, error) {
 func runHeadlessTurn(ctx context.Context, svc *runtime.Service, sessionID domain.SessionID, prompt string, sink *headlessSink) (HeadlessResult, error) {
 	result := HeadlessResult{SessionID: sessionID}
 	runID, err := svc.RunWithOptions(ctx, sessionID, prompt, runtime.RunOptions{
-		Face:       domain.FaceHeadless,
-		Provenance: &domain.Provenance{Source: "headless"},
+		Face:           domain.FaceHeadless,
+		Provenance:     &domain.Provenance{Source: domain.SourceHeadless},
+		HumanAdmission: true,
 	})
 	if err != nil {
 		return result, err
@@ -224,18 +225,13 @@ func (s *headlessSink) Publish(ev domain.RunEvent) {
 			s.streamed = false
 			break
 		}
-		content, err := s.completion.Complete(ev.PayloadVersion, ev.Payload)
-		if err != nil {
+		if err := s.completion.Complete(ev.PayloadVersion, ev.Payload); err != nil {
 			s.failProtocol(err)
 			s.streamed = false
 			break
 		}
 		if s.streamed {
 			_, _ = fmt.Fprintln(s.out)
-		} else if ev.PayloadVersion == 0 || ev.PayloadVersion == 1 {
-			if strings.TrimSpace(content) != "" {
-				_, _ = fmt.Fprintln(s.out, content)
-			}
 		}
 		s.streamed = false
 	case domain.EventToolStarted:

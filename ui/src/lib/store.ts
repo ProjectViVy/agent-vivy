@@ -3,15 +3,52 @@ import * as api from './api';
 import { runFailedMessage } from './failure';
 import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
+import { subscribeWork, type WorkSubscription } from './work-subscription';
 import { isTaskToolName } from './todos';
 import { recentRunIds } from './run-rows';
+import { checkDeliverable, DeliverableTransferError, downloadDeliverable, readDeliveryPreview } from './deliverable-download';
 import { hydrateLocale, t } from '@/i18n';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 /** 运行期间排队等待发送的消息（对照 Crush 队列 pill 行为）。 */
-export interface QueuedMessage { id: string; text: string; mode: api.RunMode; face?: api.Face; attachments?: api.AttachmentInput[]; thinking?: api.ThinkingMode; }
+export interface QueuedMessage extends api.TurnSubmission { id: string }
+
+export interface ReferenceDraft {
+  id: string;
+  preview: api.ReferencePreview;
+  selection: api.ReferenceSelection;
+  /** further-reading 勾选：本引用要求把源会话纳入任务级读域。 */
+  allowFurther?: boolean;
+}
+
+let draftSeq = 0;
+const newDraftRequestId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `req_${crypto.randomUUID()}`
+    : `req_${Date.now()}_${++draftSeq}`;
+
+/** Full copy so later composer edits cannot mutate a queued/draft submission. */
+const copySubmission = (submission: api.TurnSubmission): api.TurnSubmission => ({
+  ...submission,
+  attachments: submission.attachments?.map((item) => ({ ...item })),
+  continuity: submission.continuity && {
+    request_id: submission.continuity.request_id,
+    references: submission.continuity.references?.map((reference) => ({
+      ...reference,
+      selection: {
+        ...reference.selection,
+        refs: reference.selection.refs?.map((ref) => ({ ...ref })),
+        run_range: reference.selection.run_range && { ...reference.selection.run_range },
+      },
+    })),
+    history_scope: submission.continuity.history_scope && {
+      ...submission.continuity.history_scope,
+      session_ids: submission.continuity.history_scope.session_ids && [...submission.continuity.history_scope.session_ids],
+    },
+  },
+});
 
 const ACTIVE_SESSION_KEY = 'vivy.ui.activeSession';
 const DEMO_PREFIX = 'vivy.demo.';
@@ -33,6 +70,21 @@ function lastRunId(messages: api.Message[]): string | null {
 
 /** 历史运行事件缓存上限：转写只折叠最近若干个运行，避免一次会话拉爆内存。 */
 const RUN_LOG_CACHE_LIMIT = 8;
+
+/** 交付传输的 RPC 接缝（SC-D4 §12）：只有 digest 绑定的 read + close。
+ * 调用时解析引用，测试可替换 api 模块实现。 */
+const deliverableRpc = {
+  read: (sessionId: string, req: api.DeliveryReadRequest) => api.deliverablesRead(sessionId, req),
+  close: (sessionId: string, transferId: string) => api.deliverablesClose(sessionId, transferId),
+};
+
+/** 每个 item 同时只允许一个活动下载（由 store 内存控制器保证）。 */
+const deliveryDownloads = new Map<string, AbortController>();
+
+const deliveryErrorStatus = (err: unknown): api.DeliveryItemStatus => {
+  const reason = err instanceof DeliverableTransferError ? err.reason : 'unavailable';
+  return reason === 'changed' || reason === 'missing' || reason === 'forbidden' || reason === 'unavailable' ? reason : 'unavailable';
+};
 
 /** 写入一条运行事件缓存；超出上限时按插入顺序淘汰最早的。 */
 function withCachedRunLog(cache: Record<string, RunEvent[]>, runId: string, events: RunEvent[]): Record<string, RunEvent[]> {
@@ -76,6 +128,10 @@ interface RuntimeState {
   streamingReasoning: string;
   runError: string | null;
   runBusy: boolean;
+  work: api.WorkState | null;
+  workPhase: Phase;
+  workError: string | null;
+  workBusy: boolean;
   queuedMessages: QueuedMessage[];
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
@@ -126,15 +182,44 @@ interface RuntimeState {
   setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => Promise<void>;
+  startRun: (sessionId: string, submission: api.TurnSubmission) => Promise<void>;
 	editSession: (sessionId: string, messageId: string, text: string, mode?: api.RunMode, face?: api.Face, thinking?: api.ThinkingMode) => Promise<void>;
-  enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => void;
+  enqueueMessage: (submission: api.TurnSubmission) => void;
+  draftReferences: ReferenceDraft[];
+  draftScope: api.HistoryScope | null;
+  draftRequestId: string;
+  addDraftReference: (preview: api.ReferencePreview, selection: api.ReferenceSelection, allowFurtherReading: boolean) => void;
+  removeDraftReference: (id: string) => void;
+  setDraftScope: (scope: api.HistoryScope | null) => void;
+  clearDraftContext: () => void;
+  referenceViews: Record<string, api.ReferenceView | null>;
+  loadReferenceView: (referenceId: string) => Promise<void>;
+  /** 交付组列表（FilesPanel 汇总与聊天卡片共用同一份已提交数据）。 */
+  deliverySets: api.DeliverySet[];
+  deliverySetsPhase: Phase;
+  /** 条目可用性：缺省即 unchecked；验证/预览/下载共享同一状态机。 */
+  deliveryItemStates: Record<string, api.DeliveryItemState>;
+  loadDeliverySets: () => Promise<void>;
+  checkDeliveryItem: (item: api.Deliverable) => Promise<void>;
+  previewDeliveryItem: (item: api.Deliverable) => Promise<void>;
+  downloadDeliveryItem: (item: api.Deliverable) => Promise<void>;
+  cancelDeliveryDownload: (itemId: string) => void;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
   /** 按需拉取并缓存某个历史运行的事件（失败即静默回退到投影渲染）。 */
   loadRunLog: (runId: string) => Promise<void>;
+  loadWork: (sessionId?: string) => Promise<void>;
+  commitWork: (method: api.WorkMethod, fields?: Record<string, unknown>) => Promise<api.WorkCommitResult>;
+  createGoal: (objective: string, maxRounds: number) => Promise<api.WorkCommitResult>;
+  editGoal: (objective: string, maxRounds: number, goalRef: Pick<api.WorkGoal, 'id' | 'revision'>) => Promise<api.WorkCommitResult>;
+  pauseGoal: (reason?: string) => Promise<api.WorkCommitResult>;
+  resumeGoal: () => Promise<api.WorkCommitResult>;
+  clearGoal: () => Promise<api.WorkCommitResult>;
+  enterPlan: () => Promise<api.WorkCommitResult>;
+  leavePlan: () => Promise<api.WorkCommitResult>;
+  decidePlan: (action: api.PlanAction, feedback?: string, objective?: string, maxRounds?: number, submissionId?: string) => Promise<api.WorkCommitResult>;
   loadBackgroundRuns: () => Promise<void>;
   attachBackgroundRun: (runId: string) => Promise<void>;
   loadChildren: (parentRunId?: string) => Promise<void>;
@@ -173,7 +258,12 @@ interface RuntimeState {
 
 let initialization: Promise<void> | null = null;
 let subscription: RunSubscription | null = null;
+let workSubscription: WorkSubscription | null = null;
+let workSubscriptionSessionID: string | null = null;
 let sessionEpoch = 0;
+let workRead = 0;
+let workEventSeq = 0;
+let runOpen = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
 let settingsRead = 0;
@@ -221,6 +311,16 @@ function applySettingsError(error: unknown, operation: SettingsOperation | null)
 }
 
 function stopSubscription(): void { subscription?.close(); subscription = null; }
+function stopWorkSubscription(): void {
+  workSubscription?.close();
+  workSubscription = null;
+  workSubscriptionSessionID = null;
+  workEventSeq = 0;
+}
+function workRequestID(prefix: string): string {
+  try { return `${prefix}-${crypto.randomUUID()}`; }
+  catch { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+}
 
 // 终态后派发队列（对照 Crush）：只在 run.completed 后自动发送；
 // 失败 / 取消保留队列由用户处置。runBusy 时短暂重试，避免与进行中的
@@ -269,7 +369,7 @@ function handleRunEvent(event: RunEvent): void {
     stopSubscription();
     // 队列只在成功完成后派发（对照 Crush）：失败 / 取消保留队列，由用户处置。
     if (event.type === 'run.completed') {
-      void refreshAfterTerminal(event.run_id).catch(() => undefined).finally(() => drainQueueAfterCompleted(event.run_id));
+      void refreshAfterTerminal(event.run_id).then(drainQueue);
     } else {
       void refreshAfterTerminal(event.run_id);
     }
@@ -280,12 +380,88 @@ function handleRunEvent(event: RunEvent): void {
   useVivyStore.setState(update);
 }
 
+/** 空闲时派发队首；失败（含陈旧引用冲突）把整条提交放回队头停住队列：
+ *  不重排后续任务、不刷新 request_id，用户移除队首后下一条才继续。 */
+function drainQueue(): void {
+  const next = useVivyStore.getState();
+  const item = next.queuedMessages[0];
+  if (!item || !next.activeSessionId || next.runBusy || runActive(next.currentRun)) return;
+  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
+  const { id: _queuedId, ...submission } = item;
+  void next.startRun(next.activeSessionId, submission).catch(() => {
+    const state = useVivyStore.getState();
+    if (!state.queuedMessages.some((queued) => queued.id === item.id)) {
+      useVivyStore.setState({ queuedMessages: [item, ...state.queuedMessages] });
+    }
+  });
+}
+
 function startSubscription(runId: string, afterSeq: number): void {
   stopSubscription();
   useVivyStore.setState({ connection: 'connecting', runError: null });
   subscription = subscribeRun(runId, afterSeq, handleRunEvent, (message) => {
     if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ connection: 'reconnecting', runError: message });
   });
+}
+
+function handleWorkEvent(sessionId: string, epoch: number, event: api.WorkEvent): void {
+  const state = useVivyStore.getState();
+  if (epoch !== sessionEpoch || state.activeSessionId !== sessionId || event.seq <= workEventSeq) return;
+  workEventSeq = event.seq;
+  if (event.seq > (state.work?.version ?? 0)) {
+    useVivyStore.setState({ work: null, workPhase: 'loading' });
+    void state.loadWork(sessionId).then(() => {
+      const current = useVivyStore.getState();
+      if (epoch === sessionEpoch && current.activeSessionId === sessionId && current.workPhase === 'error') workSubscription?.retry();
+    });
+  }
+}
+
+function startWorkSubscription(sessionId: string, afterSeq: number): void {
+  stopWorkSubscription();
+  const epoch = sessionEpoch;
+  workEventSeq = afterSeq;
+  workSubscriptionSessionID = sessionId;
+  workSubscription = subscribeWork(sessionId, afterSeq, (event) => handleWorkEvent(sessionId, epoch, event), (message) => {
+    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      useVivyStore.setState({ work: null, workError: message, workPhase: 'error' });
+    }
+  }, async () => {
+    if (epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      await useVivyStore.getState().loadWork(sessionId);
+      const state = useVivyStore.getState();
+      if (state.activeSessionId === sessionId && state.workPhase === 'error') {
+        throw new Error(state.workError ?? 'work refresh failed');
+      }
+    }
+  }, async (processEpoch) => {
+    const state = useVivyStore.getState();
+    if (epoch !== sessionEpoch || state.activeSessionId !== sessionId) return;
+    if (state.work && 'process_epoch' in state.work && state.work.process_epoch === processEpoch) return;
+    useVivyStore.setState({ work: null, workPhase: 'loading' });
+    await state.loadWork(sessionId);
+    if (useVivyStore.getState().activeSessionId === sessionId && useVivyStore.getState().workPhase === 'error') {
+      throw new Error(useVivyStore.getState().workError ?? 'work refresh failed');
+    }
+  });
+}
+
+async function loadWorkIntoStore(sessionId: string, epoch: number): Promise<api.WorkView | null> {
+  const read = ++workRead;
+  try {
+    const work = await api.getSessionWork(sessionId);
+    const state = useVivyStore.getState();
+    if (read === workRead && epoch === sessionEpoch && state.activeSessionId === sessionId) {
+      useVivyStore.setState({ work, workPhase: 'ready', workError: null });
+      return work;
+    }
+    return null;
+  } catch (error) {
+    if (read === workRead && epoch === sessionEpoch && useVivyStore.getState().activeSessionId === sessionId) {
+      useVivyStore.setState({ workPhase: 'error', workError: errorMessage(error) });
+    }
+    return null;
+  }
 }
 
 async function loadMessagesIntoStore(sessionId: string, epoch: number): Promise<api.Message[]> {
@@ -318,6 +494,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
   currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
+  work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
@@ -397,6 +574,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   retryInitialize: async () => {
     if (!get().initialized) return;
     stopSubscription();
+    stopWorkSubscription();
     resetRpcClient();
     initialization = null;
     sessionEpoch += 1;
@@ -429,6 +607,10 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       streamingReasoning: '',
       runError: null,
       queuedMessages: [],
+      work: null,
+      workPhase: 'idle',
+      workError: null,
+      workBusy: false,
     });
     await get().initialize();
   },
@@ -486,8 +668,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const remaining = get().sessions.filter((item) => item.id !== id);
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
-        stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], selectedChild: null });
+        stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -495,22 +677,95 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
-    stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
+    runOpen += 1;
+    stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
-      })]);
+      }), loadWorkIntoStore(id, epoch)]);
       void loadContextIntoStore(id);
+      const work = get().work;
+      if (work && epoch === sessionEpoch && get().activeSessionId === id) startWorkSubscription(id, work.version);
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
-      const runId = background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id ?? lastRunId(messages);
-      if (runId) await get().openRun(runId, id);
+      const runId = get().work?.current_run_id || background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id || lastRunId(messages);
+      if (runId && get().currentRun?.id !== runId) await get().openRun(runId, id);
       // 最近的两个更早运行按需回放事件，让前几轮也按工具/思考行渲染。
       const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
       await Promise.all(older.map((candidate) => get().loadRunLog(candidate)));
     } catch (error) { if (epoch === sessionEpoch) set({ messagesPhase: 'error', messagesError: errorMessage(error) }); }
+  },
+  loadWork: async (sessionId = get().activeSessionId ?? undefined) => {
+    if (!sessionId) return;
+    const epoch = sessionEpoch;
+    set({ workPhase: get().work ? 'refreshing' : 'loading', workError: null });
+    const work = await loadWorkIntoStore(sessionId, epoch);
+    if (work?.current_run_id && get().currentRun?.id !== work.current_run_id) {
+      await get().openRun(work.current_run_id, sessionId);
+    }
+    if (work && epoch === sessionEpoch && get().activeSessionId === sessionId
+      && (workSubscription === null || workSubscriptionSessionID !== sessionId)) {
+      startWorkSubscription(sessionId, work.version);
+    }
+  },
+  commitWork: async (method, fields = {}) => {
+    const state = get();
+    const sessionId = state.activeSessionId;
+    const work = state.work;
+    if (!sessionId || !work) throw new Error(t('workControl.unavailable'));
+    set({ workBusy: true, workError: null });
+    try {
+      const result = await api.commitWork(method, {
+        session_id: sessionId,
+        expected_version: work.version,
+        request_id: workRequestID(method.replace('/', '-')),
+        ...fields,
+      });
+      if (get().activeSessionId === sessionId) set({ work: result.work, workPhase: 'ready', workError: null });
+      return result;
+    } catch (error) {
+      if (get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
+      throw error;
+    } finally {
+      if (get().activeSessionId === sessionId) set({ workBusy: false });
+    }
+  },
+  createGoal: (objective, maxRounds) => get().commitWork('goal/create', { objective, max_rounds: maxRounds }),
+  editGoal: (objective, maxRounds, goalRef) => get().commitWork('goal/edit', {
+    goal_id: goalRef.id, goal_revision: goalRef.revision, objective, max_rounds: maxRounds,
+  }),
+  pauseGoal: (reason = '') => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/pause', { goal_id: goal.id, goal_revision: goal.revision, reason });
+  },
+  resumeGoal: () => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/resume', { goal_id: goal.id, goal_revision: goal.revision });
+  },
+  clearGoal: () => {
+    const goal = get().work?.goal;
+    if (!goal) return Promise.reject(new Error(t('workControl.noGoal')));
+    return get().commitWork('goal/clear', { goal_id: goal.id, goal_revision: goal.revision });
+  },
+  enterPlan: () => get().commitWork('plan/enter'),
+  leavePlan: () => get().commitWork('plan/leave'),
+  decidePlan: (action, feedback = '', objective = '', maxRounds = 0, exactSubmissionID) => {
+    const submissionID = exactSubmissionID ?? get().work?.plan.submission_id;
+    if (!submissionID || get().work?.plan.submission_id !== submissionID || get().work?.plan.review_status !== 'pending') {
+      const error = new Error(t('workControl.reviewStale'));
+      set({ workError: error.message });
+      return Promise.reject(error);
+    }
+    const fields: Record<string, unknown> = { submission_id: submissionID, action, feedback };
+    if (action === 'start_goal') {
+      fields.objective = objective;
+      fields.max_rounds = maxRounds;
+    }
+    return get().commitWork('plan/decide', fields);
   },
   loadTodos: async (sessionId = get().activeSessionId ?? undefined) => {
     if (!sessionId) return;
@@ -547,9 +802,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   setTodoPanelOpen: (open) => set({ todoPanelOpen: open }),
   openRun: async (runId, sessionId) => {
+    const request = ++runOpen;
+    const epoch = sessionEpoch;
     try {
       const [run, log, children] = await Promise.all([api.getRun(runId), api.getRunLog(runId), api.listChildren(runId, true)]);
-      if (get().activeSessionId !== sessionId) return;
+      if (request !== runOpen || epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       const events = log.events.sort((a, b) => a.seq - b.seq);
       const active = runActive(run);
       const failed = !active && run.status === 'failed'
@@ -563,7 +820,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
       else if (run.status === 'completed') drainQueueAfterCompleted(runId);
-    } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
+    } catch (error) { if (request === runOpen && epoch === sessionEpoch && get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {
     if (runId === '' || get().runLogs[runId] !== undefined) return;
@@ -573,17 +830,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set((state) => ({ runLogs: withCachedRunLog(state.runLogs, runId, events) }));
     } catch { /* 历史事件不可得（已删除/清理）：该运行保持投影渲染 */ }
   },
-  startRun: async (sessionId, text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => {
+  startRun: async (sessionId, submission) => {
     if (get().activeSessionId !== sessionId) {
       const message = t('errors.sessionMismatch');
       set({ runError: message });
       throw new Error(message);
     }
     // 运行中改为入队（对照 Crush），不再静默丢弃。
-    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face, attachments, thinking); return; }
+    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(submission); return; }
     set({ runBusy: true, runError: null });
+    const { text, attachments } = submission;
     try {
-      const result = await api.startTurn(sessionId, text, mode, face, attachments, thinking);
+      const result = await api.startTurn(sessionId, submission);
       if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
       const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
       const localAttachments: api.MessageAttachment[] | undefined = attachments?.map((item) => ({ name: item.name, mime_type: item.mime_type, data_url: `data:${item.mime_type};base64,${item.data}` }));
@@ -618,8 +876,122 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 		} catch (error) { set({ runError: errorMessage(error) }); throw error; }
 		finally { set({ runBusy: false }); }
 	},
-  enqueueMessage: (text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face, attachments, thinking }] })),
-  removeQueuedMessage: (id) => set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) })),
+  enqueueMessage: (submission) => set((state) => ({ queuedMessages: [...state.queuedMessages, { ...copySubmission(submission), id: `queued-${++queuedSeq}` }] })),
+  draftReferences: [],
+  draftScope: null,
+  draftRequestId: newDraftRequestId(),
+  addDraftReference: (preview, selection, allowFurtherReading) => set((state) => {
+    const draft: ReferenceDraft = { id: `ref_${++draftSeq}`, preview, selection, allowFurther: allowFurtherReading };
+    const scope = state.draftScope ?? {};
+    const source = selection.selection.source_session_id;
+    const ids = scope.session_ids ? [...scope.session_ids] : [];
+    if (allowFurtherReading && !ids.includes(source)) ids.push(source);
+    return {
+      draftReferences: [...state.draftReferences, draft],
+      draftScope: allowFurtherReading ? { ...scope, session_ids: ids } : scope,
+    };
+  }),
+  removeDraftReference: (id) => set((state) => {
+    const removed = state.draftReferences.find((item) => item.id === id);
+    const remaining = state.draftReferences.filter((item) => item.id !== id);
+    let scope = state.draftScope;
+    // 其 further-reading scope 项随引用一起移除（无其他引用仍需该源会话时）。
+    if (removed?.allowFurther && scope?.session_ids) {
+      const source = removed.selection.selection.source_session_id;
+      const stillNeeded = remaining.some((item) => item.allowFurther && item.selection.selection.source_session_id === source);
+      if (!stillNeeded) {
+        const ids = scope.session_ids.filter((session) => session !== source);
+        scope = { ...scope, session_ids: ids.length ? ids : undefined };
+        if (!scope.session_ids && !scope.workspace) scope = null;
+      }
+    }
+    return { draftReferences: remaining, draftScope: scope };
+  }),
+  setDraftScope: (scope) => set({ draftScope: scope }),
+  clearDraftContext: () => set({ draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId() }),
+  referenceViews: {},
+  deliverySets: [],
+  deliverySetsPhase: 'idle',
+  deliveryItemStates: {},
+  loadDeliverySets: async () => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || get().deliverySetsPhase === 'loading') return;
+    set({ deliverySetsPhase: 'loading' });
+    try {
+      const items: api.DeliverySet[] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await api.deliverablesList(sessionId, { cursor, limit: 100 });
+        for (const set_ of page.items) {
+          if (seen.has(set_.id)) continue;
+          seen.add(set_.id);
+          items.push(set_);
+        }
+        cursor = page.next_cursor === '' ? undefined : page.next_cursor;
+      } while (cursor !== undefined);
+      set({ deliverySets: items, deliverySetsPhase: items.length === 0 ? 'empty' : 'ready' });
+    } catch {
+      set({ deliverySetsPhase: 'error' });
+    }
+  },
+  checkDeliveryItem: async (item) => {
+    const sessionId = get().activeSessionId;
+    const current = get().deliveryItemStates[item.id];
+    if (!sessionId || current?.status === 'checking' || current?.status === 'downloading') return;
+    set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { status: 'checking' } } }));
+    try {
+      await checkDeliverable(item, sessionId, deliverableRpc);
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'available' } } }));
+    } catch (err) {
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: deliveryErrorStatus(err) } } }));
+    }
+  },
+  previewDeliveryItem: async (item) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || get().deliveryItemStates[item.id]?.status === 'checking') return;
+    try {
+      const preview = await readDeliveryPreview(item, sessionId, deliverableRpc);
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'available', preview } } }));
+    } catch (err) {
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: deliveryErrorStatus(err) } } }));
+    }
+  },
+  downloadDeliveryItem: async (item) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || deliveryDownloads.has(item.id)) return;
+    const controller = new AbortController();
+    deliveryDownloads.set(item.id, controller);
+    set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'downloading' } } }));
+    try {
+      await downloadDeliverable(item, sessionId, deliverableRpc, controller.signal);
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'downloaded' } } }));
+    } catch (err) {
+      const aborted = err instanceof DeliverableTransferError && err.reason === 'aborted';
+      set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: aborted ? 'unchecked' : deliveryErrorStatus(err) } } }));
+    } finally {
+      deliveryDownloads.delete(item.id);
+    }
+  },
+  cancelDeliveryDownload: (itemId) => {
+    deliveryDownloads.get(itemId)?.abort();
+  },
+  // 已提交引用的活状态按 id 缓存；失败记为 null，快照本身仍可读。
+  loadReferenceView: async (referenceId) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || get().referenceViews[referenceId] !== undefined) return;
+    try {
+      const view = await api.referenceGet(sessionId, referenceId);
+      set((state) => state.referenceViews[referenceId] === undefined ? { referenceViews: { ...state.referenceViews, [referenceId]: view } } : {});
+    } catch {
+      set((state) => state.referenceViews[referenceId] === undefined ? { referenceViews: { ...state.referenceViews, [referenceId]: null } } : {});
+    }
+  },
+  // 移除队首（如陈旧引用冲突项）后在空闲时放行后续排队项。
+  removeQueuedMessage: (id) => {
+    set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) }));
+    drainQueue();
+  },
   clearQueue: () => set({ queuedMessages: [] }),
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;
@@ -762,6 +1134,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 }));
 
 export function resetStoreForTests(): void {
-  stopSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
+  stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
+  workRead = 0; workEventSeq = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;
 }

@@ -213,6 +213,7 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
 	})
 
+	mustCreateSession(t, backend, "session-context")
 	runID, err := svc.Run(ctx, "session-context", strings.Repeat("x", 200))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -257,6 +258,7 @@ func TestServiceRunProjectsGenericContextHostIntoModelInput(t *testing.T) {
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Truncations: backend,
 	})
+	mustCreateSession(t, backend, "sess-context-host")
 	runID, err := svc.Run(ctx, "sess-context-host", "find docs")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -304,6 +306,7 @@ func TestServiceRunFailsWhenRequiredContextVersionIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink()})
+	mustCreateSession(t, backend, "sess-required-context")
 	runID, err := svc.Run(ctx, "sess-required-context", "read exact plan")
 	if err != nil {
 		t.Fatal(err)
@@ -462,6 +465,7 @@ func TestServiceRunPassesEnsuredWorkspaceIdentityToContextHost(t *testing.T) {
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Workspaces: fixedWorkspaceAllocator{}, TenantID: "tenant-actual",
 	})
+	mustCreateSession(t, backend, "sess-workspace")
 	runID, err := svc.Run(ctx, "sess-workspace", "workspace")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -516,6 +520,7 @@ func TestServiceRunReturnsContextViewAndBoundedSummaryThroughCommittedObserverPa
 		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Workspaces: fixedWorkspaceAllocator{},
 		TenantID: "tenant-actual", Hooks: []RunHook{observerHost},
 	})
+	mustCreateSession(t, backend, "sess-terminal-projection")
 	runID, err := svc.Run(ctx, "sess-terminal-projection", "read exact plan")
 	if err != nil {
 		t.Fatal(err)

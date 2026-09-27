@@ -2,7 +2,7 @@
 
 Revision: PG-D1, 2026-09-21. Status: proposed engineering design, not implementation-ready.
 Product direction: [Issue #47 architecture addendum](https://github.com/ProjectViVy/agent-vivy/issues/47#issuecomment-5754532762).
-Baseline: aeec3b59233c45a5bcfd50c1ed2b0ac862d5e7eb.
+Baseline: a8d361b0244a1c40be513622bbdaebb5c9d40014.
 Delivery index: [Plan package](../plans/plan-goal/README.md).
 
 The issue remains the product-decision record. This document specifies engineering details beneath it; it does not repeat or supersede that record. Conflicts require a recorded correction before implementation. The user separately authorized publishing these documents directly to main and referencing them in Issue #47; this package does not authorize product implementation or release.
@@ -83,6 +83,11 @@ type PlanState struct {
     Active bool
     SubmissionID string
     ReviewStatus string // none, pending, accepted, rejected, cancelled, expired
+    OriginRunID RunID
+    OriginToolCallID string
+    ResumeTarget string // opaque Eino target, never caller supplied
+    BlockedToolCallIDs []string // same-batch siblings not covered by the reviewed Plan
+    DecisionAction string
 }
 type WorkState struct {
     Version WorkVersion
@@ -112,6 +117,8 @@ type PlanDecision struct {
 
 WorkVersion is a session journal sequence, Goal revision changes only when its definition/lifecycle changes. Round admission changes WorkVersion and the count, not Goal revision. Reports must match both GoalRef and the owning admitted run. A UI may refresh and retry an unrelated version conflict; it must never silently resubmit an objective edit against a changed GoalRef.
 
+A Goal edit carries the exact current GoalRef as its precondition. The reducer advances that Goal's revision by one after validating the reference, while preserving already admitted rounds.
+
 Actor data comes from verified RPC session identity or live root-run context. Do not put a caller-selectable actor/isHuman flag in tool JSON.
 Control request IDs are caller-stable opaque strings; reuse with different payload returns conflict.
 
@@ -121,7 +128,7 @@ Proposed operations, all on first-party backend implementations:
 
 ```go
 ReadWork(ctx context.Context, sessionID domain.SessionID) (domain.WorkState, error)
-ReplayWork(ctx context.Context, sessionID domain.SessionID, after domain.WorkVersion, limit int) ([]domain.WorkEvent, error)
+ReplayWork(ctx context.Context, sessionID domain.SessionID, cursor domain.WorkState, limit int) ([]domain.WorkEvent, domain.WorkState, error)
 CommitWork(ctx context.Context, mutation WorkMutation) (WorkCommitResult, error)
 CommitGoalRun(ctx context.Context, admission GoalRunAdmission) (WorkCommitResult, error)
 ```
@@ -135,7 +142,7 @@ These definitions are shared here; Story workers must not invent incompatible va
 New SQL table proposal: session_work_events(session_id, seq, kind, payload_version, request_id, request_hash, created_at, payload).
 Primary key (session_id, seq), unique (session_id, request_id), foreign key session deletion policy matching first-party storage. No independently writable Goal snapshot table. Initial implementation folds session work events; hot admission may use a version-checked process projection only after measurement justifies it.
 
-Goal round uniqueness is enforced by serialized session transaction + expected seq + sequential round validation. Replay is strict: invalid current-format records stop work access rather than being silently skipped. Reads are paged; configured RPC frame and event payload limits apply. Oversized objectives/plans fail before persistence, using one documented bound resolved in PG-0 rather than a second hard-coded competing limit.
+Goal round uniqueness is enforced by serialized session transaction + expected seq + sequential round validation. Replay is strict: invalid current-format records stop work access rather than being silently skipped. A replay caller starts with `WorkState{SessionID: sessionID}` and carries the returned folded state into the next call. Each call reads and folds at most `limit` events after that cursor; session mismatches and sequence gaps fail closed. A subscription with an external `after_seq` still folds from the beginning and suppresses delivery through `after_seq`. No snapshot or cache is introduced. Configured RPC frame and event payload limits apply. Oversized objectives/plans fail before persistence, using one documented bound resolved in PG-0 rather than a second hard-coded competing limit.
 
 CommitGoalRun:
 ```text
@@ -154,6 +161,8 @@ return records; only then publish and start engine
 Armed is process-local and checked under the admission gate immediately before this transaction. A crash after commit before engine start leaves a charged accepted round: existing recovery closes that run without re-executing it. Never refund/replay automatically. A crash before commit creates neither run nor charge.
 
 Session mutations, exact plan-review outcome and Goal handoff must commit consistently. If QuestionStore is used for review settlement, the backend transaction updates its row and work events together; sequential AnswerQuestion then CommitWork is forbidden.
+
+The first ordinary user run may reference a new session before a session row exists. `CommitPrimaryRun` creates that row in the same transaction as the user message, active run and `run.started`, using the established workspace-write/ask defaults. Existing session settings are left untouched. This matches `sessionSandbox`'s runtime defaults and avoids a split first-run admission.
 
 ## 6. State transitions and tool authority
 
@@ -181,7 +190,9 @@ When complete/block is reported, remaining tool calls in that model batch must n
 ## 7. Admission and human input
 
 One process-local candidate per session: GoalRef, expected version, next round, activation generation. No persistent prompt queue.
-Human requests register at the host before competing for startup. Pending human work wins over an unadmitted candidate; once a run is committed, a later human request cannot undo it.
+Human requests register a process-local startup intent before waiting on the per-session admission gate. A human request wins over an uncommitted Goal candidate; the final check and atomic Goal commit share the intent gate, so a later registration cannot undo an already committed candidate.
+
+`turn/start` uses synchronous admission-waiter semantics, not a durable request ticket: the call returns only after a real run ID is committed or an error is known. While waiting on the short startup gate, the intent can invalidate an uncommitted Goal candidate. If a primary run is already committed, the request returns the existing conflict response and the caller may retry; it is not silently queued behind the run. Cancellation before commit creates no message or run. After commit, the existing detached-run rule applies: disconnecting does not cancel the run.
 
 ```text
 on wake(session):
@@ -205,25 +216,25 @@ Existing run-tree ledgers reset per ordinary run. MaxRounds is the outer bound; 
 
 New run.started payload must carry collaboration contract version separately from immutable execution policy snapshot. Historical missing version => legacy hard-Plan interpretation. New soft Plan does not coerce PolicyProfilePlan. Independent read-only policy remains unchanged even after Plan exit.
 
-Plan guidance source (proposed): internal/runtime/prompts/plan.md, embedded and assembled by the existing runtime composer. Runtime facts (submission/ref/round) are separate bounded dynamic input. Add no duplicate personality prompt, memory layer or external asset loader.
+Plan guidance is reconciled from persisted Plan state by the runtime middleware before each model request. It is inserted once while Plan is active and removed after exit; this is advisory and does not change execution policy.
 
-Two adapter choices are permitted only after PG-0 evidence: supported in-turn guidance refresh at Eino's next model boundary, or a controlled interruption/resume through the current engine. No model reimplementation. If neither preserves safe review ordering, PG-2/PG-4 remain Blocked.
+The Eino v0.9.13 adapter uses supported `tool.StatefulInterrupt` and `Runner.ResumeWithParams`. After a durable `plan.submitted`, the model tool interrupts; Service verifies the checkpoint, persists `plan.review_suspended` with the opaque exact Eino resume target and origin tool-call ID, and keeps the run active. The decision commits first, then resumes only that target. A retry of the same Work request returns the original result and does not start another resume. Restart restores only a pending review with a readable checkpoint and matching session/run/submission/call identity.
 
-Review options: revise, execute_once, start_goal. The full plan is stored once in an immutable submission event; views reference its ID. Review expiry or cancellation leaves Plan active, no execution. Repeated identical human decision returns original result. Stale submission returns conflict. An old goal paused for planning remains paused unless the user explicitly resumes it or clears/replaces it; start_goal cannot silently overwrite an unfinished Goal.
+The submitted model batch is fenced before the interrupt reaches Service because Eino may still visit sibling calls. Service keeps the original tool-batch IDs after those calls return; after review it blocks those unreviewed siblings but permits new model calls. `ExecuteSequentially` plus the behavioral probe is the evidence; the config flag alone is not.
+
+Review options: revise, execute_once, start_goal. The full plan is stored in the immutable `plan.submitted` work event; review linkage and resume data are separate versioned work events. Cancelling the originating run marks that review cancelled and leaves Plan active; no execution occurs. Repeated identical human decision returns the original result. Stale submission returns conflict. An old goal paused for planning remains paused unless the user explicitly resumes it or clears/replaces it; start_goal cannot silently overwrite an unfinished Goal.
 
 Migration does not rewrite historical events or checkpoint bytes. Schema downgrade is unsupported: rollback uses a pre-upgrade backup, not deleting unknown events. Keep new activation disabled while migration or replay is uncertain.
 
-## 9. History boundary: explicitly unresolved implementation blocker
+## 9. History boundary: message/work ordering
 
-The issue requires consistent fork/rewind history and no reset of spent rounds. Existing history APIs address message IDs, whereas work-control actions can occur between messages. Timestamp comparison is insufficient, especially with same-millisecond events.
+Every persisted message carries `messages.work_seq`, the greatest session work-event sequence committed when the message transaction acquires the session lock. Each edit/rewind/fork marker carries the selected cutoff message's `work_seq` in `session_truncations.work_seq`. `WorkSeq` is independent of wall-clock timestamps and is stable across replay.
 
-PG-0 must specify and test a durable ordering anchor between message cutoffs and work-event seq:
-- Rewind may alter visible historical context but cannot refund Goal rounds already consumed.
-- Archived execution evidence remains accessible and must be distinguished from the current context.
-- Fork inherits a prefix as historical context with no activation or transferable review authorization.
-- Define whether copied Goal identity is source-qualified or newly allocated; cross-session report references must never grant mutation rights.
+For an ordinary message or message projection, storage reads the current work-event maximum and writes the message plus anchor under the same session lock. An atomic Goal-run admission message records the pre-admission version; the matching `goal.round_admitted` event receives the next sequence in that transaction. This means the message is the cause/context for the admitted round, while the durable admission event remains separately auditable.
 
-Do not implement history copying by guessed timestamps, silently omit Goal from forks, or relax the issue contract. This blocker is owned by PG-0 and must be resolved in this document before PG-1 is released. No downstream implementer is asked to improvise it.
+Rewind changes the visible context only. It records the cutoff sequence, preserves every work event and admitted-round count, and never wakes a Goal. Fork copies the visible message prefix with fresh message IDs and original `RunID` values as provenance, but writes `work_seq = 0` on copied rows and creates no child work events. The child therefore inherits no Goal identity, pending plan review, approval, admission count, or activation authority. Parent work history remains unchanged and replayable.
+
+Same-timestamp rows are ordered by the stored sequence anchor, not guessed from timestamps. Historical rows predating migration 027 have anchor zero; migration does not fabricate an ordering for those records. The source session remains the audit record for work events that are not copied into a fork.
 
 ## 10. RPC and GUI draft contract
 
@@ -242,12 +253,45 @@ Wire casing follows existing snake_case conventions. Errors map onto existing RP
 Subscription must replay through a captured watermark then deliver later committed seq without a gap; duplicates are deduplicated by session+seq. Activation events carry process epoch and current work version; reconnect fetches WorkView, never trusts an old armed projection.
 
 Proposed UI: WorkControlBar.tsx with Plan control and Goal summary, PlanReview.tsx for document/decisions. State remains in store.ts; transport remains rpc.ts. Preserve TodoProgressStrip and existing task panel. Explicitly render active/disarmed, stopping_for_plan, pending review and blockers. No demo-api imports or generated-file edits.
+The Goal summary is read-only until the human selects Edit Goal. That action opens one form prefilled with the current objective and round limit, bound to the GoalRef visible when editing began. Save submits once through `goal/edit`; a failure or stale reference leaves the draft intact and does not rebind it to a newer GoalRef. Successful edits retain already admitted rounds in the displayed summary.
 
 ## 11. Verification and economy
 
 No runtime benchmark claims. Admission adds one bounded session transaction; no per-token work-event writes. Store only changes/reports/admissions, not duplicate transcript streams.
-Plan payload limits, notification buffering and shutdown deadlines reuse established bounds where suitable; PG-0 resolves exact sources.
+Plan Markdown is capped at 256 KiB, a Goal objective at 8 KiB, and Goal rounds at 1000. These fixed product limits live in `internal/domain/work_control.go` and are shared by model tools, runtime operations and RPC validation. Feedback remains capped by the existing RPC limit.
 
-Mandatory implementation gate: just ci, plus configured Postgres conformance (unset DSN is SKIPPED), split dev browser flow and one real coding walkthrough. Current environment lacks Go and has not run these checks.
+Mandatory implementation gate: just ci, plus configured Postgres conformance (unset DSN is SKIPPED), split dev browser flow and one real coding walkthrough. The execution log records which gates have run.
 Design-only validation: local relative links, existing file references, dependency DAG, requirement coverage, git diff --check.
 No code, schema, dependency, rules or generated assembly changes are made by this pre-design.
+## 12. PG-D2 execution decisions (2026-09-22; probe update 2026-09-23)
+
+This section records the accepted foundation decisions for implementation on the issue-47 branch. Executed probe evidence is linked from the PG-0 delivery index; full CI and the PostgreSQL/browser/live gates remain required.
+
+### Durable work ordering
+
+- Use a session-scoped `WorkSeq`/`WorkVersion` as the cross-record ordering key. Keep existing per-run `EventSeq` for run-local Journal replay.
+- Persist work-control events in one `session_work_events` stream keyed by `(session_id, work_seq)`. The stream stores event kind, schema version, request ID, request hash, timestamp, and bounded payload.
+- `(session_id, request_id)` is unique. Repeating the same request and payload hash returns the original committed result; the same request with a different hash is a conflict.
+- Sequence allocation, Goal-round admission, ordinary message/run startup records, and `goal.round_admitted` evidence commit in one transaction. Publication and engine drive happen only after commit.
+- `messages.work_seq` stores the committed session work version at message persistence; `session_truncations.work_seq` stores the cutoff message's anchor. A Goal admission message anchors the prior version and its atomic `goal.round_admitted` event gets the next version.
+
+### History and authority
+
+- Rewind changes the visible context only and never refunds admitted Goal rounds. Historical work evidence remains replayable.
+- Fork copies visible context as new historical rows but transfers no Goal identity, pending review, approval, or host ticket authority. A copied source `RunID` is provenance only.
+- A forked message receives `work_seq = 0` in the child because no source work event is copied. The parent marker records the source cutoff's sequence; the child marker's sequence is zero.
+- The existing Service, Journal, projection barrier, and policy engine remain the sole lifecycle owners. No second Journal, synthetic permanent Goal run, or independent execution loop is permitted.
+
+### Eino boundary
+
+- The probe verifies guidance before the next model request; a pending Plan leaves its primary run active; exact decision resumes the stored Eino target; repeat decision does not create another model call; and a same-batch effectful sibling never reaches product code.
+- Plan identity stores the origin run, tool-call ID, exact resume target and same-batch sibling IDs in the session work stream. The service fails closed if the checkpoint or any identity does not match. Leaving Plan or cancelling the source run closes the review without executing it.
+- The pinned ToolsNode executes calls in model order. Runtime combines it with a pre-interrupt Plan fence, persisted sibling fence, and the terminal Goal fence; behavioral tests cover both Plan and Goal cases.
+- Downstream stories still own the user-facing Plan/Goal experience and controlled Goal handoff. The separate host-queued human request ticket/lifetime contract remains unresolved and blocks story release.
+
+### Human admission
+
+- Mutating work requests carry a host-authenticated stable `request_id`, `session_id`, expected `WorkVersion`, exact Goal/Plan reference where applicable, and a payload hash.
+- Current `turn/start` uses a process-local admission waiter rather than a durable ticket: register intent before waiting for the session gate, check request cancellation before persistence, and return only the actual committed run ID. An already committed primary returns the existing conflict; callers explicitly retry. A per-session intent gate linearizes pending human registration against atomic Goal admission. Any future ticket is correlation/idempotency state, never authority.
+
+These decisions supersede the earlier unresolved placeholders in sections 5 and 9 while retaining the requirement for executable probe and backend evidence.

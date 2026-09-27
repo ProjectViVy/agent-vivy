@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
@@ -46,10 +47,11 @@ func (r *recordingJournal) snapshot() []storage.Commit {
 
 // runCall records one RunFunc invocation.
 type runCall struct {
-	sessionID domain.SessionID
-	text      string
-	prov      *domain.Provenance
-	runID     domain.RunID
+	sessionID   domain.SessionID
+	text        string
+	attachments []domain.Attachment
+	prov        *domain.Provenance
+	runID       domain.RunID
 }
 
 // runRecorder fakes the app-injected RunFunc. It mirrors what
@@ -62,11 +64,11 @@ type runRecorder struct {
 	next     int
 }
 
-func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error) {
 	r.mu.Lock()
 	r.next++
 	runID := domain.RunID(fmt.Sprintf("run-test-%d", r.next))
-	call := runCall{sessionID: sessionID, text: text, runID: runID}
+	call := runCall{sessionID: sessionID, text: text, attachments: attachments, runID: runID}
 	if prov != nil {
 		p := *prov
 		call.prov = &p
@@ -76,12 +78,13 @@ func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text 
 
 	if r.messages != nil {
 		msg := domain.Message{
-			ID:        fmt.Sprintf("msg-test-%d", r.next),
-			SessionID: sessionID,
-			RunID:     runID,
-			Role:      domain.RoleUser,
-			CreatedAt: time.Now().UnixMilli(),
-			Content:   text,
+			ID:          fmt.Sprintf("msg-test-%d", r.next),
+			SessionID:   sessionID,
+			RunID:       runID,
+			Role:        domain.RoleUser,
+			CreatedAt:   time.Now().UnixMilli(),
+			Content:     text,
+			Attachments: attachments,
 		}
 		if prov != nil {
 			msg.Source = prov.Source
@@ -126,13 +129,14 @@ func startAllowedHost(t *testing.T) (*sqlite.Backend, *recordingJournal, *runRec
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -149,13 +153,14 @@ func TestStartAllRefusesEmptyAllowFrom(t *testing.T) {
 	journal := &recordingJournal{Journal: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -197,13 +202,14 @@ func TestPublishInboundDropsSenderNotInAllowFrom(t *testing.T) {
 		})
 	}
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -352,11 +358,12 @@ func TestChannelSessionIDDeterministic(t *testing.T) {
 
 	backend := openBackend(t)
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      (&runRecorder{messages: backend}).run,
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        (&runRecorder{messages: backend}).run,
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 	first, err := host.EnsureSession(ctx, "fake", "chat-1", "")
@@ -402,11 +409,12 @@ func TestEnsureSessionConcurrentSameChat(t *testing.T) {
 	backend := openBackend(t)
 	runs := &runRecorder{messages: backend}
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 
@@ -456,13 +464,14 @@ func TestConcurrentInboundSameChatDispatch(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 	env := host.envFor(ch)
@@ -571,6 +580,94 @@ func TestSplitRunes(t *testing.T) {
 	}
 }
 
+// TestSplitRunesPreservesFencedCode pins the fence-aware rules: a block
+// whose closing fence fits inside the limit is pulled whole into the
+// chunk, a cut that would land inside an open fence closes the chunk with
+// ``` and reopens the remainder with the original fence line, and a block
+// with no body room in its window travels whole to the next chunk. Every
+// chunk stays within the limit and renders standalone (balanced fences);
+// the tail stays open when the source itself never closed the block.
+// Concatenation is intentionally not the original once close/reopen
+// markers are inserted.
+func TestSplitRunesPreservesFencedCode(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		limit   int
+		want    []string
+	}{
+		{"block fits between paragraph cuts", "hi\n```py\nprint(1)\n```\nbye", 24,
+			[]string{"hi\n```py\nprint(1)\n```\n", "bye"}},
+		{"closing fence pulled into the chunk", "```go\n" + strings.Repeat("x", 10) + "\n```\n" + strings.Repeat("y", 12), 20,
+			[]string{"```go\nxxxxxxxxxx\n```", "\nyyyyyyyyyyyy"}},
+		{"split inside reopens the info string", "```go\n" + strings.Repeat("a", 30) + "\n```\n", 20,
+			[]string{"```go\naaaaaaaaaa\n```", "```go\naaaaaaaaaa\n```", "```go\naaaaaaaaaa\n```", "\n"}},
+		{"block travels whole when the window has no body", "ab\n```go\n" + strings.Repeat("x", 14) + "\n```\ntail", 20,
+			[]string{"ab\n```go\nxxxxxxx\n```", "```go\nxxxxxxx\n```\n", "tail"}},
+		{"multibyte runes inside the fence", "```go\n" + strings.Repeat("字", 20) + "\n```\n", 16,
+			[]string{"```go\n字字字字字字\n```", "```go\n字字字字字字\n```", "```go\n字字字字字字\n```", "```go\n字字\n```\n"}},
+	}
+	for _, tc := range cases {
+		got := splitRunes(tc.content, tc.limit)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: splitRunes = %q, want %q", tc.name, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%s: chunk %d = %q, want %q", tc.name, i, got[i], tc.want[i])
+			}
+		}
+		assertRenderableChunks(t, tc.name, got, tc.limit)
+	}
+
+	// An unterminated block: middle chunks stay balanced and closed; the
+	// tail reopens the fence and stays open, exactly like the source.
+	unterminated := "text\n```py\n" + strings.Repeat("p", 30)
+	got := splitRunes(unterminated, 16)
+	assertRenderableChunks(t, "unterminated", got, 16)
+	for _, chunk := range got[:len(got)-1] {
+		if strings.Count(chunk, "```")%2 != 0 {
+			t.Fatalf("unterminated: middle chunk unbalanced: %q", chunk)
+		}
+	}
+	if tail := got[len(got)-1]; !strings.HasPrefix(tail, "```py\n") || strings.Count(tail, "```")%2 == 0 {
+		t.Fatalf("unterminated: tail = %q, want a reopened open fence", tail)
+	}
+
+	// Below the fence-aware floor the splitter degrades to plain cutting:
+	// chunks reassemble to the original and no markers are synthesized.
+	degenerate := "```go\n" + strings.Repeat("a", 25) + "\n"
+	got = splitRunes(degenerate, 10)
+	var joined strings.Builder
+	for _, chunk := range got {
+		if utf8.RuneCountInString(chunk) > 10 {
+			t.Fatalf("degenerate: chunk %q exceeds limit", chunk)
+		}
+		joined.WriteString(chunk)
+	}
+	if joined.String() != degenerate {
+		t.Fatalf("degenerate: chunks %q do not reassemble to the original", got)
+	}
+}
+
+// assertRenderableChunks checks the invariants every fence-aware chunk
+// must hold: within the limit, never empty, and balanced fences except a
+// deliberately open tail.
+func assertRenderableChunks(t *testing.T, name string, chunks []string, limit int) {
+	t.Helper()
+	for i, chunk := range chunks {
+		if chunk == "" {
+			t.Fatalf("%s: empty chunk at %d", name, i)
+		}
+		if utf8.RuneCountInString(chunk) > limit {
+			t.Fatalf("%s: chunk %q exceeds limit %d", name, chunk, limit)
+		}
+		if strings.Count(chunk, "```")%2 != 0 && i != len(chunks)-1 {
+			t.Fatalf("%s: unbalanced middle chunk %q", name, chunk)
+		}
+	}
+}
+
 // TestDeliverySplitsAtAdapterRunesLimit drives CH-C4-N1 end to end: an
 // adapter declaring a bound receives an over-limit reply as sequential
 // in-order sends that reassemble to the original text; an adapter without
@@ -595,13 +692,14 @@ func TestDeliverySplitsAtAdapterRunesLimit(t *testing.T) {
 				ch = runesLimited{Channel: fakeCh, runes: tc.limit}
 			}
 			host := New(Deps{
-				Journal:  backend,
-				Messages: backend,
-				Sessions: backend,
-				Run:      runs.run,
-				Channels: []plugin.Channel{ch},
-				Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-				Logger:   testLogger(),
+				Journal:    backend,
+				Messages:   backend,
+				Sessions:   backend,
+				Deliveries: backend,
+				Run:        runs.run,
+				Channels:   []plugin.Channel{ch},
+				Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+				Logger:     testLogger(),
 			})
 			env := host.envFor(ch)
 			if err := env.PublishInbound(ctx, plugin.InboundMessage{
@@ -739,11 +837,12 @@ func TestStartAllIgnoresConfigWithoutPlugin(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
 		Config: config.Channels{
 			"ghost": {Enabled: true, AllowFrom: []string{"someone"}},
 		},
@@ -770,13 +869,14 @@ func TestDeliverCompletedDropsUnregisteredChannel(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"ghost": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"ghost": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	env := host.envFor(ch)
 	err := env.PublishInbound(context.Background(), plugin.InboundMessage{
@@ -825,6 +925,38 @@ type typingStub struct {
 
 func (typingStub) Typing(_ context.Context, _ string) error { return nil }
 
+// wrapperChannel stands for the v1 assembly wrappers (boundChannel on the
+// plugin side, providerChannel in app): it forwards the core surface and
+// points Discover at the wrapped adapter instead of declaring capabilities
+// of its own.
+type wrapperChannel struct {
+	plugin.Channel
+	target any
+}
+
+func (c wrapperChannel) CapabilityTarget() any { return c.target }
+
+// TestDiscoverResolvesCapabilitySourceThroughWrappers: the probe follows
+// the CapabilitySource chain to the innermost target, so a capability that
+// only the adapter implements is advertised through any number of wrappers;
+// a nil link falls back to asserting the wrapper, which reports nothing.
+func TestDiscoverResolvesCapabilitySourceThroughWrappers(t *testing.T) {
+	adapter := &typingStub{Channel: fake.New()}
+	inner := wrapperChannel{Channel: adapter, target: adapter}
+	outer := wrapperChannel{Channel: inner, target: inner}
+	got := Discover(outer)
+	if !got.Typing {
+		t.Fatalf("adapter capability invisible through two wrappers: %+v", got)
+	}
+	if got.Edit || got.Delete || got.Reaction || got.Placeholder || got.Media ||
+		got.MediaStore || got.Webhook || got.Listen || got.Stream || got.Health {
+		t.Fatalf("wrappers fabricated capabilities: %+v", got)
+	}
+	if got := Discover(wrapperChannel{Channel: fake.New(), target: nil}); got != (Capabilities{}) {
+		t.Fatalf("nil target changed the probe subject: %+v", got)
+	}
+}
+
 // renamedChannel rebrands a fake adapter so one host can carry several
 // channel names without triggering the duplicate-name guard.
 type renamedChannel struct {
@@ -848,11 +980,12 @@ func TestInspectNotesRecordStartAllDecisions(t *testing.T) {
 		return errors.New("boom: platform unreachable")
 	}
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{refused, ok},
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{refused, ok},
 		Config: config.Channels{
 			"fake":    {Enabled: true, AllowFrom: []string{"alice"}},
 			"refused": {Enabled: true, AllowFrom: []string{"alice"}},
@@ -902,13 +1035,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{}, // compiled-in but unconfigured
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{}, // compiled-in but unconfigured
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -929,13 +1063,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 
 	// Disabled envelope.
 	host = New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -946,13 +1081,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 
 	// Empty allow_from refusal.
 	host = New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -1000,5 +1136,143 @@ func TestInspectTokenEnvSet(t *testing.T) {
 	status = host.Inspect()[0]
 	if !status.TokenEnvSet {
 		t.Fatal("TokenEnvSet = false for a set env variable")
+	}
+}
+
+// mediaTestJPEG is a JPEG-magic payload; the sniff is magic-byte based, so
+// no real image is needed.
+func mediaTestJPEG() []byte { return []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10} }
+
+// mediaTestPNG is a PNG-magic payload.
+func mediaTestPNG() []byte { return []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a} }
+
+// TestInboundMediaReachesRunAsAttachments: a media part validated against
+// the shared limits rides the run call as a domain.Attachment and lands on
+// the persisted user turn; the text part still joins as content.
+func TestInboundMediaReachesRunAsAttachments(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-media",
+		Parts: []plugin.Part{
+			{Kind: plugin.PartText, Text: "look at this"},
+			{Kind: plugin.PartMedia, Media: plugin.Media{Name: "photo-1.jpg", MimeType: "image/jpeg", Data: mediaTestJPEG()}},
+		},
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+
+	calls := runs.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("run calls = %d, want 1", len(calls))
+	}
+	if calls[0].text != "look at this" {
+		t.Fatalf("run text = %q", calls[0].text)
+	}
+	if len(calls[0].attachments) != 1 {
+		t.Fatalf("run attachments = %d, want 1", len(calls[0].attachments))
+	}
+	att := calls[0].attachments[0]
+	if att.MimeType != "image/jpeg" || att.Name != "photo-1.jpg" || len(att.Data) == 0 {
+		t.Fatalf("attachment = %+v", att)
+	}
+	msgs, err := backend.ListMessages(ctx, calls[0].sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 1 || len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0].MimeType != "image/jpeg" {
+		t.Fatalf("persisted messages = %+v", msgs)
+	}
+}
+
+// TestInboundMediaRejectionsStayBounded: oversize bytes, sniff mismatches,
+// and the per-message count cap each drop only their own part — the text
+// and every valid part still reach the run. Rejection is a log, never a
+// truncation and never a failed dispatch.
+func TestInboundMediaRejectionsStayBounded(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	oversize := append(mediaTestPNG(), make([]byte, attachment.MaxBytes)...) // > MaxBytes
+	parts := []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "big.png", MimeType: "image/png", Data: oversize}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "liar.png", MimeType: "image/png", Data: mediaTestJPEG()}},
+		{Kind: plugin.PartText, Text: "text survives"},
+	}
+	for i := 0; i < attachment.MaxCount; i++ {
+		parts = append(parts, plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+			Name: fmt.Sprintf("photo-%d.jpg", i), MimeType: "image/jpeg", Data: mediaTestJPEG(),
+		}})
+	}
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-mixed", Parts: parts,
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+
+	calls := runs.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("run calls = %d, want 1", len(calls))
+	}
+	if calls[0].text != "text survives" {
+		t.Fatalf("run text = %q, want the text part untouched", calls[0].text)
+	}
+	if len(calls[0].attachments) != attachment.MaxCount {
+		t.Fatalf("run attachments = %d, want %d (oversize, mismatched, and fifth dropped)",
+			len(calls[0].attachments), attachment.MaxCount)
+	}
+}
+
+// TestInboundMediaWithoutTextStillRuns: a captionless photo is a valid
+// turn — empty content, the attachment carries the payload.
+func TestInboundMediaWithoutTextStillRuns(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-photo-only",
+		Parts: []plugin.Part{
+			{Kind: plugin.PartMedia, Media: plugin.Media{Name: "photo.jpg", MimeType: "image/jpeg", Data: mediaTestJPEG()}},
+		},
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+	calls := runs.snapshot()
+	if len(calls) != 1 || calls[0].text != "" || len(calls[0].attachments) != 1 {
+		t.Fatalf("run call = %+v with %d attachments, want empty text and one attachment", calls[0], len(calls[0].attachments))
 	}
 }

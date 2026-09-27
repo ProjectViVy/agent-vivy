@@ -184,7 +184,7 @@ func (s *Service) StartChildActivation(ctx context.Context, childSessionID domai
 	go func() {
 		defer s.wg.Done()
 		s.driveWithExecution(runCtx, mapper, childSessionID, state.task, domain.RunModeNormal,
-			snapshot.Profile, snapshot, sandboxMode, approvalPolicy, face, workspace.ID,
+			snapshot.Profile, "", snapshot, sandboxMode, approvalPolicy, face, workspace.ID, nil,
 			runExecutionOptions{engine: childEngine, child: state})
 		s.failUnsettledChildMail(state)
 	}()

@@ -171,6 +171,21 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 	}
 }
 
+func TestInitCommandAcceptsNoArgumentsAndAppearsInHelp(t *testing.T) {
+	r := DefaultRegistry(tuii18n.New(corei18n.English))
+	parsed, err := r.Parse("/INIT")
+	if err != nil || !parsed.IsCommand() || r.Validate(parsed.Invocation) != nil {
+		t.Fatalf("/init parse and validate = %+v, %v", parsed, err)
+	}
+	if parsed.Invocation.Name != "INIT" || !strings.Contains(r.Help(), "/init") {
+		t.Fatalf("/init missing from command help: %s", r.Help())
+	}
+	parsed, err = r.Parse("/init extra")
+	if err != nil || r.Validate(parsed.Invocation) == nil {
+		t.Fatalf("/init extra accepted: %+v, %v", parsed, err)
+	}
+}
+
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry(tuii18n.New(corei18n.English))
 	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
@@ -265,6 +280,7 @@ func TestDefaultRegistryMapsAllLocalizedDescriptionKeys(t *testing.T) {
 	}
 	commands := []commandDescription{
 		{name: "help", english: "View commands", chinese: "查看命令"},
+		{name: "init", english: "Create project instructions", chinese: "生成项目说明"},
 		{name: "status", english: "View current run status", chinese: "当前运行状态"},
 		{name: "sessions", english: "Open session list", chinese: "打开会话列表"},
 		{name: "model", english: "Switch model", chinese: "切换模型"},

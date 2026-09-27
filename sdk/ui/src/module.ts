@@ -634,6 +634,227 @@ export interface FaceAttachmentInput {
 
 export type FaceThinkingMode = "auto" | "on" | "off";
 
+/** Exact identity and safe projection kind of one source record (SC-D4). */
+export interface FaceSourceRef {
+  readonly session_id: string;
+  readonly run_id?: string;
+  readonly message_id?: string;
+  readonly event_seq?: number;
+  readonly kind: string;
+  readonly created_at: number;
+}
+
+/** Redacted, bounded projection of one source record. */
+export interface FaceHistoryItem {
+  readonly ref: FaceSourceRef;
+  readonly author: string;
+  readonly text: string;
+  readonly source_refs?: FaceSourceRef[];
+  readonly redacted: boolean;
+  readonly truncated: boolean;
+}
+
+export interface FaceHistoryRunRange {
+  readonly run_id: string;
+  readonly from_seq: number;
+  readonly to_seq: number;
+}
+
+/** One source session plus exactly one selector (refs or run range). */
+export interface FaceHistorySelection {
+  readonly source_session_id: string;
+  readonly refs?: FaceSourceRef[];
+  readonly run_range?: FaceHistoryRunRange;
+}
+
+/** Server-validated selector plus its sanitized-snapshot digest. */
+export interface FaceReferenceSelection {
+  readonly selection: FaceHistorySelection;
+  readonly expected_digest: string;
+}
+
+/** Caller-declared task scope; empty means the destination session only. */
+export interface FaceHistoryScope {
+  readonly session_ids?: string[];
+  readonly workspace?: boolean;
+}
+
+/** Continuity fields of one typed submission: stable request id, explicit
+ * reference selectors and an optional broader model read scope. */
+export interface FaceTurnContinuity {
+  readonly request_id: string;
+  readonly references?: FaceReferenceSelection[];
+  readonly history_scope?: FaceHistoryScope;
+}
+
+/** One typed turn submission shared by direct send and queued send so
+ * references/scope cannot be dropped by positional argument drift. */
+export interface FaceTurnSubmission {
+  readonly text: string;
+  readonly mode?: FaceRunMode;
+  readonly face?: FaceName;
+  readonly attachments?: FaceAttachmentInput[];
+  readonly thinking?: FaceThinkingMode;
+  readonly continuity?: FaceTurnContinuity;
+}
+
+export interface FaceHistorySearchRequest {
+  readonly query?: string;
+  readonly session_ids?: string[];
+  readonly from?: number;
+  readonly to?: number;
+  readonly kinds?: string[];
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface FaceHistoryPage {
+  readonly status: string;
+  readonly items: FaceHistoryItem[];
+  readonly next_cursor: string;
+  readonly truncated: boolean;
+  readonly redacted: boolean;
+  readonly warnings: string[];
+  readonly reason?: string;
+  readonly selection_digest?: string;
+}
+
+export interface FaceHistorySession {
+  readonly id: string;
+  readonly title: string;
+  readonly workspace_label: string;
+  readonly updated_at: number;
+}
+
+export interface FaceHistorySessionPage {
+  readonly sessions: FaceHistorySession[];
+  readonly next_cursor: string;
+}
+
+/** Bounded excerpt returned by reference/preview before attach. */
+export interface FaceReferencePreview {
+  readonly selection: FaceHistorySelection;
+  readonly items: FaceHistoryItem[];
+  readonly digest: string;
+  readonly captured_at: number;
+  readonly byte_count: number;
+  readonly source_status: string;
+}
+
+/** Session-bound ephemeral draft attachment shown as a composer chip. */
+export interface FaceReferenceDraft {
+  readonly id: string;
+  readonly preview: FaceReferencePreview;
+  readonly selection: FaceReferenceSelection;
+}
+
+/** Destination-owned sanitized snapshot committed by context.reference_attached. */
+export interface FaceContextReference {
+  readonly id: string;
+  readonly destination_session_id: string;
+  readonly destination_run_id: string;
+  readonly source_session_id: string;
+  readonly source_workspace: string;
+  readonly captured_at: number;
+  readonly items: FaceHistoryItem[];
+  readonly digest: string;
+  readonly origin: string;
+}
+
+/** reference/get result: the saved copy plus live source and feed status. */
+export interface FaceReferenceView {
+  readonly reference: FaceContextReference;
+  readonly source_status: string;
+  readonly feed_status: string;
+}
+
+/** Explicit file delivery types committed by deliverables.presented events. */
+export type FaceDeliverySetStatus = "ok" | "partial" | "failed";
+
+export interface FaceDeliverable {
+  readonly id: string;
+  readonly session_id: string;
+  readonly run_id: string;
+  readonly workspace_id: string;
+  readonly path: string;
+  readonly name: string;
+  readonly description: string;
+  readonly size: number;
+  readonly sha256: string;
+  readonly media_type: string;
+  readonly captured_at: number;
+  readonly origin_tool_call_id: string;
+  readonly file_version_id?: string;
+}
+
+export interface FaceDeliveryFailure {
+  readonly path: string;
+  readonly reason: string;
+}
+
+export interface FaceDeliverySet {
+  readonly id: string;
+  readonly session_id: string;
+  readonly run_id: string;
+  readonly tool_call_id: string;
+  readonly created_at: number;
+  readonly title?: string;
+  readonly items: FaceDeliverable[];
+  readonly failures: FaceDeliveryFailure[];
+  readonly status: FaceDeliverySetStatus;
+}
+
+export interface FaceDeliverySetPage {
+  readonly items: FaceDeliverySet[];
+  readonly next_cursor?: string;
+}
+
+/** deliverables/read request: digest binding is mandatory; a received
+ * transfer_id resumes that owner's open transfer. */
+export interface FaceDeliveryReadRequest {
+  readonly item_id: string;
+  readonly expected_digest: string;
+  readonly transfer_id?: string;
+  readonly offset: number;
+  readonly length: number;
+}
+
+export interface FaceDeliveryChunk {
+  readonly transfer_id: string;
+  readonly item_id: string;
+  readonly digest: string;
+  readonly offset: number;
+  readonly data_base64: string;
+  readonly eof: boolean;
+  readonly expires_at: number;
+}
+
+/** Per-item availability + preview state owned by the Face store; items
+ * start unchecked and move to a stable reason on failure. */
+export type FaceDeliveryItemStatus =
+  | "unchecked"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "changed"
+  | "missing"
+  | "forbidden"
+  | "unavailable";
+
+export interface FaceDeliveryItemState {
+  readonly status: FaceDeliveryItemStatus;
+  readonly preview?: string;
+}
+
+/** history/read request: exactly one of selection or reference_id. */
+export interface FaceHistoryReadRequest {
+  readonly selection?: FaceHistorySelection;
+  readonly reference_id?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
 export type FaceRunStatus = "accepted" | "queued" | "active" | "completed" | "failed" | "cancelled";
 
 /** Core run data returned by the existing Web Face API. */
@@ -1185,6 +1406,13 @@ export interface FaceChannelCapabilities {
   readonly health: boolean;
 }
 
+/** Live probe of a started HealthChecker adapter (CH-R-1). */
+export interface FaceChannelHealth {
+  readonly ok: boolean;
+  readonly class?: string;
+  readonly detail?: string;
+}
+
 export interface FaceChannelStatus {
   readonly name: string;
   readonly capabilities: FaceChannelCapabilities;
@@ -1195,6 +1423,7 @@ export interface FaceChannelStatus {
   readonly token_env: string;
   readonly token_env_set: boolean;
   readonly note: string;
+  readonly health: FaceChannelHealth | null;
 }
 
 export interface FaceChannelEnvelope {
@@ -1209,6 +1438,23 @@ export interface FaceChannelUpdateInput {
   readonly enabled?: boolean;
   readonly allow_from?: string[];
   readonly token_env?: string;
+}
+
+/** One failed delivery intent (channel/deliveries/list row). Identifiers only. */
+export interface FaceChannelDelivery {
+  readonly run_id: string;
+  readonly session_id: string;
+  readonly channel: string;
+  readonly chat_id: string;
+  readonly topic_id: string;
+  readonly state: string;
+  readonly attempts: number;
+  readonly created_at_ms: number;
+  readonly updated_at_ms: number;
+}
+
+export interface FaceChannelDeliveryList {
+  readonly deliveries: readonly FaceChannelDelivery[];
 }
 
 export type FaceTokenUsagePeriod = "1d" | "3d" | "1w" | "1m" | "6m" | "1y";
@@ -1541,6 +1787,54 @@ export interface FaceRunEvent {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
+export interface FaceWorkGoal {
+  readonly id: string;
+  readonly revision: number;
+  readonly objective: string;
+  readonly phase: "active" | "paused" | "blocked" | "completed";
+  readonly max_rounds: number;
+  readonly rounds_started: number;
+  readonly reason?: string;
+  readonly evidence_run_id?: string;
+}
+
+export interface FaceWorkPlan {
+  readonly active: boolean;
+  readonly submission_id?: string;
+  readonly markdown?: string;
+  readonly review_status: "none" | "pending" | "accepted" | "rejected" | "cancelled" | "expired";
+  readonly feedback?: string;
+  readonly origin_run_id?: string;
+  readonly origin_tool_call_id?: string;
+}
+
+export interface FaceWorkState {
+  readonly session_id: string;
+  readonly version: number;
+  readonly goal?: FaceWorkGoal;
+  readonly plan: FaceWorkPlan;
+  readonly activation: "armed" | "disarmed";
+  readonly current_run_id?: string;
+}
+
+export interface FaceWorkEvent {
+  readonly seq: number;
+  readonly kind: string;
+  readonly request_id: string;
+  readonly created_at: number;
+}
+
+export interface FaceWorkCommitResult {
+  readonly work: FaceWorkState;
+  readonly event: FaceWorkEvent;
+  readonly replayed: boolean;
+}
+
+export type FaceWorkMethod =
+  | "goal/create" | "goal/edit" | "goal/pause" | "goal/resume" | "goal/complete" | "goal/block" | "goal/clear"
+  | "plan/enter" | "plan/leave" | "plan/submit" | "plan/decide";
+
+
 /** Structural client surface aligned with the current Web Face API module. */
 export interface FaceClientAPI {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -1557,6 +1851,9 @@ export interface FaceClientAPI {
 	setSessionWorkspace(id: string, workspacePath: string): Promise<FaceSession>;
   deleteSession(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<FaceMessageList>;
+  getSessionWork(sessionId: string): Promise<FaceWorkState>;
+  getPlan(sessionId: string, submissionId: string): Promise<FaceWorkPlan>;
+  commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
   compactSession(sessionId: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
@@ -1572,14 +1869,18 @@ export interface FaceClientAPI {
   listSessionCompactions(sessionId: string, limit?: number): Promise<{ readonly compactions: readonly FaceSessionCompactionRecord[] }>;
   listTodos(sessionId: string): Promise<{ readonly todos: readonly FaceTodo[] }>;
   updateTodo(sessionId: string, id: string, status: FaceTodoStatus): Promise<{ readonly todo: FaceTodo }>;
-  startTurn(
-    sessionId: string,
-    text: string,
-    mode?: FaceRunMode,
-    face?: FaceName,
-    attachments?: FaceAttachmentInput[],
-    thinking?: FaceThinkingMode,
-  ): Promise<FaceRunStartResult>;
+  startTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceRunStartResult>;
+  historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
+  historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
+  previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
+  referenceGet(sessionId: string, referenceId: string): Promise<FaceReferenceView>;
+  historyRead(sessionId: string, request: FaceHistoryReadRequest): Promise<FaceHistoryPage>;
+  /** Explicit delivery RPCs (SC-D4 §12): reads are digest-bound and
+   * connection-owned; there is no arbitrary HTTP transfer route. */
+  deliverablesList(sessionId: string, params?: { readonly cursor?: string; readonly limit?: number }): Promise<FaceDeliverySetPage>;
+  deliverablesGet(sessionId: string, setId: string): Promise<{ readonly set: FaceDeliverySet }>;
+  deliverablesRead(sessionId: string, request: FaceDeliveryReadRequest): Promise<FaceDeliveryChunk>;
+  deliverablesClose(sessionId: string, transferId: string): Promise<void>;
   interruptRun(runId: string): Promise<FaceRunInterruptResult>;
   cancelRun(runId: string): Promise<FaceRunInterruptResult>;
   getRun(runId: string): Promise<FaceRun>;
@@ -1625,6 +1926,8 @@ export interface FaceClientAPI {
   inspectChannels(): Promise<readonly FaceChannelStatus[]>;
   getChannel(name: string): Promise<FaceChannelEnvelope>;
   updateChannel(name: string, patch: FaceChannelUpdateInput): Promise<FaceChannelEnvelope>;
+  listChannelDeliveries(): Promise<FaceChannelDeliveryList>;
+  redeliverChannelDelivery(runId: string): Promise<{ readonly run_id: string; readonly redelivered: boolean }>;
   getTokenUsage(params: FaceTokenUsageParams): Promise<FaceTokenUsageSnapshot>;
   listSkills(): Promise<FaceSkillList>;
   getSkill(name: string, path?: string): Promise<FaceSkillView>;
@@ -1667,13 +1970,8 @@ export type FaceConnectionState = "idle" | "connecting" | "connected" | "reconne
 
 export type FacePhase = "idle" | "loading" | "refreshing" | "ready" | "empty" | "error" | "processing";
 
-export interface FaceQueuedMessage {
+export interface FaceQueuedMessage extends FaceTurnSubmission {
   readonly id: string;
-  readonly text: string;
-  readonly mode: FaceRunMode;
-  readonly face?: FaceName;
-  readonly attachments?: FaceAttachmentInput[];
-  readonly thinking?: FaceThinkingMode;
 }
 
 /** Complete current Zustand-backed Face state exposed to UI Modules. */
@@ -1710,7 +2008,27 @@ export interface FaceStoreState {
   readonly streamingReasoning: string;
   readonly runError: string | null;
   readonly runBusy: boolean;
+  readonly work: FaceWorkState | null;
+  readonly workPhase: FacePhase;
+  readonly workError: string | null;
+  readonly workBusy: boolean;
   readonly queuedMessages: FaceQueuedMessage[];
+  /** Session-bound ephemeral draft: attached previews plus the optional
+   * broader read scope; never an ACL and never localStorage authority. */
+  readonly draftReferences: FaceReferenceDraft[];
+  readonly draftScope: FaceHistoryScope | null;
+  /** Stable client request id for the current draft continuity context. */
+  readonly draftRequestId: string;
+  /** Live reference/get views for committed references, keyed by reference id;
+   * null marks a failed read while the committed snapshot stays readable. */
+  readonly referenceViews: Readonly<Record<string, FaceReferenceView | null>>;
+  /** Committed delivery sets for the active session, chronological; the
+   * FilesPanel summary and chat cards read this same data. */
+  readonly deliverySets: FaceDeliverySet[];
+  readonly deliverySetsPhase: FacePhase;
+  /** Per-item availability keyed by deliverable id; missing entries render
+   * as unchecked. */
+  readonly deliveryItemStates: Readonly<Record<string, FaceDeliveryItemState>>;
   readonly backgroundRuns: FaceBackgroundRun[];
   readonly backgroundPhase: FacePhase;
   readonly backgroundError: string | null;
@@ -1756,14 +2074,39 @@ export interface FaceStoreState {
   setSessionPermission(id: string, preset: Exclude<FacePermissionPreset, "custom">): Promise<void>;
   deleteSession(id: string): Promise<void>;
   selectSession(id: string): Promise<void>;
-  startRun(sessionId: string, text: string, mode?: FaceRunMode, face?: FaceName, attachments?: FaceAttachmentInput[], thinking?: FaceThinkingMode): Promise<void>;
+  startRun(sessionId: string, submission: FaceTurnSubmission): Promise<void>;
   editSession(sessionId: string, messageId: string, text: string, mode?: FaceRunMode, face?: FaceName, thinking?: FaceThinkingMode): Promise<void>;
-  enqueueMessage(text: string, mode?: FaceRunMode, face?: FaceName, attachments?: FaceAttachmentInput[], thinking?: FaceThinkingMode): void;
+  enqueueMessage(submission: FaceTurnSubmission): void;
   removeQueuedMessage(id: string): void;
   clearQueue(): void;
+  addDraftReference(preview: FaceReferencePreview, selection: FaceReferenceSelection, allowFurtherReading: boolean): void;
+  removeDraftReference(id: string): void;
+  setDraftScope(scope: FaceHistoryScope | null): void;
+  clearDraftContext(): void;
+  loadReferenceView(referenceId: string): Promise<void>;
+  loadDeliverySets(): Promise<void>;
+  /** Bounded availability probe for one deliverable (first bytes only). */
+  checkDeliveryItem(item: FaceDeliverable): Promise<void>;
+  /** Loads a bounded UTF-8 text preview for text-previewable media types. */
+  previewDeliveryItem(item: FaceDeliverable): Promise<void>;
+  /** Sequential verified download: completes only after EOF + digest match;
+   * a second click while downloading is a no-op (cancel via
+   * cancelDeliveryDownload). */
+  downloadDeliveryItem(item: FaceDeliverable): Promise<void>;
+  cancelDeliveryDownload(itemId: string): void;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
+  loadWork(sessionId?: string): Promise<void>;
+  commitWork(method: FaceWorkMethod, fields?: Record<string, unknown>): Promise<FaceWorkCommitResult>;
+  createGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
+  editGoal(objective: string, maxRounds: number, goalRef: Pick<FaceWorkGoal, "id" | "revision">): Promise<FaceWorkCommitResult>;
+  pauseGoal(reason?: string): Promise<FaceWorkCommitResult>;
+  resumeGoal(): Promise<FaceWorkCommitResult>;
+  clearGoal(): Promise<FaceWorkCommitResult>;
+  enterPlan(): Promise<FaceWorkCommitResult>;
+  leavePlan(): Promise<FaceWorkCommitResult>;
+  decidePlan(action: "revise" | "execute_once" | "start_goal", feedback?: string, objective?: string, maxRounds?: number): Promise<FaceWorkCommitResult>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;

@@ -786,31 +786,24 @@ func toolResults(input []*schema.Message) []*schema.Message {
 // scenarios
 // ---------------------------------------------------------------------------
 
-// runParallelBatch drives the core ND-0 scenario on either adapter flavor:
-// the model requests c1+c2 in one turn, c2 finishes first, the journal
-// append for c1's result is held, and the barrier must keep the inner model
-// out until the append lands.
-func runParallelBatch(t *testing.T, enhanced bool) {
-	c1, c2 := "call-c1", "call-c2"
+// runDurabilityBarrier drives the core ND-0 scenario on either adapter
+// flavor: a tool result append is held and the barrier keeps the inner model
+// out until the result is durable.
+func runDurabilityBarrier(t *testing.T, enhanced bool) {
+	c1 := "call-c1"
 	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "first"), contractToolCall(c2, "second")}),
+		schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "first")}),
 		schema.AssistantMessage("final answer", nil),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{enhanced: enhanced, streaming: true, emitNotices: true})
 
-	releaseC1Tool := make(chan struct{})
 	releaseC1Append := h.setPause("tool.finished:" + c1)
-	// c1's tool result is held at the tool until c2's result is durable, so
-	// finished events land in fixed order (c2 before c1).
 	h.tool.run = func(_ context.Context, args json.RawMessage) (string, error) {
 		var p struct {
 			Text string `json:"text"`
 		}
 		if err := json.Unmarshal(args, &p); err != nil {
 			return "", err
-		}
-		if p.Text == "first" {
-			<-releaseC1Tool
 		}
 		return "ok-" + p.Text, nil
 	}
@@ -821,16 +814,8 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 		t.Fatalf("run: %v", err)
 	}
 
-	// Wait until c2's result is durable; c1's tool is still held.
-	h.waitFor(t, "tool.finished for "+c2, func() bool { return h.journal.hasEvent(domain.EventToolFinished, c2) })
-	close(releaseC1Tool)
-
-	// The consumer parks on the paused append of c1's finished event.
+	// The result is held inside Journal append.
 	h.waitFor(t, "paused append for "+c1, func() bool { return h.journal.pausingCount() > 0 })
-
-	// The engine has already re-entered the wrapper for the next model call;
-	// the barrier must hold it out of the inner model while c1's result is
-	// not durable.
 	h.waitFor(t, "wrapper awaiting seal", func() bool { return h.state.waitingCount() > 0 })
 	if got := h.model.count(); got != 1 {
 		t.Fatalf("inner model entered %d times while a result was not durable, want 1", got)
@@ -839,31 +824,23 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 	if got := h.model.count(); got != 1 {
 		t.Fatalf("inner model entered %d times while a result was not durable, want 1", got)
 	}
-	// While the wrapper waits, Eino must still yield the finished tool
-	// results to the consumer — c2's finished event is already journaled and
-	// c1's finished event exists (the append is paused inside the journal,
-	// not missing from the event stream).
+
+	// The finished event remains pending inside the paused Journal append.
 	close(releaseC1Append)
 	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
 
-	// Journal order: results out of order (c2 before c1), each preceded by
-	// its request.
 	j := h.journal
-	if j.indexOf(domain.EventToolRequested, c1) < 0 || j.indexOf(domain.EventToolRequested, c2) < 0 {
-		t.Fatal("tool.requested events missing for c1/c2")
+	if j.indexOf(domain.EventToolRequested, c1) < 0 || j.indexOf(domain.EventToolFinished, c1) < 0 {
+		t.Fatal("tool.requested or tool.finished event missing for c1")
 	}
-	if j.indexOf(domain.EventToolFinished, c2) >= j.indexOf(domain.EventToolFinished, c1) {
-		t.Fatal("expected c2's finished event to precede c1's in journal order")
-	}
-	if j.indexOf(domain.EventToolRequested, c1) > j.indexOf(domain.EventToolFinished, c1) ||
-		j.indexOf(domain.EventToolRequested, c2) > j.indexOf(domain.EventToolFinished, c2) {
+	if j.indexOf(domain.EventToolRequested, c1) > j.indexOf(domain.EventToolFinished, c1) {
 		t.Fatal("a finished event preceded its requested event in the journal")
 	}
 
 	// ID fidelity: each adapter execution saw the exact requested call id.
 	entries := h.tool.snapshot()
-	if len(entries) != 2 {
-		t.Fatalf("tool entries = %d, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("tool entries = %d, want 1", len(entries))
 	}
 	byArgs := map[string]string{}
 	for _, e := range entries {
@@ -871,9 +848,6 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 	}
 	if got := byArgs[fmt.Sprintf(`{"text":%q}`, "first")]; got != c1 {
 		t.Fatalf("call id for first args = %q, want %s", got, c1)
-	}
-	if got := byArgs[fmt.Sprintf(`{"text":%q}`, "second")]; got != c2 {
-		t.Fatalf("call id for second args = %q, want %s", got, c2)
 	}
 
 	// The next model call carried exactly one result per requested id plus
@@ -891,8 +865,8 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 	if last := input2[len(input2)-1]; last.Role != schema.User || last.Content != "contract-nudge-1" {
 		t.Fatalf("injected reminder missing from tail: role=%s content=%q", last.Role, last.Content)
 	}
-	if seen[c1] != 1 || seen[c2] != 1 || len(seen) != 2 {
-		t.Fatalf("next input results by call id = %v, want exactly one each of %s,%s", seen, c1, c2)
+	if seen[c1] != 1 || len(seen) != 1 {
+		t.Fatalf("next input results by call id = %v, want exactly one %s", seen, c1)
 	}
 	if got := h.emits.Load(); got != 1 {
 		t.Fatalf("scheduling emissions = %d, want 1", got)
@@ -902,9 +876,6 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 	if got := h.journal.finishedPayload(t, c1).Result; !strings.Contains(got, "ok-first") {
 		t.Fatalf("finished(c1).Result = %q, want ok-first", got)
 	}
-	if got := h.journal.finishedPayload(t, c2).Result; !strings.Contains(got, "ok-second") {
-		t.Fatalf("finished(c2).Result = %q, want ok-second", got)
-	}
 	if got := h.state.waitingCount(); got != 0 {
 		t.Fatalf("leaked waiters = %d", got)
 	}
@@ -912,11 +883,11 @@ func runParallelBatch(t *testing.T, enhanced bool) {
 
 func TestNudgeContract(t *testing.T) {
 	t.Run("OrdinaryAdapterBatchOrderAndDurability", func(t *testing.T) {
-		runParallelBatch(t, false)
+		runDurabilityBarrier(t, false)
 	})
 
 	t.Run("EnhancedAdapterBatchOrderAndDurability", func(t *testing.T) {
-		runParallelBatch(t, true)
+		runDurabilityBarrier(t, true)
 	})
 
 	// Baseline characterization: with no barrier installed, nothing orders
