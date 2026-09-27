@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
 )
@@ -26,9 +27,13 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	return newApprovalServiceWithModel(t, expiration, NewApprovalFlowModel())
 }
 
-func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatModel model.ToolCallingChatModel) (*Service, *sqlite.Backend, *testSink) {
+func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatModel model.ToolCallingChatModel, hookOptions ...*ToolHookChain) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
+	var hooks *ToolHookChain
+	if len(hookOptions) > 0 {
+		hooks = hookOptions[0]
+	}
 
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "approvals.db"))
 	if err != nil {
@@ -45,7 +50,7 @@ func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatMod
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	eng, err := NewEngine(ctx, chatModel, ts, EngineConfig{
-		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints, ToolHooks: hooks,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -57,6 +62,27 @@ func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatMod
 		ApprovalExpiration: expiration, Sink: sink,
 	})
 	return svc, backend, sink
+}
+
+type countingApprovalHook struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (h *countingApprovalHook) Name() string { return "counting-approval-hook" }
+func (h *countingApprovalHook) PreToolUse(context.Context, ToolHookCall) (PreToolUseResult, error) {
+	h.mu.Lock()
+	h.calls++
+	h.mu.Unlock()
+	return PreToolUseResult{}, nil
+}
+func (h *countingApprovalHook) PostToolUse(context.Context, ToolHookCall, string, error) error {
+	return nil
+}
+func (h *countingApprovalHook) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls
 }
 
 type gatedApprovalResumeModel struct {
@@ -227,6 +253,9 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	prefix := []domain.EventType{
 		domain.EventToolApprovalDecided,
 		domain.EventPolicyEvaluated,
+		domain.EventPolicyEvaluated,
+		domain.EventToolOperation,
+		domain.EventToolOperation,
 		domain.EventToolStarted, domain.EventToolFinished,
 	}
 	if len(types) < len(prefix)+3 {
@@ -246,7 +275,8 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		t.Fatalf("post-approval terminal boundary = %v", types)
 	}
 	var fin payloadToolFinished
-	mustUnmarshal(t, events[ai+4].Payload, &fin)
+	finishedIndex := indexOfType(events, domain.EventToolFinished)
+	mustUnmarshal(t, events[finishedIndex].Payload, &fin)
 	if fin.ToolCallID != ApprovalFlowCallID {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
@@ -265,6 +295,309 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != domain.RoleAssistant || last.Content != "Done: the note has been handled." {
 		t.Fatalf("assistant message = %+v", last)
+	}
+}
+
+func TestNativeOneShotChildUsesServiceApprovalResume(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("sess-native-child-approval")
+	parentRunID := domain.RunID("run-native-child-approval-parent")
+	if err := backend.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := NewWorkspaceManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Sessions = backend
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.WriteNoteName})
+
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatalf("start native one-shot child: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, started.Run.ID)
+	if approval.Kind != domain.ApprovalKindChild || approval.RunID != started.Run.ID {
+		t.Fatalf("child approval = %+v", approval)
+	}
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatalf("approve child tool through Service: %v", err)
+	}
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
+	summary, message, err := svc.OneShotChildOutcome(ctx, started.Run.ID)
+	if err != nil || message != "" || !strings.Contains(summary, "Done: the note has been handled.") {
+		t.Fatalf("child outcome = %q message=%q err=%v", summary, message, err)
+	}
+	notes, err := backend.ListNotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Content != "buy milk" {
+		t.Fatalf("approved child effect = %+v, want one note", notes)
+	}
+	events := replayAll(t, backend, started.Run.ID)
+	if countTerminal(events) != 1 || indexOfType(events, domain.EventToolApprovalDecided) < 0 ||
+		indexOfType(events, domain.EventChildSuspended) < 0 || indexOfType(events, domain.EventChildResumed) < 0 ||
+		indexOfType(events, domain.EventChildCompleted) < 0 {
+		t.Fatalf("child Service lifecycle is incomplete: %+v", events)
+	}
+}
+
+func TestInactiveNativeChildApprovalDoesNotPersistDecision(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("sess-inactive-native-child-approval")
+	parentRunID := domain.RunID("run-inactive-native-child-parent")
+	if err := backend.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := NewWorkspaceManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Sessions = backend
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.WriteNoteName})
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForPendingApproval(t, backend, started.Run.ID)
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("child did not settle at its approval checkpoint")
+	}
+	beforeEvents := replayAll(t, backend, started.Run.ID)
+
+	// Simulate a child checkpoint that cannot be rehydrated. Service must fail
+	// closed before first-writer persistence mutates the durable approval.
+	svc.mu.Lock()
+	delete(svc.pending, started.Run.ID)
+	svc.mu.Unlock()
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err == nil {
+		t.Fatal("approval without an active Service resume target must fail closed")
+	}
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Decision != domain.ApprovalPending {
+		t.Fatalf("unrecoverable child approval decision = %q, want pending", stored.Decision)
+	}
+	afterEvents := replayAll(t, backend, started.Run.ID)
+	if len(afterEvents) != len(beforeEvents) {
+		t.Fatalf("rejected child decision appended events: before=%d after=%d", len(beforeEvents), len(afterEvents))
+	}
+}
+
+func TestCancelPendingNativeChildEmitsChildTerminal(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("sess-cancel-native-child-approval")
+	parentRunID := domain.RunID("run-cancel-native-child-parent")
+	if err := backend.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := NewWorkspaceManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Sessions = backend
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.WriteNoteName})
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForPendingApproval(t, backend, started.Run.ID)
+	if !svc.Cancel(started.Run.ID) {
+		t.Fatal("cancel pending child should be accepted")
+	}
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunCancelled)
+	events := replayAll(t, backend, started.Run.ID)
+	if countTerminal(events) != 1 || events[len(events)-1].Type != domain.EventChildCancelled {
+		t.Fatalf("cancelled child terminal = %+v, want one child.cancelled", events)
+	}
+}
+
+func TestNativeChildResumeFailureUsesChildTerminal(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("sess-resume-failure-native-child")
+	parentRunID := domain.RunID("run-resume-failure-native-child-parent")
+	if err := backend.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := NewWorkspaceManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Sessions = backend
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.WriteNoteName})
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForPendingApproval(t, backend, started.Run.ID)
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("child did not settle at its approval checkpoint")
+	}
+	if err := svc.engine.cfg.Checkpoints.Delete(ctx, checkpointIDFor(started.Run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
+	}
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunFailed)
+	events := replayAll(t, backend, started.Run.ID)
+	if countTerminal(events) != 1 || events[len(events)-1].Type != domain.EventChildFailed {
+		t.Fatalf("resume failure terminal = %+v, want one child.failed", events)
+	}
+	notes, err := backend.ListNotes(ctx)
+	if err != nil || len(notes) != 0 {
+		t.Fatalf("child effect after lost checkpoint = %+v err=%v, want no effects", notes, err)
+	}
+}
+
+func TestNativeOneShotChildApprovalRecoversThroughServiceAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "child-recovery.db")
+	workspaceRoot := filepath.Join(t.TempDir(), "workspaces")
+	backend, err := sqlite.Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-child-recovery", Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	firstModel := NewScriptedModel(schema.AssistantMessage("", []schema.ToolCall{{
+		ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
+	}}))
+	first, err := newApprovalServiceForRestart(t, backend, workspaceRoot, firstModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRunID := domain.RunID("run-child-service-parent-first")
+	prepareChildSessionAuthorizer(t, first, backend, "sess-child-recovery", parentRunID, []string{tools.EchoInfoName, tools.WriteNoteName})
+	started, err := first.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForPendingApproval(t, backend, started.Run.ID)
+	if !first.WaitIdle(ctx) {
+		t.Fatal("initial child did not settle at its approval checkpoint")
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := sqlite.Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	secondModel := NewScriptedModel(schema.AssistantMessage("Done after restart.", nil))
+	second, err := newApprovalServiceForRestart(t, reopened, workspaceRoot, secondModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Recover(ctx); err != nil {
+		t.Fatalf("recover native child approval: %v", err)
+	}
+	if err := second.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatalf("decide recovered child approval through Service: %v", err)
+	}
+	waitForRunStatus(t, reopened, started.Run.ID, domain.RunCompleted)
+	summary, message, err := second.OneShotChildOutcome(ctx, started.Run.ID)
+	if err != nil || message != "" || summary != "Done after restart." {
+		t.Fatalf("recovered child outcome = %q message=%q err=%v", summary, message, err)
+	}
+	notes, err := reopened.ListNotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Content != "buy milk" {
+		t.Fatalf("recovered child effect = %+v, want exactly one note", notes)
+	}
+	childEvents := replayAll(t, reopened, started.Run.ID)
+	if countTerminal(childEvents) != 1 || indexOfType(childEvents, domain.EventChildCompleted) < 0 {
+		t.Fatalf("recovered child must have one child terminal event: %+v", childEvents)
+	}
+}
+
+func newApprovalServiceForRestart(t *testing.T, backend *sqlite.Backend, workspaceRoot string, chatModel model.ToolCallingChatModel) (*Service, error) {
+	t.Helper()
+	ctx := context.Background()
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
+	if err != nil {
+		return nil, err
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		return nil, err
+	}
+	policy, err := NewPolicyEngine(nil)
+	if err != nil {
+		return nil, err
+	}
+	engine, err := NewEngine(ctx, chatModel, ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints, Policy: policy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	workspaces, err := NewWorkspaceManager(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	return NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend,
+		Approvals: backend, Questions: backend, Workspaces: workspaces, Sink: newTestSink(),
+		ApprovalExpiration: 5 * time.Minute, Budget: DefaultBudgetPolicy(),
+	}), nil
+}
+
+func TestApprovalResumeReusesPreparedToolOperation(t *testing.T) {
+	hook := &countingApprovalHook{}
+	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, NewApprovalFlowModel(), NewToolHookChain(time.Second, hook))
+	ctx := context.Background()
+	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
+	if got := hook.count(); got != 1 {
+		t.Fatalf("pre-tool hooks before approval = %d, want one", got)
+	}
+	store := storage.ToolOperationStore(backend)
+	operation, err := store.GetToolOperation(ctx, runID, ApprovalFlowCallID)
+	if err != nil || operation.State != domain.ToolOperationAdmitted || string(operation.EffectiveArguments) != `{"content":"buy milk"}` {
+		t.Fatalf("prepared operation at approval = %+v err=%v", operation, err)
+	}
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	if got := hook.count(); got != 1 {
+		t.Fatalf("pre-tool hook reran on approval resume: calls=%d", got)
+	}
+	operation, err = store.GetToolOperation(ctx, runID, ApprovalFlowCallID)
+	if err != nil || operation.State != domain.ToolOperationCompleted {
+		t.Fatalf("operation after approved execution = %+v err=%v", operation, err)
 	}
 }
 

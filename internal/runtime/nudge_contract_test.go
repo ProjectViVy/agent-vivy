@@ -714,7 +714,7 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 	}
 
 	h.svc = NewService(eng, "contract", "contract-v0", ServiceDeps{
-		Journal: h.journal, Runs: backend, Messages: backend, Notes: backend,
+		Journal: h.journal, ToolOperations: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	if opts.checkpoints {

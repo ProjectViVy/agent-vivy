@@ -60,6 +60,20 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 			},
 			vendor: "deepseek", adapter: provider.AdapterOpenAICompletions, model: "deepseek-flash", ok: true,
 		},
+		{
+			name: "a registered custom provider labels itself, not the configured vendor",
+			stored: settings.Settings{
+				Provider: provider.AdapterOpenAICompletions, BaseURL: "https://llm.acme.example/v1",
+				DefaultModel: "acme-1",
+				Providers: []settings.ProviderEntry{{
+					ID: "acme", DisplayName: "Acme LLM",
+					Bundle: provider.AdapterOpenAICompletions, BaseURL: "https://llm.acme.example/v1",
+				}},
+			},
+			// The label is the registry alias; the vendor is not in the
+			// embedded catalog, so endpoint resolution reports not-ok.
+			vendor: "Acme LLM", adapter: provider.AdapterOpenAICompletions, model: "acme-1", ok: false,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			selection, ok := resolveStoredSelection(catalog, cfg, test.stored)

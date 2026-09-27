@@ -9,7 +9,7 @@ export interface RpcRequest {
 }
 
 export class RpcClientError extends Error {
-  constructor(public readonly code: number, message: string) {
+  constructor(public readonly code: number, message: string, public readonly data?: unknown) {
     super(message);
     this.name = 'RpcClientError';
   }
@@ -19,7 +19,7 @@ interface RpcResponse<T> {
   jsonrpc: string;
   id: string;
   result?: T;
-  error?: { code: number; message: string };
+  error?: { code: number; message: string; data?: unknown };
 }
 
 export interface RpcCapabilities {
@@ -159,7 +159,7 @@ export class RpcClient {
     const waiter = this.pending.get(message.id);
     if (!waiter) return;
     this.pending.delete(message.id);
-    if (message.error) waiter.reject(new RpcClientError(message.error.code, message.error.message));
+    if (message.error) waiter.reject(new RpcClientError(message.error.code, message.error.message, message.error.data));
     else waiter.resolve(message.result);
   }
 }

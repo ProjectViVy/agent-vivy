@@ -107,13 +107,17 @@ require (
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
+	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
+	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
+	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
 	agent-vivy/plugins/vivy-notebook v0.0.0
+	agent-vivy/plugins/vivy-persona v0.0.0
 	agent-vivy/plugins/vivy-persona v0.0.0
 	github.com/ProjectViVy/agent-vivy/bml v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -197,5 +201,7 @@ replace agent-vivy/plugins/vivy-notebook => ./plugins/vivy-notebook
 replace agent-vivy/faces/headless => ./faces/headless
 
 replace agent-vivy/faces/tui => ./faces/tui
+
+replace agent-vivy/plugins/vivy-masks-ui => ./plugins/vivy-masks-ui
 
 replace github.com/ProjectViVy/agent-vivy/bml => ./bml

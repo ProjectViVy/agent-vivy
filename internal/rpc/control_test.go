@@ -313,7 +313,27 @@ func waitForControlSubscriptionCount(t *testing.T, handler *controlHandler, want
 }
 
 func (childControllerStub) StartChild(_ context.Context, request ChildRequest) (ChildResult, error) {
-	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1}, nil
+	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1, ChildMode: request.Mode}, nil
+}
+
+func (childControllerStub) FollowupChild(context.Context, ChildFollowupRequest) (ChildResult, error) {
+	return ChildResult{ID: "child-followup-stub", Status: "active", ChildMode: string(domain.ChildModeContinuable)}, nil
+}
+
+func (childControllerStub) InterruptChild(context.Context, string) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", Status: "active", ChildMode: string(domain.ChildModeContinuable)}, nil
+}
+
+func (childControllerStub) ChildHistory(context.Context, string, string) ([]ChildHistoryMessage, error) {
+	return []ChildHistoryMessage{}, nil
+}
+
+func (childControllerStub) SendChildMessage(context.Context, ChildMessageRequest) (ChildMessageResult, bool, error) {
+	return ChildMessageResult{ID: "message-stub", Status: "pending"}, true, nil
+}
+
+func (childControllerStub) ListChildMessages(context.Context, ChildMessageListRequest) ([]ChildMessageResult, error) {
+	return []ChildMessageResult{}, nil
 }
 
 func (childControllerStub) GetChild(context.Context, string) (ChildResult, error) {
@@ -417,6 +437,22 @@ func TestControlSessionCreateKeepsEmptyTitleUntitled(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": string(session.ID)}); rpcErr != nil {
 		t.Fatal(rpcErr)
+	}
+}
+
+func TestWorkflowRPCValidatesAdmissionAndMapsMissingRuns(t *testing.T) {
+	env := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, env.handler, "workflow/start", map[string]any{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("workflow/start missing identity error = %v, want invalid params", rpcErr)
+	}
+	for _, method := range []string{"workflow/propose", "workflow/get", "workflow/cancel"} {
+		var params any = map[string]string{"run_id": "missing-workflow"}
+		if method == "workflow/propose" {
+			params = map[string]any{"parent_run_id": "missing-parent", "descriptor": map[string]any{}}
+		}
+		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != CodeNotFound {
+			t.Fatalf("%s missing resource error = %v, want not found", method, rpcErr)
+		}
 	}
 }
 
@@ -703,6 +739,50 @@ func TestControlHandlerChildLifecycleContract(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("child/list returned nil")
+	}
+}
+
+func TestControlHandlerContinuableChildContract(t *testing.T) {
+	env := newControlTestEnv(t)
+	started, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{
+		ParentRunID: "run-parent", Text: "task", Mode: string(domain.ChildModeContinuable), OperationID: "start-op",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var child ChildResult
+	encoded, _ := json.Marshal(started)
+	if err := json.Unmarshal(encoded, &child); err != nil || child.ChildMode != string(domain.ChildModeContinuable) {
+		t.Fatalf("continuable child/start = %+v err=%v", child, err)
+	}
+	followup, rpcErr := callControl(t, env.handler, "child/followup", ChildFollowupRequest{
+		ChildSessionID: "csess_1", ParentRunID: "run-parent", OperationID: "followup-op", Text: "next task",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if followup == nil {
+		t.Fatal("child/followup returned nil")
+	}
+	for method, params := range map[string]any{
+		"child/interrupt":    map[string]string{"run_id": "child-stub"},
+		"child/history":      map[string]string{"child_session_id": "csess_1", "parent_run_id": "run-parent"},
+		"child/message/send": ChildMessageRequest{ChildSessionID: "csess_1", ParentRunID: "run-parent", OperationID: "message-op", Text: "mail"},
+		"child/message/list": ChildMessageListRequest{ChildSessionID: "csess_1", AuthorizerRunID: "run-parent"},
+	} {
+		if result, rpcErr := callControl(t, env.handler, method, params); rpcErr != nil || result == nil {
+			t.Fatalf("%s result=%v err=%v", method, result, rpcErr)
+		}
+	}
+	if _, rpcErr := callControl(t, env.handler, "child/followup", ChildFollowupRequest{
+		ChildSessionID: "csess_1", ParentRunID: "run-parent", Text: "missing operation id",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("follow-up without operation_id = %v, want invalid params", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{
+		ParentRunID: "run-parent", Text: "task", Mode: "unknown",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("unknown child mode = %v, want invalid params", rpcErr)
 	}
 }
 
@@ -2606,8 +2686,8 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 	if len(seen) != len(view.Catalog) {
 		t.Fatalf("a vendor appears more than once: %d entries, %d vendors", len(view.Catalog), len(seen))
 	}
-	if len(view.Catalog) != 45 || endpoints != 47 {
-		t.Fatalf("catalog = %d vendors / %d endpoints, want 45/47", len(view.Catalog), endpoints)
+	if len(view.Catalog) != 46 || endpoints != 48 {
+		t.Fatalf("catalog = %d vendors / %d endpoints, want 46/48", len(view.Catalog), endpoints)
 	}
 	if deferred == 0 {
 		t.Fatal("the deferred openai-responses endpoint must appear in the catalog")

@@ -12,7 +12,7 @@ func TestMaskManagerForAssemblyIsAbsentWhenCapabilityIsOmitted(t *testing.T) {
 	assembly := genassembly.RuntimeAssembly{
 		Manifest: generation.Manifest{Modules: []string{"vivy/storage"}},
 	}
-	manager, err := maskManagerForAssembly(context.Background(), assembly, nil, "generation-1")
+	manager, err := maskManagerForAssembly(context.Background(), assembly, nil, "generation-1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,11 +21,24 @@ func TestMaskManagerForAssemblyIsAbsentWhenCapabilityIsOmitted(t *testing.T) {
 	}
 }
 
+func TestMaskManagerForAssemblyIsDormantWhenUnsealed(t *testing.T) {
+	assembly := genassembly.RuntimeAssembly{
+		Manifest: generation.Manifest{Modules: []string{"vivy/masks"}},
+	}
+	manager, err := maskManagerForAssembly(context.Background(), assembly, nil, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager != nil {
+		t.Fatal("unsealed composition constructed a mask manager")
+	}
+}
+
 func TestMaskManagerForAssemblyFailsClosedWithoutTypedFactory(t *testing.T) {
 	assembly := genassembly.RuntimeAssembly{
 		Manifest: generation.Manifest{Modules: []string{"vivy/masks"}},
 	}
-	if _, err := maskManagerForAssembly(context.Background(), assembly, nil, "generation-1"); err == nil {
+	if _, err := maskManagerForAssembly(context.Background(), assembly, nil, "generation-1", true); err == nil {
 		t.Fatal("selected mask capability without a factory was accepted")
 	}
 }

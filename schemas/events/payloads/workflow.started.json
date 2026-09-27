@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.started.json",
+  "title": "workflow.started payload (v1)",
+  "type": "object",
+  "properties": {
+    "revision_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "node_count": { "type": "integer", "minimum": 1, "maximum": 12 }
+  },
+  "required": ["revision_digest", "node_count"],
+  "additionalProperties": false
+}

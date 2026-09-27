@@ -54,7 +54,11 @@ type RunPromptSnapshot struct {
 }
 
 type RunAdmission struct {
-	Message      domain.Message
+	Message domain.Message
+	// OmitMessage admits an internal child activation whose task is carried in
+	// its immutable prompt snapshot rather than the parent Session transcript.
+	// It is valid only for one-shot child Runs.
+	OmitMessage  bool
 	Run          domain.Run
 	Started      domain.RunEvent
 	Prompt       *RunPromptSnapshot

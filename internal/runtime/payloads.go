@@ -22,6 +22,13 @@ type payloadRunStarted struct {
 	// HistoryScope is accepted, host-resolved metadata. Its absence preserves
 	// legacy run.started encoding and means no continuity scope was admitted.
 	HistoryScope *domain.AcceptedHistoryScope `json:"history_scope,omitempty"`
+	// PromptSchema and PromptDigest identify the immutable prompt admitted
+	// beside this run. They are omitted for legacy embedders that do not wire
+	// RunAdmissionStore, preserving the v1 event shape on that path.
+	PromptSchema         int    `json:"prompt_schema,omitempty"`
+	PromptDigest         string `json:"prompt_digest,omitempty"`
+	CollaborationMode    string `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int    `json:"collaboration_version,omitempty"`
 }
 
 // payloadContextReferenceAttached persists the destination-owned sanitized

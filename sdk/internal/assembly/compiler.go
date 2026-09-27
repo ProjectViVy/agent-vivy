@@ -151,9 +151,6 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		}
 	}
 	if _, productionCatalog := c.Sources.records["vivy/storage"]; productionCatalog {
-		if _, selectedMask := selected["vivy/masks"]; selectedMask {
-			diagnostics = append(diagnostics, "core/mask-service@v1 is SPECIFIED and cannot be selected")
-		}
 		diagnostics = append(diagnostics, validateClosedInternalSelection(selected, providers)...)
 	}
 	for _, record := range selected {

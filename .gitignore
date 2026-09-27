@@ -37,6 +37,7 @@ node_modules/
 
 # Playwright e2e runtime outputs (generated workdir, reports, traces)
 /ui/.e2e-workdir/
+/ui/.e2e-masks-workdir/
 /.smoke-todo/
 /ui/test-results/
 /ui/playwright-report/

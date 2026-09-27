@@ -41,8 +41,11 @@ MEMORY track's stage rows (MEM-0A..MEM-5 below) stay visible for status
 tracking while the track is in flight, including rows already DONE; the
 authoritative per-story state lives in `docs/superpowers/plans/memory/index.md`.
 
+Owner-priority consolidation (2026-09-26): Issue #39 is the sole open item. All other unfinished rows were moved to docs/DEFER.MD without being marked complete; each retains its prior status and a reactivation condition.
+
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| ISSUE-39-EINO-ORCHESTRATION | Native child lifecycle and bounded Eino DAG | OPEN · SOLE PRIORITY · G0 BLOCKED | ORCH-02–07 provisional implementation is present: governed child activation, durable direct mailbox, immutable bounded DAG, native Eino Workflow, model-facing tools, RPC and UI. Focused Go package tests, `go vet`, app builds, UI typecheck and Vitest (402 tests) pass; SQLite conformance ran. G0/G1/G4 remain blocked: `just ci`, PostgreSQL DSN-backed conformance, the integrated R1-R14 matrix and real host/browser E2E are not complete; the owner will run E2E after implementation. No product capability is accepted or released. Current evidence: [provisional verification](logs/2026-09-26-issue39-orch02-provisional/verification.md), [ORCH-01 acceptance](logs/2026-09-26-issue39-orchestration-g0/acceptance.md), [implementation plan](plans/issue39-native-orchestration.md), and [historical Task 5 evidence](logs/2026-09-26-issue39-native-proof/task-5-summary.md). |
 | SC-51 | Lite session continuity and explicit deliverables (#51) | OPEN — PLANNED | SC-D3 design and SC-P4 Story package; implementation not started. [Authoritative Story index](superpowers/plans/session-continuity/index.md) owns T0–T12 status, dependencies, evidence and migration prerequisites. Retained GUI, bounded history, explicit references and additive file delivery; not Headless, memory or SSH. |
 | CI-APP-CONCURRENT-TIMEOUT | `internal/app` can stall under full `just ci` package concurrency | OPEN | A 2026-09-24 PG-4 Task 1 stable-tree `just ci` run reached the package's 20-minute timeout in `internal/app` while `internal/runtime`, `internal/rpc`, `sdk/internal`, and conformance passed. An isolated `go test -v -timeout=5m ./internal/app -count=1` passed every app test in 56.031s; one final unchanged-tree `just ci` retry also passed with `internal/app` in 37.364s. The failed run's collected output omitted the timeout dump, so the exact blocked test remains unknown; reproduce with complete output and diagnose the concurrent interaction before changing timeouts. No `internal/app` source changed in this delivery. See `docs/logs/2026-09-24-pg4-tool-host-authority/verification.md`. |
 | PG4-EINO-TOOLS-RACE | Pinned Eino ToolsNode stream races on same-batch tool calls | OPEN | Reproduced on clean HEAD `b6b8ee3` and the PG-4 Task 1 branch with `go test -race ./internal/runtime -run '^TestPlanGoalProbeReportFencesLaterToolInSameBatch$' -count=1`. Two stream goroutines write the same location in `github.com/cloudwego/eino@v0.9.13/compose/tool_node.go:1253` through `schema/stream.go:693`. Assess an upstream fix or an Eino-native adapter seam in a separate authorized change; do not replace the Vivy Service/Journal loop. See `docs/logs/2026-09-24-pg4-tool-host-authority/verification.md`. |
@@ -127,5 +130,5 @@ authoritative per-story state lives in `docs/superpowers/plans/memory/index.md`.
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
-> The completed HITL P0 stage is archived in `docs/COMPLETE.MD`; open P1 follow-ups remain
-> in §0.1, and the deferred `HITL-P1-7` is in `docs/DEFER.MD`.
+> The completed HITL P0 stage is archived in `docs/COMPLETE.MD`; unfinished P1 follow-ups are now
+> owner-deferred in `docs/DEFER.MD` until explicitly re-prioritized.

@@ -22,6 +22,7 @@ const (
 	EventToolProposalStale        EventType = "tool.proposal_stale"
 	EventToolStarted              EventType = "tool.started"
 	EventToolFinished             EventType = "tool.finished"
+	EventToolOperation            EventType = "tool.operation"
 	EventToolMounted              EventType = "tool.mounted"
 	EventToolNudge                EventType = "tool.nudge"
 	EventPolicyEvaluated          EventType = "policy.evaluated"
@@ -39,15 +40,19 @@ const (
 	EventChildCompleted           EventType = "child.completed"
 	EventChildFailed              EventType = "child.failed"
 	EventChildCancelled           EventType = "child.cancelled"
+	EventWorkflowStarted          EventType = "workflow.started"
+	EventWorkflowNodeStarted      EventType = "workflow.node.started"
+	EventWorkflowNodeCompleted    EventType = "workflow.node.completed"
+	EventWorkflowNodeFailed       EventType = "workflow.node.failed"
 	EventContextCompacted         EventType = "context.compacted"
 	EventSessionTruncated         EventType = "session.truncated"
 	EventSessionForked            EventType = "session.forked"
-	EventContextReferenceAttached EventType = "context.reference_attached"
-	EventDeliverablesPresented    EventType = "deliverables.presented"
 	EventRunCompleted             EventType = "run.completed"
 	EventRunFailed                EventType = "run.failed"
 	EventRunCancelled             EventType = "run.cancelled"
 	EventChannelInbound           EventType = "channel.inbound"
+	EventContextReferenceAttached EventType = "context.reference_attached"
+	EventDeliverablesPresented    EventType = "deliverables.presented"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -68,6 +73,7 @@ var EventTypes = []EventType{
 	EventToolProposalStale,
 	EventToolStarted,
 	EventToolFinished,
+	EventToolOperation,
 	EventToolNudge,
 	EventPolicyEvaluated,
 	EventHookStarted,
@@ -84,6 +90,10 @@ var EventTypes = []EventType{
 	EventChildCompleted,
 	EventChildFailed,
 	EventChildCancelled,
+	EventWorkflowStarted,
+	EventWorkflowNodeStarted,
+	EventWorkflowNodeCompleted,
+	EventWorkflowNodeFailed,
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,

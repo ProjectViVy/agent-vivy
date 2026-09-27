@@ -464,6 +464,696 @@ func TestDeleteSessionRejectsLateExternalWorkerEvent(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionFencesContinuableChildTree(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	parentSessionID := domain.SessionID("sess-delete-continuable-parent")
+	parentRunID := domain.RunID("run-delete-continuable-parent")
+	childSessionID := domain.SessionID("sess-delete-continuable-child")
+	childRunID := domain.RunID("run-delete-continuable-child")
+	authority := domain.ChildAuthorityCeiling{
+		PolicyProfile: domain.PolicyProfileDefault, PolicyHash: "policy-hash",
+		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
+		ToolNames: []string{},
+	}
+	authorityDigest, err := authority.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestDigest, err := domain.ChildRequestDigest("child-create", "task", []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateSession(ctx, domain.Session{ID: parentSessionID, Title: "parent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: parentSessionID, Status: domain.RunActive, CreatedAt: 2, RootID: parentRunID}); err != nil {
+		t.Fatal(err)
+	}
+	input := storage.ChildSessionAdmission{
+		Session: domain.Session{ID: childSessionID, Title: "child", CreatedAt: 3, UpdatedAt: 3},
+		Binding: domain.ChildSessionBinding{
+			ChildSessionID: childSessionID, OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID,
+			AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID,
+			OperationKey: "child-create", RequestDigest: requestDigest, AuthorityCeilingDigest: authorityDigest,
+			AuthorityCeiling: authority, ActivationOperationKey: "child-create", ActivationRequestDigest: requestDigest,
+			ActivationToolNames: []string{},
+			State:               domain.ChildSessionOpen, CreatedAt: 3, UpdatedAt: 3,
+		},
+		Admission: storage.RunAdmission{
+			Message: domain.Message{ID: "child-task-message", SessionID: childSessionID, RunID: childRunID, Role: domain.RoleUser, CreatedAt: 4, Content: "task"},
+			Run:     domain.Run{ID: childRunID, SessionID: childSessionID, Status: domain.RunAccepted, CreatedAt: 4, Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable, ParentID: parentRunID, RootID: parentRunID, Depth: 1},
+			Started: domain.RunEvent{RunID: childRunID, Type: domain.EventRunStarted, CreatedAt: 4, PayloadVersion: 1, Payload: []byte(`{"provider":"fixture"}`)},
+		},
+	}
+	if result, err := backend.CommitChildSessionAdmission(ctx, input); err != nil || !result.Created {
+		t.Fatalf("child admission=%+v err=%v", result, err)
+	}
+	if err := svc.DeleteSession(ctx, parentSessionID); err != nil {
+		t.Fatalf("delete parent session: %v", err)
+	}
+	if err := svc.CreateWorkerRun(ctx, domain.Run{ID: "child-after-tree-delete", SessionID: childSessionID, Status: domain.RunAccepted, CreatedAt: 5, Kind: domain.RunKindChild}); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("child admission after parent delete = %v, want not found", err)
+	}
+	if _, err := svc.RecordExternalRunEvent(ctx, childRunID, domain.EventChildCompleted, map[string]any{"status": "late"}); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("late child event after parent delete = %v, want not found", err)
+	}
+	if _, err := backend.GetSession(ctx, childSessionID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("child session after parent delete = %v, want not found", err)
+	}
+}
+
+func TestServiceAdmitsAndReauthorizesChildSessionWithinStoredCeiling(t *testing.T) {
+	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-child-service-parent")
+	firstParentRunID := domain.RunID("run-child-service-parent-first")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, firstParentRunID, []string{tools.EchoInfoName})
+	svc.mu.Lock()
+	svc.runTools[firstParentRunID][tools.WriteFileName] = struct{}{}
+	svc.mu.Unlock()
+
+	request := ChildSessionRequest{
+		AuthorizerRunID: firstParentRunID, OperationKey: "create-child-op", Task: "summarize this task",
+		ToolNames: []string{tools.EchoInfoName},
+	}
+	writeRequest := request
+	writeRequest.OperationKey = "create-write-child-op"
+	writeRequest.ToolNames = []string{tools.WriteFileName}
+	if _, err := svc.AdmitChildSession(ctx, writeRequest); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("write-capable child tools = %v, want read-only ceiling conflict", err)
+	}
+	created, err := svc.AdmitChildSession(ctx, request)
+	if err != nil || !created.Created {
+		t.Fatalf("AdmitChildSession() = %+v, %v; want created", created, err)
+	}
+	if created.Binding.ChildSessionID == "" || created.Binding.ChildSessionID == parentSessionID ||
+		created.Run.SessionID != created.Binding.ChildSessionID || created.Run.ParentID != firstParentRunID ||
+		created.Run.EffectiveChildMode() != domain.ChildModeContinuable || created.Binding.AuthorityCeiling.ToolNames[0] != tools.EchoInfoName {
+		t.Fatalf("child session identity or authority = %+v", created)
+	}
+	messages, err := backend.ListMessages(ctx, created.Binding.ChildSessionID)
+	if err != nil || len(messages) != 1 || messages[0].Content != request.Task {
+		t.Fatalf("child task messages = %+v, err=%v", messages, err)
+	}
+	published := sink.snapshot()
+	if len(published) != 2 || published[0].Type != domain.EventRunStarted || published[0].RunID != created.Run.ID ||
+		published[1].Type != domain.EventChildRequested || published[1].RunID != created.Run.ID {
+		t.Fatalf("published child lifecycle events = %+v", published)
+	}
+	retry, err := svc.AdmitChildSession(ctx, request)
+	if err != nil || retry.Created || retry.Binding.ChildSessionID != created.Binding.ChildSessionID || retry.Run.ID != created.Run.ID {
+		t.Fatalf("idempotent child admission = %+v, %v", retry, err)
+	}
+	changed := request
+	changed.Task = "a different task"
+	if _, err := svc.AdmitChildSession(ctx, changed); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("changed child payload under same operation key = %v, want conflict", err)
+	}
+
+	if err := backend.SetRunStatus(ctx, firstParentRunID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	secondParentRunID := domain.RunID("run-child-service-parent-second")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, secondParentRunID, []string{tools.EchoInfoName})
+	continuation := ChildSessionContinuationRequest{
+		ChildSessionID: created.Binding.ChildSessionID, AuthorizerRunID: secondParentRunID,
+		OperationKey: "continue-child-op", Task: "continue with this task", ToolNames: []string{tools.EchoInfoName},
+	}
+	if _, err := svc.AdmitChildSessionActivation(ctx, continuation); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("activation while previous child run is active = %v, want conflict", err)
+	}
+	if err := backend.SetRunStatus(ctx, created.Run.ID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	activated, err := svc.AdmitChildSessionActivation(ctx, continuation)
+	if err != nil || !activated.Created {
+		t.Fatalf("AdmitChildSessionActivation() = %+v, %v; want created", activated, err)
+	}
+	if activated.Binding.ChildSessionID != created.Binding.ChildSessionID || activated.Binding.OriginParentRunID != firstParentRunID ||
+		activated.Binding.AuthorizerRunID != secondParentRunID || activated.Binding.ActivationRunID != activated.Run.ID ||
+		activated.Run.ParentID != secondParentRunID {
+		t.Fatalf("continuation lineage = %+v", activated)
+	}
+	continuedRetry, err := svc.AdmitChildSessionActivation(ctx, continuation)
+	if err != nil || continuedRetry.Created || continuedRetry.Run.ID != activated.Run.ID {
+		t.Fatalf("idempotent child activation = %+v, %v", continuedRetry, err)
+	}
+	widened := continuation
+	widened.OperationKey = "widen-child-op"
+	widened.ToolNames = []string{"shell"}
+	if _, err := svc.AdmitChildSessionActivation(ctx, widened); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("wider activation tools = %v, want conflict", err)
+	}
+	if err := svc.DeleteSession(ctx, parentSessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AdmitChildSessionActivation(ctx, continuation); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("continuation after parent deletion = %v, want not found", err)
+	}
+}
+
+func TestChildActivationUsesNativeRunnerWithCleanContextAndMailboxSafePoint(t *testing.T) {
+	model := &captureDomainModel{inner: testsupport.NewEchoModel()}
+	svc, backend, _ := newTestService(t, model)
+	ctx := context.Background()
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-native-child-parent")
+	parentRunID := domain.RunID("run-native-child-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName})
+	if err := backend.AppendMessage(ctx, domain.Message{
+		ID: "native-child-parent-secret", SessionID: parentSessionID, RunID: parentRunID,
+		Role: domain.RoleUser, CreatedAt: time.Now().UnixMilli(), Content: "parent-only secret context",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "native-child-task", Task: "inspect the task input",
+		ToolNames: []string{tools.EchoInfoName},
+	})
+	if err != nil {
+		t.Fatalf("admit child: %v", err)
+	}
+	mail, inserted, err := svc.SendChildMessage(ctx, ChildMessageSendRequest{
+		ChildSessionID: created.Binding.ChildSessionID, AuthorizerRunID: parentRunID,
+		IdempotencyKey: "native-child-mail", Body: []byte("admitted parent note"),
+	})
+	if err != nil || !inserted {
+		t.Fatalf("admit child mail = %+v inserted=%v err=%v", mail, inserted, err)
+	}
+
+	if err := svc.StartChildActivation(ctx, created.Binding.ChildSessionID, created.Run.ID); err != nil {
+		t.Fatalf("start native child activation: %v", err)
+	}
+	t.Cleanup(func() {
+		svc.CancelAll()
+		svc.WaitIdle(context.Background())
+	})
+	waitForRunStatus(t, backend, created.Run.ID, domain.RunCompleted)
+
+	inputs := model.snapshot()
+	if len(inputs) != 1 {
+		t.Fatalf("native model calls = %d, want one", len(inputs))
+	}
+	var userMessages []string
+	for _, message := range inputs[0] {
+		if message.Role == domain.RoleUser {
+			if strings.HasPrefix(message.Content, "<available-deferred-tools>") {
+				continue
+			}
+			userMessages = append(userMessages, message.Content)
+		}
+		if strings.Contains(message.Content, "parent-only secret context") {
+			t.Fatalf("child inherited parent transcript in model input: %+v", inputs[0])
+		}
+		if strings.Contains(message.Content, "main agent") || strings.Contains(message.Content, "persona") {
+			t.Fatalf("child inherited agent personality in model input: %+v", inputs[0])
+		}
+	}
+	if len(userMessages) != 2 || userMessages[0] != "inspect the task input" ||
+		!strings.Contains(userMessages[1], string(mail.ID)) || !strings.HasSuffix(userMessages[1], "admitted parent note") {
+		t.Fatalf("child user context = %q, want task then admitted mailbox message", userMessages)
+	}
+	childMessages, err := backend.ListMessages(ctx, created.Binding.ChildSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range childMessages {
+		if message.SessionID != created.Binding.ChildSessionID || strings.Contains(message.Content, "parent-only secret context") {
+			t.Fatalf("child message projection escaped clean session scope: %+v", childMessages)
+		}
+	}
+	if len(childMessages) < 2 || childMessages[0].Content != "inspect the task input" || childMessages[len(childMessages)-1].Role != domain.RoleAssistant {
+		t.Fatalf("child session transcript = %+v, want task and native runner response", childMessages)
+	}
+	if got, err := backend.GetChildMessageReceipt(ctx, created.Binding.ChildSessionID, string(mail.ID), created.Run.ID); err != nil || got.State != domain.ChildMessageReceiptConsumed {
+		t.Fatalf("mailbox safe-point receipt = %+v err=%v, want consumed", got, err)
+	}
+	updated, err := backend.GetChildSessionBinding(ctx, created.Binding.ChildSessionID)
+	if err != nil || updated.ConsumedMessageSequence != mail.Sequence {
+		t.Fatalf("consumed child inbox cursor = %+v err=%v, want %d", updated, err, mail.Sequence)
+	}
+	var sawNativeLifecycle bool
+	for _, event := range replayAll(t, backend, created.Run.ID) {
+		if event.Type == domain.EventModelRequest {
+			sawNativeLifecycle = true
+		}
+	}
+	if !sawNativeLifecycle {
+		t.Fatal("child activation did not run through Service model request journaling")
+	}
+	childEvents := replayAll(t, backend, created.Run.ID)
+	if countTerminal(childEvents) != 1 || indexOfType(childEvents, domain.EventChildRequested) < 0 ||
+		indexOfType(childEvents, domain.EventChildStarted) < 0 || indexOfType(childEvents, domain.EventChildCompleted) < 0 {
+		t.Fatalf("continuable child did not persist exactly one child terminal: %+v", childEvents)
+	}
+}
+
+func TestOneShotChildCannotSelectEffectfulParentTool(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	registered, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), registered, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.engine = engine
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-readonly-child-parent")
+	parentRunID := domain.RunID("run-readonly-child-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName})
+	if _, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "try to write", ToolNames: []string{tools.WriteNoteName},
+	}); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("one-shot child selected an effectful tool: %v, want authority conflict", err)
+	}
+	children, err := backend.ListChildRuns(ctx, parentRunID)
+	if err != nil || len(children) != 0 {
+		t.Fatalf("rejected child left persisted Runs: %+v err=%v", children, err)
+	}
+}
+
+func TestChildrenCannotSelectHumanInteractionTool(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	registered, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.AskUserName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), registered, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.engine = engine
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-headless-child-parent")
+	parentRunID := domain.RunID("run-headless-child-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName, tools.AskUserName})
+
+	// A continuable child inherits the parent ceiling minus headless-unsafe
+	// tools: ask_user must be dropped even when the parent holds it.
+	created, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "headless-child-op", Task: "summarize this task",
+	})
+	if err != nil || !created.Created {
+		t.Fatalf("AdmitChildSession() = %+v, %v; want created", created, err)
+	}
+	for _, name := range created.Binding.AuthorityCeiling.ToolNames {
+		if name == tools.AskUserName {
+			t.Fatalf("child ceiling holds human-interaction tool: %+v", created.Binding.AuthorityCeiling.ToolNames)
+		}
+	}
+	if len(created.Binding.AuthorityCeiling.ToolNames) != 1 || created.Binding.AuthorityCeiling.ToolNames[0] != tools.EchoInfoName {
+		t.Fatalf("child ceiling = %+v, want echo_info only", created.Binding.AuthorityCeiling.ToolNames)
+	}
+	if _, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "ask-user-child-op", Task: "ask the user",
+		ToolNames: []string{tools.AskUserName},
+	}); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("continuable child selected ask_user: %v, want authority conflict", err)
+	}
+	if _, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "ask the user", ToolNames: []string{tools.AskUserName},
+	}); err == nil {
+		t.Fatal("one-shot child selected ask_user; want rejection")
+	}
+}
+
+func TestOneShotChildUsesNativeRunnerWithoutCreatingAddressableSessionOrParentMessages(t *testing.T) {
+	model := &captureDomainModel{inner: testsupport.NewEchoModel()}
+	svc, backend, _ := newTestService(t, model)
+	ctx := context.Background()
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Admission = backend
+	svc.deps.GenerationID = "native-one-shot-generation"
+	parentSessionID := domain.SessionID("sess-native-one-shot-parent")
+	parentRunID := domain.RunID("run-native-one-shot-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName})
+	if err := backend.AppendMessage(ctx, domain.Message{
+		ID: "native-one-shot-parent-secret", SessionID: parentSessionID, RunID: parentRunID,
+		Role: domain.RoleUser, CreatedAt: time.Now().UnixMilli(), Content: "parent-only secret context",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{ParentRunID: parentRunID, Task: "one shot clean task"})
+	if err != nil {
+		t.Fatalf("start native one-shot child: %v", err)
+	}
+	if started.Run.EffectiveChildMode() != domain.ChildModeOneShot || started.Run.SessionID != parentSessionID || started.Run.ParentID != parentRunID {
+		t.Fatalf("one-shot lineage = %+v", started.Run)
+	}
+	svc.WaitIdle(ctx)
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
+	if _, err := backend.LoadRunPrompt(ctx, started.Run.ID); err != nil {
+		t.Fatalf("load durable one-shot prompt snapshot: %v", err)
+	}
+	summary, failure, err := svc.OneShotChildOutcome(ctx, started.Run.ID)
+	if err != nil || failure != "" || summary != "test response to: one shot clean task" {
+		t.Fatalf("one-shot outcome = %q failure=%q err=%v", summary, failure, err)
+	}
+	children, err := backend.ListChildSessions(ctx, parentSessionID)
+	if err != nil || len(children) != 0 {
+		t.Fatalf("one-shot task created addressable ChildSessions = %+v err=%v", children, err)
+	}
+	parentMessages, err := backend.ListMessages(ctx, parentSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parentMessages) != 1 || parentMessages[0].Content != "parent-only secret context" {
+		t.Fatalf("one-shot messages leaked into parent transcript: %+v", parentMessages)
+	}
+	inputs := model.snapshot()
+	if len(inputs) != 1 {
+		t.Fatalf("one-shot model calls = %d, want one", len(inputs))
+	}
+	var userMessages []string
+	for _, message := range inputs[0] {
+		if strings.Contains(message.Content, "parent-only secret context") {
+			t.Fatalf("one-shot child inherited parent context: %+v", inputs[0])
+		}
+		if message.Role == domain.RoleUser && !strings.HasPrefix(message.Content, "<available-deferred-tools>") {
+			userMessages = append(userMessages, message.Content)
+		}
+	}
+	if !reflect.DeepEqual(userMessages, []string{"one shot clean task"}) {
+		t.Fatalf("one-shot model task input = %q", userMessages)
+	}
+}
+
+type captureDomainModel struct {
+	inner  domain.ChatModel
+	mu     sync.Mutex
+	inputs [][]*domain.Message
+}
+
+func (m *captureDomainModel) Stream(ctx context.Context, input []*domain.Message) (domain.Stream[*domain.Message], error) {
+	copyInput := make([]*domain.Message, 0, len(input))
+	for _, message := range input {
+		if message == nil {
+			continue
+		}
+		clone := *message
+		copyInput = append(copyInput, &clone)
+	}
+	m.mu.Lock()
+	m.inputs = append(m.inputs, copyInput)
+	m.mu.Unlock()
+	return m.inner.Stream(ctx, input)
+}
+
+func (m *captureDomainModel) snapshot() [][]*domain.Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inputs := make([][]*domain.Message, len(m.inputs))
+	for i, input := range m.inputs {
+		inputs[i] = append([]*domain.Message(nil), input...)
+	}
+	return inputs
+}
+
+func TestServiceChildMailboxDerivesDirectParticipantAndPersistsInboxCursors(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	parentSessionID := domain.SessionID("sess-child-mail-service-parent")
+	parentRunID := domain.RunID("run-child-mail-service-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName})
+	created, err := svc.AdmitChildSession(ctx, ChildSessionRequest{
+		AuthorizerRunID: parentRunID, OperationKey: "mail-child-admission", Task: "task",
+	})
+	if err != nil {
+		t.Fatalf("admit child: %v", err)
+	}
+	childID := created.Binding.ChildSessionID
+
+	request := ChildMessageSendRequest{
+		ChildSessionID: childID, AuthorizerRunID: parentRunID, IdempotencyKey: "parent-mail-1", Body: []byte("parent to child"),
+	}
+	first, inserted, err := svc.SendChildMessage(ctx, request)
+	if err != nil || !inserted || first.SenderSessionID != parentSessionID || first.RecipientSessionID != childID || first.Sequence != 1 {
+		t.Fatalf("parent send = %+v inserted=%v err=%v", first, inserted, err)
+	}
+	retry, inserted, err := svc.SendChildMessage(ctx, request)
+	if err != nil || inserted || retry.ID != first.ID {
+		t.Fatalf("idempotent parent send = %+v inserted=%v err=%v", retry, inserted, err)
+	}
+	changed := request
+	changed.Body = []byte("changed body")
+	if _, _, err := svc.SendChildMessage(ctx, changed); !errors.Is(err, storage.ErrChildMessageConflict) {
+		t.Fatalf("changed body under same idempotency key = %v, want conflict", err)
+	}
+
+	childInbox, err := svc.ListChildMessages(ctx, childID, created.Run.ID, 10)
+	if err != nil || len(childInbox) != 1 || childInbox[0].ID != first.ID {
+		t.Fatalf("child inbox = %+v err=%v", childInbox, err)
+	}
+	if _, _, err := svc.RecordChildMessageReceipt(ctx, childID, parentRunID, first.ID, domain.ChildMessageReceiptConsumed); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("parent run consumed child inbox item = %v, want conflict", err)
+	}
+	progress, inserted, err := svc.RecordChildMessageReceipt(ctx, childID, created.Run.ID, first.ID, domain.ChildMessageReceiptInProgress)
+	if err != nil || !inserted || progress.ConsumerRunID != created.Run.ID {
+		t.Fatalf("child in-progress receipt = %+v inserted=%v err=%v", progress, inserted, err)
+	}
+	consumed, inserted, err := svc.RecordChildMessageReceipt(ctx, childID, created.Run.ID, first.ID, domain.ChildMessageReceiptConsumed)
+	if err != nil || !inserted || consumed.State != domain.ChildMessageReceiptConsumed {
+		t.Fatalf("child consumed receipt = %+v inserted=%v err=%v", consumed, inserted, err)
+	}
+	childInbox, err = svc.ListChildMessages(ctx, childID, created.Run.ID, 10)
+	if err != nil || len(childInbox) != 0 {
+		t.Fatalf("child inbox after receipt = %+v err=%v", childInbox, err)
+	}
+
+	reply, inserted, err := svc.SendChildMessage(ctx, ChildMessageSendRequest{
+		ChildSessionID: childID, AuthorizerRunID: created.Run.ID, IdempotencyKey: "child-mail-1", Body: []byte("child to parent"),
+	})
+	if err != nil || !inserted || reply.SenderSessionID != childID || reply.RecipientSessionID != parentSessionID || reply.Sequence != 1 {
+		t.Fatalf("child reply = %+v inserted=%v err=%v", reply, inserted, err)
+	}
+	parentInbox, err := svc.ListChildMessages(ctx, childID, parentRunID, 10)
+	if err != nil || len(parentInbox) != 1 || parentInbox[0].ID != reply.ID {
+		t.Fatalf("parent inbox = %+v err=%v", parentInbox, err)
+	}
+	if _, _, err := svc.RecordChildMessageReceipt(ctx, childID, created.Run.ID, reply.ID, domain.ChildMessageReceiptConsumed); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("child run consumed parent inbox item = %v, want conflict", err)
+	}
+	if _, inserted, err := svc.RecordChildMessageReceipt(ctx, childID, parentRunID, reply.ID, domain.ChildMessageReceiptConsumed); err != nil || !inserted {
+		t.Fatalf("parent consumed receipt inserted=%v err=%v", inserted, err)
+	}
+
+	// A later Run in the same parent Session is a fresh authorization boundary.
+	// It can inspect and consume the durable child reply without first creating
+	// an unrelated child activation that rotates the binding's authorizer.
+	reauthorizedRunID := domain.RunID("run-child-mail-service-reauthorized-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, reauthorizedRunID, []string{tools.EchoInfoName})
+	reply, inserted, err = svc.SendChildMessage(ctx, ChildMessageSendRequest{
+		ChildSessionID: childID, AuthorizerRunID: created.Run.ID, IdempotencyKey: "child-mail-2", Body: []byte("second reply"),
+	})
+	if err != nil || !inserted {
+		t.Fatalf("second child reply = %+v inserted=%v err=%v", reply, inserted, err)
+	}
+	parentInbox, err = svc.ListChildMessages(ctx, childID, reauthorizedRunID, 10)
+	if err != nil || len(parentInbox) != 1 || parentInbox[0].ID != reply.ID {
+		t.Fatalf("reauthorized parent inbox=%+v err=%v", parentInbox, err)
+	}
+	if _, inserted, err := svc.RecordChildMessageReceipt(ctx, childID, reauthorizedRunID, reply.ID, domain.ChildMessageReceiptConsumed); err != nil || !inserted {
+		t.Fatalf("reauthorized parent consumed receipt inserted=%v err=%v", inserted, err)
+	}
+
+	thirdReply, inserted, err := svc.SendChildMessage(ctx, ChildMessageSendRequest{
+		ChildSessionID: childID, AuthorizerRunID: created.Run.ID, IdempotencyKey: "child-mail-3", Body: []byte("ready for parent")})
+	if err != nil || !inserted {
+		t.Fatalf("third child reply = %+v inserted=%v err=%v", thirdReply, inserted, err)
+	}
+	deliveries, err := svc.pendingParentReplies(ctx, parentSessionID, reauthorizedRunID)
+	if err != nil || len(deliveries) != 1 || deliveries[0].message.ID != thirdReply.ID {
+		t.Fatalf("pending parent replies=%+v err=%v", deliveries, err)
+	}
+	formatted := formatParentReplies(deliveries, "what happened?")
+	if !strings.Contains(formatted, "ready for parent") || !strings.Contains(formatted, "what happened?") {
+		t.Fatalf("formatted parent input omitted reply or request: %q", formatted)
+	}
+	toolInbox, err := svc.ReadParentInbox(ctx, reauthorizedRunID, parentSessionID)
+	if err != nil || len(toolInbox) != 1 || toolInbox[0].Text != "ready for parent" {
+		t.Fatalf("child_inbox tool read=%+v err=%v", toolInbox, err)
+	}
+	if err := svc.consumeParentReplies(ctx, deliveries, reauthorizedRunID); err != nil {
+		t.Fatalf("consume parent replies at completion: %v", err)
+	}
+	parentInbox, err = svc.ListChildMessages(ctx, childID, reauthorizedRunID, 10)
+	if err != nil || len(parentInbox) != 0 {
+		t.Fatalf("parent inbox after completion safe point=%+v err=%v", parentInbox, err)
+	}
+	otherSessionID := domain.SessionID("sess-child-mail-service-unrelated")
+	otherRunID := domain.RunID("run-child-mail-service-unrelated")
+	if err := backend.CreateSession(ctx, domain.Session{ID: otherSessionID, Title: "unrelated", CreatedAt: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: otherRunID, SessionID: otherSessionID, Status: domain.RunActive, CreatedAt: 21}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SendChildMessage(ctx, ChildMessageSendRequest{ChildSessionID: childID, AuthorizerRunID: otherRunID, IdempotencyKey: "forged", Body: []byte("forged")}); !errors.Is(err, storage.ErrChildAdmissionConflict) {
+		t.Fatalf("unrelated run sent child mail = %v, want conflict", err)
+	}
+	if err := backend.CloseChildSession(ctx, childID, time.Now().UnixMilli()); err != nil {
+		t.Fatalf("close child for historical view: %v", err)
+	}
+	if err := backend.SetRunStatus(ctx, parentRunID, domain.RunCompleted); err != nil {
+		t.Fatalf("finish historical authorizer: %v", err)
+	}
+	if _, err := svc.ChildSessionHistory(ctx, childID, parentRunID); err != nil {
+		t.Fatalf("historical child view after close/parent completion: %v", err)
+	}
+}
+
+func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "parent-inbox-run.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	resolved, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("parent done", nil))}
+	engine, err := NewEngine(ctx, recorder, resolved, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(engine, "test", "test-model", ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: newTestSink()})
+	svc.deps.Workspaces = fixedWorkspaceAllocator{}
+	const parentSessionID domain.SessionID = "session-parent-reply-run"
+	const parentRunID domain.RunID = "run-parent-reply-authorizer"
+	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, parentRunID, []string{tools.EchoInfoName})
+	const childSessionID domain.SessionID = "session-parent-reply-child"
+	const childRunID domain.RunID = "run-parent-reply-child"
+	parentSession, err := backend.GetSession(ctx, parentSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRunRecord, err := backend.GetRun(ctx, parentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := svc.engine.cfg.Policy.Snapshot(domain.PolicyProfileDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox, approval := parentSession.EffectiveSandbox()
+	authority := domain.ChildAuthorityCeiling{PolicyProfile: snapshot.Profile, PolicyHash: snapshot.Hash, SandboxMode: sandbox, ApprovalPolicy: approval, ToolNames: []string{tools.EchoInfoName}}
+	authorityDigest, err := authority.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestDigest, err := domain.ChildRequestDigest("reply-run-child", "compute a result", authority.ToolNames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Now().UnixMilli()
+	childAdmission := storage.ChildSessionAdmission{
+		Session:   domain.Session{ID: childSessionID, Title: "child", CreatedAt: createdAt, UpdatedAt: createdAt, SandboxMode: string(sandbox), ApprovalPolicy: string(approval)},
+		Binding:   domain.ChildSessionBinding{ChildSessionID: childSessionID, OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID, AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID, OperationKey: "reply-run-child", RequestDigest: requestDigest, AuthorityCeilingDigest: authorityDigest, AuthorityCeiling: authority, ActivationOperationKey: "reply-run-child", ActivationRequestDigest: requestDigest, ActivationToolNames: authority.ToolNames, State: domain.ChildSessionOpen, CreatedAt: createdAt, UpdatedAt: createdAt},
+		Admission: storage.RunAdmission{Message: domain.Message{ID: "message-parent-reply-child", SessionID: childSessionID, RunID: childRunID, Role: domain.RoleUser, CreatedAt: createdAt, Content: "compute a result"}, Run: domain.Run{ID: childRunID, SessionID: childSessionID, Status: domain.RunAccepted, CreatedAt: createdAt, Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable, ParentID: parentRunID, RootID: parentRunRecord.RootID, Depth: 1}, Started: domain.RunEvent{RunID: childRunID, Type: domain.EventRunStarted, CreatedAt: createdAt, PayloadVersion: 1, Payload: []byte(`{"provider":"test"}`)}},
+	}
+	if _, err := backend.CommitChildSessionAdmission(ctx, childAdmission); err != nil {
+		t.Fatalf("persist child fixture: %v", err)
+	}
+	if err := backend.SetRunStatus(ctx, childRunID, domain.RunActive); err != nil {
+		t.Fatal(err)
+	}
+	message, inserted, err := backend.EnqueueChildMessage(ctx, domain.ChildMailboxMessage{
+		ID: "mail-parent-reply-run", ChildSessionID: childSessionID,
+		SenderSessionID: childSessionID, RecipientSessionID: parentSessionID,
+		IdempotencyKey: "reply-run-mail", Body: []byte("the result is 42"), CreatedAt: time.Now().UnixMilli(),
+	})
+	if err != nil || !inserted || message.ID == "" {
+		t.Fatalf("enqueue child reply=%+v inserted=%v err=%v", message, inserted, err)
+	}
+	parentRun, err := svc.Run(ctx, parentSessionID, "tell me the child result")
+	if err != nil {
+		t.Fatalf("start parent run: %v", err)
+	}
+	waitForRunStatus(t, backend, parentRun, domain.RunCompleted)
+	feed := recorder.lastInput()
+	var input strings.Builder
+	for _, msg := range feed {
+		if msg != nil {
+			input.WriteString(msg.Content)
+			input.WriteByte('\n')
+		}
+	}
+	if !strings.Contains(input.String(), "the result is 42") || !strings.Contains(input.String(), "tell me the child result") {
+		t.Fatalf("parent model input did not include the child reply and current request: %q", input.String())
+	}
+	binding, err := backend.GetChildSessionBinding(ctx, childSessionID)
+	if err != nil || binding.ConsumedParentMessageSequence != 1 {
+		t.Fatalf("parent inbox cursor=%d err=%v", binding.ConsumedParentMessageSequence, err)
+	}
+	if binding.AuthorizerRunID != parentRunID {
+		t.Fatalf("ordinary parent run unexpectedly rotated child authorizer to %q", binding.AuthorizerRunID)
+	}
+}
+
+func prepareChildSessionAuthorizer(t *testing.T, svc *Service, backend *sqlite.Backend, sessionID domain.SessionID, runID domain.RunID, selected []string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := backend.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
+		if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+			t.Fatal(err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindPrimary, RootID: "run-child-service-parent-first"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := svc.engine.cfg.Policy.Snapshot(domain.PolicyProfileDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := NewBudgetLedger(svc.deps.Budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolSet := childToolSet(selected)
+	svc.mu.Lock()
+	svc.snapshots[runID] = snapshot
+	svc.ledgers[runID] = ledger
+	svc.runTools[runID] = toolSet
+	svc.runSessions[runID] = sessionID
+	svc.mu.Unlock()
+}
+
 func TestDeleteSessionRacesWorkerCreationWithoutOrphans(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()

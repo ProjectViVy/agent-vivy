@@ -154,6 +154,24 @@ func postgresNextMessagePosition(ctx context.Context, tx *sql.Tx, sessionID doma
 	return position, nil
 }
 
+func lockMessageSession(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) error {
+	var locked string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = $1 FOR UPDATE`, sessionID).Scan(&locked); errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("storage: lock session for message: %w", err)
+	}
+	return nil
+}
+
+func currentMessageWorkSeq(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (domain.WorkSeq, error) {
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(work_seq), 0) FROM session_work_events WHERE session_id = $1`, sessionID).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("storage: read message work anchor: %w", err)
+	}
+	return domain.WorkSeq(sequence), nil
+}
+
 func messageActivityAt(at int64) int64 {
 	if at <= 0 {
 		return time.Now().UnixMilli()

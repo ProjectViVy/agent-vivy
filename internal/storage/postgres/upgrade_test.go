@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -372,6 +373,11 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 
 	// (b) information_schema reports the 4 new columns as NOT NULL DEFAULT ''.
+	// Postgres renders a text default as ''::text, so compare the expression
+	// before the cast annotation.
+	emptyTextDefault := func(def string) bool {
+		return def == "''" || strings.HasPrefix(def, "''::")
+	}
 	for _, col := range []string{"source", "channel", "chat_id", "channel_message_id"} {
 		var nullable, def string
 		err := admin.QueryRowContext(ctx,
@@ -382,7 +388,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("information_schema column %s: %v", col, err)
 		}
-		if nullable != "NO" || def != "''" {
+		if nullable != "NO" || !emptyTextDefault(def) {
 			t.Fatalf("column %s = nullable %q default %q, want NO / ''", col, nullable, def)
 		}
 	}
@@ -394,7 +400,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		schema).Scan(&workspaceNullable, &workspaceDefault); err != nil {
 		t.Fatalf("information_schema workspace_path: %v", err)
 	}
-	if workspaceNullable != "NO" || workspaceDefault != "''" {
+	if workspaceNullable != "NO" || !emptyTextDefault(workspaceDefault) {
 		t.Fatalf("workspace_path = nullable %q default %q, want NO / ''", workspaceNullable, workspaceDefault)
 	}
 	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
@@ -475,7 +481,7 @@ func postgresSchemaSignature(ctx context.Context, db *sql.DB, schema string) ([]
 		SELECT table_name, column_name, data_type, is_nullable
 		FROM information_schema.columns
 		WHERE table_schema = $1
-		ORDER BY table_name, ordinal_position`, schema)
+		ORDER BY table_name, column_name`, schema)
 	if err != nil {
 		return nil, err
 	}

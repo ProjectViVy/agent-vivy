@@ -128,7 +128,7 @@ export function MaskPage() {
     dispatch({ type: 'definition/load-start', id: item.id });
     try {
       const definition = await client.get(item.id);
-      dispatch({ type: 'definition/open', definition });
+      dispatch({ type: 'definition/loaded', definition });
     } catch (cause) {
       dispatch({ type: 'definition/load-error', id: item.id, error: toMaskError(cause) });
     }
@@ -159,6 +159,10 @@ export function MaskPage() {
       await loadCatalog();
     } catch (cause) {
       const error = toMaskError(cause);
+      // A create/update response may be ambiguous after the backend commits.
+      // The catalog refresh clears the displayed error, so it must finish
+      // before the failure is surfaced.
+      await loadCatalog();
       dispatch({ type: 'draft/save-error', error });
       if (draft.id && error.code === 'revision_conflict') {
         try {
@@ -168,9 +172,6 @@ export function MaskPage() {
           dispatch({ type: 'draft/save-error', error: toMaskError(rereadCause) });
         }
       }
-      // A create/update response may be ambiguous after the backend commits.
-      // Catalog refresh never mutates a dirty draft and exposes the committed row.
-      await loadCatalog();
     }
   }, [client, loadCatalog]);
 
@@ -184,8 +185,9 @@ export function MaskPage() {
       dispatch({ type: 'delete/success', id: draft.id });
       await loadCatalog();
     } catch (cause) {
-      dispatch({ type: 'delete/error', error: toMaskError(cause) });
+      const error = toMaskError(cause);
       await loadCatalog();
+      dispatch({ type: 'delete/error', error });
     }
   }, [client, loadCatalog]);
 
@@ -328,9 +330,15 @@ function createOperationID(): string {
 
 function toMaskError(cause: unknown): MaskUIError {
   if (isRecord(cause)) {
-    const code = typeof cause.code === 'string' || typeof cause.code === 'number' ? cause.code : undefined;
-    const currentRevision = typeof cause.current_revision === 'number' ? cause.current_revision : undefined;
-    const referenceCount = typeof cause.reference_count === 'number' ? cause.reference_count : undefined;
+    // JSON-RPC transports expose the mask error code under error.data.code.
+    const data = isRecord(cause.data) ? cause.data : undefined;
+    const code = typeof data?.code === 'string' || typeof data?.code === 'number'
+      ? data.code
+      : typeof cause.code === 'string' || typeof cause.code === 'number' ? cause.code : undefined;
+    const currentRevision = typeof data?.current_revision === 'number' ? data.current_revision
+      : typeof cause.current_revision === 'number' ? cause.current_revision : undefined;
+    const referenceCount = typeof data?.reference_count === 'number' ? data.reference_count
+      : typeof cause.reference_count === 'number' ? cause.reference_count : undefined;
     const message = typeof cause.message === 'string' ? cause.message : String(cause);
     return { code, currentRevision, referenceCount, message };
   }

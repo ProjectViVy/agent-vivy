@@ -370,11 +370,21 @@ re-enters ToolHost.
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
 
-`core/mask-service@v1` is a specified, optional T1 backend contract owned by
-`vivy/masks` with cardinality `0..1` and Runtime as its sole consumer. It
-remains **SPECIFIED**, not `SUPPORTED`, until the durable service, conformance,
-failure, and Inspect artifacts are complete; it is not selected by the default
-Recipe.
+`core/mask-service@v1` is a **SUPPORTED**, optional T1 backend contract owned
+by `vivy/masks` with cardinality `0..1` and Runtime as its sole consumer. Its
+seven artifacts are complete: PortDefinition in `internal/moduleport/ports.go`,
+SDK contract in `internal/moduleport/masks.go` (`MaskFactory`/
+`MaskDependencies`), HostConsumer `internal/app/masks.go`
+(`maskManagerForAssembly` + `MaskManager` wiring), real Provider
+`internal/modules/masks` (durable service + `std/control-action@v1` actions),
+FailureModel in `internal/modules/masks` and `internal/app/masks.go` tests
+(fail-closed without a MaskStore/RunAdmissionStore), ConformanceSuite
+`internal/storage/conformance/masks.go` (`RunMasks`, executed by both the
+SQLite and Postgres conformance harnesses), and Inspect projection through the
+generated Assembly module list. The default Recipe selects it together with
+the `vivy/masks-ui` extension; `recipes/masks-omitted.vivy.yml` and
+`recipes/masks-backend-only.vivy.yml` are the acceptance fixtures proving the
+port is optional.
 
 L0 owns ChannelHost and FaceHost authority; they are not replaceable Provider
 slots even though they consume public Ports.

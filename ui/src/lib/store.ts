@@ -322,6 +322,22 @@ function workRequestID(prefix: string): string {
   catch { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 }
 
+// 终态后派发队列（对照 Crush）：只在 run.completed 后自动发送；
+// 失败 / 取消保留队列由用户处置。runBusy 时短暂重试，避免与进行中的
+// startRun/editSession/cancel RPC 竞争；重试有上限，仍忙则留队。
+function drainQueueAfterCompleted(runId: string, retriesLeft = 25): void {
+  const next = useVivyStore.getState();
+  if (next.currentRun?.id !== runId || next.currentRun.status !== 'completed') return;
+  const item = next.queuedMessages[0];
+  if (!item || !next.activeSessionId) return;
+  if (next.runBusy) {
+    if (retriesLeft > 0) setTimeout(() => drainQueueAfterCompleted(runId, retriesLeft - 1), 200);
+    return;
+  }
+  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
+  void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
+}
+
 async function refreshAfterTerminal(runId: string): Promise<void> {
   const state = useVivyStore.getState();
   const sessionId = state.activeSessionId;
@@ -653,7 +669,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -801,8 +817,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const runLogs = previous.currentRun && previous.currentRun.id !== runId && previous.runEvents.length > 0
         ? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
         : previous.runLogs;
-      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
+      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
+      else if (run.status === 'completed') drainQueueAfterCompleted(runId);
     } catch (error) { if (request === runOpen && epoch === sessionEpoch && get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {
@@ -1000,10 +1017,20 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   startChild: async (text, policyProfile, toolNames) => {
     const parent = get().currentRun; if (!parent) return;
     set({ childBusyId: 'create', childrenError: null });
-    try { await api.startChild({ parent_run_id: parent.id, text, policy_profile: policyProfile || undefined, tool_names: toolNames?.length ? toolNames : undefined }); await get().loadChildren(parent.id); }
+    try {
+      await api.startChild({ parent_run_id: parent.id, text, policy_profile: policyProfile || undefined, tool_names: toolNames?.length ? toolNames : undefined });
+      await get().loadChildren(parent.id);
+    }
     catch (error) { set({ childrenError: errorMessage(error) }); throw error; } finally { set({ childBusyId: null }); }
   },
-  openChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.getChild(runId) }); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
+  openChild: async (runId) => {
+    set({ childBusyId: runId });
+    try {
+      const child = await api.getChild(runId);
+      set({ selectedChild: child });
+    } catch (error) { set({ childrenError: errorMessage(error) }); }
+    finally { set({ childBusyId: null }); }
+  },
   waitChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.waitChild(runId) }); await get().loadChildren(); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
   cancelChild: async (runId) => { set({ childBusyId: runId }); try { set({ selectedChild: await api.cancelChild(runId) }); await get().loadChildren(); } catch (error) { set({ childrenError: errorMessage(error) }); } finally { set({ childBusyId: null }); } },
   loadReviews: async () => {

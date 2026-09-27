@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.completed.json",
+  "title": "workflow.node.completed payload (v1)",
+  "type": "object",
+  "properties": {
+    "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "child_run_id": { "type": "string", "minLength": 1 },
+    "result_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "required": ["node_key", "child_run_id", "result_digest"],
+  "additionalProperties": false
+}

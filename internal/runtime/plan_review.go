@@ -267,7 +267,7 @@ func (s *Service) DecidePlan(ctx context.Context, mutation domain.WorkMutation) 
 		defer s.wg.Done()
 		s.resumeRun(current.runCtx, current.sessionID, current.workspaceID, toolName, current.selectedTools, current.mounted,
 			current.mode, current.profile, current.snapshot, current.sandboxMode, current.approvalPolicy,
-			current.face, current.ledger, state.Plan.OriginRunID, current.planToolCallID,
+			current.face, current.ledger, current.engine, current.execution, state.Plan.OriginRunID, current.planToolCallID,
 			current.planResumeTarget, string(resumeValue), nil, "", "", resumeBatchIDs)
 	}()
 	return result, nil

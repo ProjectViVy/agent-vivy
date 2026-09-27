@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.failed.json",
+  "title": "workflow.node.failed payload (v1)",
+  "type": "object",
+  "properties": {
+    "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "child_run_id": { "type": "string", "maxLength": 128 },
+    "cause_category": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "message": { "type": "string", "minLength": 1, "maxLength": 512 }
+  },
+  "required": ["node_key", "cause_category", "message"],
+  "additionalProperties": false
+}

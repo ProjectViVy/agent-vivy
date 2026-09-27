@@ -44,8 +44,15 @@ func primaryAdmissionForComposition(backend any, generationID string, sealed boo
 	return nil, fmt.Errorf("app: sealed first-party composition requires Core Storage RunAdmissionStore")
 }
 
-func maskManagerForAssembly(ctx context.Context, assembly genassembly.RuntimeAssembly, backend storage.Engine, generationID string) (maskcontract.Service, error) {
+// maskManagerForAssembly wires the selected mask capability. Selection without
+// a sealed Generation identity stays dormant in unsealed development/test
+// embedders (same compatible path as primary admission); a sealed composition
+// that selected vivy/masks without proving its identity fails closed.
+func maskManagerForAssembly(ctx context.Context, assembly genassembly.RuntimeAssembly, backend storage.Engine, generationID string, sealed bool) (maskcontract.Service, error) {
 	if !assemblyHasModule(assembly.Manifest.Modules, "vivy/masks") {
+		return nil, nil
+	}
+	if !sealed {
 		return nil, nil
 	}
 	if generationID == "" {

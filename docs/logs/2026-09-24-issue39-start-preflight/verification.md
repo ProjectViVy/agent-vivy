@@ -1,0 +1,6 @@
+# Preflight verification
+
+- Checked `origin/main` against plan base: both `f6fb11bc71be2d06946ff33b0462aa56f9ff51ef` on 2026-09-24; documentation branch head before this cut was `4977e6fb726f532732361980bb6a40559010ebd1`. GitHub Issue #39 remained open, with three existing comments and no new decisions.
+- Checked `go.mod`: `go 1.26.4`, `github.com/cloudwego/eino v0.9.13`. Inspected existing graph fixture, Service `RunWithOptions`, child tool/worker entrypoint, `justfile` and `.github/workflows/ci.yml` for the proof boundary and verification route.
+- Checked command availability in this Linux checkout: `go`, `just`, `powershell.exe`, `powershell` and `pwsh` absent; `VIVY_POSTGRES_TEST_DSN` unset. The `justfile` requires PowerShell; CI installs Go and just on `windows-latest`. A Windows execution environment is required for the repository gate without changing its recipe.
+- `git diff --check` passed. A local Markdown-target check found all linked files, and the index contains eight Stories with an acyclic immediate-predecessor graph (`01 → 02 → {03,05} → {04,06} → 07 → 08`, with 06 requiring both 03 and 05). No Go test, `just ci`, PostgreSQL conformance, Eino integration proof or browser smoke was run here; G0–G4 are not passes.

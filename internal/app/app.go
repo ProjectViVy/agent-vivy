@@ -34,7 +34,6 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/generated/presentation"
 	"agent-vivy/internal/i18n"
-	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
@@ -50,7 +49,6 @@ import (
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
-	"agent-vivy/internal/worker"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
 	actionport "agent-vivy/sdk/port/controlaction"
@@ -501,6 +499,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// The agent tool's ops are armed after the worker manager exists
 	// (the manager needs the registered tool set; the ref defers the bind).
 	agentOps := &agentToolRef{}
+	workflowOps := &workflowToolRef{}
+	replyMessageOps := &replyParentToolRef{}
 	var builtinRegistry *tools.Registry
 	var registryMu sync.RWMutex
 	var liveApplyMu sync.Mutex
@@ -509,7 +509,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if stageErr != nil {
 			return stageErr
 		}
-		next := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
+		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
 		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
 		if stageErr != nil {
@@ -738,21 +738,18 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 	generationID := runtimeGenerationID(runtimeAssembly)
-	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID)
-	if err != nil {
-		_ = backend.Close()
-		return nil, err
-	}
 	// A sealed first-party composition must never silently downgrade to the
 	// legacy sequential primary admission path. An unpacked development/test
 	// embedder has no sealed identity and remains on the explicitly compatible
 	// path; a packed build is marked by presentation.SealedGeneration and a
 	// non-empty linker-derived identity is also treated as sealed.
-	admission, err := primaryAdmissionForComposition(
-		backend,
-		generationID,
-		presentation.SealedGeneration || generationID != "",
-	)
+	sealed := presentation.SealedGeneration || generationID != ""
+	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID, sealed)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	admission, err := primaryAdmissionForComposition(backend, generationID, sealed)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err
@@ -812,17 +809,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		},
 	})
 	svc.SetCatalog(catalog)
-	// Worker children inherit the parent's effective log settings so their
-	// per-worker file sink matches this process (LOGGING.md §3); an empty
-	// handoff would leave child diagnostics invisible.
-	effLog, err := logging.ResolveEffective(cfg.Logging.Level, cfg.Logging.Format)
-	if err != nil {
-		return nil, fmt.Errorf("app: resolve worker log settings: %w", err)
-	}
-	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel, worker.WorkerLog{Dir: cfg.LogDirectory(), Level: effLog.Level, Format: effLog.Format})
+	workerManager := newWorkerManager(svc, backend)
 	agentOps.arm(workerManager)
-	svc.SetChildApprovalRouter(workerManager)
-	svc.SetChildRunCanceller(workerManager)
+	workflowOps.arm(workerManager)
+	replyMessageOps.arm(workerManager)
 
 	liveProfile := domain.PolicyProfile(cfg.Governance.Profile)
 	if !liveProfile.Valid() {

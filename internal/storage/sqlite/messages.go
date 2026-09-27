@@ -160,6 +160,32 @@ func sqliteNextMessagePosition(ctx context.Context, tx *sql.Tx, sessionID domain
 	return position, nil
 }
 
+func lockMessageSession(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) error {
+	result, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = updated_at WHERE id = ?`, sessionID)
+	if err != nil {
+		return fmt.Errorf("storage: lock session for message: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: inspect message session lock: %w", err)
+	}
+	if affected == 0 {
+		// Legacy SQLite callers can still append orphan projections because
+		// foreign-key enforcement is disabled on the in-memory test backend.
+		// Such rows have no work stream to anchor and therefore retain zero.
+		return nil
+	}
+	return nil
+}
+
+func currentMessageWorkSeq(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID) (domain.WorkSeq, error) {
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(work_seq), 0) FROM session_work_events WHERE session_id = ?`, sessionID).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("storage: read message work anchor: %w", err)
+	}
+	return domain.WorkSeq(sequence), nil
+}
+
 func messageActivityAt(at int64) int64 {
 	if at <= 0 {
 		return time.Now().UnixMilli()

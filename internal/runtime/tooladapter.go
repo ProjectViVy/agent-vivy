@@ -593,6 +593,17 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
 		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
 	}
+	coordinator := toolOperationCoordinatorFromContext(ctx)
+	var operation *domain.ToolOperation
+	if coordinator != nil {
+		loaded, found, err := coordinator.Lookup(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON))
+		if err != nil {
+			return "", err
+		}
+		if found {
+			operation = &loaded
+		}
+	}
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
@@ -625,7 +636,27 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		)
 	}
 	args := json.RawMessage(argumentsInJSON)
-	if a.hooks != nil {
+	var middlewareInput json.RawMessage
+	if operation != nil {
+		args = append(json.RawMessage(nil), operation.EffectiveArguments...)
+		if err := tools.ValidateArgs(spec, args); err != nil {
+			return "", fmt.Errorf("runtime: persisted tool operation has invalid arguments: %w", err)
+		}
+		if err := tools.ValidateArgsSafety(spec, args); err != nil {
+			return "", fmt.Errorf("runtime: persisted tool operation failed safety validation: %w", err)
+		}
+		evaluation, err = a.policy.Evaluate(profile, spec, args)
+		if err != nil {
+			return "", err
+		}
+		emitGovernanceEvent(ctx, GovernanceEvent{
+			Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
+			Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "revalidated persisted tool operation",
+		})
+		if evaluation.Decision == domain.PolicyDeny {
+			return "", refuseJournaledCall(evaluation.Reason, fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+		}
+	} else if a.hooks != nil {
 		args, err = a.hooks.PreToolUse(ctx, ToolHookCall{
 			RunID: contextRunID(ctx), ToolName: spec.Name, Arguments: args, Profile: profile,
 		})
@@ -660,9 +691,30 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	}
 
 	middlewareApprovalClasses := []string(nil)
-	args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
-	if err != nil {
-		return "", err
+	if operation == nil {
+		middlewareInput = append(json.RawMessage(nil), args...)
+		args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		// The operation row preserves the bytes that were admitted. On a
+		// replay, run the current public middleware against those bytes and
+		// require it to leave the admitted invocation unchanged. This catches
+		// policy drift after approval without rerunning tool hooks or silently
+		// substituting a new invocation.
+		middlewareInput = append(json.RawMessage(nil), operation.MiddlewareInputArguments...)
+		checked, nextEvaluation, classes, checkErr := a.applyGovernedMiddleware(ctx, spec, middlewareInput, profile, evaluation)
+		if checkErr != nil {
+			return "", checkErr
+		}
+		if string(checked) != string(operation.EffectiveArguments) {
+			if approvedToolArgumentsHash(ctx) != "" {
+				return "", staleToolApproval(ctx, spec.Name, "middleware changed arguments after human review")
+			}
+			return "", errors.New("runtime: middleware changed persisted tool operation arguments")
+		}
+		args, evaluation, middlewareApprovalClasses = append(json.RawMessage(nil), operation.EffectiveArguments...), nextEvaluation, classes
 	}
 	middlewareRequiresApproval := len(middlewareApprovalClasses) != 0
 
@@ -692,7 +744,14 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
 			})
-			return a.run(ctx, string(args))
+			if operation == nil && coordinator != nil {
+				admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
+				if err != nil {
+					return "", err
+				}
+				operation = &admitted
+			}
+			return a.run(ctx, string(args), operation)
 		}
 	}
 	if spec.Interaction == domain.ToolInteractionQuestion {
@@ -701,6 +760,13 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			return answer, nil
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
+	}
+	if operation == nil && coordinator != nil {
+		admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
+		if err != nil {
+			return "", err
+		}
+		operation = &admitted
 	}
 	forceHumanApproval := spec.Name == tools.CreateGoalName
 	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
@@ -717,7 +783,11 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
 					return "", err
 				}
-				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+				refusal := spec.Name + " was denied by the user and did not run; continue without it."
+				if operation != nil {
+					return coordinator.Execute(ctx, *operation, func(context.Context) (string, error) { return refusal, nil })
+				}
+				return refusal, nil
 			}
 			if decision != domain.ApprovalApproved {
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
@@ -730,7 +800,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
 			}
 			if approvalEval.AutoApprove {
-				return a.run(ctx, string(args))
+				return a.run(ctx, string(args), operation)
 			}
 			if !approvalEval.ShouldAsk {
 				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
@@ -750,39 +820,53 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
 					return "", err
 				}
-				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+				refusal := spec.Name + " was denied by the user and did not run; continue without it."
+				if operation != nil {
+					return coordinator.Execute(ctx, *operation, func(context.Context) (string, error) { return refusal, nil })
+				}
+				return refusal, nil
 			}
 			if !hasData || decision != domain.ApprovalApproved {
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
 			}
 		}
 	}
-	return a.run(ctx, string(args))
+	return a.run(ctx, string(args), operation)
 }
 
-func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
+func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation ...*domain.ToolOperation) (string, error) {
 	if result, handled, err := authorizeToolDispatch(ctx, a.t.Spec().Name, json.RawMessage(argumentsInJSON)); handled || err != nil {
 		return result, err
 	}
-	result, err := a.invoke(ctx, argumentsInJSON)
-	if err != nil {
-		return "", err
+	execute := func(ctx context.Context) (string, error) {
+		result, err := a.invoke(ctx, argumentsInJSON)
+		if err != nil {
+			return "", err
+		}
+		if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
+			return "", err
+		}
+		if err := a.markCommandFailure(ctx, result); err != nil {
+			return "", err
+		}
+		result = untrustedToolResultHeader + tools.RedactSensitive(result)
+		// A multimodal parts envelope must reach normalizeEnhancedResult
+		// intact: byte compaction would corrupt it into unparseable JSON, so
+		// the budget is applied per part there instead. Media parts are sized
+		// at their source (e.g. the read_file image cap).
+		if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
+			return result, nil
+		}
+		return compactToolResult(result, a.maxResultBytes), nil
 	}
-	if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
-		return "", err
+	if len(operation) > 0 && operation[0] != nil {
+		coordinator := toolOperationCoordinatorFromContext(ctx)
+		if coordinator == nil {
+			return "", ErrToolOperationUnavailable
+		}
+		return coordinator.Execute(ctx, *operation[0], execute)
 	}
-	if err := a.markCommandFailure(ctx, result); err != nil {
-		return "", err
-	}
-	result = untrustedToolResultHeader + tools.RedactSensitive(result)
-	// A multimodal parts envelope must reach normalizeEnhancedResult
-	// intact: byte compaction would corrupt it into unparseable JSON, so
-	// the budget is applied per part there instead. Media parts are sized
-	// at their source (e.g. the read_file image cap).
-	if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
-		return result, nil
-	}
-	return compactToolResult(result, a.maxResultBytes), nil
+	return execute(ctx)
 }
 
 // invoke is the shared runtime-owned execution seam for direct tools. It
@@ -794,6 +878,7 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	// The runtime run identity is copied into the tools package context at the
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
+	toolCtx = tools.WithToolCallID(toolCtx, compose.GetToolCallID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
 	// The stable tool_call identity crosses the Eino boundary so effectful

@@ -62,7 +62,7 @@ func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, m
 		if err != nil {
 			return admission.Started, fmt.Errorf("runtime: commit session edit: %w", err)
 		}
-		return []domain.RunEvent{committed}, nil
+		return committed, nil
 	})
 }
 

@@ -33,6 +33,7 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/modelhost"
+	"agent-vivy/internal/orchestration"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -314,11 +315,54 @@ type LanguageServerStatusSource func(context.Context, domain.SessionID) (Languag
 // The parent controller derives policy hash, workspace, and budget from the
 // durable parent; callers cannot supply a wider authority.
 type ChildRequest struct {
-	ParentRunID   string   `json:"parent_run_id"`
-	Text          string   `json:"text"`
+	ParentRunID string `json:"parent_run_id"`
+	Text        string `json:"text"`
+	// System is accepted for wire compatibility and ignored. Child context is
+	// constructed by the host from the explicit task and admitted mail only.
 	System        string   `json:"system,omitempty"`
+	Mode          string   `json:"mode,omitempty"`
+	OperationID   string   `json:"operation_id,omitempty"`
 	PolicyProfile string   `json:"policy_profile,omitempty"`
 	ToolNames     []string `json:"tool_names,omitempty"`
+}
+
+type ChildFollowupRequest struct {
+	ChildSessionID string   `json:"child_session_id"`
+	ParentRunID    string   `json:"parent_run_id"`
+	OperationID    string   `json:"operation_id"`
+	Text           string   `json:"text"`
+	ToolNames      []string `json:"tool_names,omitempty"`
+}
+
+type ChildHistoryMessage struct {
+	ID        string `json:"id"`
+	RunID     string `json:"run_id,omitempty"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type ChildMessageRequest struct {
+	ChildSessionID string `json:"child_session_id"`
+	ParentRunID    string `json:"parent_run_id"`
+	OperationID    string `json:"operation_id"`
+	Text           string `json:"text"`
+}
+
+type ChildMessageListRequest struct {
+	ChildSessionID  string `json:"child_session_id"`
+	AuthorizerRunID string `json:"authorizer_run_id"`
+}
+
+type ChildMessageResult struct {
+	ID                 string `json:"id"`
+	ChildSessionID     string `json:"child_session_id"`
+	SenderSessionID    string `json:"sender_session_id"`
+	RecipientSessionID string `json:"recipient_session_id"`
+	Sequence           int64  `json:"sequence"`
+	Text               string `json:"text"`
+	Status             string `json:"status"`
+	CreatedAt          int64  `json:"created_at"`
 }
 
 type ChildResult struct {
@@ -329,6 +373,7 @@ type ChildResult struct {
 	Status      string `json:"status"`
 	Depth       int    `json:"depth"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
+	ChildMode   string `json:"child_mode,omitempty"`
 	Result      string `json:"result,omitempty"`
 	Error       string `json:"error,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
@@ -336,10 +381,41 @@ type ChildResult struct {
 
 type ChildController interface {
 	StartChild(context.Context, ChildRequest) (ChildResult, error)
+	FollowupChild(context.Context, ChildFollowupRequest) (ChildResult, error)
+	InterruptChild(context.Context, string) (ChildResult, error)
+	ChildHistory(context.Context, string, string) ([]ChildHistoryMessage, error)
+	SendChildMessage(context.Context, ChildMessageRequest) (ChildMessageResult, bool, error)
+	ListChildMessages(context.Context, ChildMessageListRequest) ([]ChildMessageResult, error)
 	GetChild(context.Context, string) (ChildResult, error)
 	ListChildren(context.Context, string, bool) ([]ChildResult, error)
 	WaitChild(context.Context, string) (ChildResult, error)
 	CancelChild(context.Context, string) (ChildResult, error)
+}
+
+type workflowProposeParams struct {
+	ParentRunID string                   `json:"parent_run_id"`
+	Descriptor  orchestration.Descriptor `json:"descriptor"`
+}
+
+type workflowStartParams struct {
+	ParentRunID string                   `json:"parent_run_id"`
+	OperationID string                   `json:"operation_id"`
+	Descriptor  orchestration.Descriptor `json:"descriptor"`
+}
+
+type workflowResult struct {
+	ID             string                           `json:"id"`
+	ParentRunID    string                           `json:"parent_run_id"`
+	RootRunID      string                           `json:"root_run_id"`
+	SessionID      string                           `json:"session_id"`
+	Status         string                           `json:"status"`
+	RevisionDigest string                           `json:"revision_digest"`
+	Depth          int                              `json:"depth"`
+	CreatedAt      int64                            `json:"created_at"`
+	Created        bool                             `json:"created,omitempty"`
+	Descriptor     orchestration.Descriptor         `json:"descriptor"`
+	Nodes          []runtime.WorkflowNodeProjection `json:"nodes"`
+	Outputs        map[string]string                `json:"outputs,omitempty"`
 }
 
 func NewControlHandler(deps ControlDeps) (Handler, error) {
@@ -1045,6 +1121,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"session", "session.todos", "session.todo.update", "session.set_permission", "turn", "run", "approval", "question", "review", "run.subscribe",
 			"background.recover", "background.list", "background.attach",
 			"child.start", "child.get", "child.list", "child.wait", "child.cancel",
+			"child.followup", "child.interrupt", "child.history", "child.mailbox",
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 			"generations.reject", "species.inspect",
 			"settings.get", "settings.update", "settings.locale",
@@ -1330,6 +1407,16 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "child/start":
 		return h.startChild(ctx, request)
+	case "child/followup":
+		return h.followupChild(ctx, request)
+	case "child/interrupt":
+		return h.interruptChild(ctx, request)
+	case "child/history":
+		return h.childHistory(ctx, request)
+	case "child/message/send":
+		return h.sendChildMessage(ctx, request)
+	case "child/message/list":
+		return h.listChildMessages(ctx, request)
 	case "child/get":
 		return h.getChild(ctx, request)
 	case "child/list":
@@ -1338,6 +1425,16 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.waitChild(ctx, request)
 	case "child/cancel":
 		return h.cancelChild(ctx, request)
+	case "workflow/propose":
+		return h.proposeWorkflow(ctx, request)
+	case "workflow/start":
+		return h.startWorkflow(ctx, request)
+	case "workflow/get":
+		return h.getWorkflow(ctx, request)
+	case "workflow/list":
+		return h.listWorkflows(ctx, request)
+	case "workflow/cancel":
+		return h.cancelWorkflow(ctx, request)
 	case "generations/list":
 		return h.listGenerations(ctx)
 	case "generations/get":
@@ -1435,6 +1532,121 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	}
 }
 
+func workflowRPCError(err error) *Error {
+	var validation *orchestration.ValidationError
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		return &Error{Code: CodeNotFound, Message: "workflow not found"}
+	case errors.Is(err, storage.ErrWorkflowRevisionConflict), errors.Is(err, runtime.ErrWorkflowRecoveryRequired), errors.Is(err, runtime.ErrWorkflowNodeUnknownOutcome):
+		return &Error{Code: CodeConflict, Message: "workflow operation conflicts with its durable state"}
+	case errors.As(err, &validation):
+		return &Error{Code: InvalidParams, Message: validation.Error()}
+	default:
+		return internalError(err)
+	}
+}
+
+func (h *controlHandler) proposeWorkflow(ctx context.Context, request Request) (any, *Error) {
+	var params workflowProposeParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ParentRunID = strings.TrimSpace(params.ParentRunID)
+	if params.ParentRunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "parent_run_id is required"}
+	}
+	validated, err := h.deps.Service.ProposeWorkflow(ctx, domain.RunID(params.ParentRunID), params.Descriptor)
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	return struct {
+		Descriptor  orchestration.Descriptor `json:"descriptor"`
+		Digest      string                   `json:"digest"`
+		Topological []string                 `json:"topological_order"`
+		Layers      [][]string               `json:"layers"`
+	}{validated.Descriptor, validated.Digest, validated.Topological, validated.Layers}, nil
+}
+
+func (h *controlHandler) startWorkflow(ctx context.Context, request Request) (any, *Error) {
+	var params workflowStartParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ParentRunID, params.OperationID = strings.TrimSpace(params.ParentRunID), strings.TrimSpace(params.OperationID)
+	if params.ParentRunID == "" || params.OperationID == "" || len(params.OperationID) > 128 {
+		return nil, &Error{Code: InvalidParams, Message: "parent_run_id and operation_id up to 128 bytes are required"}
+	}
+	started, err := h.deps.Service.StartWorkflow(ctx, runtime.WorkflowRequest{
+		ParentRunID: domain.RunID(params.ParentRunID), OperationKey: params.OperationID, Descriptor: params.Descriptor,
+	})
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	details, err := h.deps.Service.GetWorkflow(ctx, started.Run.ID)
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	return toWorkflowResult(details, started.Created), nil
+}
+
+func (h *controlHandler) getWorkflow(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	details, err := h.deps.Service.GetWorkflow(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	return toWorkflowResult(details, false), nil
+}
+
+func (h *controlHandler) listWorkflows(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		ParentRunID string `json:"parent_run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ParentRunID = strings.TrimSpace(params.ParentRunID)
+	if params.ParentRunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "parent_run_id is required"}
+	}
+	details, err := h.deps.Service.ListWorkflows(ctx, domain.RunID(params.ParentRunID))
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	workflows := make([]workflowResult, 0, len(details))
+	for _, item := range details {
+		workflows = append(workflows, toWorkflowResult(item, false))
+	}
+	return map[string]any{"workflows": workflows}, nil
+}
+
+func (h *controlHandler) cancelWorkflow(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if _, err := h.deps.Service.CancelWorkflow(ctx, domain.RunID(params.RunID)); err != nil {
+		return nil, workflowRPCError(err)
+	}
+	details, err := h.deps.Service.GetWorkflow(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, workflowRPCError(err)
+	}
+	return toWorkflowResult(details, false), nil
+}
+
+func toWorkflowResult(details runtime.WorkflowDetails, created bool) workflowResult {
+	return workflowResult{
+		ID: string(details.Run.ID), ParentRunID: string(details.Run.ParentID), RootRunID: string(details.Run.RootID),
+		SessionID: string(details.Run.SessionID), Status: string(details.Run.Status), RevisionDigest: details.RevisionDigest,
+		Depth: details.Run.Depth, CreatedAt: details.Run.CreatedAt, Created: created,
+		Descriptor: details.Descriptor, Nodes: details.Nodes, Outputs: details.Outputs,
+	}
+}
+
 func (h *controlHandler) childController() (ChildController, *Error) {
 	if h.deps.Children == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "child controller is not configured"}
@@ -1451,14 +1663,134 @@ func (h *controlHandler) startChild(ctx context.Context, request Request) (any, 
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	if params.ParentRunID == "" || params.Text == "" {
+	params.ParentRunID = strings.TrimSpace(params.ParentRunID)
+	params.Mode, params.OperationID = strings.TrimSpace(params.Mode), strings.TrimSpace(params.OperationID)
+	if params.ParentRunID == "" || strings.TrimSpace(params.Text) == "" {
 		return nil, &Error{Code: InvalidParams, Message: "parent_run_id and text are required"}
+	}
+	if params.Mode != "" && params.Mode != string(domain.ChildModeOneShot) && params.Mode != string(domain.ChildModeContinuable) {
+		return nil, &Error{Code: InvalidParams, Message: "mode must be one-shot or continuable"}
+	}
+	if params.Mode == string(domain.ChildModeContinuable) && (params.OperationID == "" || len(params.OperationID) > 256) {
+		return nil, &Error{Code: InvalidParams, Message: "continuable child requires an operation_id up to 256 bytes"}
 	}
 	result, err := controller.StartChild(ctx, params)
 	if err != nil {
-		return nil, internalError(err)
+		return nil, childControlError(err)
 	}
 	return result, nil
+}
+
+func (h *controlHandler) followupChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params ChildFollowupRequest
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ChildSessionID, params.ParentRunID = strings.TrimSpace(params.ChildSessionID), strings.TrimSpace(params.ParentRunID)
+	params.OperationID = strings.TrimSpace(params.OperationID)
+	if params.ChildSessionID == "" || params.ParentRunID == "" || params.OperationID == "" || len(params.OperationID) > 256 || strings.TrimSpace(params.Text) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "child_session_id, parent_run_id, operation_id, and text are required"}
+	}
+	result, err := controller.FollowupChild(ctx, params)
+	if err != nil {
+		return nil, childControlError(err)
+	}
+	return result, nil
+}
+
+func (h *controlHandler) interruptChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	result, err := controller.InterruptChild(ctx, params.RunID)
+	if err != nil {
+		return nil, childControlError(err)
+	}
+	return result, nil
+}
+
+func (h *controlHandler) childHistory(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params struct {
+		ChildSessionID string `json:"child_session_id"`
+		ParentRunID    string `json:"parent_run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ChildSessionID, params.ParentRunID = strings.TrimSpace(params.ChildSessionID), strings.TrimSpace(params.ParentRunID)
+	if params.ChildSessionID == "" || params.ParentRunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "child_session_id and parent_run_id are required"}
+	}
+	messages, err := controller.ChildHistory(ctx, params.ChildSessionID, params.ParentRunID)
+	if err != nil {
+		return nil, childControlError(err)
+	}
+	return map[string]any{"messages": messages}, nil
+}
+
+func (h *controlHandler) sendChildMessage(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params ChildMessageRequest
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ChildSessionID, params.ParentRunID = strings.TrimSpace(params.ChildSessionID), strings.TrimSpace(params.ParentRunID)
+	params.OperationID = strings.TrimSpace(params.OperationID)
+	if params.ChildSessionID == "" || params.ParentRunID == "" || params.OperationID == "" || strings.TrimSpace(params.Text) == "" || len(params.OperationID) > 256 || len(params.Text) > 32<<10 {
+		return nil, &Error{Code: InvalidParams, Message: "child_session_id, parent_run_id, bounded operation_id, and bounded text are required"}
+	}
+	message, inserted, err := controller.SendChildMessage(ctx, params)
+	if err != nil {
+		return nil, childControlError(err)
+	}
+	return map[string]any{"message": message, "inserted": inserted, "acknowledgement": "admitted"}, nil
+}
+
+func (h *controlHandler) listChildMessages(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params ChildMessageListRequest
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.ChildSessionID, params.AuthorizerRunID = strings.TrimSpace(params.ChildSessionID), strings.TrimSpace(params.AuthorizerRunID)
+	if params.ChildSessionID == "" || params.AuthorizerRunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "child_session_id and authorizer_run_id are required"}
+	}
+	messages, err := controller.ListChildMessages(ctx, params)
+	if err != nil {
+		return nil, childControlError(err)
+	}
+	return map[string]any{"messages": messages}, nil
+}
+
+func childControlError(err error) *Error {
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		return &Error{Code: CodeNotFound, Message: "child resource not found"}
+	case errors.Is(err, storage.ErrChildAdmissionConflict), errors.Is(err, storage.ErrChildSessionClosed), errors.Is(err, storage.ErrChildMessageConflict), errors.Is(err, storage.ErrChildMailboxFull):
+		return &Error{Code: CodeConflict, Message: "child operation conflicts with current state or authority"}
+	default:
+		return internalError(err)
+	}
 }
 
 func (h *controlHandler) getChild(ctx context.Context, request Request) (any, *Error) {

@@ -208,6 +208,8 @@ tools:
     - task_list
     - network_search  # API-backed text search; remote results are untrusted
     - agent           # delegates a focused sub-task to a fresh-context sub-agent (read-only tools, clean context)
+    - workflow        # runs a bounded, agent-authored DAG of read-only child tasks
+    - reply_parent    # lets a continuable child send an admitted direct reply
 # Preferred network_search provider when the model does not name one.
   # bing/google/searxng need their environment keys
   # (BING_SEARCH_API_KEY / GOOGLE_SEARCH_API_KEY+GOOGLE_SEARCH_CX /

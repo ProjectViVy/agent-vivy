@@ -16,7 +16,6 @@ import { Route as LayoutApprovalsRouteImport } from './routes/_layout.approvals'
 import { Route as LayoutCronTasksRouteImport } from './routes/_layout.cron-tasks'
 import { Route as LayoutDashboardRouteImport } from './routes/_layout.dashboard'
 import { Route as LayoutLifecycleRouteImport } from './routes/_layout.lifecycle'
-import { Route as LayoutMasksRouteImport } from './routes/_layout.masks'
 import { Route as LayoutMcpRouteImport } from './routes/_layout.mcp'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout.settings'
 import { Route as LayoutSkillsRouteImport } from './routes/_layout.skills'
@@ -55,11 +54,6 @@ const LayoutLifecycleRoute = LayoutLifecycleRouteImport.update({
   path: '/lifecycle',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutMasksRoute = LayoutMasksRouteImport.update({
-  id: '/masks',
-  path: '/masks',
-  getParentRoute: () => LayoutRoute,
-} as any)
 const LayoutMcpRoute = LayoutMcpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -83,7 +77,6 @@ export interface FileRoutesByFullPath {
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
   '/lifecycle': typeof LayoutLifecycleRoute
-  '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
@@ -94,7 +87,6 @@ export interface FileRoutesByTo {
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
   '/lifecycle': typeof LayoutLifecycleRoute
-  '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
@@ -108,7 +100,6 @@ export interface FileRoutesById {
   '/_layout/cron-tasks': typeof LayoutCronTasksRoute
   '/_layout/dashboard': typeof LayoutDashboardRoute
   '/_layout/lifecycle': typeof LayoutLifecycleRoute
-  '/_layout/masks': typeof LayoutMasksRoute
   '/_layout/mcp': typeof LayoutMcpRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/skills': typeof LayoutSkillsRoute
@@ -123,7 +114,6 @@ export interface FileRouteTypes {
     | '/cron-tasks'
     | '/dashboard'
     | '/lifecycle'
-    | '/masks'
     | '/mcp'
     | '/settings'
     | '/skills'
@@ -134,7 +124,6 @@ export interface FileRouteTypes {
     | '/cron-tasks'
     | '/dashboard'
     | '/lifecycle'
-    | '/masks'
     | '/mcp'
     | '/settings'
     | '/skills'
@@ -147,7 +136,6 @@ export interface FileRouteTypes {
     | '/_layout/cron-tasks'
     | '/_layout/dashboard'
     | '/_layout/lifecycle'
-    | '/_layout/masks'
     | '/_layout/mcp'
     | '/_layout/settings'
     | '/_layout/skills'
@@ -209,13 +197,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutLifecycleRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/masks': {
-      id: '/_layout/masks'
-      path: '/masks'
-      fullPath: '/masks'
-      preLoaderRoute: typeof LayoutMasksRouteImport
-      parentRoute: typeof LayoutRoute
-    }
     '/_layout/mcp': {
       id: '/_layout/mcp'
       path: '/mcp'
@@ -246,7 +227,6 @@ interface LayoutRouteChildren {
   LayoutCronTasksRoute: typeof LayoutCronTasksRoute
   LayoutDashboardRoute: typeof LayoutDashboardRoute
   LayoutLifecycleRoute: typeof LayoutLifecycleRoute
-  LayoutMasksRoute: typeof LayoutMasksRoute
   LayoutMcpRoute: typeof LayoutMcpRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutSkillsRoute: typeof LayoutSkillsRoute
@@ -259,7 +239,6 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutCronTasksRoute: LayoutCronTasksRoute,
   LayoutDashboardRoute: LayoutDashboardRoute,
   LayoutLifecycleRoute: LayoutLifecycleRoute,
-  LayoutMasksRoute: LayoutMasksRoute,
   LayoutMcpRoute: LayoutMcpRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutSkillsRoute: LayoutSkillsRoute,
