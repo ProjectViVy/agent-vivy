@@ -153,12 +153,14 @@ func (b *CommandBackend) executeBash(ctx context.Context, path string, args []st
 			if err != nil {
 				return fmt.Errorf("command: build shell: %w", err)
 			}
-			err = runner.Run(runCtx, file)
-			var status interp.ExitStatus
-			if errors.As(err, &status) {
-				return embeddedShellExitStatus(status)
+			if runErr := runner.Run(runCtx, file); runErr != nil {
+				var status interp.ExitStatus
+				if errors.As(runErr, &status) {
+					return tools.ExitStatusError{Code: int(status)}
+				}
+				return runErr
 			}
-			return err
+			return nil
 		}
 	}
 	if background {

@@ -24,7 +24,9 @@ import (
 	plugin "agent-vivy/sdk/port/channel"
 )
 
-const (
+// Governed network endpoints. Vars so the loopback media test can pin
+// them to a local server; production never mutates them.
+var (
 	qqTokenURL       = "https://bots.qq.com/app/getAppAccessToken"
 	qqAPIBaseURL     = "https://api.sgroup.qq.com"
 	qqSandboxBaseURL = "https://sandbox.api.sgroup.qq.com"
@@ -131,6 +133,19 @@ func (api *governedQQAPI) PostC2CMessage(ctx context.Context, userID string, mes
 	return &result, nil
 }
 
+// PostGroupMessage posts one message to a group
+// (POST /v2/groups/{group_openid}/messages) — the same MessageToCreate
+// contract as the C2C endpoint, addressed by the group_openid a group AT
+// event carries.
+func (api *governedQQAPI) PostGroupMessage(ctx context.Context, groupOpenID string, message dto.APIMessage, _ ...options.Option) (*dto.Message, error) {
+	var result dto.Message
+	path := "/v2/groups/" + url.PathEscape(groupOpenID) + "/messages"
+	if err := api.do(ctx, http.MethodPost, path, message, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (api *governedQQAPI) do(ctx context.Context, method, path string, body any, result any) error {
 	if api.host == nil {
 		return errors.New("qq: network host is not bound")
@@ -177,6 +192,71 @@ func (api *governedQQAPI) do(ctx context.Context, method, path string, body any,
 	return json.Unmarshal(raw, result)
 }
 
+// qqMediaUpload is the official v2 file-upload body
+// (POST /v2/{users|groups}/{id}/files). FileType: 1 image, 2 video,
+// 3 voice, 4 file — this adapter only ever sends 1 (the §12 ruling scopes
+// media to images). FileData carries the base64 bytes, SrvSendMsg=false
+// keeps the upload passive (bound to the next rich-media message).
+type qqMediaUpload struct {
+	FileType   int    `json:"file_type"`
+	URL        string `json:"url,omitempty"`
+	FileData   string `json:"file_data,omitempty"`
+	FileName   string `json:"file_name,omitempty"`
+	SrvSendMsg bool   `json:"srv_send_msg,omitempty"`
+}
+
+// qqRichMediaMessage is the msg_type=7 reply body with the uploaded file's
+// handle. Plugin-owned on purpose: botgo's MessageToCreate types MediaInfo
+// as []byte, whose JSON marshaling would base64 the file_info string a
+// second time.
+type qqRichMediaMessage struct {
+	MsgType int `json:"msg_type"`
+	Media   struct {
+		FileInfo string `json:"file_info"`
+	} `json:"media"`
+	MsgID  string `json:"msg_id"`
+	MsgSeq uint32 `json:"msg_seq"`
+}
+
+func (api *governedQQAPI) PostC2CMediaUpload(ctx context.Context, userID string, upload qqMediaUpload) (string, error) {
+	return api.mediaUpload(ctx, "/v2/users/"+url.PathEscape(userID)+"/files", upload)
+}
+
+func (api *governedQQAPI) PostGroupMediaUpload(ctx context.Context, groupOpenID string, upload qqMediaUpload) (string, error) {
+	return api.mediaUpload(ctx, "/v2/groups/"+url.PathEscape(groupOpenID)+"/files", upload)
+}
+
+func (api *governedQQAPI) mediaUpload(ctx context.Context, path string, upload qqMediaUpload) (string, error) {
+	var result struct {
+		FileInfo string `json:"file_info"`
+	}
+	if err := api.do(ctx, http.MethodPost, path, upload, &result); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(result.FileInfo) == "" {
+		return "", errors.New("qq: media upload returned no file_info")
+	}
+	return result.FileInfo, nil
+}
+
+func (api *governedQQAPI) PostC2CRichMedia(ctx context.Context, userID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	var result dto.Message
+	path := "/v2/users/" + url.PathEscape(userID) + "/messages"
+	if err := api.do(ctx, http.MethodPost, path, msg, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (api *governedQQAPI) PostGroupRichMedia(ctx context.Context, groupOpenID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	var result dto.Message
+	path := "/v2/groups/" + url.PathEscape(groupOpenID) + "/messages"
+	if err := api.do(ctx, http.MethodPost, path, msg, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 type governedQQWebSocket struct {
 	mu        sync.Mutex
 	writeMu   sync.Mutex
@@ -184,12 +264,13 @@ type governedQQWebSocket struct {
 	host      plugin.ChannelEnv
 	session   *dto.Session
 	onC2C     event.C2CMessageEventHandler
+	onGroup   groupATMessageHandler
 	onReady   event.ReadyHandler
 	conn      *websocket.Conn
 }
 
-func newGovernedQQWebSocket(host plugin.ChannelEnv, session dto.Session, onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler) wsClient {
-	return &governedQQWebSocket{host: host, session: &session, onC2C: onC2C, onReady: onReady}
+func newGovernedQQWebSocket(host plugin.ChannelEnv, session dto.Session, onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler) wsClient {
+	return &governedQQWebSocket{host: host, session: &session, onC2C: onC2C, onGroup: onGroup, onReady: onReady}
 }
 
 func (client *governedQQWebSocket) Connect() error {
@@ -308,6 +389,20 @@ func (client *governedQQWebSocket) Listening() error {
 				}
 				if client.onC2C != nil {
 					if err := client.onC2C(payload, &message); err != nil {
+						return err
+					}
+				}
+			case dto.EventGroupAtMessageCreate:
+				// Decoded into the plugin's own struct: the pinned botgo
+				// dto.Message reads a group_id field the real v2 group
+				// payload never sends (it carries group_openid), so the
+				// SDK's own dispatcher cannot address a group.
+				var group groupATMessage
+				if err := json.Unmarshal(envelope.Data, &group); err != nil {
+					return err
+				}
+				if client.onGroup != nil {
+					if err := client.onGroup(payload, &group); err != nil {
 						return err
 					}
 				}

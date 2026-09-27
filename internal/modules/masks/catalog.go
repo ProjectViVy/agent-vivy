@@ -83,14 +83,16 @@ func loadCatalog(assets fs.FS, generationID string) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, fmt.Errorf("mask catalog: read mask frame: %w", err)
 	}
-	frame := string(frameBytes)
-	if err := validateAssetBody(frame, "mask frame"); err != nil {
-		return Catalog{}, err
-	}
-	return loadCatalogDefinitions(assets, generationID, frameBytes, builtinSpecs)
+	return loadCatalogDefinitions(assets, generationID, string(frameBytes), builtinSpecs)
 }
 
-func loadCatalogDefinitions(assets fs.FS, generationID string, frameBytes []byte, specs []builtinSpec) (Catalog, error) {
+func loadCatalogDefinitions(assets fs.FS, generationID string, rawFrame string, specs []builtinSpec) (Catalog, error) {
+	// Embedded assets ride the Git checkout's line endings, so normalize
+	// before validation: a CRLF checkout must not poison the catalog.
+	frame, err := normalizeAssetBody(rawFrame, "mask frame")
+	if err != nil {
+		return Catalog{}, err
+	}
 	definitions := make([]maskcontract.Definition, 0, len(specs))
 	seen := make(map[string]struct{}, len(specs))
 	for _, spec := range specs {
@@ -102,8 +104,8 @@ func loadCatalogDefinitions(assets fs.FS, generationID string, frameBytes []byte
 		if err != nil {
 			return Catalog{}, fmt.Errorf("mask catalog: read %s: %w", spec.path, err)
 		}
-		body := string(bodyBytes)
-		if err := validateAssetBody(body, spec.name+" body"); err != nil {
+		body, err := normalizeAssetBody(string(bodyBytes), spec.name+" body")
+		if err != nil {
 			return Catalog{}, err
 		}
 		definition := maskcontract.Definition{
@@ -123,11 +125,11 @@ func loadCatalogDefinitions(assets fs.FS, generationID string, frameBytes []byte
 	}
 	sort.Slice(definitions, func(i, j int) bool { return definitions[i].ID < definitions[j].ID })
 
-	frameSum := sha256.Sum256(frameBytes)
+	frameSum := sha256.Sum256([]byte(frame))
 	return Catalog{
 		generationID: generationID,
 		definitions:  definitions,
-		frame:        string(frameBytes),
+		frame:        frame,
 		frameDigest:  hex.EncodeToString(frameSum[:]),
 	}, nil
 }
@@ -195,19 +197,20 @@ func (c Catalog) PromptAssets() (frame string, digest string) {
 
 func (c Catalog) GenerationID() string { return c.generationID }
 
-func validateAssetBody(value, label string) error {
+func normalizeAssetBody(value, label string) (string, error) {
 	if !utf8.ValidString(value) {
-		return fmt.Errorf("mask catalog: %s is not valid UTF-8", label)
+		return "", fmt.Errorf("mask catalog: %s is not valid UTF-8", label)
 	}
 	operation := maskcontract.CreateRequest{
 		OperationID: "00000000-0000-4000-8000-000000000001",
 		Name:        "asset",
 		Body:        value,
 	}
-	if _, err := maskcontract.NormalizeCreate(operation); err != nil {
-		return fmt.Errorf("mask catalog: invalid %s: %w", label, err)
+	normalized, err := maskcontract.NormalizeCreate(operation)
+	if err != nil {
+		return "", fmt.Errorf("mask catalog: invalid %s: %w", label, err)
 	}
-	return nil
+	return normalized.Body, nil
 }
 
 func validGenerationID(value string) bool {

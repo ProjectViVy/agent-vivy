@@ -99,6 +99,36 @@ func TestMaskCatalogMissingAssetFailsClosed(t *testing.T) {
 	}
 }
 
+// Embedded assets inherit the checkout's line endings; a CRLF checkout (e.g.
+// Windows autocrlf) must load as the same normalized catalog.
+func TestMaskCatalogNormalizesCRLFAssetBytes(t *testing.T) {
+	const body = "line one\r\nline two\r\n"
+	assets := fstest.MapFS{
+		"prompts/programmer.md": &fstest.MapFile{Data: []byte(body)},
+	}
+	specs := []builtinSpec{{
+		id:          maskcontract.BuiltinProgrammerID,
+		name:        "Programmer",
+		description: "crlf fixture",
+		path:        "prompts/programmer.md",
+	}}
+	catalog, err := loadCatalogDefinitions(assets, "generation-test", "frame\r\nsecond", specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := catalog.Get(maskcontract.BuiltinProgrammerID)
+	if !ok {
+		t.Fatal("builtin missing")
+	}
+	if definition.Body != "line one\nline two\n" {
+		t.Fatalf("body = %q, want LF-normalized", definition.Body)
+	}
+	frame, _ := catalog.PromptAssets()
+	if frame != "frame\nsecond" {
+		t.Fatalf("frame = %q, want LF-normalized", frame)
+	}
+}
+
 func TestMaskCatalogDuplicateIDsFailClosed(t *testing.T) {
 	frame, err := fs.ReadFile(embeddedAssets, "prompts/mask-frame.md")
 	if err != nil {
@@ -106,7 +136,7 @@ func TestMaskCatalogDuplicateIDsFailClosed(t *testing.T) {
 	}
 	specs := append([]builtinSpec(nil), builtinSpecs...)
 	specs[1].id = specs[0].id
-	if _, err := loadCatalogDefinitions(embeddedAssets, "generation-test", frame, specs); err == nil {
+	if _, err := loadCatalogDefinitions(embeddedAssets, "generation-test", string(frame), specs); err == nil {
 		t.Fatal("duplicate built-in ID was accepted")
 	} else if !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate ID error = %v", err)
@@ -127,7 +157,7 @@ func TestMaskCatalogAssetBodiesPreserveLiteralText(t *testing.T) {
 		description: "quoted name fixture",
 		path:        "prompts/programmer.md",
 	}}
-	catalog, err := loadCatalogDefinitions(assets, "generation-test", []byte("frame"), specs)
+	catalog, err := loadCatalogDefinitions(assets, "generation-test", "frame", specs)
 	if err != nil {
 		t.Fatal(err)
 	}

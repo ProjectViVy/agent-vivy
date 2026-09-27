@@ -23,8 +23,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 27 {
-		t.Fatalf("migration count = %d, want 27", count)
+	if count != 28 {
+		t.Fatalf("migration count = %d, want 28", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -117,8 +117,8 @@ func assertSQLiteMaskMigration24(t *testing.T, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 27 {
-		t.Fatalf("upgraded migration count = %d, want 27", count)
+	if count != 28 {
+		t.Fatalf("upgraded migration count = %d, want 28", count)
 	}
 	var name, checksum string
 	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 25`).Scan(&name, &checksum); err != nil {

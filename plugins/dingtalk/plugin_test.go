@@ -212,6 +212,10 @@ type webhookStub struct {
 	server *httptest.Server
 	status int
 	ack    map[string]any
+	// markdownAck, when set, answers markdown-msgtype POSTs — the
+	// platform-rejects-markdown stand-in behind the plain-text fallback.
+	// Set before any traffic starts.
+	markdownAck map[string]any
 
 	mu    sync.Mutex
 	calls []webhookCall
@@ -246,10 +250,14 @@ func newWebhookStub(t *testing.T, status int, ack map[string]any) *webhookStub {
 			rawBody:    body,
 			httpClient: r.Header.Get("Content-Type"),
 		})
+		ack := stub.ack
+		if decoded.MsgType == "markdown" && stub.markdownAck != nil {
+			ack = stub.markdownAck
+		}
 		stub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(stub.status)
-		_ = json.NewEncoder(w).Encode(stub.ack)
+		_ = json.NewEncoder(w).Encode(ack)
 	})
 	stub.server = httptest.NewServer(mux)
 	t.Cleanup(stub.server.Close)
@@ -261,6 +269,9 @@ func (s *webhookStub) callsSnapshot() []webhookCall {
 	defer s.mu.Unlock()
 	return append([]webhookCall(nil), s.calls...)
 }
+
+// setMarkdownAck makes every markdown-msgtype POST answer with ack.
+func (s *webhookStub) setMarkdownAck(ack map[string]any) { s.markdownAck = ack }
 
 // TestDecodeSettings: valid decode, unknown field fails closed, absent or
 // malformed settings fail closed, both env_key names survive.
@@ -648,8 +659,11 @@ func TestSendPlainText(t *testing.T) {
 	}
 	for i, want := range []string{"first", "second"} {
 		call := calls[i]
-		if call.msgType != "text" || call.content != want {
-			t.Fatalf("webhook call %d = %+v, want text %q in robot text shape", i, call, want)
+		if call.msgType != "markdown" {
+			t.Fatalf("webhook call %d msgtype = %q, want the markdown first attempt", i, call.msgType)
+		}
+		if !strings.Contains(string(call.rawBody), want) {
+			t.Fatalf("webhook call %d body = %s, want %q in the markdown payload", i, call.rawBody, want)
 		}
 		if call.httpClient != "application/json" {
 			t.Fatalf("webhook call %d content type = %q", i, call.httpClient)
@@ -665,6 +679,41 @@ func TestSendPlainText(t *testing.T) {
 	}
 	if got := len(webhook.callsSnapshot()); got != 2 {
 		t.Fatalf("webhook calls = %d, want still 2", got)
+	}
+}
+
+// TestSendMarkdownFallsBackToPlainText: a markdown POST the robot rejects
+// (non-zero errcode on HTTP 200) is retried once in the text shape, and
+// only a text failure surfaces to the Host.
+func TestSendMarkdownFallsBackToPlainText(t *testing.T) {
+	webhook := newWebhookStub(t, http.StatusOK, map[string]any{"errcode": 0, "errmsg": "ok"})
+	webhook.setMarkdownAck(map[string]any{"errcode": 310000, "errmsg": "markdown rejected"})
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	p, _ := startWithFake(t, env, stream)
+	handler, _, _ := stream.state()
+	data := textCallback()
+	data.SessionWebhook = webhook.server.URL + "/robot/send?access_token=sekret"
+	if _, err := handler(context.Background(), data); err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+
+	ids, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "cid-20:1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold** plan"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+	calls := webhook.callsSnapshot()
+	if len(calls) != 2 {
+		t.Fatalf("webhook calls = %d, want the markdown attempt plus the text fallback", len(calls))
+	}
+	if calls[0].msgType != "markdown" || !strings.Contains(string(calls[0].rawBody), "**bold** plan") {
+		t.Fatalf("call 0 = %+v, want the markdown attempt carrying the text", calls[0])
+	}
+	if calls[1].msgType != "text" || calls[1].content != "**bold** plan" {
+		t.Fatalf("call 1 = %+v, want the plain-text fallback", calls[1])
 	}
 }
 
@@ -767,11 +816,20 @@ type streamStub struct {
 	tickets    sync.Mutex
 	ticketHits int
 	wsOnce     sync.Once
+	// silent turns the websocket side into a black hole: no frames are
+	// pushed, client pings are swallowed, and the socket never closes —
+	// the loopback shape of a silently dropped link (CH-C6-N3).
+	silent bool
 }
 
 func newStreamStub(t *testing.T) *streamStub {
+	return newStreamStubMode(t, false)
+}
+
+func newStreamStubMode(t *testing.T, silent bool) *streamStub {
 	t.Helper()
 	stub := &streamStub{
+		silent:     silent,
 		wsOpened:   make(chan struct{}),
 		acked:      make(chan payload.DataFrameResponse, 1),
 		robotPosts: make(chan webhookCall, 8),
@@ -805,6 +863,15 @@ func newStreamStub(t *testing.T) *streamStub {
 		conn := hijackWebSocket(t, w, r)
 		defer conn.Close()
 		stub.wsOnce.Do(func() { close(stub.wsOpened) })
+		if stub.silent {
+			// Swallow everything the client sends and push nothing back —
+			// the client's read deadline is the only way out.
+			for {
+				if _, _, err := readWSFrame(conn); err != nil {
+					return
+				}
+			}
+		}
 
 		// One chatbot callback frame, as the DingTalk gateway would push
 		// after a user messages the robot in a single chat.
@@ -955,7 +1022,7 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	env := envFor(t, fmt.Sprintf(`{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value","open_api_host":%q}`, stub.server.URL))
 	env.client = stub.server.Client()
 
-	p := newAdapter() // production factory: the real SDK client
+	p := newAdapter() // production factory: the governed stream client
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -992,8 +1059,10 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	}
 	select {
 	case call := <-stub.robotPosts:
-		if call.msgType != "text" || call.content != "hello human" {
-			t.Fatalf("robot post = %+v", call)
+		// The reply goes out as markdown first (tier-1 text loop); the
+		// webhookStub-level tests pin the payload and the fallback.
+		if call.msgType != "markdown" {
+			t.Fatalf("robot post = %+v, want the markdown first attempt", call)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("session webhook was never called")
@@ -1016,6 +1085,51 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	}
 	if got := stub.ticketCount(); got != 1 {
 		t.Fatalf("ticket exchanges = %d, want exactly the initial one (no redial after stop)", got)
+	}
+}
+
+// TestStreamSilentLinkRedials (CH-C6-N3): a link that dies without
+// FIN/RST — no frames, no close, client pings swallowed — must trip the
+// read deadline, clear the connection, and let the supervise tick redial
+// instead of leaving the ear deaf until process restart.
+func TestStreamSilentLinkRedials(t *testing.T) {
+	oldPing, oldDeadline := streamPingInterval, streamReadDeadline
+	streamPingInterval, streamReadDeadline = 30*time.Millisecond, 150*time.Millisecond
+	t.Cleanup(func() { streamPingInterval, streamReadDeadline = oldPing, oldDeadline })
+	shrinkStreamRedialDelay(t)
+
+	stub := newStreamStubMode(t, true)
+	env := envFor(t, fmt.Sprintf(`{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value","open_api_host":%q}`, stub.server.URL))
+	env.client = stub.server.Client()
+
+	p := newAdapter()
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = p.Stop(ctx)
+	})
+
+	waitFor(t, "websocket open", func() bool {
+		select {
+		case <-stub.wsOpened:
+			return true
+		default:
+			return false
+		}
+	})
+	// The silent link starves the read deadline; the supervise loop must
+	// complete a second gateway ticket exchange (the redial).
+	waitFor(t, "redial after silent link death", func() bool {
+		return stub.ticketCount() >= 2
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
 	}
 }
 
@@ -1125,4 +1239,72 @@ func TestSuperviseSilentWithoutLogFace(t *testing.T) {
 		_, starts, _ := stream.state()
 		return starts >= 2
 	})
+}
+
+// TestHealthClassifiesRedialingStream (CH-R-1): while the supervise loop is
+// redialing a broken link, Health reports a temporary classification; once
+// the stream reconnects, Health returns to nil.
+func TestHealthClassifiesRedialingStream(t *testing.T) {
+	shrinkStreamRedialDelay(t)
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	// Plan: the initial connect succeeds, the next redial fails, then the
+	// ear reconnects (drained plan = success).
+	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true}}
+	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
+	p := newAdapter()
+	p.newClient = spy.build
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health during redial", func() bool {
+		err := p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return p.Health(context.Background()) == nil
+	})
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// TestGroupMentionOnlyGatesGroupChats: a group callback publishes only
+// when IsInAtList says the bot was @-addressed (the platform-authoritative
+// signal), with the leading @-mention markup stripped; an unmentioned
+// group message drops; a bare mention leaves nothing to publish.
+func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
+	group := func(content string, inAtList bool) *chatbot.BotCallbackDataModel {
+		d := textCallback()
+		d.ConversationType = "2"
+		d.ConversationId = "cid-group-77"
+		d.IsInAtList = inAtList
+		d.Text = chatbot.BotCallbackDataTextModel{Content: content}
+		return d
+	}
+
+	msg, publishable := normalizeCallback(group("@张三 @vivy please summarize", true))
+	if !publishable {
+		t.Fatal("mentioned group message must publish")
+	}
+	if msg.ChatID != "cid-group-77" || msg.Sender != "dingtalk:manager1234" || msg.Parts[0].Text != "please summarize" {
+		t.Fatalf("group envelope = %+v, want the group chat, the sender, and the stripped text", msg)
+	}
+
+	if _, publishable := normalizeCallback(group("@vivy please summarize", false)); publishable {
+		t.Fatal("unmentioned group message must drop")
+	}
+	if _, publishable := normalizeCallback(group("@vivy", true)); publishable {
+		t.Fatal("a bare mention leaves nothing to publish")
+	}
+	if _, publishable := normalizeCallback(group("late-arriving text", true)); !publishable {
+		t.Fatal("IsInAtList is authoritative even when the text carries no mention token")
+	}
+
+	// Direct chats keep publishing without any mention gate.
+	if _, publishable := normalizeCallback(textCallback()); !publishable {
+		t.Fatal("direct-chat path must stay ungated")
+	}
 }
