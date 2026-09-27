@@ -31,6 +31,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
@@ -92,10 +93,14 @@ type ControlDeps struct {
 	Truncations storage.TruncationStore
 	Bus         *events.Bus
 	Service     *runtime.Service
-	Studio      *studio.Service
-	Live        studio.LiveView
-	Eval        eval.Starter
-	Children    ChildController
+	// CodeModeAvailable is projected from the runtime's accepted Face values.
+	// It is a capability of this composed control plane, independent of the
+	// selected mask catalog or any browser-side mask state.
+	CodeModeAvailable bool
+	Studio            *studio.Service
+	Live              studio.LiveView
+	Eval              eval.Starter
+	Children          ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -113,9 +118,15 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
-	// ProviderBundles is the redacted pre-baked model catalog loaded by the
-	// composition root. It stays separate from editable registry entries.
-	ProviderBundles []provider.Bundle
+	// ConfigAdapter is the sealed protocol adapter the config default speaks
+	// (PROV-P3). The stored selection names an adapter, so this is what the
+	// "configuration default" pair is compared against on a write.
+	ConfigAdapter string
+	// ProviderVendors is the embedded vendor catalog the control plane
+	// projects onto the wire as `catalog`: the single source of provider data
+	// for the UI, which holds none of its own (PROV-P4). It stays separate
+	// from editable registry entries.
+	ProviderVendors []provider.Vendor
 	// ProviderProfileStatuses projects the compiled Generation's ModelHost
 	// state without Secret references or executable factories. Nil preserves
 	// compatibility for control-plane compositions without a ModelHost.
@@ -141,6 +152,14 @@ type ControlDeps struct {
 	ConfigSandboxDenyPrivateIPs bool
 	// ConfigSandboxAllowedDomains is the production config domain allowlist.
 	ConfigSandboxAllowedDomains []string
+	// ConfigApprovalTimeoutSeconds is the production config human review
+	// window for effectful tool approvals (runtime.sandbox.approval
+	// .timeout_seconds), surfaced by settings/get as the value an overlay
+	// clears back to.
+	ConfigApprovalTimeoutSeconds int
+	// ConfigApprovalExpirationSeconds is the hard tools.approval.expiration
+	// that bounds the review window; the UI caps its input with it.
+	ConfigApprovalExpirationSeconds int
 	// ConfigHTTPAllowedHosts is the production config http_request allowlist
 	// (non-secret), surfaced by settings/get as the UI fallback.
 	ConfigHTTPAllowedHosts []string
@@ -841,6 +860,32 @@ func containsRPCControl(value string) bool {
 }
 
 func moduleActionRPCError(err error) *Error {
+	var maskErr *maskcontract.Error
+	if errors.As(err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
+		data, marshalErr := json.Marshal(struct {
+			Code            string `json:"code"`
+			CurrentRevision int64  `json:"current_revision,omitempty"`
+			ReferenceCount  int    `json:"reference_count,omitempty"`
+		}{Code: maskErr.Code, CurrentRevision: maskErr.CurrentRevision, ReferenceCount: maskErr.ReferenceCount})
+		if marshalErr != nil {
+			data = nil
+		}
+		rpcCode := InternalError
+		switch maskErr.Code {
+		case maskcontract.CodeInvalidMask:
+			rpcCode = InvalidParams
+		case maskcontract.CodeNotFound:
+			rpcCode = CodeNotFound
+		case maskcontract.CodeRevisionConflict, maskcontract.CodeMaskInUse,
+			maskcontract.CodeMaskUnavailable, maskcontract.CodeSnapshotMissing,
+			maskcontract.CodeSnapshotCorrupt, maskcontract.CodePromptTooLarge,
+			maskcontract.CodeIncompatiblePrompt,
+			maskcontract.CodeAuthorizationDenied, maskcontract.CodeCancelled,
+			maskcontract.CodeUnavailable:
+			rpcCode = CodeConflict
+		}
+		return &Error{Code: rpcCode, Message: "mask action failed", Data: data}
+	}
 	switch {
 	case errors.Is(err, actionhost.ErrInvalidInput):
 		return &Error{Code: InvalidParams, Message: "action input is invalid"}
@@ -1003,8 +1048,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
 		return map[string]any{
-			"protocol_version": ProtocolVersion,
-			"capabilities":     capabilities,
+			"protocol_version":    ProtocolVersion,
+			"capabilities":        capabilities,
+			"code_mode_available": h.deps.CodeModeAvailable,
 		}, nil
 	case "session/create":
 		result, rpcErr := h.createSession(ctx, request)
@@ -3777,6 +3823,14 @@ type sandboxSettingsResult struct {
 	AllowedDomains         []string                `json:"allowed_domains"`
 	WorkspaceRoot          string                  `json:"workspace_root"`
 	ExecuteAllowedCommands []string                `json:"execute_allowed_commands"`
+	// ApprovalTimeoutSeconds is the effective human review window for an
+	// effectful tool approval: 0 means timed auto-approval is disabled.
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds"`
+	// ConfigApprovalTimeoutSeconds is the config fallback the UI restores
+	// when the overlay is cleared.
+	ConfigApprovalTimeoutSeconds int `json:"config_approval_timeout_seconds"`
+	// ApprovalExpirationSeconds is the hard expiration bounding that window.
+	ApprovalExpirationSeconds int `json:"approval_expiration_seconds"`
 }
 
 // networkSearchSettingsResult is the non-secret network_search section of
@@ -3951,13 +4005,24 @@ func (h *controlHandler) sandboxView(saved settings.SandboxSettings) sandboxSett
 	if domains == nil {
 		domains = []string{}
 	}
+	// The review window follows the same overlay-over-config rule as the
+	// restart path: an overlay that cannot shorten the hard expiration is not
+	// shorter than it and is therefore not in force.
+	approvalTimeout := h.deps.ConfigApprovalTimeoutSeconds
+	if saved.ApprovalTimeoutSeconds != nil &&
+		(h.deps.ConfigApprovalExpirationSeconds <= 0 || *saved.ApprovalTimeoutSeconds < h.deps.ConfigApprovalExpirationSeconds) {
+		approvalTimeout = *saved.ApprovalTimeoutSeconds
+	}
 	return sandboxSettingsResult{
-		DefaultPreset:          preset,
-		ConfigDefaultPreset:    h.defaultPreset(),
-		DenyPrivateIPs:         denyPrivate,
-		AllowedDomains:         domains,
-		WorkspaceRoot:          h.deps.SandboxWorkspaceRoot,
-		ExecuteAllowedCommands: append([]string(nil), h.deps.ExecuteAllowedCommands...),
+		DefaultPreset:                preset,
+		ConfigDefaultPreset:          h.defaultPreset(),
+		DenyPrivateIPs:               denyPrivate,
+		AllowedDomains:               domains,
+		WorkspaceRoot:                h.deps.SandboxWorkspaceRoot,
+		ExecuteAllowedCommands:       append([]string(nil), h.deps.ExecuteAllowedCommands...),
+		ApprovalTimeoutSeconds:       approvalTimeout,
+		ConfigApprovalTimeoutSeconds: h.deps.ConfigApprovalTimeoutSeconds,
+		ApprovalExpirationSeconds:    h.deps.ConfigApprovalExpirationSeconds,
 	}
 }
 
@@ -4030,6 +4095,10 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 			DefaultPreset  string   `json:"default_preset"`
 			DenyPrivateIPs *bool    `json:"deny_private_ips"`
 			AllowedDomains []string `json:"allowed_domains"`
+			// ApprovalTimeoutSeconds overrides the human review window;
+			// absent keeps the previous value, and an explicit 0 means
+			// "never auto-approve on timeout".
+			ApprovalTimeoutSeconds *int `json:"approval_timeout_seconds"`
 		} `json:"sandbox"`
 		// Compaction is the context compression overlay; absent keeps the
 		// previous value, explicit zeros inside a present block keep the
@@ -4078,6 +4147,10 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 				cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
 				if params.Sandbox.AllowedDomains != nil {
 					cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+				}
+				if params.Sandbox.ApprovalTimeoutSeconds != nil {
+					seconds := *params.Sandbox.ApprovalTimeoutSeconds
+					cur.Sandbox.ApprovalTimeoutSeconds = &seconds
 				}
 			}
 			if params.Compaction != nil {
@@ -4421,11 +4494,63 @@ func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 	}
 }
 
-// providersResult is the full registry view: entries (redacted), the active
-// selection, and the config defaults the UI falls back to.
+// catalogEndpointResult is one endpoint variant: the (adapter, base_url) pair
+// that identifies it, its default model and model list, and whether this
+// Generation can execute it. No credential name or value crosses this boundary.
+type catalogEndpointResult struct {
+	Adapter      string   `json:"adapter"`
+	BaseURL      string   `json:"base_url"`
+	DefaultModel string   `json:"default_model"`
+	Models       []string `json:"models"`
+	// Executable is false for an adapter this Generation seals but cannot
+	// construct (DEFERRED-INDEFINITE): the UI shows it and disables it.
+	Executable bool `json:"executable"`
+	// State is the sealed adapter's capability state (PROV-P2).
+	State string `json:"state"`
+}
+
+// catalogEntryResult is one embedded vendor with all of its endpoint variants.
+type catalogEntryResult struct {
+	Vendor      string                  `json:"vendor"`
+	DisplayName string                  `json:"display_name"`
+	Endpoints   []catalogEndpointResult `json:"endpoints"`
+}
+
+// providerCatalogResult projects the embedded vendor data onto the wire. It is
+// the frontend's only provider source: the UI holds no vendor, endpoint, or
+// model data of its own (PROV-P4).
+func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
+	capabilities := provider.Capabilities()
+	catalog := make([]catalogEntryResult, 0, len(vendors))
+	for _, vendor := range vendors {
+		endpoints := make([]catalogEndpointResult, 0, len(vendor.Endpoints))
+		for _, endpoint := range vendor.Endpoints {
+			models := endpoint.ModelIDs()
+			if models == nil {
+				models = []string{}
+			}
+			state := capabilities[endpoint.Adapter]
+			endpoints = append(endpoints, catalogEndpointResult{
+				Adapter:      endpoint.Adapter,
+				BaseURL:      endpoint.BaseURL,
+				DefaultModel: endpoint.DefaultModel,
+				Models:       models,
+				Executable:   state == modelhost.CapabilitySupported,
+				State:        string(state),
+			})
+		}
+		catalog = append(catalog, catalogEntryResult{
+			Vendor: vendor.Name, DisplayName: vendor.DisplayName, Endpoints: endpoints,
+		})
+	}
+	return catalog
+}
+
+// providersResult is the full registry view: entries (redacted), the embedded
+// catalog, the active selection, and the config defaults the UI falls back to.
 type providersResult struct {
 	Entries        []providerEntryResult         `json:"entries"`
-	Bundles        []providerEntryResult         `json:"bundles"`
+	Catalog        []catalogEntryResult          `json:"catalog"`
 	Profiles       []providerProfileStatusResult `json:"profiles"`
 	ActiveProvider string                        `json:"active_provider"`
 	ActiveModel    string                        `json:"active_model"`
@@ -4441,17 +4566,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	for _, e := range s.Providers {
 		entries = append(entries, toProviderEntryResult(e))
 	}
-	bundles := make([]providerEntryResult, 0, len(h.deps.ProviderBundles))
-	for _, bundle := range h.deps.ProviderBundles {
-		models := append([]string(nil), bundle.Models...)
-		if models == nil {
-			models = []string{}
-		}
-		bundles = append(bundles, providerEntryResult{
-			ID: "bundle:" + bundle.Name, DisplayName: bundle.DisplayName,
-			Bundle: bundle.Name, DefaultModel: bundle.DefaultModel, Models: models,
-		})
-	}
+	catalog := providerCatalogResult(h.deps.ProviderVendors)
 	activeProvider, activeModel, activeBaseURL := s.Provider, s.DefaultModel, s.BaseURL
 	if h.deps.Service != nil {
 		activeProvider, activeModel = h.deps.Service.CurrentModel()
@@ -4461,7 +4576,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	}
 	return providersResult{
 		Entries:        entries,
-		Bundles:        bundles,
+		Catalog:        catalog,
 		Profiles:       h.providerProfileStatuses(),
 		ActiveProvider: activeProvider,
 		ActiveModel:    activeModel,
@@ -4550,7 +4665,13 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	if params.Provider == "" || params.Model == "" {
 		return nil, &Error{Code: InvalidParams, Message: "provider and model are required"}
 	}
-	if profileErr := h.profileSelectionError(params.Provider); profileErr != nil {
+	// A selection is validated as the sealed adapter it names: a client that
+	// still sends a pre-migration vendor name is understood here
+	// (MIGRATION.md §3 rule 1). The value is stored as sent, so the vendor a
+	// legacy client named survives in the document and keeps owning the
+	// credential for an undeclared gateway address.
+	adapter := settings.NormalizeAdapter(params.Provider)
+	if profileErr := h.profileSelectionError(adapter); profileErr != nil {
 		return nil, profileErr
 	}
 	h.modelChangeMu.Lock()
@@ -4560,16 +4681,16 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	var updateErr *Error
 	changeErr := h.deps.Service.ChangeModelWhenIdle(params.Provider, params.Model, func() error {
 		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
-			allowed := params.Provider == h.deps.ConfigProvider &&
+			allowed := adapter == h.deps.ConfigAdapter &&
 				params.Model == h.deps.ConfigModel && params.BaseURL == ""
 			// Preserve a current legacy selection as an idempotent no-op even if
 			// its old registry row has since disappeared. It is not offered as a
 			// new target to other clients.
-			if !allowed && cur.Provider == params.Provider && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
+			if !allowed && settings.NormalizeAdapter(cur.Provider) == adapter && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
 				allowed = true
 			}
 			for _, entry := range cur.Providers {
-				if entry.Bundle != params.Provider || entry.BaseURL != params.BaseURL {
+				if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != params.BaseURL {
 					continue
 				}
 				if entry.DefaultModel == params.Model {
@@ -4582,12 +4703,24 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 					}
 				}
 			}
+			// An address-less selection resolves to a vendor's declared endpoint for
+			// that adapter: the vendor a pre-migration client named, or else the
+			// configured one. That endpoint's model list is the embedded catalog a
+			// client may pick from.
 			if params.BaseURL == "" {
-				for _, bundle := range h.deps.ProviderBundles {
-					if bundle.Name != params.Provider {
+				vendorName := settings.NormalizeProviderSelection(params.Provider).LegacyVendor
+				if vendorName == "" {
+					vendorName = h.deps.ConfigProvider
+				}
+				for _, vendor := range h.deps.ProviderVendors {
+					if vendor.Name != vendorName {
 						continue
 					}
-					for _, modelID := range bundle.Models {
+					endpoint, ok := vendor.EndpointForAdapter(adapter)
+					if !ok {
+						continue
+					}
+					for _, modelID := range endpoint.ModelIDs() {
 						if modelID == params.Model {
 							allowed = true
 							break
@@ -4771,14 +4904,14 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
 		}
 	default:
-		if params.Bundle != settings.ProviderOpenAI {
+		if !settings.IsOpenAICompatibleSelection(params.Bundle) {
 			return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 		}
 		baseURL := strings.TrimSpace(params.BaseURL)
 		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 			return nil, &Error{Code: InvalidParams, Message: "model refresh requires an http(s) base_url"}
 		}
-		existing, ok := s.FindProvider(settings.ProviderOpenAI, baseURL)
+		existing, ok := s.FindProvider(params.Bundle, baseURL)
 		if ok {
 			entry = existing
 		} else {
@@ -4793,13 +4926,13 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			entry = settings.ProviderEntry{
 				ID:           "custom-" + providerIDNonce(),
 				DisplayName:  displayName,
-				Bundle:       settings.ProviderOpenAI,
+				Bundle:       params.Bundle,
 				BaseURL:      baseURL,
 				DefaultModel: strings.TrimSpace(params.DefaultModel),
 			}
 		}
 	}
-	if entry.Bundle != settings.ProviderOpenAI {
+	if !settings.IsOpenAICompatibleSelection(entry.Bundle) {
 		return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 	}
 

@@ -17,10 +17,7 @@ import (
 
 func routedHost(t *testing.T, profiles ...providerprofile.Profile) *modelhost.Host {
 	t.Helper()
-	host, err := modelhost.New(profiles, modelhost.Capabilities{
-		AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
-		AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
-	})
+	host, err := modelhost.New(profiles, Capabilities())
 	if err != nil {
 		t.Fatalf("modelhost.New: %v", err)
 	}
@@ -28,9 +25,9 @@ func routedHost(t *testing.T, profiles ...providerprofile.Profile) *modelhost.Ho
 }
 
 func TestEveryModelCallUsesModelHost(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	model := NewResolvingChatModel(nil, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+	vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+	model := NewResolvingChatModel(nil, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if !errors.Is(err, modelhost.ErrHostRequired) {
@@ -39,9 +36,9 @@ func TestEveryModelCallUsesModelHost(t *testing.T) {
 }
 
 func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	model := NewResolvingChatModel(routedHost(t), NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", Ready: false,
+	vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+	model := NewResolvingChatModel(routedHost(t), NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", Ready: false,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if !errors.Is(err, modelhost.ErrProfileNotFound) {
@@ -49,17 +46,42 @@ func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
 	}
 }
 
-func TestModelHostRejectsProfileAdapterMismatch(t *testing.T) {
-	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-	profile := ProfileFromBundle(bundle)
-	profile.AdapterFamily = AdapterFamilyAnthropic
-	host := routedHost(t, profile)
-	model := NewResolvingChatModel(host, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+// A Generation that does not compile the adapter a vendor endpoint speaks
+// cannot execute that endpoint: the mismatch is now a missing Profile, not a
+// family disagreement, and it still fails before any network call.
+func TestModelHostRejectsUncompiledAdapterFamily(t *testing.T) {
+	vendor := testClaudeVendor("https://network-must-not-run.invalid")
+	model := NewResolvingChatModel(routedHost(t), NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "claude-sonnet-4-5", APIKey: "secret", Ready: true,
 	}})
 	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
-	if !errors.Is(err, ErrAdapterFamilyMismatch) {
-		t.Fatalf("Generate() error = %v, want ErrAdapterFamilyMismatch", err)
+	if !errors.Is(err, modelhost.ErrProfileNotFound) {
+		t.Fatalf("Generate() error = %v, want ErrProfileNotFound", err)
+	}
+}
+
+// A Profile whose family is not in the sealed capability map cannot be
+// compiled at all, so data can never widen the executable set.
+func TestModelHostRejectsUnsealedProfileFamily(t *testing.T) {
+	profile := testProfile(t, testOpenAIVendor("https://network-must-not-run.invalid/v1"))
+	profile.AdapterFamily = "gemini-generate-content"
+	if _, err := modelhost.New([]providerprofile.Profile{profile}, Capabilities()); err == nil {
+		t.Fatal("a Profile naming an unsealed adapter family must not compile")
+	}
+}
+
+// The deferred family is sealed, so a Profile for it compiles and reports its
+// state; constructing a model through it still fails closed.
+func TestModelHostReportsDeferredFamilyAsUnavailable(t *testing.T) {
+	profile := testProfile(t, testDeepSeekVendor("https://api.deepseek.com"))
+	profile.ID = AdapterOpenAIResponses
+	profile.AdapterFamily = AdapterOpenAIResponses
+	host := routedHost(t, profile)
+	if _, err := host.ResolveExecutable(AdapterOpenAIResponses); !errors.Is(err, modelhost.ErrAdapterUnavailable) {
+		t.Fatalf("ResolveExecutable() error = %v, want ErrAdapterUnavailable", err)
+	}
+	if got := host.Statuses(AdapterOpenAIResponses, true)[0].State; got != modelhost.ProfileDeferredIndefinite {
+		t.Fatalf("deferred Profile state = %q, want DEFERRED-INDEFINITE", got)
 	}
 }
 
@@ -75,13 +97,13 @@ func TestModelHostPreservesOpenAIGatewayRawModelID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	bundle := newOpenAITestBundle(server.URL)
-	profile := ProfileFromBundle(bundle)
+	vendor := testOpenAIVendor(server.URL)
+	profile := testProfile(t, vendor)
 	profile.EndpointClass = providerprofile.EndpointGateway
 	profile.ModelIDs = []string{"anthropic/claude-sonnet-4"}
 	host := routedHost(t, profile)
-	model := NewResolvingChatModel(host, NewCatalog(bundle), staticSpecSource{live: LiveSpec{
-		Provider: bundle.Name, Model: "anthropic/claude-sonnet-4", BaseURL: server.URL,
+	model := NewResolvingChatModel(host, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
+		Provider: vendor.Name, Model: "anthropic/claude-sonnet-4", BaseURL: server.URL,
 		APIKey: "secret", Ready: true,
 	}})
 	if _, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err != nil {
@@ -89,14 +111,5 @@ func TestModelHostPreservesOpenAIGatewayRawModelID(t *testing.T) {
 	}
 	if outbound.Model != "anthropic/claude-sonnet-4" {
 		t.Fatalf("outbound model = %q, want exact raw gateway ID", outbound.Model)
-	}
-}
-
-func newOpenAITestBundle(baseURL string) Bundle {
-	return Bundle{
-		Name: "openai", APIType: "openai", EnvKey: "OPENAI_API_KEY",
-		DisplayName: "OpenAI", DefaultModel: "gpt-4o", DefaultAPIBase: baseURL,
-		Backend: BackendEinoOpenAI, Models: []string{"gpt-4o"},
-		Provenance: Provenance{Source: "test", Entry: "openai", DerivedAt: "2026-09-10"},
 	}
 }

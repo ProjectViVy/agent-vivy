@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/governance
+module agent-vivy/plugins/governance
 
 go 1.26.4
 

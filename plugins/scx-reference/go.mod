@@ -1,4 +1,4 @@
-module example.com/vivy/plugins/scxreference
+module agent-vivy/plugins/scxreference
 
 go 1.26.4
 

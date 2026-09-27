@@ -13,7 +13,6 @@ func TestPrepareRejectsProductionSQLitePath(t *testing.T) {
 	root := t.TempDir()
 	_, err := Prepare(root, Isolation{
 		ProductionSQLite: filepath.Join(root, "data", "vivy.db"),
-		BundleDir:        fixtureBundle(t),
 	})
 	if err != ErrBlockedPath {
 		t.Fatalf("err = %v, want ErrBlockedPath", err)
@@ -30,7 +29,6 @@ func TestPrepareOmitsProductionPathsAndSecrets(t *testing.T) {
 		ProductionSQLite:    production,
 		ProductionWorkspace: filepath.Join(filepath.Dir(production), "workspaces"),
 		ProductionListen:    "127.0.0.1:8787",
-		BundleDir:           fixtureBundle(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,13 +56,14 @@ func TestPrepareOmitsProductionPathsAndSecrets(t *testing.T) {
 }
 
 func TestChildEnvStripsProviderSecrets(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test-deepseek")
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test-anthropic")
 	t.Setenv("VIVY_ADDR", "127.0.0.1:1")
 	t.Setenv("VIVY_POSTGRES_DSN", "postgres://vivy:secret@postgres:5432/vivy")
 	env := ChildEnv(filepath.Join(t.TempDir(), "config.yaml"))
 	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "sk-test-openai") || strings.Contains(joined, "sk-test-anthropic") {
+	if strings.Contains(joined, "sk-test-deepseek") || strings.Contains(joined, "sk-test-openai") || strings.Contains(joined, "sk-test-anthropic") {
 		t.Fatalf("child env leaked provider secret: %s", joined)
 	}
 	if strings.Contains(joined, "VIVY_ADDR=") {
@@ -76,13 +75,4 @@ func TestChildEnvStripsProviderSecrets(t *testing.T) {
 	if !strings.Contains(joined, "VIVY_CONFIG=") {
 		t.Fatalf("child env missing VIVY_CONFIG: %s", joined)
 	}
-}
-
-func fixtureBundle(t *testing.T) string {
-	t.Helper()
-	path, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "provider"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

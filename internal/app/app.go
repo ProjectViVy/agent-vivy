@@ -39,6 +39,7 @@ import (
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
+	memorymodule "agent-vivy/internal/modules/memory"
 	modelmodule "agent-vivy/internal/modules/model"
 	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
@@ -221,7 +222,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if liveSettingsPath == "" {
 		liveSettingsPath = settings.Path(cfg.DataDirectory())
 	}
-	configProvider, configModel := providerConfigBaseline(cfg)
+	// The vendor the configuration file names, captured before the settings
+	// overlay: it is the "config default" the control plane reports, and the
+	// settings document may override it for this process only.
+	configVendor := cfg.Providers.Active
 	// Operator-managed preferences (network search, execute ceiling, the
 	// per-channel knobs) overlay the validated config. Provider keys are
 	// NOT applied to the process environment; ModelResolver reads
@@ -251,38 +255,64 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 
-	bundlePath := func(name string) string {
-		return filepath.Join(cfg.Providers.BundleDir, name+".yaml")
+	// The memory service is composition-owned: opened once after storage when
+	// the Generation compiled the memory action module, then resolved by the
+	// generated providers through the package-level registry.
+	memoryOwned := false
+	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/memory-bml") {
+		if _, err := memorymodule.Open(ctx, cfg); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: open memory service: %w", err)
+		}
+		memoryOwned = true
+		defer func() {
+			if memoryOwned {
+				_ = memorymodule.Close()
+			}
+		}()
 	}
-	openaiBundle, err := provider.LoadBundle(bundlePath("openai"))
+
+	// Provider metadata is part of the binary: there is no bundle directory,
+	// no working-directory dependency, and nothing a running instance can be
+	// pointed at (PROV-P1, decision D3). The embedded data is reconciled
+	// against the sealed adapter set before anything can use it (D15).
+	vendors, err := provider.LoadEmbedded()
 	if err != nil {
 		_ = backend.Close()
-		return nil, fmt.Errorf("app: load openai bundle: %w", err)
+		return nil, fmt.Errorf("app: load embedded provider data: %w", err)
 	}
-	anthropicBundle, err := provider.LoadBundle(bundlePath("anthropic"))
-	if err != nil {
+	if err := provider.ReconcileAdapters(vendors, provider.AdapterFamilies()); err != nil {
 		_ = backend.Close()
-		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
+		return nil, fmt.Errorf("app: provider data does not match the sealed adapter set: %w", err)
 	}
-	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
+	catalog := provider.NewCatalog(vendors...)
+	// The configured vendor must exist in the data that was just loaded. The
+	// membership check lives here rather than in config.Validate because
+	// internal/config cannot depend on the provider registry (PROV-P3).
+	if _, ok := catalog.Vendor(cfg.Providers.Active); !ok {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: providers.active %q is not an embedded vendor; provider metadata is data now, "+
+			"so name one of the embedded vendors", cfg.Providers.Active)
+	}
+	configDefault := resolveVendorSelectionBestEffort(catalog, configVendor)
 	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
+	// The wire catalog is the embedded data itself: the frontend holds no
+	// provider data of its own (PROV-P4). Vendors the compiled Generation cannot
+	// execute stay in the payload with executable:false, so a deferred protocol
+	// is visible and not selectable rather than invisible.
+	catalogVendors := catalog.Vendors()
 	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
 		compiledProfiles,
 		cfg.Channels,
-		cfg.Providers.OpenAI.EnvKey,
-		cfg.Providers.Anthropic.EnvKey,
 	))
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
 	}
-	modelProvider, err := modelmodule.Compose(compiledProfiles, modelhost.Capabilities{
-		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
-		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
-	})
+	modelProvider, err := modelmodule.Compose(compiledProfiles, provider.Capabilities())
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
@@ -292,11 +322,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
-		providerName = cfg.Providers.Active
+		providerName = configDefault.Vendor
 	}
 	modelID := cur.Model
 	if modelID == "" {
-		modelID = defaultModelFor(cfg, providerName)
+		modelID = configDefault.Model
 	}
 	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
 	loopDriver, err := loopmodule.Compose(runtime.NewEngineFactory(chatModel))
@@ -663,15 +693,40 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			runObserverHost.Close()
 		}
 	}()
+	generationID := runtimeGenerationID(runtimeAssembly)
+	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	// A sealed first-party composition must never silently downgrade to the
+	// legacy sequential primary admission path. An unpacked development/test
+	// embedder has no sealed identity and remains on the explicitly compatible
+	// path; a packed build is marked by presentation.SealedGeneration and a
+	// non-empty linker-derived identity is also treated as sealed.
+	admission, err := primaryAdmissionForComposition(
+		backend,
+		generationID,
+		presentation.SealedGeneration || generationID != "",
+	)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	maskFrame, maskFrameDigest := "", ""
+	if maskService != nil {
+		maskFrame, maskFrameDigest = maskService.PromptAssets()
+	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
-		Journal:            backend,
-		Runs:               backend,
-		Messages:           backend,
-		Notes:              backend,
-		Approvals:          backend,
-		Questions:          backend,
-		ApprovalExpiration: cfg.Tools.Approval.Expiration,
-		ShellState:         backend.Blobs(),
+		Journal:               backend,
+		Runs:                  backend,
+		Messages:              backend,
+		Notes:                 backend,
+		Approvals:             backend,
+		Questions:             backend,
+		ApprovalExpiration:    cfg.Tools.Approval.Expiration,
+		ApprovalSettleTimeout: time.Duration(cfg.Runtime.Sandbox.Approval.TimeoutSeconds) * time.Second,
+		ShellState:            backend.Blobs(),
 		Budget: runtime.BudgetPolicy{
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
@@ -683,6 +738,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
+		Admission:            admission,
+		MaskResolver:         maskService,
+		MaskFrame:            maskFrame,
+		MaskFrameDigest:      maskFrameDigest,
+		GenerationID:         generationID,
 		Crons:                backend,
 		Channels:             channelHost,
 		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
@@ -718,7 +778,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// empty or unverifiable inventory is a disabled capability, never an
 	// implicit default-allow host.
 	rpcToken := controlrpc.NewSessionToken()
-	generationID := runtimeGenerationID(runtimeAssembly)
 	var actionHost *actionhost.Host
 	actionHostOwned := false
 	if len(runtimeAssembly.ActionSets) > 0 && generationID != "" {
@@ -778,6 +837,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		actionHost, err = actionhost.New(actionhost.Deps{
 			ProviderSets:        runtimeAssembly.ActionSets,
+			MaskManager:         maskService,
 			GenerationAvailable: true,
 			GenerationID:        generationID,
 			Audit:               actionhost.JournalAuditSink{Journal: backend, Logger: logger},
@@ -845,10 +905,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if exeErr != nil {
 		executable = ""
 	}
-	bundleDir := cfg.Providers.BundleDir
-	if abs, err := filepath.Abs(bundleDir); err == nil {
-		bundleDir = abs
-	}
 	evalRunner := eval.NewRunner(eval.Runner{
 		Studio:     studioSvc,
 		Executable: executable,
@@ -857,7 +913,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			ProductionSQLite:    cfg.Storage.SQLite.Path,
 			ProductionWorkspace: cfg.Runtime.WorkspaceRoot,
 			ProductionListen:    cfg.Server.Addr,
-			BundleDir:           bundleDir,
 		},
 	})
 	fileVersions, _ := backend.(storage.ModifiedFileStore)
@@ -866,12 +921,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
-		ActionHost:     actionHost,
-		Marketplace:    marketplace,
-		SkillRevisions: backend,
-		Compactions:    backend,
-		Truncations:    backend,
-		Crons:          backend, CronRunner: svc,
+		CodeModeAvailable: svc.FaceAvailable(domain.FaceCode),
+		ActionHost:        actionHost,
+		Marketplace:       marketplace,
+		SkillRevisions:    backend,
+		Compactions:       backend,
+		Truncations:       backend,
+		Crons:             backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
@@ -885,24 +941,29 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		GenerationLocale: presentation.DefaultLocale,
 		DeveloperLocale:  developerLocale,
 		SealedGeneration: presentation.SealedGeneration,
-		ConfigProvider:   configProvider,
-		ConfigModel:      configModel,
-		ProviderBundles:  []provider.Bundle{openaiBundle, anthropicBundle},
+		ConfigProvider:   configDefault.Vendor,
+		ConfigModel:      configDefault.Model,
+		ConfigAdapter:    configDefault.Adapter,
+		ProviderVendors:  catalogVendors,
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
-			return modelHost.Statuses(current.Provider, current.Ready)
+			// The ModelHost is keyed by the sealed adapter the live selection
+			// speaks (PROV-P3).
+			return modelHost.Statuses(current.Adapter, current.Ready)
 		},
-		RuntimeBaseURL:                 cur.BaseURL,
-		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
-		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
-		DefaultPermissionPreset:        defaultPermissionPreset(cfg),
-		SandboxWorkspaceRoot:           cfg.Runtime.WorkspaceRoot,
-		ExecuteAllowedCommands:         append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
-		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
-		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
-		ConfigHTTPAllowedHosts:         append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
-		ConfigHTTPTimeoutSeconds:       cfg.Runtime.HTTPTimeoutSeconds,
-		ConfigCompaction:               cmp,
+		RuntimeBaseURL:                  cur.BaseURL,
+		ConfigNetworkSearchProvider:     cfg.Tools.NetworkSearch.Provider,
+		ConfigExecuteMaxTimeoutSeconds:  cfg.Runtime.ExecuteMaxTimeoutSeconds,
+		DefaultPermissionPreset:         defaultPermissionPreset(cfg),
+		SandboxWorkspaceRoot:            cfg.Runtime.WorkspaceRoot,
+		ExecuteAllowedCommands:          append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
+		ConfigSandboxDenyPrivateIPs:     cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
+		ConfigSandboxAllowedDomains:     append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
+		ConfigApprovalTimeoutSeconds:    cfg.Runtime.Sandbox.Approval.TimeoutSeconds,
+		ConfigApprovalExpirationSeconds: int(cfg.Tools.Approval.Expiration / time.Second),
+		ConfigHTTPAllowedHosts:          append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
+		ConfigHTTPTimeoutSeconds:        cfg.Runtime.HTTPTimeoutSeconds,
+		ConfigCompaction:                cmp,
 		// Channel ears: the Host exposes the compiled-in set and the process
 		// truth of the last StartAll; channel writes go through the settings
 		// overlay and apply on the next restart (contract §11).
@@ -916,7 +977,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
 		// replays the same document on the next launch.
-		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
+		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
 		FileVersions:     fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
@@ -959,16 +1020,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			resolver.Invalidate()
 			live := resolver.Current()
 			name := live.Provider
-			if name == "" {
-				name = cfg.Providers.Active
-			}
 			id := live.Model
+			if name == "" {
+				name = configDefault.Vendor
+			}
 			if id == "" {
-				id = defaultModelFor(cfg, name)
+				id = configDefault.Model
 			}
 			svc.SetModel(name, id)
 			applyLiveSandboxSettings(sandboxManager, liveSettingsPath, cfg)
 			applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
+			applyLiveApprovalWindow(svc, liveSettingsPath, cfg, logger)
 			s, err := settings.Load(liveSettingsPath)
 			if err != nil {
 				logger.Warn("mcp overlay reload skipped", "err", err)
@@ -1106,6 +1168,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	actionHostOwned = false
 	observerHostOwned = false
 	assemblyOwned = false
+	memoryOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
@@ -1183,6 +1246,7 @@ func (a *App) Close() error {
 		if a.assembly != nil {
 			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 		}
+		a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
 		if a.backend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
 		}
@@ -1250,29 +1314,32 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	return strings.TrimSpace(id)
 }
 
-// applySettingsEnv applies the non-secret base URL and the active bundle
-// api_key overlays to the process environment. It is shared between the
-// startup overlay (next-launch semantics) and the write-time path, so a
-// settings save updates the environment immediately AND the next start
-// replays the same document. Secret values are never logged.
-func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Settings) {
+// applySettingsEnv applies the non-secret base URL and the active selection's
+// api_key overlay to the process environment. It is shared between the startup
+// overlay (next-launch semantics) and the write-time path, so a settings save
+// updates the environment immediately AND the next start replays the same
+// document. Secret values are never logged.
+//
+// The credential variable is the *vendor's*, read from the embedded data: a
+// selection that resolves to a third-party endpoint writes that vendor's
+// environment variable instead of one of the three former config blocks.
+func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config.Config, s settings.Settings) {
 	if s.BaseURL != "" {
 		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	keyEnv := ""
-	switch s.Provider {
-	case settings.ProviderOpenAI:
-		keyEnv = cfg.Providers.OpenAI.EnvKey
-	case settings.ProviderAnthropic:
-		keyEnv = cfg.Providers.Anthropic.EnvKey
+	selection, ok := resolveStoredSelection(catalog, cfg, s)
+	if !ok || selection.Vendor == "" {
+		return
 	}
-	if keyEnv != "" {
-		if key := settings.ActiveKey(s, s.Provider, s.BaseURL); key != "" {
-			if err := os.Setenv(keyEnv, key); err != nil {
-				logger.Warn("settings api_key not applied", "err", err)
-			}
+	vendor, ok := catalog.Vendor(selection.Vendor)
+	if !ok {
+		return
+	}
+	if key := resolveSettingsAPIKey(s, selection); key != "" {
+		if err := os.Setenv(vendor.EnvKey, key); err != nil {
+			logger.Warn("settings api_key not applied", "err", err)
 		}
 	}
 }
@@ -1299,16 +1366,12 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 		return cfg
 	}
 	if s.Provider != "" {
-		cfg.Providers.Active = s.Provider
-		switch s.Provider {
-		case settings.ProviderOpenAI:
-			if s.DefaultModel != "" {
-				cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
-			}
-		case settings.ProviderAnthropic:
-			if s.DefaultModel != "" {
-				cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
-			}
+		// A pre-migration document named a vendor: keep that vendor active so
+		// an address-less selection still resolves to the endpoint it meant.
+		// A document that already names an adapter leaves the configured vendor
+		// in force (DESIGN.md §5): the adapter selects the endpoint variant.
+		if legacy := settings.NormalizeProviderSelection(s.Provider).LegacyVendor; legacy != "" {
+			cfg.Providers.Active = legacy
 		}
 	}
 	if s.NetworkSearch.Provider != "" {
@@ -1336,12 +1399,33 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 	if s.Sandbox.Network.AllowedDomains != nil {
 		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
+	if s.Sandbox.ApprovalTimeoutSeconds != nil {
+		cfg.Runtime.Sandbox.Approval.TimeoutSeconds = effectiveApprovalTimeoutSeconds(cfg, s.Sandbox.ApprovalTimeoutSeconds, logger)
+	}
 	cfg.Runtime.Compaction = mergedCompactionConfig(cfg.Runtime.Compaction, s.Compaction)
 	if merged := mergedChannels(logger, cfg.Channels, s.Channels, compiledChannels); merged != nil {
 		cfg.Channels = merged
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "approval_timeout_seconds", cfg.Runtime.Sandbox.Approval.TimeoutSeconds, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
 	return cfg
+}
+
+// effectiveApprovalTimeoutSeconds resolves the human review window
+// (runtime.sandbox.approval.timeout_seconds) from the config default plus the
+// optional settings overlay. An overlay that is not shorter than the hard
+// tools.approval.expiration cannot shorten review, so it is ignored with a
+// warning rather than silently ignored by the deadline clamp. The startup
+// overlay and the live reload share this rule.
+func effectiveApprovalTimeoutSeconds(cfg config.Config, overlay *int, logger *slog.Logger) int {
+	base := cfg.Runtime.Sandbox.Approval.TimeoutSeconds
+	if overlay == nil || *overlay < 0 {
+		return base
+	}
+	if cfg.Tools.Approval.Expiration > 0 && time.Duration(*overlay)*time.Second >= cfg.Tools.Approval.Expiration {
+		logger.Warn("sandbox approval timeout overlay ignored", "seconds", *overlay, "expiration", cfg.Tools.Approval.Expiration.String())
+		return base
+	}
+	return *overlay
 }
 
 // mergedChannels overlays the settings.yaml per-channel entries onto the
@@ -1550,18 +1634,18 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 	backend.SetConfig(hosts, timeout)
 }
 
-func defaultModelFor(cfg config.Config, providerName string) string {
-	switch providerName {
-	case "anthropic":
-		return cfg.Providers.Anthropic.DefaultModel
-	default:
-		return cfg.Providers.OpenAI.DefaultModel
+// applyLiveApprovalWindow replays the settings.yaml approval-timeout overlay
+// over the config default and live-applies it, so the next approval honors
+// the saved review window without a restart.
+func applyLiveApprovalWindow(svc *runtime.Service, path string, cfg config.Config, logger *slog.Logger) {
+	if svc == nil {
+		return
 	}
-}
-
-func providerConfigBaseline(cfg config.Config) (string, string) {
-	providerName := cfg.Providers.Active
-	return providerName, defaultModelFor(cfg, providerName)
+	s, err := settings.Load(path)
+	if err != nil {
+		return
+	}
+	svc.SetApprovalSettleTimeout(time.Duration(effectiveApprovalTimeoutSeconds(cfg, s.Sandbox.ApprovalTimeoutSeconds, logger)) * time.Second)
 }
 
 // Run blocks until ctx is cancelled or the server fails. On cancellation

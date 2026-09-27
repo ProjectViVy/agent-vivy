@@ -1,0 +1,279 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/memory.title": {
+      "description": "Memory page copy: title",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory",
+        "zh": "记忆"
+      }
+    },
+    "plugin.vivy/memory.subtitle": {
+      "description": "Memory page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Remembered items · search and inspect each record",
+        "zh": "记忆条目 · 搜索并查看每条记录"
+      }
+    },
+    "plugin.vivy/memory.provenance": {
+      "description": "Memory page copy: record provenance source",
+      "placeholders": [
+        "source"
+      ],
+      "messages": {
+        "en": "Source {{source}}",
+        "zh": "来源 {{source}}"
+      }
+    },
+    "plugin.vivy/memory.revision": {
+      "description": "Memory page copy: record revision",
+      "placeholders": [
+        "revision"
+      ],
+      "messages": {
+        "en": "Revision {{revision}}",
+        "zh": "修订版本 {{revision}}"
+      }
+    },
+    "plugin.vivy/memory.trust.applied_authority": {
+      "description": "Memory page copy: trust level applied_authority",
+      "placeholders": [],
+      "messages": {
+        "en": "Authority",
+        "zh": "权威"
+      }
+    },
+    "plugin.vivy/memory.trust.user_asserted": {
+      "description": "Memory page copy: trust level user_asserted",
+      "placeholders": [],
+      "messages": {
+        "en": "User asserted",
+        "zh": "用户声明"
+      }
+    },
+    "plugin.vivy/memory.trust.observed": {
+      "description": "Memory page copy: trust level observed",
+      "placeholders": [],
+      "messages": {
+        "en": "Observed",
+        "zh": "观测"
+      }
+    },
+    "plugin.vivy/memory.trust.inferred": {
+      "description": "Memory page copy: trust level inferred",
+      "placeholders": [],
+      "messages": {
+        "en": "Inferred",
+        "zh": "推断"
+      }
+    },
+    "plugin.vivy/memory.trust.untrusted": {
+      "description": "Memory page copy: trust level untrusted",
+      "placeholders": [],
+      "messages": {
+        "en": "Untrusted",
+        "zh": "不可信"
+      }
+    },
+    "plugin.vivy/memory.trust.unknown": {
+      "description": "Memory page copy: trust level unknown",
+      "placeholders": [],
+      "messages": {
+        "en": "Unknown",
+        "zh": "未知"
+      }
+    },
+    "plugin.vivy/memory.unavailable": {
+      "description": "Memory page copy: host/rpc unavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory backend is unavailable",
+        "zh": "记忆后端不可用"
+      }
+    },
+    "plugin.vivy/memory.empty": {
+      "description": "Memory page copy: empty",
+      "placeholders": [],
+      "messages": {
+        "en": "No memories yet",
+        "zh": "暂无记忆"
+      }
+    },
+    "plugin.vivy/memory.loadFailed": {
+      "description": "Memory page copy: load failure title",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load memories",
+        "zh": "加载记忆失败"
+      }
+    },
+    "plugin.vivy/memory.nav": {
+      "description": "Sidebar VIVY group label for the Memory Module",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory",
+        "zh": "记忆"
+      }
+    },
+    "plugin.vivy/memory.noMatch": {
+      "description": "Memory page copy: noMatch",
+      "placeholders": [],
+      "messages": {
+        "en": "No matching memories",
+        "zh": "没有匹配的记忆"
+      }
+    },
+    "plugin.vivy/memory.searchPlaceholder": {
+      "description": "Memory page copy: searchPlaceholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Search memories",
+        "zh": "搜索记忆"
+      }
+    },
+    "plugin.vivy/memory.selectHint": {
+      "description": "Memory page copy: selectHint",
+      "placeholders": [],
+      "messages": {
+        "en": "Select a memory to see details",
+        "zh": "选择一条记忆查看详情"
+      }
+    },
+    "plugin.vivy/memory.updatedAt": {
+      "description": "Memory page copy: updatedAt",
+      "placeholders": [
+        "date"
+      ],
+      "messages": {
+        "en": "Updated {{date}}",
+        "zh": "更新于 {{date}}"
+      }
+    },
+    "plugin.vivy/memory.createdAt": {
+      "description": "Memory page copy: createdAt",
+      "placeholders": [
+        "date"
+      ],
+      "messages": {
+        "en": "Created {{date}}",
+        "zh": "创建于 {{date}}"
+      }
+    },
+    "plugin.vivy/memory.tabRecords": {
+      "description": "Memory page copy: records tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Records",
+        "zh": "记录"
+      }
+    },
+    "plugin.vivy/memory.tabRules": {
+      "description": "Memory page copy: MEMRULES tab",
+      "placeholders": [],
+      "messages": {
+        "en": "MEMRULES",
+        "zh": "MEMRULES"
+      }
+    },
+    "plugin.vivy/memory.addTitle": {
+      "description": "Memory page copy: add dialog title and button",
+      "placeholders": [],
+      "messages": {
+        "en": "New memory",
+        "zh": "新建记忆"
+      }
+    },
+    "plugin.vivy/memory.editTitle": {
+      "description": "Memory page copy: edit dialog title",
+      "placeholders": [],
+      "messages": {
+        "en": "Edit memory",
+        "zh": "编辑记忆"
+      }
+    },
+    "plugin.vivy/memory.deleteTitle": {
+      "description": "Memory page copy: delete dialog title",
+      "placeholders": [],
+      "messages": {
+        "en": "Delete memory",
+        "zh": "删除记忆"
+      }
+    },
+    "plugin.vivy/memory.deleteHint": {
+      "description": "Memory page copy: delete dialog hint (reason required by backend)",
+      "placeholders": [],
+      "messages": {
+        "en": "This tombstones the record. A reason is required for the audit trail.",
+        "zh": "该记录将被标记删除。审计要求填写删除原因。"
+      }
+    },
+    "plugin.vivy/memory.reasonPlaceholder": {
+      "description": "Memory page copy: delete reason input placeholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Reason for deletion",
+        "zh": "删除原因"
+      }
+    },
+    "plugin.vivy/memory.contentPlaceholder": {
+      "description": "Memory page copy: content textarea placeholder",
+      "placeholders": [],
+      "messages": {
+        "en": "What should Vivy remember?",
+        "zh": "要让 Vivy 记住什么？"
+      }
+    },
+    "plugin.vivy/memory.conflict": {
+      "description": "Memory page copy: revision conflict state",
+      "placeholders": [],
+      "messages": {
+        "en": "This record changed since you opened it. Reload the latest version, then retry.",
+        "zh": "此记录在你打开后已被修改。请刷新到最新版本后重试。"
+      }
+    },
+    "plugin.vivy/memory.evidence": {
+      "description": "Memory page copy: evidence section label",
+      "placeholders": [],
+      "messages": {
+        "en": "Evidence",
+        "zh": "证据"
+      }
+    },
+    "plugin.vivy/memory.statusLine": {
+      "description": "Memory page copy: status strip revision",
+      "placeholders": [
+        "revision"
+      ],
+      "messages": {
+        "en": "Startup revision {{revision}}",
+        "zh": "启动修订 {{revision}}"
+      }
+    },
+    "plugin.vivy/memory.noDatabase": {
+      "description": "Memory page copy: no database badge in status strip",
+      "placeholders": [],
+      "messages": {
+        "en": "no database yet",
+        "zh": "尚无数据库"
+      }
+    },
+    "plugin.vivy/memory.rulesSource.default": {
+      "description": "Memory page copy: MEMRULES source default",
+      "placeholders": [],
+      "messages": {
+        "en": "Built-in default",
+        "zh": "内置默认"
+      }
+    },
+    "plugin.vivy/memory.rulesSource.file": {
+      "description": "Memory page copy: MEMRULES source file",
+      "placeholders": [],
+      "messages": {
+        "en": "MEMRULES.md",
+        "zh": "MEMRULES.md"
+      }
+    }
+  }
+}

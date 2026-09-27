@@ -52,14 +52,7 @@ storage:
   sqlite:
     path: "tmp/vivy.db"
 providers:
-  active: anthropic
-  bundle_dir: fixtures/provider
-  openai:
-    env_key: OPENAI_API_KEY
-    default_model: gpt-4o-mini
-  anthropic:
-    env_key: ANTHROPIC_API_KEY
-    default_model: claude-sonnet-4-5
+  active: deepseek
 runtime:
   stream_buffer: 16
   max_event_payload_bytes: 1024
@@ -86,7 +79,7 @@ func TestLoadValid(t *testing.T) {
 	if len(cfg.Server.AllowedOrigins) != 1 || cfg.Server.AllowedOrigins[0] != "http://127.0.0.1:3015" {
 		t.Errorf("allowed origins = %#v", cfg.Server.AllowedOrigins)
 	}
-	if cfg.Providers.Active != "anthropic" {
+	if cfg.Providers.Active != "deepseek" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
 	if !cfg.TUI.Debug {
@@ -365,21 +358,21 @@ func TestNetworkSearchProviderConfig(t *testing.T) {
 }
 
 // The secret boundary: a credential field that is not part of the shape
-// must be rejected by strict decoding, and a literal secret in env_key
-// must be rejected by validation (D-010).
+// must be rejected by strict decoding, and a literal secret where a name
+// belongs must be rejected by validation (D-010). The provider section holds a
+// vendor name only, so a key pasted there is a shape violation.
 func TestSecretInjectionRejected(t *testing.T) {
 	unknownField := strings.Replace(validDoc,
-		"    env_key: OPENAI_API_KEY",
-		"    env_key: OPENAI_API_KEY\n    api_key: sk-not-a-secret-boundary", 1)
+		"providers:\n  active: deepseek",
+		"providers:\n  active: deepseek\n  api_key: sk-not-a-secret-boundary", 1)
 	if _, err := Load(writeConfig(t, unknownField)); err == nil {
 		t.Fatal("want error for unknown field api_key")
 	}
 
 	literalKey := strings.Replace(validDoc,
-		"    env_key: OPENAI_API_KEY",
-		"    env_key: sk-live-abc123", 1)
+		"active: deepseek", `active: "sk-live-abc123=="`, 1)
 	if _, err := Load(writeConfig(t, literalKey)); err == nil {
-		t.Fatal("want error for literal secret in env_key")
+		t.Fatal("want error for a literal secret in providers.active")
 	}
 }
 
@@ -388,8 +381,10 @@ func TestInvalidValuesRejected(t *testing.T) {
 		"bad addr": strings.Replace(validDoc, `"127.0.0.1:9090"`, `"not-an-addr"`, 1),
 		"bad storage backend": strings.Replace(validDoc,
 			"backend: sqlite", "backend: mariadb", 1),
-		"bad active provider": strings.Replace(validDoc,
-			"active: anthropic", "active: deepseek", 1),
+		"bad active provider shape": strings.Replace(validDoc,
+			"active: deepseek", "active: NotAVendor!", 1),
+		"removed per-vendor block": strings.Replace(validDoc,
+			"providers:\n  active: deepseek", "providers:\n  active: deepseek\n  deepseek:\n    env_key: DEEPSEEK_API_KEY", 1),
 		"bad expiration": strings.Replace(validDoc,
 			"expiration: 2m", "expiration: soon", 1),
 		"removed mock config": strings.Replace(validDoc,
@@ -538,8 +533,10 @@ func TestDockerPackagingContracts(t *testing.T) {
 	if !strings.Contains(df, "VIVY_ADDR=0.0.0.0:8787") {
 		t.Fatal("image must listen on 0.0.0.0:8787")
 	}
-	if !strings.Contains(df, "fixtures/provider") {
-		t.Fatal("image must include provider fixtures")
+	// Provider metadata is embedded in the binary since PROV-P1: the image must
+	// not carry a provider fixture directory.
+	if strings.Contains(df, "fixtures/provider") {
+		t.Fatal("provider data is embedded; the image must not copy fixtures")
 	}
 }
 

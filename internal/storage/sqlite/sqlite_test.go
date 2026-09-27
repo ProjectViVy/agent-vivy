@@ -295,6 +295,14 @@ func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("migration017 marker count = %d, want 1", n)
 	}
+	var name, checksum string
+	if err := b.db.QueryRowContext(ctx,
+		`SELECT name, checksum FROM schema_migrations WHERE version = 17`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read repair metadata: %v", err)
+	}
+	if name != "cron_repair" || len(checksum) != 64 {
+		t.Fatalf("migration017 metadata = %q/%q", name, checksum)
+	}
 }
 
 func TestMessagesPersistImageAttachments(t *testing.T) {

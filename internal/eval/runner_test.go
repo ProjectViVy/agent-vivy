@@ -124,7 +124,6 @@ func newEvalRunner(t *testing.T, executable string) (*Runner, *sqlite.Backend) {
 			ProductionSQLite:    filepath.Join(productionDir, "vivy.db"),
 			ProductionWorkspace: filepath.Join(productionDir, "workspaces"),
 			ProductionListen:    "127.0.0.1:8787",
-			BundleDir:           fixtureBundle(t),
 		},
 		Timeout: 60 * time.Second,
 	}), backend

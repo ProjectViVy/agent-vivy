@@ -259,6 +259,46 @@ exact Recipe order.
 Provides an exclusive replacement for the Web Face root UI. A duplicate is an
 Assembly compile failure.
 
+Composition geometry follows the selected root. With a `std/ui-root@v1`
+Provider selected, that root owns the whole window and every selected
+`std/ui-extension@v1` route renders over it. Without one, the shell owns the
+frame: it renders its own chrome — sidebar, panels, composer — and nests the
+assembled Module route in its route slot, so claiming `/persona` adds a page
+beside the sidebar instead of replacing the application. A Module route is
+addressed by the Host router like any other path; the shell's slot only answers
+paths the core route tree does not own, so a core page is never shadowed by a
+same-path Module contribution.
+
+A navigation item may declare a `group`. The shell projects the items it
+receives for one group as a single ordered surface (today the VIVY sidebar
+group) rather than one global nav list, which is how a Module entry lands
+beside the Host's own entries without owning the group.
+
+Two presentation standards keep assembled Module UI coherent. Both make the
+Host the owner and the Module a declarer.
+
+- **Entry icons are names, not implementations.** `UINavigationItem.icon` is a
+  `HostIconName` from the SDK's closed `HOST_ICON_NAMES` list. The Host resolves
+  that name against its own icon set, so a Module never ships an icon
+  dependency, the shell and Module entries cannot diverge in size or style, and
+  an unknown name degrades to the group icon instead of an unlabelled row.
+- **The Host renders the page frame.** A page declares `defineUIRoute({ path,
+  titleKey, subtitleKey, demo, render })` and returns content only: the Host
+  renders the demo banner, a header carrying the page's own entry icon plus its
+  title and subtitle, and a content region with a definite full height. A Module
+  page therefore fills its frame and owns only its internal scrolling, and every
+  plugin page looks the same no matter who wrote it. A page never draws its own
+  page header, banner, or window-level frame.
+
+A Module names one icon: the one on its navigation contribution. The page
+surface reads it back for the header, so the sidebar entry and the page can
+never disagree.
+
+Localized copy follows the same ownership rule: a Module's strings live in its
+sealed catalog under `plugin.<module-id>.*`, and any other key it looks up
+falls back to the Host dictionary, so shared shell copy (`common.*`) keeps one
+home instead of being copied into every Module.
+
 There is no UI Grant, approval prompt, component allow-list, CSS isolation, or
 per-DOM audit. Selection into the Generation gives a UI Module complete browser
 UI access by default, including browser APIs and client-visible state. It is T2
@@ -329,6 +369,12 @@ re-enters ToolHost.
 | `core/status-host@v1` | `0..1` | Required when a Status Source exists |
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
+
+`core/mask-service@v1` is a specified, optional T1 backend contract owned by
+`vivy/masks` with cardinality `0..1` and Runtime as its sole consumer. It
+remains **SPECIFIED**, not `SUPPORTED`, until the durable service, conformance,
+failure, and Inspect artifacts are complete; it is not selected by the default
+Recipe.
 
 L0 owns ChannelHost and FaceHost authority; they are not replaceable Provider
 slots even though they consume public Ports.

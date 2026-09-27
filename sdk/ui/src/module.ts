@@ -114,6 +114,106 @@ export function defineUIRoot<T extends UIRoot>(root: T): T {
   return root;
 }
 
+/**
+ * A navigation contribution claimed by a named host group. The Web Face Host
+ * renders grouped entries inside the assembled host surface that owns the
+ * group (the sidebar group `vivy` on the current shell) and keeps ungrouped
+ * entries in its own top navigation. A contribution with a `group` is
+ * rendered exactly once, by that group's surface.
+ *
+ * `labelKey` is resolved through the host translator, so a Module must own the
+ * `plugin.<module-id>.*` unit it names; `label` is only a last-resort literal
+ * for a group surface that has no translator.
+ */
+export interface UINavigationItem {
+  readonly group: string;
+  /** In-app route path the entry navigates to. */
+  readonly to: string;
+  /** Plugin-owned translation key for the visible label. */
+  readonly labelKey: string;
+  readonly label?: string;
+  /**
+   * The entry's left icon, named from the host icon set (`HOST_ICON_NAMES`).
+   * The host resolves the name against its own icon implementation, so the
+   * icon looks the same in every surface and a Module never ships an icon
+   * dependency of its own. The page surface shows the same icon in its header,
+   * which is why this is the only place a Module names one.
+   */
+  readonly icon?: HostIconName;
+  /** Ascending order inside the group; equal orders keep Recipe order. */
+  readonly order?: number;
+  readonly exact?: boolean;
+}
+
+/**
+ * The icon names the host guarantees. Every name maps to one icon in the
+ * host's own set: a Module picks a name, never an implementation, so the
+ * installed icon library stays a host decision and two surfaces cannot drift.
+ */
+export const HOST_ICON_NAMES = [
+  'dashboard',
+  'wrench',
+  'sparkles',
+  'settings',
+  'clock',
+  'plug',
+  'zap',
+  'shield-check',
+  'venetian-mask',
+  'user-round',
+  'dna',
+  'brain',
+  'notebook-pen',
+] as const;
+
+export type HostIconName = (typeof HOST_ICON_NAMES)[number];
+
+/**
+ * True when a contribution named an icon from the host set. A host validates
+ * with this before rendering, so an unknown name falls back to the group icon
+ * instead of reaching the renderer as a broken entry.
+ */
+export function isHostIconName(value: unknown): value is HostIconName {
+  return typeof value === 'string' && (HOST_ICON_NAMES as readonly string[]).includes(value);
+}
+
+/** Type-safe authoring helper for grouped navigation contributions. */
+export function defineNavigationItem<T extends UINavigationItem>(item: T): T {
+  return item;
+}
+
+/**
+ * A page contribution. The host renders the page surface around it: the
+ * header (icon, title, subtitle), the demo banner when the page is local demo
+ * data, and the content region with a definite full height. The render
+ * function therefore returns page *content* only — it must not draw its own
+ * page header, banner, or window-level frame, and it owns whatever scrolling
+ * its own panes need.
+ *
+ * `titleKey`/`subtitleKey` are resolved through the host translator exactly
+ * like a navigation `labelKey`, so they are Module-owned
+ * `plugin.<module-id>.*` units.
+ */
+export interface UIRouteItem {
+  /** In-app route path this page answers. */
+  readonly path: string;
+  /** Plugin-owned key for the page title. */
+  readonly titleKey?: string;
+  /** Plugin-owned key for the page subtitle. */
+  readonly subtitleKey?: string;
+  /** Literal fallbacks for surfaces without a translator. */
+  readonly title?: string;
+  readonly subtitle?: string;
+  /** True when the page is local demo data and needs the host demo banner. */
+  readonly demo?: boolean;
+  readonly render: () => React.ReactNode;
+}
+
+/** Type-safe authoring helper for page contributions. */
+export function defineUIRoute<T extends UIRouteItem>(route: T): T {
+  return route;
+}
+
 export interface UIContributionRelations {
   /** IDs that must be installed before this contribution. */
   readonly before?: readonly string[] | string;
@@ -447,6 +547,25 @@ export interface UIRegistry<T = unknown> {
   unregister(id: string): void;
 }
 
+/** Read-only state supplied to contributions rendered in the chat header slot. */
+export interface ChatHeaderContext {
+  readonly sessionId: string | null;
+  readonly running: boolean;
+}
+
+/** Typed value accepted by the host's existing components registry for chat headers. */
+export interface ChatHeaderContribution {
+  readonly slot: "chat.header";
+  readonly render: (context: ChatHeaderContext) => React.ReactNode;
+}
+
+/** Runtime shape guard used by the host before rendering a registry value. */
+export function isChatHeaderContribution(value: unknown): value is ChatHeaderContribution {
+  if (!value || typeof value !== "object") return false;
+  const contribution = value as Partial<ChatHeaderContribution>;
+  return contribution.slot === "chat.header" && typeof contribution.render === "function";
+}
+
 /**
  * The broad, host-owned composition surface. Concrete Web Face registries can
  * specialize these values without changing the public Module ABI.
@@ -778,6 +897,18 @@ export interface FaceSandboxSettings {
   readonly allowed_domains: string[];
   readonly workspace_root?: string;
   readonly execute_allowed_commands?: string[];
+  /**
+   * Human review window for an effectful tool approval, in seconds; 0 means
+   * timed auto-approval is disabled. Under the smart preset the runtime
+   * approves the call on the user's behalf when the window elapses. Kept
+   * required and mutually assignable with the host's own view, like the rest
+   * of this interface.
+   */
+  readonly approval_timeout_seconds: number;
+  /** The config-file fallback a face shows when the overlay is cleared. */
+  readonly config_approval_timeout_seconds: number;
+  /** The hard `tools.approval.expiration` (seconds) bounding the window. */
+  readonly approval_expiration_seconds: number;
 }
 
 export interface FaceSettingsUpdate {
@@ -791,6 +922,8 @@ export interface FaceSettingsUpdate {
     readonly default_preset: Exclude<FacePermissionPreset, "custom">;
     readonly deny_private_ips: boolean;
     readonly allowed_domains: string[];
+    /** Absent keeps the saved value; explicit 0 disables timed auto-approval. */
+    readonly approval_timeout_seconds?: number;
   };
   readonly compaction?: {
     readonly enabled: boolean;
@@ -902,10 +1035,61 @@ export interface FaceToolsCatalogView {
   readonly overlay_written: boolean;
 }
 
+/**
+ * Sealed protocol adapter ids (PROV-P2). This is the write vocabulary for a
+ * provider selection: a client names the protocol, and the backend resolves the
+ * vendor, endpoint and credential from its embedded provider data.
+ */
+export type FaceProviderAdapter =
+  | "openai-completions"
+  | "openai-responses"
+  | "anthropic-messages";
+
+/**
+ * First-class bundle names a pre-migration settings document may still hold
+ * (MIGRATION.md §3). The backend normalizes them on read, so they stay part of
+ * the wire vocabulary for compatibility; new writes use FaceProviderAdapter.
+ */
+export type FaceLegacyProviderBundle = "openai" | "anthropic" | "deepseek";
+
+/** A provider selection as the wire carries it: an adapter id, or a legacy bundle name. */
+export type FaceProviderValue = FaceProviderAdapter | FaceLegacyProviderBundle;
+
+/** The sealed adapter's own capability state. */
+export type FaceProviderAdapterState = "SUPPORTED" | "DEFERRED-INDEFINITE";
+
+/**
+ * One endpoint variant of an embedded vendor: the (adapter, base_url) identity,
+ * its model list, and whether this Generation can construct it.
+ */
+export interface FaceProviderEndpoint {
+  readonly adapter: FaceProviderAdapter;
+  readonly base_url: string;
+  readonly default_model: string;
+  readonly models: string[];
+  /**
+   * False for an adapter this Generation seals but cannot construct
+   * (DEFERRED-INDEFINITE): visible, not selectable.
+   */
+  readonly executable: boolean;
+  readonly state: FaceProviderAdapterState;
+}
+
+/**
+ * One embedded vendor with all of its endpoint variants (PROV-P4). This is the
+ * frontend's only provider source: a Face implementation holds no vendor,
+ * endpoint, or model data of its own.
+ */
+export interface FaceProviderCatalogEntry {
+  readonly vendor: string;
+  readonly display_name: string;
+  readonly endpoints: FaceProviderEndpoint[];
+}
+
 export interface FaceProviderEntry {
   readonly id: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic";
+  readonly bundle: FaceProviderValue;
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -915,7 +1099,7 @@ export interface FaceProviderEntry {
 export interface FaceProviderEntryInput {
   readonly id?: string;
   readonly display_name: string;
-  readonly bundle: "openai" | "anthropic";
+  readonly bundle: FaceProviderValue;
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
@@ -924,6 +1108,8 @@ export interface FaceProviderEntryInput {
 
 export interface FaceProvidersView {
   readonly entries: readonly FaceProviderEntry[];
+  /** The embedded catalog this Generation was built with. */
+  readonly catalog: readonly FaceProviderCatalogEntry[];
   readonly active_provider: string;
   readonly active_model: string;
   readonly active_base_url: string;
@@ -935,7 +1121,7 @@ export interface FaceProvidersView {
 
 export interface FaceProviderRefreshInput {
   readonly id?: string;
-  readonly bundle?: "openai";
+  readonly bundle?: FaceProviderValue;
   readonly base_url?: string;
   readonly display_name?: string;
   readonly default_model?: string;
@@ -1522,6 +1708,10 @@ export interface FaceStoreState {
   readonly initialized: boolean;
   readonly initializationError: string | null;
   readonly capabilities: string[];
+  /** Backend-advertised ability to submit runs with the code Face. */
+  readonly codeModeAvailable: boolean;
+  /** Per-face-session code mode toggle; mask selection never owns this state. */
+  readonly codeMode: boolean;
   readonly connection: FaceConnectionState;
   readonly sessions: FaceSession[];
   readonly sessionsPhase: FacePhase;
@@ -1538,6 +1728,11 @@ export interface FaceStoreState {
   readonly todoPanelOpen: boolean;
   readonly currentRun: FaceRun | null;
   readonly runEvents: FaceRunEvent[];
+  /**
+   * 历史运行的事件缓存（`run/log` 回放），键为 run id；转写据此折叠工具与
+   * 思考行。当前运行始终以 `runEvents` 为准。
+   */
+  readonly runLogs: { readonly [runId: string]: FaceRunEvent[] };
   readonly streamingText: string;
   readonly streamingReasoning: string;
   readonly runError: string | null;
@@ -1563,6 +1758,12 @@ export interface FaceStoreState {
   readonly settingsPhase: FacePhase;
   readonly settingsError: string | null;
   readonly providers: FaceProviderEntry[];
+  /**
+   * The embedded catalog this Generation was built with. Kept as a mutable
+   * array, like `providers`: the Face store state must stay mutually assignable
+   * with the implementation's own state type.
+   */
+  readonly catalog: FaceProviderCatalogEntry[];
   readonly providersPhase: FacePhase;
   readonly providersError: string | null;
   readonly species: FaceSpeciesInspect | null;
@@ -1574,6 +1775,7 @@ export interface FaceStoreState {
   readonly lifecycleBusy: boolean;
   initialize(): Promise<void>;
   retryInitialize(): Promise<void>;
+  setCodeMode(enabled: boolean): void;
   loadSessions(): Promise<void>;
   createSession(title?: string, workspacePath?: string): Promise<FaceSession>;
 	chooseWorkspace(workspacePath: string): Promise<FaceSession>;
@@ -1588,6 +1790,7 @@ export interface FaceStoreState {
   clearQueue(): void;
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
+  loadRunLog(runId: string): Promise<void>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;

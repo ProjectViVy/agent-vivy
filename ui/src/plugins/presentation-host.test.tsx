@@ -7,24 +7,27 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Navigate,
   Outlet,
   RouterProvider,
   useRouterState,
 } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  ChatHeaderContext,
+  ChatHeaderContribution,
   FaceStoreState,
   FullUIHost,
   UIExtension,
   UICompositionHost,
   UIRoot,
 } from '@vivy/ui-sdk';
+import { defineNavigationItem, defineUIRoute } from '@vivy/ui-sdk';
 import { useVivyStore } from '@/lib/store';
 import {
   createWebFaceHost,
   PRESENTATION_COMMAND_EVENT,
   PresentationHost,
+  useActivePresentationRoute,
   type PresentationProvenance,
 } from './presentation-host';
 
@@ -133,6 +136,89 @@ describe('PresentationHost', () => {
     expect(document.documentElement.dataset.fixtureStyle).toBe('enabled');
     expect(container.querySelector('[data-vivy-presentation-provenance]')).not.toBeNull();
     expect(container.textContent).not.toContain('permission');
+  });
+
+  it('renders no chat header when the typed components slot is empty', async () => {
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={host({ activeSessionId: 'session-current' })} extensions={[]} />);
+    });
+
+    expect(container.querySelector('[data-testid^="header-"]')).toBeNull();
+  });
+
+  it('renders only ordered typed chat header contributions with the current session context', async () => {
+    const selectedHost = host({ activeSessionId: 'session-current', runBusy: true });
+    const selectedExtension = extension('fixture/chat-header', (receivedHost) => {
+      receivedHost.composition.components.register('header-unknown', { render: () => <span data-testid="unknown-header">Unknown</span> });
+      receivedHost.composition.components.register('header-empty', null);
+      receivedHost.composition.components.register('header-first', {
+        slot: 'chat.header',
+        render: ({ sessionId, running }: ChatHeaderContext) => (
+          <span data-testid="header-first">{`${sessionId}:${running ? 'running' : 'idle'}`}</span>
+        ),
+      });
+      receivedHost.composition.components.register('header-second', {
+        slot: 'chat.header',
+        render: (_context: ChatHeaderContext) => <span data-testid="header-second">second</span>,
+      });
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+    });
+
+    const rendered = [...container.querySelectorAll('[data-testid^="header-"]')].map((node) => node.textContent);
+    expect(rendered).toEqual(['session-current:running', 'second']);
+    expect(container.querySelector('[data-testid="unknown-header"]')).toBeNull();
+  });
+
+  it('updates typed chat header context when the host session changes', async () => {
+    let current = { ...({ activeSessionId: 'session-a', runBusy: false } as FaceStoreState) };
+    const listeners = new Set<() => void>();
+    const selectedHost = host();
+    selectedHost.store.getState = () => current;
+    selectedHost.store.getInitialState = () => current;
+    selectedHost.store.subscribe = (listener) => {
+      const notify = () => listener(current, current);
+      listeners.add(notify);
+      return () => listeners.delete(notify);
+    };
+    const selectedExtension = extension('fixture/chat-header-session', (receivedHost) => {
+      receivedHost.composition.components.register('header', {
+        slot: 'chat.header',
+        render: ({ sessionId }: ChatHeaderContext) => <span data-testid="header-session">{sessionId ?? 'none'}</span>,
+      });
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+    });
+    expect(container.querySelector('[data-testid="header-session"]')?.textContent).toBe('session-a');
+
+    await act(async () => {
+      current = { ...current, activeSessionId: 'session-b' };
+      for (const listener of listeners) listener();
+    });
+    expect(container.querySelector('[data-testid="header-session"]')?.textContent).toBe('session-b');
+  });
+
+  it('keeps typed header render failures inside the existing error boundary and cleans owners', async () => {
+    const events: string[] = [];
+    const selectedHost = host({ activeSessionId: 'session-current' });
+    const selectedExtension = extension('fixture/chat-header-failing', (receivedHost) => {
+      receivedHost.composition.components.register('header', {
+        slot: 'chat.header',
+        render: () => { throw new Error('fixture header failed'); },
+      });
+      return () => events.push('cleanup');
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture header failed');
+    expect(events).toEqual(['cleanup']);
   });
 
   it('installs extensions in exact order and cleans every registration in reverse order once', async () => {
@@ -665,6 +751,80 @@ describe('PresentationHost', () => {
     }
   });
 
+  it('renders a claimed path inside the host page surface with its entry icon, title, and demo banner', async () => {
+    let actualRouter: ReturnType<typeof createRouter> | undefined;
+    const selectedExtension = extension('fixture/surface', (receivedHost) => {
+      receivedHost.composition.navigation.register('fixture-surface-nav', defineNavigationItem({
+        group: 'fixture', to: '/surface', labelKey: 'plugin.fixture/surface.nav', icon: 'brain', order: 10,
+      }));
+      receivedHost.composition.routes.register('fixture-surface-route', defineUIRoute({
+        path: '/surface',
+        titleKey: 'plugin.fixture/surface.title',
+        subtitleKey: 'plugin.fixture/surface.subtitle',
+        demo: true,
+        render: () => <article data-testid="surface-content">Surface content</article>,
+      }));
+    });
+    const catalog = {
+      apiVersion: 'vivy.i18n/v1',
+      schemaVersion: 'vivy.i18n/v1',
+      path: 'i18n/catalog.json',
+      defaultLocale: 'en',
+      locales: ['en', 'zh'],
+      module: 'fixture/surface',
+      units: {
+        'plugin.fixture/surface.title': { description: 'Title', placeholders: [], messages: { en: 'Surface title', zh: '表面标题' } },
+        'plugin.fixture/surface.subtitle': { description: 'Subtitle', placeholders: [], messages: { en: 'Surface subtitle', zh: '表面副标题' } },
+      },
+    } as const;
+    const selectedHost = createWebFaceHost(
+      { navigate: (options) => actualRouter!.navigate(options as never), invalidate: () => actualRouter!.invalidate() },
+      { catalogs: [{ ...catalog, digest: catalogProjectionDigest(catalog) }] },
+    );
+    const slot = () => container.querySelector('[data-testid="route-slot"]');
+    function RouteSlotProbe({ host }: { readonly host: FullUIHost }) {
+      return <div data-testid="route-slot">{useActivePresentationRoute(host)}</div>;
+    }
+    const rootRoute = createRootRoute({
+      notFoundComponent: () => null,
+      component: () => {
+        const pathname = useRouterState({ select: (state) => state.location.pathname });
+        return (
+          <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}>
+            <RouteSlotProbe host={selectedHost} />
+          </PresentationHost>
+        );
+      },
+    });
+    const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: () => null });
+    actualRouter = createRouter({
+      routeTree: rootRoute.addChildren([indexRoute]),
+      history: createMemoryHistory({ initialEntries: ['/surface'] }),
+      notFoundMode: 'fuzzy',
+    });
+
+    await act(async () => {
+      reactRoot.render(<RouterProvider router={actualRouter!} />);
+      await actualRouter!.load();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const surface = slot()?.querySelector('[data-vivy-presentation-route="fixture-surface-route"]');
+    // The surface is the host's frame: a definite full height, one header, one
+    // content region — a Module page never draws its own.
+    expect(surface?.className).toContain('h-full');
+    expect(surface?.className).toContain('min-h-0');
+    expect(surface?.querySelectorAll('[data-vivy-presentation-page-header] h1')).toHaveLength(1);
+    expect(surface?.querySelector('[data-vivy-presentation-page-header] h1')?.textContent).toBe('Surface title');
+    expect(surface?.querySelector('[data-vivy-presentation-page-header]')?.textContent).toContain('Surface subtitle');
+    // The header icon is the icon the page's own navigation entry named.
+    expect(surface?.querySelectorAll('[data-vivy-presentation-page-header] svg')).toHaveLength(1);
+    expect(surface?.querySelector('[data-vivy-presentation-page-content] [data-testid="surface-content"]')?.textContent).toBe('Surface content');
+    expect(surface?.textContent).toContain('Demo');
+    // The shell frame is untouched: the surface nests inside it.
+    expect(container.querySelector('.vivy-presentation-host')).not.toBeNull();
+  });
+
   it('uses the actual TanStack router location for registered plugin navigation', async () => {
     let actualRouter: ReturnType<typeof createRouter> | undefined;
     const selectedExtension = extension('fixture/tanstack-navigation', (receivedHost) => {
@@ -699,10 +859,12 @@ describe('PresentationHost', () => {
     });
 
     expect(actualRouter!.state.location.pathname).toBe('/fixture');
-    expect(container.querySelector('[data-testid="tanstack-route"]')?.textContent).toBe('TanStack route');
+    // The Host router owns the address; a Generation without an exclusive root
+    // leaves the frame to the shell, which nests the Module route itself.
+    expect(container.querySelector('[data-testid="tanstack-route"]')).toBeNull();
   });
 
-  it('keeps a direct plugin deep link in the real router and restores NotFound after cleanup', async () => {
+  it('hands a claimed path to the frame route slot and clears it when the route is disposed', async () => {
     let actualRouter: ReturnType<typeof createRouter> | undefined;
     let disposeRoute: (() => void) | undefined;
     const selectedExtension = extension('fixture/tanstack-deep-link', (receivedHost) => {
@@ -716,11 +878,19 @@ describe('PresentationHost', () => {
       navigate: (options) => actualRouter!.navigate(options as never),
       invalidate: () => actualRouter!.invalidate(),
     });
+    const slot = () => container.querySelector('[data-testid="route-slot"]');
+    function RouteSlotProbe({ host }: { readonly host: FullUIHost }) {
+      return <div data-testid="route-slot">{useActivePresentationRoute(host)}</div>;
+    }
     const rootRoute = createRootRoute({
-      notFoundComponent: () => <Navigate to="/" replace />,
+      notFoundComponent: () => null,
       component: () => {
         const pathname = useRouterState({ select: (state) => state.location.pathname });
-        return <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}><Outlet /></PresentationHost>;
+        return (
+          <PresentationHost host={selectedHost} extensions={[selectedExtension]} path={pathname}>
+            <RouteSlotProbe host={selectedHost} />
+          </PresentationHost>
+        );
       },
     });
     const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: () => null });
@@ -735,15 +905,13 @@ describe('PresentationHost', () => {
       await actualRouter!.load();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(actualRouter!.state.location.pathname).toBe('/deep-link');
-    expect(container.querySelector('[data-testid="deep-link-route"]')?.textContent).toBe('Deep link route');
+    expect(slot()?.querySelector('[data-testid="deep-link-route"]')?.textContent).toBe('Deep link route');
 
     await act(async () => {
       disposeRoute?.();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(actualRouter!.state.location.pathname).toBe('/');
-    expect(container.querySelector('[data-testid="deep-link-route"]')).toBeNull();
+    expect(slot()?.querySelector('[data-testid="deep-link-route"]')).toBeNull();
   });
 });
 

@@ -22,24 +22,11 @@ func (moduleInstance) Close(context.Context) error { return nil }
 
 type channelProvider struct{}
 
-func NewProvider() channel.ChannelProvider { return channelProvider{} }
-
-// MaxMessageRunes: the official create-message endpoint caps content at
-// 2000 characters (discord.com/developers/docs, create message) and
-// rejects longer bodies with 400 50035.
-func (channelProvider) Definition() channel.Definition {
-	return channel.Definition{ID: "vivy.discord", MaxMessageRunes: 2000}
-}
+func NewProvider() channel.ChannelProvider             { return channelProvider{} }
+func (channelProvider) Definition() channel.Definition { return channel.Definition{ID: "vivy.discord"} }
 func (channelProvider) Construct(_ context.Context, h channel.Host) (channel.Instance, error) {
 	return &boundChannel{adapter: newAdapter(), host: h}, nil
 }
-
-// CapabilityTarget points capability discovery at the adapter's method set
-// without constructing one (plugin.CapabilitySource). This bind-time probe
-// is only ever type-asserted; once Start has built the instance, the
-// boundChannel disclosure below exposes the live adapter for host call
-// paths (typing, health probes).
-func (channelProvider) CapabilityTarget() any { return (*Plugin)(nil) }
 
 type boundChannel struct {
 	adapter *Plugin
@@ -51,12 +38,6 @@ func (c *boundChannel) Stop(ctx context.Context) error  { return c.adapter.Stop(
 func (c *boundChannel) Send(ctx context.Context, m channel.OutboundMessage) ([]string, error) {
 	return c.adapter.Send(ctx, m)
 }
-
-// CapabilityTarget discloses the live adapter (plugin.CapabilitySource):
-// once the instance exists, host call paths resolve to the adapter's own
-// method set through the wrapper instead of the bind-time typed nil.
-func (c *boundChannel) CapabilityTarget() any { return c.adapter }
-
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/discord", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/discord", SHA256: "ee1606ec75a2b4d6ac4ce5b0ed8cc0acdd2a6668d5f1c4051421b44ce2a092d7"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.discord"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/discord", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/discord", SHA256: "387ef710196480a565811aebb62b34274f6740b7360855fa450af2e74679acc0"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.discord"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }

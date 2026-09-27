@@ -29,18 +29,19 @@ storage:
     dsn_env: VIVY_POSTGRES_DSN
 
 providers:
-  # Pre-baked bundle to activate. V0 ships exactly two bundles:
-  # openai (OpenAI-compatible) and anthropic (D-018, D-023).
-  active: openai
-  # Directory holding the pre-baked bundle YAML files (A2 fixtures).
-  bundle_dir: fixtures/provider
-  openai:
-    # Secret is read from this environment variable, never persisted.
-    env_key: OPENAI_API_KEY
-    default_model: gpt-4o-mini
-  anthropic:
-    env_key: ANTHROPIC_API_KEY
-    default_model: claude-sonnet-4-5
+  # The vendor whose declared endpoint the runtime falls back to when a
+  # settings selection names no address of its own. The embedded catalog
+  # carries every supported vendor; `deepseek` is the default.
+  #
+  # Provider metadata (endpoints, protocols, models, credential variable names)
+  # is embedded in the binary since PROV-P1 and is never read from disk, so
+  # there is no bundle directory and no per-vendor block here any more
+  # (PROV-P3). A vendor's credential is read from its own environment variable,
+  # declared in the data, at request time (D-010).
+  active: deepseek
+  # DeepSeek's base URL carries no /v1 suffix: the endpoint resolves to
+  # https://api.deepseek.com/chat/completions exactly as documented, and its
+  # credential comes from DEEPSEEK_API_KEY.
 
 tui:
   # false keeps completed tool cards to a bounded preview. Set true only
@@ -63,7 +64,7 @@ runtime:
   # Optional cheaper model (same active provider, same key) for utility
   # generations such as session auto-titles; failures fall back to the main
   # model. Leave empty to always use the main model.
-  # small_model: gpt-4o-mini
+  # small_model: deepseek-v4-flash
   # Default: <user data root>/workspace (under the OS user home). One
   # private sandbox directory per background run lives under this root.
   # Launch-directory AGENTS.md (walk-up to the git root) is injected
@@ -151,8 +152,13 @@ runtime:
       #   never - deny all effectful tools without asking
       #   auto  - auto-approve readonly/whitelisted tools, ask for others
       default_policy: ask
-      # Timeout in seconds before pending approvals are auto-expired and denied.
-      # Set to 0 to disable timeout (approvals expire based on expiration field only).
+      # Human review window, in seconds, for an effectful tool approval. When
+      # it elapses with no decision the runtime settles the approval: under
+      # the smart preset (workspace-write + ask) the call is approved on the
+      # user's behalf, and under every other preset it expires and closes the
+      # run with the human_timeout cause.
+      # Set to 0 to disable timed auto-approval; tools.approval.expiration
+      # then remains the only bound.
       timeout_seconds: 300
       # Tools that are auto-approved under the "auto" policy (typically readonly tools).
       auto_approve_tools:

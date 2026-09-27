@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -375,7 +376,6 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 			EvalRoot:   filepath.Join(t.TempDir(), "evals"),
 			Isolation: eval.Isolation{
 				ProductionSQLite: filepath.Join(t.TempDir(), "prod.db"),
-				BundleDir:        filepath.Join("..", "..", "fixtures", "provider"),
 			},
 		}),
 		Children: childControllerStub{},
@@ -512,6 +512,45 @@ func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 	}
 	if len(logEnvelope.Events) == 0 || logEnvelope.Events[0].RunID != domain.RunID(accepted.RunID) {
 		t.Fatalf("run log = %+v", logEnvelope)
+	}
+}
+
+func TestInitializeProjectsCodeModeCapability(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.CodeModeAvailable = true
+	})
+	result, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		CodeModeAvailable bool `json:"code_mode_available"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=true", raw)
+	}
+
+	without := newControlTestEnv(t)
+	result, rpcErr = callControl(t, without.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.CodeModeAvailable {
+		t.Fatalf("initialize = %s, want code_mode_available=false when the face gate is absent", raw)
 	}
 }
 
@@ -934,8 +973,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 		DefaultPermissionPreset:        domain.PermissionPresetSmart,
@@ -955,7 +994,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, rpcErr := callControl(t, roHandler, "settings/update", map[string]any{
-		"provider": "openai",
+		"provider": "deepseek",
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected conflict when settings path is empty, got %v", rpcErr)
 	}
@@ -969,8 +1008,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ReadOnly {
 		t.Fatal("settings should be writable when path is configured")
 	}
-	if get.ConfigProvider != "openai" {
-		t.Fatalf("config_provider = %q, want openai", get.ConfigProvider)
+	if get.ConfigProvider != "deepseek" {
+		t.Fatalf("config_provider = %q, want deepseek", get.ConfigProvider)
 	}
 
 	// Invalid update is rejected (bad provider).
@@ -982,8 +1021,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 
 	// Valid update persists and is reflected on the next get.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":      "openai",
-		"default_model": "gpt-4o",
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
 		"base_url":      "https://gw.example.com/v1",
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -993,7 +1032,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	get = result.(settingsResult)
-	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
+	if get.Provider != "deepseek" || get.DefaultModel != "deepseek-flash" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
 	if get.APIKeySet {
@@ -1028,8 +1067,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// Update with an api_key overlay: the flag is set but the value is
 	// never echoed back (settingsResult has no key field; JSON must too).
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":      "openai",
-		"default_model": "gpt-4o",
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
 		"base_url":      "https://gw.example.com/v1",
 		"api_key":       "sk-test-overlay",
 	}); rpcErr != nil {
@@ -1053,7 +1092,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 
 	// Update without api_key keeps the overlay; select does not clear keys.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider": "openai",
+		"provider": "deepseek",
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -1070,8 +1109,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// fallbacks; an out-of-bounds value is rejected without clobbering the
 	// saved document.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":                    "openai",
-		"default_model":               "gpt-4o",
+		"provider":                    "deepseek",
+		"default_model":               "deepseek-flash",
 		"base_url":                    "https://gw.example.com/v1",
 		"execute_max_timeout_seconds": 300,
 	}); rpcErr != nil {
@@ -1085,7 +1124,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ExecuteMaxTimeoutSeconds != 300 {
 		t.Fatalf("execute_max_timeout_seconds not persisted: %+v", get)
 	}
-	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "openai" || get.ConfigModel != "gpt-4o-mini" {
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "deepseek" || get.ConfigModel != "deepseek-flash" {
 		t.Fatalf("update echo must include config fallbacks: %+v", get)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
@@ -1106,13 +1145,13 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// next get echoes it back alongside the config default. An unsupported
 	// provider is rejected (validation) without overwriting the saved one.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "openai",
+		"provider":       "deepseek",
 		"network_search": map[string]any{"provider": "searxng"},
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "openai",
+		"provider":       "deepseek",
 		"network_search": map[string]any{"provider": "yandex"},
 	}); rpcErr == nil {
 		t.Fatal("expected unsupported network_search provider to be rejected")
@@ -1161,7 +1200,7 @@ func TestSettingsGetExposesBackendAuthoritativeLocale(t *testing.T) {
 	if wire.Locale != "zh" || wire.GenerationLocale != "en" || wire.WorkspaceLocale != "zh" || wire.ReadOnly {
 		t.Fatalf("settings/get locale wire = %s", raw)
 	}
-	result, rpcErr = callControl(t, env.handler, "settings/update", map[string]any{"provider": "openai"})
+	result, rpcErr = callControl(t, env.handler, "settings/update", map[string]any{"provider": "deepseek"})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -1264,8 +1303,8 @@ func TestSettingsLocaleUpdatesOnlyLocaleAndAllowsFrozenProvider(t *testing.T) {
 	channelEnabled := true
 	allowedSenders := []string{"alice"}
 	initial := settings.Settings{
-		Provider:     settings.ProviderOpenAI,
-		DefaultModel: "gpt-4o",
+		Provider:     settings.ProviderDeepSeek,
+		DefaultModel: "deepseek-flash",
 		Providers: []settings.ProviderEntry{{
 			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: settings.ProviderOpenAI,
 			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
@@ -1980,8 +2019,8 @@ func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 	}
@@ -2043,7 +2082,7 @@ func TestProviderRegistryRPC(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	view := result.(providersResult)
-	if len(view.Entries) != 0 || view.ConfigProvider != "openai" || view.ReadOnly {
+	if len(view.Entries) != 0 || view.ConfigProvider != "deepseek" || view.ReadOnly {
 		t.Fatalf("empty registry view = %+v", view)
 	}
 
@@ -2147,15 +2186,27 @@ func TestProviderRegistryRPC(t *testing.T) {
 func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
 	profiles := func() []modelhost.ProfileStatus {
 		return []modelhost.ProfileStatus{
-			{ID: "openai", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"gpt-4o"}, State: modelhost.ProfileReady},
+			{ID: "deepseek", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"deepseek-flash"}, State: modelhost.ProfileReady},
 			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileDeferredIndefinite},
 		}
 	}
 	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
 		deps.ProviderProfileStatuses = profiles
-		deps.ProviderBundles = []provider.Bundle{
-			{Name: "openai", Models: []string{"gpt-4o"}},
-			{Name: "future", Models: []string{"future-1"}},
+		deps.ProviderVendors = []provider.Vendor{
+			{
+				Name: "deepseek", DisplayName: "DeepSeek",
+				Endpoints: []provider.Endpoint{{
+					Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://api.deepseek.com",
+					DefaultModel: "deepseek-flash", Models: []provider.Model{{ID: "deepseek-flash"}},
+				}},
+			},
+			{
+				Name: "future", DisplayName: "Future",
+				Endpoints: []provider.Endpoint{{
+					Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://future.invalid",
+					DefaultModel: "future-1", Models: []provider.Model{{ID: "future-1"}},
+				}},
+			},
 		}
 	})
 
@@ -2428,12 +2479,163 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	}
 }
 
+// The smart-mode review window round-trips through settings/get and
+// settings/update, including the explicit 0 that disables timed
+// auto-approval, and an update that omits the field keeps the saved value.
+func TestSettingsApprovalTimeoutOverlay(t *testing.T) {
+	env, settingsPath := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ConfigApprovalTimeoutSeconds = 300
+		deps.ConfigApprovalExpirationSeconds = 300
+	})
+
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Sandbox.ApprovalTimeoutSeconds != 300 || get.Sandbox.ConfigApprovalTimeoutSeconds != 300 || get.Sandbox.ApprovalExpirationSeconds != 300 {
+		t.Fatalf("initial sandbox window = %+v", get.Sandbox)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": 45},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 45 {
+		t.Fatalf("saved approval timeout = %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if got := result.(settingsResult).Sandbox.ApprovalTimeoutSeconds; got != 45 {
+		t.Fatalf("effective approval timeout = %d, want 45", got)
+	}
+
+	// An update that carries no sandbox block must not clear the window.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek", "default_model": "deepseek-flash",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if loaded, err = settings.Load(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 45 {
+		t.Fatalf("unrelated update cleared the window: %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+
+	// Explicit 0 is the "never auto-approve" setting and survives as 0.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": 0},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if loaded, err = settings.Load(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Sandbox.ApprovalTimeoutSeconds == nil || *loaded.Sandbox.ApprovalTimeoutSeconds != 0 {
+		t.Fatalf("explicit 0 did not persist: %+v", loaded.Sandbox.ApprovalTimeoutSeconds)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if got := result.(settingsResult).Sandbox.ApprovalTimeoutSeconds; got != 0 {
+		t.Fatalf("effective approval timeout after 0 = %d, want 0", got)
+	}
+
+	// Out of range is rejected at the boundary.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "deepseek",
+		"sandbox":  map[string]any{"default_preset": "smart", "approval_timeout_seconds": -5},
+	}); rpcErr == nil {
+		t.Fatal("negative approval timeout must be rejected")
+	}
+}
+
+// PROV-P4: the catalog payload is the embedded data — every vendor with all of
+// its endpoint variants — so the frontend holds no provider data of its own.
+// The deferred protocol must be visible and marked non-executable, and no
+// credential name or value may cross the boundary.
+func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
+	vendors, err := provider.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ProviderVendors = provider.NewCatalog(vendors...).Vendors()
+	})
+	result, rpcErr := callControl(t, env.handler, "settings/providers", map[string]any{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+
+	seen := make(map[string]int, len(view.Catalog))
+	endpoints, deferred := 0, 0
+	for _, entry := range view.Catalog {
+		if entry.Vendor == "" || entry.DisplayName == "" || len(entry.Endpoints) == 0 {
+			t.Fatalf("catalog entry incomplete: %+v", entry)
+		}
+		seen[entry.Vendor]++
+		for _, endpoint := range entry.Endpoints {
+			endpoints++
+			if endpoint.Adapter == "" || endpoint.BaseURL == "" || endpoint.State == "" || endpoint.DefaultModel == "" {
+				t.Fatalf("catalog endpoint incomplete: %+v", endpoint)
+			}
+			if endpoint.Adapter == provider.AdapterOpenAIResponses {
+				deferred++
+				if endpoint.Executable || endpoint.State != string(modelhost.CapabilityDeferredIndefinite) {
+					t.Fatalf("the deferred adapter must be visible and not executable: %+v", endpoint)
+				}
+				continue
+			}
+			if !endpoint.Executable || endpoint.State != string(modelhost.CapabilitySupported) {
+				t.Fatalf("a supported adapter must be executable: %+v", endpoint)
+			}
+		}
+	}
+	if len(seen) != len(view.Catalog) {
+		t.Fatalf("a vendor appears more than once: %d entries, %d vendors", len(view.Catalog), len(seen))
+	}
+	if len(view.Catalog) != 45 || endpoints != 47 {
+		t.Fatalf("catalog = %d vendors / %d endpoints, want 45/47", len(view.Catalog), endpoints)
+	}
+	if deferred == 0 {
+		t.Fatal("the deferred openai-responses endpoint must appear in the catalog")
+	}
+
+	raw, err := json.Marshal(view.Catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("api_key")) || bytes.Contains(raw, []byte("env_key")) || bytes.Contains(raw, []byte("sk-")) {
+		t.Fatalf("the catalog must carry no credential field: %s", raw)
+	}
+	for _, vendor := range vendors {
+		if bytes.Contains(raw, []byte(vendor.EnvKey)) {
+			t.Fatalf("the catalog leaked the credential name %q", vendor.EnvKey)
+		}
+	}
+}
+
 func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
-		deps.ProviderBundles = []provider.Bundle{{
-			Name: "openai", DisplayName: "OpenAI", DefaultModel: "gpt-4o-mini",
-			Models: []string{"gpt-4o-mini", "gpt-5"},
+		deps.ProviderVendors = []provider.Vendor{{
+			Name: "openai", DisplayName: "OpenAI",
+			Endpoints: []provider.Endpoint{{
+				Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://api.openai.com/v1",
+				DefaultModel: "gpt-4o-mini", Models: []provider.Model{{ID: "gpt-4o-mini"}, {ID: "gpt-5"}},
+			}},
 		}}
 	})
 	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
@@ -2462,8 +2664,13 @@ func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 	if view.ActiveProvider != "openai" || view.ActiveModel != "deepseek-reasoner" || view.ActiveBaseURL != "https://gateway.example.com/v1" {
 		t.Fatalf("selection response = %+v", view)
 	}
-	if len(view.Bundles) != 1 || len(view.Bundles[0].Models) != 2 {
-		t.Fatalf("pre-baked bundle catalog missing: %+v", view.Bundles)
+	if len(view.Catalog) != 1 || len(view.Catalog[0].Endpoints) != 1 {
+		t.Fatalf("embedded catalog missing: %+v", view.Catalog)
+	}
+	catalogEndpoint := view.Catalog[0].Endpoints[0]
+	if view.Catalog[0].Vendor != "openai" || catalogEndpoint.Adapter != provider.AdapterOpenAICompletions ||
+		!catalogEndpoint.Executable || len(catalogEndpoint.Models) != 2 {
+		t.Fatalf("catalog entry = %+v", view.Catalog[0])
 	}
 	loaded, err := settings.Load(settingsPath)
 	if err != nil {
@@ -3122,8 +3329,8 @@ func TestContextCompactionRPC(t *testing.T) {
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "openai",
-		ConfigModel:                    "gpt-4o-mini",
+		ConfigProvider:                 "deepseek",
+		ConfigModel:                    "deepseek-flash",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigCompaction:               runtime.CompactionPolicy{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12},
 		ConfigExecuteMaxTimeoutSeconds: 30,

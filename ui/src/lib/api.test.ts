@@ -56,6 +56,8 @@ describe('typed Vivy API', () => {
     await api.getSkill('demo-skill', 'references/guide.md'); expect(call).toHaveBeenLastCalledWith('skills/get', { name: 'demo-skill', path: 'references/guide.md' });
     await api.refreshProviderModels({ id: 'custom-1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { id: 'custom-1' });
     await api.refreshProviderModels({ bundle: 'openai', base_url: 'https://gateway.example.com/v1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { bundle: 'openai', base_url: 'https://gateway.example.com/v1' });
+    // DeepSeek 一等运行束走同一条刷新路径；地址不带 /v1（运行时自己拼 /chat/completions）。
+    await api.refreshProviderModels({ bundle: 'deepseek', base_url: 'https://api.deepseek.com' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { bundle: 'deepseek', base_url: 'https://api.deepseek.com' });
   });
   it('maps cron operations to their wire methods', async () => {
     const schedule = { kind: 'cron' as const, expr: '0 9 * * *', tz: 'Asia/Shanghai' };

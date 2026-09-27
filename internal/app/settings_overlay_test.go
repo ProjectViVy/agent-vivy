@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -48,9 +49,8 @@ func TestDeveloperPresentationLocaleUsesRootDotEnvOnlyWhenUnsealed(t *testing.T)
 func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS"}},
-		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "bing"}},
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
+		Tools:   config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "bing"}},
 	}
 	if _, err := settings.Save(settings.Path(dir), settings.Settings{
 		NetworkSearch: settings.NetworkSearchSettings{Provider: "searxng"},
@@ -65,9 +65,8 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 
 	dir2 := t.TempDir()
 	cfg2 := config.Config{
-		Storage:   config.Storage{DataDir: dir2, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS2"}},
-		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "wikipedia"}},
+		Storage: config.Storage{DataDir: dir2, Backend: "sqlite"},
+		Tools:   config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "wikipedia"}},
 	}
 	if _, err := settings.Save(settings.Path(dir2), settings.Settings{}); err != nil {
 		t.Fatal(err)
@@ -108,8 +107,7 @@ func TestApplySettingsOverlayNormalizesLegacyToolSearch(t *testing.T) {
 func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MISSING"}},
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
@@ -118,15 +116,15 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	}
 }
 
-func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
+// A pre-migration document named a vendor, so the vendor level of the default
+// chain still follows it; a document that already names an adapter does not,
+// because the adapter selects an endpoint variant of the configured vendor.
+func TestApplySettingsOverlayAppliesLegacyProviderSelection(t *testing.T) {
 	sharedRoot := t.TempDir()
 	privateRoot := t.TempDir()
 	cfg := config.Config{
-		Storage: config.Storage{DataDir: privateRoot, Backend: "sqlite"},
-		Providers: config.Providers{
-			Active:    settings.ProviderOpenAI,
-			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "old-model"},
-		},
+		Storage:   config.Storage{DataDir: privateRoot, Backend: "sqlite"},
+		Providers: config.Providers{Active: settings.ProviderDeepSeek},
 	}
 	path := settings.Path(sharedRoot)
 	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-sonnet-4-5"}); err != nil {
@@ -135,52 +133,44 @@ func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	got := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
-	if got.Providers.Active != settings.ProviderAnthropic || got.Providers.Anthropic.DefaultModel != "claude-sonnet-4-5" {
-		t.Fatalf("shared settings not applied: %+v", got.Providers)
+	if got.Providers.Active != settings.ProviderAnthropic {
+		t.Fatalf("legacy provider value = %q, want the vendor it named", got.Providers.Active)
 	}
 	if got.DataDirectory() != privateRoot {
 		t.Fatalf("runtime data root = %q, want private %q", got.DataDirectory(), privateRoot)
 	}
+
+	// The adapter vocabulary leaves the configured vendor alone.
+	if _, err := settings.Save(path, settings.Settings{Provider: "anthropic-messages", DefaultModel: "claude-sonnet-4-5"}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	if got.Providers.Active != settings.ProviderDeepSeek {
+		t.Fatalf("adapter selection changed the configured vendor to %q", got.Providers.Active)
+	}
 }
 
-func TestProviderConfigBaselineSurvivesSettingsOverlay(t *testing.T) {
+// The reported "config default" is the configuration file's own vendor, captured
+// before the settings overlay: a settings document overrides it for this process
+// only, and never rewrites what the control plane calls the default.
+func TestConfigVendorSurvivesSettingsOverlay(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{
-			Active:    settings.ProviderOpenAI,
-			OpenAI:    config.Provider{DefaultModel: "gpt-config"},
-			Anthropic: config.Provider{DefaultModel: "claude-config"},
-		},
+		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{Active: settings.ProviderDeepSeek},
 	}
 	path := settings.Path(dir)
 	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-overlay"}); err != nil {
 		t.Fatal(err)
 	}
-	providerName, modelID := providerConfigBaseline(cfg)
+	configVendor := cfg.Providers.Active
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
-	if providerName != settings.ProviderOpenAI || modelID != "gpt-config" {
-		t.Fatalf("captured baseline = %q/%q", providerName, modelID)
+	if configVendor != settings.ProviderDeepSeek {
+		t.Fatalf("captured config vendor = %q", configVendor)
 	}
-	if applied.Providers.Active != settings.ProviderAnthropic || applied.Providers.Anthropic.DefaultModel != "claude-overlay" {
+	if applied.Providers.Active != settings.ProviderAnthropic {
 		t.Fatalf("overlay was not independently applied: %+v", applied.Providers)
-	}
-}
-
-func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{Active: "openai", OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_SELECTION"}},
-	}
-	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderOpenAI}); err != nil {
-		t.Fatal(err)
-	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
-	if applied.Providers.Active != "openai" {
-		t.Fatalf("active = %q, want openai", applied.Providers.Active)
 	}
 }
 
@@ -272,6 +262,53 @@ func TestApplySettingsOverlaySandboxPreset(t *testing.T) {
 	}
 	if len(got.Runtime.Sandbox.Network.AllowedDomains) != 1 || got.Runtime.Sandbox.Network.AllowedDomains[0] != "example.com" {
 		t.Fatalf("allowed domains = %+v", got.Runtime.Sandbox.Network.AllowedDomains)
+	}
+}
+
+// TestApplySettingsOverlayApprovalTimeout: the review window overlay wins
+// over the config default, an explicit 0 disables timed auto-approval, and a
+// window that cannot shorten the hard expiration is refused rather than
+// silently clamped.
+func TestApplySettingsOverlayApprovalTimeout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	base := config.Default()
+	base.Storage.SQLite.Path = filepath.Join(t.TempDir(), "vivy.db")
+	if base.Runtime.Sandbox.Approval.TimeoutSeconds != 300 || base.Tools.Approval.Expiration != 5*time.Minute {
+		t.Fatalf("fixture defaults = %d/%s", base.Runtime.Sandbox.Approval.TimeoutSeconds, base.Tools.Approval.Expiration)
+	}
+
+	window := 45
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &window},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 45 {
+		t.Fatalf("approval timeout overlay = %d, want 45", got.Runtime.Sandbox.Approval.TimeoutSeconds)
+	}
+
+	off := 0
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &off},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 0 {
+		t.Fatalf("explicit 0 must disable timed auto-approval, got %d", got.Runtime.Sandbox.Approval.TimeoutSeconds)
+	}
+
+	// At or above the hard expiration the overlay cannot shorten review.
+	tooLong := int(base.Tools.Approval.Expiration/time.Second) + 60
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{ApprovalTimeoutSeconds: &tooLong},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, base, nil)
+	if got.Runtime.Sandbox.Approval.TimeoutSeconds != 300 {
+		t.Fatalf("overlay past the expiration = %d, want the config default 300", got.Runtime.Sandbox.Approval.TimeoutSeconds)
 	}
 }
 

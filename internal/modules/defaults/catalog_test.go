@@ -34,6 +34,7 @@ func TestDefaultCatalogUsesCanonicalInternalOwners(t *testing.T) {
 		"core/tool-host@v1": "vivy/tool-host", "core/storage-engine@v1": "vivy/storage",
 		"core/checkpoint-store@v1": "vivy/checkpoint", "core/credential-resolver@v1": "vivy/credential",
 		"core/sandbox-backend@v1": "vivy/sandbox",
+		"core/mask-service@v1":    "vivy/masks",
 	}
 	for _, record := range records {
 		for _, provided := range record.Descriptor.Provides {
@@ -42,6 +43,37 @@ func TestDefaultCatalogUsesCanonicalInternalOwners(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDefaultCatalogBindsOptionalMaskFactoryWithoutSelectingIt(t *testing.T) {
+	records, err := Catalog(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if record.Descriptor.Module.ID != "vivy/masks" {
+			continue
+		}
+		if got := record.Binding.MaskFactory; got != "Open" {
+			t.Fatalf("mask factory binding = %q, want Open", got)
+		}
+		if got := record.Binding.ProviderConstructor; got != "ActionProviders" {
+			t.Fatalf("mask action provider binding = %q, want ActionProviders", got)
+		}
+		if !record.Binding.ProviderCollection {
+			t.Fatal("mask action provider binding must be a collection")
+		}
+		if len(record.Descriptor.Provides) != 8 || record.Descriptor.Provides[0].Port != "core/mask-service@v1" {
+			t.Fatalf("mask descriptor provides = %#v", record.Descriptor.Provides)
+		}
+		for _, provided := range record.Descriptor.Provides {
+			if provided.Port == "std/ui-extension@v1" || provided.Port == "std/ui-root@v1" {
+				t.Fatalf("mask backend unexpectedly provides UI Port %s", provided.Port)
+			}
+		}
+		return
+	}
+	t.Fatal("default catalog is missing vivy/masks")
 }
 
 func TestDefaultCatalogBindsP4HostsAndSources(t *testing.T) {

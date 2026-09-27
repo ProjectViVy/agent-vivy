@@ -11,17 +11,17 @@ import (
 
 func TestModelModuleComposesExistingModelHost(t *testing.T) {
 	profile := providerprofile.Profile{
-		ID: "openai", AdapterFamily: "openai-compatible", ModelIDs: []string{"gpt-test"},
+		ID: "openai-completions", AdapterFamily: "openai-completions", ModelIDs: []string{"gpt-test"},
 		EndpointClass: providerprofile.EndpointGateway, SecretRefs: []string{"OPENAI_API_KEY"},
 		OptionsSchema: json.RawMessage(`{"type":"object"}`),
 	}
 	provider, err := Compose([]providerprofile.Profile{profile}, modelhost.Capabilities{
-		"openai-compatible": modelhost.CapabilitySupported,
+		"openai-completions": modelhost.CapabilitySupported,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := provider.Host().ResolveExecutable("openai")
+	resolved, err := provider.Host().ResolveExecutable("openai-completions")
 	if err != nil {
 		t.Fatal(err)
 	}

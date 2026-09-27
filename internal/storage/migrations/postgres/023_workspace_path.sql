@@ -1,0 +1,2 @@
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS workspace_path TEXT NOT NULL DEFAULT '';

@@ -219,15 +219,16 @@ func TestToolAdapterTieredApprovalForClassifiedTools(t *testing.T) {
 	if err == nil || calls != 0 {
 		t.Fatalf("safe+ask = err %v calls %d, want interrupt", err, calls)
 	}
-	// Safe under never: denied, not run.
-	_, err, calls = run(domain.ApprovalPolicyNever, domain.PolicyProfileDefault, tools.InvocationSafe, nil)
-	if !errors.Is(err, ErrPolicyDenied) || calls != 0 {
-		t.Fatalf("safe+never = err %v calls %d, want ErrPolicyDenied", err, calls)
+	// Safe under never: refused per call, not run, and the run continues.
+	result, err, calls = run(domain.ApprovalPolicyNever, domain.PolicyProfileDefault, tools.InvocationSafe, nil)
+	if err != nil || calls != 0 || !strings.Contains(result, "did not run") {
+		t.Fatalf("safe+never = %q/%v/%d, want a refusal without execution", result, err, calls)
 	}
-	// Deny table beats the full-auto profile.
-	_, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileFullAuto, tools.InvocationDenied, nil)
-	if !errors.Is(err, ErrPolicyDenied) || calls != 0 || !strings.Contains(err.Error(), "stub finding") {
-		t.Fatalf("denied+full-auto = err %v calls %d, want ErrPolicyDenied with finding", err, calls)
+	// Deny table beats the full-auto profile: the invocation is refused with
+	// a model-visible result, and the run is not failed by a per-call refusal.
+	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileFullAuto, tools.InvocationDenied, nil)
+	if err != nil || calls != 0 || !strings.Contains(result, "stub finding") || !strings.Contains(result, "did not run") {
+		t.Fatalf("denied+full-auto = %q/%v/%d, want a refusal result with the finding", result, err, calls)
 	}
 	// Whitelisted under auto keeps the pre-classifier behavior.
 	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationMutating, []string{"stub_classifier"})
@@ -386,5 +387,83 @@ func TestServiceBashToolBackgroundEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(journal, "vivy_bg_e2e") {
 		t.Fatalf("journal lost the background marker; events: %s", journal)
+	}
+}
+
+// TestServiceBashTraversalRefusedWithoutFailingRun reproduces the production
+// incident where the model's `cd ../../../../../..` failed the whole run with
+// "The model run could not be completed": the argument shape guard must refuse
+// that single call to the model, the sibling call in the same turn must still
+// run, and the run must complete. The refused invocation must never reach the
+// shell backend.
+func TestServiceBashTraversalRefusedWithoutFailingRun(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	ctx := context.Background()
+
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "bash-traversal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	commands, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	ts, err := tools.NewRegistry(tools.NewBash(commands)).Resolve([]string{tools.BashName})
+	if err != nil {
+		t.Fatalf("resolve bash: %v", err)
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	eng, err := NewEngine(ctx, NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{
+			{ID: "call-sibling", Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"echo vivy_sibling_marker"}`}},
+			{ID: "call-traversal", Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"cd ../../../../../.. 2>/dev/null && pwd && ls"}`}},
+		}),
+		schema.AssistantMessage("Done: one call was refused.", nil),
+	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Questions:          backend,
+		Sessions:           backend,
+		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
+	})
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-bash-traversal", Title: "traversal", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := backend.UpdateSandboxPolicy(ctx, "sess-bash-traversal", domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAuto); err != nil {
+		t.Fatalf("set session approval policy: %v", err)
+	}
+
+	runID, err := svc.Run(ctx, "sess-bash-traversal", "look around the workspace")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	if i := indexOfType(events, domain.EventRunFailed); i >= 0 {
+		t.Fatalf("a refused call failed the run at event %d: %s", i, events[i].Payload)
+	}
+	var refusal, journal string
+	for _, ev := range events {
+		journal += string(ev.Payload) + "\n"
+		if ev.Type == domain.EventToolFinished && bytes.Contains(ev.Payload, []byte("call-traversal")) {
+			refusal = string(ev.Payload)
+		}
+	}
+	if !strings.Contains(refusal, "did not run") || !strings.Contains(refusal, "path traversal") {
+		t.Fatalf("traversal refusal payload = %q, want a model-visible refusal", refusal)
+	}
+	if strings.Contains(refusal, "exit_code") {
+		t.Fatalf("refused traversal reached the shell backend: %s", refusal)
+	}
+	if !strings.Contains(journal, "vivy_sibling_marker") {
+		t.Fatalf("the sibling call in the same turn did not run: %s", journal)
 	}
 }

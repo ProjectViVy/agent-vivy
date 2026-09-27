@@ -17,6 +17,7 @@ import (
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -44,6 +45,14 @@ type RunHook interface {
 // The runtime never executes filesystem commands through this interface.
 type WorkspaceAllocator interface {
 	Ensure(context.Context, domain.RunID) (Workspace, error)
+}
+
+// WorkspaceReleaser is an optional rollback seam for allocators that create
+// filesystem state during Ensure. Admission failures must not leave an
+// unowned per-run directory behind; selected project and local workspaces may
+// implement this as a no-op.
+type WorkspaceReleaser interface {
+	Release(context.Context, Workspace) error
 }
 
 // ChildApprovalRouter receives a durable decision for an approval owned by a
@@ -105,6 +114,11 @@ type ServiceDeps struct {
 	// ApprovalExpiration bounds how long a pending approval stays valid
 	// (D-009).
 	ApprovalExpiration time.Duration
+	// ApprovalSettleTimeout bounds human review under the smart preset
+	// (runtime.sandbox.approval.timeout_seconds): at the deadline the runtime
+	// approves the call on the user's behalf instead of letting it expire.
+	// Zero disables timed auto-approval, so ApprovalExpiration governs alone.
+	ApprovalSettleTimeout time.Duration
 	// Questions persists ask_user interactions separately from approvals.
 	Questions storage.QuestionStore
 	// Budget bounds the complete run tree, including resumed work. A zero
@@ -130,6 +144,19 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// Admission is the optional atomic primary-run boundary. First-party App
+	// wiring supplies it when prompt snapshots are enabled; legacy embedders
+	// retain the existing sequential path when it is absent.
+	Admission storage.RunAdmissionStore
+	// MaskResolver is the selected generation's narrow runtime-facing mask
+	// seam. Runtime never holds the provider's control-plane Manager.
+	MaskResolver maskcontract.Resolver
+	// MaskFrame and MaskFrameDigest are immutable provider assets copied by the
+	// composition root. Keeping them separate prevents runtime from reaching
+	// through the control-plane service for prompt data.
+	MaskFrame       string
+	MaskFrameDigest string
+	GenerationID    string
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -215,6 +242,12 @@ type Service struct {
 	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
 	cron     *cronState
 	cronInit sync.Mutex
+
+	// approvalSettle is the live smart-mode review window
+	// (runtime.sandbox.approval.timeout_seconds). A settings save replaces it
+	// without a restart; a value <= 0 disables timed auto-approval. Guarded
+	// by mu.
+	approvalSettle time.Duration
 }
 
 // ErrModelChangeBusy means a model selection cannot be changed while any
@@ -291,6 +324,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		provider:        provider,
 		modelID:         modelID,
 		defaultProfile:  deps.PolicyDefaultProfile,
+		approvalSettle:  deps.ApprovalSettleTimeout,
 		active:          make(map[domain.RunID]context.CancelFunc),
 		runSessions:     make(map[domain.RunID]domain.SessionID),
 		deletedSessions: make(map[domain.SessionID]struct{}),
@@ -336,6 +370,71 @@ func (s *Service) SetModel(providerName, modelID string) {
 	s.provider = providerName
 	s.modelID = modelID
 	s.mu.Unlock()
+}
+
+// SetApprovalSettleTimeout replaces the live smart-mode review window. A
+// settings save calls this so the next approval honors the new deadline
+// without a restart; a value <= 0 disables timed auto-approval.
+func (s *Service) SetApprovalSettleTimeout(d time.Duration) {
+	if s == nil {
+		return
+	}
+	if d < 0 {
+		d = 0
+	}
+	s.mu.Lock()
+	s.approvalSettle = d
+	s.mu.Unlock()
+}
+
+// ApprovalSettleWindow reports the live smart-mode review window.
+func (s *Service) ApprovalSettleWindow() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.approvalSettle
+}
+
+// approvalDeadline is the single settlement deadline for a pending approval
+// raised now: the configured smart-mode review window when it is enabled,
+// clamped by the caller's hard bound. The interaction sweeper reads the same
+// deadline, so human review, timed auto-approval, and expiry share one
+// authority instead of racing.
+func (s *Service) approvalDeadline(now time.Time, hard time.Duration) time.Time {
+	window := s.ApprovalSettleWindow()
+	switch {
+	case hard <= 0:
+		// An unset hard bound must not collapse the review window to zero,
+		// which would expire the approval the moment it was raised: the
+		// configured window then becomes the only bound.
+		if window > 0 {
+			return now.Add(window)
+		}
+		return now.Add(hard)
+	case window > 0 && window < hard:
+		return now.Add(window)
+	default:
+		return now.Add(hard)
+	}
+}
+
+// autoApprovesOnTimeout reports whether a due approval may be approved on
+// the user's behalf instead of expiring. It is deliberately the smart preset
+// only (workspace-write sandbox + ask policy): cautious review stays strict,
+// and the trusted preset already auto-approves its allowlist. The decision
+// reads the row as recorded when the human was asked, never the current
+// settings, so a preset change cannot retroactively authorize a call.
+func autoApprovesOnTimeout(approval domain.Approval) bool {
+	return domain.SandboxMode(approval.SandboxMode) == domain.SandboxModeWorkspaceWrite &&
+		domain.ApprovalPolicy(approval.ApprovalPolicy) == domain.ApprovalPolicyAsk
+}
+
+// approvalSettleReason is the durable actor+reason pair for a timed
+// auto-approval (D-010: numbers and preset names only, no user content).
+func approvalSettleReason(window time.Duration) string {
+	return fmt.Sprintf("auto-approved after %s with no response (smart mode)", window)
 }
 
 // ChangeModelWhenIdle serializes a persisted model selection with every run
@@ -483,7 +582,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	return s.runWithOptions(ctx, sessionID, userText, options, nil)
 }
 
-type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.RunEvent, error)
+type runPersistence func(storage.RunAdmission) (domain.RunEvent, error)
 
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
@@ -550,12 +649,58 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
 		}
 	}
+	var capture maskcontract.Capture
+	var prompt *storage.RunPromptSnapshot
+	var expectedMask *storage.MaskCaptureCheck
+	if s.deps.Admission != nil {
+		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
+		if s.deps.MaskResolver != nil {
+			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: capture session mask: %w", err)
+			}
+			if capture.Selection.SessionID != sessionID {
+				return "", maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask capture belongs to another session"))
+			}
+			expectedMask = &storage.MaskCaptureCheck{
+				SessionID: sessionID, SelectionRevision: capture.Selection.Revision,
+				MaskID: capture.Selection.MaskID,
+			}
+			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
+				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
+				expectedMask.DefinitionDigest = capture.Mask.Digest
+			}
+		}
+		built, buildErr := buildPromptSnapshot(PromptInput{
+			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
+			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+		})
+		if buildErr != nil {
+			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
+		}
+		prompt = &built
+	}
 	workspaceID := ""
+	var workspace Workspace
+	workspaceReady := false
+	releaseWorkspace := func() {
+		if !workspaceReady || s.deps.Workspaces == nil {
+			return
+		}
+		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
+			if err := releaser.Release(context.WithoutCancel(ctx), workspace); err != nil {
+				slog.Warn("run admission rollback could not release workspace", "run", string(runID), "err", err)
+			}
+		}
+		workspaceReady = false
+	}
 	if s.deps.Workspaces != nil {
-		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
+		var err error
+		workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
 		if err != nil {
 			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 		}
+		workspaceReady = true
 		workspaceID = workspace.ID
 	}
 	now := time.Now().UnixMilli()
@@ -582,29 +727,46 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
+	promptSchema, promptDigest := 0, ""
+	if prompt != nil {
+		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+	}
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
+	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	if persist != nil {
-		started, err = persist(message, run, started)
+		started, err = persist(admission)
 		if err != nil {
+			releaseWorkspace()
 			return "", err
+		}
+	} else if s.deps.Admission != nil {
+		started, err = s.deps.Admission.CommitRunAdmission(ctx, admission)
+		if err != nil {
+			releaseWorkspace()
+			return "", fmt.Errorf("runtime: commit run admission: %w", err)
 		}
 	} else {
 		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: append user message: %w", err)
 		}
 		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: create run: %w", err)
 		}
 		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
 		if appendErr != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
 		}
 		started.Seq = seq
 		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
+			releaseWorkspace()
 			return "", fmt.Errorf("runtime: activate run: %w", err)
 		}
 	}
@@ -808,18 +970,29 @@ func (s *Service) StopInteractionSweeper() {
 }
 
 // SweepExpired settles all expired pending interactions. Conditional storage
-// transitions preserve first-writer-wins against a simultaneous response.
+// transitions preserve first-writer-wins against a simultaneous response. An
+// approval raised under the smart preset is approved on the user's behalf
+// when timed auto-approval is enabled; every other due approval expires and
+// closes its run with the human_timeout cause.
 func (s *Service) SweepExpired(ctx context.Context) error {
 	if s.deps.Approvals != nil {
 		approvals, err := s.deps.Approvals.ListPendingApprovals(ctx)
 		if err != nil {
 			return fmt.Errorf("runtime: list approvals for expiry: %w", err)
 		}
+		now := time.Now().UnixMilli()
 		for _, approval := range approvals {
-			if approval.ExpiresAt > 0 && approval.ExpiresAt <= time.Now().UnixMilli() {
-				if err := s.expireApproval(ctx, approval, "human review timed out"); err != nil {
+			if approval.ExpiresAt <= 0 || approval.ExpiresAt > now {
+				continue
+			}
+			if autoApprovesOnTimeout(approval) && s.ApprovalSettleWindow() > 0 {
+				if err := s.settleApprovalAsSystem(ctx, approval); err != nil {
 					return err
 				}
+				continue
+			}
+			if err := s.expireApproval(ctx, approval, "human review timed out"); err != nil {
+				return err
 			}
 		}
 	}
@@ -828,8 +1001,9 @@ func (s *Service) SweepExpired(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("runtime: list questions for expiry: %w", err)
 		}
+		now := time.Now().UnixMilli()
 		for _, question := range questions {
-			if question.ExpiresAt > 0 && question.ExpiresAt <= time.Now().UnixMilli() {
+			if question.ExpiresAt > 0 && question.ExpiresAt <= now {
 				if err := s.expireQuestion(ctx, question, "user response timed out"); err != nil {
 					return err
 				}
@@ -946,19 +1120,35 @@ func (s *Service) recover(ctx context.Context) error {
 				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
 				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
-		case hasApproval && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
-			s.rebuildPending(ctx, run, approval, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				// Keep the review row and in-memory suspension visible while this
+				// process lacks the immutable prompt needed to resume it. A later
+				// generation/module restore can retry recovery; no model or tool is
+				// allowed to consume the opaque checkpoint in the meantime.
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPending(ctx, run, approval, workspaceID)
+			}
 		case hasQuestion && question.ExpiresAt <= now:
 			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
 				s.failUnrecoverable(ctx, run.ID, "question expiry could not be persisted")
 			}
-		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
-			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
-			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			if blocked, err := s.promptBlocksRecovery(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
+			} else if blocked {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			} else if !s.checkpointReadable(ctx, run.ID) {
+				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else {
+				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
+			}
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
@@ -1223,8 +1413,119 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 	if s.engine.cfg.Checkpoints == nil {
 		return false
 	}
-	_, ok, err := s.engine.cfg.Checkpoints.Get(ctx, checkpointIDFor(runID))
+	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return false
+	}
+	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
 	return err == nil && ok
+}
+
+// promptBlocksRecovery distinguishes a recoverable prompt incompatibility
+// from an unreadable Eino checkpoint. The former keeps the approval/question
+// pending so a compatible generation can retry; the latter is an unrecoverable
+// lost continuation and is closed by the existing recovery policy.
+func (s *Service) promptBlocksRecovery(ctx context.Context, runID domain.RunID) (bool, error) {
+	_, _, err := s.promptSnapshotContext(ctx, runID)
+	if err == nil {
+		return false, nil
+	}
+	var typed *maskcontract.Error
+	if !errors.As(err, &typed) {
+		return false, err
+	}
+	switch typed.Code {
+	case maskcontract.CodeSnapshotMissing, maskcontract.CodeSnapshotCorrupt,
+		maskcontract.CodeIncompatiblePrompt, maskcontract.CodeMaskUnavailable:
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+// promptSnapshotContext loads the durable prompt marker and snapshot before
+// any Eino checkpoint is read. Legacy runs have no marker and retain their
+// historical static instruction; a new-format run must have a matching,
+// same-generation snapshot or it is rejected fail-closed.
+func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID) (context.Context, bool, error) {
+	if s.deps.Admission == nil {
+		return ctx, false, nil
+	}
+	schemaVersion, digest, marked, err := s.runPromptMarker(ctx, runID)
+	if err != nil {
+		return ctx, false, err
+	}
+	if !marked {
+		return ctx, false, nil
+	}
+	snapshot, err := s.deps.Admission.LoadRunPrompt(ctx, runID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotMissing, err)
+		}
+		return ctx, false, fmt.Errorf("runtime: load run prompt snapshot: %w", err)
+	}
+	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion || snapshot.PayloadSHA256 != digest {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run prompt marker does not match snapshot"))
+	}
+	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt belongs to another generation"))
+	}
+	if snapshot.ComposerVersion != promptComposerVersion {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt was composed by an unsupported version"))
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil {
+		return ctx, false, err
+	}
+	if payload.Mask != nil && s.deps.MaskResolver == nil {
+		return ctx, false, maskcontract.NewError(maskcontract.CodeMaskUnavailable, errors.New("the mask provider is not present for this run"))
+	}
+	return withRunPrompt(ctx, snapshot), true, nil
+}
+
+func (s *Service) promptSnapshotForRun(ctx context.Context, runID domain.RunID) (storage.RunPromptSnapshot, bool, error) {
+	promptCtx, hasPrompt, err := s.promptSnapshotContext(ctx, runID)
+	if err != nil {
+		return storage.RunPromptSnapshot{}, false, err
+	}
+	if !hasPrompt {
+		return storage.RunPromptSnapshot{}, false, nil
+	}
+	snapshot, _ := runPrompt(promptCtx)
+	return snapshot, true, nil
+}
+
+func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, digest string, marked bool, err error) {
+	if s.deps.Journal == nil {
+		return 0, "", false, errors.New("runtime: journal not wired")
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventRunStarted {
+			continue
+		}
+		var payload payloadRunStarted
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return 0, "", false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
+		}
+		if payload.PromptSchema == 0 && payload.PromptDigest == "" {
+			return 0, "", false, nil
+		}
+		if payload.PromptSchema <= 0 || strings.TrimSpace(payload.PromptDigest) == "" {
+			return 0, "", false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
+		}
+		return payload.PromptSchema, payload.PromptDigest, true, nil
+	}
+	if err := it.Err(); err != nil {
+		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+	}
+	return 0, "", false, storage.ErrNotFound
 }
 
 // rebuildPending restores the in-memory suspend state of one run so the
@@ -1617,6 +1918,16 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
+	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
+	if promptErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		// Bind before history selection so the admitted instruction is reserved
+		// from the same byte budget that chooses transcript rows.
+		ctx = withRunPrompt(ctx, promptSnapshot)
+	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
 	if err != nil {
@@ -1632,6 +1943,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
+	if hasPrompt {
+		runCtx = withRunPrompt(runCtx, promptSnapshot)
+	}
 	// Per-run mount registry: skill_view records declared tools here so the
 	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
@@ -1647,8 +1961,15 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
+	// One fresh detector per drive leg (ND-2): the consume loop drives it
+	// from the durable journal stream; the same pointer travels on the
+	// context so in-context seams share exactly this instance.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	runCtx = withNudgeState(runCtx, state)
+	runCtx = withNudgeEmitter(runCtx, s.nudgeEmitter(m, sessionID))
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state)
 }
 
 // withLiveModelStreamObserver installs the producer-path stream seam used by
@@ -1678,6 +1999,27 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 	})
 }
 
+// nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
+// the boundary middleware delegates persistence to the Service — one
+// audited event per scheduled reminder, journaled and published through
+// the normal path. A failed append aborts the model call rather than
+// degrading the reminder into an unrecorded injection.
+func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudgeEmitter {
+	return func(ctx context.Context, notice nudgeNotice) error {
+		re := m.build(domain.EventToolNudge, payloadToolNudge{
+			ToolCallID:      notice.CallID,
+			ToolName:        notice.ToolName,
+			Reason:          notice.Reason,
+			RepeatCount:     notice.Count,
+			TemplateVersion: notice.TemplateVersion,
+		})
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: nudge scheduling event could not be journaled")
+		}
+		return nil
+	}
+}
+
 // runMessages rebuilds the session transcript for the engine (ADR-010):
 // user, assistant, and paired tool turns in store order, with the current
 // turn's user message last (Run persists it before driving, so the store
@@ -1690,6 +2032,10 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 
 func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
+	reservedPromptBytes, err := promptInstructionReservation(ctx)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
 	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
@@ -1713,6 +2059,7 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
+		ReservedBytes:      reservedPromptBytes,
 	}, preamble, folded, userText)
 	if err != nil {
 		return nil, selection, stats, err
@@ -1720,7 +2067,7 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
 		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sessionID), WorkspaceID: workspaceID}
 		if eng.cfg.MaxContextBytes > 0 {
-			used := projectedContextBytes(msgs)
+			used := projectedContextBytes(msgs) + reservedPromptBytes
 			request.EnforceByteBudget = true
 			request.ByteBudget = max(0, eng.cfg.MaxContextBytes-used)
 			// Keep the Host's token bound coupled to the same final
@@ -1747,8 +2094,9 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 			}
 		}
 	}
-	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs) > eng.cfg.MaxContextBytes {
-		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectedContextBytes(msgs), eng.cfg.MaxContextBytes)
+	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs)+reservedPromptBytes > eng.cfg.MaxContextBytes {
+		used := projectedContextBytes(msgs) + reservedPromptBytes
+		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, used, eng.cfg.MaxContextBytes)
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -1838,15 +2186,32 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+//
+// The leg's nudge detector is driven from this loop in journal order
+// (ND-2): a turn's tool.requested batch registers after its events are
+// durably appended, each tool.finished records completion on append
+// success, and the batch seals only once every one of its results is
+// durable — so the detector can never release a model handoff ahead of
+// the Journal. Any exit aborts the waiters the terminal transition
+// leaves behind.
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
 		}
 	}
+	if state != nil {
+		// Every exit path releases a waiting model boundary with the
+		// leg's last cause, even when the consume loop itself stranded.
+		defer state.Abort(context.Canceled)
+	}
+	var outstanding map[string]struct{}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -1857,22 +2222,82 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if err := reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
+			var requested []string
 			for _, re := range events {
 				if !s.persistAndPublish(ctx, sessionID, re) {
 					persistStopped = true
 					return context.Canceled
 				}
+				if state == nil {
+					continue
+				}
+				switch re.Type {
+				case domain.EventToolRequested:
+					var p payloadToolRequested
+					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
+						requested = append(requested, p.ToolCallID)
+					}
+				case domain.EventToolFinished:
+					var p payloadToolFinished
+					if err := json.Unmarshal(re.Payload, &p); err != nil {
+						return fmt.Errorf("runtime: decode tool.finished payload: %w", err)
+					}
+					call, ok := m.takeCompletion(p.ToolCallID)
+					if !ok {
+						// Resume legs replay the decided call without a
+						// parked record; rebuild the outcome from the
+						// journaled payload instead.
+						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
+					}
+					if err := state.Complete(call); err != nil {
+						return err
+					}
+					if _, tracked := outstanding[p.ToolCallID]; tracked {
+						delete(outstanding, p.ToolCallID)
+						if len(outstanding) == 0 {
+							state.Seal(nil)
+							if cause := state.terminalErr(); cause != nil {
+								return cause
+							}
+						}
+					} else {
+						state.Seal(nil)
+						if cause := state.terminalErr(); cause != nil {
+							return cause
+						}
+					}
+				}
+			}
+			if state != nil && len(requested) > 0 {
+				if err := state.Register(requested); err != nil {
+					return err
+				}
+				if outstanding == nil {
+					outstanding = map[string]struct{}{}
+				}
+				for _, id := range requested {
+					outstanding[id] = struct{}{}
+				}
 			}
 			return nil
 		})
 		if persistStopped {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			if state != nil {
+				state.Abort(errRunInterrupted)
+			}
 			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
 		}
 		if err != nil {
+			if state != nil {
+				state.Abort(err)
+			}
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			// A failed first exchange still leaves a user message worth a
 			// title; the generator's truncation fallback names it when no
@@ -1884,11 +2309,17 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 
 	turnEnd := m.onTurnEnd()
 	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+		if state != nil {
+			state.Abort(err)
+		}
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
 	for _, re := range turnEnd {
 		if !s.persistAndPublish(ctx, sessionID, re) {
+			if state != nil {
+				state.Abort(errors.New("runtime: journal persistence failed"))
+			}
 			return
 		}
 	}
@@ -1975,7 +2406,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		return
 	}
 
-	expiresAt := time.Now().Add(s.deps.ApprovalExpiration).UnixMilli()
+	expiresAt := s.approvalDeadline(time.Now(), s.deps.ApprovalExpiration).UnixMilli()
 	proposalData, proposalErr := json.Marshal(details.Args)
 	if proposalErr != nil {
 		fail(proposalErr)
@@ -2227,7 +2658,23 @@ func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, deci
 	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
 	}
-	decided, err := s.decideApproval(ctx, approvalID, decision, actor, reason)
+	return s.settleApproval(ctx, approval, decision, actor, reason)
+}
+
+// settleApproval records a decision whose guards the caller already checked
+// and then routes it. The durable row is the no-replay boundary, so the
+// journal entry and the resume follow it; actor distinguishes a human
+// decision (local_user) from a timed auto-approval (system).
+func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	if approval.Kind != domain.ApprovalKindChild && !isShellApproval(approval) {
+		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
+			// Validate before first-writer settlement. A corrupt or incompatible
+			// snapshot leaves the review pending, so recovery can surface the
+			// same fail-closed state without losing the user's decision slot.
+			return fmt.Errorf("runtime: approval resume rejected by prompt snapshot: %w", err)
+		}
+	}
+	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
 	}
@@ -2283,7 +2730,7 @@ func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, deci
 		// cancelled, or the decision raced the close): the decision
 		// stands, nothing resumes. Restart-orphaned runs never land here:
 		// startup recovery re-registers their pending state (E2).
-		slog.Warn("approval decided without a pending run", "approval", approvalID, "run", string(approval.RunID))
+		slog.Warn("approval decided without a pending run", "approval", approval.ID, "run", string(approval.RunID))
 		return nil
 	}
 
@@ -2311,6 +2758,48 @@ func (s *Service) decideApproval(ctx context.Context, id, decision, actor, reaso
 		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, actor, reason)
 	}
 	return s.deps.Approvals.DecideApproval(ctx, id, decision)
+}
+
+// settleApprovalAsSystem approves a due approval on the user's behalf after
+// the smart-mode review window elapsed. It is the timed counterpart of
+// DecideApprovalWithReason: the row must still be pending and past its
+// deadline, and first-writer-wins still arbitrates against a human decision
+// that lands at the same moment.
+func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Approval) error {
+	current, err := s.deps.Approvals.GetApproval(ctx, approval.ID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("runtime: get approval for timed settlement: %w", err)
+	}
+	if current.Decision != domain.ApprovalPending || current.ExpiresAt > time.Now().UnixMilli() {
+		return nil
+	}
+	if !autoApprovesOnTimeout(current) {
+		return nil
+	}
+	window := s.ApprovalSettleWindow()
+	if window <= 0 {
+		return nil
+	}
+	if isShellApproval(current) {
+		if err := s.waitShellApprovalReady(ctx, current.RunID); err != nil {
+			return err
+		}
+	} else if !s.ApprovalRequiredDurable(ctx, current.RunID, current.ID) {
+		// The approval is not durable yet: leave it for the next sweep.
+		return nil
+	}
+	reason := approvalSettleReason(window)
+	if err := s.settleApproval(ctx, current, domain.ApprovalApproved, "system", reason); err != nil {
+		if errors.Is(err, ErrApprovalAlreadyDecided) {
+			return nil
+		}
+		return err
+	}
+	slog.Info("approval auto-approved on timeout", "approval", current.ID, "run", string(current.RunID), "window", window.String())
+	return nil
 }
 
 func (s *Service) cancelApproval(ctx context.Context, approval domain.Approval, reason string) error {
@@ -2487,6 +2976,12 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if time.Now().UnixMilli() >= question.ExpiresAt {
 		return ErrQuestionExpired
 	}
+	if _, _, err := s.promptSnapshotContext(ctx, question.RunID); err != nil {
+		// Keep the durable question pending when the immutable prompt cannot be
+		// reconstructed. Answering it would otherwise consume the only resume
+		// opportunity while no model/tool call is allowed to proceed.
+		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
+	}
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
@@ -2620,6 +3115,19 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		mounts = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
+	promptCtx, hasPrompt, promptErr := s.promptSnapshotContext(ctx, runID)
+	if promptErr != nil {
+		// Validate the immutable prompt before consuming proposal bytes or
+		// handing a durable approval/question to Eino. The decision has already
+		// been recorded by the caller, so close the run visibly if recovery is
+		// no longer possible instead of leaving an active dangling run.
+		slog.Warn("resume rejected prompt snapshot", "run", string(runID), "err", promptErr)
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
+		return
+	}
+	if hasPrompt {
+		ctx = promptCtx
+	}
 	approvedArgumentsHash := ""
 	if approvalID != "" {
 		var unbindErr error
@@ -2651,6 +3159,12 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
+	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
+	// window state carries over from the suspended leg.
+	state := newNudgeState()
+	m.setNudgeState(state)
+	ctx = withNudgeState(ctx, state)
+	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
@@ -2663,7 +3177,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter)
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter, state)
 }
 
 // terminalEvent classifies the failure path: context cancellation and

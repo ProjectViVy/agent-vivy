@@ -107,9 +107,24 @@ type providerEntryView struct {
 	Models       []string `json:"models"`
 }
 
+type catalogEndpointView struct {
+	Adapter      string   `json:"adapter"`
+	BaseURL      string   `json:"base_url"`
+	DefaultModel string   `json:"default_model"`
+	Models       []string `json:"models"`
+	Executable   bool     `json:"executable"`
+	State        string   `json:"state"`
+}
+
+type catalogEntryView struct {
+	Vendor      string                `json:"vendor"`
+	DisplayName string                `json:"display_name"`
+	Endpoints   []catalogEndpointView `json:"endpoints"`
+}
+
 type providersView struct {
 	Entries        []providerEntryView `json:"entries"`
-	Bundles        []providerEntryView `json:"bundles"`
+	Catalog        []catalogEntryView  `json:"catalog"`
 	ActiveProvider string              `json:"active_provider"`
 	ActiveModel    string              `json:"active_model"`
 	ActiveBaseURL  string              `json:"active_base_url"`
@@ -139,10 +154,18 @@ func mapProvidersView(view providersView) surface.ModelCatalog {
 		options = append(options, surface.ModelOption{Provider: provider, Model: model, BaseURL: baseURL, DisplayName: strings.TrimSpace(display), Current: provider == currentProvider && model == currentModel && baseURL == currentBaseURL})
 	}
 	add(view.ConfigProvider, view.ConfigModel, "", view.ConfigProvider)
-	for _, bundle := range view.Bundles {
-		add(bundle.Bundle, bundle.DefaultModel, "", bundle.DisplayName)
-		for _, model := range bundle.Models {
-			add(bundle.Bundle, model, "", bundle.DisplayName)
+	// The embedded catalog names a sealed adapter plus the address it is
+	// reachable at, which is exactly what a selection carries (PROV-P4). A
+	// deferred protocol stays out of the picker: selecting it could not execute.
+	for _, entry := range view.Catalog {
+		for _, endpoint := range entry.Endpoints {
+			if !endpoint.Executable {
+				continue
+			}
+			add(endpoint.Adapter, endpoint.DefaultModel, endpoint.BaseURL, entry.DisplayName)
+			for _, model := range endpoint.Models {
+				add(endpoint.Adapter, model, endpoint.BaseURL, entry.DisplayName)
+			}
 		}
 	}
 	for _, entry := range view.Entries {

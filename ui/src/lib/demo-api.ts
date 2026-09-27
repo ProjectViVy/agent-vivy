@@ -886,8 +886,8 @@ export async function updateSkillDocument(slug: string, markdown: string, baseHa
   await delay(300);
   const skills = readSkillStore();
   const skill = skills.find((s) => s.slug === slug);
-  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
-  if (skill.content_hash !== baseHash) throw new Error(t('evolution.errors.hashConflict'));
+  if (!skill) throw new Error(t('demo.evolution.errors.skillNotFound'));
+  if (skill.content_hash !== baseHash) throw new Error(t('demo.evolution.errors.hashConflict'));
   const docs = readSkillDocStore();
   const record = docs[slug] ?? { markdown: '', history: [] };
   const changed = record.markdown !== markdown;
@@ -907,7 +907,7 @@ export async function updateSkillDocument(slug: string, markdown: string, baseHa
     writeSkillDocStore(docs);
   }
   const document = await getSkillDocument(slug);
-  if (!document) throw new Error(t('evolution.errors.skillNotFound'));
+  if (!document) throw new Error(t('demo.evolution.errors.skillNotFound'));
   return { document, changed };
 }
 
@@ -918,7 +918,7 @@ export async function setSkillEnabled(slug: string, enabled: boolean): Promise<S
   await delay(200);
   const skills = readSkillStore();
   const skill = skills.find((s) => s.slug === slug);
-  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
+  if (!skill) throw new Error(t('demo.evolution.errors.skillNotFound'));
   skill.enabled = enabled;
   skill.updated_at = now();
   writeSkillStore(skills);
@@ -932,8 +932,8 @@ export async function deleteSkill(slug: string): Promise<void> {
   await delay(200);
   const skills = readSkillStore();
   const skill = skills.find((s) => s.slug === slug);
-  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
-  if (!skill.can_hard_delete) throw new Error(t('evolution.errors.cannotDelete'));
+  if (!skill) throw new Error(t('demo.evolution.errors.skillNotFound'));
+  if (!skill.can_hard_delete) throw new Error(t('demo.evolution.errors.cannotDelete'));
   writeSkillStore(skills.filter((s) => s.slug !== slug));
   const docs = readSkillDocStore();
   delete docs[slug];
@@ -999,14 +999,14 @@ export async function acceptSkillRequest(id: string): Promise<SkillRequest> {
   await delay(300);
   const requests = readSkillRequests();
   const request = requests.find((r) => r.id === id);
-  if (!request) throw new Error(t('evolution.errors.requestNotFound'));
-  if (request.status !== 'pending') throw new Error(t('evolution.errors.requestNotPending'));
+  if (!request) throw new Error(t('demo.evolution.errors.requestNotFound'));
+  if (request.status !== 'pending') throw new Error(t('demo.evolution.errors.requestNotPending'));
   const skill = readSkillStore().find((s) => s.slug === request.slug);
   if (skill && skill.content_hash !== request.base_hash) {
     request.status = 'stale';
     request.updated_at = now();
     writeSkillRequests(requests);
-    throw new Error(t('evolution.errors.requestStale'));
+    throw new Error(t('demo.evolution.errors.requestStale'));
   }
   applyProposalToSkill(request.slug, request.proposed_markdown);
   request.status = 'accepted';
@@ -1022,8 +1022,8 @@ export async function rejectSkillRequest(id: string): Promise<SkillRequest> {
   await delay(300);
   const requests = readSkillRequests();
   const request = requests.find((r) => r.id === id);
-  if (!request) throw new Error(t('evolution.errors.requestNotFound'));
-  if (request.status !== 'pending') throw new Error(t('evolution.errors.requestNotPending'));
+  if (!request) throw new Error(t('demo.evolution.errors.requestNotFound'));
+  if (request.status !== 'pending') throw new Error(t('demo.evolution.errors.requestNotPending'));
   request.status = 'rejected';
   request.updated_at = now();
   writeSkillRequests(requests);

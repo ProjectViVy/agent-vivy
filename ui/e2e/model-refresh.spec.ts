@@ -81,10 +81,12 @@ test('model list refresh syncs upstream models and persists them locally', async
   await expect(page.getByRole('button', { name: 'my-local-model', exact: true })).toBeVisible();
   await expect(page.getByText('sk-e2e-secret')).toHaveCount(0);
 
-  // 收尾：把全局运行配置切回 openai / gpt-4o-mini（真实 UI 路径）。否则本测试
-  // 的临时 upstream 会留在全局 settings.base_url 上，污染后续 spec 的发送与
-  // 向导预填。aria-pressed 翻转代表 save RPC 已完成。
-  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
-  await page.getByRole('button', { name: 'gpt-4o-mini', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'gpt-4o-mini', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // 收尾：把全局运行配置切回 DeepSeek 默认（真实 UI 路径）。自 PROV-P4 起
+  // provider 取值是适配器 id，地址取所选端点声明值，且 DeepSeek 贡献两条协议
+  // 端点行（可访问名都含 "DeepSeek"），故按 testid 精确点击第一行。否则本测试
+  // 的临时 upstream 会留在全局 settings.base_url 上，污染后续 spec 的发送与向导
+  // 预填。aria-pressed 翻转代表 save RPC 已完成。
+  await page.locator('[data-testid="provider-row-deepseek-openai-completions"]').click();
+  await page.locator('[data-testid="provider-model-deepseek-flash"]').click();
+  await expect(page.locator('[data-testid="provider-model-deepseek-flash"]')).toHaveAttribute('aria-pressed', 'true');
 });

@@ -1,0 +1,155 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/masks-ui.title": {
+      "description": "Mask catalog page title",
+      "placeholders": [],
+      "messages": {"en": "Masks", "zh": "面具"}
+    },
+    "plugin.vivy/masks-ui.subtitle": {
+      "description": "Mask catalog page subtitle",
+      "placeholders": [],
+      "messages": {"en": "Choose the next run mask and manage custom definitions", "zh": "选择下一次运行的面具并管理自定义定义"}
+    },
+    "plugin.vivy/masks-ui.nav": {
+      "description": "Mask catalog navigation label",
+      "placeholders": [],
+      "messages": {"en": "Masks", "zh": "面具"}
+    },
+    "plugin.vivy/masks-ui.selectorLabel": {
+      "description": "Session mask selector accessible label",
+      "placeholders": [],
+      "messages": {"en": "Session mask", "zh": "会话面具"}
+    },
+    "plugin.vivy/masks-ui.selectorTitle": {
+      "description": "Session mask selector title",
+      "placeholders": [],
+      "messages": {"en": "Session mask", "zh": "会话面具"}
+    },
+    "plugin.vivy/masks-ui.noActiveSession": {
+      "description": "Selection state when the host has no active session",
+      "placeholders": [],
+      "messages": {"en": "Select a session to choose its mask", "zh": "选择会话后才能选择面具"}
+    },
+    "plugin.vivy/masks-ui.nextRun": {
+      "description": "Selection state while a run is active",
+      "placeholders": [],
+      "messages": {"en": "Next run choice; the current run already captured its mask", "zh": "下一次运行的选择；当前运行已捕获面具"}
+    },
+    "plugin.vivy/masks-ui.currentSession": {
+      "description": "Selection state when the session is idle",
+      "placeholders": [],
+      "messages": {"en": "Applied to the next admission in this session", "zh": "应用于此会话下一次准入"}
+    },
+    "plugin.vivy/masks-ui.unmasked": {
+      "description": "Explicit empty mask choice",
+      "placeholders": [],
+      "messages": {"en": "No mask", "zh": "不使用面具"}
+    },
+    "plugin.vivy/masks-ui.custom": {
+      "description": "Custom mask badge",
+      "placeholders": [],
+      "messages": {"en": "custom", "zh": "自定义"}
+    },
+    "plugin.vivy/masks-ui.builtIn": {
+      "description": "Built-in mask badge",
+      "placeholders": [],
+      "messages": {"en": "built-in", "zh": "内置"}
+    },
+    "plugin.vivy/masks-ui.loading": {
+      "description": "Mask UI loading label",
+      "placeholders": [],
+      "messages": {"en": "Loading…", "zh": "加载中…"}
+    },
+    "plugin.vivy/masks-ui.catalogLabel": {
+      "description": "Mask catalog accessible label",
+      "placeholders": [],
+      "messages": {"en": "Mask catalog", "zh": "面具目录"}
+    },
+    "plugin.vivy/masks-ui.catalogTitle": {
+      "description": "Mask catalog title",
+      "placeholders": [],
+      "messages": {"en": "Catalog", "zh": "目录"}
+    },
+    "plugin.vivy/masks-ui.empty": {
+      "description": "Empty mask catalog message",
+      "placeholders": [],
+      "messages": {"en": "No masks are available", "zh": "暂无可用面具"}
+    },
+    "plugin.vivy/masks-ui.new": {
+      "description": "Create mask button",
+      "placeholders": [],
+      "messages": {"en": "New", "zh": "新建"}
+    },
+    "plugin.vivy/masks-ui.editorLabel": {
+      "description": "Mask editor accessible label",
+      "placeholders": [],
+      "messages": {"en": "Mask editor", "zh": "面具编辑器"}
+    },
+    "plugin.vivy/masks-ui.editorTitle": {
+      "description": "Mask editor title",
+      "placeholders": [],
+      "messages": {"en": "Definition", "zh": "定义"}
+    },
+    "plugin.vivy/masks-ui.editorHint": {
+      "description": "Mask editor empty hint",
+      "placeholders": [],
+      "messages": {"en": "Select a mask or create a custom definition", "zh": "选择面具或创建自定义定义"}
+    },
+    "plugin.vivy/masks-ui.name": {
+      "description": "Mask name field",
+      "placeholders": [],
+      "messages": {"en": "Name", "zh": "名称"}
+    },
+    "plugin.vivy/masks-ui.description": {
+      "description": "Mask description field",
+      "placeholders": [],
+      "messages": {"en": "Description", "zh": "描述"}
+    },
+    "plugin.vivy/masks-ui.body": {
+      "description": "Mask body field",
+      "placeholders": [],
+      "messages": {"en": "Instructions", "zh": "指令"}
+    },
+    "plugin.vivy/masks-ui.save": {
+      "description": "Mask save button",
+      "placeholders": [],
+      "messages": {"en": "Save", "zh": "保存"}
+    },
+    "plugin.vivy/masks-ui.saving": {
+      "description": "Mask mutation pending label",
+      "placeholders": [],
+      "messages": {"en": "Saving…", "zh": "保存中…"}
+    },
+    "plugin.vivy/masks-ui.delete": {
+      "description": "Mask delete button",
+      "placeholders": [],
+      "messages": {"en": "Delete", "zh": "删除"}
+    },
+    "plugin.vivy/masks-ui.unavailable": {
+      "description": "Mask host unavailable message",
+      "placeholders": [],
+      "messages": {"en": "The mask UI is unavailable outside an assembled Face", "zh": "面具界面只能在已装配的 Face 中使用"}
+    },
+    "plugin.vivy/masks-ui.errors.revisionConflict": {
+      "description": "Mask optimistic concurrency conflict",
+      "placeholders": [],
+      "messages": {"en": "This definition changed elsewhere. Your draft is preserved; reread the committed version before saving again.", "zh": "此定义已在其他位置变更。你的草稿已保留；请先重新读取已提交版本再保存。"}
+    },
+    "plugin.vivy/masks-ui.errors.maskInUse": {
+      "description": "Mask deletion reference conflict",
+      "placeholders": ["count"],
+      "messages": {"en": "This mask is used by {{count}} session(s); change those sessions before deleting it.", "zh": "此面具仍被 {{count}} 个会话使用；请先修改这些会话再删除。"}
+    },
+    "plugin.vivy/masks-ui.errors.authorizationDenied": {
+      "description": "Mask action authorization failure",
+      "placeholders": [],
+      "messages": {"en": "The current policy denied this mask operation.", "zh": "当前策略拒绝了此面具操作。"}
+    },
+    "plugin.vivy/masks-ui.errors.unavailable": {
+      "description": "Mask action capability unavailable",
+      "placeholders": [],
+      "messages": {"en": "The selected generation cannot provide mask instructions.", "zh": "当前选中的 Generation 无法提供面具指令。"}
+    }
+  }
+}

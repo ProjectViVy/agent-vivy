@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navigate, Outlet, createRootRouteWithContext, useRouter, useRouterState } from '@tanstack/react-router';
 import type { FaceClientRouter } from '@vivy/ui-sdk';
+import { PluginHostProvider } from '@vivy/ui-sdk';
 import { RecoverableError } from '@/components/feedback/RecoverableError';
 import { generatedUIExtensions, generatedUIRoot, UI_ASSEMBLY_MANIFEST } from '@vivy/generated-assembly';
 import { useVivyStore } from '@/lib/store';
@@ -59,5 +60,5 @@ function Root() {
     }
     rootElement.dataset.vivyUiProvenance = JSON.stringify(runtimeProvenance);
   }, [runtimeProvenance]);
-  return <QueryClientProvider client={queryClient}>{!initialized ? <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={t('app.loading')}><div className="animate-pulse bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-500 bg-clip-text text-3xl font-semibold tracking-[0.22em] text-transparent">VIVY</div></div> : error ? <div className="flex h-dvh items-center justify-center bg-background p-6"><RecoverableError className="max-w-lg" error={error} onRetry={() => void retryInitialize()} /></div> : faceHost ? <PresentationHost host={faceHost} root={generatedUIRoot} extensions={generatedUIExtensions} provenance={runtimeProvenance} path={pathname}><Outlet /></PresentationHost> : null}</QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}>{!initialized ? <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={t('app.loading')}><div className="animate-pulse bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-500 bg-clip-text text-3xl font-semibold tracking-[0.22em] text-transparent">VIVY</div></div> : error ? <div className="flex h-dvh items-center justify-center bg-background p-6"><RecoverableError className="max-w-lg" error={error} onRetry={() => void retryInitialize()} /></div> : faceHost ? <PluginHostProvider host={faceHost}><PresentationHost host={faceHost} root={generatedUIRoot} extensions={generatedUIExtensions} provenance={runtimeProvenance} path={pathname}><Outlet /></PresentationHost></PluginHostProvider> : null}</QueryClientProvider>;
 }

@@ -35,6 +35,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/provider"
 )
 
 // DefaultDir is the independent agent working directory under the user data
@@ -47,8 +48,13 @@ const DefaultDir = "data/dev-home"
 // FileName is the settings document name inside DefaultDir.
 const FileName = "settings.yaml"
 
-// Stable Provider Profile IDs compiled into the default Generation.
+// The three vendor names older documents stored in `provider` and in a
+// registry entry's `bundle`. They are legacy *read* vocabulary only: since
+// PROV-P3 the stored value names a sealed protocol adapter, and
+// NormalizeProviderSelection translates these three wherever a stored value is
+// validated or used. Nothing writes them any more.
 const (
+	ProviderDeepSeek  = "deepseek"
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
 )
@@ -64,8 +70,9 @@ const legacyProviderMock = "mock"
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
 // envKeyPattern constrains auth_env to an environment variable NAME.
-// Anything else (a literal token) fails validation (D-010).
-var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+// Anything else (a literal token) fails validation (D-010). A leading digit
+// is legal, matching config.ValidEnvKey and the provider data validator.
+var envKeyPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_]*$`)
 
 // channelNamePattern constrains a channels overlay name to the same
 // plugin-name slug config.yaml requires for its channels.<name> keys.
@@ -210,6 +217,12 @@ type ChannelOverlay struct {
 type SandboxSettings struct {
 	DefaultPreset domain.PermissionPreset `yaml:"default_preset"`
 	Network       SandboxNetworkSettings  `yaml:"network"`
+	// ApprovalTimeoutSeconds overlays
+	// runtime.sandbox.approval.timeout_seconds: the human review window for an
+	// effectful tool approval, in seconds. It is a pointer because zero is
+	// meaningful ("never auto-approve on timeout"); nil keeps the config
+	// default. Values above the hard expiration are ignored with a warning.
+	ApprovalTimeoutSeconds *int `yaml:"approval_timeout_seconds,omitempty"`
 }
 
 // SandboxNetworkSettings overlays runtime.sandbox.network. Nil pointer /
@@ -325,6 +338,7 @@ func (s Settings) IsZero() bool {
 		s.ToolsEnabled == nil &&
 		s.Sandbox.DefaultPreset == "" &&
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
+		s.Sandbox.ApprovalTimeoutSeconds == nil &&
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
 		s.Compaction == nil &&
 		s.HTTP == nil &&
@@ -459,9 +473,10 @@ func (s Settings) Validate() error {
 	switch s.Provider {
 	case "":
 		// empty => config default; allowed
-	case ProviderOpenAI, ProviderAnthropic:
 	default:
-		return fmt.Errorf("settings: provider %q unsupported; want openai or anthropic", s.Provider)
+		if !ValidProviderValue(s.Provider) {
+			return ProviderValueError("provider", s.Provider)
+		}
 	}
 	if s.Provider == "" && s.DefaultModel != "" {
 		return errors.New("settings: default_model requires a provider to be set")
@@ -500,6 +515,9 @@ func (s Settings) Validate() error {
 		if strings.TrimSpace(domainName) == "" {
 			return fmt.Errorf("settings: sandbox.network.allowed_domains[%d] must not be empty", i)
 		}
+	}
+	if seconds := s.Sandbox.ApprovalTimeoutSeconds; seconds != nil && (*seconds < 0 || *seconds > 86400) {
+		return fmt.Errorf("settings: sandbox.approval_timeout_seconds %d out of range; want 0 (never auto-approve) or 1..86400", *seconds)
 	}
 	if s.Compaction != nil {
 		if s.Compaction.MaxTokens < 0 {
@@ -745,10 +763,8 @@ func validateProviderEntries(entries []ProviderEntry) error {
 		if strings.TrimSpace(e.DisplayName) == "" {
 			return fmt.Errorf("settings: providers[%d].display_name must not be empty", i)
 		}
-		switch e.Bundle {
-		case ProviderOpenAI, ProviderAnthropic:
-		default:
-			return fmt.Errorf("settings: providers[%d].bundle %q unsupported; want openai or anthropic", i, e.Bundle)
+		if !ValidProviderValue(e.Bundle) {
+			return ProviderValueError(fmt.Sprintf("providers[%d].bundle", i), e.Bundle)
 		}
 		if !apiBasePattern.MatchString(e.BaseURL) {
 			return fmt.Errorf("settings: providers[%d].base_url %q must be an http(s) absolute URL", i, e.BaseURL)
@@ -761,7 +777,9 @@ func validateProviderEntries(entries []ProviderEntry) error {
 		if e.ApiKey != "" && strings.ContainsAny(e.ApiKey, "\r\n") {
 			return fmt.Errorf("settings: providers[%d].api_key must not contain newlines", i)
 		}
-		key := e.Bundle + "\x00" + e.BaseURL
+		// The uniqueness key is the endpoint identity, so a stored vendor name
+		// and the adapter it normalizes to cannot describe two entries.
+		key := NormalizeAdapter(e.Bundle) + "\x00" + e.BaseURL
 		if prev, ok := seen[key]; ok {
 			return fmt.Errorf("settings: providers[%d] (%s, %s) duplicates providers entry %q", i, e.Bundle, e.BaseURL, prev)
 		}
@@ -770,17 +788,26 @@ func validateProviderEntries(entries []ProviderEntry) error {
 	return nil
 }
 
-// FindProvider returns the registry entry whose (bundle, base_url) matches
-// the live selection, and whether a match exists. The active selection
-// resolves its API key from this entry (authoritative over the legacy
-// Settings.ApiKey overlay when the UI writes the registry).
+// FindProvider returns the registry entry whose (adapter, base_url) matches
+// the live selection, and whether a match exists. The comparison is made in the
+// normalized vocabulary, so an entry written before the migration with a vendor
+// name still matches the selection it describes. The active selection resolves
+// its API key from this entry (authoritative over the legacy Settings.ApiKey
+// overlay when the UI writes the registry).
 func (s Settings) FindProvider(bundle, baseURL string) (ProviderEntry, bool) {
+	adapter := NormalizeAdapter(bundle)
 	for _, e := range s.Providers {
-		if e.Bundle == bundle && e.BaseURL == baseURL {
+		if NormalizeAdapter(e.Bundle) == adapter && e.BaseURL == baseURL {
 			return e, true
 		}
 	}
 	return ProviderEntry{}, false
+}
+
+// IsOpenAICompatibleSelection reports whether a stored provider value names an
+// OpenAI-compatible protocol, which is the one list-models can probe.
+func IsOpenAICompatibleSelection(stored string) bool {
+	return NormalizeAdapter(stored) == provider.AdapterOpenAICompletions
 }
 
 // ActiveKey resolves the environment overlay key for the active selection:
