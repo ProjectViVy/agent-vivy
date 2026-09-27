@@ -23,6 +23,7 @@ This log records implementation checks for ORCH-02–07. It does not represent G
 | `VIVY_POSTGRES_TEST_DSN=postgres://vivy:vivy@127.0.0.1:5432/vivy?sslmode=disable go test -count=1 ./internal/storage/postgres` | PASS — full CN-01..CN-33 conformance + migrations incl. V14 in-place upgrade on real Postgres 16 |
 | `go test ./plugins/...` (plugin-ci equivalent, per prior pass) | PASS |
 | Browser E2E at `http://127.0.0.1:3015` (backend `:8787` + Vite dev) | PASS — recorded; details below |
+| Real model-path browser E2E (SenseNova `sensenova-6.8-flash-lite`, OpenAI-compatible custom provider) | PASS — recorded; details below |
 
 ## Fixes applied on this pass (commit `b8335280`)
 
@@ -42,13 +43,30 @@ This log records implementation checks for ORCH-02–07. It does not represent G
 - Locale: zh renders all new keys (子 Run / DAG 工作流 / 委派任务 / 保留可续接的子会话 …); en/zh toggle clean.
 - Keyboard: Tab reaches descriptor textarea, workflow items, and child links; Enter expands rows; disabled controls skipped correctly. Console clean.
 
-## Still not verified (requires owner or a real provider key)
+## Real model-path E2E (SenseNova `sensenova-6.8-flash-lite`, recorded)
+
+A real OpenAI-compatible provider was registered via Settings → Model and the full orchestration surface ran with actual model output:
+
+- Normal runs produce real assistant replies and real tool calls (`write_file` executed end-to-end through the approval gate).
+- Continuable child: `child/start` produced real assistant content in child history; a parent→child mailbox message was admitted and consumed by the follow-up activation (child acknowledged it verbatim); the follow-up ran on the same `csess_` session.
+- `reply_parent` roundtrip: child replies surfaced in the "Messages waiting for the parent" panel and were consumed when a later parent run called `child_inbox`; all rows flipped to `consumed`.
+- Workflow/DAG: `workflow_495867222813d7de` ran the `draft` node child to completion; the Declared outputs panel populated with real model text; the workflow reached `completed` and the node output was journaled into the parent transcript.
+- Persistence: reload and backend kill/restart rehydrate all state; the journal shows the 42-event run ending `run.completed`; no ghost `active` runs.
+- Provider compatibility: no console errors, panics, rate-limit or tool-call format failures; SenseNova streams `reasoning` + `content` and supports `tool_calls`.
+
+### New findings surfaced by the real-provider pass (recorded, not fixed here)
+
+1. **Node children can call `ask_user`, which always fails headless.** A vague node task led the node child to call `ask_user`; nobody answered → `run.failed` (`cause_category: human_timeout`) → workflow "The child task did not complete successfully." Machinery behaved correctly; the design gap is that human-interaction tools sit inside a node child's tool ceiling. Product decision needed.
+2. **Composer queue did not auto-drain.** A message queued while a run waited on approval stayed queued after the gate cleared; had to be cleared and re-sent manually.
+3. **Inspector is currentRun-scoped with no run picker.** Previous runs' children/history/mailbox become unreachable in the UI once a newer run exists; a re-expanded child row does not refetch (stale history until reload).
+4. Cosmetic: `model.usage` payloads label the custom provider `"deepseek"`; a sandbox-denied `sleep` escalates to run failure via the pause path; message timestamps render in a different timezone than UTC.
+
+## Still not verified (requires owner)
 
 - Literal `just ci`: the justfile is PowerShell-bound; the raw equivalents above all pass on Linux, but `just ci` itself needs the supported environment.
-- Real model-path E2E: actual model output in child history, workflow node completion/Declared outputs, `reply_parent` delivery into a live parent prompt — all need a real provider key (e.g. `DEEPSEEK_API_KEY`).
 - Descendant budget/usage reconciliation and slot/backpressure accounting across reauthorization and restart (R13).
 - Owner E2E and final release review (G4).
 
 ## Gate disposition
 
-G0/G1/G2/G3: the previously missing machine-checkable and browser evidence is now produced (repository-wide tests, vet, builds, both-backend conformance, real `:3015` browser flows incl. reload/restart/locale/keyboard). Remaining gaps are scoped above and concentrate in descendant resource accounting (R13) and real-model paths. G4 remains **BLOCKED** — owner E2E and release review are not delegated.
+G0–G3: the previously missing machine-checkable, both-backend and browser evidence — including a real model path — is now produced and recorded. Remaining gaps concentrate in descendant resource accounting (R13) and the product decisions listed above. G4 remains **BLOCKED** — owner E2E and release review are not delegated.

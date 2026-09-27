@@ -36,3 +36,15 @@ Then Settings → Model → "Add custom provider": adapter OpenAI-compatible, `h
 - "Messages waiting for the parent" panel lists child→parent pending mailbox messages only; a parent→child send is confirmed by the "Message <id> admitted to the child inbox" status line, not a panel row.
 - After a backend restart, an interrupted descendant shows "The child worker was lost during server restart. Retry explicitly to avoid duplicate side effects." (fencing is intentional).
 - Console stays clean — missing i18n keys would surface as raw `runInspector.*` strings in the UI.
+
+## Real-provider runs (openai-completions custom provider)
+
+- Register a provider via Settings → Model → "Add custom provider" (adapter openai-completions, base URL `https://token.sensenova.cn/v1`-style, key, model). The API key field commits **on blur** (`onBlur` in `ModelSettingsCard.tsx`) — click outside the field before assuming it saved; verify in `~/.vivy-dev/settings.yaml`.
+- Reasoning models (e.g. SenseNova) emit `model.reasoning_delta` events; a single call can take 60–95s, so a parent run finishes too fast to race clicks.
+- To hold a run `active` for orchestration ops: prompt "Use the write_file tool to create X.txt containing 'y', then reply DONE." → the tool call lands in `tool.approval_required`, and under the smart preset the run stays `active` for the approval window (`approval_timeout_seconds`, default 300s). Do NOT use `sleep` — sandbox denies it and the run then fails via the pause-for-approval path.
+- Child lists are **run-scoped**: `Children N` under a new run shows only that run's children. To reach a previous run's child detail (history/mailbox/follow-up), that run must still be `currentRun`; after a newer run exists you cannot reach it in the UI.
+- `child/message/list` (pending panel) needs the authorizer run `active` on the origin parent session with a matching policy ceiling — it shows an inline "child operation conflicts with current state or authority" otherwise. The child-history fetch in the same effect doesn't need active, but both are fetched together when a child row is expanded.
+- The child detail effect keys on `[run.id, child.id, child.session_id, child_mode]` — expanding the same row again does NOT refetch; select a different child or reload the page to refresh history/pending panels.
+- Child→parent `reply_parent` replies stay `pending` until a parent run calls the `child_inbox` tool (prompt e.g. "use child_inbox to check pending messages from your child sessions"); they are not auto-injected into the next run input.
+- Workflow node children CAN call `ask_user`; since nobody answers it, the node fails with `run.failed` `cause_category: human_timeout` and the workflow shows "The child task did not complete successfully." Give node tasks a concrete self-contained instruction to avoid it.
+- No `sqlite3` CLI; inspect `~/.vivy-dev/vivy.db` with `python3 -c` + sqlite3 module (tables: messages, runs, run_events, child_mailbox_messages). Backend also writes rotated logs to `~/.vivy-dev/logs/vivy.log.<date>`.
