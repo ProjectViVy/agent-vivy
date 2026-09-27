@@ -3,10 +3,15 @@
 package defaults
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 
+	maskmodule "agent-vivy/internal/modules/masks"
+	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/modules/optional"
 	"agent-vivy/internal/provider"
+	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
 )
@@ -14,28 +19,75 @@ import (
 type Binding struct {
 	ImportPath, Package, Constructor, ProviderConstructor string
 	ProviderCollection                                    bool
+	MaskFactory                                           string
 	ContextSourceProvider                                 bool
 	SkillSourceProvider                                   bool
 	MCPHostProvider                                       bool
+	RunObserverProvider                                   bool
 }
 type Record struct {
 	Descriptor module.Descriptor
 	Binding    Binding
 }
 
-func Catalog(_ string) ([]Record, error) {
-	source := module.Source{Ref: "file:internal"}
+func Catalog(repoRoot string) ([]Record, error) {
+	digest, err := sourcehash.Tree(filepath.Join(repoRoot, "internal"), "")
+	if err != nil {
+		return nil, fmt.Errorf("default Source Catalog: %w", err)
+	}
+	source := module.Source{Ref: "file:internal", SHA256: digest}
 	protectedPorts := make([]module.PortRef, 0, len(tools.AssemblyControlledToolNames()))
 	for _, id := range tools.AssemblyControlledToolNames() {
 		protectedPorts = append(protectedPorts, port("std/tool@v1", id))
+	}
+	maskProvides := []module.PortRef{port("core/mask-service@v1", "vivy.mask-service")}
+	for _, actionID := range []string{
+		maskmodule.ActionCatalogList,
+		maskmodule.ActionCatalogGet,
+		maskmodule.ActionCatalogCreate,
+		maskmodule.ActionCatalogUpdate,
+		maskmodule.ActionCatalogDelete,
+		maskmodule.ActionSelectionGet,
+		maskmodule.ActionSelectionSet,
+	} {
+		maskProvides = append(maskProvides, port("std/control-action@v1", actionID))
+	}
+	memoryActionProvides := make([]module.PortRef, 0, 9)
+	for _, actionID := range []string{
+		memorymodule.ActionList,
+		memorymodule.ActionSearch,
+		memorymodule.ActionGet,
+		memorymodule.ActionAdd,
+		memorymodule.ActionUpdate,
+		memorymodule.ActionRemove,
+		memorymodule.ActionRulesRead,
+		memorymodule.ActionRulesWrite,
+		memorymodule.ActionStatus,
+	} {
+		memoryActionProvides = append(memoryActionProvides, port("std/control-action@v1", actionID))
+	}
+	memoryToolProvides := make([]module.PortRef, 0, 6)
+	for _, toolID := range []string{
+		memorymodule.ToolAdd,
+		memorymodule.ToolGet,
+		memorymodule.ToolList,
+		memorymodule.ToolSearch,
+		memorymodule.ToolUpdate,
+		memorymodule.ToolRemove,
+	} {
+		memoryToolProvides = append(memoryToolProvides, port("std/tool@v1", toolID))
 	}
 	records := []Record{
 		boundRecord("vivy/loop", "agent-vivy/internal/modules/loop", "loop", "NewModule", source, port("core/loop-driver@v1", "vivy.loop-driver")),
 		boundRecord("vivy/model", "agent-vivy/internal/modules/model", "model", "NewModule", source, port("core/chat-model-host@v1", "vivy.chat-model-host")),
 		boundRecord("vivy/storage", "agent-vivy/internal/modules/storage", "storage", "NewModule", source, port("core/storage-engine@v1", "vivy.storage-engine")),
+		boundRecord("vivy/masks", "agent-vivy/internal/modules/masks", "masks", "NewModule", source, maskProvides...),
 		boundRecord("vivy/checkpoint", "agent-vivy/internal/modules/checkpoint", "checkpoint", "NewModule", source, port("core/checkpoint-store@v1", "vivy.checkpoint-store")),
 		boundRecord("vivy/credential", "agent-vivy/internal/modules/credential", "credential", "NewModule", source, port("core/credential-resolver@v1", "vivy.credential-resolver")),
 		boundRecord("vivy/sandbox", "agent-vivy/internal/modules/sandbox", "sandbox", "NewModule", source, port("core/sandbox-backend@v1", "vivy.sandbox-backend")),
+		boundRecord("vivy/memory-bml", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryActionProvides...),
+		boundRecord("vivy/memory-bml-sync", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, port("std/context-source@v1", memorymodule.ProviderID), port("std/observer/run@v1", memorymodule.ProviderID)),
+		boundRecord("vivy/memory-bml-tools", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryToolProvides...),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -52,6 +104,10 @@ func Catalog(_ string) ([]Record, error) {
 	}
 	for i := range records {
 		switch records[i].Descriptor.Module.ID {
+		case "vivy/masks":
+			records[i].Binding.MaskFactory = "Open"
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/protected-tools":
 			records[i].Binding.ProviderConstructor = "ProtectedToolProviders"
 			records[i].Binding.ProviderCollection = true
@@ -65,18 +121,32 @@ func Catalog(_ string) ([]Record, error) {
 			records[i].Binding.ProviderConstructor = "ContextSourceProviders"
 			records[i].Binding.ProviderCollection = true
 			records[i].Binding.ContextSourceProvider = true
+		case "vivy/memory-bml":
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
+		case "vivy/memory-bml-sync":
+			records[i].Binding.ProviderConstructor = "NewProvider"
+			records[i].Binding.RunObserverProvider = true
+		case "vivy/memory-bml-tools":
+			records[i].Binding.ProviderConstructor = "ToolProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
 			records[i].Binding.SkillSourceProvider = true
 		}
 		switch records[i].Descriptor.Module.ID {
-		case "vivy/protected-tools", "vivy/mcp-host":
+		case "vivy/protected-tools", "vivy/mcp-host", "vivy/memory-bml-tools":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 		case "vivy/context-source":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"}}
 		case "vivy/skill-source":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/skill-host@v1"}, Provider: "vivy/skill-host"}}
+		case "vivy/memory-bml-sync":
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"},
+				{PortRef: module.PortRef{Port: "core/observer-host@v1"}, Provider: "vivy/observer-host"},
+			}
 		}
 		if records[i].Descriptor.Module.ID == "vivy/provider-profiles" {
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/chat-model-host@v1"}, Provider: "vivy/model"}}

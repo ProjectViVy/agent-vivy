@@ -28,7 +28,7 @@ func TestSourceCatalogAssignsTrustOutsideDescriptor(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogKeepsReferenceBoundaryWithoutHashGate(t *testing.T) {
+func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -52,39 +52,40 @@ func TestSourceCatalogKeepsReferenceBoundaryWithoutHashGate(t *testing.T) {
 	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSourceCatalog([]SourceRecord{record}); err != nil {
-		t.Fatalf("NewSourceCatalog() rejected source drift before pack: %v", err)
+	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
+		t.Fatalf("NewSourceCatalog() error = %v, want source drift diagnostic", err)
 	}
 }
 
-func TestBindSourceHashesAndDetectsPackDrift(t *testing.T) {
+func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	digest, err := HashSourceTree(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor := testDescriptor("fixture/source")
-	descriptor.Source.SHA256 = ""
+	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
 	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
 	catalog, err := NewSourceCatalog([]SourceRecord{record})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: descriptor}}}
-	if err := BindSourceHashes(&plan, catalog); err != nil {
+	resolved, err := catalog.Resolve(descriptor.Module.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Modules[0].Descriptor.Source.SHA256 == "" {
-		t.Fatal("BindSourceHashes() produced an empty digest")
-	}
-	if err := VerifyBoundSourceHashes(plan, catalog); err != nil {
-		t.Fatalf("VerifyBoundSourceHashes() rejected unchanged source: %v", err)
+	if resolved.Descriptor.Source.SHA256 != digest {
+		t.Fatalf("bound digest = %q, want %q", resolved.Descriptor.Source.SHA256, digest)
 	}
 	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyBoundSourceHashes(plan, catalog); err == nil || !strings.Contains(err.Error(), "source changed during pack") {
-		t.Fatalf("VerifyBoundSourceHashes() error = %v, want pack drift diagnostic", err)
+	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
+		t.Fatalf("NewSourceCatalog() error = %v, want source drift diagnostic", err)
 	}
 }
 

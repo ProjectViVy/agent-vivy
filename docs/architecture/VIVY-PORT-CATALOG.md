@@ -370,6 +370,12 @@ re-enters ToolHost.
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
 
+`core/mask-service@v1` is a specified, optional T1 backend contract owned by
+`vivy/masks` with cardinality `0..1` and Runtime as its sole consumer. It
+remains **SPECIFIED**, not `SUPPORTED`, until the durable service, conformance,
+failure, and Inspect artifacts are complete; it is not selected by the default
+Recipe.
+
 L0 owns ChannelHost and FaceHost authority; they are not replaceable Provider
 slots even though they consume public Ports.
 

@@ -19,6 +19,8 @@ import {
   type UIExtensionProvider,
   type UIRootProvider,
   type UIRoot,
+  type ChatHeaderContext,
+  type ChatHeaderContribution,
   UI_EXTENSION_PORT,
   UI_ROOT_PORT,
 } from "./module";
@@ -101,6 +103,7 @@ const emptyFaceStoreState: FaceStoreState = {
   initialize: unavailableFaceOperation,
   retryInitialize: unavailableFaceOperation,
   loadSessions: unavailableFaceOperation,
+  chooseWorkspace: unavailableFaceOperation,
   createSession: unavailableFaceOperation,
   chooseWorkspace: unavailableFaceOperation,
   renameSession: unavailableFaceOperation,
@@ -122,6 +125,16 @@ const emptyFaceStoreState: FaceStoreState = {
   previewDeliveryItem: unavailableFaceOperation,
   downloadDeliveryItem: unavailableFaceOperation,
   cancelDeliveryDownload: () => undefined,
+  loadWork: unavailableFaceOperation,
+  commitWork: unavailableFaceOperation,
+  createGoal: unavailableFaceOperation,
+  editGoal: unavailableFaceOperation,
+  pauseGoal: unavailableFaceOperation,
+  resumeGoal: unavailableFaceOperation,
+  clearGoal: unavailableFaceOperation,
+  enterPlan: unavailableFaceOperation,
+  leavePlan: unavailableFaceOperation,
+  decidePlan: unavailableFaceOperation,
   cancelCurrentRun: unavailableFaceOperation,
   openRun: unavailableFaceOperation,
   loadRunLog: unavailableFaceOperation,
@@ -160,6 +173,28 @@ const emptyFaceStoreState: FaceStoreState = {
 };
 
 describe("full-code UI composition", () => {
+  it("exposes the typed chat header slot contract", () => {
+    let received: ChatHeaderContext | undefined;
+    const contribution: ChatHeaderContribution = {
+      slot: "chat.header",
+      render: (context) => {
+        received = context;
+        return null;
+      },
+    };
+
+    expect(contribution.slot).toBe("chat.header");
+    expect(contribution.render({ sessionId: "session-fixture", running: true })).toBeNull();
+    expect(received).toEqual({ sessionId: "session-fixture", running: true });
+
+    // @ts-expect-error the slot is intentionally closed to typed consumers.
+    const wrongSlot: ChatHeaderContribution = { slot: "chat.footer", render: () => null };
+    // @ts-expect-error header renderers receive the host-owned context.
+    const wrongRenderer: ChatHeaderContribution = { slot: "chat.header", render: () => ({}) };
+    expect(wrongSlot).toBeDefined();
+    expect(wrongRenderer).toBeDefined();
+  });
+
   it("rejects duplicate root providers", () => {
     const input: UICompositionInput = {
       roots: [root("vivy/default-ui"), root("example/search-ui")],
@@ -299,6 +334,7 @@ describe("full-code UI composition", () => {
         initialize: async () => ({ protocol_version: "vivy/rpc-v1", capabilities: [] }),
         listWorkspaceFiles: unavailableFaceOperation,
         readWorkspaceFile: unavailableFaceOperation,
+        browseWorkspace: unavailableFaceOperation,
         listSessions: async () => ({ sessions: [] }),
         browseWorkspace: unavailableFaceOperation,
         setSessionWorkspace: unavailableFaceOperation,
@@ -309,8 +345,12 @@ describe("full-code UI composition", () => {
         createSession: async () => ({ id: "fixture/session", title: "Fixture", created_at: 0 }),
         renameSession: async () => ({ id: "fixture/session", title: "Renamed", created_at: 0 }),
         setSessionPermission: unavailableFaceOperation,
+        setSessionWorkspace: unavailableFaceOperation,
         deleteSession: unavailableFaceOperation,
         listMessages: async () => ({ messages: [] }),
+        getSessionWork: unavailableFaceOperation,
+        getPlan: unavailableFaceOperation,
+        commitWork: unavailableFaceOperation,
         getSessionContext: unavailableFaceOperation,
         compactSession: unavailableFaceOperation,
         rewindSession: unavailableFaceOperation,
@@ -383,6 +423,8 @@ describe("full-code UI composition", () => {
         deleteMcpServer: unavailableFaceOperation,
         probeMcpServer: unavailableFaceOperation,
         inspectChannels: unavailableFaceOperation,
+        listChannelDeliveries: unavailableFaceOperation,
+        redeliverChannelDelivery: unavailableFaceOperation,
         getChannel: unavailableFaceOperation,
         updateChannel: unavailableFaceOperation,
         getTokenUsage: unavailableFaceOperation,

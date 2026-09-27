@@ -44,6 +44,7 @@ func TestRepositoryModulePathsUseCanonicalNamespace(t *testing.T) {
 		"../../plugins/vivy-persona/go.mod",
 		"../../plugins/vivy-evolution/go.mod",
 		"../../plugins/vivy-memory/go.mod",
+		"../../plugins/vivy-masks-ui/go.mod",
 		"../../plugins/vivy-notebook/go.mod",
 	} {
 		body, err := os.ReadFile(path)
@@ -455,6 +456,7 @@ ui:
 		replacement string
 		want        string
 	}{
+		{name: "source", needle: "sourceHash: " + sourceHash, replacement: "sourceHash: " + strings.Repeat("1", 64), want: "source hash mismatch"},
 		{name: "lock", needle: "dependencyLockHash: " + lockHash, replacement: "dependencyLockHash: " + strings.Repeat("2", 64), want: "dependency lock hash mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -869,7 +871,7 @@ func TestInspectRejectsManifestFromAnotherBinary(t *testing.T) {
 	}
 }
 
-func TestVerifyAllowsModifiedSourceTreeWithoutHashRepair(t *testing.T) {
+func TestVerifyRejectsModifiedSourceTree(t *testing.T) {
 	dir := t.TempDir()
 	descriptor, err := os.ReadFile("../../plugins/hello-fs/vivy-module.yaml")
 	if err != nil {
@@ -878,11 +880,11 @@ func TestVerifyAllowsModifiedSourceTreeWithoutHashRepair(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "vivy-module.yaml"), descriptor, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package modified\n\n// content changed without updating the declared hash\nfunc New() {}\nfunc NewProvider() {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package modified\n\n// content changed without updating the declared hash\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifySource(dir, module.Descriptor{}); err != nil {
-		t.Fatalf("verifySource() rejected source edit: %v", err)
+	if _, err := Verify(dir); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
+		t.Fatalf("Verify() error = %v, want source hash rejection", err)
 	}
 }
 

@@ -55,6 +55,7 @@ func (a *toolAdapter) applyGovernedMiddleware(
 				"rewritten arguments for "+spec.Name+" are denied by policy: "+next.Reason,
 				fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name),
 				next.Snapshot.Hash,
+				toolFailureReasonPolicyDenied,
 			)
 		}
 		evaluation = next

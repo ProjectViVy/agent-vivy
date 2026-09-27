@@ -100,6 +100,23 @@ func TestJobRegistryRunUntilCompletes(t *testing.T) {
 	}
 }
 
+func TestJobRegistryPreservesInProcessExitStatus(t *testing.T) {
+	r := NewJobRegistry()
+	spec := JobSpec{
+		Display: "embedded exit",
+		Run: func(context.Context, io.Writer, io.Writer) error {
+			return ExitStatusError{Code: 3}
+		},
+	}
+	res, err := r.RunForeground(context.Background(), spec, 5*time.Second)
+	if err != nil {
+		t.Fatalf("foreground: %v", err)
+	}
+	if res.ExitCode != 3 {
+		t.Fatalf("exit code = %d, want 3", res.ExitCode)
+	}
+}
+
 func TestJobRegistryRunUntilAdoptsOnTimeout(t *testing.T) {
 	requireBash(t)
 	r := NewJobRegistry()

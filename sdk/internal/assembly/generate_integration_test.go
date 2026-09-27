@@ -33,6 +33,11 @@ func TestGeneratedBinderCompilesAndRollsBackLifecycle(t *testing.T) {
 	root := t.TempDir()
 	goMod := fmt.Sprintf("module generatedtest\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repositoryRoot))
 	writeGeneratedTestFile(t, root, "go.mod", goMod)
+	goSum, err := os.ReadFile(filepath.Join(repositoryRoot, "go.sum"))
+	if err != nil {
+		t.Fatalf("read repository go.sum: %v", err)
+	}
+	writeGeneratedTestFile(t, root, "go.sum", string(goSum))
 	writeGeneratedTestFile(t, root, "events/events.go", `package events
 
 var Items []string
@@ -48,7 +53,7 @@ func Reset() { Items = nil; FailStart = "" }
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default.go", string(runtimeAssembly))
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default_test.go", generatedRuntimeAssemblyBehaviorTest)
 
-	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "-v", "./...")
+	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "-mod=mod", "-v", "./...")
 	command.Dir = root
 	output, err := command.CombinedOutput()
 	if err != nil {

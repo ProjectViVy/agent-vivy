@@ -38,8 +38,8 @@ func waitForWalkthroughStatus(t *testing.T, runs storage.RunStore, runID domain.
 
 // TestVC1Walkthrough replays a scripted Vivy-Code turn over the full stack:
 // the model writes a failing script, reads it back, locates the defect with
-// grep, repairs it via multiedit, and verifies the fix on disk through the
-// bash tool. The session is pinned to the 'auto' approval policy so the whole
+// the grep tool, repairs it via multiedit, and verifies the fix on disk with
+// Git's available no-index grep. The session is pinned to the 'auto' approval policy so the whole
 // chain runs without an approval interrupt; the journal must carry five clean
 // tool.finished events, the multiedit diff payload, a file_versions chain
 // ending on the fixed content, and a single completed terminal.
@@ -102,7 +102,7 @@ func TestVC1Walkthrough(t *testing.T) {
 		}}),
 		schema.AssistantMessage("", []schema.ToolCall{{
 			ID:       "call-wt-bash",
-			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"grep PASS calc.sh"}`},
+			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"git grep --no-index PASS -- calc.sh"}`},
 		}}),
 		schema.AssistantMessage("Walkthrough complete: script fixed and verified.", nil),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints, AutoApproveTools: []string{tools.WriteFileName, tools.MultiEditName}})

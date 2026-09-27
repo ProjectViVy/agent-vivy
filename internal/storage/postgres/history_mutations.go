@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"agent-vivy/internal/domain"
+	mask "agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -39,6 +41,13 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 		return event, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := lockMessageSession(ctx, tx, m.SessionID); err != nil {
+		return event, err
+	}
+	m.WorkSeq, err = currentMessageWorkSeq(ctx, tx, m.SessionID)
+	if err != nil {
+		return event, err
+	}
 	if err := postgresInsertMarker(ctx, tx, marker); err != nil {
 		return event, err
 	}
@@ -46,7 +55,7 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 	if err != nil {
 		return event, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, int64(m.WorkSeq), m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 		return event, err
 	}
 	for i, a := range m.Attachments {
@@ -89,12 +98,16 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES ($1,$2,$3,$4,$5,$6,$7)`, child.ID, child.Title, child.CreatedAt, updatedAt, mode, policy, child.WorkspacePath); err != nil {
 		return nil, fmt.Errorf("storage: create fork session: %w", err)
 	}
+	if err := postgresCopyForkMaskSelection(ctx, tx, child.ID, markers); err != nil {
+		return nil, err
+	}
 	for _, m := range messages {
+		m.WorkSeq = 0
 		position, err := postgresNextMessagePosition(ctx, tx, m.SessionID)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, int64(m.WorkSeq), m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
 		}
 		for i, a := range m.Attachments {
@@ -109,6 +122,9 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		}
 	}
 	for _, marker := range markers {
+		if marker.SessionID == child.ID {
+			marker.WorkSeq = 0
+		}
 		if err := postgresInsertMarker(ctx, tx, marker); err != nil {
 			return nil, err
 		}
@@ -124,8 +140,62 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	return events, nil
 }
 
+// postgresCopyForkMaskSelection follows the same lock order as selection
+// writes: source session first, then the selected custom definition. The
+// child always receives an independent revision-1 row, including when the
+// source has the virtual unmasked revision 0.
+func postgresCopyForkMaskSelection(ctx context.Context, tx *sql.Tx, childID domain.SessionID, markers []storage.SessionTruncation) error {
+	sourceID := postgresForkSourceID(childID, markers)
+	if sourceID == "" {
+		return nil
+	}
+	var lockedID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM sessions WHERE id = $1 FOR UPDATE`, sourceID).Scan(&lockedID); errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("storage: lock fork source session: %w", err)
+	}
+	var selection mask.Selection
+	selection.SessionID = sourceID
+	if err := tx.QueryRowContext(ctx,
+		`SELECT mask_id, revision FROM session_mask_selections WHERE session_id = $1`, sourceID).
+		Scan(&selection.MaskID, &selection.Revision); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("storage: read fork mask selection: %w", err)
+	}
+	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) {
+		var id string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT id FROM mask_definitions WHERE id = $1 FOR UPDATE`, selection.MaskID).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+			return mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
+		} else if err != nil {
+			return fmt.Errorf("storage: lock fork mask definition: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO session_mask_selections (session_id, mask_id, revision) VALUES ($1, $2, 1)`,
+		childID, selection.MaskID); err != nil {
+		return fmt.Errorf("storage: copy fork mask selection: %w", err)
+	}
+	return nil
+}
+
+func postgresForkSourceID(childID domain.SessionID, markers []storage.SessionTruncation) domain.SessionID {
+	for _, marker := range markers {
+		if marker.Reason == storage.TruncationFork && marker.ForkSessionID == string(childID) {
+			return marker.SessionID
+		}
+	}
+	for _, marker := range markers {
+		if marker.Reason == storage.TruncationForkedFrom && marker.SessionID == childID {
+			return domain.SessionID(marker.ForkSessionID)
+		}
+	}
+	return ""
+}
+
 func postgresInsertMarker(ctx context.Context, tx *sql.Tx, t storage.SessionTruncation) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_truncations (session_id,cutoff_message_id,tail_message_id,reason,fork_session_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)`, t.SessionID, t.CutoffMessageID, t.TailMessageID, t.Reason, t.ForkSessionID, t.CreatedAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_truncations (session_id,run_id,cutoff_message_id,tail_message_id,work_seq,reason,fork_session_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt); err != nil {
 		return fmt.Errorf("storage: record session truncation: %w", err)
 	}
 	return nil

@@ -13,7 +13,8 @@ type Capabilities struct {
 	Edit bool
 	// Delete maps plugin.MessageDeleter ("delivery": delete).
 	Delete bool
-	// Reaction maps plugin.ReactionSender ("交互": emoji reaction).
+	// Reaction maps plugin.ReactionSender + plugin.ReactionRemover
+	// ("交互": emoji reaction with withdrawal).
 	Reaction bool
 	// Placeholder maps plugin.Placeholder ("交互": replaceable working message).
 	Placeholder bool
@@ -36,43 +37,75 @@ type Capabilities struct {
 	// ABI catalog but assert to nothing here and are not reported.
 }
 
+// capabilityTarget resolves the adapter object behind a bound channel by
+// following CapabilitySource links to the innermost target. A channel that
+// is not a source resolves to itself; a source without a target stops the
+// walk at the last non-nil object. Host call paths (typing, health) share
+// this resolution with Discover, so calls land on the same object the
+// advertised surface was asserted against.
+func capabilityTarget(ch plugin.Channel) any {
+	target := any(ch)
+	for {
+		source, ok := target.(plugin.CapabilitySource)
+		if !ok {
+			break
+		}
+		next := source.CapabilityTarget()
+		if next == nil {
+			break
+		}
+		target = next
+	}
+	return target
+}
+
 // Discover reports the optional capability interfaces a channel plugin
 // implements, via type assertions against the focused v1 Channel Port. A
 // plugin implementing none of them (the v1 text-only cut) yields the zero
-// value.
+// value. Assembly wrappers are transparent: the probe follows
+// CapabilitySource links to the innermost target and asserts there, so a
+// bound channel reports exactly what its adapter implements — never what a
+// wrapper happens to declare. A missing or nil link falls back to
+// asserting the wrapper itself, which honestly reports nothing.
 func Discover(ch plugin.Channel) Capabilities {
 	var c Capabilities
-	if _, ok := ch.(plugin.Typing); ok {
+	target := capabilityTarget(ch)
+	if _, ok := target.(plugin.Typing); ok {
 		c.Typing = true
 	}
-	if _, ok := ch.(plugin.MessageEditor); ok {
+	if _, ok := target.(plugin.MessageEditor); ok {
 		c.Edit = true
 	}
-	if _, ok := ch.(plugin.MessageDeleter); ok {
+	if _, ok := target.(plugin.MessageDeleter); ok {
 		c.Delete = true
 	}
-	if _, ok := ch.(plugin.ReactionSender); ok {
-		c.Reaction = true
+	if _, ok := target.(plugin.ReactionSender); ok {
+		// The reaction ack contract includes the withdrawal half: only an
+		// adapter with both faces advertises Reaction, so an advertised ack
+		// can always be undone when the turn settles.
+		if _, canRemove := target.(plugin.ReactionRemover); canRemove {
+			c.Reaction = true
+		}
 	}
-	if _, ok := ch.(plugin.Placeholder); ok {
+	if _, ok := target.(plugin.Placeholder); ok {
 		c.Placeholder = true
 	}
-	if _, ok := ch.(plugin.MediaSender); ok {
+	if _, ok := target.(plugin.MediaSender); ok {
 		c.Media = true
 	}
-	if _, ok := ch.(plugin.MediaStore); ok {
+	if _, ok := target.(plugin.MediaStore); ok {
 		c.MediaStore = true
 	}
-	if _, ok := ch.(plugin.WebhookHandler); ok {
+	if _, ok := target.(plugin.WebhookHandler); ok {
 		c.Webhook = true
 	}
-	if _, ok := ch.(plugin.ListenHandler); ok {
+	if _, ok := target.(plugin.ListenHandler); ok {
 		c.Listen = true
 	}
-	if _, ok := ch.(plugin.StreamingCapable); ok {
+	if _, ok := target.(plugin.StreamingCapable); ok {
 		c.Stream = true
 	}
-	if _, ok := ch.(plugin.HealthChecker); ok {
+	if _, ok := target.(plugin.HealthChecker); ok {
 		c.Health = true
 	}
 	return c

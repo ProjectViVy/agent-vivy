@@ -266,6 +266,8 @@ Budget variant: add a long optional passage. The Host omits it deterministically
 
 ### C. Memory return and deduplication
 
+The frozen G0 capability profile for this seam is `VIVY-MEMORY-PROFILE.md`.
+
 ```yaml
 event:
   id: evt-001

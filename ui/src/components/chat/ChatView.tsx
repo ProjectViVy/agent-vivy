@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import type { AttachmentInput, Face, RunMode, ThinkingMode, TurnContinuity, TurnSubmission } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
-import { faceForMaskId, useActiveMaskId } from '@/components/masks/mask-catalog';
 import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { RecoverableError } from '@/components/feedback/RecoverableError';
@@ -16,6 +15,7 @@ import { ReferenceDetail } from './ReferenceDetail';
 import { ToolRow } from './ToolRow';
 import { ChatInput } from './ChatInput';
 import { TodoProgressStrip } from './TodoProgressStrip';
+import { WorkControlBar } from './WorkControlBar';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { cn } from '@/lib/utils';
 
@@ -41,10 +41,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 	const [historyAction, setHistoryAction] = useState(false);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
+  const codeMode = useVivyStore((state) => state.codeMode);
   const mobile = useIsMobile();
   const { t } = useTranslation();
-  const activeMaskId = useActiveMaskId();
-  const face = faceForMaskId(activeMaskId);
+  // Face selection is owned by the explicit code-mode control. The legacy
+  // mask catalog remains a presentation choice and cannot silently change
+  // send, queue, edit, or regenerate semantics.
+  const face: Face | undefined = codeMode ? 'code' : undefined;
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
 
   // 同一类型化提交对象贯穿直发与排队：引用选择与任务级读域不可被
@@ -124,6 +127,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <WorkControlBar key={sessionId} sessionId={sessionId} />
         <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}

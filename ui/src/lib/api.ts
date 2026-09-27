@@ -2,6 +2,9 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 
 export const RPC_METHODS = [
   'initialize', 'capabilities',
+  'session/work/get', 'session/work/subscribe', 'session/work/unsubscribe',
+  'goal/create', 'goal/edit', 'goal/pause', 'goal/resume', 'goal/complete', 'goal/block', 'goal/clear',
+  'plan/get', 'plan/enter', 'plan/leave', 'plan/decide',
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
@@ -17,9 +20,10 @@ export const RPC_METHODS = [
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
   'channel/inspect', 'channel/get', 'channel/update',
+  'channel/deliveries/list', 'channel/deliveries/redeliver',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
-	'workspace/browse',
+  'workspace/browse',
   'skills/list', 'skills/get', 'skills/set-enabled',
   'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;
@@ -66,6 +70,53 @@ export type ThinkingMode = 'auto' | 'on' | 'off';
 export interface MessageAttachment { name?: string; mime_type: string; data_url: string }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
 export interface RunLogEvent { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }
+export type GoalPhase = 'active' | 'paused' | 'blocked' | 'completed';
+export type PlanReviewStatus = 'none' | 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
+export type PlanAction = 'revise' | 'execute_once' | 'start_goal';
+export interface WorkGoal {
+  id: string;
+  revision: number;
+  objective: string;
+  phase: GoalPhase;
+  max_rounds: number;
+  rounds_started: number;
+  reason?: string;
+  evidence_run_id?: string;
+}
+export interface WorkPlan {
+  active: boolean;
+  submission_id?: string;
+  markdown?: string;
+  review_status: PlanReviewStatus;
+  feedback?: string;
+  origin_run_id?: string;
+  origin_tool_call_id?: string;
+}
+export interface WorkState {
+  session_id: string;
+  version: number;
+  goal?: WorkGoal;
+  plan: WorkPlan;
+  activation: 'armed' | 'disarmed';
+  current_run_id?: string;
+}
+/** A fresh backend projection includes the process-local activation epoch. */
+export interface WorkView extends WorkState { process_epoch: string }
+export interface WorkEvent {
+  seq: number;
+  kind: string;
+  request_id: string;
+  created_at: number;
+}
+export interface WorkCommitResult {
+  work: WorkState;
+  event: WorkEvent;
+  replayed: boolean;
+}
+export interface WorkCommitView extends WorkCommitResult { work: WorkView }
+export type WorkMethod =
+  | 'goal/create' | 'goal/edit' | 'goal/pause' | 'goal/resume' | 'goal/complete' | 'goal/block' | 'goal/clear'
+  | 'plan/enter' | 'plan/leave' | 'plan/decide';
 /** session/context — 真实上下文压力（服务端装配口径）。 */
 export interface SessionContext {
   session_id: string;
@@ -264,6 +315,11 @@ export const setSessionPermission = (id: string, preset: Exclude<PermissionPrese
 export const setSessionWorkspace = (id: string, workspacePath: string) => request<Session>('session/set_workspace', { session_id: id, workspace_path: workspacePath });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
+export const getSessionWork = (sessionId: string) => request<WorkView>('session/work/get', { session_id: sessionId });
+export const getPlan = (sessionId: string, submissionId: string) =>
+  request<WorkPlan>('plan/get', { session_id: sessionId, submission_id: submissionId });
+export const commitWork = (method: WorkMethod, params: Record<string, unknown>) =>
+  request<WorkCommitView>(method, params);
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
 export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
 /** session/rewind：截点互斥（含截点）之后退出上下文，行留档不删除。 */
@@ -273,7 +329,13 @@ export const rewindSession = (sessionId: string, messageId: string) =>
 export const forkSession = (sessionId: string, messageId: string, title?: string) =>
   request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/fork', { session_id: sessionId, message_id: messageId, title });
 export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
-	request<{ run_id: string; status: RunStatus }>('session/edit', { session_id: sessionId, message_id: messageId, text, mode, face, thinking });
+  request<{ run_id: string; status: RunStatus }>('session/edit', {
+    session_id: sessionId, message_id: messageId, text,
+    mode: mode === 'plan' ? 'normal' : mode,
+    collaboration_mode: mode === 'plan' ? 'plan' : undefined,
+    collaboration_version: mode === 'plan' ? 1 : undefined,
+    face, thinking,
+  });
 export const listSessionCompactions = (sessionId: string, limit = 50) =>
   request<{ compactions: SessionCompactionRecord[] }>('session/compactions', { session_id: sessionId, limit });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
@@ -309,7 +371,9 @@ export const startTurn = (sessionId: string, submission: TurnSubmission) =>
   request<{ run_id: string; status: RunStatus }>('turn/start', {
     session_id: sessionId,
     text: submission.text,
-    mode: submission.mode,
+      mode: submission.mode === 'plan' ? 'normal' : submission.mode,
+      collaboration_mode: submission.mode === 'plan' ? 'plan' : undefined,
+      collaboration_version: submission.mode === 'plan' ? 1 : undefined,
     face: submission.face,
     attachments: submission.attachments,
     thinking: submission.thinking,
@@ -581,6 +645,9 @@ export interface ChannelStatus {
   token_env_set: boolean;
   /** 启动跳过/失败原因；空串 = 已启动（或尚未启动过）。 */
   note: string;
+  /** 已启动且实现 HealthChecker 的适配器的实时健康探测（CH-R-1）；
+   *  null = 未启动或无健康面。class ∈ rate-limit / temporary / dead。 */
+  health: { ok: boolean; class?: string; detail?: string } | null;
 }
 
 /**
@@ -610,6 +677,29 @@ export const inspectChannels = () => request<ChannelStatus[]>('channel/inspect')
 export const getChannel = (name: string) => request<ChannelEnvelope>('channel/get', { name });
 export const updateChannel = (name: string, patch: ChannelUpdateInput) =>
   request<ChannelEnvelope>('channel/update', { name, ...patch });
+
+/**
+ * channel/deliveries/list 条目：一条失败投递意图（attempts 预算耗尽后被
+ * 停为 failed 的行）。只含标识符——回复正文留在消息日志里（D-010）。
+ */
+export interface ChannelDelivery {
+  run_id: string;
+  session_id: string;
+  channel: string;
+  chat_id: string;
+  topic_id: string;
+  state: string;
+  attempts: number;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+/** 失败投递列表（操作员可见的台账面；armed/pending 是 Host 内部态，不外露）。 */
+export const listChannelDeliveries = () =>
+  request<{ deliveries: ChannelDelivery[] }>('channel/deliveries/list');
+/** 重投一条失败投递：保留累计 attempts，预算不变——每次点击恰好一次投递。 */
+export const redeliverChannelDelivery = (runId: string) =>
+  request<{ run_id: string; redelivered: boolean }>('channel/deliveries/redeliver', { run_id: runId });
 
 // ==================== Token Usage Stats ====================
 

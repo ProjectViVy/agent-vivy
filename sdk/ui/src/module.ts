@@ -547,6 +547,25 @@ export interface UIRegistry<T = unknown> {
   unregister(id: string): void;
 }
 
+/** Read-only state supplied to contributions rendered in the chat header slot. */
+export interface ChatHeaderContext {
+  readonly sessionId: string | null;
+  readonly running: boolean;
+}
+
+/** Typed value accepted by the host's existing components registry for chat headers. */
+export interface ChatHeaderContribution {
+  readonly slot: "chat.header";
+  readonly render: (context: ChatHeaderContext) => React.ReactNode;
+}
+
+/** Runtime shape guard used by the host before rendering a registry value. */
+export function isChatHeaderContribution(value: unknown): value is ChatHeaderContribution {
+  if (!value || typeof value !== "object") return false;
+  const contribution = value as Partial<ChatHeaderContribution>;
+  return contribution.slot === "chat.header" && typeof contribution.render === "function";
+}
+
 /**
  * The broad, host-owned composition surface. Concrete Web Face registries can
  * specialize these values without changing the public Module ABI.
@@ -1387,6 +1406,13 @@ export interface FaceChannelCapabilities {
   readonly health: boolean;
 }
 
+/** Live probe of a started HealthChecker adapter (CH-R-1). */
+export interface FaceChannelHealth {
+  readonly ok: boolean;
+  readonly class?: string;
+  readonly detail?: string;
+}
+
 export interface FaceChannelStatus {
   readonly name: string;
   readonly capabilities: FaceChannelCapabilities;
@@ -1397,6 +1423,7 @@ export interface FaceChannelStatus {
   readonly token_env: string;
   readonly token_env_set: boolean;
   readonly note: string;
+  readonly health: FaceChannelHealth | null;
 }
 
 export interface FaceChannelEnvelope {
@@ -1411,6 +1438,23 @@ export interface FaceChannelUpdateInput {
   readonly enabled?: boolean;
   readonly allow_from?: string[];
   readonly token_env?: string;
+}
+
+/** One failed delivery intent (channel/deliveries/list row). Identifiers only. */
+export interface FaceChannelDelivery {
+  readonly run_id: string;
+  readonly session_id: string;
+  readonly channel: string;
+  readonly chat_id: string;
+  readonly topic_id: string;
+  readonly state: string;
+  readonly attempts: number;
+  readonly created_at_ms: number;
+  readonly updated_at_ms: number;
+}
+
+export interface FaceChannelDeliveryList {
+  readonly deliveries: readonly FaceChannelDelivery[];
 }
 
 export type FaceTokenUsagePeriod = "1d" | "3d" | "1w" | "1m" | "6m" | "1y";
@@ -1743,6 +1787,54 @@ export interface FaceRunEvent {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
+export interface FaceWorkGoal {
+  readonly id: string;
+  readonly revision: number;
+  readonly objective: string;
+  readonly phase: "active" | "paused" | "blocked" | "completed";
+  readonly max_rounds: number;
+  readonly rounds_started: number;
+  readonly reason?: string;
+  readonly evidence_run_id?: string;
+}
+
+export interface FaceWorkPlan {
+  readonly active: boolean;
+  readonly submission_id?: string;
+  readonly markdown?: string;
+  readonly review_status: "none" | "pending" | "accepted" | "rejected" | "cancelled" | "expired";
+  readonly feedback?: string;
+  readonly origin_run_id?: string;
+  readonly origin_tool_call_id?: string;
+}
+
+export interface FaceWorkState {
+  readonly session_id: string;
+  readonly version: number;
+  readonly goal?: FaceWorkGoal;
+  readonly plan: FaceWorkPlan;
+  readonly activation: "armed" | "disarmed";
+  readonly current_run_id?: string;
+}
+
+export interface FaceWorkEvent {
+  readonly seq: number;
+  readonly kind: string;
+  readonly request_id: string;
+  readonly created_at: number;
+}
+
+export interface FaceWorkCommitResult {
+  readonly work: FaceWorkState;
+  readonly event: FaceWorkEvent;
+  readonly replayed: boolean;
+}
+
+export type FaceWorkMethod =
+  | "goal/create" | "goal/edit" | "goal/pause" | "goal/resume" | "goal/complete" | "goal/block" | "goal/clear"
+  | "plan/enter" | "plan/leave" | "plan/submit" | "plan/decide";
+
+
 /** Structural client surface aligned with the current Web Face API module. */
 export interface FaceClientAPI {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -1759,6 +1851,9 @@ export interface FaceClientAPI {
 	setSessionWorkspace(id: string, workspacePath: string): Promise<FaceSession>;
   deleteSession(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<FaceMessageList>;
+  getSessionWork(sessionId: string): Promise<FaceWorkState>;
+  getPlan(sessionId: string, submissionId: string): Promise<FaceWorkPlan>;
+  commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
   compactSession(sessionId: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
@@ -1831,6 +1926,8 @@ export interface FaceClientAPI {
   inspectChannels(): Promise<readonly FaceChannelStatus[]>;
   getChannel(name: string): Promise<FaceChannelEnvelope>;
   updateChannel(name: string, patch: FaceChannelUpdateInput): Promise<FaceChannelEnvelope>;
+  listChannelDeliveries(): Promise<FaceChannelDeliveryList>;
+  redeliverChannelDelivery(runId: string): Promise<{ readonly run_id: string; readonly redelivered: boolean }>;
   getTokenUsage(params: FaceTokenUsageParams): Promise<FaceTokenUsageSnapshot>;
   listSkills(): Promise<FaceSkillList>;
   getSkill(name: string, path?: string): Promise<FaceSkillView>;
@@ -1882,6 +1979,10 @@ export interface FaceStoreState {
   readonly initialized: boolean;
   readonly initializationError: string | null;
   readonly capabilities: string[];
+  /** Backend-advertised ability to submit runs with the code Face. */
+  readonly codeModeAvailable: boolean;
+  /** Per-face-session code mode toggle; mask selection never owns this state. */
+  readonly codeMode: boolean;
   readonly connection: FaceConnectionState;
   readonly sessions: FaceSession[];
   readonly sessionsPhase: FacePhase;
@@ -1907,6 +2008,10 @@ export interface FaceStoreState {
   readonly streamingReasoning: string;
   readonly runError: string | null;
   readonly runBusy: boolean;
+  readonly work: FaceWorkState | null;
+  readonly workPhase: FacePhase;
+  readonly workError: string | null;
+  readonly workBusy: boolean;
   readonly queuedMessages: FaceQueuedMessage[];
   /** Session-bound ephemeral draft: attached previews plus the optional
    * broader read scope; never an ACL and never localStorage authority. */
@@ -1961,6 +2066,7 @@ export interface FaceStoreState {
   readonly lifecycleBusy: boolean;
   initialize(): Promise<void>;
   retryInitialize(): Promise<void>;
+  setCodeMode(enabled: boolean): void;
   loadSessions(): Promise<void>;
   createSession(title?: string, workspacePath?: string): Promise<FaceSession>;
 	chooseWorkspace(workspacePath: string): Promise<FaceSession>;
@@ -1991,6 +2097,16 @@ export interface FaceStoreState {
   cancelCurrentRun(): Promise<void>;
   openRun(runId: string, sessionId: string): Promise<void>;
   loadRunLog(runId: string): Promise<void>;
+  loadWork(sessionId?: string): Promise<void>;
+  commitWork(method: FaceWorkMethod, fields?: Record<string, unknown>): Promise<FaceWorkCommitResult>;
+  createGoal(objective: string, maxRounds: number): Promise<FaceWorkCommitResult>;
+  editGoal(objective: string, maxRounds: number, goalRef: Pick<FaceWorkGoal, "id" | "revision">): Promise<FaceWorkCommitResult>;
+  pauseGoal(reason?: string): Promise<FaceWorkCommitResult>;
+  resumeGoal(): Promise<FaceWorkCommitResult>;
+  clearGoal(): Promise<FaceWorkCommitResult>;
+  enterPlan(): Promise<FaceWorkCommitResult>;
+  leavePlan(): Promise<FaceWorkCommitResult>;
+  decidePlan(action: "revise" | "execute_once" | "start_goal", feedback?: string, objective?: string, maxRounds?: number): Promise<FaceWorkCommitResult>;
   loadBackgroundRuns(): Promise<void>;
   attachBackgroundRun(runId: string): Promise<void>;
   loadChildren(parentRunId?: string): Promise<void>;

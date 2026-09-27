@@ -167,6 +167,12 @@ func (j *job) readAll() (stdout, stderr string) {
 	return stdout, stderr
 }
 
+// ExitStatusError lets an in-process JobSpec.Run report the exit code it
+// finished with; there is no *exec.ExitError without an exec'd process.
+type ExitStatusError struct{ Code int }
+
+func (e ExitStatusError) Error() string { return fmt.Sprintf("exit status %d", e.Code) }
+
 // finish records the terminal state; a status already set by Kill wins.
 func (j *job) finish(waitErr error, ctxErr error) {
 	j.mu.Lock()
@@ -179,10 +185,20 @@ func (j *job) finish(waitErr error, ctxErr error) {
 		j.status, j.exitCode = JobKilled, -1
 	case waitErr != nil:
 		j.status = JobFailed
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		var statusErr ExitStatusError
+		switch {
+		case errors.As(waitErr, &exitErr):
 			j.exitCode = exitErr.ExitCode()
-		} else {
-			j.exitCode = -1
+		case errors.As(waitErr, &statusErr):
+			j.exitCode = statusErr.Code
+		default:
+			var exitCodeErr interface{ ExitCode() int }
+			if errors.As(waitErr, &exitCodeErr) {
+				j.exitCode = exitCodeErr.ExitCode()
+			} else {
+				j.exitCode = -1
+			}
 		}
 	default:
 		j.status, j.exitCode = JobCompleted, 0
