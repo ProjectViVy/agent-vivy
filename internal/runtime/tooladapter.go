@@ -796,6 +796,11 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
+	// The stable tool_call identity crosses the Eino boundary so effectful
+	// tools can receipt-key their committed operation.
+	if callID := compose.GetToolCallID(ctx); callID != "" {
+		toolCtx = tools.WithToolCallID(toolCtx, callID)
+	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	err = redactToolError(err)

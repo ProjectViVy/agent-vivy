@@ -105,6 +105,7 @@ func TestServiceResumeRestoresSkillMountedTools(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-mount-resume")
 	runID, err := svc.Run(ctx, "sess-mount-resume", "view the writer skill, then ask me for a color")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -185,6 +186,7 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-mount-recover")
 	runID, err := svc.Run(ctx, "sess-mount-recover", "view the writer skill, then ask me for a color")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -293,6 +295,7 @@ func TestServiceJournalRecordsSkillToolMounts(t *testing.T) {
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
+	mustCreateSession(t, backend, "sess-mount-journal")
 	runID, err := svc.Run(ctx, "sess-mount-journal", "view the writer skill")
 	if err != nil {
 		t.Fatalf("run: %v", err)

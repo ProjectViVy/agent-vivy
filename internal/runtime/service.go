@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -101,6 +102,10 @@ var (
 	// fail-closed method-not-found response; callers must never fall back to a
 	// local process invocation.
 	ErrShellUnavailable = errors.New("runtime: governed shell is unavailable")
+	// ErrContinuityUnavailable rejects a continuity submission when the wired
+	// backend does not implement the atomic ContinuityStore seam; submissions
+	// must fail unavailable rather than silently degrade to a non-atomic write.
+	ErrContinuityUnavailable = errors.New("runtime: continuity storage is unavailable")
 )
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
@@ -155,6 +160,19 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// Continuity commits task admissions and guarded operations atomically
+	// (SC-D4 §7/§9). Nil keeps ordinary submission working; a continuity
+	// submission then fails unavailable instead of silently degrading to a
+	// non-atomic write.
+	Continuity storage.ContinuityStore
+	// References snapshots operator-selected context excerpts during
+	// admission (SC-D4 §7). Nil fails a reference-bearing submission
+	// unavailable; ordinary runs and model-side preview/attach are
+	// unaffected by this dep.
+	References *ReferenceService
+	// Deliverables closes live verified-download transfers when a session is
+	// deleted (SC-D4 §8/§9). Nil leaves delivery presentation unwired.
+	Deliverables SessionTransferCloser
 	// Admission is the optional atomic primary-run boundary. First-party App
 	// wiring supplies it when prompt snapshots are enabled; legacy embedders
 	// retain the existing sequential path when it is absent.
@@ -355,6 +373,12 @@ type RunOptions struct {
 	// RunWithOptions; the runtime validates and persists the snapshot without
 	// reading the host filesystem.
 	FileContexts []domain.FileContext
+	// Continuity carries an atomic task admission request (SC-D4 §7): a
+	// caller-stable request_id deduplicates retries, HistoryScope resolves
+	// into the accepted scope journaled on run.started, and reference
+	// selectors pin source expectations the commit transaction rechecks.
+	// Nil keeps the ordinary admission path.
+	Continuity *domain.ContinuityInput
 	// GoalRound requests the atomic Goal admission path. Ordinary callers
 	// leave it nil and retain the legacy startup sequence.
 	GoalRound *GoalRoundAdmission
@@ -658,6 +682,9 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		// their in-memory authority has been removed; deletion may be retried.
 		return err
 	}
+	if s.deps.Deliverables != nil {
+		s.deps.Deliverables.CloseSessionTransfers(id)
+	}
 	return nil
 }
 
@@ -826,6 +853,52 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if err := ledger.ReserveEvent(); err != nil {
 		return "", err
 	}
+
+	if options.Continuity != nil && persist != nil {
+		return "", errors.New("runtime: continuity admission does not compose with a persistence override")
+	}
+	var continuityScope *domain.AcceptedHistoryScope
+	var continuityExpectations []storage.SourceExpectation
+	var continuityHash string
+	admissionAlloc, _ := s.deps.Workspaces.(AdmissionWorkspaceAllocator)
+	if options.Continuity != nil {
+		if s.deps.Continuity == nil {
+			return "", ErrContinuityUnavailable
+		}
+		if s.deps.Workspaces != nil && admissionAlloc == nil {
+			return "", ErrContinuityUnavailable
+		}
+		input := options.Continuity
+		if err := input.Validate(domain.DefaultContinuityLimits()); err != nil {
+			return "", err
+		}
+		resolved, err := ResolveHistoryScope(sessionID, input.HistoryScope.SessionIDs, admissionAllowedSessions(sessionID, input.HistoryScope.SessionIDs))
+		if err != nil {
+			return "", err
+		}
+		scope, err := domain.NewAcceptedHistoryScope(sessionID, resolved)
+		if err != nil {
+			return "", err
+		}
+		continuityScope = &scope
+		if continuityExpectations, err = s.continuityExpectations(ctx, input); err != nil {
+			return "", err
+		}
+		continuityHash = continuityInputHash(userText, input)
+		// Cheap receipt pre-check: a lost-response retry returns the
+		// original run without allocating anything. The in-transaction
+		// recheck still guards the racing first commit.
+		receipt, found, err := s.deps.Continuity.FindContinuityReceipt(ctx, sessionID, storage.ContinuityOperationAdmission, input.RequestID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: read continuity receipt: %w", err)
+		}
+		if found {
+			if receipt.InputHash != continuityHash {
+				return "", storage.ErrConflict
+			}
+			return receipt.RunID, nil
+		}
+	}
 	runID := newRunID()
 	if options.GoalRound != nil && options.GoalRound.RunID != "" {
 		runID = options.GoalRound.RunID
@@ -867,6 +940,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		prompt = &built
 	}
 	workspaceID := ""
+	admissionNewPrivate := false
 	var workspace Workspace
 	workspaceReady := false
 	releaseWorkspace := func() {
@@ -881,13 +955,22 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		workspaceReady = false
 	}
 	if s.deps.Workspaces != nil {
-		var err error
-		workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
-		if err != nil {
-			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+		if options.Continuity != nil {
+			workspace, newly, err := admissionAlloc.EnsureForAdmission(withSessionID(ctx, sessionID), runID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+			}
+			workspaceID = workspace.ID
+			admissionNewPrivate = newly
+		} else {
+			var err error
+			workspace, err = s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
+			if err != nil {
+				return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+			}
+			workspaceReady = true
+			workspaceID = workspace.ID
 		}
-		workspaceReady = true
-		workspaceID = workspace.ID
 	}
 	now := time.Now().UnixMilli()
 
@@ -913,6 +996,10 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
+	var admittedScope *domain.AcceptedHistoryScope
+	if continuityScope != nil {
+		admittedScope = continuityScope
+	}
 	collaborationPayloadMode, collaborationPayloadVersion := collaborationPayload(collaborationMode, collaborationVersion)
 	promptSchema, promptDigest := 0, ""
 	if prompt != nil {
@@ -923,11 +1010,76 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		CollaborationMode: collaborationPayloadMode, CollaborationVersion: collaborationPayloadVersion,
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		HistoryScope: admittedScope,
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	var goalAdmissionEvent *domain.WorkEvent
-	if persist != nil {
+	startupEvents := []domain.RunEvent{started}
+	if options.Continuity != nil {
+		// The atomic admission commits run.started alongside the run row, so
+		// the committed row is already active rather than accepted.
+		run.Status = domain.RunActive
+		// Reference snapshots are built and bounded before commit and land
+		// in the same startup set; no engine step ever touches their content.
+		for _, selection := range options.Continuity.References {
+			if s.deps.References == nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", ErrContinuityUnavailable
+			}
+			reference, refErr := s.deps.References.AttachForAdmission(ctx, selection, sessionID, runID)
+			if refErr == nil {
+				var event domain.RunEvent
+				event, refErr = ReferenceEvent(reference, now)
+				if refErr == nil {
+					startupEvents = append(startupEvents, event)
+					refErr = ledger.ReserveEvent()
+				}
+			}
+			if refErr != nil {
+				if admissionNewPrivate {
+					s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+				}
+				return "", fmt.Errorf("runtime: snapshot admission reference: %w", refErr)
+			}
+		}
+		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
+			SessionID:    sessionID,
+			Message:      message,
+			Run:          run,
+			Events:       startupEvents,
+			Scope:        *continuityScope,
+			Expectations: continuityExpectations,
+			Receipt: domain.ContinuityReceipt{
+				SessionID: sessionID,
+				Operation: storage.ContinuityOperationAdmission,
+				RequestID: options.Continuity.RequestID,
+				InputHash: continuityHash,
+			},
+		})
+		if commitErr != nil {
+			// A definite pre-commit failure rolls the just-created empty
+			// private directory back; an uncertain commit preserves it
+			// because the rows may already be durable.
+			if admissionNewPrivate && !errors.Is(commitErr, storage.ErrCommitUncertain) {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			return "", fmt.Errorf("runtime: commit continuity admission: %w", commitErr)
+		}
+		if !result.NewlyCommitted {
+			// The receipt recheck inside the transaction raced a first
+			// commit and lost: the original run stands; the never-committed
+			// private directory is reaped before returning its identity.
+			if admissionNewPrivate {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			return result.RunID, nil
+		}
+		startupEvents = result.Events
+		started = result.Events[0]
+	} else if persist != nil {
 		if options.GoalRound != nil {
 			return "", errors.New("runtime: goal admission cannot use custom persistence")
 		}
@@ -1048,7 +1200,10 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", err
 		}
 	}
-	s.publish(ctx, started)
+	startupEvents[0] = started
+	for _, committed := range startupEvents {
+		s.publish(ctx, committed)
+	}
 
 	// Detach the run from the request lifecycle: RPC disconnects and page
 	// refreshes must not cancel the work (AS-7). Cancel/CancelAll hold the
@@ -1081,9 +1236,83 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, collaborationMode, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, collaborationMode, snapshot, sandboxMode, approvalPolicy, face, workspaceID, admittedScope)
 	}()
 	return runID, nil
+}
+
+// admissionAllowedSessions enumerates the sessions an operator-directed
+// continuity submission may read: the destination plus its explicit
+// selection. Operator selection is the grant for the local organism; any
+// future cross-session policy narrows this list before resolution.
+func admissionAllowedSessions(current domain.SessionID, selected []domain.SessionID) []domain.SessionID {
+	allowed := make([]domain.SessionID, 0, len(selected)+1)
+	allowed = append(allowed, current)
+	return append(allowed, selected...)
+}
+
+// continuityExpectations maps the caller's reference selectors onto the
+// source expectations the admission transaction rechecks. Each distinct
+// source pins its current view-truncation revision so a source rewind or
+// deletion between selection and commit fails the submission.
+func (s *Service) continuityExpectations(ctx context.Context, input *domain.ContinuityInput) ([]storage.SourceExpectation, error) {
+	if len(input.References) == 0 {
+		return nil, nil
+	}
+	seen := make(map[domain.SessionID]struct{}, len(input.References))
+	var out []storage.SourceExpectation
+	for _, ref := range input.References {
+		sid := ref.Selection.SourceSessionID
+		if sid == "" {
+			return nil, errors.New("runtime: continuity reference is missing its source session")
+		}
+		if _, dup := seen[sid]; dup {
+			continue
+		}
+		seen[sid] = struct{}{}
+		revision := int64(-1)
+		if s.deps.Truncations != nil {
+			markers, err := s.deps.Truncations.ListViewTruncations(ctx, sid)
+			if err != nil {
+				return nil, fmt.Errorf("runtime: read source truncation revision: %w", err)
+			}
+			revision = int64(len(markers))
+		}
+		out = append(out, storage.SourceExpectation{
+			SourceSessionID:   sid,
+			TruncationMarkers: revision,
+			Digest:            ref.ExpectedDigest,
+		})
+	}
+	return out, nil
+}
+
+// continuityInputHash fingerprints one admission request: identical retries
+// hash identically while a changed payload under the same request_id is a
+// conflict. The encoding is the canonical JSON of the caller-visible input.
+func continuityInputHash(userText string, input *domain.ContinuityInput) string {
+	canonical, err := json.Marshal(struct {
+		Text  string                 `json:"text"`
+		Input domain.ContinuityInput `json:"input"`
+	}{Text: userText, Input: *input})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
+// discardAdmissionWorkspace reaps the empty private directory created for a
+// never-committed admission. Failure to discard only leaks an empty
+// directory, so it is logged rather than surfaced.
+func (s *Service) discardAdmissionWorkspace(sessionID domain.SessionID, runID domain.RunID, alloc AdmissionWorkspaceAllocator) {
+	if alloc == nil {
+		return
+	}
+	ctx := withSessionID(context.WithoutCancel(context.Background()), sessionID)
+	if err := alloc.DiscardNewPrivateAdmission(ctx, runID); err != nil {
+		slog.Warn("discard admission workspace failed", "run", string(runID), "err", err)
+	}
 }
 
 // Cancel ends an in-flight run of this process. It reports false when the
@@ -2251,7 +2480,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, collaboration domain.CollaborationMode, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, collaboration domain.CollaborationMode, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string, historyScope *domain.AcceptedHistoryScope) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -2300,7 +2529,11 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkControl(runCtx, s)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
+	if historyScope != nil {
+		runCtx = WithHistoryScope(runCtx, *historyScope)
+	}
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
+	runCtx = withRunEventPublisher(runCtx, s.deps.Sink)
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
@@ -2401,11 +2634,15 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 		return nil, selection, ContextStats{}, err
 	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
-	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
+	attachedRefs, refErr := s.sessionAttachedReferences(ctx, sessionID)
+	if refErr != nil {
+		return nil, selection, ContextStats{}, fmt.Errorf("runtime: gather session references: %w", refErr)
+	}
+	msgs, stats, err := buildRunContextWithReferences(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
 		ReservedBytes:      reservedPromptBytes,
-	}, preamble, folded, userText)
+	}, preamble, folded, userText, attachedRefs)
 	if err != nil {
 		return nil, selection, stats, err
 	}
@@ -3501,6 +3738,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 		})
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
+	ctx = withRunEventPublisher(ctx, s.deps.Sink)
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or

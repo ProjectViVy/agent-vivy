@@ -16,6 +16,7 @@ import (
 func TestServiceRunStartedCarriesFace(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-face")
 
 	runID, err := svc.RunWithOptions(ctx, "sess-face", "note that I need milk", RunOptions{Face: domain.FaceCode})
 	if err != nil {
@@ -36,6 +37,7 @@ func TestServiceRunStartedCarriesFace(t *testing.T) {
 	// The web face keeps the payload compact: the field is omitempty. The
 	// scripted model replays once per harness, so the web run gets its own.
 	webSvc, webBackend, _ := newApprovalService(t, 5*time.Minute)
+	mustCreateSession(t, webBackend, "sess-face")
 	webRun, err := webSvc.RunWithOptions(ctx, "sess-face", "note that I need milk", RunOptions{})
 	if err != nil {
 		t.Fatalf("web run: %v", err)

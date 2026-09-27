@@ -10,6 +10,7 @@ import (
 
 	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/runtime"
 )
 
 // projectAttachment is the server-owned result of resolving one project
@@ -158,7 +159,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: publicAttachmentPathError(err), cause: err}
 		}
-		if sensitiveProjectContextPath(clean) {
+		if runtime.SensitiveWorkspacePath(clean) {
 			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
 		// Inspect every component through the already-open root. This rejects
@@ -186,7 +187,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("open attachment within project root: %w", err)}
 		}
-		if canonicalRelative != "" && sensitiveProjectContextPath(canonicalRelative) {
+		if canonicalRelative != "" && runtime.SensitiveWorkspacePath(canonicalRelative) {
 			_ = file.Close()
 			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
@@ -252,7 +253,7 @@ func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attac
 }
 
 func validateAttachmentPathIdentity(rootHandle *os.Root, clean string, opened os.FileInfo) error {
-	if sensitiveProjectContextPath(clean) {
+	if runtime.SensitiveWorkspacePath(clean) {
 		return errAttachmentPathSensitive
 	}
 	postInfo, err := attachmentPathInfo(rootHandle, clean)

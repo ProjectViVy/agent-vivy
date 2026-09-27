@@ -38,6 +38,7 @@ func appendRewindFixture(t *testing.T, svc *Service, sessionID domain.SessionID)
 func TestRewindSessionMarksAndFilters(t *testing.T) {
 	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, svc.deps.Sessions, "sess-rw")
 	appendRewindFixture(t, svc, "sess-rw")
 
 	result, err := svc.RewindSession(ctx, "sess-rw", "msg-3")
@@ -87,6 +88,7 @@ func TestRewindSessionMarksAndFilters(t *testing.T) {
 func TestRewindSessionValidation(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, svc.deps.Sessions, "sess-rw")
 	appendRewindFixture(t, svc, "sess-rw")
 
 	if _, err := svc.RewindSession(ctx, "sess-rw", "msg-gone"); err != ErrInvalidCutoff {
@@ -113,6 +115,7 @@ func TestRewindSessionValidation(t *testing.T) {
 func TestRewindSessionNotWired(t *testing.T) {
 	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
 	svc.deps.Truncations = nil
+	mustCreateSession(t, svc.deps.Sessions, "sess-rw")
 	appendRewindFixture(t, svc, "sess-rw")
 	if _, err := svc.RewindSession(context.Background(), "sess-rw", "msg-1"); err != ErrRewindNotWired {
 		t.Fatalf("unwired rewind = %v, want ErrRewindNotWired", err)
@@ -360,6 +363,7 @@ func TestRewindAndForkRespectEffectiveView(t *testing.T) {
 func TestSuccessiveRewindsAccumulate(t *testing.T) {
 	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, svc.deps.Sessions, "sess-ac")
 	appendRewindFixture(t, svc, "sess-ac")
 
 	if _, err := svc.RewindSession(ctx, "sess-ac", "msg-2"); err != nil {
@@ -384,6 +388,7 @@ func TestSuccessiveRewindsAccumulate(t *testing.T) {
 func TestEditSessionCommitsReplacementAndRunTogether(t *testing.T) {
 	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, svc.deps.Sessions, "sess-edit")
 	appendRewindFixture(t, svc, "sess-edit")
 	runID, err := svc.EditSession(ctx, "sess-edit", "msg-2", "replacement", RunOptions{})
 	if err != nil {

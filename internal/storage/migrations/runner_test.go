@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,8 +24,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 28 {
-		t.Fatalf("migration count = %d, want 28", count)
+	if count != 30 {
+		t.Fatalf("migration count = %d, want 30", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -156,6 +157,60 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
 	if eventRunID != "upgrade-run" || eventSeq != 1 || eventType != "run.started" || eventCreatedAt != 13 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
 		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", eventRunID, eventSeq, eventType, eventCreatedAt, payloadVersion, payload, wantPayload)
+	}
+}
+
+func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing.T) {
+	db := openMigrationTestDB(t)
+	ctx := context.Background()
+	full, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := Manifest{byDialect: map[Dialect][]Migration{
+		SQLite:   append([]Migration(nil), full.Migrations(SQLite)[:23]...),
+		Postgres: append([]Migration(nil), full.Migrations(Postgres)[:23]...),
+	}}
+	if err := ApplyManifest(ctx, db, SQLite, legacy); err != nil {
+		t.Fatalf("Apply legacy: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES ('s','s',1,1,'workspace_write','ask','')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		id string
+		at int64
+	}{{"late-id", 10}, {"early-z", 1}, {"early-a", 1}} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES (?,?, '', 'user', ?, x'', '', '', x'', '', '', '', '')`, row.id, "s", row.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("Apply 024: %v", err)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, position FROM messages WHERE session_id = 's' ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var id string
+		var position int
+		if err := rows.Scan(&id, &position); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, id+":"+strconv.Itoa(position))
+	}
+	if strings.Join(got, ",") != "early-a:1,early-z:2,late-id:3" {
+		t.Fatalf("legacy backfill = %v", got)
+	}
+	var next int
+	if err := db.QueryRowContext(ctx, `SELECT next_message_position FROM sessions WHERE id = 's'`).Scan(&next); err != nil || next != 4 {
+		t.Fatalf("next position = %d, %v", next, err)
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatalf("reapply 024: %v", err)
 	}
 }
 

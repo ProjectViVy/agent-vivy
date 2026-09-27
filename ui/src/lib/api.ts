@@ -8,6 +8,8 @@ export const RPC_METHODS = [
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
+  'history/search', 'history/read', 'history/sessions', 'reference/preview', 'reference/get',
+  'deliverables/list', 'deliverables/get', 'deliverables/read', 'deliverables/close',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
   'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
@@ -339,13 +341,87 @@ export const listSessionCompactions = (sessionId: string, limit = 50) =>
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
 export const updateTodo = (sessionId: string, id: string, status: TodoStatus) =>
   request<{ todo: Todo }>('session/todo/update', { session_id: sessionId, id, status });
-export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[], thinking?: ThinkingMode) => request<{ run_id: string; status: RunStatus }>('turn/start', {
-  session_id: sessionId, text,
-  mode: mode === 'plan' ? 'normal' : mode,
-  collaboration_mode: mode === 'plan' ? 'plan' : undefined,
-  collaboration_version: mode === 'plan' ? 1 : undefined,
-  face, attachments, thinking,
+// Explicit-history continuity types are owned by @vivy/ui-sdk so the Face
+// contract and this host API share one structural submission shape (SC-D4).
+import type {
+  FaceContextReference, FaceHistoryItem, FaceHistoryPage, FaceHistoryReadRequest,
+  FaceHistoryScope, FaceHistorySearchRequest, FaceHistorySelection, FaceHistorySession,
+  FaceHistorySessionPage, FaceReferencePreview, FaceReferenceSelection, FaceReferenceView,
+  FaceSourceRef, FaceTurnContinuity, FaceTurnSubmission,
+  FaceDeliverable, FaceDeliveryChunk, FaceDeliveryFailure, FaceDeliveryItemState,
+  FaceDeliveryItemStatus, FaceDeliveryReadRequest, FaceDeliverySet, FaceDeliverySetPage,
+  FaceDeliverySetStatus,
+} from '@vivy/ui-sdk';
+
+export type SourceRef = FaceSourceRef;
+export type HistoryItem = FaceHistoryItem;
+export type HistorySelection = FaceHistorySelection;
+export type HistoryScope = FaceHistoryScope;
+export type ReferenceSelection = FaceReferenceSelection;
+export type ReferencePreview = FaceReferencePreview;
+export type ContextReference = FaceContextReference;
+export type ReferenceView = FaceReferenceView;
+export type HistoryReadRequest = FaceHistoryReadRequest;
+export type HistoryPage = FaceHistoryPage;
+export type HistorySession = FaceHistorySession;
+export type TurnContinuity = FaceTurnContinuity;
+export type TurnSubmission = FaceTurnSubmission;
+
+export const startTurn = (sessionId: string, submission: TurnSubmission) =>
+  request<{ run_id: string; status: RunStatus }>('turn/start', {
+    session_id: sessionId,
+    text: submission.text,
+      mode: submission.mode === 'plan' ? 'normal' : submission.mode,
+      collaboration_mode: submission.mode === 'plan' ? 'plan' : undefined,
+      collaboration_version: submission.mode === 'plan' ? 1 : undefined,
+    face: submission.face,
+    attachments: submission.attachments,
+    thinking: submission.thinking,
+    request_id: submission.continuity?.request_id,
+    references: submission.continuity?.references,
+    history_scope: submission.continuity?.history_scope,
+  });
+export const historySearch = (sessionId: string, params: FaceHistorySearchRequest) =>
+  request<HistoryPage>('history/search', { session_id: sessionId, ...params });
+export const historySessions = (params: { query?: string; cursor?: string; limit?: number }) =>
+  request<FaceHistorySessionPage>('history/sessions', params);
+export const previewReference = (sessionId: string, selection: HistorySelection) =>
+  request<ReferencePreview>('reference/preview', { session_id: sessionId, selection });
+export const referenceGet = (sessionId: string, referenceId: string) =>
+  request<ReferenceView>('reference/get', { session_id: sessionId, reference_id: referenceId });
+export const historyRead = (sessionId: string, params: HistoryReadRequest) =>
+  request<HistoryPage>('history/read', { session_id: sessionId, ...params });
+
+export type Deliverable = FaceDeliverable;
+export type DeliveryFailure = FaceDeliveryFailure;
+export type DeliverySetStatus = FaceDeliverySetStatus;
+export type DeliverySet = FaceDeliverySet;
+export type DeliverySetPage = FaceDeliverySetPage;
+export type DeliveryReadRequest = FaceDeliveryReadRequest;
+export type DeliveryChunk = FaceDeliveryChunk;
+export type DeliveryItemStatus = FaceDeliveryItemStatus;
+export type DeliveryItemState = FaceDeliveryItemState;
+
+// Wire payloads carry null where the contract declares a list (Go nil
+// slices serialize as null); normalize at the boundary before consumers
+// iterate items/failures.
+const normalizeDeliverySet = (set: DeliverySet): DeliverySet => ({
+  ...set,
+  items: Array.isArray(set.items) ? set.items : [],
+  failures: Array.isArray(set.failures) ? set.failures : [],
 });
+
+export const deliverablesList = (sessionId: string, params?: { cursor?: string; limit?: number }) =>
+  request<DeliverySetPage>('deliverables/list', { session_id: sessionId, ...params }).then((page) => ({
+    ...page,
+    items: Array.isArray(page.items) ? page.items.map(normalizeDeliverySet) : [],
+  }));
+export const deliverablesGet = (sessionId: string, setId: string) =>
+  request<{ set: DeliverySet }>('deliverables/get', { session_id: sessionId, set_id: setId }).then((res) => ({ set: normalizeDeliverySet(res.set) }));
+export const deliverablesRead = (sessionId: string, params: DeliveryReadRequest) =>
+  request<DeliveryChunk>('deliverables/read', { session_id: sessionId, ...params });
+export const deliverablesClose = (sessionId: string, transferId: string) =>
+  request<unknown>('deliverables/close', { session_id: sessionId, transfer_id: transferId }).then(() => undefined);
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
 export const getRun = (runId: string) => request<Run>('run/get', { run_id: runId });

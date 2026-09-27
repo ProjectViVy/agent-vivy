@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -48,6 +49,16 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Truncations: backend,
 	})
 	return svc, backend, sink
+}
+
+// mustCreateSession establishes the durable session row that message
+// storage requires (fail-closed position allocation). Test fixtures that
+// run or append messages for a session must call this first.
+func mustCreateSession(t *testing.T, sessions storage.SessionStore, id domain.SessionID) {
+	t.Helper()
+	if err := sessions.CreateSession(context.Background(), domain.Session{ID: id, Title: "fixture", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session %s: %v", id, err)
+	}
 }
 
 type blockingWorkspaceAllocator struct {
@@ -211,6 +222,7 @@ func replayAll(t *testing.T, j storage.Journal, runID domain.RunID) []domain.Run
 
 func TestServiceRunHappyPath(t *testing.T) {
 	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -315,6 +327,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-zh-tools")
 
 	runID, err := svc.Run(ctx, "sess-zh-tools", "你现在有什么工具？")
 	if err != nil {
@@ -358,6 +371,7 @@ func (blockingModel) Stream(ctx context.Context, _ []*domain.Message) (domain.St
 
 func TestServiceRunCancelled(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "never finishes")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -488,6 +502,7 @@ func TestDeleteSessionRacesWorkerCreationWithoutOrphans(t *testing.T) {
 // page refresh) leaves the run alive until Cancel is called (AS-7).
 func TestServiceRunSurvivesRequestCancellation(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	ctx, cancel := context.WithCancel(context.Background())
 	runID, err := svc.Run(ctx, "sess-1", "keep going")
 	if err != nil {
@@ -521,6 +536,7 @@ func (errorModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[
 
 func TestServiceRunFailed(t *testing.T) {
 	svc, backend, _ := newTestService(t, errorModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "boom")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -564,6 +580,7 @@ func (unconfiguredModel) Stream(_ context.Context, _ []*domain.Message) (domain.
 
 func TestServiceRunFailedWithoutProvider(t *testing.T) {
 	svc, backend, _ := newTestService(t, unconfiguredModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -586,6 +603,7 @@ func TestServiceRunFailedWithoutProvider(t *testing.T) {
 
 func TestServiceRunFailedKeyMissing(t *testing.T) {
 	svc, backend, _ := newTestService(t, keyMissingModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -619,6 +637,7 @@ func (transportErrorModel) Stream(_ context.Context, _ []*domain.Message) (domai
 
 func TestServiceRunFailedProviderTransport(t *testing.T) {
 	svc, backend, _ := newTestService(t, transportErrorModel{})
+	mustCreateSession(t, backend, "sess-1")
 	runID, err := svc.Run(context.Background(), "sess-1", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -922,6 +941,7 @@ func TestServicePersistsFirstModelChunkBeforeProviderEOF(t *testing.T) {
 		}
 	}()
 	svc, backend, _ := newTestService(t, model)
+	mustCreateSession(t, backend, "sess-incremental")
 	runID, err := svc.Run(context.Background(), "sess-incremental", "stream")
 	if err != nil {
 		t.Fatal(err)
@@ -1003,6 +1023,7 @@ func userAssistantPairs(msgs []domain.Message) [][2]string {
 func TestServiceFeedsSessionHistory(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-h")
 
 	run1, err := svc.Run(context.Background(), "sess-h", "remember the code word bluebird")
 	if err != nil {
@@ -1046,6 +1067,8 @@ func TestServiceFeedsSessionHistory(t *testing.T) {
 func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-a")
+	mustCreateSession(t, backend, "sess-b")
 
 	run1, err := svc.Run(context.Background(), "sess-a", "a speaks first")
 	if err != nil {
@@ -1076,6 +1099,7 @@ func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-p")
 
 	runID, err := svc.Run(context.Background(), "sess-p", "echo hello")
 	if err != nil {
@@ -1118,6 +1142,7 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 func TestServicePreambleCarriesNotesDigest(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
+	mustCreateSession(t, backend, "sess-n")
 
 	if err := backend.AppendNote(context.Background(), domain.Note{
 		ID: "note_digest", Content: "code word is bluebird\nsecond line", CreatedAt: time.Now().UnixMilli(),
@@ -1261,6 +1286,7 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: newTestSink(),
 	})
+	mustCreateSession(t, backend, "sess-tools")
 
 	run1, err := svc.Run(ctx, "sess-tools", "please echo")
 	if err != nil {
@@ -1368,5 +1394,191 @@ func TestReserveMappedBudgetSkipsStreamingDeltas(t *testing.T) {
 	}
 	if err := reserveMappedBudget(ledger, semantic); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("events budget must still trip on semantic events, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Atomic continuity admission (SC-D4 §7): one transaction commits the
+// user message, the active run row, the ordered startup events and the
+// dedup receipt. Retries replay the committed identity, a changed payload
+// under the same request_id is a conflict, and the just-allocated private
+// workspace rolls back on a failed admission.
+
+type failingContinuityStore struct {
+	storage.ContinuityStore
+	err error
+}
+
+func (f failingContinuityStore) CommitContinuityRun(context.Context, storage.ContinuityAdmission) (storage.ContinuityResult, error) {
+	return storage.ContinuityResult{}, f.err
+}
+
+func newContinuityService(t *testing.T, chatModel domain.ChatModel) (*Service, *sqlite.Backend, *testSink) {
+	t.Helper()
+	svc, backend, sink := newTestService(t, chatModel)
+	svc.deps.Continuity = backend
+	return svc, backend, sink
+}
+
+func continuityWorkspaceEntries(t *testing.T, root string) int {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read workspace root: %v", err)
+	}
+	return len(entries)
+}
+
+func TestContinuityAtomic(t *testing.T) {
+	svc, backend, sink := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-atomic")
+	mustCreateSession(t, backend, sessionID)
+	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
+
+	input := &domain.ContinuityInput{RequestID: "req-atomic-1"}
+	runID, err := svc.RunWithOptions(ctx, sessionID, "hello continuity", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("continuity run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	svc.WaitIdle(ctx)
+
+	receipt, found, err := backend.FindContinuityReceipt(ctx, sessionID, storage.ContinuityOperationAdmission, input.RequestID)
+	if err != nil || !found {
+		t.Fatalf("admission receipt found=%v err=%v", found, err)
+	}
+	if receipt.RunID != runID {
+		t.Fatalf("receipt run = %s, want %s", receipt.RunID, runID)
+	}
+	if receipt.EventSeq != 1 {
+		t.Fatalf("receipt event_seq = %d, want the committed startup tail 1", receipt.EventSeq)
+	}
+
+	events := replayAll(t, backend, runID)
+	if len(events) == 0 || events[0].Type != domain.EventRunStarted {
+		t.Fatalf("first journaled event type = %v", events[0].Type)
+	}
+	var started payloadRunStarted
+	mustUnmarshal(t, events[0].Payload, &started)
+	if started.HistoryScope == nil || started.HistoryScope.DestinationSessionID != sessionID {
+		t.Fatalf("run.started history_scope = %+v, want destination %s", started.HistoryScope, sessionID)
+	}
+	published := sink.snapshot()
+	if len(published) == 0 || published[0].Type != domain.EventRunStarted {
+		t.Fatal("committed run.started was not published after the atomic commit")
+	}
+	messages, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) == 0 || messages[0].Role != domain.RoleUser || messages[0].Content != "hello continuity" {
+		t.Fatalf("admitted user message = %v", messages)
+	}
+}
+
+func TestContinuityRetry(t *testing.T) {
+	svc, backend, _ := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-retry")
+	mustCreateSession(t, backend, sessionID)
+	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
+
+	input := &domain.ContinuityInput{RequestID: "req-retry-1"}
+	first, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	waitForRunStatus(t, backend, first, domain.RunCompleted)
+	svc.WaitIdle(ctx)
+
+	second, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("identical retry: %v", err)
+	}
+	if second != first {
+		t.Fatalf("identical retry admitted run %s, want original %s", second, first)
+	}
+	// The lost-response contract holds even after the run finished.
+	third, err := svc.RunWithOptions(ctx, sessionID, "ship it", RunOptions{Continuity: input})
+	if err != nil {
+		t.Fatalf("post-terminal retry: %v", err)
+	}
+	if third != first {
+		t.Fatalf("post-terminal retry admitted run %s, want original %s", third, first)
+	}
+
+	messages, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	userMessages := 0
+	for _, message := range messages {
+		if message.Role == domain.RoleUser {
+			userMessages++
+		}
+	}
+	if userMessages != 1 {
+		t.Fatalf("retries admitted %d user messages, want 1", userMessages)
+	}
+	startedCount := 0
+	for _, ev := range replayAll(t, backend, first) {
+		if ev.Type == domain.EventRunStarted {
+			startedCount++
+		}
+	}
+	if startedCount != 1 {
+		t.Fatalf("run has %d run.started events, want 1", startedCount)
+	}
+
+	if _, err := svc.RunWithOptions(ctx, sessionID, "different text", RunOptions{Continuity: input}); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("changed payload under same request_id = %v, want conflict", err)
+	}
+}
+
+func TestContinuityUnavailableFailsClosed(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-unavailable")
+	mustCreateSession(t, backend, sessionID)
+	_, err := svc.RunWithOptions(ctx, sessionID, "hi", RunOptions{Continuity: &domain.ContinuityInput{RequestID: "r-1"}})
+	if !errors.Is(err, ErrContinuityUnavailable) {
+		t.Fatalf("continuity submission without atomic backend = %v, want ErrContinuityUnavailable", err)
+	}
+}
+
+func TestContinuityAdmissionWorkspaceRollback(t *testing.T) {
+	svc, backend, _ := newContinuityService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("cont-rollback")
+	mustCreateSession(t, backend, sessionID)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	manager, err := NewSessionWorkspaceManager(root, backend, backend)
+	if err != nil {
+		t.Fatalf("workspace manager: %v", err)
+	}
+	svc.deps.Workspaces = manager
+	input := &domain.ContinuityInput{RequestID: "req-rollback-1"}
+
+	// A definite pre-commit failure reaps the freshly created private dir.
+	svc.deps.Continuity = failingContinuityStore{ContinuityStore: backend, err: errors.New("injected pre-commit failure")}
+	if _, err := svc.RunWithOptions(ctx, sessionID, "task", RunOptions{Continuity: input}); err == nil {
+		t.Fatal("injected failure must surface")
+	}
+	if got := continuityWorkspaceEntries(t, root); got != 0 {
+		t.Fatalf("failed admission left %d workspace entries, want 0", got)
+	}
+
+	// An uncertain commit outcome preserves the dir: the rows may already
+	// be durable and the engine may be writing into it.
+	svc.deps.Continuity = failingContinuityStore{ContinuityStore: backend, err: storage.ErrCommitUncertain}
+	if _, err := svc.RunWithOptions(ctx, sessionID, "task", RunOptions{Continuity: input}); !errors.Is(err, storage.ErrCommitUncertain) {
+		t.Fatalf("uncertain commit = %v, want ErrCommitUncertain", err)
+	}
+	if got := continuityWorkspaceEntries(t, root); got != 1 {
+		t.Fatalf("uncertain admission left %d workspace entries, want preserved 1", got)
 	}
 }

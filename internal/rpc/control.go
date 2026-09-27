@@ -93,8 +93,24 @@ type ControlDeps struct {
 	// session/messages filtering and session/rewind. Nil leaves the full
 	// history in every view and disables the method.
 	Truncations storage.TruncationStore
-	Bus         *events.Bus
-	Service     *runtime.Service
+	// History is the single runtime-owned bounded projection shared by model
+	// tools and operator inspection RPCs. Nil disables history/*.
+	History tools.HistoryOperations
+	// References owns reference/preview composition. Nil disables the
+	// method; turn/start reference fields still decode and validate but the
+	// submission fails unavailable at admission.
+	References tools.ReferenceOperations
+	// Deliverables owns deliverables/list|get|read|close against trusted
+	// connection identity. Nil hides the method family and capability.
+	Deliverables tools.DeliverableOperations
+	Bus          *events.Bus
+	Service      *runtime.Service
+	Studio       *studio.Service
+	Live         studio.LiveView
+	Eval         eval.Starter
+	Children     ChildController
+	Bus          *events.Bus
+	Service      *runtime.Service
 	// CodeModeAvailable is projected from the runtime's accepted Face values.
 	// It is a capability of this composed control plane, independent of the
 	// selected mask catalog or any browser-side mask state.
@@ -367,6 +383,19 @@ type turnParams struct {
 	Attachments          []turnAttachment `json:"attachments,omitempty"`
 	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
 	ContextPaths         []string         `json:"context_paths,omitempty"`
+	PolicyProfile        string           `json:"policy_profile,omitempty"`
+	Thinking             string           `json:"thinking,omitempty"`
+	Attachments          []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
+	ContextPaths         []string         `json:"context_paths,omitempty"`
+	// Continuity-bearing fields (SC-D4 §7): request_id plus optional
+	// operator-selected reference excerpts and a broader model read scope.
+	// Bodies decode raw first because each entry must satisfy a strict
+	// shape; forged fields inside an entry are rejected.
+	RequestID    string            `json:"request_id,omitempty"`
+	References   []json.RawMessage `json:"references,omitempty"`
+	HistoryScope json.RawMessage   `json:"history_scope,omitempty"`
+	continuity   *domain.ContinuityInput
 }
 
 // shellParams is intentionally smaller than turnParams. A direct shell
@@ -1057,6 +1086,15 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
+		if h.deps.History != nil {
+			capabilities = append(capabilities, "history/search", "history/read", "history/trace", "history/capabilities", "history/sessions")
+		}
+		if h.deps.References != nil {
+			capabilities = append(capabilities, "reference/preview", "reference/get")
+		}
+		if h.deps.Deliverables != nil {
+			capabilities = append(capabilities, "deliverables/list", "deliverables/get", "deliverables/read", "deliverables/close")
+		}
 		return map[string]any{
 			"protocol_version":    ProtocolVersion,
 			"capabilities":        capabilities,
@@ -1140,6 +1178,28 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			h.bindPeerSessionRequest(ctx, peer, request)
 		}
 		return result, rpcErr
+	case "history/search":
+		return h.historySearch(ctx, request)
+	case "history/read":
+		return h.historyRead(ctx, request)
+	case "history/trace":
+		return h.historyTrace(ctx, request)
+	case "history/capabilities":
+		return h.historyCapabilities(ctx)
+	case "history/sessions":
+		return h.historySessions(ctx, request)
+	case "reference/preview":
+		return h.referencePreview(ctx, request)
+	case "reference/get":
+		return h.referenceGet(ctx, request)
+	case "deliverables/list":
+		return h.deliverablesList(ctx, request)
+	case "deliverables/get":
+		return h.deliverablesGet(ctx, request)
+	case "deliverables/read":
+		return h.deliverablesRead(ctx, request)
+	case "deliverables/close":
+		return h.deliverablesClose(ctx, request)
 	case "session/context":
 		result, rpcErr := h.sessionContext(ctx, request)
 		if rpcErr == nil {
@@ -2993,6 +3053,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true,
+		Thinking:       domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts, Continuity: params.continuity,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -3527,6 +3588,9 @@ func parseTurnParams(request Request) (turnParams, *Error) {
 	}
 	if params.SessionID == "" {
 		return params, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if err := decodeContinuityInput(&params); err != nil {
+		return params, err
 	}
 	return params, nil
 }

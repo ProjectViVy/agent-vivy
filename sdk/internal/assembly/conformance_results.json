@@ -9,14 +9,14 @@
     {
       "port": "std/tool@v1",
       "providerId": "vivy/protected-tools",
-      "sourceSha256": "3f79db7a0444e18686ac0ad96d2c12b77f64c1a161d2fb82fd030801dcbe93f1",
+      "sourceSha256": "eb0ab75acf9e916edb446a8ef20c321e0036f049c2f529cb80fc68ce45c4454c",
       "evidenceId": "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/tool-world@v1",
       "providerId": "vivy/mcp-host",
-      "sourceSha256": "3f79db7a0444e18686ac0ad96d2c12b77f64c1a161d2fb82fd030801dcbe93f1",
+      "sourceSha256": "eb0ab75acf9e916edb446a8ef20c321e0036f049c2f529cb80fc68ce45c4454c",
       "evidenceId": "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
@@ -72,7 +72,7 @@
     {
       "port": "std/face@v1",
       "providerId": "vivy/headless",
-      "sourceSha256": "a7dde271b69e1701a40dbfd4fb8ce63d4a65b7481a4b562b82e64c0578d153d4",
+      "sourceSha256": "948c24ec5c2a923e13940c6c548d36ee4d6db2f30b3f602bc3c57e9d003c17aa",
       "evidenceId": "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
@@ -86,14 +86,14 @@
     {
       "port": "std/provider-profile@v1",
       "providerId": "vivy/provider-profiles",
-      "sourceSha256": "3f79db7a0444e18686ac0ad96d2c12b77f64c1a161d2fb82fd030801dcbe93f1",
+      "sourceSha256": "eb0ab75acf9e916edb446a8ef20c321e0036f049c2f529cb80fc68ce45c4454c",
       "evidenceId": "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
     {
       "port": "std/context-source@v1",
       "providerId": "vivy/context-source",
-      "sourceSha256": "3f79db7a0444e18686ac0ad96d2c12b77f64c1a161d2fb82fd030801dcbe93f1",
+      "sourceSha256": "eb0ab75acf9e916edb446a8ef20c321e0036f049c2f529cb80fc68ce45c4454c",
       "evidenceId": "internal/contexthost/conformance_test.go#TestContextSourceConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },
@@ -107,7 +107,7 @@
     {
       "port": "std/skill-source@v1",
       "providerId": "vivy/skill-source",
-      "sourceSha256": "3f79db7a0444e18686ac0ad96d2c12b77f64c1a161d2fb82fd030801dcbe93f1",
+      "sourceSha256": "eb0ab75acf9e916edb446a8ef20c321e0036f049c2f529cb80fc68ce45c4454c",
       "evidenceId": "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
       "passedChecks": ["registration", "missing-provider", "duplicate-provider", "version", "cycle", "grant", "timeout", "cancellation", "startup", "unavailable", "cleanup", "redaction", "provenance", "default", "real-failure"]
     },

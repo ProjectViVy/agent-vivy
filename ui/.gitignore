@@ -27,6 +27,7 @@ node_modules/
 *.tsbuildinfo
 dist/
 .e2e-workdir/
+.continuity-workdir/
 .dev-workdir/
 agent-diva-source/
 test-results/

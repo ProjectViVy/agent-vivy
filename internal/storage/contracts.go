@@ -680,6 +680,7 @@ type Engine interface {
 	CompactionStore
 	TruncationStore
 	HistoryMutationStore
+	HistoryQueryStore
 	CronStore
 	FileVersionStore
 	StudioStore
