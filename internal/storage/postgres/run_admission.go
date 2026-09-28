@@ -181,7 +181,7 @@ func postgresInsertAdmissionMessage(ctx context.Context, tx *Tx, m domain.Messag
 		INSERT INTO messages
 			(id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), []byte(m.Content),
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel,
 		m.ChatID, m.ChannelMessageID, position); err != nil {
 		return storage.AdmissionUnavailable("insert admission message", err)

@@ -43,18 +43,25 @@ func continuityAdmission(sid domain.SessionID, runID domain.RunID, messageID, re
 
 // AssertContinuityAtomic injects a fault immediately after each write step
 // and asserts, after reopening the database, that either every admission
-// record committed or none did — never a torn admission.
+// record committed or none did — never a torn admission. Exclusive backends
+// fence a second live engine, so each faulted handle is closed before a fresh
+// one attaches, matching a real process restart.
 func AssertContinuityAtomic(t *testing.T, slot Slot) {
 	t.Helper()
-	b := slot.Engine
 	ctx := context.Background()
-	store := continuityStore(t, b)
 	const sid = domain.SessionID("continuity-atomic")
-	createHistorySession(t, b, sid)
+	createHistorySession(t, slot.Engine, sid)
+	if err := slot.Engine.Close(); err != nil {
+		t.Fatalf("close slot engine: %v", err)
+	}
 
 	for _, step := range []string{"message", "run", "events", "receipt"} {
 		step := step
 		t.Run("fault after "+step, func(t *testing.T) {
+			writer, err := slot.Reopen()
+			if err != nil {
+				t.Fatalf("reopen writer: %v", err)
+			}
 			admission := continuityAdmission(sid, domain.RunID("r-"+step), "m-"+step, "req-"+step, "hash-"+step)
 			admission.TestFaultHook = func(got string) error {
 				if got == step {
@@ -62,8 +69,12 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 				}
 				return nil
 			}
-			if _, err := store.CommitContinuityRun(ctx, admission); err == nil {
+			if _, err := continuityStore(t, writer).CommitContinuityRun(ctx, admission); err == nil {
+				_ = writer.Close()
 				t.Fatalf("expected injected fault after %s", step)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("close faulted writer: %v", err)
 			}
 
 			reopened, err := slot.Reopen()
@@ -86,6 +97,12 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 	}
 
 	// Clean commit: every record lands together.
+	b, err := slot.Reopen()
+	if err != nil {
+		t.Fatalf("reopen for clean commit: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+	store := continuityStore(t, b)
 	admission := continuityAdmission(sid, "r-ok", "m-ok", "req-ok", "hash-ok")
 	result, err := store.CommitContinuityRun(ctx, admission)
 	if err != nil {

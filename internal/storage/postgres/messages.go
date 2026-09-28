@@ -35,7 +35,7 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), []byte(m.Content),
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs),
 		m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 		return fmt.Errorf("storage: append message %s: %w", m.ID, err)
@@ -110,7 +110,7 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		`INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		 ON CONFLICT (id) DO NOTHING`,
-		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), []byte(m.Content),
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position)
 	if err != nil {
 		return false, fmt.Errorf("storage: append projected message %s: %w", m.ID, err)
