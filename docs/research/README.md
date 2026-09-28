@@ -35,6 +35,7 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 14b | `agent-vivy/docs/architecture/VIVY-FACE-PACK.md` | Proposal: first-party faces as cold-pluggable packed mouths (`face: web \| tui \| headless`; user `seam: face`; Android apps consume the kernel) | When discussing TUI, headless, a no-web coding species, or a downstream Android app |
 | 15 | `agent-vivy/docs/architecture/VIVY-WORLDVIEW.md` | Why the product philosophy and the Vivy namesake are structurally the same. Does not replace PRD §5.0 | When the name, slogan, or species/Studio split needs a why |
 | 16 | `agent-vivy/docs/research/DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md` | Capability comparison and gap analysis between DeepSeek Harness and agent-vivy (evidence-cited, dimension by dimension) | When deciding what the species should adopt, refuse, or defer from DSH |
+| 17 | [`diva-pen-archive/README.md`](diva-pen-archive/README.md) | Full DIVA PEN / Mirror / Neuro-Link research source, original iteration evidence, and cited scope decisions; archival proposal, not a VIVY contract | Before discussing whether or how VIVY should adopt PEN |
 
 ## 3. Source artifacts in parent directories
 

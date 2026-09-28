@@ -39,7 +39,7 @@ Planning verification: [SC-P4 delivery record](logs/2026-09-21-session-continuit
 |---|---|
 | `architecture/` | Canonical product contracts: VIVY-STUDIO, SELF-EVOLVING-GATEWAY, VIVY-ASSEMBLY, VIVY-CHANNEL-PACK, VIVY-PLUGIN-SPEC, VIVY-WORLDVIEW, VIVY-GATEWAY-AND-STUDIO, ACP-REMOTE-CONTROL-PROPOSAL, hitl-review-center |
 | `dev/` | Development process reports and implementation records: `NEW_UI_ARCHITECTURE.md`, `PHASE1..4` reports, `real-provider-smoke.md`, `sandbox.md` + `SANDBOX-IMPLEMENTATION-SUMMARY.md`, `ui-migration/` (six UI migration documents; entry point `ui-migration/UI_MIGRATION_README.md`) |
-| `research/` | Decision and design archive (pre-V0): direction, PRDs, assembly options, reference index, GO/NO-GO, open items, DSH gaps, HITL UI research, and more; see `research/README.md` for the index |
+| `research/` | Decision and design archive (pre-V0) and the [DIVA PEN source archive](research/diva-pen-archive/README.md); see `research/README.md` for the index |
 | `logs/` | Acceptance/release records archived by date (`2026-08-12-hitl-release-closure`, `2026-08-16-studio-lifecycle`, `2026-08-25-todo-board-archive`) |
 
 ## 4. Maintenance Rules
