@@ -6,10 +6,8 @@ replace agent-vivy => ../..
 
 require (
 	agent-vivy v0.0.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1
 )
 
-require (
-	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
-)
+require github.com/google/uuid v1.6.0 // indirect

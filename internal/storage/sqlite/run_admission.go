@@ -169,13 +169,17 @@ func sqliteMessageExists(ctx context.Context, tx *sql.Tx, id string) (bool, erro
 }
 
 func sqliteInsertAdmissionMessage(ctx context.Context, tx *sql.Tx, m domain.Message) error {
+	position, err := sqliteNextMessagePosition(ctx, tx, m.SessionID)
+	if err != nil {
+		return storage.AdmissionUnavailable("allocate admission message position", err)
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO messages
-			(id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			(id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel,
-		m.ChatID, m.ChannelMessageID); err != nil {
+		m.ChatID, m.ChannelMessageID, position); err != nil {
 		return storage.AdmissionUnavailable("insert admission message", err)
 	}
 	for position, attachment := range m.Attachments {

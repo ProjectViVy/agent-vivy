@@ -106,12 +106,6 @@ type ControlDeps struct {
 	Deliverables tools.DeliverableOperations
 	Bus          *events.Bus
 	Service      *runtime.Service
-	Studio       *studio.Service
-	Live         studio.LiveView
-	Eval         eval.Starter
-	Children     ChildController
-	Bus          *events.Bus
-	Service      *runtime.Service
 	// CodeModeAvailable is projected from the runtime's accepted Face values.
 	// It is a capability of this composed control plane, independent of the
 	// selected mask catalog or any browser-side mask state.
@@ -454,11 +448,6 @@ type turnParams struct {
 	Text                 string           `json:"text"`
 	Mode                 string           `json:"mode,omitempty"`
 	Face                 string           `json:"face,omitempty"`
-	PolicyProfile        string           `json:"policy_profile,omitempty"`
-	Thinking             string           `json:"thinking,omitempty"`
-	Attachments          []turnAttachment `json:"attachments,omitempty"`
-	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
-	ContextPaths         []string         `json:"context_paths,omitempty"`
 	PolicyProfile        string           `json:"policy_profile,omitempty"`
 	Thinking             string           `json:"thinking,omitempty"`
 	Attachments          []turnAttachment `json:"attachments,omitempty"`
@@ -3387,8 +3376,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
-		HumanAdmission: true,
-		Thinking:       domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts, Continuity: params.continuity,
+		HumanAdmission: true, Continuity: params.continuity,
 	})
 	if err != nil {
 		return nil, runtimeError(err)

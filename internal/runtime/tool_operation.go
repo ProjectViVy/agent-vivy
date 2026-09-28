@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/compose"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -50,6 +52,19 @@ type toolOperationFlight struct {
 
 func (s *Service) newToolOperationCoordinator(runID domain.RunID, sessionID domain.SessionID) toolOperationCoordinator {
 	return serviceToolOperationCoordinator{service: s, runID: runID, sessionID: sessionID}
+}
+
+// isModelWorkTool reports whether a tool's effect is a journaled Work
+// mutation. Those tools already deduplicate retried calls inside CommitWork
+// by their caller-stable request identity, so a durable tool operation would
+// only shadow the bookkeeping the work stream provides.
+func isModelWorkTool(name string) bool {
+	switch name {
+	case tools.EnterPlanModeName, tools.SubmitPlanName, tools.GetGoalName,
+		tools.CreateGoalName, tools.ReportGoalName:
+		return true
+	}
+	return false
 }
 
 func operationDigest(data []byte) string {
@@ -182,6 +197,23 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		return finish("", err)
 	}
 	result, invokeErr := invoke(ctx)
+	var surfacedRefusal error
+	if invokeErr != nil {
+		// A tool interrupt (approval, question, plan review) suspends the run;
+		// it is not an operation outcome and must keep its signal type so the
+		// ToolsNode can surface it as an interrupt instead of a failure.
+		if _, interrupted := compose.IsInterruptRerunError(invokeErr); interrupted {
+			return finish("", invokeErr)
+		}
+		// A governance refusal is a model-visible outcome, not an operation
+		// failure: record the refusal text as the result so the run continues
+		// and a resumed run replays the same response.
+		if refusal, isRefusal := asToolRefusal(invokeErr); isRefusal {
+			result = refusalToolResult(op.ToolName, publicRefusalReason(refusal.cause))
+			surfacedRefusal = invokeErr
+			invokeErr = nil
+		}
+	}
 	result = tools.RedactSensitive(result)
 	failure := ""
 	if invokeErr != nil {
@@ -200,6 +232,12 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	}
 	if completeEvent.Seq != 0 {
 		c.publish(completeEvent)
+	}
+	if surfacedRefusal != nil && completed.State == domain.ToolOperationCompleted && completed.Failure == "" {
+		// The refusal text is durable as the operation result; still surface
+		// the typed refusal so the caller runs invocation-failure marking and
+		// governance journaling for this attempt.
+		return finish("", surfacedRefusal)
 	}
 	resolved, resolveErr := toolOperationResolution(completed)
 	return finish(resolved, resolveErr)

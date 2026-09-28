@@ -4578,6 +4578,9 @@ func TestChannelDeliveriesRPC(t *testing.T) {
 	// one; the armed row never surfaces in the listing.
 	failedRun := domain.RunID("run-chan-failed")
 	now := time.Now().UnixMilli()
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-chan-1", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
 	if err := backend.AppendMessage(ctx, domain.Message{
 		ID: "msg-chan-failed", SessionID: "sess-chan-1", RunID: failedRun,
 		Role: domain.RoleAssistant, CreatedAt: now, Content: "channel reply",

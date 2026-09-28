@@ -31,6 +31,11 @@ func publishHello(t *testing.T, host *Host, ch plugin.Channel, messageID string)
 // seedReply appends the assistant row the delivery path reads back.
 func seedReply(t *testing.T, backend *sqlite.Backend, sessionID domain.SessionID, runID domain.RunID) {
 	t.Helper()
+	if _, err := backend.GetSession(context.Background(), sessionID); errors.Is(err, storage.ErrNotFound) {
+		if err := backend.CreateSession(context.Background(), domain.Session{ID: sessionID, Title: string(sessionID), CreatedAt: time.Now().UnixMilli()}); err != nil {
+			t.Fatalf("seed session: %v", err)
+		}
+	}
 	if err := backend.AppendMessage(context.Background(), domain.Message{
 		ID: "msg-" + string(runID), SessionID: sessionID, RunID: runID,
 		Role: domain.RoleAssistant, CreatedAt: time.Now().UnixMilli(),

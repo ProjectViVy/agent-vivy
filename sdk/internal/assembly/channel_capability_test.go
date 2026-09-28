@@ -5,12 +5,12 @@ import (
 
 	apphost "agent-vivy/internal/app"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/plugins/dingtalk"
+	"agent-vivy/plugins/discord"
+	"agent-vivy/plugins/feishu"
+	"agent-vivy/plugins/qq"
+	"agent-vivy/plugins/telegram"
 	"agent-vivy/sdk/port/channel"
-	dingtalk "example.com/vivy/plugins/dingtalk"
-	discord "example.com/vivy/plugins/discord"
-	feishu "example.com/vivy/plugins/feishu"
-	qq "example.com/vivy/plugins/qq"
-	telegram "example.com/vivy/plugins/telegram"
 )
 
 // TestChannelProvidersAdvertiseExactlyTheirAdapterSurface pins the gate-0

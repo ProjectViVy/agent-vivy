@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/dingtalk, version: 0.1.0}
-source: {ref: repo:plugins/dingtalk, sha256: 7765675a44d706ab6cc05daaaeb7d3f569a8b835262c22ecfee7a57a04d2d6d5}
+source: {ref: repo:plugins/dingtalk, sha256: 9077d8f57c38763d6a9d9c0a9abc54fc5fbe13aad1b970e8952401110ad5eb3f}
 provides: [{port: std/channel@v1, id: vivy.dingtalk}]
 requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
 requestedGrants: [channel.poll, secret.read, net.client]

@@ -29,25 +29,25 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 27`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 27: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 32`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 32: %v", err)
 	}
 	if name != "child_sessions" || len(checksum) != 64 {
-		t.Fatalf("migration 27 metadata = %q/%q", name, checksum)
+		t.Fatalf("migration 32 metadata = %q/%q", name, checksum)
 	}
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 28`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 28: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 33`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 33: %v", err)
 	}
 	if name != "workflow_revisions" || len(checksum) != 64 {
-		t.Fatalf("migration 28 metadata = %q/%q", name, checksum)
+		t.Fatalf("migration 33 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "child_sessions", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
 		if !tableExists(t, db, table) {
-			t.Fatalf("migration 24 did not create %s", table)
+			t.Fatalf("manifest did not create %s", table)
 		}
 	}
-	for version, want := range map[int]string{26: "session_work_events", 27: "history_work_anchors"} {
+	for version, want := range map[int]string{26: "channel_deliveries", 27: "session_work_events", 28: "history_work_anchors"} {
 		if err := db.QueryRowContext(ctx,
 			`SELECT name FROM schema_migrations WHERE version = ?`, version).Scan(&name); err != nil {
 			t.Fatalf("read migration %d: %v", version, err)
@@ -69,7 +69,6 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	}
 }
 
-func TestApplyUpgradesSQLite23To27AndReopens(t *testing.T) {
 func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	ctx := context.Background()
 	manifest, err := Embedded()
@@ -105,7 +104,6 @@ func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
-		t.Fatalf("upgrade 23 to 27: %v", err)
 		t.Fatalf("upgrade 23 to latest: %v", err)
 	}
 	assertSQLiteLatestMigrations(t, db)
@@ -129,17 +127,17 @@ func assertSQLiteLatestMigrations(t *testing.T, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 28 {
-		t.Fatalf("upgraded migration count = %d, want 28", count)
+	if count != 33 {
+		t.Fatalf("upgraded migration count = %d, want 33", count)
 	}
 	var name, checksum string
-	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 28`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read upgraded migration 28 metadata: %v", err)
+	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 33`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read upgraded migration 33 metadata: %v", err)
 	}
 	if name != "workflow_revisions" || len(checksum) != 64 {
-		t.Fatalf("upgraded migration 28 metadata = %q/%q", name, checksum)
+		t.Fatalf("upgraded migration 33 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "tool_operations", "child_sessions", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("upgrade did not create %s", table)
 		}
@@ -157,6 +155,13 @@ func assertSQLiteUpgradeRows(t *testing.T, db *sql.DB) {
 	}
 	if sessionTitle != "preserved" || runSession != "upgrade-session" || runStatus != "completed" {
 		t.Fatalf("upgraded rows = %q/%q/%q", sessionTitle, runSession, runStatus)
+	}
+	var childMode string
+	if err := db.QueryRow(`SELECT child_mode FROM runs WHERE id = 'upgrade-child-run'`).Scan(&childMode); err != nil {
+		t.Fatalf("read migrated child mode: %v", err)
+	}
+	if childMode != "one-shot" {
+		t.Fatalf("migrated historical child mode = %q, want one-shot", childMode)
 	}
 	var eventRunID, eventType string
 	var eventSeq, eventCreatedAt, payloadVersion int64
@@ -222,13 +227,6 @@ func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
 		t.Fatalf("reapply 024: %v", err)
-	}
-	var childMode string
-	if err := db.QueryRow(`SELECT child_mode FROM runs WHERE id = 'upgrade-child-run'`).Scan(&childMode); err != nil {
-		t.Fatalf("read migrated child mode: %v", err)
-	}
-	if childMode != "one-shot" {
-		t.Fatalf("migrated historical child mode = %q, want one-shot", childMode)
 	}
 }
 

@@ -4,10 +4,8 @@ const api = vi.hoisted(() => ({
 	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), followupChild: vi.fn(), interruptChild: vi.fn(), getChildHistory: vi.fn(), sendChildMessage: vi.fn(), listChildMessages: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
-  createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
   deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
-  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -680,9 +678,9 @@ describe('Vivy store integrity', () => {
     api.listChildren.mockResolvedValue({ children: [] });
     api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
     await useVivyStore.getState().selectSession('s1');
-    useVivyStore.getState().enqueueMessage('sent while away');
+    useVivyStore.getState().enqueueMessage({ text: 'sent while away' });
     await useVivyStore.getState().openRun('r1', 's1');
-    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'sent while away', 'normal', undefined, undefined, undefined));
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', expect.objectContaining({ text: 'sent while away' })));
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
   });
 

@@ -74,6 +74,7 @@ var EventTypes = []EventType{
 	EventToolStarted,
 	EventToolFinished,
 	EventToolOperation,
+	EventToolMounted,
 	EventToolNudge,
 	EventPolicyEvaluated,
 	EventHookStarted,

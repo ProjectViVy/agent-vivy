@@ -125,6 +125,11 @@ func TestReferenceContextModelAttachNotReprojected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}
+	// The attaching turn has ended; the next turn is the session's active
+	// primary run.
+	if err := f.backend.SetRunStatus(context.Background(), "run-model-feed", domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
 	runID, err := f.svc.RunWithOptions(context.Background(), "B", "next turn", RunOptions{})
 	if err != nil {
 		t.Fatalf("run: %v", err)

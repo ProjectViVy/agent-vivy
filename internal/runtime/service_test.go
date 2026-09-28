@@ -972,6 +972,10 @@ func TestServiceChildMailboxDerivesDirectParticipantAndPersistsInboxCursors(t *t
 	// A later Run in the same parent Session is a fresh authorization boundary.
 	// It can inspect and consume the durable child reply without first creating
 	// an unrelated child activation that rotates the binding's authorizer.
+	// The authorizer run is terminal: one session admits one active primary.
+	if err := backend.SetRunStatus(ctx, parentRunID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
 	reauthorizedRunID := domain.RunID("run-child-mail-service-reauthorized-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, parentSessionID, reauthorizedRunID, []string{tools.EchoInfoName})
 	reply, inserted, err = svc.SendChildMessage(ctx, ChildMessageSendRequest{
@@ -1098,6 +1102,11 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 	})
 	if err != nil || !inserted || message.ID == "" {
 		t.Fatalf("enqueue child reply=%+v inserted=%v err=%v", message, inserted, err)
+	}
+	// The authorizer turn has ended; the new turn is the session's active
+	// primary run.
+	if err := backend.SetRunStatus(ctx, parentRunID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
 	}
 	parentRun, err := svc.Run(ctx, parentSessionID, "tell me the child result")
 	if err != nil {
