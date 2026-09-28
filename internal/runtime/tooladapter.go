@@ -595,7 +595,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	}
 	coordinator := toolOperationCoordinatorFromContext(ctx)
 	var operation *domain.ToolOperation
-	if coordinator != nil {
+	if coordinator != nil && !isModelWorkTool(spec.Name) {
 		loaded, found, err := coordinator.Lookup(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON))
 		if err != nil {
 			return "", err
@@ -744,7 +744,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
 			})
-			if operation == nil && coordinator != nil {
+			if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
 				admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
 				if err != nil {
 					return "", err
@@ -761,7 +761,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if operation == nil && coordinator != nil {
+	if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
 		admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
 		if err != nil {
 			return "", err

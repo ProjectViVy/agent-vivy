@@ -89,6 +89,10 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		return domain.RunEvent{}, err
 	}
 	message := admission.Message
+	position, err := postgresNextMessagePosition(ctx, tx, message.SessionID)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
 	message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
 	if err != nil {
 		return domain.RunEvent{}, err
@@ -105,10 +109,10 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+		"INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
 		message.ID, message.SessionID, message.RunID, string(message.Role), message.CreatedAt, int64(message.WorkSeq), message.Content,
 		message.ToolCallID, message.ToolName, toolArgsBlob(message.ToolArgs),
-		message.Source, message.Channel, message.ChatID, message.ChannelMessageID); err != nil {
+		message.Source, message.Channel, message.ChatID, message.ChannelMessageID, position); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: append primary message: %w", err)
 	}
 	for position, attachment := range message.Attachments {

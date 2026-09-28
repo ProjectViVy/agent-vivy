@@ -4221,14 +4221,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	})
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
-		if ctx.Err() != nil {
-			s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
-		} else {
-			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
-				CauseCategory: causeInternalError,
-				Message:       "The run could not be resumed. Please try again.",
-			}))
-		}
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
 	var beforeComplete func() error

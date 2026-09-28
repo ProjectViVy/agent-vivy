@@ -796,9 +796,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MaskFrame:       maskFrame,
 		MaskFrameDigest: maskFrameDigest,
 		GenerationID:    generationID,
-		Crons:           backend,
-		Channels:        channelHost,
-		Titles:          provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {

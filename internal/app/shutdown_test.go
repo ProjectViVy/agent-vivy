@@ -54,7 +54,8 @@ func TestAppShutdownStopsGoalAdmissionBeforeChannelDrain(t *testing.T) {
 			channel.Publish = func(context.Context, plugin.ChannelEnv) error { return nil }
 			a.channels = channelhost.New(channelhost.Deps{
 				Journal: a.backend, Messages: a.backend, Sessions: a.backend,
-				Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+				Deliveries: a.backend,
+				Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
 					return "", nil
 				},
 				Channels: []plugin.Channel{channel},

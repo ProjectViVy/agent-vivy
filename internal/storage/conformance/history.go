@@ -298,7 +298,9 @@ func assertHistoryRunLimit(t *testing.T, b storage.Engine, q storage.HistoryQuer
 	sid := domain.SessionID("history-runs")
 	createHistorySession(t, b, sid)
 	for i := 0; i < 257; i++ {
-		if err := b.CreateRun(ctx, domain.Run{ID: domain.RunID(fmt.Sprintf("history-run-%03d", i)), SessionID: sid, Status: domain.RunActive, CreatedAt: int64(i)}); err != nil {
+		// A session admits only one active primary run; these rows exist to
+		// overflow the narrow-scope cap, so they are terminal.
+		if err := b.CreateRun(ctx, domain.Run{ID: domain.RunID(fmt.Sprintf("history-run-%03d", i)), SessionID: sid, Status: domain.RunCompleted, CreatedAt: int64(i)}); err != nil {
 			t.Fatalf("CreateRun %d: %v", i, err)
 		}
 	}

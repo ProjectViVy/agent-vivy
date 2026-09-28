@@ -120,9 +120,13 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 	mapper.setUsageRoutes(providerName, modelID, childEngine.cfg.SummaryModelID)
 	mapper.registerOpenCall(openToolCall{id: approval.ToolCallID, name: toolName})
 
+	// Recovered pending runs receive a fresh process-owned context so the
+	// approval resume can cancel independently of the recovery caller.
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	s.mu.Lock()
+	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
-		sessionID: run.SessionID, workspaceID: workspaceID, mapper: mapper,
+		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: mapper,
 		selectedTools: canonical, mode: mode, profile: profile, snapshot: policy,
 		sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face,
 		mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,

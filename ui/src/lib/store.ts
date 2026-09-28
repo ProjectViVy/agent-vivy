@@ -335,7 +335,7 @@ function drainQueueAfterCompleted(runId: string, retriesLeft = 25): void {
     return;
   }
   useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-  void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
+  void next.startRun(next.activeSessionId, copySubmission(item)).catch(() => undefined);
 }
 
 async function refreshAfterTerminal(runId: string): Promise<void> {
