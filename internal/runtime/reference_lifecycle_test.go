@@ -42,8 +42,8 @@ func TestReferenceLifecycleCompactionManifestKeepsIDs(t *testing.T) {
 		// The byte budget must cover the reserved static instruction and the
 		// assembled model input (~5.2k bytes here); TriggerPercent still
 		// forces the fold.
-		MaxContextBytes:      8192,
-		Compaction:           &CompactionPolicy{Enabled: true, MaxTokens: 200, TriggerPercent: 1, KeepRecent: 1},
+		MaxContextBytes: 8192,
+		Compaction:      &CompactionPolicy{Enabled: true, MaxTokens: 200, TriggerPercent: 1, KeepRecent: 1},
 	}
 	f := newReferenceFixtureWithConfig(t, WrapModel(testsupport.NewEchoModel()), cfg)
 	runID, reference := admittedReference(t, f, "req-compact")
