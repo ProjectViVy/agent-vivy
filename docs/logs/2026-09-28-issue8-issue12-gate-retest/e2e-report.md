@@ -34,6 +34,31 @@ Recording: `rec-bcaac0e6-dc83-4bcc-a07f-cf3a7e1ebd90/rec-bcaac0e6-dc83-4bcc-a07f
 | B5 | Later automatic runs | PASS | Goal auto-admitted round 2 without user input (`goal-9fb85c00220e5c8a` rounds: `run_724a3ba4faae14a9`, `run_b11563cab5f61c5e`); blocked at max_rounds with reason+evidence. |
 | B6 | PG-6 extras | PASS (with defect below) | Manual pause verified (B3). Failed-provider: killed mock endpoint → `run_dabd5f1c35b84577` failed fast, UI showed "Unable to connect! Check your provider configuration!". Re-planning: Enter Plan → submit_plan → PlanReview → **Request revision** (feedback committed, `plan.decided action=revise`, run resumed+completed) and **Execute plan once** (`plan.decided action=execute_once`, run `run_0f6cca8e091fc569` completed, plan mode exited). |
 
+## PG-6 Task 2 — live-provider coding walkthrough (PASS)
+
+Real provider **SenseNova** (`https://token.sensenova.cn/v1`, embedded vendor `sensenova`, adapter `openai-completions`, model `sensenova-6.8-flash-lite`, key written to `~/.vivy-dev/settings.yaml` via env expansion only). Disposable workspace `~/.vivy-dev/workspaces/pg6-live/` bound via composer WorkspaceSelector → WorkspaceFolderDialog (browse → "Use this folder").
+
+Objective sent: *"Write a small Python script named fib.py in the current workspace that prints the first 10 Fibonacci numbers to stdout, one per line, then run it with python3 to verify it works."*
+
+**Run `run_924ad3c3508cb877`** (session `sess_680aeb8c324f6589`, Smart preset, policy gated) — status `completed`:
+```
+1 run.started {provider:"sensenova", model:"sensenova-6.8-flash-lite", mode:"normal", face:"web"}
+2 model.request → reasoning deltas (real model reasoning streamed)
+21 list_dir (readonly → policy allow, no approval)
+33 write_file(fib.py, +15 lines) → policy prompt → approval apr_a845b11ac5729c8e approved → finished {changed:true, bytes:337, sha256:edbce660…}
+48 bash "python3 fib.py" → policy prompt → approval apr_991841e5c6107e61 approved → finished
+   {command:"bash -c python3 fib.py", cwd:"…/pg6-live", exit_code:0, stdout:"0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n"}
+110 run.completed
+```
+
+**Independent on-disk verification (the gate criterion — "a model saying success is not evidence"):**
+- `/home/ubuntu/.vivy-dev/workspaces/pg6-live/fib.py` exists — 337 bytes, generator-based Fibonacci.
+- `python3 /home/ubuntu/.vivy-dev/workspaces/pg6-live/fib.py` → **exit 0**, 10 lines: `0 1 1 2 3 5 8 13 21 34`. Matches the tool's reported stdout.
+
+UI evidence: live reasoning + tool-call rows streamed; Approvals panel showed write_file diff (+15/−0 unified diff) and bash detail ("mutating command(s): python3"); final assistant answer rendered script + "exit code 0" transcript. Recording: `rec-pg6-live/rec-pg6-live-edited.mp4`. Screenshots: `e2e-live-write-approval.png`, `e2e-live-bash-approval.png`, `e2e-live-completed.png` (committed here).
+
+Anomaly note (testing-side, not product): first "Use this folder" attempt appeared to hang with the button disabled — a pointer-dispatch click on a busy-disabled button doesn't re-fire. Workaround: set path → **Browse** (loads the dir, enables the button) → Use this folder. Product UX is correct; the button is disabled until the browse listing confirms the path.
+
 ## Follow-up: defect RE-VERIFIED fixed under Smart preset
 
 Fix `internal/runtime/plan_review.go` (persisted `vivy:tool-approval:v1:` interrupt state now returns not-handled so `authorizeToolDispatch` consumes the resume; plan-review interrupt then suspends for the real decision) — re-tested in-browser with the `auto_approve_tools` workaround REMOVED from `~/.vivy-dev/config.yaml` and backend rebuilt+restarted (pid 118573, log `/tmp/vivy-backend-fix.log`).
@@ -73,6 +98,5 @@ Note: the work-subscription lag recurred — PlanReview card did not appear unti
 
 ## Out of scope / declared gaps
 
-- No live provider credentials — real-model paths untested (mock fixture only).
-- PG-6 live coding walkthrough not exercised.
+- Live-provider walkthrough later covered: PG-6 Task 2 section above (real SenseNova, `run_924ad3c3508cb877`).
 - `submit_plan` plan-execution semantics ("execute once" spawns no separate run — it resumes the originating run only; verified via journal `plan.decided action=execute_once` + run completion).

@@ -100,10 +100,21 @@ tool.requested → policy.evaluated prompt → tool.approval_required →
 approval_decided → plan.submitted → plan.review_suspended →
 plan.decided(execute_once) → run.completed.
 
+### Live-provider walkthrough (PG-6 Task 2)
+
+Run after the first pass, on real SenseNova `sensenova-6.8-flash-lite`
+(`https://token.sensenova.cn/v1`, registered in `~/.vivy-dev/settings.yaml`,
+key via env expansion). Objective: write `fib.py` printing the first 10
+Fibonacci numbers, then run it. `run_924ad3c3508cb877` completed under Smart
+preset: `list_dir` (policy allow) → `write_file` approved
+(`apr_a845b11ac5729c8e`) → `bash python3 fib.py` approved
+(`apr_991841e5c6107e61`) → `exit_code:0`. Independent verification (not the
+model's word): file exists at `~/.vivy-dev/workspaces/pg6-live/fib.py`
+(337 bytes); `python3 fib.py` → exit 0, stdout `0 1 1 2 3 5 8 13 21 34`
+matching the tool's report. Full journal chain + screenshots in
+`e2e-report.md`.
+
 ### Still BLOCKED
 
-- PG-6 live-provider coding walkthrough: no live-provider credentials are
-  provisioned (none in session secrets; per DEFER.MD ISSUE-47-EXTERNAL-GATES
-  they were not to be filled). Blocked, not a pass.
 - Minor, non-blocking: `session/work/subscribe` can lag journal commits — the
   "Refresh work state" action converges it. Cosmetic; journal correct.
