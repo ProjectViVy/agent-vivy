@@ -15,7 +15,7 @@ import (
 func (b *Backend) AppendNote(ctx context.Context, n domain.Note) error {
 	if _, err := b.db.ExecContext(ctx,
 		`INSERT INTO notes (id, content, created_at) VALUES (?, ?, ?)`,
-		n.ID, n.Content, n.CreatedAt); err != nil {
+		n.ID, []byte(n.Content), n.CreatedAt); err != nil {
 		return fmt.Errorf("storage: append note %s: %w", n.ID, err)
 	}
 	return nil

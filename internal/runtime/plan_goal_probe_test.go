@@ -337,3 +337,125 @@ func waitForProbeGoalRun(t *testing.T, backend *sqlite.Backend, sessionID domain
 	t.Fatalf("Goal run for %s was not admitted", sessionID)
 	return ""
 }
+
+// submit_plan is an effectful tool: under an asking approval policy its first
+// suspension is the tool-approval gate, whose interrupt state is the approval
+// encoding rather than a plan submission ID. The plan-review resume path must
+// leave that approval resume to authorizeToolDispatch; consuming it as a plan
+// decision used to fail the run.
+func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plan-approval-gate.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	const sessionID = domain.SessionID("sess-plan-approval-gate")
+	if err := backend.CreateSession(ctx, domain.Session{
+		ID: sessionID, Title: "Plan approval gate", CreatedAt: 1,
+		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAuto),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestHash: "enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}); err != nil {
+		t.Fatalf("enter Plan: %v", err)
+	}
+	toolset, err := tools.NewRegistry(tools.NewSubmitPlan()).Resolve([]string{tools.SubmitPlanName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "plan-approval-gate")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	engine, err := NewEngine(ctx, NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{
+			{ID: "submit-plan", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}},
+		}),
+		schema.AssistantMessage("The plan is ready for review.", nil),
+	), toolset, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
+		PrimaryRuns: backend, Work: backend, Approvals: backend, Questions: backend,
+		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
+	})
+	runID, err := svc.Run(ctx, sessionID, "Prepare and review a plan.")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// First suspension is the tool approval, not the plan review.
+	approval := waitForPendingApproval(t, backend, runID)
+	if approval.ToolName != tools.SubmitPlanName || approval.ToolCallID != "submit-plan" {
+		t.Fatalf("pending approval = %+v, want the submit_plan call", approval)
+	}
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatalf("approve submit_plan: %v", err)
+	}
+
+	// After approval the call executes and must suspend again for plan review
+	// rather than failing on the consumed approval resume.
+	var state domain.WorkState
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err = backend.ReadWork(ctx, sessionID)
+		if err != nil {
+			t.Fatalf("read work: %v", err)
+		}
+		run, runErr := backend.GetRun(ctx, runID)
+		if runErr != nil {
+			t.Fatalf("get run: %v", runErr)
+		}
+		if run.Status.Terminal() {
+			t.Fatalf("run reached terminal status %s while Plan review is pending", run.Status)
+		}
+		if state.Plan.ReviewStatus == domain.PlanReviewPending && state.Plan.ResumeTarget != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !state.Plan.Active || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.SubmissionID == "" {
+		t.Fatalf("Plan state = %+v, want pending review after tool approval", state.Plan)
+	}
+
+	decision := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: state.Version,
+		RequestID: "decide-plan-once", RequestHash: "decide-plan-once",
+		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
+		PlanAction: domain.PlanDecisionExecuteOnce,
+	}
+	if _, err := svc.DecidePlan(ctx, decision); err != nil {
+		t.Fatalf("decide Plan: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolApprovalRequired) < 0 {
+		t.Fatal("tool.approval_required was not journaled")
+	}
+	finishedPlanCalls := 0
+	for _, event := range events {
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var payload payloadToolFinished
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("decode tool.finished: %v", err)
+		}
+		if payload.ToolCallID == "submit-plan" {
+			finishedPlanCalls++
+		}
+	}
+	if finishedPlanCalls != 1 {
+		t.Fatalf("submit_plan result count = %d, want exact call resumed once", finishedPlanCalls)
+	}
+}

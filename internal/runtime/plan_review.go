@@ -71,6 +71,12 @@ func resumePlanReview(ctx context.Context, toolName string, maxResultBytes int) 
 	if !wasInterrupted {
 		return "", false, nil
 	}
+	// A gated call can first suspend on the tool-approval interrupt, whose
+	// state is the approval encoding rather than a submission ID. That resume
+	// belongs to authorizeToolDispatch.
+	if strings.HasPrefix(submissionID, toolApprovalInterruptPrefix) {
+		return "", false, nil
+	}
 	if !hasState || submissionID == "" {
 		return "", true, errors.New("runtime: Plan review checkpoint is missing its submission ID")
 	}
