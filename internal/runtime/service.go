@@ -28,7 +28,7 @@ import (
 // terminalPersistTimeout caps the detached persistence window for the
 // terminal event: closing a run durably must survive the user cancelling
 // their own context, but must also stay bounded (NFR: bounded).
-const terminalPersistTimeout = 5 * time.Second
+const terminalPersistTimeout = 30 * time.Second
 
 // EventSink receives persisted run events for live fan-out. events.Bus
 // implements it; the interface lives here so the runtime never imports
