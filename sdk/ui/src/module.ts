@@ -164,6 +164,7 @@ export const HOST_ICON_NAMES = [
   'dna',
   'brain',
   'notebook-pen',
+  'workflow',
 ] as const;
 
 export type HostIconName = (typeof HOST_ICON_NAMES)[number];

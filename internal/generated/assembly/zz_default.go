@@ -25,6 +25,7 @@ import (
 	vivymemory "agent-vivy/plugins/vivy-memory"
 	vivynotebook "agent-vivy/plugins/vivy-notebook"
 	vivypersona "agent-vivy/plugins/vivy-persona"
+	vivyworkflow "agent-vivy/plugins/vivy-workflow"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
@@ -85,7 +86,7 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:             []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/masks", "vivy/masks-ui", "vivy/mcp-host", "vivy/memory", "vivy/memory-bml", "vivy/memory-bml-sync", "vivy/memory-bml-tools", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"},
+			Modules:             []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/masks", "vivy/masks-ui", "vivy/mcp-host", "vivy/memory", "vivy/memory-bml", "vivy/memory-bml-sync", "vivy/memory-bml-tools", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow-ui"},
 			Channels:            []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:               []string{"memory_add", "memory_get", "memory_list", "memory_search", "memory_update", "memory_remove", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
 			Actions:             []string{"vivy.masks.catalog.list", "vivy.masks.catalog.get", "vivy.masks.catalog.create", "vivy.masks.catalog.update", "vivy.masks.catalog.delete", "vivy.masks.selection.get", "vivy.masks.selection.set", "vivy.memory.list", "vivy.memory.search", "vivy.memory.get", "vivy.memory.add", "vivy.memory.update", "vivy.memory.remove", "vivy.memory.rules.read", "vivy.memory.rules.write", "vivy.memory.status"},
@@ -113,7 +114,7 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 34)
+	owners := make([]module.Instance, 0, 35)
 	owner0, err := defaults.NewActionHost().Construct(ctx, hosts.ForModule("vivy/action-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
@@ -284,6 +285,11 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner33)
+	owner34, err := vivyworkflow.New().Construct(ctx, hosts.ForModule("vivy/workflow-ui"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner34)
 	generation, err := module.StartGeneration(ctx, owners)
 	if err != nil {
 		return err

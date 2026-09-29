@@ -1,0 +1,20 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/workflow-ui.title": {
+      "description": "Workflow editor page title",
+      "placeholders": [],
+      "messages": {"en": "Workflows", "zh": "工作流"}
+    },
+    "plugin.vivy/workflow-ui.subtitle": {
+      "description": "Workflow editor page subtitle",
+      "placeholders": [],
+      "messages": {"en": "Draft, validate, publish, and inspect INOFY workflow runs", "zh": "起草、校验、发布并检视 INOFY 工作流运行"}
+    },
+    "plugin.vivy/workflow-ui.nav": {
+      "description": "Workflow editor navigation label",
+      "placeholders": [],
+      "messages": {"en": "Workflows", "zh": "工作流"}
+    }
+  }
+}

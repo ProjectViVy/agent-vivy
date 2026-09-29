@@ -159,7 +159,7 @@
     {
       "port": "std/context-source@v1",
       "providerId": "vivy/context-source",
-      "sourceSha256": "1fe1aa3789fe5aa65676a082b34c2e28f511fb3edad5e601dbb9d9c11db17c55",
+      "sourceSha256": "ab2fbb02c95df12feb94a532869e445cf428ab3f382e7bf1020449797b9cdf1b",
       "evidenceId": "internal/contexthost/conformance_test.go#TestContextSourceConformance",
       "passedChecks": [
         "registration",
@@ -343,7 +343,7 @@
     {
       "port": "std/provider-profile@v1",
       "providerId": "vivy/provider-profiles",
-      "sourceSha256": "1fe1aa3789fe5aa65676a082b34c2e28f511fb3edad5e601dbb9d9c11db17c55",
+      "sourceSha256": "ab2fbb02c95df12feb94a532869e445cf428ab3f382e7bf1020449797b9cdf1b",
       "evidenceId": "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
       "passedChecks": [
         "registration",
@@ -366,7 +366,7 @@
     {
       "port": "std/skill-source@v1",
       "providerId": "vivy/skill-source",
-      "sourceSha256": "1fe1aa3789fe5aa65676a082b34c2e28f511fb3edad5e601dbb9d9c11db17c55",
+      "sourceSha256": "ab2fbb02c95df12feb94a532869e445cf428ab3f382e7bf1020449797b9cdf1b",
       "evidenceId": "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
       "passedChecks": [
         "registration",
@@ -458,7 +458,7 @@
     {
       "port": "std/tool-world@v1",
       "providerId": "vivy/mcp-host",
-      "sourceSha256": "1fe1aa3789fe5aa65676a082b34c2e28f511fb3edad5e601dbb9d9c11db17c55",
+      "sourceSha256": "ab2fbb02c95df12feb94a532869e445cf428ab3f382e7bf1020449797b9cdf1b",
       "evidenceId": "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost",
       "passedChecks": [
         "registration",
@@ -481,7 +481,7 @@
     {
       "port": "std/tool@v1",
       "providerId": "vivy/protected-tools",
-      "sourceSha256": "1fe1aa3789fe5aa65676a082b34c2e28f511fb3edad5e601dbb9d9c11db17c55",
+      "sourceSha256": "ab2fbb02c95df12feb94a532869e445cf428ab3f382e7bf1020449797b9cdf1b",
       "evidenceId": "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses",
       "passedChecks": [
         "registration",

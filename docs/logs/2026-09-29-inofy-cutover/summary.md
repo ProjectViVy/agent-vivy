@@ -77,3 +77,35 @@ errors carry `data.code` for the editor's ApiError surface; connections map
 the existing provider registry read-only (kind/base_url/model/has_secret —
 credentials never cross) and put/delete answer `unsupported_feature`. Live
 event subscription reuses the existing `run/subscribe` machinery.
+
+# S11-G embedded INOFY editor in the vivy/workflow-ui Module
+
+The product editor ships as the selected `vivy/workflow-ui` Module
+(`std/ui-extension@v1`): the default Recipe picks it, stage-ui emits
+`vivy.workflow-ui.sidebar`, and a grouped sidebar entry routes `/workflows`
+into the module page — no standalone Studio shell.
+
+`src/studio/` vendors the INOFY shared editor tree at the same pinned
+revision as `go.mod` (`6acfcc6b1a51`), byte-verbatim except the
+`statusFor` transport-error adaptation (`vivy-transport.ts`) documented in
+`VENDORED.md`; the graph unit suite runs unmodified from the staged copy.
+`WorkflowPage` mounts the editor inside a Shadow DOM with textually
+rescoped vendored CSS (`:root`→`:host`, `body`→`.studio-shell`) plus
+xyflow styles, so host and editor styles never leak either way.
+
+`FaceBridge` is the single host authorization path: every `inofy.*` call
+carries `session_id` from the committed host store (fail-closed — the key
+is omitted when no session is active), `startRun` binds `parent_run_id`
+to the current run and a fresh ≤128-byte `operation_id`, and
+`inofy.events` multiplexes onto `run/subscribe`/`run/event` notifications
+with Journal `type`→engine `kind` normalization, cursor dedup, terminal
+close, and resubscribe-from-cursor reconnect — journal stays the event
+authority.
+
+Honest surface only: capabilities come from `inofy.capabilities`,
+TransportError codes map onto the editor's 412/409/401/422/501/503
+branches, node/Run status, protected output, and cancel all derive from
+committed host facts. Module chrome carries en/zh catalog keys; the
+vendored editor keeps its own upstream zh table, so the i18n gate
+skips directories marked `VENDORED.md` rather than pretending vendored
+copy is Module-authored.

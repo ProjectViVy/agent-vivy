@@ -90,3 +90,30 @@ Fixes made during the gate: migration count assertions 34→35 with
 `workflow_definitions` metadata + new tables; i18n cross-face contract
 classified `runInspector.workflowEngineStatus`; conformance re-pin to the
 new internal source digest (5 internal-provider rows).
+
+S11-G covered: bridge injects session_id into every call and omits it
+fail-closed; startRun adds parent_run_id + bounded operation_id;
+TransportError status mapping for not_found/revision_conflict→412,
+idempotency→409, validation→422, unsupported→501, unauthenticated→401;
+journal-event normalization for pages and notifications, cursor dedup,
+terminal close, and resubscribe-from-cursor after stream_error;
+extension registration (route `/workflows`, grouped nav, `workflow`
+icon); shadow-mount page drives the real editor App against a stubbed
+HostBridge listing workflows with session-bound calls.
+
+Full gate:
+
+```
+PATH=/usr/local/go/bin:$PATH VIVY_POSTGRES_TEST_DSN=… just ci
+fmt-check ui-ci vet test headless-compile plugin-ci — all green
+ui: 513 vitest tests pass incl. 22 under ui/src/generated/ui/vivy-workflow
+```
+
+Fixes made during the gate: `internal` source digest re-pinned to
+`ab2fbb02…` (5 rows in `conformance_results.json`), baseline Generation
+inventory gained `vivy/workflow-ui`, i18n gate gained the `VENDORED.md`
+vendored-tree exclusion, `host-icons`/`HOST_ICON_NAMES` gained `workflow`,
+`repoSourceDirs`/`generate-default`/`default-generation.expected.json`
+wired the module, `source.sha256` converged at `6abd8344…`,
+`inofyRunEvents` items emit journal `type` (not `kind`), gofmt repaired
+`internal/storage/workflow_definitions.go`.

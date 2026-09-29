@@ -427,9 +427,9 @@ func (h *controlHandler) inofyResumeRun(ctx context.Context, peer *Peer, request
 	return map[string]any{"ok": true}, nil
 }
 
-// inofyRunEvents pages the durable Journal for the session's own run. The
-// editor renders {seq,kind,path,attempt,data}; the journal event type is the
-// kind and its payload the data.
+// inofyRunEvents pages the durable Journal for the session's own run in the
+// journal's own vocabulary ({seq,type,at,data}); the editor bridge maps
+// journal types onto engine event kinds on the client.
 func (h *controlHandler) inofyRunEvents(ctx context.Context, peer *Peer, request Request) (any, *Error) {
 	svc, rpcErr := h.inofyService(ctx)
 	if rpcErr != nil {
@@ -458,7 +458,7 @@ func (h *controlHandler) inofyRunEvents(ctx context.Context, peer *Peer, request
 	items := make([]map[string]any, 0, len(events))
 	for _, event := range events {
 		items = append(items, map[string]any{
-			"seq": uint64(event.Seq), "kind": string(event.Type),
+			"seq": uint64(event.Seq), "type": string(event.Type),
 			"at": event.CreatedAt, "data": json.RawMessage(event.Payload),
 		})
 	}

@@ -38,15 +38,15 @@ type WorkflowDraft struct {
 // WorkflowPublishedRevision is one immutable publication row. The exact
 // used catalog identity is bound at publication time.
 type WorkflowPublishedRevision struct {
-	WorkflowID             string
-	Revision               uint64
-	ArtifactJSON           []byte
-	DefinitionDigest       string
-	ArtifactDigest         string
-	UsedCatalogDigest      string
+	WorkflowID              string
+	Revision                uint64
+	ArtifactJSON            []byte
+	DefinitionDigest        string
+	ArtifactDigest          string
+	UsedCatalogDigest       string
 	UsedImplementationsJSON []byte
-	AuthorSessionID        string
-	PublishedAt            int64
+	AuthorSessionID         string
+	PublishedAt             int64
 }
 
 // WorkflowDefinitionSummary is one published workflow listing row: the

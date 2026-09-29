@@ -178,6 +178,9 @@ function walkModules(dir, english) {
     if (!existsSync(manifest) || !existsSync(sources)) continue;
     const keys = new Set(Object.keys(JSON.parse(readFileSync(manifest, 'utf8')).units ?? {}));
     const visit = (current) => {
+      // Vendored upstream trees carry their own translation table (see their
+      // VENDORED.md); they are not Module-authored copy for the host catalog.
+      if (existsSync(resolve(current, 'VENDORED.md'))) return;
       for (const child of readdirSync(current, { withFileTypes: true })) {
         const file = resolve(current, child.name);
         if (child.isDirectory()) visit(file);
