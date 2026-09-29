@@ -15,4 +15,14 @@ type WorkflowRevision struct {
 	AuthorityJSON    []byte
 	SchemaVersion    int
 	CreatedAt        int64
+	// INOFY admission identity (schema_version 2). These columns are nullable
+	// in storage; a revision admitted under discriminator 2 must carry every
+	// field so a later recovery can rebind to the same immutable program.
+	ProgramDigest   string
+	CatalogDigest   string
+	CompilerVersion string
+	EinoBuild       string
+	InputDigest     string
+	EffectiveLimits []byte
+	HostBindingID   string
 }

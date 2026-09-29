@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.admitted.json",
+  "title": "workflow.admitted payload (v1)",
+  "description": "INOFY graph admission: the immutable program identity bound to this workflow run.",
+  "type": "object",
+  "properties": {
+    "definition_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "catalog_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "program_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "compiler_version": { "type": "string", "minLength": 1 },
+    "eino_build": { "type": "string" },
+    "input_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "limits": { "type": "object" }
+  },
+  "required": ["definition_digest", "program_digest", "input_digest", "limits"],
+  "additionalProperties": false
+}

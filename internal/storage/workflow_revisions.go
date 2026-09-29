@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -51,6 +52,20 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	authorityDigest := sha256.Sum256(r.AuthorityJSON)
 	if hex.EncodeToString(authorityDigest[:]) != r.AuthorityDigest {
 		return errors.New("storage: workflow authority digest does not match its bytes")
+	}
+	// Storage discriminator: 1 = legacy descriptor path, 2 = INOFY. A
+	// discriminator-2 admission must carry the complete INOFY identity so a
+	// later recovery can rebind to the same immutable program; discriminator-1
+	// rows must not carry it.
+	if r.SchemaVersion == 2 {
+		if !validSHA256Hex(r.ProgramDigest) || !validSHA256Hex(r.CatalogDigest) ||
+			!validSHA256Hex(r.InputDigest) || r.CompilerVersion == "" ||
+			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" {
+			return errors.New("storage: inofy workflow revision identity is incomplete")
+		}
+	} else if r.ProgramDigest != "" || r.CatalogDigest != "" || r.CompilerVersion != "" ||
+		r.EinoBuild != "" || r.InputDigest != "" || len(r.EffectiveLimits) != 0 || r.HostBindingID != "" {
+		return errors.New("storage: legacy workflow revision must not carry inofy identity")
 	}
 	if in.Run.ID != r.RunID || in.Run.SessionID != r.ParentSessionID || in.Run.Kind != domain.RunKindWorkflow ||
 		in.Run.ParentID != r.ParentRunID || in.Run.RootID != r.RootRunID || in.Run.Status != domain.RunAccepted ||

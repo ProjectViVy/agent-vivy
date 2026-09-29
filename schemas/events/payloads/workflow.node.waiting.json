@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.waiting.json",
+  "title": "workflow.node.waiting payload (v1)",
+  "type": "object",
+  "properties": {
+    "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string" },
+    "prompt": { "type": "string" },
+    "continuation_ref": { "type": "string" }
+  },
+  "required": ["node_key", "request_id"],
+  "additionalProperties": false
+}

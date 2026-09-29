@@ -5,9 +5,11 @@
   "type": "object",
   "properties": {
     "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "attempt": { "type": "integer", "minimum": 1 },
     "child_run_id": { "type": "string", "minLength": 1 },
-    "result_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    "result_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "result_blob_id": { "type": "string", "minLength": 1 }
   },
-  "required": ["node_key", "child_run_id", "result_digest"],
+  "required": ["node_key", "result_digest"],
   "additionalProperties": false
 }

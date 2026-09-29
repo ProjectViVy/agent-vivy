@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.started.json",
-  "title": "workflow.node.started payload (v1)",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.attempt.json",
+  "title": "workflow.node.attempt payload (v1)",
   "type": "object",
   "properties": {
     "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
     "attempt": { "type": "integer", "minimum": 1 },
     "child_run_id": { "type": "string", "minLength": 1 }
   },
-  "required": ["node_key"],
+  "required": ["node_key", "attempt"],
   "additionalProperties": false
 }

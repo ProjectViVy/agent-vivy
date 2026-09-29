@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.waiting.json",
+  "title": "workflow.waiting payload (v1)",
+  "description": "Run suspended on outstanding wait points; mirrors the durable waits/interrupts projection.",
+  "type": "object",
+  "properties": {
+    "waits": { "type": "array" },
+    "interrupts": { "type": "object" },
+    "gates": { "type": "array" }
+  },
+  "required": ["waits"],
+  "additionalProperties": false
+}

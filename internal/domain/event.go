@@ -41,9 +41,18 @@ const (
 	EventChildFailed              EventType = "child.failed"
 	EventChildCancelled           EventType = "child.cancelled"
 	EventWorkflowStarted          EventType = "workflow.started"
+	EventWorkflowAdmitted         EventType = "workflow.admitted"
+	EventWorkflowWaiting          EventType = "workflow.waiting"
+	EventWorkflowResumed          EventType = "workflow.resumed"
+	EventWorkflowRecoveryRequired EventType = "workflow.recovery_required"
 	EventWorkflowNodeStarted      EventType = "workflow.node.started"
+	EventWorkflowNodeAttempt      EventType = "workflow.node.attempt"
 	EventWorkflowNodeCompleted    EventType = "workflow.node.completed"
 	EventWorkflowNodeFailed       EventType = "workflow.node.failed"
+	EventWorkflowNodeWaiting      EventType = "workflow.node.waiting"
+	EventWorkflowNodeDegraded     EventType = "workflow.node.degraded"
+	EventWorkflowSwitchDecision   EventType = "workflow.switch.decision"
+	EventWorkflowRepeatIteration  EventType = "workflow.repeat.iteration"
 	EventContextCompacted         EventType = "context.compacted"
 	EventSessionTruncated         EventType = "session.truncated"
 	EventSessionForked            EventType = "session.forked"
@@ -92,9 +101,18 @@ var EventTypes = []EventType{
 	EventChildFailed,
 	EventChildCancelled,
 	EventWorkflowStarted,
+	EventWorkflowAdmitted,
+	EventWorkflowWaiting,
+	EventWorkflowResumed,
+	EventWorkflowRecoveryRequired,
 	EventWorkflowNodeStarted,
+	EventWorkflowNodeAttempt,
 	EventWorkflowNodeCompleted,
 	EventWorkflowNodeFailed,
+	EventWorkflowNodeWaiting,
+	EventWorkflowNodeDegraded,
+	EventWorkflowSwitchDecision,
+	EventWorkflowRepeatIteration,
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,

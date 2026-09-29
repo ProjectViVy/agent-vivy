@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.switch.decision.json",
+  "title": "workflow.switch.decision payload (v1)",
+  "description": "INOFY switch node chose one authored case; carries the engine decision record.",
+  "type": "object",
+  "properties": {
+    "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "case": { "type": "string", "maxLength": 64 },
+    "decision": {}
+  },
+  "required": ["node_key"],
+  "additionalProperties": false
+}

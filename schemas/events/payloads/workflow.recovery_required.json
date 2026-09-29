@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.recovery_required.json",
+  "title": "workflow.recovery_required payload (v1)",
+  "description": "Run needs operator recovery: an interrupted write left an outcome the graph cannot classify.",
+  "type": "object",
+  "properties": {
+    "commit_id": { "type": "string" },
+    "reason": { "type": "string" }
+  },
+  "additionalProperties": false
+}
