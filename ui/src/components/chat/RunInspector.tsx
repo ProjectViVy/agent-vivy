@@ -237,6 +237,7 @@ export function RunInspector() {
             {workflowState ? <div className="space-y-2 rounded bg-muted/40 p-2 text-xs">
               <div className="flex items-center justify-between gap-2"><code className="truncate">{workflowState.id}</code><Badge variant="outline">{workflowState.status}</Badge></div>
               <p className="break-all text-muted-foreground">{t('runInspector.workflowDigest', { digest: workflowState.revision_digest.slice(0, 16) })}</p>
+              {workflowState.engine_status ? <p className="text-muted-foreground">{t('runInspector.workflowEngineStatus', { status: workflowState.engine_status })}</p> : null}
               <h4 className="font-medium">{t('runInspector.workflowNodes')}</h4>
               {workflowState.nodes.map((node) => <div key={node.key} className="flex items-start justify-between gap-2 rounded border bg-background p-2">
                 <div className="min-w-0"><code>{node.key}</code>{node.message ? <p className="mt-1 text-muted-foreground">{node.message}</p> : null}

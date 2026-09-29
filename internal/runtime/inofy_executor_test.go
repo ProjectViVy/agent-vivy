@@ -43,13 +43,13 @@ func prepareINOFYExecParent(t *testing.T, svc *Service, backend *sqlite.Backend,
 	authorityJSON := []byte(`{"authority":1}`)
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: parentRunID,
-		OperationKey: "wf-op-" + string(parentRunID),
+		OperationKey:     "wf-op-" + string(parentRunID),
 		DescriptorDigest: inofyTestDigest(string(descriptorJSON)), AuthorityDigest: inofyTestDigest(string(authorityJSON)),
 		DescriptorJSON: descriptorJSON, AuthorityJSON: authorityJSON,
 		SchemaVersion: 2, CreatedAt: 2,
 		ProgramDigest: inofyTestDigest("program-" + string(parentRunID)), CatalogDigest: inofyTestDigest("catalog"),
 		CompilerVersion: "inofy@6acfcc6", EinoBuild: "v0.9.13",
-		InputDigest: inofyTestDigest("input-" + string(parentRunID)),
+		InputDigest:     inofyTestDigest("input-" + string(parentRunID)),
 		EffectiveLimits: []byte(`{"max_nodes":12,"max_attempts":1}`),
 		HostBindingID:   inofyTestDigest("binding-" + string(parentRunID)),
 	}
@@ -472,7 +472,7 @@ func TestINOFYProgramRunCommitsThroughCoreStorage(t *testing.T) {
 	hostBinding := inofyTestDigest("host-binding-e2e")
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: parentRunID,
-		OperationKey: "wf-e2e",
+		OperationKey:     "wf-e2e",
 		DescriptorDigest: inofyTestDigest(string(admitted.CanonicalJSON)),
 		AuthorityDigest:  inofyTestDigest(`{"authority":1}`),
 		DescriptorJSON:   admitted.CanonicalJSON, AuthorityJSON: []byte(`{"authority":1}`),

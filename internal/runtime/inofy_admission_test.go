@@ -3,7 +3,6 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -137,7 +136,7 @@ func TestINOFYAdmissionRejectsDuplicateConfigKeys(t *testing.T) {
 	}
 }
 
-func TestINOFYStartRejectsBeforeCreatingANativeRun(t *testing.T) {
+func TestINOFYStartRejectsWithoutPersisting(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	workspaces, err := NewSessionWorkspaceManager(t.TempDir(), backend, backend)
 	if err != nil {
@@ -147,10 +146,10 @@ func TestINOFYStartRejectsBeforeCreatingANativeRun(t *testing.T) {
 	parentID := domain.RunID("inofy-authorizer")
 	prepareChildSessionAuthorizer(t, svc, backend, domain.SessionID("inofy-session"), parentID, nil)
 	definition := taskDefinition()
-	delete(definition["graph"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["config"].(map[string]any), "tool_names")
+	delete(definition["graph"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["config"].(map[string]any), "task")
 	raw, _ := json.Marshal(definition)
-	if _, err := svc.StartINOFYWorkflow(t.Context(), parentID, "first", raw); !errors.Is(err, ErrINOFYStorageUnavailable) {
-		t.Fatalf("start before storage = %v, want explicit guard", err)
+	if _, err := svc.StartINOFYWorkflow(t.Context(), parentID, "first", raw); err == nil {
+		t.Fatal("invalid definition was admitted")
 	}
 	revisions, err := backend.ListWorkflowRevisions(t.Context(), parentID)
 	if err != nil || len(revisions) != 0 {

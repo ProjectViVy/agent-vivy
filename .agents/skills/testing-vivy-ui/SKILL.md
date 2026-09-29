@@ -1,6 +1,6 @@
 ---
 name: testing-vivy-ui
-description: How to run the Vivy split dev pair and exercise run/orchestration UI surfaces in a real browser without a provider key (hanging mock endpoint trick, Run Inspector location, locale toggle, air-gap rules).
+description: How to run the Vivy split dev pair and exercise run/orchestration UI surfaces in a real browser without a provider key (frozen-env provider trick, hanging mock endpoint, Run Inspector location, air-gap rules).
 ---
 
 # Testing Vivy UI (agent-vivy)
@@ -8,6 +8,7 @@ description: How to run the Vivy split dev pair and exercise run/orchestration U
 ## Dev servers
 
 - Backend: `PATH=/usr/local/go/bin:$PATH VIVY_CONFIG=/home/ubuntu/.vivy-dev/config.yaml go run ./cmd/vivy` from repo root -> control plane `127.0.0.1:8787`. The config redirects sqlite/workspaces/settings to `~/.vivy-dev`; never let it write under the repo's `data/` (ST-2 air gap).
+- Fresh disposable home (preferred): `VIVY_USER_HOME=/tmp/vivy-smoke go run ./cmd/vivy` — journal `vivy.db`, `settings.yaml`, `workspace/`, `logs/` all land under the temp dir, no config file needed, `data/` untouched.
 - UI: `cd ui && PATH=$HOME/.local/node/bin:/usr/local/go/bin:$PATH pnpm dev` -> Vite `127.0.0.1:3015`, proxies `/rpc`. **Go must be on PATH** — `pnpm dev` runs `scripts/stage-ui-assembly.mjs` which shells out to `go run ./sdk stage-ui`; without it the dev server exits (`spawnSync go ENOENT`).
 - Open `http://127.0.0.1:3015`. First run shows a welcome wizard; click "Skip wizard" (its text is left of the Next button, they visually overlap — click ~x=410 of the footer).
 
@@ -15,20 +16,29 @@ description: How to run the Vivy split dev pair and exercise run/orchestration U
 
 `child/*` and `workflow/*` RPCs and the Run Inspector's Validate/Start buttons require the parent run to be server-side `active` with an in-process tool ceiling (`internal/runtime/child_sessions.go` `currentChildAuthorizer`) — a failed run cannot exercise them, and a synthetic DB row fails ("child authorizer tool ceiling is unavailable").
 
-Trick: run a hanging OpenAI-compatible endpoint and register it via the UI:
+**Custom provider registry cannot execute runs** (verified 2026-09): `settings/providers/upsert` persists an `openai-completions` entry but runs fail `provider "<name>": no embedded vendor data` — only embedded vendors (`catalog-<vendor>-<adapter>` ids) execute.
 
-```python
-# GET /models returns a stub; POST hangs forever -> the run stays 'active'
-# (python3 http.server ThreadingHTTPServer on 127.0.0.1:9911)
+Working keyless path — the frozen env provider session (`internal/app/model.go` `freezeFromEnv`):
+
+```bash
+VIVY_PROVIDER=deepseek \            # vendor name or adapter id
+VIVY_API_BASE=http://127.0.0.1:9911/v1 \   # freezes base URL to your mock
+VIVY_MODEL=mock-fast \
+DEEPSEEK_API_KEY=anything \         # vendor env_key must be SET (any value)
+go run ./cmd/vivy
 ```
 
-Then Settings → Model → "Add custom provider": adapter OpenAI-compatible, `http://127.0.0.1:9911/v1`, any api_key, model `mock-model`; click the model to select it. A sent run goes `active` and stays there until the client's model timeout (~2-3 min) — enough to exercise child/workflow controls. Descendants hit the same mock and stay `running`.
+Provider/model RPCs then answer "locked to an environment-variable provider session" — expected. A sent run goes `active` on the hanging mock until the model timeout (~2-3 min) — enough to exercise child/workflow controls.
+
+Marker-routed mock pattern: hang only when the LAST user message contains a marker (e.g. `VIVY-HANG`); reply instantly otherwise — a single mock then holds the parent `active` while workflow children (no marker in their task text) complete, so an INOFY workflow reaches `engine_status:"succeeded"`. Handle `stream:true` with SSE chunks (`data: {chunk}\n\n` ... `data: [DONE]`); the openai-completions adapter streams.
 
 ## UI paths
 
-- Run Inspector: sidebar → Settings → "Vivy Features" tab → "Run Inspector" card (tabs: Current Run / Background / Children / Reviews). Children tab hosts "DAG workflows" `<details>` (descriptor textarea + Validate/Start) and the "Start child run" form (one-shot vs "Keep a continuable child session").
+- Run Inspector: sidebar → Settings → "Vivy Features" tab → "Run Inspector" card (tabs: Current Run / Background / Children / Reviews). Children tab hosts "Task workflows" `<details>` (INOFY Definition textarea + Validate/Start) and the "Start child run" form (one-shot vs "Keep a continuable child session").
 - Locale: Settings → Language tab → 简体中文 / English cards. Settings supports `?tab=language|vivy|...` deep links — use them when translated tab labels are hard to click by coordinates.
-- Workflow descriptor schema: `{schema_version:1, start_nodes:[...], nodes:[{key,task,tool_names?}], edges:[{from,to,input_key?}], outputs:[...]}` — the textarea is prefilled with a valid minimal example.
+- Workflow Definition schema (post-INOFY cutover): `{schema_version:"inofy.workflow/v1", limits:{}, graph:{nodes:[{id,kind:"call",type:"vivy.child-task@1",config:{task,inputs?}}], edges:[{from,to}], exits:[...], outputs:{name:{source,pointer}}}}` — the textarea is prefilled with a valid minimal example. Legacy `{descriptor:…}` params are rejected `-32602`.
+- Inspector details: "Inspect run" dropdown defaults to the most recent run — often a `workflow_child_*` node run, NOT the parent. `workflow/list` keys on the *parent* run id: select `run_<parent>` first or the workflow list is empty. Detail renders run id + status badge, "Immutable revision <digest16>", "Engine status", "Node status" rows (Open child run link when `child_run_id` set), "Declared outputs".
+- Driving `workflow/*` RPCs: `/rpc` is WebSocket-only — `GET /rpc/bootstrap` → `{token}` → `ws://127.0.0.1:8787/rpc?token=<t>` → `{"jsonrpc":"2.0","id":N,"method":"workflow/start","params":{parent_run_id, operation_id, definition}}` (`definition` is a raw JSON object). `turn/start` returns `{run_id,status}` — the deterministic way to get a parent run id.
 
 ## Notes
 

@@ -1,25 +1,5 @@
 import { request } from './api';
 
-export interface WorkflowNode {
-  key: string;
-  task: string;
-  tool_names?: string[];
-}
-
-export interface WorkflowEdge {
-  from: string;
-  to: string;
-  input_key?: string;
-}
-
-export interface WorkflowDescriptor {
-  schema_version: number;
-  start_nodes: string[];
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
-  outputs: string[];
-}
-
 // The authoritative topology and supported node catalog are validated by
 // the host's INOFY schema and admission path, not duplicated in TypeScript.
 export type WorkflowDefinition = { schema_version: 'inofy.workflow/v1'; graph: Record<string, unknown> };
@@ -43,8 +23,9 @@ export interface WorkflowResult {
   depth: number;
   created_at: number;
   created?: boolean;
-  descriptor: WorkflowDescriptor;
   definition?: WorkflowDefinition;
+  /** Committed graph projection state (succeeded/recovery_required/...). */
+  engine_status?: string;
   nodes: WorkflowNodeProjection[];
   outputs?: Record<string, string>;
 }

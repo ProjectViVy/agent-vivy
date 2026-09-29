@@ -54,18 +54,6 @@ func (s *Service) ProposeINOFYWorkflow(ctx context.Context, parentRunID domain.R
 	return WorkflowDefinitionProposal{Definition: admitted.CanonicalJSON, Digest: admitted.Meta.DefinitionDigest}, nil
 }
 
-// StartINOFYWorkflow fails explicitly until the two-driver atomic RunStore and
-// native child executor are installed. No partial Run can be admitted here.
-func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw json.RawMessage) (WorkflowStartResult, error) {
-	if strings.TrimSpace(operationKey) == "" || len(operationKey) > 128 {
-		return WorkflowStartResult{}, errors.New("runtime: workflow operation key is invalid")
-	}
-	if _, err := s.ProposeINOFYWorkflow(ctx, parentRunID, raw); err != nil {
-		return WorkflowStartResult{}, err
-	}
-	return WorkflowStartResult{}, ErrINOFYStorageUnavailable
-}
-
 // validateINOFYDefinition freezes the only executable graph vocabulary at
 // the runtime boundary. The caller supplies the already narrowed host tools;
 // a tool-facing JSON Schema never grants authority.
@@ -138,14 +126,7 @@ func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTo
 	if err != nil {
 		return inofyAdmission{}, err
 	}
-	limits := inofy.Limits{
-		MaxNodes: orchestration.MaxNodes, MaxEdges: orchestration.MaxEdges,
-		Parallelism: orchestration.MaxWidth, MaxActivations: orchestration.MaxNodes,
-		MaxAttemptsPerCall: 1, MaxDefinitionBytes: 64 << 10,
-		MaxNodeInputBytes:   orchestration.MaxOutputBytes,
-		MaxNodeOutputBytes:  orchestration.MaxOutputBytes,
-		MaxOutputBytesTotal: orchestration.MaxOutputBytes,
-	}
+	limits := inofyWorkflowLimits()
 	program, diags, err := inofy.Compile(ctx, def, catalog, inofy.CompileOptions{Limits: limits})
 	if err != nil {
 		return inofyAdmission{}, fmt.Errorf("runtime: compile INOFY workflow: %w", err)

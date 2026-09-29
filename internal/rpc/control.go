@@ -33,7 +33,6 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/modelhost"
-	"agent-vivy/internal/orchestration"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -398,18 +397,22 @@ type workflowStartParams struct {
 }
 
 type workflowResult struct {
-	ID             string                           `json:"id"`
-	ParentRunID    string                           `json:"parent_run_id"`
-	RootRunID      string                           `json:"root_run_id"`
-	SessionID      string                           `json:"session_id"`
-	Status         string                           `json:"status"`
-	RevisionDigest string                           `json:"revision_digest"`
-	Depth          int                              `json:"depth"`
-	CreatedAt      int64                            `json:"created_at"`
-	Created        bool                             `json:"created,omitempty"`
-	Descriptor     orchestration.Descriptor         `json:"descriptor"`
-	Nodes          []runtime.WorkflowNodeProjection `json:"nodes"`
-	Outputs        map[string]string                `json:"outputs,omitempty"`
+	ID             string `json:"id"`
+	ParentRunID    string `json:"parent_run_id"`
+	RootRunID      string `json:"root_run_id"`
+	SessionID      string `json:"session_id"`
+	Status         string `json:"status"`
+	RevisionDigest string `json:"revision_digest"`
+	Depth          int    `json:"depth"`
+	CreatedAt      int64  `json:"created_at"`
+	Created        bool   `json:"created,omitempty"`
+	// Definition is the committed canonical INOFY definition; engine_status
+	// reports the committed graph projection (admitted/running/waiting/
+	// succeeded/failed/cancelled/recovery_required).
+	Definition   json.RawMessage                  `json:"definition,omitempty"`
+	EngineStatus string                           `json:"engine_status,omitempty"`
+	Nodes        []runtime.WorkflowNodeProjection `json:"nodes"`
+	Outputs      map[string]string                `json:"outputs,omitempty"`
 }
 
 func NewControlHandler(deps ControlDeps) (Handler, error) {
@@ -1522,18 +1525,17 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 }
 
 func workflowRPCError(err error) *Error {
-	var validation *orchestration.ValidationError
 	switch {
 	case errors.Is(err, storage.ErrNotFound):
 		return &Error{Code: CodeNotFound, Message: "workflow not found"}
 	case errors.Is(err, storage.ErrWorkflowRevisionConflict), errors.Is(err, runtime.ErrWorkflowRecoveryRequired), errors.Is(err, runtime.ErrWorkflowNodeUnknownOutcome):
 		return &Error{Code: CodeConflict, Message: "workflow operation conflicts with its durable state"}
+	case errors.Is(err, runtime.ErrWorkflowLegacyFormat):
+		return &Error{Code: CodeConflict, Message: "workflow revision uses the retired descriptor format and is kept as history only"}
 	case errors.Is(err, runtime.ErrINOFYStorageUnavailable):
 		return &Error{Code: CodeConflict, Message: "INOFY workflow execution is not available until durable storage is configured"}
 	case errors.Is(err, runtime.ErrINOFYInvalidDefinition):
 		return &Error{Code: InvalidParams, Message: err.Error()}
-	case errors.As(err, &validation):
-		return &Error{Code: InvalidParams, Message: validation.Error()}
 	default:
 		return internalError(err)
 	}
@@ -1671,7 +1673,8 @@ func toWorkflowResult(details runtime.WorkflowDetails, created bool) workflowRes
 		ID: string(details.Run.ID), ParentRunID: string(details.Run.ParentID), RootRunID: string(details.Run.RootID),
 		SessionID: string(details.Run.SessionID), Status: string(details.Run.Status), RevisionDigest: details.RevisionDigest,
 		Depth: details.Run.Depth, CreatedAt: details.Run.CreatedAt, Created: created,
-		Descriptor: details.Descriptor, Nodes: details.Nodes, Outputs: details.Outputs,
+		Definition: details.Definition, EngineStatus: details.EngineStatus,
+		Nodes: details.Nodes, Outputs: details.Outputs,
 	}
 }
 

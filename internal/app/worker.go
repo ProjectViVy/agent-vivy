@@ -42,6 +42,12 @@ func (m *workerManager) RunWorkflow(ctx context.Context, parentRunID domain.RunI
 		if err != nil {
 			return tools.WorkflowTaskResult{}, err
 		}
+		// The graph engine can settle as recovery_required while the native
+		// run stays active; stop polling instead of hanging on a run that
+		// will never terminate itself.
+		if details.EngineStatus == "recovery_required" {
+			return tools.WorkflowTaskResult{}, runtime.ErrWorkflowRecoveryRequired
+		}
 		switch details.Run.Status {
 		case domain.RunCompleted:
 			return tools.WorkflowTaskResult{WorkflowRunID: string(details.Run.ID), Outputs: details.Outputs}, nil
