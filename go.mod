@@ -3,6 +3,7 @@ module agent-vivy
 go 1.26.4
 
 require (
+	github.com/ProjectViVy/inofy v0.0.0-20260929145515-6acfcc6b1a51
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
@@ -111,13 +112,10 @@ require (
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
-	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
 	agent-vivy/plugins/vivy-notebook v0.0.0
-	agent-vivy/plugins/vivy-persona v0.0.0
 	agent-vivy/plugins/vivy-persona v0.0.0
 	github.com/ProjectViVy/agent-vivy/bml v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect

@@ -8,7 +8,7 @@ import { ReviewCard } from '@/components/approvals/ReviewCard';
 import type { ChildHistoryMessage, ChildMailboxMessage } from '@/lib/api';
 import * as childApi from '@/lib/child-api';
 import * as workflowApi from '@/lib/workflow-api';
-import type { WorkflowDescriptor, WorkflowProposal, WorkflowResult } from '@/lib/workflow-api';
+import type { WorkflowDefinition, WorkflowProposal, WorkflowResult } from '@/lib/workflow-api';
 import { foldContinuityRows } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
@@ -50,11 +50,11 @@ export function RunInspector() {
   const [messageOperationID, setMessageOperationID] = useState('');
   const [messageAcknowledgement, setMessageAcknowledgement] = useState('');
   const [workflowText, setWorkflowText] = useState(() => JSON.stringify({
-    schema_version: 1,
-    start_nodes: ['draft'],
-    nodes: [{ key: 'draft', task: 'Draft a concise result.' }],
-    edges: [],
-    outputs: ['draft'],
+    schema_version: 'inofy.workflow/v1',
+    graph: {
+      nodes: [{ id: 'draft', kind: 'call', type: 'vivy.child-task@1', config: { task: 'Draft a concise result.' } }],
+      edges: [], exits: ['draft'], outputs: { draft: { source: 'draft', pointer: '/result' } },
+    },
   }, null, 2));
   const [workflowProposal, setWorkflowProposal] = useState<WorkflowProposal | null>(null);
   const [proposalSource, setProposalSource] = useState('');
@@ -206,8 +206,8 @@ export function RunInspector() {
                 if (!run) return;
                 setWorkflowBusy(true); setWorkflowError('');
                 try {
-                  const descriptor = JSON.parse(workflowText) as WorkflowDescriptor;
-                  const proposal = await workflowApi.proposeWorkflow({ parent_run_id: run.id, descriptor });
+                  const definition = JSON.parse(workflowText) as WorkflowDefinition;
+                  const proposal = await workflowApi.proposeWorkflow({ parent_run_id: run.id, definition });
                   setWorkflowProposal(proposal); setProposalSource(workflowText);
                 } catch (cause) {
                   setWorkflowError(cause instanceof SyntaxError ? t('runInspector.workflowInvalidJSON') : cause instanceof Error ? cause.message : String(cause));
@@ -219,8 +219,8 @@ export function RunInspector() {
                 const operationID = workflowOperationID || crypto.randomUUID();
                 setWorkflowOperationID(operationID);
                 try {
-                  const descriptor = JSON.parse(workflowText) as WorkflowDescriptor;
-                  const started = await workflowApi.startWorkflow({ parent_run_id: run.id, operation_id: operationID, descriptor });
+                  const definition = JSON.parse(workflowText) as WorkflowDefinition;
+                  const started = await workflowApi.startWorkflow({ parent_run_id: run.id, operation_id: operationID, definition });
                   setWorkflowState(started);
                   setWorkflowItems((items) => [ ...items.filter((item) => item.id !== started.id), started ]);
                 } catch (cause) {
@@ -231,7 +231,7 @@ export function RunInspector() {
             {workflowProposal ? <p className="break-all text-xs text-muted-foreground">{t('runInspector.workflowDigest', { digest: workflowProposal.digest.slice(0, 16) })}</p> : null}
             {workflowItems.length ? <div className="flex flex-wrap gap-2">
               {workflowItems.map((item) => <Button key={item.id} size="sm" variant={workflowState?.id === item.id ? 'secondary' : 'outline'} onClick={() => {
-                setWorkflowState(item); setWorkflowText(JSON.stringify(item.descriptor, null, 2)); setWorkflowProposal(null); setProposalSource('');
+                setWorkflowState(item); if (item.definition) setWorkflowText(JSON.stringify(item.definition, null, 2)); setWorkflowProposal(null); setProposalSource('');
               }}>{item.id.slice(0, 16)} · {item.status}</Button>)}
             </div> : <p className="text-xs text-muted-foreground">{t('runInspector.noWorkflows')}</p>}
             {workflowState ? <div className="space-y-2 rounded bg-muted/40 p-2 text-xs">

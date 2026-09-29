@@ -387,14 +387,14 @@ type ChildController interface {
 }
 
 type workflowProposeParams struct {
-	ParentRunID string                   `json:"parent_run_id"`
-	Descriptor  orchestration.Descriptor `json:"descriptor"`
+	ParentRunID string          `json:"parent_run_id"`
+	Definition  json.RawMessage `json:"definition"`
 }
 
 type workflowStartParams struct {
-	ParentRunID string                   `json:"parent_run_id"`
-	OperationID string                   `json:"operation_id"`
-	Descriptor  orchestration.Descriptor `json:"descriptor"`
+	ParentRunID string          `json:"parent_run_id"`
+	OperationID string          `json:"operation_id"`
+	Definition  json.RawMessage `json:"definition"`
 }
 
 type workflowResult struct {
@@ -1528,6 +1528,10 @@ func workflowRPCError(err error) *Error {
 		return &Error{Code: CodeNotFound, Message: "workflow not found"}
 	case errors.Is(err, storage.ErrWorkflowRevisionConflict), errors.Is(err, runtime.ErrWorkflowRecoveryRequired), errors.Is(err, runtime.ErrWorkflowNodeUnknownOutcome):
 		return &Error{Code: CodeConflict, Message: "workflow operation conflicts with its durable state"}
+	case errors.Is(err, runtime.ErrINOFYStorageUnavailable):
+		return &Error{Code: CodeConflict, Message: "INOFY workflow execution is not available until durable storage is configured"}
+	case errors.Is(err, runtime.ErrINOFYInvalidDefinition):
+		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.As(err, &validation):
 		return &Error{Code: InvalidParams, Message: validation.Error()}
 	default:
@@ -1537,37 +1541,36 @@ func workflowRPCError(err error) *Error {
 
 func (h *controlHandler) proposeWorkflow(ctx context.Context, request Request) (any, *Error) {
 	var params workflowProposeParams
-	if err := decodeParams(request, &params); err != nil {
+	if err := decodeWorkflowParams(request, &params); err != nil {
 		return nil, err
+	}
+	if len(params.Definition) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "definition is required"}
 	}
 	params.ParentRunID = strings.TrimSpace(params.ParentRunID)
 	if params.ParentRunID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "parent_run_id is required"}
 	}
-	validated, err := h.deps.Service.ProposeWorkflow(ctx, domain.RunID(params.ParentRunID), params.Descriptor)
+	validated, err := h.deps.Service.ProposeINOFYWorkflow(ctx, domain.RunID(params.ParentRunID), params.Definition)
 	if err != nil {
 		return nil, workflowRPCError(err)
 	}
-	return struct {
-		Descriptor  orchestration.Descriptor `json:"descriptor"`
-		Digest      string                   `json:"digest"`
-		Topological []string                 `json:"topological_order"`
-		Layers      [][]string               `json:"layers"`
-	}{validated.Descriptor, validated.Digest, validated.Topological, validated.Layers}, nil
+	return validated, nil
 }
 
 func (h *controlHandler) startWorkflow(ctx context.Context, request Request) (any, *Error) {
 	var params workflowStartParams
-	if err := decodeParams(request, &params); err != nil {
+	if err := decodeWorkflowParams(request, &params); err != nil {
 		return nil, err
+	}
+	if len(params.Definition) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "definition is required"}
 	}
 	params.ParentRunID, params.OperationID = strings.TrimSpace(params.ParentRunID), strings.TrimSpace(params.OperationID)
 	if params.ParentRunID == "" || params.OperationID == "" || len(params.OperationID) > 128 {
 		return nil, &Error{Code: InvalidParams, Message: "parent_run_id and operation_id up to 128 bytes are required"}
 	}
-	started, err := h.deps.Service.StartWorkflow(ctx, runtime.WorkflowRequest{
-		ParentRunID: domain.RunID(params.ParentRunID), OperationKey: params.OperationID, Descriptor: params.Descriptor,
-	})
+	started, err := h.deps.Service.StartINOFYWorkflow(ctx, domain.RunID(params.ParentRunID), params.OperationID, params.Definition)
 	if err != nil {
 		return nil, workflowRPCError(err)
 	}
@@ -1576,6 +1579,42 @@ func (h *controlHandler) startWorkflow(ctx context.Context, request Request) (an
 		return nil, workflowRPCError(err)
 	}
 	return toWorkflowResult(details, started.Created), nil
+}
+
+// New workflow requests reject obsolete descriptor payloads at the RPC edge;
+// the Definition itself is decoded strictly by INOFY at runtime admission.
+func decodeWorkflowParams(request Request, target any) *Error {
+	fields := json.NewDecoder(bytes.NewReader(request.Params))
+	opening, err := fields.Token()
+	if err != nil || opening != json.Delim('{') {
+		return &Error{Code: InvalidParams, Message: "workflow params must be an object"}
+	}
+	seen := make(map[string]bool)
+	for fields.More() {
+		token, err := fields.Token()
+		if err != nil {
+			return &Error{Code: InvalidParams, Message: "workflow params contain invalid fields"}
+		}
+		key, ok := token.(string)
+		if !ok || seen[key] {
+			return &Error{Code: InvalidParams, Message: "workflow params contain duplicate fields"}
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if err := fields.Decode(&value); err != nil {
+			return &Error{Code: InvalidParams, Message: "workflow params contain invalid fields"}
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(request.Params))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return &Error{Code: InvalidParams, Message: "workflow params must use the Definition contract"}
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return &Error{Code: InvalidParams, Message: "workflow params contain trailing data"}
+	}
+	return nil
 }
 
 func (h *controlHandler) getWorkflow(ctx context.Context, request Request) (any, *Error) {

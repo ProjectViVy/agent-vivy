@@ -12,17 +12,14 @@ describe('host workflow controls', () => {
   beforeEach(() => { call.mockReset(); call.mockResolvedValue({}); });
 
   it('keeps proposal and operation identity explicit at the RPC boundary', async () => {
-    const descriptor: workflowApi.WorkflowDescriptor = {
-      schema_version: 1,
-      start_nodes: ['draft'],
-      nodes: [{ key: 'draft', task: 'draft a result' }],
-      edges: [],
-      outputs: ['draft'],
+    const definition: workflowApi.WorkflowDefinition = {
+      schema_version: 'inofy.workflow/v1',
+      graph: { nodes: [{ id: 'draft', kind: 'call', type: 'vivy.child-task@1', config: { task: 'draft a result' } }], edges: [], exits: ['draft'] },
     };
-    await workflowApi.proposeWorkflow({ parent_run_id: 'r-parent', descriptor });
-    expect(call).toHaveBeenLastCalledWith('workflow/propose', { parent_run_id: 'r-parent', descriptor });
-    await workflowApi.startWorkflow({ parent_run_id: 'r-parent', operation_id: 'workflow-op-1', descriptor });
-    expect(call).toHaveBeenLastCalledWith('workflow/start', { parent_run_id: 'r-parent', operation_id: 'workflow-op-1', descriptor });
+    await workflowApi.proposeWorkflow({ parent_run_id: 'r-parent', definition });
+    expect(call).toHaveBeenLastCalledWith('workflow/propose', { parent_run_id: 'r-parent', definition });
+    await workflowApi.startWorkflow({ parent_run_id: 'r-parent', operation_id: 'workflow-op-1', definition });
+    expect(call).toHaveBeenLastCalledWith('workflow/start', { parent_run_id: 'r-parent', operation_id: 'workflow-op-1', definition });
     await workflowApi.getWorkflow('r-workflow');
     expect(call).toHaveBeenLastCalledWith('workflow/get', { run_id: 'r-workflow' });
     await workflowApi.listWorkflows('r-parent');

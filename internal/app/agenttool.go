@@ -2,14 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/orchestration"
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/tools"
 )
 
@@ -84,7 +85,11 @@ func (r *workflowToolRef) arm(manager *workerManager) {
 	r.mu.Unlock()
 }
 
-func (r *workflowToolRef) RunWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, descriptor orchestration.Descriptor) (tools.WorkflowTaskResult, error) {
+func (r *workflowToolRef) DefinitionSchema() json.RawMessage {
+	return runtime.WorkflowDefinitionSchema()
+}
+
+func (r *workflowToolRef) RunWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, definition json.RawMessage) (tools.WorkflowTaskResult, error) {
 	r.mu.Lock()
 	manager := r.manager
 	r.mu.Unlock()
@@ -97,5 +102,5 @@ func (r *workflowToolRef) RunWorkflow(ctx context.Context, parentRunID domain.Ru
 	if tools.ToolCallIDFromContext(ctx) == "" {
 		return tools.WorkflowTaskResult{}, errors.New("workflow tool requires a stable model call identity")
 	}
-	return manager.RunWorkflow(ctx, parentRunID, operationKey, descriptor)
+	return manager.RunWorkflow(ctx, parentRunID, operationKey, definition)
 }

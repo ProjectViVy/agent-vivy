@@ -448,10 +448,21 @@ func TestWorkflowRPCValidatesAdmissionAndMapsMissingRuns(t *testing.T) {
 	for _, method := range []string{"workflow/propose", "workflow/get", "workflow/cancel"} {
 		var params any = map[string]string{"run_id": "missing-workflow"}
 		if method == "workflow/propose" {
-			params = map[string]any{"parent_run_id": "missing-parent", "descriptor": map[string]any{}}
+			params = map[string]any{"parent_run_id": "missing-parent", "definition": map[string]any{}}
 		}
 		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != CodeNotFound {
 			t.Fatalf("%s missing resource error = %v, want not found", method, rpcErr)
+		}
+	}
+	for _, method := range []string{"workflow/propose", "workflow/start"} {
+		params := map[string]any{"parent_run_id": "missing-parent", "operation_id": "legacy", "descriptor": map[string]any{"schema_version": 1}}
+		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s legacy descriptor = %v, want invalid params", method, rpcErr)
+		}
+		_, rpcErr := env.handler.Handle(context.Background(), nil, Request{JSONRPC: "2.0", Method: method,
+			Params: json.RawMessage(`{"parent_run_id":"missing-parent","operation_id":"duplicate","definition":{},"definition":{"schema_version":1}}`)})
+		if rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s duplicate definition = %v, want invalid params", method, rpcErr)
 		}
 	}
 }
