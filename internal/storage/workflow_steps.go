@@ -141,7 +141,7 @@ func ValidateWorkflowStepCommit(c WorkflowStepCommit) error {
 	if !workflowStepDigestPattern.MatchString(c.Digest) {
 		return fmt.Errorf("storage: workflow step commit digest must be 64 hex chars")
 	}
-	if !workflowStepDigestPattern.MatchString(c.ProgramDigest) {
+	if !validINOFYDigest(c.ProgramDigest) {
 		return ErrWorkflowStepIdentity
 	}
 	if c.Epoch == 0 {

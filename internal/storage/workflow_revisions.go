@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/domain"
 )
@@ -58,8 +59,8 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	// later recovery can rebind to the same immutable program; discriminator-1
 	// rows must not carry it.
 	if r.SchemaVersion == 2 {
-		if !validSHA256Hex(r.ProgramDigest) || !validSHA256Hex(r.CatalogDigest) ||
-			!validSHA256Hex(r.InputDigest) || r.CompilerVersion == "" ||
+		if !validINOFYDigest(r.ProgramDigest) || !validINOFYDigest(r.CatalogDigest) ||
+			!validINOFYDigest(r.InputDigest) || r.CompilerVersion == "" ||
 			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" {
 			return errors.New("storage: inofy workflow revision identity is incomplete")
 		}
@@ -85,6 +86,16 @@ func validSHA256Hex(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && hex.EncodeToString(decoded) == value
+}
+
+// validINOFYDigest accepts the named digest envelope INOFY emits
+// ("inofy-normal-v1:sha256:<64 hex>") as well as bare SHA-256 hex.
+func validINOFYDigest(value string) bool {
+	if validSHA256Hex(value) {
+		return true
+	}
+	const prefix = "inofy-normal-v1:sha256:"
+	return strings.HasPrefix(value, prefix) && validSHA256Hex(strings.TrimPrefix(value, prefix))
 }
 
 func WorkflowAdmissionConflict() error { return fmt.Errorf("%w", ErrWorkflowRevisionConflict) }
