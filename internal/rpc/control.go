@@ -3927,18 +3927,32 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 				}
 				continue
 			}
-			// Bus closes before sending terminal events. Replay the tail
-			// so the JSON-RPC client still receives the terminal record.
+			// The bus closes the channel on a terminal publish or when this
+			// subscriber falls behind and is dropped (AS-7). Re-subscribe
+			// first so later live events keep flowing, then replay the
+			// journal tail — the single source of truth — so nothing
+			// committed between the drop and the resubscribe is skipped.
+			// A non-terminal run keeps the stream open; a terminal tail
+			// still ends it after the record is delivered.
+			cancel()
+			ch, cancel = h.deps.Bus.Subscribe(runID)
+			defer cancel()
 			tail, replayErr := h.replayEvents(ctx, runID, last)
 			if replayErr != nil {
 				return
 			}
+			terminal := false
 			for _, entry := range tail {
 				if !send(domain.RunEvent{RunID: entry.RunID, Seq: entry.Seq, Type: entry.Type, CreatedAt: entry.CreatedAt, PayloadVersion: entry.PayloadVersion, Payload: entry.Payload}) {
 					return
 				}
+				if entry.Type.Terminal() {
+					terminal = true
+				}
 			}
-			return
+			if terminal {
+				return
+			}
 		}
 	}
 }

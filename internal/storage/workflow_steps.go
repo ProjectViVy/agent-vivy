@@ -95,6 +95,10 @@ type WorkflowStepReceipt struct {
 	FirstSequence domain.EventSeq
 	LastSequence  domain.EventSeq
 	Revision      uint64
+	// Replayed reports an idempotent re-commit of an already-stored
+	// commit-id: the returned sequences are the original rows', nothing was
+	// written again.
+	Replayed bool
 }
 
 // WorkflowStepProjection is the mutable execution projection row.

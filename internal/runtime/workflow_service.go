@@ -443,9 +443,11 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 		// even when the run context is cancelled mid-flight. The host never
 		// fabricates a native terminal here; an engine that exits without a
 		// durable decision is re-classified by restart recovery.
+		runs := newINOFYRunStore(engine)
+		runs.publish = s.publish
 		_, _ = program.Run(runCtx, inofy.RunRequest{
 			Ref: ref, Input: input, Limits: inofyWorkflowLimits(),
-		}, inofy.Bindings{Nodes: newINOFYNodeExecutor(s), Runs: newINOFYRunStore(engine)})
+		}, inofy.Bindings{Nodes: newINOFYNodeExecutor(s), Runs: runs})
 		s.mu.Lock()
 		delete(s.active, result.Run.ID)
 		s.mu.Unlock()

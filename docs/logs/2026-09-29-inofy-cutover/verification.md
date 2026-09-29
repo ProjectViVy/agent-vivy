@@ -117,3 +117,75 @@ vendored-tree exclusion, `host-icons`/`HOST_ICON_NAMES` gained `workflow`,
 wired the module, `source.sha256` converged at `6abd8344…`,
 `inofyRunEvents` items emit journal `type` (not `kind`), gofmt repaired
 `internal/storage/workflow_definitions.go`.
+
+# Verification — S11-G smoke defect fixes
+
+Three defect layers surfaced by the browser smoke, each fixed and
+re-verified in the real product UI with zero live patches.
+
+**Upstream (INOFY `docs/s11-vivy-cutover-plan`, pinned by go.mod):**
+
+- `98526b8` + `586f4b5`: the shared editor now authors named exit
+  outputs — checking a node as exit binds `outputs[id] =
+  {source:id, pointer:""}` and the properties panel exposes a rename
+  field. Vendored byte-verbatim; `edit.test.ts` (5 tests) runs from the
+  staged copy.
+- `4def2ae`: `Binding` tracks pointer-key presence (`HasPointer`) so an
+  authored root pointer `""` survives the typed decode → marshal →
+  re-validate cycle `SaveDraft` performs — previously `omitempty`
+  dropped the key and the canonical re-marshal failed `missing_binding`.
+  `go test ./...` green upstream, incl. new `binding_test.go`.
+
+**Host-side fixes:**
+
+- `internal/runtime/inofy_store.go`: `inofyRunStore.Commit` now fans each
+  committed event out on `s.publish` after the journal accepts the step
+  (journal stays authority; laggards re-sync from it). Wired in
+  `launchINOFYWorkflow`.
+- `WorkflowStepReceipt` gains `Replayed bool` on both drivers plus a
+  conformance assertion, so an idempotent re-commit never re-publishes.
+- `internal/rpc/control.go`: `streamRun` re-subscribes before replaying
+  the journal tail after a bus drop — a laggard can no longer miss
+  events committed between drop and resubscribe.
+- `WorkflowPage`: StrictMode/unmount cleanup removes only the nodes its
+  own effect appended (a replayed mount was being wiped).
+- `TestWorkflowProductRootPointerOutput` (save → re-save → publish of a
+  `pointer:""` draft) and `TestINOFYStoreCommitPublishesCommittedEvents`
+  and `TestRunSubscriptionResubscribesAfterBusDrop` guard all three.
+
+Focused suite + full gate:
+
+```
+go test ./internal/runtime ./internal/rpc ./internal/storage/... -count=1 — green (sqlite + postgres)
+PATH=/usr/local/go/bin:$PATH VIVY_POSTGRES_TEST_DSN=… just ci
+fmt-check ui-ci vet test headless-compile plugin-ci — all green
+ui: 518 vitest tests pass; module source.sha256 ef631023…;
+internal source digest re-pinned to 0bdcb5af…
+```
+
+Browser smoke rounds (real split pair, frozen-env mock provider,
+fresh `VIVY_USER_HOME`):
+
+- rec-2 (`…/rec-2c44f612-…-edited.mp4`): mount-wipe defect found+fixed;
+  ledger stall root-caused to the missing bus publish.
+- rec-3 (`/home/ubuntu/screencasts/rec-7e73555b-…/…-edited.mp4`): mount
+  fix verified (`shadowRoot.children===2`); open detail streamed live
+  through seq 10 incl. `node_failed` + `recovery_required` on cancel;
+  save still dead-ended at `missing_binding` (defect 4).
+- rec-4 (`/home/ubuntu/screencasts/rec-e444d004-…/…-edited.mp4`): the
+  UI-authored graph (2 `vivy.child-task@1` nodes, edge, exit checked,
+  output renamed `answer`) **saves** (`草稿已保存`), **validates**
+  (`校验通过`), **publishes** (`修订 r1`), and the published revision ran
+  `workflow_27152173e4ee3c0e` to `engine_status:"succeeded"` with
+  `outputs.answer` resolving node2's whole result packet via the empty
+  root pointer. Cancel on hanging r2 streamed `node_failed` +
+  `recovery_required` live to seq 10. Screenshots
+  `ss_7e0bacce.png` (published r1 + output field), `ss_edca5794.png`
+  (ledger to `run.succeeded`), `ss_4811561d.png` (cancel tail live).
+  Logs `/home/ubuntu/s11e-smoke/backend-g4.log`, `vite2.log`.
+
+Known product gap (pre-existing, unchanged by S11-G): the editor's
+运行 button binds `state.currentRun` as `parent_run_id`, which is often
+stale → `-32603`; runs started via `inofy.startRun` with an active
+parent work correctly. Needs a product decision (bind the session's
+active run or resolve it backend-side).

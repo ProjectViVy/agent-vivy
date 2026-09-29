@@ -86,9 +86,10 @@ The product editor ships as the selected `vivy/workflow-ui` Module
 into the module page — no standalone Studio shell.
 
 `src/studio/` vendors the INOFY shared editor tree at the same pinned
-revision as `go.mod` (`6acfcc6b1a51`), byte-verbatim except the
+revision as `go.mod` (`4def2ae6185f`), byte-verbatim except the
 `statusFor` transport-error adaptation (`vivy-transport.ts`) documented in
-`VENDORED.md`; the graph unit suite runs unmodified from the staged copy.
+`VENDORED.md`; the graph and edit unit suites run unmodified from the
+staged copy.
 `WorkflowPage` mounts the editor inside a Shadow DOM with textually
 rescoped vendored CSS (`:root`→`:host`, `body`→`.studio-shell`) plus
 xyflow styles, so host and editor styles never leak either way.
@@ -109,3 +110,17 @@ committed host facts. Module chrome carries en/zh catalog keys; the
 vendored editor keeps its own upstream zh table, so the i18n gate
 skips directories marked `VENDORED.md` rather than pretending vendored
 copy is Module-authored.
+
+The browser smoke drove three defect fixes before the golden path
+closed: `inofyRunStore.Commit` now publishes each committed journal
+event to the live bus (with `WorkflowStepReceipt.Replayed` suppressing
+double fan-out on both drivers, and `run/subscribe` re-subscribing
+before its tail replay so a dropped laggard misses nothing);
+`WorkflowPage`'s StrictMode cleanup removes only its own appended
+nodes; and upstream `4def2ae` keeps `Binding` pointer presence so an
+authored root pointer `""` — which the editor writes for whole-result
+exit outputs — round-trips the strict re-validation in `SaveDraft`.
+rec-4 verifies the full product flow in the real UI: UI-authored draft
+saves, validates, publishes r1, runs to `engine_status:"succeeded"`
+with the declared output bound, and cancel streams its honest
+`recovery_required` tail into the open ledger.

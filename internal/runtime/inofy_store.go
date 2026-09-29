@@ -23,6 +23,10 @@ import (
 type inofyRunStore struct {
 	engine storage.Engine
 	steps  storage.WorkflowStepStore
+	// publish fans each committed event out to live subscribers after the
+	// journal accepts the step; the journal stays the authority and the
+	// bus-only events are re-fetched from it after any drop.
+	publish func(ctx context.Context, ev domain.RunEvent)
 }
 
 func newINOFYRunStore(engine storage.Engine) *inofyRunStore {
@@ -106,6 +110,20 @@ func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, chan
 	})
 	if err != nil {
 		return inofy.Receipt{}, mapINOFYStoreError(err)
+	}
+	if s.publish != nil && !receipt.Replayed {
+		seq := receipt.FirstSequence
+		for _, e := range events {
+			s.publish(ctx, domain.RunEvent{
+				RunID:          runID,
+				Seq:            seq,
+				Type:           e.Type,
+				CreatedAt:      e.CreatedAt,
+				PayloadVersion: e.PayloadVersion,
+				Payload:        e.Payload,
+			})
+			seq++
+		}
 	}
 	return inofy.Receipt{
 		FirstSequence:      uint64(receipt.FirstSequence),

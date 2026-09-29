@@ -3,8 +3,8 @@ module agent-vivy
 go 1.26.4
 
 require (
-	github.com/ProjectViVy/inofy v0.0.0-20260929145515-6acfcc6b1a51
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
+	github.com/ProjectViVy/inofy v0.0.0-20260929225707-4def2ae6185f
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10

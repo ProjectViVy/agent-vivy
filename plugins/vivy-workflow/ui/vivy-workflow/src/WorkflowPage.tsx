@@ -27,6 +27,7 @@ export function WorkflowPage() {
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount || !host) return;
+    if (!host.rpc || !host.store) return;
     const shadow = mount.shadowRoot ?? mount.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = scopedCss;
@@ -36,13 +37,18 @@ export function WorkflowPage() {
     inner.style.width = '100%';
     shadow.append(style, inner);
 
-    if (!host.rpc || !host.store) return;
     const transport = new FaceVivyTransport(new FaceBridge(host.rpc, host.store));
     const root = createRoot(inner);
     root.render(<App transport={transport} />);
     return () => {
-      root.unmount();
-      shadow.replaceChildren();
+      // Synchronous unmount races React's own render of this tree; defer it.
+      // Only this effect's nodes may be removed — a replayed mount appends a
+      // second pair into the same shadow root.
+      setTimeout(() => {
+        root.unmount();
+        style.remove();
+        inner.remove();
+      }, 0);
     };
   }, [host]);
 

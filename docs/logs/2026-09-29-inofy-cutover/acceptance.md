@@ -46,3 +46,28 @@ Skipped: none. PostgreSQL suite ran against a live `VIVY_POSTGRES_TEST_DSN`.
   credential store.
 
 Deferred: the browser product path and editor mount wait for S11-G.
+
+# Acceptance — S11-G (gates G7 + G10 product flow)
+
+- **Editor in a selected Module**: `vivy/workflow-ui` (`std/ui-extension@v1`)
+  is picked by the default Recipe; `/workflows` mounts the vendored INOFY
+  editor inside a Shadow DOM. No standalone Studio shell.
+- **Single host authorization path**: every `inofy.*` call carries the
+  session binding through `FaceBridge` (fail-closed); capabilities,
+  node/Run status, protected output, and cancel all derive from committed
+  host facts — verified live (rec-4): UI-authored draft → save → validate
+  → publish r1 → run to `engine_status:"succeeded"` with the declared
+  `outputs.answer` bound from the committed result blob via a root
+  pointer, plus live ledger streaming through a cancel
+  (`node_failed` + `recovery_required`).
+- **Native event authority**: `inofy.events` reuses `run/subscribe`;
+  workflow step commits fan out to the bus only after the journal accepts
+  them (`Replayed` receipts suppress double-publish on both drivers), and
+  a dropped subscriber re-subscribes before its tail replay.
+- **Upstream fixes landed INOFY-first** and pinned (`4def2ae`): named
+  exit-output authoring and `Binding` pointer-presence, so editor-produced
+  artifacts round-trip strict re-validation.
+- **Known gap (pre-existing, not a regression)**: the editor's 运行 button
+  binds `state.currentRun` rather than the session's active run, so it
+  fails `-32603` whenever the last-viewed run is stale; `inofy.startRun`
+  with an active parent works. Product decision pending.

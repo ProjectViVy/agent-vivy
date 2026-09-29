@@ -208,6 +208,13 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		if err != nil {
 			t.Fatalf("replay: %v", err)
 		}
+		if r1.Replayed {
+			t.Fatalf("fresh commit reported as replay: %+v", r1)
+		}
+		if !r2.Replayed {
+			t.Fatalf("idempotent re-commit not reported as replay: %+v", r2)
+		}
+		r2.Replayed = false
 		if r1 != r2 {
 			t.Fatalf("receipts differ: %+v vs %+v", r1, r2)
 		}

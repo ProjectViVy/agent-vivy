@@ -1,14 +1,14 @@
 # Vendored INOFY Studio editor
 
 Contents of this directory are vendored from the pinned INOFY engine
-repository, `github.com/ProjectViVy/inofy` at commit `6acfcc6b1a51`
+repository, `github.com/ProjectViVy/inofy` at commit `4def2ae6185f`
 (the same commit `go.mod` pins for the Go engine).
 
 Copied verbatim, byte-identical:
 
 - `schema.ts`, `transport.ts`, `graph.ts`, `graph.test.ts`, `edit.ts`,
-  `labels.ts`, `i18n.ts`, `seed.ts`, `router.ts`, `styles.css`,
-  `Editor.tsx`, `App.tsx`
+  `edit.test.ts`, `labels.ts`, `i18n.ts`, `seed.ts`, `router.ts`,
+  `styles.css`, `Editor.tsx`, `App.tsx`
 - `components/{Ui,InofyNode,NodeProperties,Panes,ConnsPane,Shell,Login}.tsx`
 - `pages/{WorkflowsPage,EditorPage,RunsPage,SettingsPage}.tsx`
 

@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/workflow-ui, version: 0.1.0}
-source: {ref: repo:plugins/vivy-workflow, sha256: 6abd83448b02613489c361068ee812eb578d4a65d42f6999ea55259f826a5939}
+source: {ref: repo:plugins/vivy-workflow, sha256: ef631023105361d51aa51277251e2b907c3a491188a0e321e6cc884e4c197107}
 provides:
   - {port: std/ui-extension@v1, id: vivy.workflow-ui.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

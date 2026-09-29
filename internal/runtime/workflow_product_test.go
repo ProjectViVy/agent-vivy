@@ -117,6 +117,33 @@ func TestWorkflowProductDraftLifecycle(t *testing.T) {
 	}
 }
 
+// TestWorkflowProductRootPointerOutput proves an authored root JSON Pointer
+// ("pointer":"") survives the typed decode -> marshal -> re-validate cycle
+// every save performs: the studio editor writes this form for whole-result
+// exit outputs.
+func TestWorkflowProductRootPointerOutput(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	author := domain.SessionID("sess-prod-rootptr")
+	prepareProductSession(t, svc, backend, author)
+
+	def := `{"schema_version":"inofy.workflow/v1","graph":{"nodes":[
+	{"id":"a","kind":"call","type":"vivy.child-task@1","config":{"task":"root pointer","tool_names":["echo_info"]}}
+],"edges":[],"exits":["a"],"outputs":{"answer":{"source":"a","pointer":""}}}}`
+	draft, err := svc.INOFYSaveDraft(ctx, author, "wf-rootptr", definitions.ETagAbsent, inofyProductArtifact(def))
+	if err != nil {
+		t.Fatalf("save root-pointer draft: %v", err)
+	}
+	resaved, err := svc.INOFYSaveDraft(ctx, author, "wf-rootptr", draft.ETag, inofyProductArtifact(def))
+	if err != nil {
+		t.Fatalf("re-save round-tripped root pointer: %v", err)
+	}
+	rev, err := svc.INOFYPublishDraft(ctx, author, "wf-rootptr", resaved.ETag)
+	if err != nil || rev.Revision != 1 {
+		t.Fatalf("publish root-pointer draft: %v rev=%+v", err, rev)
+	}
+}
+
 // TestWorkflowProductPublishRejectsUnknownNode proves publish runs the same
 // catalog admission the run path uses: an unknown node type can never become
 // an immutable revision.

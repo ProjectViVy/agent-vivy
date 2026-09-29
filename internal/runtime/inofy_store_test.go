@@ -158,6 +158,63 @@ func TestINOFYStoreCommitLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// Committed step events must reach live bus subscribers: run/subscribe
+// replays the journal once, then waits on the bus — nothing after the
+// replay cursor ever arrives unless Commit publishes what it wrote (the
+// journal stays the authority; the bus only drops, never invents).
+func TestINOFYStoreCommitPublishesCommittedEvents(t *testing.T) {
+	_, store, wf := inofyStepHarness(t, "pub")
+	raw, ok := store.(*inofyRunStore)
+	if !ok {
+		t.Fatal("adapter is not *inofyRunStore")
+	}
+	var published []domain.RunEvent
+	raw.publish = func(_ context.Context, ev domain.RunEvent) {
+		published = append(published, ev)
+	}
+	ctx := context.Background()
+	ref := inofy.ExecutionRef{
+		RunID:         string(wf),
+		Epoch:         1,
+		ProgramDigest: conformance.StepDigest("program-pub"),
+		HostBindingID: conformance.StepDigest("binding-pub"),
+	}
+	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
+		CommitID: "p1",
+		Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: json.RawMessage(
+			`{"input_digest":"` + conformance.StepDigest("input-pub") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
+		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+	}); err != nil {
+		t.Fatalf("commit admitted: %v", err)
+	}
+	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
+		CommitID: "p2",
+		Events: []inofy.Event{
+			{Kind: inofy.EventRunStarted},
+			{Kind: inofy.EventNodeStarted, Path: "n1"},
+		},
+		Transition: inofy.StateTransition{Expected: inofy.RunAdmitted, Target: inofy.RunRunning},
+	}); err != nil {
+		t.Fatalf("commit running: %v", err)
+	}
+	want := []struct {
+		seq domain.EventSeq
+		typ domain.EventType
+	}{
+		{2, domain.EventWorkflowAdmitted},
+		{3, domain.EventWorkflowStarted},
+		{4, domain.EventWorkflowNodeStarted},
+	}
+	if len(published) != len(want) {
+		t.Fatalf("published %d events, want %d: %+v", len(published), len(want), published)
+	}
+	for i, ev := range published {
+		if ev.RunID != wf || ev.Seq != want[i].seq || ev.Type != want[i].typ {
+			t.Fatalf("published[%d] = %+v, want seq=%d type=%s", i, ev, want[i].seq, want[i].typ)
+		}
+	}
+}
+
 func TestINOFYStoreErrorMapping(t *testing.T) {
 	_, store, wf := inofyStepHarness(t, "errmap")
 	ctx := context.Background()

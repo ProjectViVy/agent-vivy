@@ -57,6 +57,7 @@ func (b *Backend) CommitWorkflowStep(ctx context.Context, c storage.WorkflowStep
 			FirstSequence: domain.EventSeq(firstSeq),
 			LastSequence:  domain.EventSeq(lastSeq),
 			Revision:      uint64(rev),
+			Replayed:      true,
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
