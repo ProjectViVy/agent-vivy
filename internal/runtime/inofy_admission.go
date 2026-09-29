@@ -116,13 +116,7 @@ func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTo
 			}
 		}
 	}
-	catalog, err := inofy.NewCatalog([]inofy.NodeDescriptor{{
-		TypeID: workflowChildType, ImplementationID: workflowChildType,
-		ConfigSchema: json.RawMessage(childConfigSchema),
-		InputSchema:  json.RawMessage(`{"type":"object"}`),
-		OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["result"],"properties":{"result":{"type":"string","maxLength":8192}}}`),
-		Replay:       inofy.ReplayNonReplayable,
-	}})
+	catalog, err := trustedINOFYCatalog()
 	if err != nil {
 		return inofyAdmission{}, err
 	}
@@ -139,6 +133,20 @@ func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTo
 		return inofyAdmission{}, fmt.Errorf("runtime: normalize INOFY workflow: %w", err)
 	}
 	return inofyAdmission{Definition: def, CanonicalJSON: canonical, Meta: program.Meta(), Program: program}, nil
+}
+
+// trustedINOFYCatalog is the single host node catalog: VIVY admits only the
+// governed child-task node type. Draft validation, publishing and admission
+// all compile against this one catalog so a published revision can never
+// reference a node type admission would reject.
+func trustedINOFYCatalog() (inofy.Catalog, error) {
+	return inofy.NewCatalog([]inofy.NodeDescriptor{{
+		TypeID: workflowChildType, ImplementationID: workflowChildType,
+		ConfigSchema: json.RawMessage(childConfigSchema),
+		InputSchema:  json.RawMessage(`{"type":"object"}`),
+		OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["result"],"properties":{"result":{"type":"string","maxLength":8192}}}`),
+		Replay:       inofy.ReplayNonReplayable,
+	}})
 }
 
 // WorkflowDefinitionSchema narrows INOFY's schema to the trusted host catalog

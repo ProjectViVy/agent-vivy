@@ -81,6 +81,7 @@ func WorkflowStepFixture(t *testing.T, slot Slot, tag string) (domain.RunID, sto
 		CompilerVersion:  "inofy@6acfcc6",
 		EinoBuild:        "v0.9.13",
 		InputDigest:      StepDigest("input-" + tag),
+		InputJSON:        []byte(`{}`),
 		EffectiveLimits:  []byte(`{"max_nodes":12,"max_attempts":1}`),
 		HostBindingID:    StepDigest("binding-" + tag),
 	}

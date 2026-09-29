@@ -61,11 +61,20 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	if r.SchemaVersion == 2 {
 		if !validINOFYDigest(r.ProgramDigest) || !validINOFYDigest(r.CatalogDigest) ||
 			!validINOFYDigest(r.InputDigest) || r.CompilerVersion == "" ||
-			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" {
+			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" ||
+			len(r.InputJSON) == 0 || !json.Valid(r.InputJSON) {
 			return errors.New("storage: inofy workflow revision identity is incomplete")
 		}
+		if len(r.DefinitionID) > 256 {
+			return errors.New("storage: workflow definition id is oversized")
+		}
+		if r.DefinitionID == "" && r.DefinitionRevision != 0 {
+			return errors.New("storage: workflow definition revision requires a definition id")
+		}
 	} else if r.ProgramDigest != "" || r.CatalogDigest != "" || r.CompilerVersion != "" ||
-		r.EinoBuild != "" || r.InputDigest != "" || len(r.EffectiveLimits) != 0 || r.HostBindingID != "" {
+		r.EinoBuild != "" || r.InputDigest != "" || len(r.InputJSON) != 0 ||
+		len(r.EffectiveLimits) != 0 || r.HostBindingID != "" ||
+		r.DefinitionID != "" || r.DefinitionRevision != 0 {
 		return errors.New("storage: legacy workflow revision must not carry inofy identity")
 	}
 	if in.Run.ID != r.RunID || in.Run.SessionID != r.ParentSessionID || in.Run.Kind != domain.RunKindWorkflow ||

@@ -79,13 +79,6 @@ func inofyHostBinding(authorityDigest, programDigest string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// inofyRunInputDigest is the named digest of the fixed run input `{}` the host
-// route commits for every workflow run.
-func inofyRunInputDigest() string {
-	sum := sha256.Sum256([]byte(`{}`))
-	return "inofy-normal-v1:sha256:" + hex.EncodeToString(sum[:])
-}
-
 // inofyEngine resolves the durable step/commit surface the INOFY RunStore
 // adapter drives.
 func (s *Service) inofyEngine() (storage.Engine, error) {
@@ -108,12 +101,50 @@ func (s *Service) validateWorkflowDepth(parent domain.Run) error {
 	return nil
 }
 
+// WorkflowDefinitionSource binds an admitted Run to its reusable published
+// definition (or to a draft snapshot when Revision is 0).
+type WorkflowDefinitionSource struct {
+	DefinitionID       string
+	DefinitionRevision uint64
+}
+
+// inofyMaxRunInputBytes bounds the admitted run input payload.
+const inofyMaxRunInputBytes = 64 << 10
+
+// normalizeINOFYInput canonicalizes the run input: empty becomes {}, the value
+// must be a JSON object, and the digest covers its canonical (key-sorted) form.
+func normalizeINOFYInput(raw json.RawMessage) (json.RawMessage, string, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, "", fmt.Errorf("runtime: workflow input must be valid JSON: %w", err)
+	}
+	if _, ok := v.(map[string]any); !ok {
+		return nil, "", errors.New("runtime: workflow input must be a JSON object")
+	}
+	canonical, err := json.Marshal(v)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(canonical) > inofyMaxRunInputBytes {
+		return nil, "", errors.New("runtime: workflow input exceeds the admitted byte bound")
+	}
+	sum := sha256.Sum256(canonical)
+	return canonical, "inofy-normal-v1:sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
 // StartINOFYWorkflow atomically admits an immutable schema-2 revision and its
 // workflow Run, then executes the compiled program through the embedded INOFY
 // engine with the S11-D governed child executor. A repeated operation key
 // returns the same Run; an active Run from another process is fenced for
 // explicit recovery instead of replay.
 func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw json.RawMessage) (WorkflowStartResult, error) {
+	return s.startINOFYWorkflow(ctx, parentRunID, operationKey, raw, nil, nil)
+}
+
+func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw, input json.RawMessage, source *WorkflowDefinitionSource) (WorkflowStartResult, error) {
 	if s == nil || s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil ||
 		s.deps.Sessions == nil || s.deps.Sink == nil || s.deps.Workspaces == nil ||
 		s.deps.WorkflowRevisions == nil {
@@ -152,6 +183,17 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, fmt.Errorf("%w: %w", ErrINOFYInvalidDefinition, err)
 	}
+	canonicalInput, inputDigest, err := normalizeINOFYInput(input)
+	if err != nil {
+		s.projectionMu.Unlock()
+		return WorkflowStartResult{}, err
+	}
+	var definitionID string
+	var definitionRevision uint64
+	if source != nil {
+		definitionID = source.DefinitionID
+		definitionRevision = source.DefinitionRevision
+	}
 	session, err := s.deps.Sessions.GetSession(ctx, parent.SessionID)
 	if err != nil {
 		s.projectionMu.Unlock()
@@ -175,6 +217,8 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		if existing.SchemaVersion != 2 || existing.DescriptorDigest != descriptorDigest ||
 			existing.AuthorityDigest != authorityDigest || existing.ParentSessionID != parent.SessionID ||
 			existing.ProgramDigest != admitted.Meta.ProgramDigest || existing.HostBindingID != hostBinding ||
+			existing.InputDigest != inputDigest || existing.DefinitionID != definitionID ||
+			existing.DefinitionRevision != definitionRevision ||
 			!bytes.Equal(existing.DescriptorJSON, admitted.CanonicalJSON) {
 			s.projectionMu.Unlock()
 			return WorkflowStartResult{}, storage.ErrWorkflowRevisionConflict
@@ -213,7 +257,7 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 			activationCancel()
 			return WorkflowStartResult{}, startErr
 		}
-		launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, inofy.ExecutionRef{
+		launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 			RunID: string(existing.RunID), Epoch: epoch,
 			ProgramDigest: existing.ProgramDigest, HostBindingID: existing.HostBindingID,
 		})
@@ -260,8 +304,9 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		SchemaVersion: 2, CreatedAt: now,
 		ProgramDigest: admitted.Meta.ProgramDigest, CatalogDigest: admitted.Meta.CatalogDigest,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inofyRunInputDigest(), EffectiveLimits: limitsJSON,
-		HostBindingID: hostBinding,
+		InputDigest: inputDigest, InputJSON: append([]byte(nil), canonicalInput...),
+		EffectiveLimits: limitsJSON, HostBindingID: hostBinding,
+		DefinitionID: definitionID, DefinitionRevision: definitionRevision,
 	}
 	committed, err := s.deps.WorkflowRevisions.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
 		Revision: revision, Run: run, Started: started,
@@ -274,7 +319,9 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		return WorkflowStartResult{}, err
 	}
 	if committed.Revision.DescriptorDigest != descriptorDigest || committed.Revision.AuthorityDigest != authorityDigest ||
-		committed.Revision.SchemaVersion != 2 || committed.Revision.ProgramDigest != admitted.Meta.ProgramDigest {
+		committed.Revision.SchemaVersion != 2 || committed.Revision.ProgramDigest != admitted.Meta.ProgramDigest ||
+		committed.Revision.InputDigest != inputDigest || committed.Revision.DefinitionID != definitionID ||
+		committed.Revision.DefinitionRevision != definitionRevision {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, storage.ErrWorkflowRevisionConflict
 	}
@@ -302,7 +349,7 @@ func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	if committed.Created {
 		s.publish(activationCtx, committed.Started)
 	}
-	launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, inofy.ExecutionRef{
+	launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 		RunID: string(committed.Run.ID), Epoch: 1,
 		ProgramDigest: committed.Revision.ProgramDigest, HostBindingID: committed.Revision.HostBindingID,
 	})
@@ -370,7 +417,7 @@ func (s *Service) activateWorkflowLocked(ctx context.Context, parent domain.Run,
 // launchINOFYWorkflow executes the admitted program in the background. The
 // INOFY terminal commit is the only graph-native terminal owner: a Go-level
 // error leaves the run non-terminal so restart recovery can classify it.
-func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartResult, program *inofy.Program, ref inofy.ExecutionRef) error {
+func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartResult, program *inofy.Program, input json.RawMessage, ref inofy.ExecutionRef) error {
 	if result.Run.ID == "" || program == nil {
 		return errors.New("runtime: admitted workflow Run is empty")
 	}
@@ -397,7 +444,7 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 		// fabricates a native terminal here; an engine that exits without a
 		// durable decision is re-classified by restart recovery.
 		_, _ = program.Run(runCtx, inofy.RunRequest{
-			Ref: ref, Input: json.RawMessage(`{}`), Limits: inofyWorkflowLimits(),
+			Ref: ref, Input: input, Limits: inofyWorkflowLimits(),
 		}, inofy.Bindings{Nodes: newINOFYNodeExecutor(s), Runs: newINOFYRunStore(engine)})
 		s.mu.Lock()
 		delete(s.active, result.Run.ID)
@@ -526,7 +573,7 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	s.runTools[run.ID] = childToolSet(allowedTools)
 	s.runSessions[run.ID] = run.SessionID
 	s.mu.Unlock()
-	return s.launchINOFYWorkflow(ctx, WorkflowStartResult{Run: current, Revision: revision}, admitted.Program, inofy.ExecutionRef{
+	return s.launchINOFYWorkflow(ctx, WorkflowStartResult{Run: current, Revision: revision}, admitted.Program, revision.InputJSON, inofy.ExecutionRef{
 		RunID: string(run.ID), Epoch: epoch,
 		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
 	})

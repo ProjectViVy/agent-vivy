@@ -63,11 +63,12 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 	}
 	r := in.Revision
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_revisions
-		(workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.RunID, r.ParentRunID, r.ParentSessionID, r.RootRunID, r.OperationKey,
+		(workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.RunID, r.ParentRunID, r.ParentSessionID, r.RootRunID, r.OperationKey,
 		r.DescriptorDigest, r.AuthorityDigest, r.DescriptorJSON, r.AuthorityJSON, r.SchemaVersion, r.CreatedAt,
 		nullString(r.ProgramDigest), nullString(r.CatalogDigest), nullString(r.CompilerVersion),
-		nullString(r.EinoBuild), nullString(r.InputDigest), nullBytes(r.EffectiveLimits), nullString(r.HostBindingID)); err != nil {
+		nullString(r.EinoBuild), nullString(r.InputDigest), nullBytes(r.EffectiveLimits), nullString(r.HostBindingID),
+		nullString(r.DefinitionID), nullInt64U(r.DefinitionRevision), nullBytes(r.InputJSON)); err != nil {
 		return result, storage.AdmissionUnavailable("insert workflow revision", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -129,12 +130,14 @@ type sqliteWorkflowQueryer interface {
 func sqliteReadWorkflowRevision(ctx context.Context, q sqliteWorkflowQueryer, runID domain.RunID) (domain.WorkflowRevision, error) {
 	var r domain.WorkflowRevision
 	var workflowRun, parentRun, parentSession, rootRun string
-	var programDigest, catalogDigest, compilerVersion, einoBuild, inputDigest, hostBindingID sql.NullString
+	var programDigest, catalogDigest, compilerVersion, einoBuild, inputDigest, hostBindingID, definitionID sql.NullString
 	var effectiveLimits []byte
-	err := q.QueryRowContext(ctx, `SELECT workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id
+	var definitionRevision sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json
 		FROM workflow_revisions WHERE workflow_run_id = ?`, runID).Scan(&workflowRun, &parentRun, &parentSession, &rootRun, &r.OperationKey,
 		&r.DescriptorDigest, &r.AuthorityDigest, &r.DescriptorJSON, &r.AuthorityJSON, &r.SchemaVersion, &r.CreatedAt,
-		&programDigest, &catalogDigest, &compilerVersion, &einoBuild, &inputDigest, &effectiveLimits, &hostBindingID)
+		&programDigest, &catalogDigest, &compilerVersion, &einoBuild, &inputDigest, &effectiveLimits, &hostBindingID,
+		&definitionID, &definitionRevision, &r.InputJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.WorkflowRevision{}, storage.ErrNotFound
 	}
@@ -151,6 +154,9 @@ func sqliteReadWorkflowRevision(ctx context.Context, q sqliteWorkflowQueryer, ru
 	r.InputDigest = inputDigest.String
 	r.EffectiveLimits = effectiveLimits
 	r.HostBindingID = hostBindingID.String
+	r.DefinitionID = definitionID.String
+	r.DefinitionRevision = uint64(definitionRevision.Int64)
+	r.InputJSON = append([]byte(nil), r.InputJSON...)
 	return r, nil
 }
 
@@ -159,6 +165,13 @@ func nullString(s string) any {
 		return nil
 	}
 	return s
+}
+
+func nullInt64U(v uint64) any {
+	if v == 0 {
+		return nil
+	}
+	return int64(v)
 }
 
 func nullBytes(b []byte) any {

@@ -42,3 +42,38 @@ agent loop (ToolsNode, GetToolCallID, interrupt-rerun), not a graph
 compiler — `nativeOrchestration*` is reachable only from conformance test
 fixtures; no production path persists a `native-orchestration:` resume
 target, so `compose.NewWorkflow` is production-unreachable.
+
+# S11-F reusable definitions and host actions
+
+Core Storage now owns reusable INOFY workflow definitions: session-author
+draft rows (`workflow_definition_drafts`) under CAS/ETag and organism-visible
+immutable published rows (`workflow_definition_revisions`) allocated
+monotonically with artifact/catalog digests — migration 035 on both drivers,
+one contract (`storage.WorkflowDefinitionStore`), one conformance suite.
+`workflow_revisions` gains `input_json` plus the definition binding
+(`definition_id`, `definition_revision`) so an admitted product run is
+faithful to its source and restart recovery re-executes the exact canonical
+input; schema-2 admission requires the input, legacy rows may not carry the
+binding.
+
+The host surface implements `definitions.Repository` on the store (artifact
+round-trip, digest recomputation, error mapping onto `inofy.Error` codes)
+and a product service on `*runtime.Service`: capabilities (honest
+`supports_wait`/`supports_resume` false — the trusted catalog has no
+wait-capable node), nodeTypes, saveDraft, validate (catalog diagnostics plus
+one `host_admission` capability diagnostic checked against the full workflow
+tool universe), publish (host admission gate first so no unstartable
+revision becomes immutable), getRevision, listWorkflows, startRun
+(revision-bound or draft-etag snapshot, routed through the S11-B/C/D
+admission path — never a second engine), listRuns/getRun scoped to the
+caller's session (foreign ids answer not-found), Journal-backed event
+paging, committed node-output lookup, governed cancel, and unsupported
+resume.
+
+The RPC layer exposes the literal `inofy.*` method names the editor bridge
+calls (`internal/rpc/inofy_product.go`): session resolution binds the peer
+identity through `session_id` validated by the SessionStore (fail-closed);
+errors carry `data.code` for the editor's ApiError surface; connections map
+the existing provider registry read-only (kind/base_url/model/has_secret —
+credentials never cross) and put/delete answer `unsupported_feature`. Live
+event subscription reuses the existing `run/subscribe` machinery.

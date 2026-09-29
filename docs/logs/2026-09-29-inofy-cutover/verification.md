@@ -57,3 +57,36 @@ governed child runs to `engine_status:"succeeded"`; `workflow/get` returns
 legacy descriptor params rejected `-32602`; Run Inspector renders the
 committed projection (nodes, revision digest, outputs) with no JS errors.
 `engine_status` display line added to the inspector afterward (i18n en/zh).
+
+# Verification — S11-F definitions + host actions
+
+Focused suite (storage + runtime + rpc, GREEN on sqlite and postgres):
+
+```
+go test ./internal/storage/... ./internal/runtime ./internal/modules/... ./internal/actionhost/... ./internal/rpc/... -run 'Definition|WorkflowProduct|INOFY' -count=1
+VIVY_POSTGRES_TEST_DSN=… go test ./internal/storage/postgres/ -run 'Definition' -count=1
+```
+
+Covered: draft CAS (create-only sentinel, stale-etag conflict,
+create-or-overwrite empty etag), author isolation (foreign read/write/publish
+rejected), publish dedup + monotone revision allocation + immutable stored
+artifact, unknown node type rejected at validate/publish, revision→run
+identity binding (definition_id/revision + canonical input on the admitted
+revision), draft-etag snapshot starts, operation-key dedup/conflict,
+event paging cursor, node output from committed blobs, session-scoped
+getRun/events/cancel (foreign → not-found), cancel through the governed
+path, honest capabilities (wait/resume unsupported), disabled product
+surface keeping `workflow/start` on the core path, RPC session binding and
+error-code surface.
+
+Full gate:
+
+```
+PATH=/usr/local/go/bin:$PATH VIVY_POSTGRES_TEST_DSN=… just ci
+fmt-check ui-ci vet test headless-compile plugin-ci — all green
+```
+
+Fixes made during the gate: migration count assertions 34→35 with
+`workflow_definitions` metadata + new tables; i18n cross-face contract
+classified `runInspector.workflowEngineStatus`; conformance re-pin to the
+new internal source digest (5 internal-provider rows).

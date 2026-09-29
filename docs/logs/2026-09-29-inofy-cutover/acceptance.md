@@ -26,3 +26,23 @@
   hanging or inventing a cancelled terminal.
 
 Skipped: none. PostgreSQL suite ran against a live `VIVY_POSTGRES_TEST_DSN`.
+
+# Acceptance — S11-F (gate G9 backend)
+
+- **Draft CAS + immutable publish**: enforced by the conformance suite on
+  both drivers; published rows are organism-visible and never rewritten.
+- **Revision→run identity**: product starts bind `definition_id` +
+  `definition_revision` + canonical `input_json` onto the admitted schema-2
+  revision; draft edits cannot move an admitted run.
+- **Host action coverage**: capabilities/catalog, load/save/validate/publish/
+  getRevision, start/list/get/cancel run, event paging, and guarded resume —
+  resume is honestly `unsupported_feature` because the trusted catalog has no
+  wait-capable node.
+- **Auth**: draft authority is session-scoped; product runs scope to the
+  caller's session with foreign ids indistinguishable from missing; RPC
+  session binding is fail-closed via the SessionStore.
+- **Connections**: provider registry is exposed read-only; credentials never
+  cross the surface; put/delete return unsupported rather than duplicating a
+  credential store.
+
+Deferred: the browser product path and editor mount wait for S11-G.

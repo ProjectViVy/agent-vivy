@@ -245,7 +245,7 @@ func admitINOFYWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.Backe
 		ProgramDigest:   admitted.Meta.ProgramDigest,
 		CatalogDigest:   admitted.Meta.CatalogDigest,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inofyRunInputDigest(), EffectiveLimits: limitsJSON,
+		InputDigest: inofyTestInputDigest(), InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
 		HostBindingID: hostBinding,
 	}
 	if _, err := backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{

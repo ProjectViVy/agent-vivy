@@ -1427,6 +1427,40 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listWorkflows(ctx, request)
 	case "workflow/cancel":
 		return h.cancelWorkflow(ctx, request)
+	case "inofy.capabilities":
+		return h.inofyCapabilities(ctx)
+	case "inofy.nodeTypes":
+		return h.inofyNodeTypes(ctx)
+	case "inofy.listWorkflows":
+		return h.inofyListWorkflows(ctx, peer, request)
+	case "inofy.loadDraft":
+		return h.inofyLoadDraft(ctx, peer, request)
+	case "inofy.saveDraft":
+		return h.inofySaveDraft(ctx, peer, request)
+	case "inofy.validate":
+		return h.inofyValidateDraft(ctx, peer, request)
+	case "inofy.publish":
+		return h.inofyPublish(ctx, peer, request)
+	case "inofy.getRevision":
+		return h.inofyGetRevision(ctx, peer, request)
+	case "inofy.startRun":
+		return h.inofyStartRun(ctx, peer, request)
+	case "inofy.listRuns":
+		return h.inofyListRuns(ctx, peer, request)
+	case "inofy.getRun":
+		return h.inofyGetRun(ctx, peer, request)
+	case "inofy.nodeOutput":
+		return h.inofyNodeOutput(ctx, peer, request)
+	case "inofy.cancelRun":
+		return h.inofyCancelRun(ctx, peer, request)
+	case "inofy.resumeRun":
+		return h.inofyResumeRun(ctx, peer, request)
+	case "inofy.events":
+		return h.inofyRunEvents(ctx, peer, request)
+	case "inofy.listConnections":
+		return h.inofyListConnections(ctx)
+	case "inofy.putConnection", "inofy.deleteConnection":
+		return h.inofyConnectionUnsupported()
 	case "generations/list":
 		return h.listGenerations(ctx)
 	case "generations/get":

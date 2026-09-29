@@ -25,6 +25,10 @@ func inofyTestDigest(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func inofyTestInputDigest() string {
+	return "inofy-normal-v1:sha256:" + inofyTestDigest("{}")
+}
+
 // prepareINOFYExecParent admits a schema-2 workflow revision plus its graph
 // Run, marks it active and registers in-memory authority — the same state a
 // live INOFY program holds while its executor boundary is invoked.
@@ -50,6 +54,7 @@ func prepareINOFYExecParent(t *testing.T, svc *Service, backend *sqlite.Backend,
 		ProgramDigest: inofyTestDigest("program-" + string(parentRunID)), CatalogDigest: inofyTestDigest("catalog"),
 		CompilerVersion: "inofy@6acfcc6", EinoBuild: "v0.9.13",
 		InputDigest:     inofyTestDigest("input-" + string(parentRunID)),
+		InputJSON:       []byte(`{}`),
 		EffectiveLimits: []byte(`{"max_nodes":12,"max_attempts":1}`),
 		HostBindingID:   inofyTestDigest("binding-" + string(parentRunID)),
 	}
@@ -480,7 +485,7 @@ func TestINOFYProgramRunCommitsThroughCoreStorage(t *testing.T) {
 		ProgramDigest:   admitted.Meta.ProgramDigest,
 		CatalogDigest:   admitted.Meta.CatalogDigest,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inputDigest, EffectiveLimits: limitsJSON,
+		InputDigest: inputDigest, InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
 		HostBindingID: hostBinding,
 	}
 	if _, err := backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{

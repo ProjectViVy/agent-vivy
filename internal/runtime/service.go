@@ -191,6 +191,12 @@ type ServiceDeps struct {
 	// WorkflowRevisions stores immutable validated workflow descriptors. NewService
 	// discovers it from Sessions when the backend supports workflow admission.
 	WorkflowRevisions storage.WorkflowRevisionStore
+	// WorkflowDefinitions stores reusable INOFY workflow definitions (draft CAS +
+	// immutable published revisions, S11-F). NewService discovers it from
+	// Sessions; when the backend does not implement it the whole workflow
+	// product surface (drafts, publishing, product runs) stays unavailable
+	// while the core task-graph path keeps working.
+	WorkflowDefinitions storage.WorkflowDefinitionStore
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
@@ -427,6 +433,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if deps.WorkflowRevisions == nil {
 		deps.WorkflowRevisions, _ = deps.Sessions.(storage.WorkflowRevisionStore)
+	}
+	if deps.WorkflowDefinitions == nil {
+		deps.WorkflowDefinitions, _ = deps.Sessions.(storage.WorkflowDefinitionStore)
 	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"

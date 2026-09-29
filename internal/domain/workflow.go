@@ -23,6 +23,15 @@ type WorkflowRevision struct {
 	CompilerVersion string
 	EinoBuild       string
 	InputDigest     string
+	// InputJSON is the canonical admitted run input (`{}` when the caller
+	// supplied none); restart recovery re-executes the committed program with
+	// exactly this payload.
+	InputJSON       []byte
 	EffectiveLimits []byte
 	HostBindingID   string
+	// DefinitionID/DefinitionRevision bind the admitted Run to its reusable
+	// published definition (S11-F). Empty/0 = admitted directly from a raw
+	// definition payload; revision 0 with a non-empty id = draft snapshot.
+	DefinitionID       string
+	DefinitionRevision uint64
 }
