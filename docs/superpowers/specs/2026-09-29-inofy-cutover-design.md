@@ -17,8 +17,10 @@ VIVY will use the embedded INOFY Go library as its only task-graph execution eng
 | R5 | Honest recovery | No orphan checkpoint becomes visible, duplicate effects are reconciled against native child evidence, stale writers lose, and ambiguous outcomes report recovery_required. |
 | R6 | Clean cutover | First-party tool/RPC/UI consumers move with the runtime, old graph code is removed, historical normal sessions remain usable and old workflow state never auto-runs. |
 | R7 | Future conversation boundary | A workflow node denotes one child activation, not an entire child session; entering or messaging a child session cannot silently change a compiled graph. |
+| R8 | Reusable product in this cycle | VIVY stores CAS drafts and immutable published revisions, and admits published revisions through the same host boundary. |
+| R9 | Host editor in this cycle | The selected VIVY `ui/` Module uses INOFY's shared editor with native auth, actions and committed event/output projection. |
 
-The reusable definition catalog, draft/publish flow, visual editor, Garden integration and new interactive-child UX have separate acceptance. A run-local task graph does not require those products. Ordinary chat and direct child delegation do not become INOFY workflows. Initial task graphs retain their current one-shot, read-only children and their existing ceilings. INOFY's additional switch, select, repeat and wait support is not automatically exposed by the VIVY task tool.
+The reusable definition catalog, draft/publish flow and visual editor are separate Stories and acceptance gates **within this S11 delivery cycle**. The core run-local task graph does not depend on that product being enabled. Garden integration and new interactive-child UX have separate future acceptance. Ordinary chat and direct child delegation do not become INOFY workflows. Initial task graphs retain their current one-shot, read-only children and their existing ceilings. INOFY's additional switch, select, repeat and wait support is not automatically exposed by the VIVY task tool.
 
 The smallest adequate design is an INOFY library call behind VIVY's current workflow admission, one host NodeExecutor and one host RunStore. An optional engine mechanism would add permanent duplicated conformance work; making INOFY's standalone App mandatory would duplicate credentials, HTTP and persistence. No second agent loop, scheduler, service, database or graph format is introduced.
 
@@ -56,7 +58,7 @@ Admission order:
 
 VIVY's workflow_revisions row is repurposed for newly admitted Definitions. Retain its existing descriptor_json and descriptor_digest byte/digest fields for the normalized Definition bytes; the host row schema_version integer becomes a storage discriminator: 1 means old DAG and 2 means INOFY. The executable schema version remains the Definition string inofy.workflow/v1 and is checked independently. Add nullable columns in a paired append-only SQLite/PostgreSQL migration for program_digest, catalog_digest, compiler_version, eino_build, input_digest, effective_limits and host_binding_id. Old rows remain readable as historical records but fail any new execution/resume path. New rows require all new identity fields at admission; a legacy row cannot be misclassified by missing fields.
 
-No workflow product catalog is required for run-local task graphs. Later reusable published definitions resolve an immutable revision and pass through the same host admission and execution boundary.
+No workflow product catalog is required for run-local task graphs. S11-F/G in this cycle add reusable published definitions: resolve an immutable revision and pass through this same host admission and execution boundary.
 
 ## 4. Node-to-child contract
 
@@ -107,13 +109,19 @@ Workflow cancellation stops new node admissions, propagates context cancellation
 
 No backward compatibility is promised for old integer-version graphs, tool requests or graph checkpoints. Old rows remain under existing retention. Exclude them from auto-recovery and respond with unsupported legacy format on inspection/resume attempts that require the new execution projection; ordinary sessions and non-workflow Runs continue normally. Do not rewrite migration 033 or reset the database. A binary rollback after new-format admissions cannot be represented as safe cross-engine resume.
 
-## 7. Performance and economy
+## 7. Reusable definition and VIVY product boundary
+
+S11-F implements the INOFY definitions.Repository CAS draft and immutable revision contract on VIVY Core Storage using paired additive migrations. Draft validation uses the same canonical Definition and trusted node catalog. Publish records a normalized definition, catalog and digest with author/tenant scope; subsequent edits create another revision. Starting a published revision creates a new immutable VIVY workflow Run through the same admission and Program.Run path. A draft or UI request cannot grant tools, change policy, attach a session, or mutate an existing Run. The native host action facade owns capabilities, catalog, list/load/update draft, validate, publish/get revision, start/list/get/cancel run, event paging/subscription and guarded resume. Unsupported waits or provider connections are advertised as unavailable rather than emulated by a second credential store.
+
+S11-G mounts INOFY's reusable editor through a selected VIVY UI Module under `plugins/` and `recipes/default.vivy.yml`, using the established `@vivy/ui-sdk` action transport and en/zh catalog. The actual product is VIVY `ui/`, not a separate Studio shell. The existing INOFY `studio/src/vivy-transport.ts` is a host bridge seam and may need a narrow transport adaptation; it is not a live VIVY implementation. UI reads committed run/node events and protected outputs through authorized host actions. Its displayed capabilities follow the VIVY-supported subset and cannot grant graph authority. S11-F/G are gated independently after the core cutover and constitute full S11 acceptance; disabling the reusable product does not disable task graphs. Garden S12 remains a separate plan.
+
+## 8. Performance and economy
 
 INOFY and the current graph implementation both use Eino v0.9.13. This design does not claim a speed gain. Compile the immutable definition at admission and rebuild only when loading a stored Run for controlled recovery; do not add a global cache in the first cut. Runtime node calls still pay the existing model and child-Run costs; new work is the required durable pre-effect and result commits. Measure compile cost, short read-only graph wall time/allocations, and SQL writes during acceptance if performance becomes a decision, separating model time from scheduler overhead.
 
 Remove obsolete host graph-construction code and descriptor-specific schema/validation rather than maintain two engines or a translation bridge. Keep only a small runtime adapter, a storage transaction extension in both drivers, and the catalog/schema surface the model-facing tool actually consumes. No new external service, worker or runtime plugin system is justified.
 
-## 8. Verification gates and delivery order
+## 9. Verification gates and delivery order
 
 | Gate | Required evidence |
 | --- | --- |
@@ -125,12 +133,14 @@ Remove obsolete host graph-construction code and descriptor-specific schema/vali
 | G6 — Restart | New-format waiting checkpoint only when enabled by a real supported node; running state classified/reconciled; old graph state excluded without breaking normal sessions; incompatible program/policy identities reject. |
 | G7 — Product path | Model calls the changed workflow tool, can inspect/cancel one actual graph; backend and selected VIVY UI report committed node/run state. No VIVY Studio shell integration is implied. |
 | G8 — Repository gate | just ci, paired migration fresh-install/upgrade/reopen/fault cases, both database drivers, and required VIVY split-UI real-path smoke; record commands and skips under the iteration log. |
+| G9 — Reusable definitions | Authorized CAS drafts, validation, immutable publication and revision-to-Run identity pass through VIVY-owned repository/actions and the same admitted runtime. |
+| G10 — Host editor | Selected VIVY UI Module completes draft → validate → publish → run → inspect/output/cancel using INOFY shared editor and committed native events; capability and authorization failures are visible. |
 
-The handoff has four dependent increments: (A) Definition and tool/catalog contract; (B) native storage transaction and admission identity; (C) NodeExecutor plus production routing and recovery; (D) old-code deletion and end-to-end acceptance. B may be implemented with a fault-capable test node while A is stabilized, but no production switch is accepted until A–C have passed their gates. The detailed implementation plan must specify exact files, migration number, SQL transaction behavior and tests based on a fresh head. This document is the detailed architecture; it does not mark any increment Ready or authorize code execution by inference.
+The [S11 work package index](../plans/2026-09-29-inofy-cutover/README.md) sequences seven Stories: INOFY schema export (A), VIVY admission (B), native RunStore transaction (C), child NodeExecutor and recovery (D), sole production cutover/old-code removal (E), reusable definitions and host actions (F), and VIVY UI Module/editor integration (G). The core cutover can be assessed after E; full S11 requires G9/G10 after F/G. No production switch is accepted until A–D pass their gates. The package calls out proposed files and test behavior; migration number and any drift must be checked against a fresh head before implementation. This document is the detailed architecture; it does not claim passing code or an accepted integration.
 
-## 9. Relationship to current plans
+## 10. Relationship to current plans
 
-Issue #23 records the approved overall decision. This document resolves the host lifecycle and storage boundary for that decision. INOFY's existing S11 plan still assumes legacy descriptor translation and references the separate VIVY Studio shell; revise S11 against this architecture before execution. Do not create a parallel plan that silently keeps those assumptions. Issue #8 supplies multi-agent behavior expectations; issue #9 supplies the later reusable-workflow product requirements; issue #21 remains the cross-line status index.
+Issue #23 records the approved overall decision. This document resolves the host lifecycle and storage boundary for that decision. INOFY's S11 index on its planning branch now points to this authoritative cross-repository package; its former descriptor translation and separate Studio shell assumptions are retired. The two repositories' plan branches are review artifacts and need a coordinated accepted revision before implementation. Issue #8 supplies multi-agent behavior expectations; issue #9 supplies the later reusable-workflow product requirements; issue #21 remains the cross-line status index.
 
 Source evidence:
 
