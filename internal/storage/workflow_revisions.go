@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/domain"
 )
@@ -52,6 +54,29 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	if hex.EncodeToString(authorityDigest[:]) != r.AuthorityDigest {
 		return errors.New("storage: workflow authority digest does not match its bytes")
 	}
+	// Storage discriminator: 1 = legacy descriptor path, 2 = INOFY. A
+	// discriminator-2 admission must carry the complete INOFY identity so a
+	// later recovery can rebind to the same immutable program; discriminator-1
+	// rows must not carry it.
+	if r.SchemaVersion == 2 {
+		if !validINOFYDigest(r.ProgramDigest) || !validINOFYDigest(r.CatalogDigest) ||
+			!validINOFYDigest(r.InputDigest) || r.CompilerVersion == "" ||
+			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" ||
+			len(r.InputJSON) == 0 || !json.Valid(r.InputJSON) {
+			return errors.New("storage: inofy workflow revision identity is incomplete")
+		}
+		if len(r.DefinitionID) > 256 {
+			return errors.New("storage: workflow definition id is oversized")
+		}
+		if r.DefinitionID == "" && r.DefinitionRevision != 0 {
+			return errors.New("storage: workflow definition revision requires a definition id")
+		}
+	} else if r.ProgramDigest != "" || r.CatalogDigest != "" || r.CompilerVersion != "" ||
+		r.EinoBuild != "" || r.InputDigest != "" || len(r.InputJSON) != 0 ||
+		len(r.EffectiveLimits) != 0 || r.HostBindingID != "" ||
+		r.DefinitionID != "" || r.DefinitionRevision != 0 {
+		return errors.New("storage: legacy workflow revision must not carry inofy identity")
+	}
 	if in.Run.ID != r.RunID || in.Run.SessionID != r.ParentSessionID || in.Run.Kind != domain.RunKindWorkflow ||
 		in.Run.ParentID != r.ParentRunID || in.Run.RootID != r.RootRunID || in.Run.Status != domain.RunAccepted ||
 		in.Run.CreatedAt != r.CreatedAt {
@@ -70,6 +95,16 @@ func validSHA256Hex(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && hex.EncodeToString(decoded) == value
+}
+
+// validINOFYDigest accepts the named digest envelope INOFY emits
+// ("inofy-normal-v1:sha256:<64 hex>") as well as bare SHA-256 hex.
+func validINOFYDigest(value string) bool {
+	if validSHA256Hex(value) {
+		return true
+	}
+	const prefix = "inofy-normal-v1:sha256:"
+	return strings.HasPrefix(value, prefix) && validSHA256Hex(strings.TrimPrefix(value, prefix))
 }
 
 func WorkflowAdmissionConflict() error { return fmt.Errorf("%w", ErrWorkflowRevisionConflict) }

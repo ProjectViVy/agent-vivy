@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.repeat.iteration.json",
+  "title": "workflow.repeat.iteration payload (v1)",
+  "description": "INOFY repeat container advanced one iteration; carries the engine iteration record.",
+  "type": "object",
+  "properties": {
+    "node_key": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "record": {}
+  },
+  "required": ["node_key"],
+  "additionalProperties": false
+}

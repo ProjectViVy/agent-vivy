@@ -9,6 +9,14 @@ cloud.google.com/go/compute/metadata v0.5.0/go.mod h1:aHnloV2TPI38yx4s9+wAZhHykW
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/JohannesKaufmann/html-to-markdown v1.6.0 h1:04VXMiE50YYfCfLboJCLcgqF5x+rHJnb1ssNmqpLH/k=
 github.com/JohannesKaufmann/html-to-markdown v1.6.0/go.mod h1:NUI78lGg/a7vpEJTz/0uOcYMaibytE4BUOQS8k78yPQ=
+github.com/ProjectViVy/inofy v0.0.0-20260929145515-6acfcc6b1a51 h1:u6b3BwTwdAZbgLMEi1lukmY7qnFomzOQemWgn3FPd2Q=
+github.com/ProjectViVy/inofy v0.0.0-20260929145515-6acfcc6b1a51/go.mod h1:wmiPMVK/oDnbSogsR8+yANUwAeLMwVxacStikjd0S8s=
+github.com/ProjectViVy/inofy v0.0.0-20260929211838-98526b846909 h1:0H/bDhHOmhKgoFtIQ0JEaBjakaXr8j3hJ+LdIjS+2a8=
+github.com/ProjectViVy/inofy v0.0.0-20260929211838-98526b846909/go.mod h1:wmiPMVK/oDnbSogsR8+yANUwAeLMwVxacStikjd0S8s=
+github.com/ProjectViVy/inofy v0.0.0-20260929222727-586f4b5f0b47 h1:bO2O2/HMhhZV1jNBrD5lvAYdPNiww3PSaEHxc8XA8AU=
+github.com/ProjectViVy/inofy v0.0.0-20260929222727-586f4b5f0b47/go.mod h1:wmiPMVK/oDnbSogsR8+yANUwAeLMwVxacStikjd0S8s=
+github.com/ProjectViVy/inofy v0.0.0-20260929225707-4def2ae6185f h1:Jk6lu78YjRi8WnK8IM6MMufzGAY3c7obRcIopWPfkdc=
+github.com/ProjectViVy/inofy v0.0.0-20260929225707-4def2ae6185f/go.mod h1:wmiPMVK/oDnbSogsR8+yANUwAeLMwVxacStikjd0S8s=
 github.com/PuerkitoBio/goquery v1.9.2/go.mod h1:GHPCaP0ODyyxqcNoFGYlAprUFH81NuRPd0GX3Zu2Mvk=
 github.com/PuerkitoBio/goquery v1.12.0 h1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO8RIBo=
 github.com/PuerkitoBio/goquery v1.12.0/go.mod h1:802ej+gV2y7bbIhOIoPY5sT183ZW0YFofScC4q/hIpQ=

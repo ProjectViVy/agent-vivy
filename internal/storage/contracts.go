@@ -35,6 +35,21 @@ var (
 	// ErrLeaseLost is returned when a server backend can no longer renew
 	// exclusive ownership of the Journal.
 	ErrLeaseLost = errors.New("storage: organism lease lost")
+	// ErrStaleWriter is returned when a workflow step commit carries a writer
+	// epoch older than the epoch already committed for the execution.
+	ErrStaleWriter = errors.New("storage: stale writer epoch")
+	// ErrWorkflowStepState is returned when a step commit's expected state
+	// does not match the stored projection state.
+	ErrWorkflowStepState = errors.New("storage: workflow step state conflict")
+	// ErrWorkflowStepTerminal is returned when a commit targets a workflow
+	// whose projection or journal is already terminal.
+	ErrWorkflowStepTerminal = errors.New("storage: workflow step after terminal")
+	// ErrWorkflowStepIdempotency is returned when a commit_id is reused with
+	// a different content digest.
+	ErrWorkflowStepIdempotency = errors.New("storage: workflow step idempotency conflict")
+	// ErrWorkflowStepIdentity is returned when a commit's program or
+	// host-binding identity does not match the admitted revision identity.
+	ErrWorkflowStepIdentity = errors.New("storage: workflow step identity conflict")
 )
 
 // Commit is one atomic batch of events for a single run. Events carry no
@@ -684,6 +699,7 @@ type Engine interface {
 	ChildSessionStore
 	ChildMailboxStore
 	WorkflowRevisionStore
+	WorkflowStepStore
 	SessionStore
 	MessageStore
 	NoteStore

@@ -33,7 +33,8 @@
     "vivy/status-host",
     "vivy/storage",
     "vivy/telegram",
-    "vivy/tool-host"
+    "vivy/tool-host",
+    "vivy/workflow-ui"
   ],
   "channels": [
     "dingtalk",

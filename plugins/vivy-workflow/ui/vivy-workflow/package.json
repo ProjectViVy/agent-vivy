@@ -1,0 +1,17 @@
+{
+  "name": "@vivy/vivy-workflow-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vivy/ui-sdk": "1.0.0",
+    "@xyflow/react": "12.9.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "@vivy/ui-sdk": "file:../../../../sdk/ui"
+    }
+  }
+}

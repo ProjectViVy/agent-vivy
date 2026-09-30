@@ -163,6 +163,74 @@ func TestRunSubscriptionTerminalReplayCleansUpImmediately(t *testing.T) {
 	}
 }
 
+// TestRunSubscriptionResubscribesAfterBusDrop pins the AS-7 contract on the
+// RPC seam: a subscriber dropped for falling behind must re-subscribe and
+// replay from the journal, not be stranded when the run stays non-terminal.
+func TestRunSubscriptionResubscribesAfterBusDrop(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	runID := domain.RunID("run_drop_resubscribe")
+	ctx := context.Background()
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "sess_drop_resub", Status: domain.RunActive, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	defer right.Close()
+	// A one-frame writer queue makes the stream stall inside NotifyContext
+	// once one event arrives with nobody draining it, so a burst overflows
+	// the bus buffer and drops the subscription — the real-world slow client.
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 1})
+	defer peer.Close()
+	params, err := json.Marshal(map[string]any{"run_id": string(runID), "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"drop"`), Method: "run/subscribe", Params: params}
+	if _, rpcErr := handler.subscribe(ctx, peer, request); rpcErr != nil {
+		t.Fatalf("subscribe: %v", rpcErr)
+	}
+	peer.runAfterResponse(request.ID)
+	waitForControlSubscriptionCount(t, handler, 1)
+
+	publish := func() {
+		t.Helper()
+		seq, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{
+			Type: domain.EventWorkflowNodeStarted, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: []byte(`{}`),
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler.deps.Bus.Publish(domain.RunEvent{
+			RunID: runID, Seq: seq, Type: domain.EventWorkflowNodeStarted,
+			CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: []byte(`{}`),
+		})
+	}
+	// Nobody drains the peer's writer queue here (Serve is not running), so
+	// the stream stalls inside NotifyContext after one event; the burst
+	// overflows the bus buffer and the subscription is dropped.
+	for i := 0; i < 14; i++ {
+		publish()
+	}
+	// Drain the writer queue so the wedged send completes and the stream
+	// observes the closed bus channel.
+	go func() {
+		for range peer.out {
+		}
+	}()
+	// The stream must still be alive after the drop: the post-drop event is
+	// delivered from the journal tail replay on the fresh subscription.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		handler.mu.Lock()
+		got := len(handler.subscriptions)
+		handler.mu.Unlock()
+		if got == 0 {
+			t.Fatal("subscription released after non-terminal bus drop; client stranded")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestRunSubscriptionEmptyReplayAfterTerminalCleansUp pins the N5 contract:
 // a resubscribe whose after_seq already covers the terminal record must
 // release the subscription instead of pinning the bus until peer close.
@@ -448,10 +516,21 @@ func TestWorkflowRPCValidatesAdmissionAndMapsMissingRuns(t *testing.T) {
 	for _, method := range []string{"workflow/propose", "workflow/get", "workflow/cancel"} {
 		var params any = map[string]string{"run_id": "missing-workflow"}
 		if method == "workflow/propose" {
-			params = map[string]any{"parent_run_id": "missing-parent", "descriptor": map[string]any{}}
+			params = map[string]any{"parent_run_id": "missing-parent", "definition": map[string]any{}}
 		}
 		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != CodeNotFound {
 			t.Fatalf("%s missing resource error = %v, want not found", method, rpcErr)
+		}
+	}
+	for _, method := range []string{"workflow/propose", "workflow/start"} {
+		params := map[string]any{"parent_run_id": "missing-parent", "operation_id": "legacy", "descriptor": map[string]any{"schema_version": 1}}
+		if _, rpcErr := callControl(t, env.handler, method, params); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s legacy descriptor = %v, want invalid params", method, rpcErr)
+		}
+		_, rpcErr := env.handler.Handle(context.Background(), nil, Request{JSONRPC: "2.0", Method: method,
+			Params: json.RawMessage(`{"parent_run_id":"missing-parent","operation_id":"duplicate","definition":{},"definition":{"schema_version":1}}`)})
+		if rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s duplicate definition = %v, want invalid params", method, rpcErr)
 		}
 	}
 }

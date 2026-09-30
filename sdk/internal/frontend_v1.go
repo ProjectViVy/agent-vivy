@@ -166,6 +166,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/vivy-memory", importPath: "agent-vivy/plugins/vivy-memory", pkg: "vivymemory"},
 	{dir: "plugins/vivy-notebook", importPath: "agent-vivy/plugins/vivy-notebook", pkg: "vivynotebook"},
 	{dir: "plugins/vivy-masks-ui", importPath: "agent-vivy/plugins/vivy-masks-ui", pkg: "vivymasksui"},
+	{dir: "plugins/vivy-workflow", importPath: "agent-vivy/plugins/vivy-workflow", pkg: "vivyworkflow"},
 	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }

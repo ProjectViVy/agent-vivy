@@ -20,6 +20,7 @@ import {
   Sparkles,
   UserRound,
   VenetianMask,
+  Workflow,
   Wrench,
   Zap,
   type LucideIcon,
@@ -41,6 +42,7 @@ export const HOST_ICONS: Readonly<Record<HostIconName, LucideIcon>> = Object.fre
   dna: Dna,
   brain: Brain,
   'notebook-pen': NotebookPen,
+  workflow: Workflow,
 });
 
 /**

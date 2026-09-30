@@ -1,6 +1,6 @@
 ---
 name: testing-vivy-ui
-description: How to run the Vivy split dev pair and exercise run/orchestration UI surfaces in a real browser without a provider key (hanging mock endpoint trick, Run Inspector location, locale toggle, air-gap rules).
+description: How to run the Vivy split dev pair and exercise run/orchestration UI surfaces in a real browser without a provider key (frozen-env provider trick, hanging mock endpoint, Run Inspector location, air-gap rules).
 ---
 
 # Testing Vivy UI (agent-vivy)
@@ -8,6 +8,7 @@ description: How to run the Vivy split dev pair and exercise run/orchestration U
 ## Dev servers
 
 - Backend: `PATH=/usr/local/go/bin:$PATH VIVY_CONFIG=/home/ubuntu/.vivy-dev/config.yaml go run ./cmd/vivy` from repo root -> control plane `127.0.0.1:8787`. The config redirects sqlite/workspaces/settings to `~/.vivy-dev`; never let it write under the repo's `data/` (ST-2 air gap).
+- Fresh disposable home (preferred): `VIVY_USER_HOME=/tmp/vivy-smoke go run ./cmd/vivy` — journal `vivy.db`, `settings.yaml`, `workspace/`, `logs/` all land under the temp dir, no config file needed, `data/` untouched.
 - UI: `cd ui && PATH=$HOME/.local/node/bin:/usr/local/go/bin:$PATH pnpm dev` -> Vite `127.0.0.1:3015`, proxies `/rpc`. **Go must be on PATH** — `pnpm dev` runs `scripts/stage-ui-assembly.mjs` which shells out to `go run ./sdk stage-ui`; without it the dev server exits (`spawnSync go ENOENT`).
 - Open `http://127.0.0.1:3015`. First run shows a welcome wizard; click "Skip wizard" (its text is left of the Next button, they visually overlap — click ~x=410 of the footer).
 
@@ -15,20 +16,29 @@ description: How to run the Vivy split dev pair and exercise run/orchestration U
 
 `child/*` and `workflow/*` RPCs and the Run Inspector's Validate/Start buttons require the parent run to be server-side `active` with an in-process tool ceiling (`internal/runtime/child_sessions.go` `currentChildAuthorizer`) — a failed run cannot exercise them, and a synthetic DB row fails ("child authorizer tool ceiling is unavailable").
 
-Trick: run a hanging OpenAI-compatible endpoint and register it via the UI:
+**Custom provider registry cannot execute runs** (verified 2026-09): `settings/providers/upsert` persists an `openai-completions` entry but runs fail `provider "<name>": no embedded vendor data` — only embedded vendors (`catalog-<vendor>-<adapter>` ids) execute.
 
-```python
-# GET /models returns a stub; POST hangs forever -> the run stays 'active'
-# (python3 http.server ThreadingHTTPServer on 127.0.0.1:9911)
+Working keyless path — the frozen env provider session (`internal/app/model.go` `freezeFromEnv`):
+
+```bash
+VIVY_PROVIDER=deepseek \            # vendor name or adapter id
+VIVY_API_BASE=http://127.0.0.1:9911/v1 \   # freezes base URL to your mock
+VIVY_MODEL=mock-fast \
+DEEPSEEK_API_KEY=anything \         # vendor env_key must be SET (any value)
+go run ./cmd/vivy
 ```
 
-Then Settings → Model → "Add custom provider": adapter OpenAI-compatible, `http://127.0.0.1:9911/v1`, any api_key, model `mock-model`; click the model to select it. A sent run goes `active` and stays there until the client's model timeout (~2-3 min) — enough to exercise child/workflow controls. Descendants hit the same mock and stay `running`.
+Provider/model RPCs then answer "locked to an environment-variable provider session" — expected. A sent run goes `active` on the hanging mock until the model timeout (~2-3 min) — enough to exercise child/workflow controls.
+
+Marker-routed mock pattern: hang only when the LAST user message contains a marker (e.g. `VIVY-HANG`); reply instantly otherwise — a single mock then holds the parent `active` while workflow children (no marker in their task text) complete, so an INOFY workflow reaches `engine_status:"succeeded"`. Handle `stream:true` with SSE chunks (`data: {chunk}\n\n` ... `data: [DONE]`); the openai-completions adapter streams.
 
 ## UI paths
 
-- Run Inspector: sidebar → Settings → "Vivy Features" tab → "Run Inspector" card (tabs: Current Run / Background / Children / Reviews). Children tab hosts "DAG workflows" `<details>` (descriptor textarea + Validate/Start) and the "Start child run" form (one-shot vs "Keep a continuable child session").
+- Run Inspector: sidebar → Settings → "Vivy Features" tab → "Run Inspector" card (tabs: Current Run / Background / Children / Reviews). Children tab hosts "Task workflows" `<details>` (INOFY Definition textarea + Validate/Start) and the "Start child run" form (one-shot vs "Keep a continuable child session").
 - Locale: Settings → Language tab → 简体中文 / English cards. Settings supports `?tab=language|vivy|...` deep links — use them when translated tab labels are hard to click by coordinates.
-- Workflow descriptor schema: `{schema_version:1, start_nodes:[...], nodes:[{key,task,tool_names?}], edges:[{from,to,input_key?}], outputs:[...]}` — the textarea is prefilled with a valid minimal example.
+- Workflow Definition schema (post-INOFY cutover): `{schema_version:"inofy.workflow/v1", limits:{}, graph:{nodes:[{id,kind:"call",type:"vivy.child-task@1",config:{task,inputs?}}], edges:[{from,to}], exits:[...], outputs:{name:{source,pointer}}}}` — the textarea is prefilled with a valid minimal example. Legacy `{descriptor:…}` params are rejected `-32602`.
+- Inspector details: "Inspect run" dropdown defaults to the most recent run — often a `workflow_child_*` node run, NOT the parent. `workflow/list` keys on the *parent* run id: select `run_<parent>` first or the workflow list is empty. Detail renders run id + status badge, "Immutable revision <digest16>", "Engine status", "Node status" rows (Open child run link when `child_run_id` set), "Declared outputs".
+- Driving `workflow/*` RPCs: `/rpc` is WebSocket-only — `GET /rpc/bootstrap` → `{token}` → `ws://127.0.0.1:8787/rpc?token=<t>` → `{"jsonrpc":"2.0","id":N,"method":"workflow/start","params":{parent_run_id, operation_id, definition}}` (`definition` is a raw JSON object). `turn/start` returns `{run_id,status}` — the deterministic way to get a parent run id.
 
 ## Notes
 
@@ -73,3 +83,18 @@ Then Settings → Model → "Add custom provider": adapter OpenAI-compatible, `h
 - Workspace binding for a run: composer folder button → WorkspaceFolderDialog — enter the path, then click **Browse first** and wait for the listing; "Use this folder" stays disabled until the listing loads, and a click on the busy-disabled button silently does nothing.
 - The chat textarea is often offscreen; `ta.scrollIntoView({block:'end'}); ta.focus()` before typing. For controlled inputs (feedback textarea, run-picker select), set `.value` via the native setter (`Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set`) then dispatch `input`/`change`.
 - Full reload (`F5`) runs `background/recover` which kills unsuspended active runs — only reload when all runs are terminal, or navigate in-SPA (sidebar links / `alt+Left`) to refresh views without the sweep. Suspended runs (plan-review interrupt) survive restart and are rebuilt.
+
+## Workflow editor module (`vivy/workflow-ui`, VIVY-native at `/workflows`)
+
+- The module is inline host DOM (no shadow root — the vendored studio is gone; `src/studio/` keeps only the model layer: schema/transport/edit/graph). Three Radix tabs at the top: Editor / Workflows / Runs — Radix tabs activate on **real pointer mousedown** (`el.click()` alone does nothing; dispatch pointer+mouse sequence or `mousedown`+`mouseup`+`click`).
+- `go` must be on PATH for every `pnpm` pre-step (`stage-ui-assembly.mjs` shells out to `go run ./sdk stage-ui`) — `spawnSync go ENOENT` otherwise. Chrome needs `--remote-debugging-port=9222` for `browser_console`; manual CDP works too but its CSS-px coords do NOT map linearly to the tool's 1024x768 space — read `getBoundingClientRect()` center values directly.
+- **After a restage** (`pnpm run stage:ui`), do a hard `location.reload()` before verifying — Vite HMR does not swap staged module code into a long-lived session; testing the stale module gives false failures.
+- **Active-run arming**: `inofy.startRun` (and the editor's 运行 button) needs `state.currentRun` = an ACTIVE run in the session. The button binds the last-viewed run — arm a fresh `VIVY-HANG` primary via UI chat or `turn/start` right before clicking, stay in-SPA, and reach 运行 inside ~2 min. `turn/start` returns `-32603` when the session already has an active primary — reuse that run as `parent_run_id` instead of arming another.
+- **Editor**: `input[placeholder*=workflow]` + 打开 seeds `vivy.child-task@1` node `begin` (exit + output `result`) for unknown ids. Right `.w-80` panel: first textarea = Task; `button[role=checkbox]` = Exit node; exit reveals the output-name input (default = node id). Selection state lives in canvas state (not render-time injection) — pane click and Escape both deselect; save/validate/publish/run keep selection via `applyArtifact(…, preserveSelection=true)`.
+- Edges: drag the React Flow source handle (right edge) to the target handle (left edge). For uncontrolled inputs (`defaultValue`+`key` remount) and blur-commit textareas, setting `.value` alone does nothing — `el.focus()`, set via the native `HTMLInputElement`/`HTMLTextAreaElement.prototype.value` setter + dispatch `input`, then `el.blur()`. `ctrl+a`/`Delete` via CDP `Input.dispatch*` does NOT select in these fields — overwrite via setter.
+- **Output bindings**: strict decode requires `outputs[name]={source,pointer}` — `pointer` may be `""` but the KEY must exist; when patching `artifact.definition.graph.outputs` by hand via `inofy.saveDraft`, keep both fields (artifact shape is `{definition, presentation}`, not the bare definition).
+- **Session binding**: `inofy.*` RPCs and drafts/revisions/runs are scoped to the UI's `activeSessionId` (`localStorage["vivy.ui.activeSession"]` + reload switches the bound session).
+- **Wedged session**: a run stuck `status:"active"` under `engine_status:"recovery_required"` never resolves (cancel/get answer `-32004`/`-32009`); the session shows `connecting` and composer sends queue. `turn/start` still creates fresh primary runs in that session — use one as `parent_run_id`.
+- **Ledger truth vs stream**: journal = `run_events` in `<VIVY_USER_HOME>/vivy.db` (read-only sqlite via `sqlite3.connect('file:...?mode=ro', uri=True)` — no sqlite3 CLI); the detail's committed-count line is subscription-driven — compare both to distinguish a live-stream stall from a fetch gap. Draft artifacts also verifiable in `workflow_definition_drafts.artifact`.
+- Cancel mid-node → `node_failed` + `engine_status:"recovery_required"` (domain run stays `active`), NOT `cancelled`; an `rpc_error · workflow operation conflicts` banner on cancel is cosmetic — cancel already took effect.
+- Dead-end nodes: validate reports `[topology] /graph/nodes/<id>: node cannot reach a declared exit` — add an edge to an exit or mark the node exit.

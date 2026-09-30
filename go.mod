@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
+	github.com/ProjectViVy/inofy v0.0.0-20260929225707-4def2ae6185f
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -111,14 +112,12 @@ require (
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
-	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
 	agent-vivy/plugins/vivy-notebook v0.0.0
 	agent-vivy/plugins/vivy-persona v0.0.0
-	agent-vivy/plugins/vivy-persona v0.0.0
+	agent-vivy/plugins/vivy-workflow v0.0.0
 	github.com/ProjectViVy/agent-vivy/bml v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -203,5 +202,7 @@ replace agent-vivy/faces/headless => ./faces/headless
 replace agent-vivy/faces/tui => ./faces/tui
 
 replace agent-vivy/plugins/vivy-masks-ui => ./plugins/vivy-masks-ui
+
+replace agent-vivy/plugins/vivy-workflow => ./plugins/vivy-workflow
 
 replace github.com/ProjectViVy/agent-vivy/bml => ./bml

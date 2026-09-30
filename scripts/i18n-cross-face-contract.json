@@ -1055,6 +1055,7 @@
       "runInspector.workflowDescriptor",
       "runInspector.workflowDescriptorPlaceholder",
       "runInspector.workflowDigest",
+      "runInspector.workflowEngineStatus",
       "runInspector.workflowInvalidJSON",
       "runInspector.workflowNodes",
       "runInspector.workflowOpenChild",

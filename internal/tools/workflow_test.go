@@ -6,34 +6,37 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/orchestration"
 )
 
 type fakeWorkflowOperations struct {
 	parentID   domain.RunID
 	operation  string
-	descriptor orchestration.Descriptor
+	definition json.RawMessage
 	result     WorkflowTaskResult
 }
 
-func (f *fakeWorkflowOperations) RunWorkflow(_ context.Context, parentID domain.RunID, operation string, descriptor orchestration.Descriptor) (WorkflowTaskResult, error) {
-	f.parentID, f.operation, f.descriptor = parentID, operation, descriptor
+func (f *fakeWorkflowOperations) RunWorkflow(_ context.Context, parentID domain.RunID, operation string, definition json.RawMessage) (WorkflowTaskResult, error) {
+	f.parentID, f.operation, f.definition = parentID, operation, append([]byte(nil), definition...)
 	return f.result, nil
 }
 
-func TestWorkflowToolRunsAgentAuthoredDescriptorWithStableCallIdentity(t *testing.T) {
+func (f *fakeWorkflowOperations) DefinitionSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["schema_version","graph"],"properties":{"schema_version":{"const":"inofy.workflow/v1"},"graph":{"type":"object"}}}`)
+}
+
+func TestWorkflowToolRunsAgentAuthoredDefinitionWithStableCallIdentity(t *testing.T) {
 	operations := &fakeWorkflowOperations{result: WorkflowTaskResult{
 		WorkflowRunID: "workflow-run-1", Outputs: map[string]string{"answer": "bounded result"},
 	}}
 	tool := NewWorkflow(operations)
-	args := json.RawMessage(`{"schema_version":1,"start_nodes":["answer"],"nodes":[{"key":"answer","task":"answer the question"}],"edges":[],"outputs":["answer"]}`)
+	args := json.RawMessage(`{"schema_version":"inofy.workflow/v1","graph":{"nodes":[{"id":"answer","kind":"call","type":"vivy.child-task@1","config":{"task":"answer the question"}}],"edges":[],"exits":["answer"]}}`)
 	ctx := WithToolCallID(WithRunID(context.Background(), "parent-run-1"), "call-stable-1")
 	result, err := tool.InvokableRun(ctx, args)
 	if err != nil {
 		t.Fatalf("invoke workflow tool: %v", err)
 	}
-	if operations.parentID != "parent-run-1" || operations.operation == "" || operations.descriptor.Nodes[0].Task != "answer the question" {
-		t.Fatalf("workflow operation = parent %q operation %q descriptor %+v", operations.parentID, operations.operation, operations.descriptor)
+	if operations.parentID != "parent-run-1" || operations.operation == "" || string(operations.definition) != string(args) {
+		t.Fatalf("workflow operation = parent %q operation %q definition %s", operations.parentID, operations.operation, operations.definition)
 	}
 	var returned WorkflowTaskResult
 	if err := json.Unmarshal([]byte(result), &returned); err != nil {
@@ -43,7 +46,7 @@ func TestWorkflowToolRunsAgentAuthoredDescriptorWithStableCallIdentity(t *testin
 		t.Fatalf("workflow result = %+v", returned)
 	}
 	if err := toolsValidateWorkflowArgs(tool.Spec(), args); err != nil {
-		t.Fatalf("workflow descriptor schema: %v", err)
+		t.Fatalf("workflow definition schema: %v", err)
 	}
 	if !tool.Spec().Readonly {
 		t.Fatal("workflow tool must remain inside the read-only child authority surface")
@@ -52,9 +55,18 @@ func TestWorkflowToolRunsAgentAuthoredDescriptorWithStableCallIdentity(t *testin
 
 func TestWorkflowToolRequiresRuntimeIdentities(t *testing.T) {
 	tool := NewWorkflow(&fakeWorkflowOperations{})
-	args := json.RawMessage(`{"schema_version":1,"start_nodes":["answer"],"nodes":[{"key":"answer","task":"answer"}],"edges":[],"outputs":["answer"]}`)
+	args := json.RawMessage(`{"schema_version":"inofy.workflow/v1","graph":{}}`)
 	if _, err := tool.InvokableRun(context.Background(), args); err == nil {
 		t.Fatal("workflow tool accepted an unscoped invocation")
+	}
+}
+
+func TestWorkflowToolRejectsLegacyDescriptor(t *testing.T) {
+	tool := NewWorkflow(&fakeWorkflowOperations{})
+	legacy := json.RawMessage(`{"schema_version":1,"start_nodes":["a"],"nodes":[{"key":"a","task":"answer"}],"edges":[],"outputs":["a"]}`)
+	ctx := WithToolCallID(WithRunID(context.Background(), "parent-run-1"), "call-1")
+	if _, err := tool.InvokableRun(ctx, legacy); err == nil {
+		t.Fatal("legacy descriptor entered Definition tool path")
 	}
 }
 

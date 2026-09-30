@@ -2,12 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/orchestration"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -26,14 +26,12 @@ func newWorkerManager(service *runtime.Service, runs storage.RunStore) *workerMa
 }
 
 // RunWorkflow blocks the authoring tool until its durable workflow Run reaches
-// a terminal state, then returns only the descriptor's bounded outputs.
-func (m *workerManager) RunWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, descriptor orchestration.Descriptor) (tools.WorkflowTaskResult, error) {
+// a terminal state, then returns only the Definition's bounded outputs.
+func (m *workerManager) RunWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, definition json.RawMessage) (tools.WorkflowTaskResult, error) {
 	if m == nil || m.service == nil {
 		return tools.WorkflowTaskResult{}, errors.New("workflow controller is not wired")
 	}
-	started, err := m.service.StartWorkflow(ctx, runtime.WorkflowRequest{
-		ParentRunID: parentRunID, OperationKey: operationKey, Descriptor: descriptor,
-	})
+	started, err := m.service.StartINOFYWorkflow(ctx, parentRunID, operationKey, definition)
 	if err != nil {
 		return tools.WorkflowTaskResult{}, err
 	}
@@ -43,6 +41,12 @@ func (m *workerManager) RunWorkflow(ctx context.Context, parentRunID domain.RunI
 		details, err := m.service.GetWorkflow(ctx, started.Run.ID)
 		if err != nil {
 			return tools.WorkflowTaskResult{}, err
+		}
+		// The graph engine can settle as recovery_required while the native
+		// run stays active; stop polling instead of hanging on a run that
+		// will never terminate itself.
+		if details.EngineStatus == "recovery_required" {
+			return tools.WorkflowTaskResult{}, runtime.ErrWorkflowRecoveryRequired
 		}
 		switch details.Run.Status {
 		case domain.RunCompleted:

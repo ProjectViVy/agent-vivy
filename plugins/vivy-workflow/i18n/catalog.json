@@ -1,0 +1,285 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/workflow-ui.title": {
+      "description": "Workflow editor page title",
+      "placeholders": [],
+      "messages": {"en": "Workflows", "zh": "工作流"}
+    },
+    "plugin.vivy/workflow-ui.subtitle": {
+      "description": "Workflow editor page subtitle",
+      "placeholders": [],
+      "messages": {"en": "Draft, validate, publish, and inspect INOFY workflow runs", "zh": "起草、校验、发布并检视 INOFY 工作流运行"}
+    },
+    "plugin.vivy/workflow-ui.nav": {
+      "description": "Workflow editor navigation label",
+      "placeholders": [],
+      "messages": {"en": "Workflows", "zh": "工作流"}
+    },
+
+    "plugin.vivy/workflow-ui.tab.editor": {
+      "description": "Editor tab",
+      "placeholders": [],
+      "messages": {"en": "Editor", "zh": "编辑器"}
+    },
+    "plugin.vivy/workflow-ui.tab.workflows": {
+      "description": "Workflows tab",
+      "placeholders": [],
+      "messages": {"en": "Workflows", "zh": "工作流"}
+    },
+    "plugin.vivy/workflow-ui.tab.runs": {
+      "description": "Runs tab",
+      "placeholders": [],
+      "messages": {"en": "Runs", "zh": "运行"}
+    },
+
+    "plugin.vivy/workflow-ui.editor.idPlaceholder": {
+      "description": "Workflow id input placeholder",
+      "placeholders": [],
+      "messages": {"en": "workflow id", "zh": "工作流 id"}
+    },
+    "plugin.vivy/workflow-ui.editor.idError.empty": {
+      "description": "Workflow id validation: empty",
+      "placeholders": [],
+      "messages": {"en": "Workflow id cannot be empty", "zh": "工作流 id 不能为空"}
+    },
+    "plugin.vivy/workflow-ui.editor.idError.whitespace": {
+      "description": "Workflow id validation: surrounding whitespace",
+      "placeholders": [],
+      "messages": {"en": "Workflow id cannot start or end with whitespace", "zh": "工作流 id 首尾不能有空白"}
+    },
+    "plugin.vivy/workflow-ui.editor.idError.separator": {
+      "description": "Workflow id validation: separator characters",
+      "placeholders": [],
+      "messages": {"en": "Workflow id cannot contain / \\ ? # :", "zh": "工作流 id 不能包含 / \\ ? # :"}
+    },
+    "plugin.vivy/workflow-ui.editor.idError.length": {
+      "description": "Workflow id validation: too long",
+      "placeholders": [],
+      "messages": {"en": "Workflow id is limited to 64 characters", "zh": "工作流 id 不超过 64 字符"}
+    },
+    "plugin.vivy/workflow-ui.editor.dirty": {
+      "description": "Unsaved changes badge",
+      "placeholders": [],
+      "messages": {"en": "Unsaved", "zh": "未保存"}
+    },
+    "plugin.vivy/workflow-ui.editor.save": {
+      "description": "Save draft button",
+      "placeholders": [],
+      "messages": {"en": "Save draft", "zh": "保存草稿"}
+    },
+    "plugin.vivy/workflow-ui.editor.saved": {
+      "description": "Draft saved notice",
+      "placeholders": [],
+      "messages": {"en": "Draft saved.", "zh": "草稿已保存。"}
+    },
+    "plugin.vivy/workflow-ui.editor.validate": {
+      "description": "Validate draft button",
+      "placeholders": [],
+      "messages": {"en": "Validate", "zh": "校验"}
+    },
+    "plugin.vivy/workflow-ui.editor.valid": {
+      "description": "Validation passed notice",
+      "placeholders": [],
+      "messages": {"en": "Definition is valid.", "zh": "定义校验通过。"}
+    },
+    "plugin.vivy/workflow-ui.editor.publish": {
+      "description": "Publish draft button",
+      "placeholders": [],
+      "messages": {"en": "Publish", "zh": "发布"}
+    },
+    "plugin.vivy/workflow-ui.editor.published": {
+      "description": "Publish success notice",
+      "placeholders": ["digest", "revision"],
+      "messages": {"en": "Published r{{revision}} (digest {{digest}}).", "zh": "已发布 r{{revision}}（摘要 {{digest}}）。"}
+    },
+    "plugin.vivy/workflow-ui.editor.run": {
+      "description": "Run button",
+      "placeholders": [],
+      "messages": {"en": "Run", "zh": "运行"}
+    },
+    "plugin.vivy/workflow-ui.editor.runDisabled": {
+      "description": "Run disabled tooltip (no active parent run)",
+      "placeholders": [],
+      "messages": {"en": "Workflow runs start inside an active session run.", "zh": "工作流运行需要一个处于运行中的会话 Run 作为父级。"}
+    },
+    "plugin.vivy/workflow-ui.editor.reload": {
+      "description": "Reload draft after CAS conflict",
+      "placeholders": [],
+      "messages": {"en": "Reload", "zh": "重新加载"}
+    },
+    "plugin.vivy/workflow-ui.editor.newDraftNote": {
+      "description": "New draft seeded notice",
+      "placeholders": [],
+      "messages": {"en": "No draft found — a starter definition was created. Save to persist it.", "zh": "未找到草稿——已生成起始定义，保存后生效。"}
+    },
+    "plugin.vivy/workflow-ui.editor.forkNote": {
+      "description": "Opened published revision as draft buffer",
+      "placeholders": ["revision"],
+      "messages": {"en": "Editing a copy of published r{{revision}} — save to create a new draft.", "zh": "正在编辑已发布 r{{revision}} 的副本——保存生成新草稿。"}
+    },
+    "plugin.vivy/workflow-ui.editor.empty": {
+      "description": "Empty editor state",
+      "placeholders": [],
+      "messages": {"en": "Open a workflow id to start editing.", "zh": "输入工作流 id 并打开以开始编辑。"}
+    },
+    "plugin.vivy/workflow-ui.editor.selectNode": {
+      "description": "No node selected hint",
+      "placeholders": [],
+      "messages": {"en": "Select a node on the canvas to edit its properties.", "zh": "在画布上选择节点以编辑属性。"}
+    },
+
+    "plugin.vivy/workflow-ui.node.title": {
+      "description": "Node properties panel title",
+      "placeholders": [],
+      "messages": {"en": "Node", "zh": "节点"}
+    },
+    "plugin.vivy/workflow-ui.node.delete": {
+      "description": "Delete node button title",
+      "placeholders": [],
+      "messages": {"en": "Delete node", "zh": "删除节点"}
+    },
+    "plugin.vivy/workflow-ui.node.task": {
+      "description": "Node task field label",
+      "placeholders": [],
+      "messages": {"en": "Task", "zh": "任务"}
+    },
+    "plugin.vivy/workflow-ui.node.tools": {
+      "description": "Node tool names field label",
+      "placeholders": [],
+      "messages": {"en": "Allowed tools", "zh": "可用工具"}
+    },
+    "plugin.vivy/workflow-ui.node.toolsPlaceholder": {
+      "description": "Node tool names placeholder",
+      "placeholders": [],
+      "messages": {"en": "comma-separated tool names", "zh": "逗号分隔的工具名"}
+    },
+    "plugin.vivy/workflow-ui.node.inputs": {
+      "description": "Node inputs field label",
+      "placeholders": [],
+      "messages": {"en": "Inputs (JSON)", "zh": "输入（JSON）"}
+    },
+    "plugin.vivy/workflow-ui.node.timeout": {
+      "description": "Node timeout field label",
+      "placeholders": [],
+      "messages": {"en": "Timeout (ms)", "zh": "超时（毫秒）"}
+    },
+    "plugin.vivy/workflow-ui.node.timeoutPlaceholder": {
+      "description": "Node timeout placeholder",
+      "placeholders": [],
+      "messages": {"en": "default", "zh": "默认"}
+    },
+    "plugin.vivy/workflow-ui.node.exit": {
+      "description": "Exit node checkbox label",
+      "placeholders": [],
+      "messages": {"en": "Exit node", "zh": "出口节点"}
+    },
+    "plugin.vivy/workflow-ui.node.exitBadge": {
+      "description": "Exit badge on canvas node",
+      "placeholders": [],
+      "messages": {"en": "exit", "zh": "出口"}
+    },
+    "plugin.vivy/workflow-ui.node.outputName": {
+      "description": "Exit output name field label",
+      "placeholders": [],
+      "messages": {"en": "Output name", "zh": "输出名"}
+    },
+    "plugin.vivy/workflow-ui.node.advanced": {
+      "description": "Non-call node editing note",
+      "placeholders": [],
+      "messages": {"en": "This node kind is edited in the definition; only exits and outputs can be changed here.", "zh": "该节点类型在定义中编辑；此处只能修改出口与输出。"}
+    },
+    "plugin.vivy/workflow-ui.node.untyped": {
+      "description": "Node without type hint",
+      "placeholders": [],
+      "messages": {"en": "untyped", "zh": "无类型"}
+    },
+
+    "plugin.vivy/workflow-ui.workflows.newPlaceholder": {
+      "description": "New workflow id placeholder",
+      "placeholders": [],
+      "messages": {"en": "new-workflow-id", "zh": "新工作流 id"}
+    },
+    "plugin.vivy/workflow-ui.workflows.new": {
+      "description": "New workflow button",
+      "placeholders": [],
+      "messages": {"en": "New workflow", "zh": "新建工作流"}
+    },
+    "plugin.vivy/workflow-ui.workflows.empty": {
+      "description": "No published workflows",
+      "placeholders": [],
+      "messages": {"en": "No published workflows yet.", "zh": "暂无已发布工作流。"}
+    },
+    "plugin.vivy/workflow-ui.workflows.openDraft": {
+      "description": "Open published revision as draft",
+      "placeholders": [],
+      "messages": {"en": "Edit as draft", "zh": "编辑为草稿"}
+    },
+    "plugin.vivy/workflow-ui.workflows.capabilities": {
+      "description": "Host capabilities section title",
+      "placeholders": [],
+      "messages": {"en": "Capabilities", "zh": "能力"}
+    },
+    "plugin.vivy/workflow-ui.workflows.connections": {
+      "description": "Provider connections section title",
+      "placeholders": [],
+      "messages": {"en": "Connections", "zh": "连接"}
+    },
+
+    "plugin.vivy/workflow-ui.runs.title": {
+      "description": "Runs list title",
+      "placeholders": [],
+      "messages": {"en": "Runs", "zh": "运行"}
+    },
+    "plugin.vivy/workflow-ui.runs.empty": {
+      "description": "No runs",
+      "placeholders": [],
+      "messages": {"en": "No runs yet.", "zh": "暂无运行。"}
+    },
+    "plugin.vivy/workflow-ui.runs.selectRun": {
+      "description": "No run selected hint",
+      "placeholders": [],
+      "messages": {"en": "Select a run to inspect.", "zh": "选择一个运行进行检视。"}
+    },
+    "plugin.vivy/workflow-ui.runs.cancel": {
+      "description": "Cancel run button",
+      "placeholders": [],
+      "messages": {"en": "Cancel", "zh": "取消"}
+    },
+    "plugin.vivy/workflow-ui.runs.waits": {
+      "description": "Pending waits banner",
+      "placeholders": ["count"],
+      "messages": {"en": "{{count}} pending wait(s)", "zh": "{{count}} 个待处理等待"}
+    },
+    "plugin.vivy/workflow-ui.runs.nodes": {
+      "description": "Node states section title",
+      "placeholders": [],
+      "messages": {"en": "Nodes", "zh": "节点"}
+    },
+    "plugin.vivy/workflow-ui.runs.noNodes": {
+      "description": "No node states",
+      "placeholders": [],
+      "messages": {"en": "No node activity yet.", "zh": "暂无节点活动。"}
+    },
+    "plugin.vivy/workflow-ui.runs.output": {
+      "description": "View node output button title",
+      "placeholders": [],
+      "messages": {"en": "View output", "zh": "查看输出"}
+    },
+    "plugin.vivy/workflow-ui.runs.outputTitle": {
+      "description": "Node output viewer title",
+      "placeholders": [],
+      "messages": {"en": "Output", "zh": "输出"}
+    },
+    "plugin.vivy/workflow-ui.runs.events": {
+      "description": "Event ledger section title",
+      "placeholders": [],
+      "messages": {"en": "Events", "zh": "事件"}
+    },
+    "plugin.vivy/workflow-ui.runs.noEvents": {
+      "description": "No events",
+      "placeholders": [],
+      "messages": {"en": "No events yet.", "zh": "暂无事件。"}
+    }
+  }
+}

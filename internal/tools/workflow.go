@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/orchestration"
@@ -29,7 +28,8 @@ type WorkflowTaskResult struct {
 // WorkflowOperations connects the model-facing tool to the governed runtime.
 // The operation key must be stable for retries of the same model tool call.
 type WorkflowOperations interface {
-	RunWorkflow(context.Context, domain.RunID, string, orchestration.Descriptor) (WorkflowTaskResult, error)
+	RunWorkflow(context.Context, domain.RunID, string, json.RawMessage) (WorkflowTaskResult, error)
+	DefinitionSchema() json.RawMessage
 }
 
 type workflowTool struct{ ops WorkflowOperations }
@@ -39,30 +39,16 @@ func NewWorkflow(ops WorkflowOperations) Tool { return &workflowTool{ops: ops} }
 func (t *workflowTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
 		Name: WorkflowName,
-		Description: "Create and run a bounded DAG of independent read-only tasks. " +
+		Description: "Create and run a bounded INOFY Definition of read-only child tasks. " +
 			"Each node receives only its task and explicitly connected predecessor outputs in a fresh child context. " +
 			"The host validates the graph and limits its size and tools. Use this for independent research or analysis steps, " +
 			"declare dependencies and final outputs explicitly, keep tasks self-contained, and never include secrets. " +
 			"Workflow nodes cannot create nested workflows or use write-capable tools.",
 		Readonly: true,
-		Keywords: []string{"workflow", "dag", "parallel", "orchestration", "tasks"},
-		Schema:   json.RawMessage(workflowDescriptorSchema),
+		Keywords: []string{"workflow", "parallel", "orchestration", "tasks"},
+		Schema:   t.ops.DefinitionSchema(),
 	}
 }
-
-const workflowDescriptorSchema = `{
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "type":"object",
-  "additionalProperties":false,
-  "required":["schema_version","start_nodes","nodes","edges","outputs"],
-  "properties":{
-    "schema_version":{"type":"integer","const":1},
-    "start_nodes":{"type":"array","minItems":1,"maxItems":12,"items":{"type":"string","minLength":1,"maxLength":48}},
-    "nodes":{"type":"array","minItems":1,"maxItems":12,"items":{"type":"object","additionalProperties":false,"required":["key","task"],"properties":{"key":{"type":"string","minLength":1,"maxLength":48},"task":{"type":"string","minLength":1,"maxLength":4096},"tool_names":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":128}}}}},
-    "edges":{"type":"array","maxItems":24,"items":{"type":"object","additionalProperties":false,"required":["from","to"],"properties":{"from":{"type":"string","minLength":1,"maxLength":48},"to":{"type":"string","minLength":1,"maxLength":48},"input_key":{"type":"string","maxLength":48}}}},
-    "outputs":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string","minLength":1,"maxLength":48}}
-  }
-}`
 
 func (t *workflowTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
 	if t == nil || t.ops == nil {
@@ -74,27 +60,14 @@ func (t *workflowTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 		return "", errors.New("workflow tool requires a run-scoped model call")
 	}
 	if len(bytes.TrimSpace(args)) > maxWorkflowDescriptorSize {
-		return "", fmt.Errorf("workflow descriptor exceeds %d bytes", maxWorkflowDescriptorSize)
+		return "", fmt.Errorf("workflow definition exceeds %d bytes", maxWorkflowDescriptorSize)
 	}
 	if err := ValidateArgs(t.Spec(), args); err != nil {
 		return "", err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(args))
-	decoder.DisallowUnknownFields()
-	var descriptor orchestration.Descriptor
-	if err := decoder.Decode(&descriptor); err != nil {
-		return "", fmt.Errorf("decode workflow descriptor: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			err = errors.New("multiple JSON values")
-		}
-		return "", fmt.Errorf("decode workflow descriptor: %w", err)
-	}
 	callDigest := sha256.Sum256([]byte(callID))
 	operationKey := "workflow-tool-" + hex.EncodeToString(callDigest[:])
-	result, err := t.ops.RunWorkflow(ctx, parentRunID, operationKey, descriptor)
+	result, err := t.ops.RunWorkflow(ctx, parentRunID, operationKey, args)
 	if err != nil {
 		return "", err
 	}

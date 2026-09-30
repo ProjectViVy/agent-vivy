@@ -33,7 +33,6 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/modelhost"
-	"agent-vivy/internal/orchestration"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -387,29 +386,33 @@ type ChildController interface {
 }
 
 type workflowProposeParams struct {
-	ParentRunID string                   `json:"parent_run_id"`
-	Descriptor  orchestration.Descriptor `json:"descriptor"`
+	ParentRunID string          `json:"parent_run_id"`
+	Definition  json.RawMessage `json:"definition"`
 }
 
 type workflowStartParams struct {
-	ParentRunID string                   `json:"parent_run_id"`
-	OperationID string                   `json:"operation_id"`
-	Descriptor  orchestration.Descriptor `json:"descriptor"`
+	ParentRunID string          `json:"parent_run_id"`
+	OperationID string          `json:"operation_id"`
+	Definition  json.RawMessage `json:"definition"`
 }
 
 type workflowResult struct {
-	ID             string                           `json:"id"`
-	ParentRunID    string                           `json:"parent_run_id"`
-	RootRunID      string                           `json:"root_run_id"`
-	SessionID      string                           `json:"session_id"`
-	Status         string                           `json:"status"`
-	RevisionDigest string                           `json:"revision_digest"`
-	Depth          int                              `json:"depth"`
-	CreatedAt      int64                            `json:"created_at"`
-	Created        bool                             `json:"created,omitempty"`
-	Descriptor     orchestration.Descriptor         `json:"descriptor"`
-	Nodes          []runtime.WorkflowNodeProjection `json:"nodes"`
-	Outputs        map[string]string                `json:"outputs,omitempty"`
+	ID             string `json:"id"`
+	ParentRunID    string `json:"parent_run_id"`
+	RootRunID      string `json:"root_run_id"`
+	SessionID      string `json:"session_id"`
+	Status         string `json:"status"`
+	RevisionDigest string `json:"revision_digest"`
+	Depth          int    `json:"depth"`
+	CreatedAt      int64  `json:"created_at"`
+	Created        bool   `json:"created,omitempty"`
+	// Definition is the committed canonical INOFY definition; engine_status
+	// reports the committed graph projection (admitted/running/waiting/
+	// succeeded/failed/cancelled/recovery_required).
+	Definition   json.RawMessage                  `json:"definition,omitempty"`
+	EngineStatus string                           `json:"engine_status,omitempty"`
+	Nodes        []runtime.WorkflowNodeProjection `json:"nodes"`
+	Outputs      map[string]string                `json:"outputs,omitempty"`
 }
 
 func NewControlHandler(deps ControlDeps) (Handler, error) {
@@ -1424,6 +1427,40 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listWorkflows(ctx, request)
 	case "workflow/cancel":
 		return h.cancelWorkflow(ctx, request)
+	case "inofy.capabilities":
+		return h.inofyCapabilities(ctx)
+	case "inofy.nodeTypes":
+		return h.inofyNodeTypes(ctx)
+	case "inofy.listWorkflows":
+		return h.inofyListWorkflows(ctx, peer, request)
+	case "inofy.loadDraft":
+		return h.inofyLoadDraft(ctx, peer, request)
+	case "inofy.saveDraft":
+		return h.inofySaveDraft(ctx, peer, request)
+	case "inofy.validate":
+		return h.inofyValidateDraft(ctx, peer, request)
+	case "inofy.publish":
+		return h.inofyPublish(ctx, peer, request)
+	case "inofy.getRevision":
+		return h.inofyGetRevision(ctx, peer, request)
+	case "inofy.startRun":
+		return h.inofyStartRun(ctx, peer, request)
+	case "inofy.listRuns":
+		return h.inofyListRuns(ctx, peer, request)
+	case "inofy.getRun":
+		return h.inofyGetRun(ctx, peer, request)
+	case "inofy.nodeOutput":
+		return h.inofyNodeOutput(ctx, peer, request)
+	case "inofy.cancelRun":
+		return h.inofyCancelRun(ctx, peer, request)
+	case "inofy.resumeRun":
+		return h.inofyResumeRun(ctx, peer, request)
+	case "inofy.events":
+		return h.inofyRunEvents(ctx, peer, request)
+	case "inofy.listConnections":
+		return h.inofyListConnections(ctx)
+	case "inofy.putConnection", "inofy.deleteConnection":
+		return h.inofyConnectionUnsupported()
 	case "generations/list":
 		return h.listGenerations(ctx)
 	case "generations/get":
@@ -1522,14 +1559,17 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 }
 
 func workflowRPCError(err error) *Error {
-	var validation *orchestration.ValidationError
 	switch {
 	case errors.Is(err, storage.ErrNotFound):
 		return &Error{Code: CodeNotFound, Message: "workflow not found"}
 	case errors.Is(err, storage.ErrWorkflowRevisionConflict), errors.Is(err, runtime.ErrWorkflowRecoveryRequired), errors.Is(err, runtime.ErrWorkflowNodeUnknownOutcome):
 		return &Error{Code: CodeConflict, Message: "workflow operation conflicts with its durable state"}
-	case errors.As(err, &validation):
-		return &Error{Code: InvalidParams, Message: validation.Error()}
+	case errors.Is(err, runtime.ErrWorkflowLegacyFormat):
+		return &Error{Code: CodeConflict, Message: "workflow revision uses the retired descriptor format and is kept as history only"}
+	case errors.Is(err, runtime.ErrINOFYStorageUnavailable):
+		return &Error{Code: CodeConflict, Message: "INOFY workflow execution is not available until durable storage is configured"}
+	case errors.Is(err, runtime.ErrINOFYInvalidDefinition):
+		return &Error{Code: InvalidParams, Message: err.Error()}
 	default:
 		return internalError(err)
 	}
@@ -1537,37 +1577,36 @@ func workflowRPCError(err error) *Error {
 
 func (h *controlHandler) proposeWorkflow(ctx context.Context, request Request) (any, *Error) {
 	var params workflowProposeParams
-	if err := decodeParams(request, &params); err != nil {
+	if err := decodeWorkflowParams(request, &params); err != nil {
 		return nil, err
+	}
+	if len(params.Definition) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "definition is required"}
 	}
 	params.ParentRunID = strings.TrimSpace(params.ParentRunID)
 	if params.ParentRunID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "parent_run_id is required"}
 	}
-	validated, err := h.deps.Service.ProposeWorkflow(ctx, domain.RunID(params.ParentRunID), params.Descriptor)
+	validated, err := h.deps.Service.ProposeINOFYWorkflow(ctx, domain.RunID(params.ParentRunID), params.Definition)
 	if err != nil {
 		return nil, workflowRPCError(err)
 	}
-	return struct {
-		Descriptor  orchestration.Descriptor `json:"descriptor"`
-		Digest      string                   `json:"digest"`
-		Topological []string                 `json:"topological_order"`
-		Layers      [][]string               `json:"layers"`
-	}{validated.Descriptor, validated.Digest, validated.Topological, validated.Layers}, nil
+	return validated, nil
 }
 
 func (h *controlHandler) startWorkflow(ctx context.Context, request Request) (any, *Error) {
 	var params workflowStartParams
-	if err := decodeParams(request, &params); err != nil {
+	if err := decodeWorkflowParams(request, &params); err != nil {
 		return nil, err
+	}
+	if len(params.Definition) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "definition is required"}
 	}
 	params.ParentRunID, params.OperationID = strings.TrimSpace(params.ParentRunID), strings.TrimSpace(params.OperationID)
 	if params.ParentRunID == "" || params.OperationID == "" || len(params.OperationID) > 128 {
 		return nil, &Error{Code: InvalidParams, Message: "parent_run_id and operation_id up to 128 bytes are required"}
 	}
-	started, err := h.deps.Service.StartWorkflow(ctx, runtime.WorkflowRequest{
-		ParentRunID: domain.RunID(params.ParentRunID), OperationKey: params.OperationID, Descriptor: params.Descriptor,
-	})
+	started, err := h.deps.Service.StartINOFYWorkflow(ctx, domain.RunID(params.ParentRunID), params.OperationID, params.Definition)
 	if err != nil {
 		return nil, workflowRPCError(err)
 	}
@@ -1576,6 +1615,42 @@ func (h *controlHandler) startWorkflow(ctx context.Context, request Request) (an
 		return nil, workflowRPCError(err)
 	}
 	return toWorkflowResult(details, started.Created), nil
+}
+
+// New workflow requests reject obsolete descriptor payloads at the RPC edge;
+// the Definition itself is decoded strictly by INOFY at runtime admission.
+func decodeWorkflowParams(request Request, target any) *Error {
+	fields := json.NewDecoder(bytes.NewReader(request.Params))
+	opening, err := fields.Token()
+	if err != nil || opening != json.Delim('{') {
+		return &Error{Code: InvalidParams, Message: "workflow params must be an object"}
+	}
+	seen := make(map[string]bool)
+	for fields.More() {
+		token, err := fields.Token()
+		if err != nil {
+			return &Error{Code: InvalidParams, Message: "workflow params contain invalid fields"}
+		}
+		key, ok := token.(string)
+		if !ok || seen[key] {
+			return &Error{Code: InvalidParams, Message: "workflow params contain duplicate fields"}
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if err := fields.Decode(&value); err != nil {
+			return &Error{Code: InvalidParams, Message: "workflow params contain invalid fields"}
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(request.Params))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return &Error{Code: InvalidParams, Message: "workflow params must use the Definition contract"}
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return &Error{Code: InvalidParams, Message: "workflow params contain trailing data"}
+	}
+	return nil
 }
 
 func (h *controlHandler) getWorkflow(ctx context.Context, request Request) (any, *Error) {
@@ -1632,7 +1707,8 @@ func toWorkflowResult(details runtime.WorkflowDetails, created bool) workflowRes
 		ID: string(details.Run.ID), ParentRunID: string(details.Run.ParentID), RootRunID: string(details.Run.RootID),
 		SessionID: string(details.Run.SessionID), Status: string(details.Run.Status), RevisionDigest: details.RevisionDigest,
 		Depth: details.Run.Depth, CreatedAt: details.Run.CreatedAt, Created: created,
-		Descriptor: details.Descriptor, Nodes: details.Nodes, Outputs: details.Outputs,
+		Definition: details.Definition, EngineStatus: details.EngineStatus,
+		Nodes: details.Nodes, Outputs: details.Outputs,
 	}
 }
 
@@ -3851,18 +3927,32 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 				}
 				continue
 			}
-			// Bus closes before sending terminal events. Replay the tail
-			// so the JSON-RPC client still receives the terminal record.
+			// The bus closes the channel on a terminal publish or when this
+			// subscriber falls behind and is dropped (AS-7). Re-subscribe
+			// first so later live events keep flowing, then replay the
+			// journal tail — the single source of truth — so nothing
+			// committed between the drop and the resubscribe is skipped.
+			// A non-terminal run keeps the stream open; a terminal tail
+			// still ends it after the record is delivered.
+			cancel()
+			ch, cancel = h.deps.Bus.Subscribe(runID)
+			defer cancel()
 			tail, replayErr := h.replayEvents(ctx, runID, last)
 			if replayErr != nil {
 				return
 			}
+			terminal := false
 			for _, entry := range tail {
 				if !send(domain.RunEvent{RunID: entry.RunID, Seq: entry.Seq, Type: entry.Type, CreatedAt: entry.CreatedAt, PayloadVersion: entry.PayloadVersion, Payload: entry.Payload}) {
 					return
 				}
+				if entry.Type.Terminal() {
+					terminal = true
+				}
 			}
-			return
+			if terminal {
+				return
+			}
 		}
 	}
 }
