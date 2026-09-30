@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
-	github.com/ProjectViVy/inofy v0.0.0-20260929225707-4def2ae6185f
+	github.com/ProjectViVy/inofy v0.0.0-20260930141905-71e2c9bbe47d
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -103,12 +103,9 @@ require (
 )
 
 require (
-	agent-vivy/faces/headless v0.0.0
-	agent-vivy/faces/tui v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
