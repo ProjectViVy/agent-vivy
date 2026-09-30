@@ -49,7 +49,7 @@ const stubAction = async (method: string): Promise<unknown> => {
         run: { supports_wait: false, supports_resume: false, resume_reasons: [] },
       };
     case 'inofy.nodeTypes':
-      return [];
+      return [{ type_id: 'vivy.child-task@1', implementation_id: 'vivy.child-task', display: { title: 'Child task' } }];
     case 'inofy.listWorkflows':
       return { items: [{ workflow_id: 'wf-alpha', revision: 1 }], next_cursor: null };
     case 'inofy.listRuns':
@@ -61,9 +61,12 @@ const stubAction = async (method: string): Promise<unknown> => {
   }
 };
 
-function studioDOM(container: HTMLElement): HTMLElement | null {
-  const mount = container.querySelector<HTMLElement>('[data-testid="vivy-workflow-studio"]');
-  return mount?.shadowRoot?.querySelector<HTMLElement>('.studio-app') ?? null;
+async function click(el: Element) {
+  await act(async () => {
+    el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    el.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+    el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  });
 }
 
 describe('vivy-workflow extension', () => {
@@ -96,17 +99,47 @@ describe('WorkflowPage', () => {
     container.remove();
   });
 
-  it('mounts the studio App inside a shadow root and lists host workflows', async () => {
+  it('renders the module tabs and lists published workflows on the Workflows tab', async () => {
     const host = makeHost(stubAction);
     await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
-    await vi.waitFor(() => expect(studioDOM(container)?.textContent).toContain('wf-alpha'));
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.tab.editor'));
+
+    const workflowsTab = [...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.tab.workflows');
+    expect(workflowsTab).toBeTruthy();
+    await click(workflowsTab!);
+    await vi.waitFor(() => expect(container.textContent).toContain('wf-alpha'));
+
     const calls = (host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.map(([m]) => m);
-    expect(calls).toContain('inofy.capabilities');
+    expect(calls).toContain('inofy.nodeTypes');
     expect(calls).toContain('inofy.listWorkflows');
     for (const [, params] of (host.rpc.call as ReturnType<typeof vi.fn>).mock.calls) {
       if (typeof params === 'object' && params !== null) {
         expect((params as { session_id?: string }).session_id).toBe('sess-1');
       }
     }
+  });
+
+  it('opens a seeded draft for an unknown workflow id', async () => {
+    const host = makeHost(async (method: string) => {
+      if (method === 'inofy.loadDraft') {
+        const err = new Error('not found') as Error & { data?: { code?: string; message?: string } };
+        err.data = { code: 'not_found', message: 'draft not found' };
+        throw err;
+      }
+      return stubAction(method);
+    });
+    await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
+
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="plugin.vivy/workflow-ui.editor.idPlaceholder"]');
+    expect(input).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, 'wf-new');
+      input!.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    const openBtn = [...container.querySelectorAll('button')].find((b) => b.textContent === 'common.open');
+    expect(openBtn).toBeTruthy();
+    await click(openBtn!);
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.newDraftNote'));
   });
 });

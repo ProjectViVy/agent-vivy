@@ -124,3 +124,36 @@ rec-4 verifies the full product flow in the real UI: UI-authored draft
 saves, validates, publishes r1, runs to `engine_status:"succeeded"`
 with the declared output bound, and cancel streams its honest
 `recovery_required` tail into the open ledger.
+
+# S11-G revision — VIVY-native editor replaces the vendored studio UI
+
+The user rejected the vendored INOFY studio chrome: the Module's editor
+must be a VIVY-native surface, not INOFY's own UI. The vendored UI was
+deleted wholesale; `src/studio/` keeps only the model layer (schema,
+transport errors, edit helpers, canvas graph projection) which remains
+the definition SSOT. All rendering is new inline host DOM built on the
+host kit (`@/components/ui/*`, `cn`, `MasterDetail`,
+`usePluginTranslation`) — tabs Editor / Workflows / Runs, a React Flow
+canvas with VIVY-styled node cards, a properties `.w-80` panel, revision
+list with fork-to-draft, run list + detail with journal-backed node
+states, output inspector and cancel.
+
+`FaceBridge` stays the single host authorization path unchanged; a new
+typed `WorkflowClient` wraps `inofy.*` with TransportError→status
+mapping (App §11.4). Editor mutations funnel artifact→`toCanvas`; the
+canvas writes back via `fromCanvas` only on real edits — the artifact
+stays the single source of truth and `pointer:""` root bindings
+round-trip.
+
+Smoke (rec-5) then caught a deterministic selection crash the fix
+(commit in this change) resolves: injecting `selected:true` into the
+controlled React Flow `nodes` prop at render time fought RF's select
+change pipeline — every save with a selection hit
+`Maximum update depth exceeded` and pane/Escape could never deselect.
+Selection now lives in canvas state: `reproject()` re-applies the flag
+onto rebuilt node objects at projection time, `applyNodeChanges` drives
+select/unselect, `onSelectionChange` owns the app-level id, and
+`applyArtifact(…, preserveSelection)` keeps the selection across
+save/validate/publish/run while fresh opens still clear it. rec-6
+re-verified: save-while-selected clean, panel switches between nodes,
+deselect via pane + Escape, zero console errors.

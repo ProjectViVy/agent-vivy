@@ -71,3 +71,16 @@ Deferred: the browser product path and editor mount wait for S11-G.
   binds `state.currentRun` rather than the session's active run, so it
   fails `-32603` whenever the last-viewed run is stale; `inofy.startRun`
   with an active parent works. Product decision pending.
+
+# Acceptance — S11-G revision (user-mandated VIVY-native UI)
+
+- Vendored studio UI fully deleted; editor is inline host DOM on the
+  VIVY component kit — no INOFY chrome anywhere in the Module.
+- Definition semantics still single-sourced: `src/studio/` model layer
+  (edit/graph) drives every mutation; artifact→canvas→artifact.
+- Host authority unchanged: `inofy.*` via FaceBridge, fail-closed
+  session binding, `parent_run_id` + `operation_id` injection,
+  journal-derived run/node status, protected `nodeOutput`, cancel —
+  all from committed host facts.
+- rec-6 re-verify after the selection fix: all reported defects closed,
+  console clean. `just ci` green on both storage drivers.

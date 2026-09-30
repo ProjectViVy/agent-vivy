@@ -1,5 +1,5 @@
 /**
- * VIVY host bridge for the vendored INOFY editor.
+ * VIVY host bridge for the workflow editor Module.
  *
  * Every `inofy.*` call is bound to the active host session (the backend
  * handlers are session-scoped and fail closed without it). `inofy.startRun`
@@ -13,9 +13,24 @@
  * mapping, so the editor renders committed host facts only.
  */
 import type { FaceClientRPC, FaceClientStore, FaceStoreState } from '@vivy/ui-sdk';
-import { VivyTransport, type HostBridge } from './studio/vivy-transport';
 import type { RunEvent } from './studio/schema';
 import { TransportError } from './studio/transport';
+
+/**
+ * The seam between the editor client and the host face. `call` routes
+ * `inofy.*` host actions; `subscribe` supplies the `inofy.events` live
+ * channel. Implemented by FaceBridge against the real face and by test
+ * doubles in unit tests.
+ */
+export interface HostBridge {
+  call<T>(method: string, params?: unknown): Promise<T>;
+  subscribe(
+    channel: string,
+    params: Record<string, unknown> | undefined,
+    onEvent: (data: unknown) => void,
+    onError?: (err: unknown) => void,
+  ): { close(): void };
+}
 
 interface JournalRow {
   seq: number;
@@ -170,13 +185,5 @@ export class FaceBridge implements HostBridge {
     };
     void connect();
     return { close };
-  }
-}
-
-/** StudioTransport whose paged journal rows are normalized like live events. */
-export class FaceVivyTransport extends VivyTransport {
-  override async events(id: string, afterSeq?: number) {
-    const page = await super.events(id, afterSeq);
-    return { ...page, events: page.events.map((e) => normalizeJournalEvent(e as unknown as JournalRow)) };
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FaceClientRPC, FaceClientStore, FaceStoreState, FullUIHost } from '@vivy/ui-sdk';
-import { FaceBridge, FaceVivyTransport, normalizeJournalEvent } from './face-bridge';
+import { FaceBridge, normalizeJournalEvent } from './face-bridge';
+import { WorkflowClient } from './client';
 import { TransportError } from './studio/transport';
 
 function makeRpc(action?: (method: string, params?: unknown) => Promise<unknown>) {
@@ -78,7 +79,7 @@ describe('FaceBridge.call', () => {
   });
 });
 
-describe('VivyTransport error surface', () => {
+describe('WorkflowClient error surface', () => {
   it('maps wire error codes onto App §11.4 statuses', async () => {
     const host = makeHost({}, async () => {
       const err = new Error('workflow not found') as Error & { code?: number; data?: { code?: string } };
@@ -86,8 +87,8 @@ describe('VivyTransport error surface', () => {
       err.data = { code: 'not_found' };
       throw err;
     });
-    const transport = new FaceVivyTransport(new FaceBridge(host.rpc, host.store));
-    await expect(transport.loadDraft('wf-1')).rejects.toMatchObject({ status: 412, code: 'not_found' });
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+    await expect(client.loadDraft('wf-1')).rejects.toMatchObject({ status: 412, code: 'not_found' });
   });
 
   it('maps revision_conflict onto 412 for the editor CAS branch', async () => {
@@ -96,9 +97,9 @@ describe('VivyTransport error surface', () => {
       err.data = { code: 'revision_conflict' };
       throw err;
     });
-    const transport = new FaceVivyTransport(new FaceBridge(host.rpc, host.store));
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
     try {
-      await transport.saveDraft('wf', { definition: { schema_version: 'inofy.workflow/v1', graph: { nodes: [], edges: [], exits: [] } } }, 'e1');
+      await client.saveDraft('wf', { definition: { schema_version: 'inofy.workflow/v1', graph: { nodes: [], edges: [], exits: [] } } }, 'e1');
       expect.unreachable();
     } catch (e) {
       expect(e).toBeInstanceOf(TransportError);
@@ -131,7 +132,7 @@ describe('normalizeJournalEvent', () => {
   });
 });
 
-describe('FaceVivyTransport.events', () => {
+describe('WorkflowClient.events', () => {
   it('normalizes paged journal rows into RunEvents', async () => {
     const host = makeHost({}, async (method, params) => {
       if (method === 'inofy.events') {
@@ -145,8 +146,8 @@ describe('FaceVivyTransport.events', () => {
       }
       return {};
     });
-    const transport = new FaceVivyTransport(new FaceBridge(host.rpc, host.store));
-    const page = await transport.events('run-1');
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+    const page = await client.events('run-1');
     expect(page.events).toEqual([
       { seq: 3, kind: 'node_completed', path: '/graph/nodes/a', attempt: undefined, data: { node_key: '/graph/nodes/a', result_blob_id: 'wf/x' } },
       { seq: 4, kind: 'run_succeeded', path: undefined, attempt: undefined, data: {} },

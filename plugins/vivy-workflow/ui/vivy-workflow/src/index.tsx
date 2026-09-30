@@ -1,8 +1,8 @@
 /**
  * INOFY workflow editor Module entry.
  *
- * The page hosts the vendored INOFY editor over the host `inofy.*` action
- * surface: the backend's session-scoped handlers remain the single
+ * The page hosts the Module's own VIVY-native editor over the host `inofy.*`
+ * action surface: the backend's session-scoped handlers remain the single
  * authorization path, and the journal is the sole event authority. Editor
  * state supplies data only — never policy or tool authority.
  */

@@ -189,3 +189,38 @@ Known product gap (pre-existing, unchanged by S11-G): the editor's
 stale → `-32603`; runs started via `inofy.startRun` with an active
 parent work correctly. Needs a product decision (bind the session's
 active run or resolve it backend-side).
+
+# Verification — S11-G revision (VIVY-native editor)
+
+- `pnpm vitest run src/generated/ui/vivy-workflow`: 28/28 (4 files —
+  editor, face-bridge, page, studio edit/graph) on the staged tree.
+- `pnpm typecheck`: clean.
+- Browser smoke on the split pair at `127.0.0.1:3015` (fresh VIVY_USER_HOME,
+  marker-routed mock on :11434):
+  - rec-5 (`/home/ubuntu/screencasts/rec-10f81b43-…/…-edited.mp4`):
+    golden path on the VIVY-native editor — seed `begin` node, add
+    second `vivy.child-task@1`, task edit, edge, exit + output `answer`,
+    save → validate → publish r1 → run `succeeded` with output bound →
+    cancel streamed `node_failed` + `recovery_required` live. Two
+    selection defects surfaced (below). Screenshots
+    `ss_99f56759.png` (succeeded run + outputs), `ss_7c3113e3.png`
+    (cancel live stream), `ss_f0e67462.png` (crash evidence),
+    `ss_f74e529e.png` (published), `ss_256b6f29.png` (workflows tab),
+    `ss_2460492c.png` (canvas + panel).
+  - rec-6 (delta, post-fix): save-while-selected → "Draft saved." 2×
+    clean (was 100% `Maximum update depth exceeded`); panel follows
+    node1→node2 clicks; pane click + Escape deselect; drag + edge +
+    save stable; validate diagnostics render; zero console errors.
+    `ss_cf47ba4d.png`.
+- `just ci` (PATH incl. /usr/local/go/bin, VIVY_POSTGRES_TEST_DSN set):
+  green — all Go suites on both drivers, UI vitest 519, plugin-ci
+  incl. source-digest re-pin (`a0fcd1ea…`).
+
+Defects found and fixed this round:
+
+- Render-time `selected:true` injection into the controlled `nodes`
+  prop → infinite setState on save + permanently stuck first selection.
+  Fixed by carrying selection in canvas state via `reproject()` and
+  letting `applyNodeChanges`/`onSelectionChange` own it.
+- `applyArtifact` cleared selection on every save — kept via a
+  `preserveSelection` path used only by save/validate/publish/run.

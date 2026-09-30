@@ -1,56 +1,125 @@
 /**
- * Host page for the vendored INOFY editor.
+ * Workflow Module page — a VIVY-native INOFY definition editor. Rendered
+ * inline in the host DOM like every other Module page: host UI kit
+ * components + Tailwind tokens provide the styling, the module catalog the
+ * copy, and FaceBridge the session-bound `inofy.*` host actions.
  *
- * The editor is mounted inside a Shadow DOM root so its stylesheet (a global
- * document stylesheet upstream) neither leaks into the VIVY shell nor gets
- * overridden by it. Selector scoping is done textually on mount: `:root`
- * custom properties move to `:host`, and the upstream `body` rules land on
- * the `.studio-shell` mount node. The vendored file itself stays
- * byte-identical (see studio/VENDORED.md).
+ * Three tabs: Editor (graph canvas + draft lifecycle), Workflows (published
+ * revisions + host capabilities), Runs (durable runs with live journal
+ * ledger, node status, protected outputs, cancel).
  */
-import { useEffect, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
-import { usePluginHost } from '@vivy/ui-sdk';
-import studioCss from './studio/styles.css?inline';
-import xyflowCss from '@xyflow/react/dist/style.css?inline';
-import { App } from './studio/App';
-import { FaceBridge, FaceVivyTransport } from './face-bridge';
+import {
+  type FaceClientStore,
+  type FaceStoreState,
+  type FullUIHost,
+  type UITranslator,
+} from '@vivy/ui-sdk';
+import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { WorkflowClient } from './client';
+import { FaceBridge } from './face-bridge';
+import { EditorPane, type EditTarget } from './editor/EditorPane';
+import { RunsPane } from './panes/RunsPane';
+import { WorkflowsPane } from './panes/WorkflowsPane';
+import type { NodeDescriptor } from './studio/schema';
 
-const scopedCss = `${studioCss
-  .replace(/:root\b/g, ':host')
-  .replace(/((?:^|[{}>,])\s*)body\b/gm, '$1.studio-shell')}\n${xyflowCss}`;
+const EMPTY_FACE_STATE = { activeSessionId: null, currentRun: null, connection: 'idle' } as unknown as FaceStoreState;
+
+function useFaceState(host?: FullUIHost): FaceStoreState {
+  const subscribe = useCallback((listener: () => void) => {
+    if (!host) return () => undefined;
+    return host.store.subscribe(() => listener());
+  }, [host]);
+  const getSnapshot = useCallback(() => host?.store.getState() ?? EMPTY_FACE_STATE, [host]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t: UITranslator }) {
+  const faceState = useFaceState(host);
+  const [tab, setTab] = useState<'editor' | 'workflows' | 'runs'>('editor');
+  const [catalog, setCatalog] = useState<NodeDescriptor[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [focusRun, setFocusRun] = useState<string | null>(null);
+  const canRun = faceState.currentRun != null;
+
+  useEffect(() => {
+    let alive = true;
+    client
+      .nodeTypes()
+      .then((types) => {
+        if (alive) setCatalog(types);
+      })
+      .catch((e: unknown) => {
+        if (alive) setCatalogError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [client]);
+
+  const openDraft = useCallback((workflow: string) => {
+    setEditTarget({ workflow, key: Date.now() });
+    setTab('editor');
+  }, []);
+  const openRevision = useCallback((workflow: string, revision: number) => {
+    setEditTarget({ workflow, revision, key: Date.now() });
+    setTab('editor');
+  }, []);
+  const openRun = useCallback((runId: string) => {
+    setFocusRun(runId);
+    setTab('runs');
+  }, []);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex h-full min-h-0 flex-col">
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <TabsList className="h-8">
+            <TabsTrigger value="editor" className="text-xs">{t('plugin.vivy/workflow-ui.tab.editor')}</TabsTrigger>
+            <TabsTrigger value="workflows" className="text-xs">{t('plugin.vivy/workflow-ui.tab.workflows')}</TabsTrigger>
+            <TabsTrigger value="runs" className="text-xs">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
+          </TabsList>
+          {catalogError ? (
+            <span className="ml-auto text-[11px] text-destructive">{catalogError}</span>
+          ) : null}
+        </div>
+        <TabsContent value="editor" className="mt-0 min-h-0 flex-1">
+          <EditorPane
+            client={client}
+            catalog={catalog}
+            t={t}
+            canRun={canRun}
+            target={editTarget}
+            onRunStarted={openRun}
+          />
+        </TabsContent>
+        <TabsContent value="workflows" className="mt-0 min-h-0 flex-1">
+          <WorkflowsPane
+            client={client}
+            t={t}
+            canRun={canRun}
+            onOpenDraft={openDraft}
+            onOpenRevision={openRevision}
+            onRunStarted={openRun}
+          />
+        </TabsContent>
+        <TabsContent value="runs" className="mt-0 min-h-0 flex-1">
+          <RunsPane client={client} t={t} focusRunId={focusRun} onFocusHandled={() => setFocusRun(null)} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
 
 export function WorkflowPage() {
   const host = usePluginHost();
-  const mountRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount || !host) return;
-    if (!host.rpc || !host.store) return;
-    const shadow = mount.shadowRoot ?? mount.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent = scopedCss;
-    const inner = document.createElement('div');
-    inner.className = 'studio-shell';
-    inner.style.height = '100%';
-    inner.style.width = '100%';
-    shadow.append(style, inner);
-
-    const transport = new FaceVivyTransport(new FaceBridge(host.rpc, host.store));
-    const root = createRoot(inner);
-    root.render(<App transport={transport} />);
-    return () => {
-      // Synchronous unmount races React's own render of this tree; defer it.
-      // Only this effect's nodes may be removed — a replayed mount appends a
-      // second pair into the same shadow root.
-      setTimeout(() => {
-        root.unmount();
-        style.remove();
-        inner.remove();
-      }, 0);
-    };
-  }, [host]);
-
-  return <div data-testid="vivy-workflow-studio" ref={mountRef} style={{ height: '100%', minHeight: 0 }} />;
+  const { t } = usePluginTranslation();
+  const client = useMemo(
+    () => (host ? new WorkflowClient(new FaceBridge(host.rpc, host.store as FaceClientStore<FaceStoreState>)) : null),
+    [host],
+  );
+  if (!host || !client) return null;
+  return <Page host={host} client={client} t={t} />;
 }
