@@ -14,8 +14,9 @@ in `internal/logging/logging.go`:
 
 - `logging.Setup` — the `vivy.exe` service process, wired by the
   two-phase bootstrap in `cmd/vivy/main.go`:
-  1. A bootstrap JSON logger on stdout handles the earliest messages
-     (config load failure, logging setup failure).
+  1. `logging.NewBootstrap(os.Stderr)` handles the earliest messages
+     (config load failure, logging setup failure): pretty on a
+     terminal, JSON when redirected, same redaction seam, no file.
   2. After config load, `logging.Setup` replaces the default logger
      (`slog.SetDefault`) and logs the `logging initialized` milestone
      with the effective level/format/dir.
@@ -28,29 +29,39 @@ Never create ad-hoc `slog.Handler`s, stdlib `log.Logger`s, or
 ```yaml
 logging:
   level: info          # debug | info | warn | error
-  format: json         # json | text
+  format: json         # file sink: json | text
+  console_format: auto # console sink: auto | pretty | json | text
   dir: ""              # empty = <data_dir>/logs
   retention_days: 30   # startup sweep; 0 = keep every file
   stdout: true         # mirror lines to the console + file
 ```
 
+`format` and `console_format` are independent: the daily file keeps
+the machine contract while `auto` picks pretty (prettylog) on a real
+terminal and JSON when stdout is redirected. prettylog honors
+`NO_COLOR` itself.
+
 Defaults live in `config.Default()`; validation in `Config.Validate()`.
-Two environment overrides exist for one-off ops launches and win over
+Three environment overrides exist for one-off ops launches and win over
 the config file:
 
 - `VIVY_LOG_LEVEL` — `debug|info|warn|error`
 - `VIVY_LOG_FORMAT` — `json|text`
+- `VIVY_LOG_CONSOLE_FORMAT` — `auto|pretty|json|text`
 
-Both are parsed strictly: an invalid value aborts startup with a clear
+All are parsed strictly: an invalid value aborts startup with a clear
 error instead of silently keeping the configured value.
 
 ## 3. Destinations
 
-- Default sink: stdout (when `stdout: true`) **plus** a daily-rotated
-  file `<dir>/vivy.log.YYYY-MM-DD`. Rotation happens on the first write
-  after local midnight; writes are synchronous and appends are
+- Default sinks: the console (when `stdout: true`) **plus** a
+  daily-rotated file `<dir>/vivy.log.YYYY-MM-DD`, fanned out by the
+  standard `slog.NewMultiHandler` with the redactor outside so both
+  sinks see identical sanitized records. Rotation happens on the first
+  write after local midnight; writes are synchronous and appends are
   line-sized, so the closer returned by `Setup` is an orderly-shutdown
-  formality, not a flush dependency.
+  formality, not a flush dependency. `stdout: false` produces only the
+  file handler.
 - At startup, files matching `vivy.log*` older than `retention_days`
   (by mtime) are deleted. `0` disables deletion.
 - Log files are runtime scratch beside the Journal, not product
@@ -60,9 +71,12 @@ error instead of silently keeping the configured value.
 
 ## 4. Line format
 
-Both handlers run with `AddSource: true`, so every line carries the
-call site. JSON (default) is the machine-readable contract; `text`
-is for humans (level=WARN, msg=..., fields as key=value).
+All handlers run with `AddSource: true`, so every line carries the
+call site (pretty renders it as a file:line column). The file sink
+keeps `format`: JSON (default) is the machine-readable contract, `text`
+is for humans (level=WARN, msg=..., fields as key=value). The console
+sink keeps `console_format`: pretty single-line layout on a terminal,
+JSON when redirected.
 
 ## 5. Structured fields
 

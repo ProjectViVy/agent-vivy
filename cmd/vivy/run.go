@@ -70,7 +70,7 @@ func runRun(args []string) int {
 	// the assistant text stream. Bootstrap diagnostics go to stderr until
 	// the configured file sink is installed; the file sink itself gets
 	// Stdout=false permanently for this command.
-	bootstrap := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	bootstrap := logging.NewBootstrap(os.Stderr)
 	cfg, err := loadConfig(bootstrap)
 	if err != nil {
 		bootstrap.Error("startup aborted", "err", err)
@@ -79,6 +79,7 @@ func runRun(args []string) int {
 	vivyLog, _, closeLog, err := logging.Setup(logging.Options{
 		Level:         cfg.Logging.Level,
 		Format:        cfg.Logging.Format,
+		ConsoleFormat: cfg.Logging.ConsoleFormat,
 		Dir:           cfg.LogDirectory(),
 		RetentionDays: cfg.Logging.RetentionDays,
 		Stdout:        false,
