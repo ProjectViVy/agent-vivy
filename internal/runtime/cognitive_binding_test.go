@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
 	"github.com/ProjectViVy/inofy"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -69,10 +69,26 @@ type fakeCognitiveDomain struct {
 	applied    []laputaevolution.Effect
 	receipts   map[string]laputaevolution.EffectReceipt
 	applyErr   error
+	collectErr error
+	// gate, when non-nil, blocks Collect until closed so a test can hold a
+	// workflow run mid-flight.
+	gate       chan struct{}
+	lastWindow laputaevolution.Window
 }
 
-func (d *fakeCognitiveDomain) Collect(_ context.Context, w laputaevolution.Window) (laputaevolution.EvidenceBatch, error) {
+func (d *fakeCognitiveDomain) Collect(ctx context.Context, w laputaevolution.Window) (laputaevolution.EvidenceBatch, error) {
 	d.collects++
+	d.lastWindow = w
+	if d.collectErr != nil {
+		return laputaevolution.EvidenceBatch{}, d.collectErr
+	}
+	if d.gate != nil {
+		select {
+		case <-d.gate:
+		case <-ctx.Done():
+			return laputaevolution.EvidenceBatch{}, ctx.Err()
+		}
+	}
 	b := d.batch
 	b.Window = w
 	return b, nil

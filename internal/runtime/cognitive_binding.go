@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ProjectViVy/inofy"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 	laputainofy "github.com/dashimaki/laputa/evolution/inofy"
-	"github.com/ProjectViVy/inofy"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/orchestration"
+	"agent-vivy/internal/storage"
 )
 
 // TrustedStrategyDIVA is the only host-bound strategy the trusted catalog
@@ -33,6 +34,28 @@ var ErrCognitiveUnavailable = errors.New("runtime: cognitive binding is not wire
 // runs through the governed one-shot child path per run.
 type CognitiveBinding struct {
 	Domain laputaevolution.Domain
+	// Binding is stamped into every strategy Input; its scope and
+	// destination must match the bound Domain.
+	Binding laputaevolution.RunBinding
+	// SourceID names the bound committed-activity source on every Window.
+	SourceID string
+	// Source supplies the durable input watermark; nil falls back to
+	// NotifyCognitiveInput-driven state.
+	Source CognitiveSource
+	// Sink is the bound capture surface for terminal primary runs; wire it
+	// through CognitiveCaptureSubscription into the observer host.
+	Sink CognitiveCaptureSink
+	// Store persists trigger policy and state. Required for the wake loop;
+	// nil disables automatic and manual entry while keeping
+	// StartCognitiveWorkflow available.
+	Store storage.SnapshotStore
+	// Mission supplies the current authority Mission revision. When the
+	// binding pins a Mission, every admission re-verifies the pin.
+	Mission CognitiveMissionSource
+	// Policy seeds the durable trigger policy on first load.
+	Policy laputaevolution.TriggerPolicy
+	// Now overrides the wall clock (unix ms) for tests.
+	Now func() int64
 }
 
 // trustedSpec carries a host-admitted strategy into the shared start path.
