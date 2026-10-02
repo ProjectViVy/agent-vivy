@@ -23,7 +23,7 @@ jobs:
   backend:
     name: backend ci
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
