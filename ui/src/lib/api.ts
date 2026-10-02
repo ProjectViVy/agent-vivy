@@ -934,6 +934,20 @@ export interface TrajectoryRecordWire {
   opens_turn?: boolean;
 }
 
+// OBS-04 (D4): call lifecycle vocabulary.
+export type TrajectoryCallStatus = 'active' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'legacy';
+export type TrajectoryUsageState = 'missing' | 'reported' | 'partial' | 'active' | 'legacy';
+export type TrajectoryActivityState = 'queued' | 'active' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+
+export interface TrajectoryUsageEvidenceWire {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  reasoning_tokens?: number | null;
+  cached_tokens?: number | null;
+  partial?: boolean;
+}
+
 export interface TrajectoryRequestWire {
   number: number;
   turn: number | null;
@@ -948,6 +962,24 @@ export interface TrajectoryRequestWire {
   messages?: number;
   preamble_bytes?: number;
   error?: string;
+  // v2 fields (projection_version 2):
+  request_id?: string;
+  run_id?: string;
+  call_id?: string;
+  call_status?: TrajectoryCallStatus;
+  finished_at?: number | null;
+  usage_state?: TrajectoryUsageState;
+  usage_evidence?: TrajectoryUsageEvidenceWire | null;
+}
+
+export interface TrajectoryRunActivityWire {
+  run_id: string;
+  status: string;
+  activity_state: TrajectoryActivityState;
+  wait_kind?: 'approval' | 'question' | 'child' | 'workflow';
+  parent_run_id?: string;
+  child_run_ids?: string[];
+  workflow_id?: string;
 }
 
 export interface TrajectorySessionWire {
@@ -955,6 +987,10 @@ export interface TrajectorySessionWire {
   turns: number;
   records: TrajectoryRecordWire[];
   requests: TrajectoryRequestWire[];
+  projection_version?: number;
+  run_activity?: TrajectoryRunActivityWire[];
+  watermarks?: Record<string, number>;
+  has_older_runs?: boolean;
 }
 
 export const fetchSessionTrajectory = (sessionId: string, limit?: number) =>

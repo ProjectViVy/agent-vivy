@@ -101,8 +101,8 @@ func TestSessionTrajectoryProjection(t *testing.T) {
 		t.Fatalf("record kinds = %s, want %s", got, wantOrder)
 	}
 	for i, record := range session.Records {
-		if record.Index != i+1 || record.ID != fmt.Sprintf("rec-%d", i+1) {
-			t.Fatalf("record %d has index=%d id=%s", i, record.Index, record.ID)
+		if record.Index != i+1 || record.ID == "" {
+			t.Fatalf("record %d has index=%d id=%q", i, record.Index, record.ID)
 		}
 	}
 	first := session.Records[0]
@@ -186,6 +186,226 @@ func TestSessionTrajectoryLimitClamp(t *testing.T) {
 		}
 	}
 }
+
+// TestTrajectoryMultipleCallsStableIdentity folds a run with two v3 calls and
+// a tool row: calls keep separate stable request_ids keyed by (run_id,
+// call_id), the latest usage sample replaces its own attempt, and a rebuild
+// reproduces identical IDs.
+func TestTrajectoryMultipleCallsStableIdentity(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	sessionID := domain.SessionID("sess-traj-ids")
+	mustCreateSession(t, backend, sessionID)
+
+	runID := domain.RunID("run-traj-ids")
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	reasoning := 7
+	cached := 30
+	trajCommit(t, ctx, backend, runID,
+		trajEvent(domain.EventRunStarted, 1200, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
+		trajEvent(domain.EventModelRequest, 1300, payloadModelRequestV3{
+			payloadModelRequest: payloadModelRequest{PreambleBytes: 10, Messages: []payloadModelRequestMessage{{Role: "user"}}},
+			CallID:              "call-a", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+		}),
+		trajEvent(domain.EventModelUsage, 1350, payloadModelUsageV2{
+			CallID: "call-a", Provider: "test", Model: "m1", Source: "main", UsageKind: "cumulative",
+			PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15,
+		}),
+		trajEvent(domain.EventModelUsage, 1400, payloadModelUsageV2{
+			CallID: "call-a", Provider: "test", Model: "m1", Source: "main", UsageKind: "cumulative",
+			PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120,
+			ReasoningTokens: &reasoning, CachedTokens: &cached, Settlement: boolPtr(true),
+		}),
+		trajEvent(domain.EventModelCallFinished, 1500, payloadModelCallFinished{
+			CallID: "call-a", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+			Status: "completed", ResponseComplete: true,
+		}),
+		trajEvent(domain.EventModelRequest, 1600, payloadModelRequestV3{
+			payloadModelRequest: payloadModelRequest{PreambleBytes: 20},
+			CallID:              "call-b", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+		}),
+		trajEvent(domain.EventToolRequested, 1650, payloadToolRequested{ToolCallID: "tc-1", ToolName: "read_file", Args: map[string]any{"path": "x"}}),
+		trajEvent(domain.EventToolFinished, 1700, payloadToolFinished{ToolCallID: "tc-1", ToolName: "read_file", Result: "ok"}),
+		trajEvent(domain.EventModelCallFinished, 1800, payloadModelCallFinished{
+			CallID: "call-b", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+			Status: "completed", ResponseComplete: true,
+		}),
+		trajEvent(domain.EventRunCompleted, 1900, payloadRunCompleted{Outcome: "completed"}),
+	)
+
+	first, err := svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(first.Requests))
+	}
+	a, b := first.Requests[0], first.Requests[1]
+	if a.RequestID != "run-traj-ids:call-a" || a.CallID != "call-a" || a.CallStatus != TrajCallCompleted {
+		t.Fatalf("call a = %+v", a)
+	}
+	if b.RequestID != "run-traj-ids:call-b" || b.CallID != "call-b" || b.CallStatus != TrajCallCompleted {
+		t.Fatalf("call b = %+v", b)
+	}
+	// Latest sample replaces the earlier one on the same attempt.
+	if a.UsageState != TrajUsageReported || a.UsageEvidence == nil ||
+		a.UsageEvidence.PromptTokens != 100 || a.UsageEvidence.TotalTokens != 120 {
+		t.Fatalf("call a evidence = %+v", a.UsageEvidence)
+	}
+	if a.UsageEvidence.ReasoningTokens == nil || *a.UsageEvidence.ReasoningTokens != 7 ||
+		a.UsageEvidence.CachedTokens == nil || *a.UsageEvidence.CachedTokens != 30 {
+		t.Fatalf("call a optional buckets = %+v", a.UsageEvidence)
+	}
+	if b.UsageState != TrajUsageMissing || b.UsageEvidence != nil {
+		t.Fatalf("call b usage = %s %+v", b.UsageState, b.UsageEvidence)
+	}
+	if a.Provider != "test" || a.Model != "m1" || a.StartedAt != 1300 || a.FinishedAt == nil || *a.FinishedAt != 1500 {
+		t.Fatalf("call a lifecycle = %+v", a)
+	}
+	// Record IDs carry the persisted (run_id, seq, kind) triple.
+	var toolRec *TrajectoryRecord
+	for i := range first.Records {
+		if first.Records[i].Kind == "tool" {
+			toolRec = &first.Records[i]
+		}
+	}
+	if toolRec == nil || toolRec.ID != "run-traj-ids:8:tool" || toolRec.CallID != "tc-1" {
+		t.Fatalf("tool record = %+v", toolRec)
+	}
+	if first.Watermarks[string(runID)] != 10 {
+		t.Fatalf("watermark = %v", first.Watermarks)
+	}
+	if first.HasOlderRuns {
+		t.Fatal("has_older_runs = true on single-run session")
+	}
+	// Rebuild is a pure fold: identical IDs and rows.
+	second, err := svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range first.Requests {
+		if first.Requests[i].RequestID != second.Requests[i].RequestID {
+			t.Fatalf("request %d id drifted: %s != %s", i, first.Requests[i].RequestID, second.Requests[i].RequestID)
+		}
+	}
+	for i := range first.Records {
+		if first.Records[i].ID != second.Records[i].ID {
+			t.Fatalf("record %d id drifted: %s != %s", i, first.Records[i].ID, second.Records[i].ID)
+		}
+	}
+}
+
+// TestTrajectoryActiveWaitCancelAndInterrupted pins the lifecycle truth:
+// active calls are neither failed nor completed, waiting approvals surface
+// on run_activity (never on the call), and terminal runs interrupt open
+// calls without inventing usage.
+func TestTrajectoryActiveWaitCancelAndInterrupted(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	sessionID := domain.SessionID("sess-traj-life")
+	mustCreateSession(t, backend, sessionID)
+
+	liveRun := domain.RunID("run-live")
+	if err := backend.CreateRun(ctx, domain.Run{ID: liveRun, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	trajCommit(t, ctx, backend, liveRun,
+		trajEvent(domain.EventRunStarted, 1100, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
+		trajEvent(domain.EventModelRequest, 1200, payloadModelRequestV3{
+			CallID: "call-live", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+		}),
+		trajEvent(domain.EventToolApprovalRequired, 1300, payloadToolApprovalRequired{
+			ApprovalID: "appr-1", ToolCallID: "tc-9", ToolName: "shell", Face: "web",
+		}),
+	)
+	session, err := svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(session.Requests) != 1 {
+		t.Fatalf("requests = %+v", session.Requests)
+	}
+	live := session.Requests[0]
+	if live.CallStatus != TrajCallActive || live.Status == "complete" || live.Status == "error" || live.FinishedAt != nil {
+		t.Fatalf("active call = %+v", live)
+	}
+	if live.UsageState != TrajUsageActive || live.UsageEvidence != nil {
+		t.Fatalf("active usage = %s %+v", live.UsageState, live.UsageEvidence)
+	}
+	if len(session.RunActivity) != 1 || session.RunActivity[0].ActivityState != TrajActivityWaiting ||
+		session.RunActivity[0].WaitKind != TrajWaitApproval || session.RunActivity[0].Status != string(domain.RunActive) {
+		t.Fatalf("run activity = %+v", session.RunActivity)
+	}
+
+	// Second run: cancelled mid-call — interrupted, never complete.
+	deadRun := domain.RunID("run-dead")
+	if err := backend.CreateRun(ctx, domain.Run{ID: deadRun, SessionID: sessionID, Status: domain.RunCancelled, CreatedAt: 2000}); err != nil {
+		t.Fatal(err)
+	}
+	trajCommit(t, ctx, backend, deadRun,
+		trajEvent(domain.EventRunStarted, 2100, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
+		trajEvent(domain.EventModelRequest, 2200, payloadModelRequestV3{
+			CallID: "call-dead", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
+		}),
+		trajEvent(domain.EventRunCancelled, 2300, payloadRunCancelled{Reason: reasonUserRequested, Outcome: "cancelled"}),
+	)
+	session, err = svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dead *TrajectoryRequest
+	for i := range session.Requests {
+		if session.Requests[i].CallID == "call-dead" {
+			dead = &session.Requests[i]
+		}
+	}
+	if dead == nil || dead.CallStatus != TrajCallInterrupted || dead.UsageState != TrajUsageMissing || dead.UsageEvidence != nil {
+		t.Fatalf("dead call = %+v", dead)
+	}
+	var deadActivity *TrajectoryRunActivity
+	for i := range session.RunActivity {
+		if session.RunActivity[i].RunID == string(deadRun) {
+			deadActivity = &session.RunActivity[i]
+		}
+	}
+	if deadActivity == nil || deadActivity.ActivityState != TrajActivityCancelled || deadActivity.WaitKind != "" {
+		t.Fatalf("dead activity = %+v", deadActivity)
+	}
+}
+
+// TestTrajectoryWatermarkWindow asserts watermarks come from the folded
+// prefix and has_older_runs reflects the window boundary.
+func TestTrajectoryWatermarkWindow(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	sessionID := domain.SessionID("sess-traj-wm")
+	mustCreateSession(t, backend, sessionID)
+	for i := 0; i < 3; i++ {
+		runID := domain.RunID(fmt.Sprintf("run-wm-%d", i))
+		if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: int64(1000 + i)}); err != nil {
+			t.Fatal(err)
+		}
+		trajCommit(t, ctx, backend, runID,
+			trajEvent(domain.EventRunStarted, int64(1100+i), payloadRunStarted{Provider: "test", Model: "m", Mode: "chat"}),
+			trajEvent(domain.EventModelRequest, int64(1200+i), payloadModelRequest{PreambleBytes: 1}),
+			trajEvent(domain.EventRunCompleted, int64(1300+i), payloadRunCompleted{Outcome: "completed"}),
+		)
+	}
+	session, err := svc.SessionTrajectory(ctx, sessionID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !session.HasOlderRuns || len(session.Watermarks) != 2 || session.Watermarks["run-wm-1"] != 3 || session.Watermarks["run-wm-2"] != 3 {
+		t.Fatalf("window = older %v watermarks %v", session.HasOlderRuns, session.Watermarks)
+	}
+	if session.ProjectionVersion != 2 {
+		t.Fatalf("projection_version = %d", session.ProjectionVersion)
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 // TestSessionTrajectoryRealRun drives a real echo run through the service
 // and projects it: the user text and final answer land as records.

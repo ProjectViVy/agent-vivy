@@ -7,9 +7,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { listSessions, type Session } from '@/lib/api';
+import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
-import { loadSessionTrajectory, type SessionTrajectory } from './trajectory-session';
-import type { TrajectoryRecord, TrajectoryTimeRange, TrajectoryTimelineMode } from './trajectory-types';
+import { loadSessionTrajectory, TrajectoryLiveTracker, type SessionTrajectory } from './trajectory-session';
+import {
+  TRAJECTORY_ACTIVITY_STATE_LABEL,
+  TRAJECTORY_WAIT_KIND_LABEL,
+  type TrajectoryRecord,
+  type TrajectoryRunActivity,
+  type TrajectoryTimeRange,
+  type TrajectoryTimelineMode,
+} from './trajectory-types';
 import { trajectoryTimelineFocusIndexes } from './trajectory-utils';
 import { TrajectoryToolbar } from './TrajectoryToolbar';
 import { TrajectoryTimeline } from './TrajectoryTimeline';
@@ -78,6 +86,12 @@ export function TrajectoryPanel() {
   // Track whether the session list ever loaded so errors after a success
   // keep the old panel visible instead of replacing it.
   const sessionsLoaded = useRef(false);
+  // OBS-04: (run_id, seq) dedup watermark tracker, rebuilt per session switch.
+  const tracker = useRef(new TrajectoryLiveTracker());
+
+  // Latest event seq from the single store-owned run subscription. The
+  // tracker below decides whether it touches the selected session's runs.
+  const lastRunEvent = useVivyStore((state) => state.runEvents[state.runEvents.length - 1]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +119,10 @@ export function TrajectoryPanel() {
       setTrajectoryError(null);
       try {
         const next = await loadSessionTrajectory(selectedSessionId);
-        if (!cancelled) setTrajectory(next);
+        if (!cancelled) {
+          tracker.current.setSnapshot(next.watermarks);
+          setTrajectory(next);
+        }
       } catch (cause) {
         if (!cancelled) {
           setTrajectoryError(cause instanceof Error ? cause.message : String(cause));
@@ -119,6 +136,17 @@ export function TrajectoryPanel() {
     return () => { cancelled = true; };
   }, [selectedSessionId, reloadKey]);
 
+  // Listener-before-snapshot merge: dedup (run_id, seq), contiguous advance
+  // and gap/unknown-run events all converge to one debounced snapshot refetch
+  // — the refetch IS the reconcile. Effect cleanup cancels on unmount.
+  useEffect(() => {
+    if (lastRunEvent === undefined || selectedSessionId === null) return;
+    if (trajectory === null) return; // first load seeds the watermarks
+    if (tracker.current.accept(lastRunEvent.run_id, lastRunEvent.seq) !== 'refresh') return;
+    const timer = window.setTimeout(() => setReloadKey((v) => v + 1), 400);
+    return () => window.clearTimeout(timer);
+  }, [lastRunEvent, selectedSessionId, trajectory]);
+
   const records = trajectory?.records ?? [];
   const requests = trajectory?.requests ?? [];
 
@@ -131,6 +159,7 @@ export function TrajectoryPanel() {
 
   const selectSession = (sessionId: string) => {
     if (sessionId === selectedSessionId) return;
+    tracker.current = new TrajectoryLiveTracker();
     setMode('sequence');
     setCollapsedTurns(EMPTY_TURNS);
     setCollapsedAssistants(EMPTY_ASSISTANTS);
@@ -296,7 +325,17 @@ export function TrajectoryPanel() {
           {t('trajectory.refresh')}
         </Button>
         {loadingTrajectory && <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />}
+        {trajectory !== null && trajectory.hasOlderRuns && (
+          <span className="ml-auto text-[10px] text-muted-foreground">{t('trajectory.olderRuns')}</span>
+        )}
       </div>
+      {trajectory !== null && trajectory.runActivity.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5" data-trajectory-run-activity="">
+          {trajectory.runActivity.map((run) => (
+            <RunActivityChip key={run.runId} run={run} />
+          ))}
+        </div>
+      )}
       {trajectoryError ? (
         <DemoLoadError message={trajectoryError} onRetry={refresh} />
       ) : loadingTrajectory && trajectory === null ? (
@@ -361,5 +400,29 @@ export function TrajectoryPanel() {
         </>
       )}
     </div>
+  );
+}
+
+/** run_activity 条目：run 状态 + 活动态/等待原因（等待永远挂在 run 上，不在 call 上）。 */
+function RunActivityChip({ run }: { run: TrajectoryRunActivity }) {
+  const { t } = useTranslation();
+  const waiting = run.activityState === 'waiting';
+  const label = waiting && run.waitKind !== undefined
+    ? `${TRAJECTORY_ACTIVITY_STATE_LABEL[run.activityState]} · ${TRAJECTORY_WAIT_KIND_LABEL[run.waitKind]}`
+    : TRAJECTORY_ACTIVITY_STATE_LABEL[run.activityState];
+  return (
+    <span
+      className={[
+        'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-4',
+        waiting
+          ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+          : run.activityState === 'active' || run.activityState === 'queued'
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-border text-muted-foreground',
+      ].join(' ')}
+      title={`${t('trajectory.run')} ${run.runId} · ${run.status}`}
+    >
+      {run.runId} · {label}
+    </span>
   );
 }

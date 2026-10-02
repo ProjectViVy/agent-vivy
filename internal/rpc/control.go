@@ -1132,6 +1132,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if _, ok := h.deps.Sessions.(storage.SessionWorkspaceStore); ok && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.set_workspace")
 		}
+		if h.deps.Service != nil {
+			// OBS-04: trajectory/session projects projection_version 2 —
+			// stable request/record IDs, call_status, usage_evidence,
+			// run_activity, watermarks.
+			capabilities = append(capabilities, "trajectory", "trajectory.v2")
+		}
 		if h.deps.Work != nil && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
 		}
