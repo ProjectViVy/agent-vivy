@@ -141,10 +141,10 @@ func normalizeINOFYInput(raw json.RawMessage) (json.RawMessage, string, error) {
 // returns the same Run; an active Run from another process is fenced for
 // explicit recovery instead of replay.
 func (s *Service) StartINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw json.RawMessage) (WorkflowStartResult, error) {
-	return s.startINOFYWorkflow(ctx, parentRunID, operationKey, raw, nil, nil)
+	return s.startINOFYWorkflow(ctx, parentRunID, operationKey, raw, nil, nil, nil)
 }
 
-func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw, input json.RawMessage, source *WorkflowDefinitionSource) (WorkflowStartResult, error) {
+func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.RunID, operationKey string, raw, input json.RawMessage, source *WorkflowDefinitionSource, trusted *trustedSpec) (WorkflowStartResult, error) {
 	if s == nil || s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil ||
 		s.deps.Sessions == nil || s.deps.Sink == nil || s.deps.Workspaces == nil ||
 		s.deps.WorkflowRevisions == nil {
@@ -178,10 +178,19 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		return WorkflowStartResult{}, storage.ErrNotFound
 	}
 	allowedTools := s.workflowChildTools(parentTools)
-	admitted, err := validateINOFYDefinition(ctx, raw, allowedTools)
-	if err != nil {
-		s.projectionMu.Unlock()
-		return WorkflowStartResult{}, fmt.Errorf("%w: %w", ErrINOFYInvalidDefinition, err)
+	var admitted inofyAdmission
+	if trusted != nil {
+		// Trusted strategy admission is code-owned: it skips the authored
+		// definition decoder and carries no tool ceiling.
+		admitted = trusted.admitted
+		allowedTools = nil
+	} else {
+		var admitErr error
+		admitted, admitErr = validateINOFYDefinition(ctx, raw, allowedTools)
+		if admitErr != nil {
+			s.projectionMu.Unlock()
+			return WorkflowStartResult{}, fmt.Errorf("%w: %w", ErrINOFYInvalidDefinition, admitErr)
+		}
 	}
 	canonicalInput, inputDigest, err := normalizeINOFYInput(input)
 	if err != nil {
@@ -200,7 +209,13 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		return WorkflowStartResult{}, err
 	}
 	sandboxMode, approvalPolicy := session.EffectiveSandbox()
-	authorityJSON, authorityDigest, err := workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, allowedTools)
+	var authorityJSON []byte
+	var authorityDigest string
+	if trusted != nil {
+		authorityJSON, authorityDigest, err = trustedWorkflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, trusted.strategyID)
+	} else {
+		authorityJSON, authorityDigest, err = workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, allowedTools)
+	}
 	if err != nil {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
@@ -260,7 +275,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 			RunID: string(existing.RunID), Epoch: epoch,
 			ProgramDigest: existing.ProgramDigest, HostBindingID: existing.HostBindingID,
-		})
+		}, s.workflowNodes(existing.RunID, trustedStrategyOf(trusted)))
 		activationCancel()
 		return result, launchErr
 	} else if !errors.Is(lookupErr, storage.ErrNotFound) {
@@ -352,7 +367,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 		RunID: string(committed.Run.ID), Epoch: 1,
 		ProgramDigest: committed.Revision.ProgramDigest, HostBindingID: committed.Revision.HostBindingID,
-	})
+	}, s.workflowNodes(committed.Run.ID, trustedStrategyOf(trusted)))
 	activationCancel()
 	return result, launchErr
 }
@@ -417,7 +432,7 @@ func (s *Service) activateWorkflowLocked(ctx context.Context, parent domain.Run,
 // launchINOFYWorkflow executes the admitted program in the background. The
 // INOFY terminal commit is the only graph-native terminal owner: a Go-level
 // error leaves the run non-terminal so restart recovery can classify it.
-func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartResult, program *inofy.Program, input json.RawMessage, ref inofy.ExecutionRef) error {
+func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartResult, program *inofy.Program, input json.RawMessage, ref inofy.ExecutionRef, nodes inofy.NodeExecutor) error {
 	if result.Run.ID == "" || program == nil {
 		return errors.New("runtime: admitted workflow Run is empty")
 	}
@@ -447,7 +462,7 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 		runs.publish = s.publish
 		_, _ = program.Run(runCtx, inofy.RunRequest{
 			Ref: ref, Input: input, Limits: inofyWorkflowLimits(),
-		}, inofy.Bindings{Nodes: newINOFYNodeExecutor(s), Runs: runs})
+		}, inofy.Bindings{Nodes: nodes, Runs: runs})
 		s.mu.Lock()
 		delete(s.active, result.Run.ID)
 		s.mu.Unlock()
@@ -461,6 +476,10 @@ type persistedWorkflowAuthority struct {
 	SandboxMode    domain.SandboxMode    `json:"sandbox_mode"`
 	ApprovalPolicy domain.ApprovalPolicy `json:"approval_policy"`
 	ToolNames      []string              `json:"tool_names"`
+	// TrustedStrategy classifies a host-bound strategy run. Empty keeps the
+	// authored read-only ceiling; a non-empty value is only ever written by
+	// the code-owned trusted admission path, never from caller input.
+	TrustedStrategy string `json:"trusted_strategy,omitempty"`
 }
 
 func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ string) error {
@@ -519,11 +538,23 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	if sandboxMode != authority.SandboxMode || approvalPolicy != authority.ApprovalPolicy {
 		return errors.New("runtime: workflow Session authority changed before recovery")
 	}
-	allowedTools := s.workflowChildTools(canonicalTools)
-	if !sameStrings(allowedTools, canonicalTools) {
-		return errors.New("runtime: workflow tools no longer match the read-only authority ceiling")
+	var allowedTools []string
+	var admitted inofyAdmission
+	if authority.TrustedStrategy != "" {
+		// Trusted revisions rebind to the same code-owned strategy catalog
+		// and require the bound Domain to be wired; a saved descriptor or
+		// catalog drift fails the digest compare below.
+		if s.deps.Cognitive == nil || s.deps.Cognitive.Domain == nil {
+			return ErrCognitiveUnavailable
+		}
+		admitted, err = trustedStrategyAdmission(ctx, authority.TrustedStrategy)
+	} else {
+		allowedTools = s.workflowChildTools(canonicalTools)
+		if !sameStrings(allowedTools, canonicalTools) {
+			return errors.New("runtime: workflow tools no longer match the read-only authority ceiling")
+		}
+		admitted, err = validateINOFYDefinition(ctx, revision.DescriptorJSON, allowedTools)
 	}
-	admitted, err := validateINOFYDefinition(ctx, revision.DescriptorJSON, allowedTools)
 	if err != nil || admitted.Meta.ProgramDigest != revision.ProgramDigest ||
 		admitted.Meta.CatalogDigest != revision.CatalogDigest ||
 		!bytes.Equal(admitted.CanonicalJSON, revision.DescriptorJSON) ||
@@ -578,7 +609,7 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	return s.launchINOFYWorkflow(ctx, WorkflowStartResult{Run: current, Revision: revision}, admitted.Program, revision.InputJSON, inofy.ExecutionRef{
 		RunID: string(run.ID), Epoch: epoch,
 		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
-	})
+	}, s.workflowNodes(run.ID, authority.TrustedStrategy))
 }
 
 func workflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.SandboxMode, approval domain.ApprovalPolicy, tools []string) ([]byte, string, error) {
@@ -611,10 +642,19 @@ func decodeWorkflowAuthority(revision domain.WorkflowRevision) (persistedWorkflo
 	if err != nil || authority.PolicyHash == "" || !authority.PolicyProfile.Valid() || !sameStrings(canonicalTools, authority.ToolNames) {
 		return authority, errors.New("runtime: stored workflow authority is incomplete")
 	}
-	canonicalAuthority, authorityDigest, err := workflowAuthorityRecord(
-		domain.PolicySnapshot{Profile: authority.PolicyProfile, Hash: authority.PolicyHash},
-		authority.SandboxMode, authority.ApprovalPolicy, canonicalTools,
-	)
+	var canonicalAuthority []byte
+	var authorityDigest string
+	if authority.TrustedStrategy != "" {
+		canonicalAuthority, authorityDigest, err = trustedWorkflowAuthorityRecord(
+			domain.PolicySnapshot{Profile: authority.PolicyProfile, Hash: authority.PolicyHash},
+			authority.SandboxMode, authority.ApprovalPolicy, authority.TrustedStrategy,
+		)
+	} else {
+		canonicalAuthority, authorityDigest, err = workflowAuthorityRecord(
+			domain.PolicySnapshot{Profile: authority.PolicyProfile, Hash: authority.PolicyHash},
+			authority.SandboxMode, authority.ApprovalPolicy, canonicalTools,
+		)
+	}
 	if err != nil || authorityDigest != revision.AuthorityDigest || !bytes.Equal(canonicalAuthority, revision.AuthorityJSON) {
 		return authority, errors.New("runtime: stored workflow authority digest does not match")
 	}
