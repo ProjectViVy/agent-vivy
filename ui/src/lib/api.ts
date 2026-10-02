@@ -720,12 +720,30 @@ export interface TokenUsageTotal {
   cost_known: boolean;
 }
 
+/** D3 usage coverage: how complete the scope's usage evidence is.
+ *  observed_calls = completed_with_usage + partial_usage_calls +
+ *  missing_usage_calls + active_calls. request_count stays "usage
+ *  reports" (reported calls + legacy records), never billed requests. */
+export interface UsageCoverage {
+  state: 'empty' | 'complete' | 'partial' | 'legacy';
+  observed_calls: number;
+  completed_with_usage: number;
+  reported_calls: number;
+  missing_usage_calls: number;
+  partial_usage_calls: number;
+  active_calls: number;
+  legacy_usage_records: number;
+  unknown_buckets: ('reasoning' | 'cached')[];
+  hidden_retries_observable: false;
+}
+
 export interface TokenModelShare {
   model: string;
   percentage: number;
   total_tokens: number;
   cost_usd: number;
   cost_known: boolean;
+  coverage: UsageCoverage;
 }
 
 export interface TokenProviderGroup {
@@ -752,11 +770,14 @@ export interface TokenSessionUsage {
   total_tokens: number;
   cost_usd: number;
   cost_known: boolean;
+  coverage: UsageCoverage;
 }
 
 export interface TokenUsageSnapshot {
   period: TokenUsagePeriod;
   scope: 'chat_runs';
+  projection_version: number;
+  coverage: UsageCoverage;
   total: TokenUsageTotal;
   models: TokenModelShare[];
   providers: TokenProviderGroup[];

@@ -218,35 +218,59 @@ type StudioStore interface {
 	ListStudioEvents(ctx context.Context) ([]domain.StudioEvent, error)
 }
 
-// UsageRow is one model.usage event joined with its run context. It is a
-// read-only projection for token statistics; the authoritative record still
-// lives in the Journal.
+// UsageRow is one usage report joined with its run context: either a
+// projected observed call attempt (CallID set) or a legacy model.usage
+// record (CallID empty, keyed by run_id+seq). It is a read-only projection
+// for token statistics; the authoritative record lives in the Journal.
 type UsageRow struct {
 	RunID            domain.RunID
 	SessionID        domain.SessionID
 	SessionTitle     string
-	CreatedAt        int64 // unix milli
+	CreatedAt        int64 // unix milli; attempt start for observed rows
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
 	ReasoningTokens  int
 	CachedTokens     int
-	// RequestCount is one for raw journal rows and may be greater for bounded
-	// session-route aggregates.
+	// RequestCount counts usage reports: one for a row carrying usage
+	// evidence, zero for an observed attempt without any valid sample, and
+	// may be greater for bounded session-route aggregates.
 	RequestCount int
 	Model        string
 	Provider     string
 	Source       string
+	// CallID identifies an observed call attempt (v3 model.request). Empty
+	// for legacy rows — ambiguous history is never retrofitted with IDs.
+	CallID string
+	// AttemptState is the projected lifecycle state (AttemptActive,
+	// AttemptSettled, AttemptFailed, AttemptCancelled, AttemptInterrupted or
+	// AttemptUntracked); empty for legacy rows.
+	AttemptState string
+	// HasUsage marks a row that carries a valid usage sample (or usage
+	// recorded on the finish record). A missing sample stays zero — never
+	// a fabricated one.
+	HasUsage bool
+	// ReasoningKnown/CachedKnown report whether the optional buckets were
+	// present in the evidence; false means unknown, not zero.
+	ReasoningKnown bool
+	CachedKnown    bool
+	// NormalizationPartial marks provisional evidence: contradictory or
+	// discarded reports made the normalized totals non-authoritative.
+	NormalizationPartial bool
+	// Settlement marks the deferred end-of-call emission of a sample that
+	// could not be persisted while it was reported.
+	Settlement bool
 }
 
-// TokenUsageStore exposes a cross-run usage projection derived from
-// model.usage events already committed to the Journal. It does not write
-// anything; the Journal remains the single source of truth.
+// TokenUsageStore exposes a cross-run usage projection folded from Journal
+// events. It does not write anything; the Journal remains the single
+// source of truth.
 type TokenUsageStore interface {
-	// ListModelUsage returns every model.usage event with created_at >=
-	// sinceUnixMilli, joined with runs/sessions and the matching
-	// run.started payload (model + provider). Missing run.started yields
-	// empty Model/Provider; the row still counts toward totals.
+	// ListModelUsage returns projected usage rows for the window: one row
+	// per observed call attempt selected by its request start time, plus
+	// one row per legacy model.usage record selected by sample time.
+	// Attempt rows expose call identity, lifecycle state and known-bucket
+	// evidence; legacy rows keep their historical (run_id,seq) shape.
 	ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]UsageRow, error)
 }
 

@@ -5,10 +5,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getTokenUsage, type TokenUsagePeriod, type TokenUsageSnapshot } from '@/lib/api';
 import { formatTokenCount } from '@/lib/format';
 import { useTranslation } from '@/i18n';
+import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { DemoLoadError } from './DemoBanner';
 
 const PERIODS: TokenUsagePeriod[] = ['1d', '3d', '1w', '1m', '6m', '1y'];
+
+// Events that can change the usage projection. The panel listens to the
+// store's existing run subscription — no second event owner is created.
+const AUTHORITATIVE_USAGE_EVENTS = new Set([
+  'model.usage',
+  'model.call.finished',
+  'run.completed',
+  'run.failed',
+  'run.cancelled',
+]);
 
 export function TokenStatsPanel() {
   const { t } = useTranslation();
@@ -20,6 +31,11 @@ export function TokenStatsPanel() {
   const [error, setError] = useState<string | null>(null);
   // Track whether we have ever loaded successfully so we can show empty vs skeleton.
   const hasLoaded = useRef(false);
+  // Latest authoritative journal event seq from the shared run subscription.
+  const usageEventSeq = useVivyStore((state) => {
+    const last = state.runEvents[state.runEvents.length - 1];
+    return last && AUTHORITATIVE_USAGE_EVENTS.has(last.type) ? last.seq : 0;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +63,14 @@ export function TokenStatsPanel() {
     void load();
     return () => { cancelled = true; };
   }, [period, reloadKey]);
+
+  // Coalesce authoritative usage/finish/terminal events into one deferred
+  // refresh per burst — never one fetch per streamed event.
+  useEffect(() => {
+    if (usageEventSeq === 0) return;
+    const timer = window.setTimeout(() => setReloadKey((v) => v + 1), 400);
+    return () => window.clearTimeout(timer);
+  }, [usageEventSeq]);
 
   const exportSnapshot = () => {
     if (!snapshot) return;
@@ -113,7 +137,31 @@ export function TokenStatsPanel() {
         </div>
       )}
 
-      {snapshot && <p className="text-xs text-muted-foreground">{t('token.scopeChatRuns')}</p>}
+      {snapshot && (
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p>{t('token.scopeChatRuns')}</p>
+          <p>
+            {t(`token.coverage.${snapshot.coverage.state}`)}
+            {snapshot.coverage.observed_calls > 0 && (
+              <>
+                {' · '}
+                {t('token.coverageDetail', {
+                  observed: snapshot.coverage.observed_calls,
+                  reported: snapshot.coverage.reported_calls,
+                  missing: snapshot.coverage.missing_usage_calls,
+                  active: snapshot.coverage.active_calls,
+                })}
+              </>
+            )}
+            {snapshot.coverage.legacy_usage_records > 0 && (
+              <> {t('token.coverageLegacy', { count: snapshot.coverage.legacy_usage_records })}</>
+            )}
+            {snapshot.coverage.unknown_buckets.length > 0 && (
+              <> {t('token.coverageUnknownBuckets', { buckets: snapshot.coverage.unknown_buckets.join(', ') })}</>
+            )}
+          </p>
+        </div>
+      )}
 
       {isEmpty ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -126,7 +174,7 @@ export function TokenStatsPanel() {
               <Metric label={t('token.totalTokens')} value={formatTokenCount(snapshot.total.total_tokens)} />
               <Metric label={t('token.input')} value={formatTokenCount(snapshot.total.total_input)} />
               <Metric label={t('token.output')} value={formatTokenCount(snapshot.total.total_output)} />
-              <Metric label={t('token.requestCount')} value={String(snapshot.total.request_count)} />
+              <Metric label={t('token.usageReports')} value={String(snapshot.total.request_count)} />
               <Metric
                 label={t('token.estimatedCost')}
                 value={snapshot.total.cost_known ? formatCostUSD(snapshot.total.total_cost_usd) : '—'}
@@ -176,8 +224,18 @@ export function TokenStatsPanel() {
             <section>
               <h3 className="mb-3 text-sm font-semibold">{t('token.reasoningTokens')}</h3>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Metric label={t('token.totalReasoning')} value={formatTokenCount(snapshot.total.total_reasoning)} />
-                <Metric label={t('token.cacheTokens')} value={formatTokenCount(snapshot.total.total_cached)} />
+                <Metric
+                  label={t('token.totalReasoning')}
+                  value={snapshot.coverage.unknown_buckets.includes('reasoning') ? '—' : formatTokenCount(snapshot.total.total_reasoning)}
+                  muted={snapshot.coverage.unknown_buckets.includes('reasoning')}
+                  title={snapshot.coverage.unknown_buckets.includes('reasoning') ? t('token.bucketUnknown') : undefined}
+                />
+                <Metric
+                  label={t('token.cacheTokens')}
+                  value={snapshot.coverage.unknown_buckets.includes('cached') ? '—' : formatTokenCount(snapshot.total.total_cached)}
+                  muted={snapshot.coverage.unknown_buckets.includes('cached')}
+                  title={snapshot.coverage.unknown_buckets.includes('cached') ? t('token.bucketUnknown') : undefined}
+                />
               </div>
             </section>
             <section>

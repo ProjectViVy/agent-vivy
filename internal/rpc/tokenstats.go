@@ -14,13 +14,37 @@ import (
 // TokenUsageSnapshot is the wire shape returned by stats/tokens. Field names
 // are snake_case to match the existing UI contract.
 type TokenUsageSnapshot struct {
-	Period    string               `json:"period"`
-	Scope     string               `json:"scope"`
-	Total     tokenUsageTotal      `json:"total"`
-	Models    []tokenModelShare    `json:"models"`
-	Providers []tokenProviderGroup `json:"providers"`
-	Timeline  []tokenTimelinePoint `json:"timeline"`
-	Sessions  []tokenSessionUsage  `json:"sessions"`
+	Period            string               `json:"period"`
+	Scope             string               `json:"scope"`
+	ProjectionVersion int                  `json:"projection_version"`
+	Coverage          usageCoverage        `json:"coverage"`
+	Total             tokenUsageTotal      `json:"total"`
+	Models            []tokenModelShare    `json:"models"`
+	Providers         []tokenProviderGroup `json:"providers"`
+	Timeline          []tokenTimelinePoint `json:"timeline"`
+	Sessions          []tokenSessionUsage  `json:"sessions"`
+}
+
+// usageCoverage reports how much of the selected scope's usage evidence is
+// complete, per D3. observed_calls partitions as
+// completed_with_usage + partial_usage_calls + missing_usage_calls +
+// active_calls; reported_calls may also count active calls and is not part
+// of that partition. request_count on the aggregates remains "usage
+// reports" — reported calls plus legacy records — never total billed
+// requests.
+type usageCoverage struct {
+	State              string   `json:"state"` // empty | complete | partial | legacy
+	ObservedCalls      int      `json:"observed_calls"`
+	CompletedWithUsage int      `json:"completed_with_usage"`
+	ReportedCalls      int      `json:"reported_calls"`
+	MissingUsageCalls  int      `json:"missing_usage_calls"`
+	PartialUsageCalls  int      `json:"partial_usage_calls"`
+	ActiveCalls        int      `json:"active_calls"`
+	LegacyUsageRecords int      `json:"legacy_usage_records"`
+	UnknownBuckets     []string `json:"unknown_buckets"`
+	// HiddenRetriesObservable is always false: provider-internal retries are
+	// not journaled, so the projection cannot bound them.
+	HiddenRetriesObservable bool `json:"hidden_retries_observable"`
 }
 
 type tokenUsageTotal struct {
@@ -38,11 +62,12 @@ type tokenUsageTotal struct {
 }
 
 type tokenModelShare struct {
-	Model       string  `json:"model"`
-	Percentage  float64 `json:"percentage"`
-	TotalTokens int     `json:"total_tokens"`
-	CostUSD     float64 `json:"cost_usd"`
-	CostKnown   bool    `json:"cost_known"`
+	Model       string        `json:"model"`
+	Percentage  float64       `json:"percentage"`
+	TotalTokens int           `json:"total_tokens"`
+	CostUSD     float64       `json:"cost_usd"`
+	CostKnown   bool          `json:"cost_known"`
+	Coverage    usageCoverage `json:"coverage"`
 }
 
 type tokenProviderGroup struct {
@@ -60,15 +85,16 @@ type tokenTimelinePoint struct {
 }
 
 type tokenSessionUsage struct {
-	ID           string  `json:"id"`
-	Title        string  `json:"title"`
-	Model        string  `json:"model"`
-	RequestCount int     `json:"request_count"`
-	TotalInput   int     `json:"total_input"`
-	TotalOutput  int     `json:"total_output"`
-	TotalTokens  int     `json:"total_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
-	CostKnown    bool    `json:"cost_known"`
+	ID           string        `json:"id"`
+	Title        string        `json:"title"`
+	Model        string        `json:"model"`
+	RequestCount int           `json:"request_count"`
+	TotalInput   int           `json:"total_input"`
+	TotalOutput  int           `json:"total_output"`
+	TotalTokens  int           `json:"total_tokens"`
+	CostUSD      float64       `json:"cost_usd"`
+	CostKnown    bool          `json:"cost_known"`
+	Coverage     usageCoverage `json:"coverage"`
 }
 
 // validTokenPeriods enumerates accepted period values.
@@ -132,10 +158,83 @@ func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float6
 	return math.Round(cost*1e4) / 1e4, true
 }
 
+// computeUsageCoverage folds row states into the D3 coverage record. A row
+// with CallID set is one observed attempt; legacy rows contribute their
+// RequestCount to legacy_usage_records. Optional buckets report unknown
+// whenever any usage-bearing row lacks the evidence.
+func computeUsageCoverage(rows []storage.UsageRow) usageCoverage {
+	cov := usageCoverage{UnknownBuckets: []string{}}
+	unknown := map[string]bool{}
+	for _, r := range rows {
+		if r.CallID == "" {
+			if n := r.RequestCount; n > 0 {
+				cov.LegacyUsageRecords += n
+			} else {
+				cov.LegacyUsageRecords++
+			}
+			continue
+		}
+		cov.ObservedCalls++
+		switch {
+		case r.AttemptState == storage.AttemptActive:
+			cov.ActiveCalls++
+			if r.HasUsage {
+				cov.ReportedCalls++
+			}
+		case r.AttemptState == storage.AttemptSettled && r.HasUsage && !r.NormalizationPartial:
+			cov.CompletedWithUsage++
+			cov.ReportedCalls++
+		case r.HasUsage:
+			// failed/cancelled/interrupted/untracked with a valid sample, or
+			// settled evidence marked partial — provisional, not exact.
+			cov.PartialUsageCalls++
+			cov.ReportedCalls++
+		default:
+			cov.MissingUsageCalls++
+		}
+		if r.HasUsage {
+			if !r.ReasoningKnown {
+				unknown["reasoning"] = true
+			}
+			if !r.CachedKnown {
+				unknown["cached"] = true
+			}
+		}
+	}
+	if unknown["reasoning"] {
+		cov.UnknownBuckets = append(cov.UnknownBuckets, "reasoning")
+	}
+	if unknown["cached"] {
+		cov.UnknownBuckets = append(cov.UnknownBuckets, "cached")
+	}
+	switch {
+	case cov.ObservedCalls == 0 && cov.LegacyUsageRecords == 0:
+		cov.State = "empty"
+	case cov.ObservedCalls == 0:
+		cov.State = "legacy"
+	case cov.LegacyUsageRecords == 0 &&
+		cov.ObservedCalls == cov.CompletedWithUsage &&
+		len(cov.UnknownBuckets) == 0:
+		cov.State = "complete"
+	default:
+		cov.State = "partial"
+	}
+	return cov
+}
+
+// coverageAllowsCost reports whether the aggregate's evidence is complete
+// enough for a reference price to claim completeness: settled valid
+// coverage or a pure-legacy record set. Missing, partial, active or mixed
+// coverage always reports cost_known=false.
+func coverageAllowsCost(cov usageCoverage) bool {
+	return cov.State == "complete" || cov.State == "legacy"
+}
+
 // buildTokenSnapshot aggregates raw usage rows into the snapshot shape.
 // Pure function — no I/O, fully testable.
 func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period string, tzOffsetMinutes int, sessionLimit int, meta ModelMeta) TokenUsageSnapshot {
-	snap := TokenUsageSnapshot{Period: period, Scope: "chat_runs"}
+	snap := TokenUsageSnapshot{Period: period, Scope: "chat_runs", ProjectionVersion: 2}
+	snap.Coverage = computeUsageCoverage(rows)
 	if len(rows) == 0 {
 		snap.Models = []tokenModelShare{}
 		snap.Providers = []tokenProviderGroup{}
@@ -159,7 +258,9 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 			pricedRequests += requests
 		}
 	}
-	snap.Total.CostKnown = snap.Total.RequestCount > 0 && pricedRequests == snap.Total.RequestCount
+	snap.Total.CostKnown = snap.Total.RequestCount > 0 &&
+		pricedRequests == snap.Total.RequestCount &&
+		coverageAllowsCost(snap.Coverage)
 	if snap.Total.CostKnown {
 		snap.Total.TotalCostUSD = math.Round(snap.Total.TotalCostUSD*1e4) / 1e4
 	} else {
@@ -172,6 +273,7 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 		cost           float64
 		requests       int
 		pricedRequests int
+		rows           []storage.UsageRow
 	}
 	modelAggs := make(map[string]*modelAgg)
 	for _, r := range rows {
@@ -186,6 +288,7 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 		}
 		agg.tokens += r.TotalTokens
 		agg.requests += usageRequestCount(r)
+		agg.rows = append(agg.rows, r)
 		if cost, ok := rowCostUSD(ctx, meta, r); ok {
 			agg.cost += cost
 			agg.pricedRequests += usageRequestCount(r)
@@ -197,14 +300,15 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 		if totalTokens > 0 {
 			pct = math.Round(float64(agg.tokens)*1000/float64(totalTokens)) / 10
 		}
-		costKnown := agg.requests > 0 && agg.pricedRequests == agg.requests
+		cov := computeUsageCoverage(agg.rows)
+		costKnown := agg.requests > 0 && agg.pricedRequests == agg.requests && coverageAllowsCost(cov)
 		cost := 0.0
 		if costKnown {
 			cost = math.Round(agg.cost*1e4) / 1e4
 		}
 		snap.Models = append(snap.Models, tokenModelShare{
 			Model: model, Percentage: pct, TotalTokens: agg.tokens,
-			CostUSD: cost, CostKnown: costKnown,
+			CostUSD: cost, CostKnown: costKnown, Coverage: cov,
 		})
 	}
 	sort.Slice(snap.Models, func(i, j int) bool {
@@ -360,6 +464,7 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 		pricedCount  int
 		modelTokens  map[string]int
 		lastActivity int64
+		rows         []storage.UsageRow
 	}
 	grouped := make(map[string]*sessAccum)
 	for _, r := range rows {
@@ -377,6 +482,7 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 		g.totalInput += r.PromptTokens
 		g.totalOutput += r.CompletionTokens
 		g.totalTokens += r.TotalTokens
+		g.rows = append(g.rows, r)
 		if cost, ok := rowCostUSD(ctx, meta, r); ok {
 			g.cost += cost
 			g.pricedCount += requests
@@ -401,7 +507,8 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 				primaryModel = m
 			}
 		}
-		costKnown := g.requestCount > 0 && g.pricedCount == g.requestCount
+		cov := computeUsageCoverage(g.rows)
+		costKnown := g.requestCount > 0 && g.pricedCount == g.requestCount && coverageAllowsCost(cov)
 		cost := 0.0
 		if costKnown {
 			cost = math.Round(g.cost*1e4) / 1e4
@@ -416,6 +523,7 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 			TotalTokens:  g.totalTokens,
 			CostUSD:      cost,
 			CostKnown:    costKnown,
+			Coverage:     cov,
 		})
 	}
 	sort.Slice(sessions, func(i, j int) bool {
@@ -427,7 +535,14 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 	return sessions
 }
 
+// usageRequestCount returns the usage-report count a row contributes:
+// observed attempts count only when they carry usage evidence, legacy rows
+// count one (or their aggregated count) — the field reports usage reports,
+// not billed requests.
 func usageRequestCount(row storage.UsageRow) int {
+	if row.CallID != "" {
+		return row.RequestCount
+	}
 	if row.RequestCount > 0 {
 		return row.RequestCount
 	}
