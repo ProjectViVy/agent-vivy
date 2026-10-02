@@ -34,6 +34,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/generated/presentation"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
@@ -77,13 +78,14 @@ type App struct {
 	resolver     *ModelResolver
 	modelHost    *modelhost.Host
 
-	control    controlrpc.Handler
-	httpServer *http.Server
-	rpcToken   string
-	mcpBackend *runtime.MCPBackend
-	assembly   *genassembly.RuntimeAssembly
-	closeOnce  sync.Once
-	closeErr   error
+	control     controlrpc.Handler
+	httpServer  *http.Server
+	rpcToken    string
+	mcpBackend  *runtime.MCPBackend
+	assembly    *genassembly.RuntimeAssembly
+	diagnostics *logging.Diagnostics
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // AppOption tweaks one composition of the process. The zero value is the
@@ -961,6 +963,14 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	fileVersions, _ := backend.(storage.ModifiedFileStore)
 	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
 	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
+	// OBS-05 (D5): bounded diagnostics over the owned runtime/gui log
+	// families; the composition root chooses the file root, never the
+	// caller. Close ordering sits with the other owned services in Close.
+	diagnostics, diagErr := logging.NewDiagnostics(cfg.LogDirectory())
+	if diagErr != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: diagnostics: %w", diagErr)
+	}
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend, Work: workStore, WorkBus: workBus,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc, History: historyService, References: referenceService, Deliverables: deliverableService,
@@ -1023,6 +1033,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// replays the same document on the next launch.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
+		Diagnostics:      diagnostics,
 		FileVersions:     fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
 		// compaction use (D9: no separate data source). Resolve failures
@@ -1154,6 +1165,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	})
 	if err != nil {
 		_ = backend.Close()
+		_ = diagnostics.Close()
 		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
 	// Restart recovery before the server listens (E2, FR-8): every
@@ -1200,6 +1212,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		rpcToken:     rpcToken,
 		mcpBackend:   mcpBackend,
 		assembly:     &runtimeAssembly,
+		diagnostics:  diagnostics,
 	}
 	if runObserverHost != nil {
 		// Start only after every fallible composition and recovery step has
@@ -1308,6 +1321,9 @@ func (a *App) Close() error {
 			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 		}
 		a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
+		if a.diagnostics != nil {
+			a.closeErr = errors.Join(a.closeErr, a.diagnostics.Close())
+		}
 		if a.backend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
 		}
