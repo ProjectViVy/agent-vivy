@@ -14,6 +14,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # go.mod replaces github.com/dashimaki/laputa with ../laputa/laputa; CI
+  # materializes that sibling checkout at this pinned commit (laputa main).
+  LAPUTA_REF: c9c5efe3184b7bd54bd223014a81641e6d1f67b9
+
 jobs:
   backend:
     name: backend ci
@@ -23,6 +28,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check out laputa sibling dependency
+        run: |
+          git clone https://github.com/ProjectViVy/laputa ../laputa
+          git -C ../laputa checkout $env:LAPUTA_REF
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -75,6 +85,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
 
+      - name: Check out laputa sibling dependency
+        run: |
+          git clone https://github.com/ProjectViVy/laputa ../laputa
+          git -C ../laputa checkout $env:LAPUTA_REF
+
       # The UI builds the projection the SDK's Assembler writes from
       # recipes/default.vivy.yml (ui/package.json pre-hooks call
       # `go run ./sdk stage-ui`), so this lane needs the pinned toolchain too.
@@ -98,6 +113,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check out laputa sibling dependency
+        run: |
+          git clone https://github.com/ProjectViVy/laputa ../laputa
+          git -C ../laputa checkout $env:LAPUTA_REF
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
