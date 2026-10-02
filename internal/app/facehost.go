@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"agent-vivy/internal/actionhost"
 	controlrpc "agent-vivy/internal/rpc"
 
 	"agent-vivy/internal/config"
@@ -139,9 +140,16 @@ func (a *App) DialControl(ctx context.Context, notifications controlrpc.Handler)
 		return nil, errors.New("app: control plane is not wired")
 	}
 	hostConn, clientConn := net.Pipe()
+	// The in-process pipe admits no handshake, so the serving peer carries
+	// the app's own session token and an embedded-face identity; ActionHost
+	// still validates caller.Opaque against rpcToken on every invoke.
 	host := controlrpc.NewPeer(
 		controlrpc.NewJSONLTransport(hostConn, hostConn, hostConn.Close),
-		a.control, controlrpc.Options{OutgoingBuffer: 64},
+		a.control, controlrpc.Options{
+			OutgoingBuffer: 64,
+			Caller:         actionhost.NewCaller(a.rpcToken),
+			Identity:       actionhost.Identity{ID: "face/embedded", Face: "embedded"},
+		},
 	)
 	go func() { _ = host.Serve(ctx) }()
 	client := controlrpc.NewPeer(
