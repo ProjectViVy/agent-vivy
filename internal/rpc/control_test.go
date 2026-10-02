@@ -2342,6 +2342,63 @@ func TestProviderRegistryRPC(t *testing.T) {
 	}
 }
 
+// Patch semantics: an update-by-id that omits fields keeps the stored values;
+// most critically an empty api_key must never wipe a persisted credential.
+func TestProviderRegistryUpsertPatchPreservesStoredFields(t *testing.T) {
+	env, settingsPath := newSettingsHandlerEnv(t, nil)
+
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
+		"base_url": "https://gateway.example.com/v1", "default_model": "m1",
+		"models": []string{"m1"}, "api_key": "sk-entry",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+
+	// Models-only patch: the credential and the rest of the entry survive.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "models": []string{"m1", "m2"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("registry = %+v", loaded.Providers)
+	}
+	got := loaded.Providers[0]
+	if got.ApiKey != "sk-entry" || got.Bundle != "openai" ||
+		got.BaseURL != "https://gateway.example.com/v1" ||
+		got.DisplayName != "My Gateway" || got.DefaultModel != "m1" ||
+		len(got.Models) != 2 || got.Models[1] != "m2" {
+		t.Fatalf("patch destroyed stored fields: %+v", got)
+	}
+
+	// Key rotation: a non-empty api_key replaces the stored one.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "api_key": "sk-new",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	loaded, err = settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Providers[0].ApiKey != "sk-new" || len(loaded.Providers[0].Models) != 2 {
+		t.Fatalf("key rotation = %+v", loaded.Providers[0])
+	}
+
+	// A create (unknown id) still requires the full entry — blank bundle
+	// must be rejected rather than silently accepted.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-blank",
+	}); rpcErr == nil {
+		t.Fatal("expected blank-entry create to be rejected")
+	}
+}
+
 func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
 	profiles := func() []modelhost.ProfileStatus {
 		return []modelhost.ProfileStatus{
