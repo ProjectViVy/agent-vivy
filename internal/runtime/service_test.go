@@ -263,25 +263,30 @@ func TestServiceRunHappyPath(t *testing.T) {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
 
-	// Seq is monotonic 1..K with no gaps. model.completed and the terminal
-	// Observer projection use v2; the remaining events retain their existing
+	// Seq is monotonic 1..K with no gaps. Observed calls emit model.request
+	// v3 and model.usage v2; model.completed and the terminal Observer
+	// projection use v2; the remaining events retain their existing
 	// versions when no Context View is selected.
 	for i, ev := range events {
 		if ev.Seq != domain.EventSeq(i+1) {
 			t.Fatalf("event %d has seq %d, want %d", i, ev.Seq, i+1)
 		}
 		wantVersion := 1
-		if ev.Type == domain.EventModelCompleted || ev.Type == domain.EventRunCompleted {
+		switch ev.Type {
+		case domain.EventModelCompleted, domain.EventRunCompleted, domain.EventModelUsage:
 			wantVersion = 2
+		case domain.EventModelRequest:
+			wantVersion = 3
 		}
 		if ev.PayloadVersion != wantVersion {
 			t.Fatalf("event %d (%s) payload version = %d, want %d", i, ev.Type, ev.PayloadVersion, wantVersion)
 		}
 	}
 
-	// Middle shape: delta* then metadata-only model.completed before the
-	// terminal. Reassembly is byte-for-byte and independently checked against
-	// the completion digest/length.
+	// Middle shape: observed request + delta* + the call's finish record,
+	// then metadata-only model.completed before the terminal. Reassembly is
+	// byte-for-byte and independently checked against the completion
+	// digest/length.
 	var deltas strings.Builder
 	var completed payloadModelCompletedV2
 	for _, ev := range events[1 : len(events)-1] {
@@ -292,6 +297,8 @@ func TestServiceRunHappyPath(t *testing.T) {
 			deltas.WriteString(payloadDeltaOf(t, ev.Payload))
 		case domain.EventModelCompleted:
 			completed = payloadCompletedOf(t, ev.Payload)
+		case domain.EventModelUsage, domain.EventModelCallFinished:
+			// Observed-call lifecycle records.
 		default:
 			t.Fatalf("unexpected mid-run event %s", ev.Type)
 		}
@@ -322,8 +329,10 @@ func TestServiceRunHappyPath(t *testing.T) {
 
 // TestServiceRunBindsToolsOnKeywordlessRequest is the regression gate for
 // the retired keyword tool selector: a keyword-less (here: Chinese) user
-// message must still bind the full active tool surface on the outgoing
-// model request, not an empty selection.
+// message must still reach the model with a bound tool surface, not an
+// empty selection. The v3 request reports the actual bound tools at the
+// model boundary: echo_info is deferred behind official tool search, so
+// the surface names the fixed-visible/search tools the model may call.
 func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
@@ -335,7 +344,7 @@ func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
-	var req payloadModelRequest
+	var req payloadModelRequestV3
 	found := false
 	for _, ev := range replayAll(t, backend, runID) {
 		if ev.Type == domain.EventModelRequest {
@@ -350,14 +359,14 @@ func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	if len(req.SelectedTools) == 0 {
 		t.Fatal("keyword-less request bound no tools")
 	}
-	sawEcho := false
+	sawSearch := false
 	for _, name := range req.SelectedTools {
-		if name == tools.EchoInfoName {
-			sawEcho = true
+		if name == officialToolSearchName {
+			sawSearch = true
 		}
 	}
-	if !sawEcho {
-		t.Fatalf("selected tools %v missing %s", req.SelectedTools, tools.EchoInfoName)
+	if !sawSearch {
+		t.Fatalf("bound tools %v missing %s (deferred tools surface through it)", req.SelectedTools, officialToolSearchName)
 	}
 }
 
@@ -2027,8 +2036,7 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 		t.Fatalf("second-run feed missing tool result: %+v", feed)
 	}
 
-	rebuilt, _, err := buildRunContext(ContextPolicy{}, "unused-preamble", stored, "what did you echo?")
-	if err != nil {
+	if _, _, err := buildRunContext(ContextPolicy{}, "unused-preamble", stored, "what did you echo?"); err != nil {
 		t.Fatalf("rebuild context: %v", err)
 	}
 
@@ -2045,8 +2053,12 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	if !found {
 		t.Fatal("second run missing model.request")
 	}
+	// The v3 request digests the exact invocation input the model received
+	// (feed), which includes the injected preamble/history rows the
+	// surrogate request never saw. rebuilt is still asserted above for the
+	// feed itself; here the digest must equal the actual feed digest.
 	gotBody := stripSystemRequestRows(req.Messages)
-	wantBody := stripSystemRequestRows(digestModelRequest(rebuilt, nil).Messages)
+	wantBody := stripSystemRequestRows(digestModelRequest(feed, nil).Messages)
 	if len(gotBody) != len(wantBody) {
 		t.Fatalf("model.request body = %+v, want %+v", gotBody, wantBody)
 	}
@@ -2077,21 +2089,22 @@ func TestReserveMappedBudgetSkipsStreamingDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	m := newEventMapper("run-budget", 0)
 	deltas := make([]domain.RunEvent, 0, 600)
 	for i := 0; i < 600; i++ {
 		deltas = append(deltas, domain.RunEvent{Type: domain.EventModelDelta})
 	}
-	if err := reserveMappedBudget(ledger, deltas); err != nil {
+	if err := m.reserveMappedBudget(ledger, deltas); err != nil {
 		t.Fatalf("600 streamed deltas must not consume the events budget: %v", err)
 	}
-	if err := reserveMappedBudget(ledger, []domain.RunEvent{{Type: domain.EventModelCompleted}}); err != nil {
+	if err := m.reserveMappedBudget(ledger, []domain.RunEvent{{Type: domain.EventModelCompleted}}); err != nil {
 		t.Fatalf("semantic events keep charging: %v", err)
 	}
 	semantic := make([]domain.RunEvent, 0, 6)
 	for i := 0; i < 6; i++ {
 		semantic = append(semantic, domain.RunEvent{Type: domain.EventModelUsage})
 	}
-	if err := reserveMappedBudget(ledger, semantic); !errors.Is(err, ErrBudgetExceeded) {
+	if err := m.reserveMappedBudget(ledger, semantic); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("events budget must still trip on semantic events, got: %v", err)
 	}
 }

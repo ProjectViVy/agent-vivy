@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,6 +13,13 @@ import (
 // unlimited for the standalone ledger; application configuration supplies
 // positive defaults. Child ledgers can tighten a limit, never widen the
 // shared parent account.
+//
+// MaxEvents admits journaled events, with three explicit exemptions
+// (OBS-02/D2): model.delta live-payload traffic, each observed call's
+// mandatory model.call.finished closure, and at most one settlement:true
+// model.usage sample per call. Exemptions never admit provider/tool/retry
+// work; replay applies the same rule and charges model work once per v3
+// model.request, keeping legacy accounting for histories without v3.
 type BudgetPolicy struct {
 	MaxEvents     int
 	MaxModelCalls int
@@ -107,6 +115,11 @@ type BudgetLedger struct {
 	account *budgetAccount
 	policy  BudgetPolicy
 	scope   *budgetScope
+	// replayObservedCalls credits the same accounting rule the live path
+	// uses: a v3 model.request already charged the model-call unit at
+	// Begin, so the observed call's model.completed/tool.requested replay
+	// consumes a credit instead of charging again (OBS-02).
+	replayObservedCalls int
 }
 
 // NewBudgetLedger creates a root accounting scope. Use DefaultBudgetPolicy
@@ -199,7 +212,7 @@ func (l *BudgetLedger) Snapshot() BudgetSnapshot {
 // recovery. Terminal events are mandatory closure records and do not consume
 // the non-terminal event quota.
 func (l *BudgetLedger) ReplayEvent(ev domain.RunEvent) error {
-	if !ev.Type.Terminal() && ev.Type != domain.EventModelDelta && ev.Type != domain.EventModelReasoningDelta {
+	if !ev.Type.Terminal() && !replayEventBudgetExempt(ev) {
 		if err := l.ReserveEvent(); err != nil {
 			return err
 		}
@@ -208,15 +221,57 @@ func (l *BudgetLedger) ReplayEvent(ev domain.RunEvent) error {
 	case domain.EventProviderRetry:
 		return l.ReserveRetry()
 	case domain.EventToolRequested:
-		if err := l.ReserveModelCall(); err != nil {
-			return err
+		if !l.consumeReplayObservedCall() {
+			if err := l.ReserveModelCall(); err != nil {
+				return err
+			}
 		}
 		return l.ReserveToolCall()
 	case domain.EventModelCompleted:
+		if l.consumeReplayObservedCall() {
+			return nil
+		}
 		return l.ReserveModelCall()
+	case domain.EventModelRequest:
+		// v3 requests charged the model call at Begin in the live path;
+		// replay charges here and credits the call's later mapped
+		// accounting events.
+		if ev.PayloadVersion >= 3 {
+			l.replayObservedCalls++
+			return l.ReserveModelCall()
+		}
+		return nil
 	default:
 		return nil
 	}
+}
+
+// replayEventBudgetExempt mirrors the live-path exemptions exactly: deltas
+// are live-payload traffic, model.call.finished and the single settlement
+// usage sample are mandatory closure evidence — none consume MaxEvents.
+func replayEventBudgetExempt(ev domain.RunEvent) bool {
+	switch ev.Type {
+	case domain.EventModelDelta, domain.EventModelReasoningDelta, domain.EventModelCallFinished:
+		return true
+	case domain.EventModelUsage:
+		if ev.PayloadVersion >= 2 {
+			var probe struct {
+				Settlement bool `json:"settlement"`
+			}
+			if err := json.Unmarshal(ev.Payload, &probe); err == nil && probe.Settlement {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (l *BudgetLedger) consumeReplayObservedCall() bool {
+	if l == nil || l.replayObservedCalls == 0 {
+		return false
+	}
+	l.replayObservedCalls--
+	return true
 }
 
 func usageFor(usage BudgetUsage, kind BudgetKind) int {

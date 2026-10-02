@@ -335,7 +335,7 @@ func TestMapperConcatenatesStreamingToolCallIdentityAndArguments(t *testing.T) {
 
 func TestMapperMaterializedObservedToolCallDoesNotDuplicatePreamble(t *testing.T) {
 	m := newEventMapper("run-observed-tool", 4096)
-	m.beginObservedStream()
+	m.noteObservedCallMaterialized("run")
 	observed := m.observeStreamChunk(&schema.Message{Role: schema.Assistant, Content: "before tool"})
 	materialized, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{
 		Role:      schema.Assistant,

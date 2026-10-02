@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.request.json",
   "title": "model.request payload",
-  "description": "Digest of the exact message list handed to the model for one invocation (ADR-010). Full text lives on the message projection and prior journal events; this event only records reconstructable fingerprints.",
+  "description": "Digest of the exact message list handed to the model for one invocation (ADR-010, OBS-02/D2). Full text lives on the message projection and prior journal events; this event only records reconstructable fingerprints. v3 is emitted by the observed model-call boundary before the provider is invoked and joins call_id with its usage samples and call.finished closure.",
   "type": "object",
   "properties": {
     "selected_tools": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Tool names visible to this model request."
+      "description": "Tool names bound for this model call (v3: actual bound tools; v1/v2: run selection)."
     },
     "preamble_sha256": {
       "type": "string",
@@ -46,6 +46,31 @@
       "type": "string",
       "minLength": 1,
       "description": "Immutable ContextHost View identity selected for this request; content is not embedded."
+    },
+    "call_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque per-invocation identity shared by this call's model.usage samples and model.call.finished closure (v3)."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["generate", "stream"],
+      "description": "Invocation mode observed at the model boundary (v3)."
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider identity resolved for this call (v3)."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model identity resolved for this call (v3)."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["main", "child", "summary"],
+      "description": "Route attribution: chat main leg, child run leg, or compaction summary call (v3)."
     }
   },
   "required": ["selected_tools", "preamble_sha256", "preamble_bytes", "messages"],
@@ -53,11 +78,16 @@
   "oneOf": [
     {
       "title": "v1 legacy request digest",
-      "not": { "required": ["context_view"] }
+      "not": { "anyOf": [{ "required": ["context_view"] }, { "required": ["call_id"] }] }
     },
     {
       "title": "v2 Context View digest",
-      "required": ["context_view"]
+      "required": ["context_view"],
+      "not": { "required": ["call_id"] }
+    },
+    {
+      "title": "v3 observed model-call request",
+      "required": ["call_id", "mode", "provider", "model", "source"]
     }
   ]
 }

@@ -129,6 +129,73 @@ type payloadModelRequestMessage struct {
 	ByteLen       int    `json:"byte_len"`
 }
 
+// payloadModelRequestV3 is the per-invocation request record: the v2
+// Context View digest plus call lifecycle identity (OBS-02/D2). CallID
+// joins the request with its usage samples and call.finished closure.
+type payloadModelRequestV3 struct {
+	payloadModelRequest
+	CallID   string `json:"call_id"`
+	Mode     string `json:"mode"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Source   string `json:"source"`
+}
+
+// payloadModelUsageV2 attributes a cumulative usage sample to one model
+// call. Reasoning/Cached are presence pointers: the wire shape cannot
+// distinguish "provider reported zero" from "provider reported nothing",
+// so zero scalars stay unknown (D2: no synthetic usage).
+type payloadModelUsageV2 struct {
+	CallID           string `json:"call_id"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Source           string `json:"source"`
+	UsageKind        string `json:"usage_kind"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	ReasoningTokens  *int   `json:"reasoning_tokens,omitempty"`
+	CachedTokens     *int   `json:"cached_tokens,omitempty"`
+	// NormalizationPartial marks samples that contradicted the pinned
+	// monotonic merge (decreasing counters, non-cumulative convention).
+	NormalizationPartial *bool `json:"normalization_partial,omitempty"`
+	// Settlement marks the single mandatory End sample, which is exempt
+	// from the MaxEvents budget like run terminal events are.
+	Settlement *bool `json:"settlement,omitempty"`
+}
+
+// payloadModelCallUsage is the normalized usage sample embedded in
+// model.call.finished; emitted only when the provider reported usage.
+type payloadModelCallUsage struct {
+	PromptTokens         int   `json:"prompt_tokens"`
+	CompletionTokens     int   `json:"completion_tokens"`
+	TotalTokens          int   `json:"total_tokens"`
+	ReasoningTokens      *int  `json:"reasoning_tokens,omitempty"`
+	CachedTokens         *int  `json:"cached_tokens,omitempty"`
+	NormalizationPartial *bool `json:"normalization_partial,omitempty"`
+}
+
+type payloadModelCallError struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+}
+
+// payloadModelCallFinished is the mandatory closure record of one
+// observed model call (OBS-02/D2). It is exempt from the MaxEvents
+// budget: every observed call must close or the call's usage evidence
+// would be unpinned when the run exhausts its event quota.
+type payloadModelCallFinished struct {
+	CallID           string                 `json:"call_id"`
+	Mode             string                 `json:"mode"`
+	Provider         string                 `json:"provider"`
+	Model            string                 `json:"model"`
+	Source           string                 `json:"source"`
+	Status           string                 `json:"status"`
+	Error            *payloadModelCallError `json:"error,omitempty"`
+	Usage            *payloadModelCallUsage `json:"usage,omitempty"`
+	ResponseComplete bool                   `json:"response_complete"`
+}
+
 type payloadToolRequested struct {
 	ToolCallID string         `json:"tool_call_id"`
 	ToolName   string         `json:"tool_name"`

@@ -193,10 +193,14 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	// main chat model stays the one-shot failover. With no override, the
 	// main model summarises directly and no failover is wired (a second
 	// identical call would be a pointless retry).
-	summModel := chatModel
+	// Summary calls run through the call-observation seam too (OBS-02):
+	// both the primary (or the main model standing in for it) and the
+	// failover wrapper journal their own v3 request / v2 usage / finish
+	// records with source "summary".
+	summModel := observeSummaryModel(chatModel, false)
 	var failover *summarization.FailoverConfig
 	if summaryModel != nil {
-		summModel = summaryModel
+		summModel = observeSummaryModel(summaryModel, false)
 		failover = &summarization.FailoverConfig{
 			MaxRetries: intPtr(1),
 			BackoffFunc: func(context.Context, int, *schema.Message, error) time.Duration {
@@ -215,7 +219,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 				}
 				input = append(input, rest...)
 				input = append(input, fc.UserInstruction)
-				return chatModel, input, nil
+				return observeSummaryModel(chatModel, true), input, nil
 			},
 		}
 	}

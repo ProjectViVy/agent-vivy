@@ -677,7 +677,7 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:             "contract-agent",
 		Description:      "ND-0 contract probe",
-		Model:            observeModelStreams(h.model),
+		Model:            observeChatModel(h.model),
 		Handlers:         handlers,
 		ToolsConfig:      adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: adapters}},
 		MaxIterations:    16,
@@ -1235,7 +1235,7 @@ func TestNudgeContract(t *testing.T) {
 		agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 			Name:          "contract-compaction",
 			Description:   "ND-0 compaction ordering probe",
-			Model:         observeModelStreams(mainModel),
+			Model:         observeChatModel(mainModel),
 			Handlers:      handlers,
 			MaxIterations: 8,
 		})

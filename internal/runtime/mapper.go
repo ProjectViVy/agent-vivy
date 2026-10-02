@@ -93,9 +93,18 @@ type eventMapper struct {
 
 	observedMu      sync.Mutex
 	observedStreams int
-	toolMu          sync.Mutex
-	toolsSettled    chan struct{}
-	toolsWaiting    bool
+	// pendingObservedCharges credits mapped accounting for calls that
+	// charged their model-call unit at v3 request Begin (OBS-02): the
+	// model.completed/tool.requested batch of an observed call consumes
+	// one credit instead of charging again.
+	pendingObservedCharges int
+	// observedSummaryCalls counts materialized summary-route calls; each
+	// summarization CustomizedAction usage event consumes one so the
+	// observed call is not double-reported.
+	observedSummaryCalls int
+	toolMu               sync.Mutex
+	toolsSettled         chan struct{}
+	toolsWaiting         bool
 }
 
 type openToolCall struct {
@@ -273,7 +282,10 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 	if elapsed := time.Since(started); m.stallThreshold >= 0 && elapsed >= m.stallThreshold {
 		tail = append(tail, m.build(domain.EventProviderStall, payloadProviderStall{ElapsedMs: elapsed.Milliseconds()}))
 	}
-	if usage != nil {
+	// Observed calls emit their own cumulative model.usage v2 samples
+	// through the observer seam; the materialized tail must not
+	// re-report them as unattributed v1 events.
+	if usage != nil && !observedLive {
 		tail = append(tail, m.usageEvent(usage))
 	}
 	if len(callChunks) > 0 {
@@ -292,10 +304,47 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 	return emit(tail)
 }
 
-func (m *eventMapper) beginObservedStream() {
+// noteObservedCallStart credits one observed call whose v3 request
+// Begin already charged the model-call budget. Mapped
+// model.completed/tool.requested accounting consumes the credit.
+func (m *eventMapper) noteObservedCallStart() {
+	m.observedMu.Lock()
+	m.pendingObservedCharges++
+	m.observedMu.Unlock()
+}
+
+func (m *eventMapper) consumeObservedCallCharge() bool {
+	m.observedMu.Lock()
+	defer m.observedMu.Unlock()
+	if m.pendingObservedCharges == 0 {
+		return false
+	}
+	m.pendingObservedCharges--
+	return true
+}
+
+// noteObservedCallMaterialized marks one call whose invocation produced
+// a materialized result (successful inner Stream setup or a returned
+// Generate message), suppressing duplicate mapper-side delta/usage
+// emission for it. Summary-route calls additionally credit the
+// summarization CustomizedAction usage suppression.
+func (m *eventMapper) noteObservedCallMaterialized(source string) {
 	m.observedMu.Lock()
 	m.observedStreams++
+	if source == modelCallSourceSummary {
+		m.observedSummaryCalls++
+	}
 	m.observedMu.Unlock()
+}
+
+func (m *eventMapper) takeObservedSummaryCall() bool {
+	m.observedMu.Lock()
+	defer m.observedMu.Unlock()
+	if m.observedSummaryCalls == 0 {
+		return false
+	}
+	m.observedSummaryCalls--
+	return true
 }
 
 func (m *eventMapper) takeObservedStream() bool {
@@ -337,6 +386,12 @@ func (m *eventMapper) onCustomizedAction(action any) ([]domain.RunEvent, error) 
 	if resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
 		return nil, nil
 	}
+	if m.takeObservedSummaryCall() {
+		// The wrapped summary model already journaled its v2 usage
+		// samples through the observer seam; re-reporting the action's
+		// usage would double the call.
+		return nil, nil
+	}
 	provider, model := m.runProvider, m.runModel
 	if ca.GenerateSummary.Phase == summarization.GenerateSummaryPhasePrimary && m.summaryModel != "" {
 		model = m.summaryModel
@@ -360,7 +415,12 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		}
 		return append(out, events...), nil
 	}
-	_ = m.takeObservedStream()
+	observed := m.takeObservedStream()
+	if observed {
+		// The call emitted its own attributed v2 usage samples; drop the
+		// unattributed v1 sample messageMetaEvents already produced.
+		out = removeUsageEvents(out)
+	}
 	switch {
 	case len(msg.ToolCalls) > 0:
 		// Some providers attach assistant preamble text to the same message as
@@ -394,6 +454,16 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		m.resetPending()
 		return append(out, m.completedEvent(content)), nil
 	}
+}
+
+func removeUsageEvents(events []domain.RunEvent) []domain.RunEvent {
+	out := events[:0]
+	for _, re := range events {
+		if re.Type != domain.EventModelUsage {
+			out = append(out, re)
+		}
+	}
+	return out
 }
 
 func (m *eventMapper) messageMetaEvents(msg *schema.Message) []domain.RunEvent {
@@ -784,6 +854,10 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		terminal.Outcome = "cancelled"
 		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
 		payload = terminal
+	case payloadModelRequestV3:
+		payloadVersion = 3
+	case payloadModelUsageV2:
+		payloadVersion = 2
 	case payloadModelRequest:
 		if terminal.ContextView != "" {
 			payloadVersion = 2

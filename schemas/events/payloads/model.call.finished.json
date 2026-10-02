@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/model.call.finished.json",
+  "title": "model.call.finished payload (v1)",
+  "description": "Mandatory closure record of one observed model call (OBS-02/D2). Emitted exactly once per admitted call — normal EOF, setup/read error, downstream close, or cancellation — and exempt from the MaxEvents budget so no admitted call can end unclosed.",
+  "type": "object",
+  "properties": {
+    "call_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identity shared with the call's v3 model.request and v2 model.usage samples."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["generate", "stream"]
+    },
+    "provider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "string",
+      "enum": ["main", "child", "summary"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "cancelled"]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" }
+      },
+      "required": ["name", "message"],
+      "additionalProperties": false,
+      "description": "Present only for failed/cancelled finishes."
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 },
+        "total_tokens": { "type": "integer", "minimum": 0 },
+        "reasoning_tokens": { "type": "integer", "minimum": 0 },
+        "cached_tokens": { "type": "integer", "minimum": 0 },
+        "normalization_partial": { "type": "boolean" }
+      },
+      "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+      "additionalProperties": false,
+      "description": "Last normalized provider-reported sample; absent when the provider reported no usage."
+    },
+    "response_complete": {
+      "type": "boolean",
+      "description": "True only when the model produced a complete response (normal stream EOF or Generate success)."
+    }
+  },
+  "required": ["call_id", "mode", "provider", "model", "source", "status", "response_complete"],
+  "additionalProperties": false
+}

@@ -1,22 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.usage.json",
-  "title": "model.usage payload (v1)",
+  "title": "model.usage payload",
+  "description": "Token-usage evidence for a model call. v1 is the legacy unattributed sample; v2 attributes one normalized cumulative sample to a call_id (OBS-02/D2). Optional buckets stay absent when the provider reports nothing — scalar zero is never fabricated for unknown presence.",
   "type": "object",
   "properties": {
     "prompt_tokens": { "type": "integer", "minimum": 0 },
     "completion_tokens": { "type": "integer", "minimum": 0 },
     "total_tokens": { "type": "integer", "minimum": 0 },
-    "reasoning_tokens": { "type": "integer", "minimum": 0 },
+    "reasoning_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Completion-token subset spent on reasoning; omitted when unreported or zero."
+    },
     "cached_tokens": {
       "type": "integer",
       "minimum": 0,
-      "description": "Prompt-token prefix served from the provider cache (prompt_tokens_details.cached_tokens). Omitted when the provider does not report it."
+      "description": "Prompt-token prefix served from the provider cache (prompt_tokens_details.cached_tokens); omitted when unreported or zero."
+    },
+    "call_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Observed call this sample belongs to (v2)."
     },
     "provider": { "type": "string", "maxLength": 128 },
     "model": { "type": "string", "maxLength": 256 },
-    "source": { "type": "string", "enum": ["main", "child", "summary"] }
+    "source": { "type": "string", "enum": ["main", "child", "summary"] },
+    "usage_kind": {
+      "type": "string",
+      "enum": ["cumulative"],
+      "description": "v2 samples are normalized cumulative counters, not per-chunk deltas."
+    },
+    "normalization_partial": {
+      "type": "boolean",
+      "description": "True when provider counters contradicted the pinned monotonic merge; totals are provisional, never claimed complete (v2)."
+    },
+    "settlement": {
+      "type": "boolean",
+      "description": "True on the single mandatory End sample; exempt from the MaxEvents budget like run terminals (v2)."
+    }
   },
   "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "title": "v1 legacy unattributed sample",
+      "not": { "required": ["call_id"] }
+    },
+    {
+      "title": "v2 call-attributed cumulative sample",
+      "required": ["call_id", "provider", "model", "source", "usage_kind"]
+    }
+  ]
 }

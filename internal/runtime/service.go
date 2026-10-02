@@ -16,6 +16,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
@@ -2832,12 +2833,9 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		return
 	}
 	m.setContextViewID(stats.ContextViewID)
-	modelRequest := digestModelRequest(msgs, selection.Names())
-	modelRequest.ContextView = stats.ContextViewID
 	s.storeContextView(m.runID, stats.ContextViewID)
-	if !s.persistAndPublish(ctx, sessionID, m.build(domain.EventModelRequest, modelRequest)) {
-		return
-	}
+	// The per-invocation v3 model.request is journaled by the observer
+	// seam inside Begin, before the provider is invoked (OBS-02/D2).
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
 	runCtx = withRunExecution(runCtx, eng, execution)
@@ -2874,7 +2872,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta)
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
 	// context so in-context seams share exactly this instance.
@@ -2898,34 +2896,275 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter, state, beforeComplete, execution)
 }
 
-// withLiveModelStreamObserver installs the producer-path stream seam used by
-// both initial runs and ResumeWithParams. Eino callbacks are a sibling Copy
-// after ChatModel.Stream returns and cannot put persist, bounded backpressure,
-// fail-closed errors, or the tool-settled barrier on the Recv→Send path.
-// Keeping the construction in one place prevents approval/question resumes
-// from reverting to EOF-batched output.
-func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string)) context.Context {
-	return withModelStreamObserver(ctx, modelStreamObserver{
-		Begin: m.beginObservedStream,
-		Chunk: func(chunk *schema.Message) error {
-			if chunk != nil && onDelta != nil {
-				onDelta(chunk.Content)
+// withLiveModelStreamObserver installs the producer-path call
+// observation seam used by both initial runs and ResumeWithParams. Eino
+// callbacks are a sibling Copy after ChatModel.Stream returns and cannot
+// put persist, bounded backpressure, fail-closed errors, or the
+// tool-settled barrier on the Recv→Send path. Keeping the construction
+// in one place prevents approval/question resumes from reverting to
+// EOF-batched output.
+//
+// The factory binds the run's routes: the chat route resolves to
+// "main" or "child" from the execution context; the summary routes are
+// claimed by the wrapped summarizer models in compaction_middleware.go.
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool) context.Context {
+	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
+		source := "main"
+		if childRun {
+			source = "child"
+		}
+		provider, model := m.runProvider, m.runModel
+		if route.Source == modelCallSourceSummary {
+			source = modelCallSourceSummary
+			if !route.FallbackModel && m.summaryModel != "" {
+				model = m.summaryModel
 			}
-			if err := m.waitForToolsSettled(ctx); err != nil {
-				return err
-			}
-			events := m.observeStreamChunk(chunk)
-			if err := reserveMappedBudget(ledger, events); err != nil {
-				return err
-			}
-			for _, event := range events {
-				if !s.persistAndPublish(ctx, sessionID, event) {
-					return context.Canceled
-				}
-			}
-			return nil
-		},
+		}
+		return &runModelCallObserver{
+			svc: s, m: m, sessionID: sessionID, ledger: ledger,
+			source: source, provider: provider, model: model,
+			onDelta: onDelta, calls: map[string]*observedModelCall{},
+		}
 	})
+}
+
+// runModelCallObserver is the Journal-bound modelCallObserver (OBS-02):
+// Begin persists the v3 model.request and charges the model-call budget
+// before the provider runs; Chunk emits deduplicated cumulative v2 usage
+// samples (chat streams also persist their deltas here); End persists
+// the settlement sample and model.call.finished through the bounded
+// terminal persistence context so caller cancellation cannot strand the
+// closure record.
+type runModelCallObserver struct {
+	svc       *Service
+	m         *eventMapper
+	sessionID domain.SessionID
+	ledger    *BudgetLedger
+	source    string
+	provider  string
+	model     string
+	onDelta   func(string)
+
+	mu    sync.Mutex
+	calls map[string]*observedModelCall
+}
+
+type observedModelCall struct {
+	mode  string
+	usage usageAccumulator
+}
+
+func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
+	meta := modelCallMeta{
+		CallID:   uuid.NewString(),
+		Provider: o.provider,
+		Model:    o.model,
+		Source:   o.source,
+	}
+	if o.source != modelCallSourceSummary {
+		meta.ContextViewID = o.m.contextViewID
+	}
+	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
+	if meta.ContextViewID != "" {
+		request.ContextView = meta.ContextViewID
+	}
+	event := o.m.build(domain.EventModelRequest, payloadModelRequestV3{
+		payloadModelRequest: request,
+		CallID:              meta.CallID,
+		Mode:                in.Mode,
+		Provider:            o.provider,
+		Model:               o.model,
+		Source:              o.source,
+	})
+	// The v3 request consumes the event quota and carries the run's
+	// model-call charge up front; the mapped model.completed/
+	// tool.requested batch for this call consumes the accounting credit
+	// noteObservedCallStart leaves behind.
+	if o.ledger != nil {
+		if err := o.ledger.ReserveModelCall(); err != nil {
+			return meta, err
+		}
+		if err := o.ledger.ReserveEvent(); err != nil {
+			return meta, err
+		}
+	}
+	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+		return meta, errors.New("runtime: model request event could not be journaled")
+	}
+	o.m.noteObservedCallStart()
+	o.mu.Lock()
+	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode}
+	o.mu.Unlock()
+	return meta, nil
+}
+
+func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
+	o.m.noteObservedCallMaterialized(o.source)
+}
+
+func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.Message) error {
+	if chunk == nil {
+		return nil
+	}
+	state := o.call(meta.CallID)
+	var events []domain.RunEvent
+	if state != nil && state.mode == "stream" {
+		if o.onDelta != nil {
+			o.onDelta(chunk.Content)
+		}
+		if err := o.m.waitForToolsSettled(ctx); err != nil {
+			return err
+		}
+		events = append(events, o.m.observeStreamChunk(chunk)...)
+	}
+	var pendingUsageKey string
+	if state != nil {
+		if u := usageOfMessage(chunk); u != nil {
+			state.usage.record(u)
+			if sample, ok := state.usage.sample(); ok && sample.key() != state.usage.lastEmit {
+				pendingUsageKey = sample.key()
+				events = append(events, o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, false)))
+			}
+		}
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	if err := o.m.reserveMappedBudget(o.ledger, events); err != nil {
+		return err
+	}
+	for _, event := range events {
+		if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+			return context.Canceled
+		}
+	}
+	if pendingUsageKey != "" && state != nil {
+		// Commit the emitted key only once the sample is durable: a
+		// blocked persist leaves lastEmit stale so End still journals the
+		// changed final sample tagged settlement:true.
+		state.usage.lastEmit = pendingUsageKey
+	}
+	return nil
+}
+
+// End settles the call: at most one changed cumulative usage sample
+// tagged settlement:true plus the mandatory model.call.finished record —
+// both exempt from MaxEvents, like run terminal events. Persistence runs
+// on the detached, time-bounded context so a cancelled caller cannot
+// strand the closure evidence.
+func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, result modelCallResult) error {
+	state := o.take(meta.CallID)
+	mode := ""
+	var usage *usageAccumulator
+	if state != nil {
+		mode = state.mode
+		usage = &state.usage
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
+	if usage != nil {
+		if sample, ok := usage.sample(); ok && sample.key() != usage.lastEmit {
+			usage.lastEmit = sample.key()
+			event := o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, true))
+			if !o.svc.persistAndPublish(persistCtx, o.sessionID, event) {
+				return errors.New("runtime: usage settlement event could not be journaled")
+			}
+		}
+	}
+	finish := payloadModelCallFinished{
+		CallID:           meta.CallID,
+		Mode:             mode,
+		Provider:         meta.Provider,
+		Model:            meta.Model,
+		Source:           meta.Source,
+		Status:           modelCallStatus(ctx, result.Err),
+		ResponseComplete: result.ResponseComplete,
+	}
+	if result.Err != nil {
+		finish.Error = &payloadModelCallError{
+			Name:    clampEscapedText(fmt.Sprintf("%T", result.Err), 128),
+			Message: clampEscapedText(result.Err.Error(), 512),
+		}
+	}
+	if usage != nil {
+		if sample, ok := usage.sample(); ok {
+			finish.Usage = &payloadModelCallUsage{
+				PromptTokens:     sample.PromptTokens,
+				CompletionTokens: sample.CompletionTokens,
+				TotalTokens:      sample.TotalTokens,
+				ReasoningTokens:  sample.ReasoningTokens,
+				CachedTokens:     sample.CachedTokens,
+			}
+			if sample.Partial {
+				finish.Usage.NormalizationPartial = boolTrue()
+			}
+		}
+	}
+	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
+		return errors.New("runtime: model call finish event could not be journaled")
+	}
+	return nil
+}
+
+func (o *runModelCallObserver) call(callID string) *observedModelCall {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.calls[callID]
+}
+
+func (o *runModelCallObserver) take(callID string) *observedModelCall {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	state := o.calls[callID]
+	delete(o.calls, callID)
+	return state
+}
+
+func (o *runModelCallObserver) usagePayloadV2(meta modelCallMeta, sample normalizedUsageSample, settlement bool) payloadModelUsageV2 {
+	p := payloadModelUsageV2{
+		CallID:           meta.CallID,
+		Provider:         meta.Provider,
+		Model:            meta.Model,
+		Source:           meta.Source,
+		UsageKind:        "cumulative",
+		PromptTokens:     sample.PromptTokens,
+		CompletionTokens: sample.CompletionTokens,
+		TotalTokens:      sample.TotalTokens,
+		ReasoningTokens:  sample.ReasoningTokens,
+		CachedTokens:     sample.CachedTokens,
+	}
+	if sample.Partial {
+		p.NormalizationPartial = boolTrue()
+	}
+	if settlement {
+		p.Settlement = boolTrue()
+	}
+	return p
+}
+
+func boolTrue() *bool {
+	b := true
+	return &b
+}
+
+func toolInfoNames(infos []*schema.ToolInfo) []string {
+	out := make([]string, 0, len(infos))
+	for _, info := range infos {
+		if info != nil {
+			out = append(out, info.Name)
+		}
+	}
+	return out
+}
+
+func modelCallStatus(ctx context.Context, callErr error) string {
+	if callErr == nil {
+		return "completed"
+	}
+	if errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) || ctx.Err() != nil {
+		return "cancelled"
+	}
+	return "failed"
 }
 
 // nudgeEmitter builds the leg's tool.nudge scheduling emitter (ND-3, §6):
@@ -3156,7 +3395,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 		persistStopped := false
 		err := m.onEventEach(ev, func(events []domain.RunEvent) error {
-			if err := reserveMappedBudget(ledger, events); err != nil {
+			if err := m.reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
 			var requested []string
@@ -3245,7 +3484,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 	}
 
 	turnEnd := m.onTurnEnd()
-	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+	if err := m.reserveMappedBudget(ledger, turnEnd); err != nil {
 		if state != nil {
 			state.Abort(err)
 		}
@@ -3291,23 +3530,45 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 // substantive reply exceed MaxEvents on its own. Runaway-generation safety
 // stays with the model-call budget (one charge per generation) and the
 // tool-call budget; deltas themselves are also payload-clamped by the mapper.
-func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
+func (m *eventMapper) reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
+	if ledger == nil {
+		return nil
+	}
 	modelCall := false
+	accountedCall := false
 	for _, re := range events {
 		switch re.Type {
-		case domain.EventModelDelta, domain.EventModelReasoningDelta:
+		case domain.EventModelDelta, domain.EventModelReasoningDelta, domain.EventModelCallFinished:
+			// Deltas are live-payload traffic and model.call.finished is
+			// mandatory closure evidence; neither consumes MaxEvents.
 			continue
+		case domain.EventModelUsage:
+			// The single settlement sample is exempt; ordinary
+			// cumulative samples consume the quota.
+			if eventHasSettlementFlag(re) {
+				continue
+			}
 		case domain.EventProviderRetry:
 			if err := ledger.ReserveRetry(); err != nil {
 				return err
 			}
 		case domain.EventToolRequested:
-			modelCall = true
+			if !accountedCall {
+				accountedCall = true
+				if !m.consumeObservedCallCharge() {
+					modelCall = true
+				}
+			}
 			if err := ledger.ReserveToolCall(); err != nil {
 				return err
 			}
 		case domain.EventModelCompleted:
-			modelCall = true
+			if !accountedCall {
+				accountedCall = true
+				if !m.consumeObservedCallCharge() {
+					modelCall = true
+				}
+			}
 		}
 		if err := ledger.ReserveEvent(); err != nil {
 			return err
@@ -3317,6 +3578,18 @@ func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 		return ledger.ReserveModelCall()
 	}
 	return nil
+}
+
+// eventHasSettlementFlag probes a v2 usage payload for the settlement
+// marker without decoding the whole document.
+func eventHasSettlementFlag(re domain.RunEvent) bool {
+	if re.PayloadVersion < 2 {
+		return false
+	}
+	var probe struct {
+		Settlement bool `json:"settlement"`
+	}
+	return json.Unmarshal(re.Payload, &probe) == nil && probe.Settlement
 }
 
 // handleInterrupt routes one exact Eino checkpoint target to its durable
@@ -4219,7 +4492,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta)
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
@@ -4640,14 +4913,9 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 			if err := ledger.ReserveEvent(); err != nil {
 				return err
 			}
-			// A summarization compaction ran one (or more) hidden model
-			// generation; charge it against MaxModelCalls so the summary
-			// call cannot bypass the run-tree budget (research P3 bridge ii).
-			if event.Type == domain.EventContextCompacted && event.Mode == "summarization" {
-				if err := ledger.ReserveModelCall(); err != nil {
-					return err
-				}
-			}
+			// The summarization model call's own charge lands at the
+			// call-observer Begin (v3 model.request), not here — charging
+			// again would double-count the same generation (OBS-02).
 		}
 		re := m.build(event.Type, payload)
 		if !s.persistAndPublish(ctx, sessionID, re) {

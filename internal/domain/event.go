@@ -14,6 +14,7 @@ const (
 	EventModelUsage               EventType = "model.usage"
 	EventModelCompleted           EventType = "model.completed"
 	EventModelRequest             EventType = "model.request"
+	EventModelCallFinished        EventType = "model.call.finished"
 	EventToolRequested            EventType = "tool.requested"
 	EventToolApprovalRequired     EventType = "tool.approval_required"
 	EventToolApprovalDecided      EventType = "tool.approval_decided"
@@ -74,6 +75,7 @@ var EventTypes = []EventType{
 	EventModelUsage,
 	EventModelCompleted,
 	EventModelRequest,
+	EventModelCallFinished,
 	EventToolRequested,
 	EventToolApprovalRequired,
 	EventToolApprovalDecided,
