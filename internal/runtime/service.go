@@ -182,6 +182,10 @@ type ServiceDeps struct {
 	// wiring supplies it when prompt snapshots are enabled; legacy embedders
 	// retain the existing sequential path when it is absent.
 	Admission storage.RunAdmissionStore
+	// Cognitive carries the bound authority ports for trusted strategy
+	// workflows (StartCognitiveWorkflow). Nil keeps trusted strategy
+	// admission unavailable; the authored workflow path is unaffected.
+	Cognitive *CognitiveBinding
 	// ChildSessions is the atomic addressable-child admission boundary. NewService
 	// discovers it from Sessions when the backend supports continuable children.
 	ChildSessions storage.ChildSessionStore

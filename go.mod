@@ -15,6 +15,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
+	github.com/dashimaki/laputa v0.0.0-00010101000000-000000000000
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
@@ -169,7 +170,7 @@ require (
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
@@ -206,3 +207,5 @@ replace agent-vivy/plugins/vivy-masks-ui => ./plugins/vivy-masks-ui
 replace agent-vivy/plugins/vivy-workflow => ./plugins/vivy-workflow
 
 replace github.com/ProjectViVy/agent-vivy/bml => ./bml
+
+replace github.com/dashimaki/laputa => ../laputa/laputa
