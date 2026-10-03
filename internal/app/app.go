@@ -798,6 +798,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Sink:     cognitiveBundle.Sink(),
 			Store:    backend.Snapshot(),
 			Mission:  cognitiveBundle.Mission(),
+			Primary:  cognitiveBundle,
+			Resolve:  cognitiveBundle.ResolveBinding,
 			Policy:   cognitiveBundle.Policy(),
 		}
 	}
@@ -1329,6 +1331,9 @@ func (a *App) StartEmbeddedServices() {
 	if a.cfg.Runtime.Cron.Enabled {
 		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
 	}
+	// Selected cognition starts once, exactly like Run; the loop is
+	// idempotent and a no-op without a bound trigger store.
+	a.service.StartCognitiveLoop(context.Background(), 0)
 }
 
 // Close shuts down a gateway-less composition and is safe to call more than
@@ -1353,6 +1358,9 @@ func (a *App) Close() error {
 		if a.service != nil {
 			a.service.StopInteractionSweeper()
 			a.service.StopCronScheduler()
+			// Cognitive admission stops before drains; in-flight workflow
+			// runs stay durable and resume on the next open.
+			a.service.StopCognitiveLoop()
 			a.service.CancelAll()
 		}
 		if a.worker != nil {

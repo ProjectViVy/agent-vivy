@@ -124,14 +124,20 @@ func (d *fakeCognitiveDomain) Lookup(_ context.Context, operationID string) (lap
 	return laputaevolution.EffectReceipt{}, &laputaevolution.ContractError{Code: laputaevolution.ErrEffectNotFound, Message: "not recorded"}
 }
 
+// cognitiveFixtureRunBinding is the scope the trusted fixtures persist; the
+// bound composition must carry the same pins before effects may run.
+func cognitiveFixtureRunBinding() laputaevolution.RunBinding {
+	return laputaevolution.RunBinding{
+		SubjectID: "profile-1", WorkspaceID: "ws-1", DestinationID: "mentle",
+		PolicyRevision: "pol-1", StrategyDigest: "dig-1", MissionRevision: 1,
+	}
+}
+
 func cognitiveInput(t *testing.T) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(laputaevolution.Input{
-		Binding: laputaevolution.RunBinding{
-			SubjectID: "profile-1", WorkspaceID: "ws-1", DestinationID: "mentle",
-			PolicyRevision: "pol-1", StrategyDigest: "dig-1", MissionRevision: 1,
-		},
-		Window: laputaevolution.Window{SourceID: "activity", After: 0, Through: 9},
+		Binding: cognitiveFixtureRunBinding(),
+		Window:  laputaevolution.Window{SourceID: "activity", After: 0, Through: 9},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +184,7 @@ func TestCognitiveStartRequiresBinding(t *testing.T) {
 func TestCognitiveForgedStrategyRejected(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Binding: cognitiveFixtureRunBinding()}
 	parentRunID := domain.RunID("run-cog-forged-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, "sess-cog-forged", parentRunID, nil)
 
@@ -194,7 +200,7 @@ func TestCognitiveWorkflowRunsToNoChangeOutcome(t *testing.T) {
 	ctx := context.Background()
 	d := &fakeCognitiveDomain{}
 	svc, backend := inofyExecService(t, &scriptedModel{replies: map[string]string{}})
-	svc.deps.Cognitive = &CognitiveBinding{Domain: d}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: cognitiveFixtureRunBinding()}
 	sessionID := domain.SessionID("sess-cog-empty")
 	parentRunID := domain.RunID("run-cog-empty-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
@@ -250,7 +256,7 @@ func TestCognitiveWorkflowAppliesBoundEffects(t *testing.T) {
 		"stage=reflect":   `{"no_change_reason":"reconcile covered it"}`,
 	}}
 	svc, backend := inofyExecService(t, model)
-	svc.deps.Cognitive = &CognitiveBinding{Domain: d}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: cognitiveFixtureRunBinding()}
 	sessionID := domain.SessionID("sess-cog-apply")
 	parentRunID := domain.RunID("run-cog-apply-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
@@ -306,7 +312,7 @@ func TestCognitiveEffectFailureStopsRemaining(t *testing.T) {
 		]}`,
 	}}
 	svc, backend := inofyExecService(t, model)
-	svc.deps.Cognitive = &CognitiveBinding{Domain: d}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: cognitiveFixtureRunBinding()}
 	parentRunID := domain.RunID("run-cog-stopfx-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, "sess-cog-stopfx", parentRunID, nil)
 
@@ -339,7 +345,7 @@ func TestCognitiveEffectFailureStopsRemaining(t *testing.T) {
 func TestCognitiveStartDedupesOnOperationKey(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Binding: cognitiveFixtureRunBinding()}
 	parentRunID := domain.RunID("run-cog-dedupe-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, "sess-cog-dedupe", parentRunID, nil)
 
@@ -368,7 +374,7 @@ func TestCognitiveStartDedupesOnOperationKey(t *testing.T) {
 func TestCognitiveChildTaskWideningRejected(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Binding: cognitiveFixtureRunBinding()}
 	parentRunID := domain.RunID("run-cog-wide-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, "sess-cog-wide", parentRunID, nil)
 

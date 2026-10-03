@@ -272,10 +272,15 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 			activationCancel()
 			return WorkflowStartResult{}, startErr
 		}
+		nodes, nodesErr := s.workflowNodes(activationCtx, existing.RunID, trustedStrategyOf(trusted), canonicalInput)
+		if nodesErr != nil {
+			activationCancel()
+			return WorkflowStartResult{}, nodesErr
+		}
 		launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 			RunID: string(existing.RunID), Epoch: epoch,
 			ProgramDigest: existing.ProgramDigest, HostBindingID: existing.HostBindingID,
-		}, s.workflowNodes(existing.RunID, trustedStrategyOf(trusted)))
+		}, nodes)
 		activationCancel()
 		return result, launchErr
 	} else if !errors.Is(lookupErr, storage.ErrNotFound) {
@@ -364,10 +369,15 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	if committed.Created {
 		s.publish(activationCtx, committed.Started)
 	}
+	nodes, nodesErr := s.workflowNodes(activationCtx, committed.Run.ID, trustedStrategyOf(trusted), canonicalInput)
+	if nodesErr != nil {
+		activationCancel()
+		return WorkflowStartResult{}, nodesErr
+	}
 	launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 		RunID: string(committed.Run.ID), Epoch: 1,
 		ProgramDigest: committed.Revision.ProgramDigest, HostBindingID: committed.Revision.HostBindingID,
-	}, s.workflowNodes(committed.Run.ID, trustedStrategyOf(trusted)))
+	}, nodes)
 	activationCancel()
 	return result, launchErr
 }
@@ -606,10 +616,14 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	s.runTools[run.ID] = childToolSet(allowedTools)
 	s.runSessions[run.ID] = run.SessionID
 	s.mu.Unlock()
+	nodes, nodesErr := s.workflowNodes(ctx, run.ID, authority.TrustedStrategy, revision.InputJSON)
+	if nodesErr != nil {
+		return nodesErr
+	}
 	return s.launchINOFYWorkflow(ctx, WorkflowStartResult{Run: current, Revision: revision}, admitted.Program, revision.InputJSON, inofy.ExecutionRef{
 		RunID: string(run.ID), Epoch: epoch,
 		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
-	}, s.workflowNodes(run.ID, authority.TrustedStrategy))
+	}, nodes)
 }
 
 func workflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.SandboxMode, approval domain.ApprovalPolicy, tools []string) ([]byte, string, error) {

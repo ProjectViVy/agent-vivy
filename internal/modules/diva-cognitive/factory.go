@@ -123,6 +123,11 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 	if err != nil {
 		return cognitivecontract.PreparedPrimaryContext{}, err
 	}
+	// Reject v1/corrupt/oversize snapshots explicitly: the strict v2
+	// validator also enforces the seven-slot roster and per-slot caps.
+	if err := frozen.Validate(); err != nil {
+		return cognitivecontract.PreparedPrimaryContext{}, fmt.Errorf("diva-cognitive: frozen core invalid: %w", err)
+	}
 	raw, err := json.Marshal(frozen)
 	if err != nil {
 		return cognitivecontract.PreparedPrimaryContext{}, err
@@ -135,9 +140,12 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 		text.WriteString("\n")
 		text.WriteString(section.Content)
 		text.WriteString("\n")
-		if in.BudgetBytes > 0 && text.Len() >= in.BudgetBytes {
-			break
-		}
+	}
+	// Required authority never truncates: an over-budget FrozenCore is a
+	// hard admission failure, not silent evidence loss.
+	if in.BudgetBytes > 0 && text.Len() > in.BudgetBytes {
+		return cognitivecontract.PreparedPrimaryContext{}, fmt.Errorf(
+			"diva-cognitive: frozen core %d bytes exceeds authority budget %d", text.Len(), in.BudgetBytes)
 	}
 	return cognitivecontract.PreparedPrimaryContext{
 		Frozen: frozen,

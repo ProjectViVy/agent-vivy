@@ -14,6 +14,7 @@ import (
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 	laputainofy "github.com/dashimaki/laputa/evolution/inofy"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/orchestration"
 	"agent-vivy/internal/storage"
@@ -52,10 +53,24 @@ type CognitiveBinding struct {
 	// Mission supplies the current authority Mission revision. When the
 	// binding pins a Mission, every admission re-verifies the pin.
 	Mission CognitiveMissionSource
+	// Primary projects the session's durable FrozenCore v2 into the
+	// primary run's authoritative instruction. Nil leaves primary
+	// admission without a Frozen Core section.
+	Primary CognitivePrimaryPreparer
+	// Resolve re-reads the bound scope and pins at admission time so each
+	// trusted run persists the current authority revision. Nil reuses the
+	// construction-time Binding.
+	Resolve func(ctx context.Context) (laputaevolution.RunBinding, error)
 	// Policy seeds the durable trigger policy on first load.
 	Policy laputaevolution.TriggerPolicy
 	// Now overrides the wall clock (unix ms) for tests.
 	Now func() int64
+}
+
+// CognitivePrimaryPreparer is the narrow Prepare port of the bound
+// cognitive bundle used by primary admission.
+type CognitivePrimaryPreparer interface {
+	Prepare(ctx context.Context, in cognitivecontract.PrimaryContextInput) (cognitivecontract.PreparedPrimaryContext, error)
 }
 
 // trustedSpec carries a host-admitted strategy into the shared start path.
@@ -150,15 +165,36 @@ func (s *Service) StartCognitiveWorkflow(ctx context.Context, parentRunID domain
 // authored graphs keep the governed child-task executor; trusted strategy
 // runs dispatch strategy nodes through the bound Domain plus the governed
 // inference adapter.
-func (s *Service) workflowNodes(parentRunID domain.RunID, trustedStrategy string) inofy.NodeExecutor {
+func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, trustedStrategy string, input json.RawMessage) (inofy.NodeExecutor, error) {
 	if trustedStrategy == "" {
-		return newINOFYNodeExecutor(s)
+		return newINOFYNodeExecutor(s), nil
 	}
-	var bound laputaevolution.Domain
-	if s.deps.Cognitive != nil {
-		bound = s.deps.Cognitive.Domain
+	b := s.deps.Cognitive
+	if b == nil || b.Domain == nil {
+		return nil, ErrCognitiveUnavailable
 	}
-	return laputainofy.NewExecutor(bound, cognitiveModel{svc: s, parentRunID: parentRunID})
+	// Verify the persisted pins before any effect or recovery: a trusted
+	// run may only execute under the binding it was admitted with, and
+	// its scope/destination must match the bound composition.
+	var decoded laputaevolution.Input
+	if err := json.Unmarshal(input, &decoded); err != nil {
+		return nil, fmt.Errorf("runtime: decode trusted run pins: %w", err)
+	}
+	pins := decoded.Binding
+	if pins.SubjectID != b.Binding.SubjectID || pins.WorkspaceID != b.Binding.WorkspaceID ||
+		pins.DestinationID != b.Binding.DestinationID || pins.StrategyDigest != b.Binding.StrategyDigest {
+		return nil, errors.New("runtime: trusted run binding does not match the bound composition")
+	}
+	if pins.MissionAssigned() && b.Mission != nil {
+		current, err := b.Mission.MissionRevision(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := pins.CheckMissionRevision(current); err != nil {
+			return nil, err
+		}
+	}
+	return laputainofy.NewExecutor(b.Domain, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
 }
 
 // cognitiveModel adapts the contract Model port onto the governed one-shot

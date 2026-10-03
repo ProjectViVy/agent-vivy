@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
@@ -998,9 +999,26 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				expectedMask.DefinitionDigest = capture.Mask.Digest
 			}
 		}
+		var frozenText, frozenDigest string
+		if b := s.deps.Cognitive; b != nil && b.Primary != nil {
+			// Session authority rides in the primary run's input before
+			// optional evidence/history consumes budget. A missing or
+			// corrupt FrozenCore gates inference explicitly.
+			prepared, prepareErr := b.Primary.Prepare(ctx, cognitivecontract.PrimaryContextInput{
+				SessionID:   sessionID,
+				RunID:       runID,
+				WorkspaceID: b.Binding.WorkspaceID,
+				BudgetBytes: s.engine.cfg.MaxContextBytes,
+			})
+			if prepareErr != nil {
+				return "", fmt.Errorf("runtime: prepare session authority: %w", prepareErr)
+			}
+			frozenText, frozenDigest = prepared.Text, prepared.Digest
+		}
 		built, buildErr := buildPromptSnapshot(PromptInput{
 			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
 			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+			FrozenText: frozenText, FrozenDigest: frozenDigest,
 		})
 		if buildErr != nil {
 			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)

@@ -111,7 +111,7 @@ func TestCognitiveRecoveryResumesAdmitted(t *testing.T) {
 	ctx := context.Background()
 	d := &fakeCognitiveDomain{}
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: d}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: cognitiveFixtureRunBinding()}
 	sessionID := domain.SessionID("sess-cog-resume")
 	parentRunID := domain.RunID("run-cog-resume-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
@@ -143,7 +143,7 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 	ctx := context.Background()
 	d := &fakeCognitiveDomain{}
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: d}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: cognitiveFixtureRunBinding()}
 	sessionID := domain.SessionID("sess-cog-running")
 	parentRunID := domain.RunID("run-cog-running-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
@@ -229,7 +229,7 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 func TestCognitiveRecoveryRejectsAlteredDescriptor(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
-	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Binding: cognitiveFixtureRunBinding()}
 	sessionID := domain.SessionID("sess-cog-altered")
 	parentRunID := domain.RunID("run-cog-altered-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
@@ -258,7 +258,7 @@ func TestCognitiveRecoveryRequiresBinding(t *testing.T) {
 	parentRunID := domain.RunID("run-cog-nobind-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
 
-	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}}
+	svc.deps.Cognitive = &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Binding: cognitiveFixtureRunBinding()}
 	wfRun, _ := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentRunID, "cog-op-nobind", nil)
 	svc.deps.Cognitive = nil
 	if err := backend.SetRunStatus(ctx, wfRun.ID, domain.RunActive); err != nil {

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/ProjectViVy/inofy"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 
 	"agent-vivy/internal/cognitivecontract"
@@ -44,7 +46,29 @@ type cognitiveState struct {
 	Policy              laputaevolution.TriggerPolicy `json:"policy"`
 	PolicyRevision      uint64                        `json:"policy_revision"`
 	LastReason          string                        `json:"last_reason,omitempty"`
+	// Blocked is the durable admission fence: a non-empty reason stops
+	// automatic retries until a deliberate manual trigger clears it.
+	// Unknown outcomes, human cancellation and exhausted retries record
+	// their cause here; disabling/enabling the loop never clears it.
+	Blocked string `json:"blocked,omitempty"`
 }
+
+// cognitiveSupervisorSessionID is the host-owned supervisor's session.
+// Its primary runs are bookkeeping, never user evidence, so the capture
+// provider and the foreground-busy check exclude them.
+const cognitiveSupervisorSessionID = domain.SessionID("sess_cognitive_supervisor")
+
+// cognitiveMaxAttempts bounds retries of one input window before durable
+// block. Cancellation and unknown outcomes bypass it: they block at once.
+const cognitiveMaxAttempts = 3
+
+// Cognitive block reasons persisted in cognitiveState.Blocked.
+const (
+	cognitiveBlockCancelled   = "cancelled"
+	cognitiveBlockUnknown     = "unknown_outcome"
+	cognitiveBlockExhausted   = "attempts_exhausted"
+	cognitiveBlockUnavailable = "unavailable"
+)
 
 // cognitiveRuntime is the automatic wake loop. The timer only delivers wake
 // signals; all eligibility lives in the bound Evaluate gate.
@@ -201,6 +225,43 @@ func (s *Service) StopCognitiveLoop() {
 	c.wg.Wait()
 }
 
+// CognitiveLoopActive reports whether the automatic wake loop is running;
+// embedded lifecycle tests assert start-once semantics through it.
+func (s *Service) CognitiveLoopActive() bool {
+	if s == nil {
+		return false
+	}
+	s.cogMu.Lock()
+	c := s.cognitive
+	s.cogMu.Unlock()
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.closed
+}
+
+// cognitiveRunBlocked classifies a terminal non-completed workflow run:
+// unknown node outcomes, recovery-required engine state and missing
+// bindings are durable fences, not transient failures.
+func (s *Service) cognitiveRunBlocked(ctx context.Context, runID domain.RunID) bool {
+	details, err := s.GetWorkflow(ctx, runID)
+	if err != nil {
+		return false
+	}
+	if details.EngineStatus == string(inofy.RunRecoveryRequired) {
+		return true
+	}
+	for _, node := range details.Nodes {
+		if node.ErrorCategory == string(inofy.ErrOutcomeUnknown) ||
+			strings.Contains(node.Message, "outcome is unknown") {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) kickCognitive() {
 	s.cogMu.Lock()
 	c := s.cognitive
@@ -260,14 +321,28 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		case getErr != nil:
 			return laputaevolution.Eligibility{}, getErr
 		case run.Status.Terminal():
-			if run.Status == domain.RunCompleted {
+			switch {
+			case run.Status == domain.RunCompleted:
 				st.Watermark = st.PendingThrough
 				st.LastCompletedUnixMS = now
 				st.Attempt = 0
-			} else {
-				// A failed run never advances the watermark; the next wake
-				// retries the same window under a new attempt suffix.
+			case run.Status == domain.RunCancelled:
+				// Human cancellation pauses; automatic admission never
+				// retries it.
+				st.Blocked = cognitiveBlockCancelled
+			case s.cognitiveRunBlocked(ctx, run.ID):
+				// Unknown outcome, missing binding or authority change:
+				// effects may already be applied, so retrying could
+				// duplicate them.
+				st.Blocked = cognitiveBlockUnknown
+			default:
+				// A transiently failed run never advances the watermark; the
+				// next wake retries the window under a new attempt suffix,
+				// bounded at cognitiveMaxAttempts.
 				st.Attempt++
+				if st.Attempt >= cognitiveMaxAttempts {
+					st.Blocked = cognitiveBlockExhausted
+				}
 			}
 			st.ActiveRunID = ""
 		}
@@ -275,6 +350,12 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	high, err := s.cognitiveHighWatermark(ctx, st)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
+	}
+	if st.Blocked != "" && !manual {
+		// Durable fence: automatic wakes stop here. A manual trigger is a
+		// deliberate human retry and clears the recorded reason.
+		st.LastReason = "blocked:" + st.Blocked
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveState(ctx, st)
 	}
 	elig := laputaevolution.Evaluate(laputaevolution.Wake{
 		NowUnixMS:      now,
@@ -289,6 +370,24 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	if !elig.Run {
 		return elig, s.saveCognitiveState(ctx, st)
 	}
+	if manual {
+		st.Blocked = ""
+	}
+	// Per-admission binding resolution: each run pins the current
+	// authority revision (Mission/policy) in its workflow input. A
+	// resolved scope that drifts from the bound composition is refused.
+	binding := b.Binding
+	if b.Resolve != nil {
+		resolved, resolveErr := b.Resolve(ctx)
+		if resolveErr != nil {
+			return laputaevolution.Eligibility{}, resolveErr
+		}
+		if resolved.SubjectID != b.Binding.SubjectID || resolved.WorkspaceID != b.Binding.WorkspaceID ||
+			resolved.DestinationID != b.Binding.DestinationID {
+			return laputaevolution.Eligibility{}, errors.New("runtime: resolved binding drifted from the bound composition")
+		}
+		binding = resolved
+	}
 	if b.Binding.MissionAssigned() && b.Mission != nil {
 		current, err := b.Mission.MissionRevision(ctx)
 		if err != nil {
@@ -297,13 +396,14 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		if err := b.Binding.CheckMissionRevision(current); err != nil {
 			return laputaevolution.Eligibility{}, err
 		}
+		binding.MissionRevision = current
 	}
 	parentID, err := s.ensureCognitiveSupervisor(ctx, &st)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
 	input, err := json.Marshal(laputaevolution.Input{
-		Binding: b.Binding,
+		Binding: binding,
 		Window:  laputaevolution.Window{SourceID: b.SourceID, After: st.Watermark, Through: high},
 	})
 	if err != nil {
@@ -320,8 +420,17 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	if started.Created {
 		st.ActiveRunID = string(started.Run.ID)
 		st.PendingThrough = high
+	} else if !started.Run.Status.Terminal() {
+		// Crash between workflow creation and state save: reconcile the
+		// persisted operation identity by adopting the live run instead
+		// of minting a new attempt.
+		st.ActiveRunID = string(started.Run.ID)
+		st.PendingThrough = high
 	} else {
 		st.Attempt++
+		if st.Attempt >= cognitiveMaxAttempts {
+			st.Blocked = cognitiveBlockExhausted
+		}
 	}
 	if err := s.saveCognitiveState(ctx, st); err != nil {
 		return laputaevolution.Eligibility{}, err
@@ -378,7 +487,7 @@ func (s *Service) ensureCognitiveSupervisor(ctx context.Context, st *cognitiveSt
 			return run.ID, nil
 		}
 	}
-	const sessionID = domain.SessionID("sess_cognitive_supervisor")
+	sessionID := cognitiveSupervisorSessionID
 	if _, err := s.deps.Sessions.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
 		if err := s.deps.Sessions.CreateSession(ctx, domain.Session{
 			ID: sessionID, Title: "cognitive supervisor", CreatedAt: s.deps.Cognitive.now(),
@@ -554,6 +663,11 @@ func (p *CognitiveCaptureProvider) ObserveRunWithReceipt(ctx context.Context, ev
 		// Workflow/inference terminal events are strategy output, never new
 		// source evidence. They still advance the cursor.
 		return ack("skip:" + string(run.Kind)), nil
+	}
+	if run.SessionID == cognitiveSupervisorSessionID {
+		// The supervisor's own primary runs are bookkeeping, not
+		// conversation evidence.
+		return ack("skip:supervisor"), nil
 	}
 	var payload struct {
 		Outcome     string `json:"outcome"`
