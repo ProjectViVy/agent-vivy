@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -211,7 +212,7 @@ func TestDN0CaptureCoreTranscript(t *testing.T) {
 	}
 	path := os.Getenv("DN0_CAPTURE_OUT")
 	if path == "" {
-		path = "/tmp/dn0-core-rpc-capture.json"
+		path = filepath.Join(t.TempDir(), "dn0-core-rpc-capture.json")
 	}
 	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
