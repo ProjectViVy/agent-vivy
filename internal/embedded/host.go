@@ -24,6 +24,7 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/embedded/abi"
 	controlrpc "agent-vivy/internal/rpc"
 )
 
@@ -34,10 +35,9 @@ const (
 	DefaultPollLimit     = 500
 )
 
-// ABIVersion is the single source of truth for the DIVA C-ABI contract
-// version. cmd/vivy-shared/vivy_abi.h must define VIVY_ABI_VERSION to the
-// same value (checked by exports_test).
-const ABIVersion = 1
+// ABIVersion re-exports the leaf-owned contract version in
+// internal/embedded/abi so existing callers keep their spelling.
+const ABIVersion = abi.Version
 
 // ErrClosed is returned by Call/Poll once the host has shut down.
 var ErrClosed = errors.New("embedded: host is closed")

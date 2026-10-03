@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"agent-vivy/internal/embedded"
+	"agent-vivy/internal/embedded/abi"
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
@@ -1685,8 +1685,8 @@ func inspectSharedABI(dir string) error {
 	if match == nil {
 		return errors.New("vivy_abi.h does not define VIVY_ABI_VERSION")
 	}
-	if string(match[1]) != strconv.Itoa(embedded.ABIVersion) {
-		return fmt.Errorf("VIVY_ABI_VERSION %s, want %d", match[1], embedded.ABIVersion)
+	if string(match[1]) != strconv.Itoa(abi.Version) {
+		return fmt.Errorf("VIVY_ABI_VERSION %s, want %d", match[1], abi.Version)
 	}
 	return nil
 }
