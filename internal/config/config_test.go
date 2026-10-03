@@ -620,7 +620,7 @@ func TestLoggingDefaults(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Default(): %v", err)
 	}
-	want := Logging{Level: "info", Format: "json", Dir: "", RetentionDays: 30, Stdout: true}
+	want := Logging{Level: "info", Format: "json", ConsoleFormat: "auto", Dir: "", RetentionDays: 30, Stdout: true}
 	if cfg.Logging != want {
 		t.Fatalf("default logging = %+v, want %+v", cfg.Logging, want)
 	}
@@ -635,6 +635,7 @@ func TestLoggingSectionLoadsAndOverrides(t *testing.T) {
 logging:
   level: debug
   format: text
+  console_format: json
   dir: tmp/logs
   retention_days: 0
   stdout: false
@@ -642,7 +643,7 @@ logging:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	want := Logging{Level: "debug", Format: "text", Dir: "tmp/logs", RetentionDays: 0, Stdout: false}
+	want := Logging{Level: "debug", Format: "text", ConsoleFormat: "json", Dir: "tmp/logs", RetentionDays: 0, Stdout: false}
 	if cfg.Logging != want {
 		t.Fatalf("logging = %+v, want %+v (explicit zero must override the default)", cfg.Logging, want)
 	}
@@ -656,6 +657,7 @@ func TestLoggingInvalidValuesRejected(t *testing.T) {
 	cases := []string{
 		"logging:\n  level: verbose\n",
 		"logging:\n  format: xml\n",
+		"logging:\n  console_format: fancy\n",
 		"logging:\n  retention_days: -1\n",
 	}
 	for i, frag := range cases {

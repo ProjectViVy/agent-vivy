@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -54,11 +55,15 @@ func sensitiveAttrKey(key string) bool {
 
 // redactAttr redacts one attribute: sensitive keys lose their whole value,
 // string values are pattern-redacted, and groups recurse into their
-// members. Non-string leaves pass through untouched — the tool-result
-// boundary owns structured payloads, and the handler layer must not
-// re-render typed values.
+// members. LogValuer leaves are resolved at this seam so a deferred value
+// cannot bypass the guard; error and fmt.Stringer payloads are redacted as
+// text because every sink renders them as strings. Other non-string leaves
+// pass through untouched — the tool-result boundary owns structured
+// payloads, and the handler layer must not re-render typed values.
 func redactAttr(a slog.Attr) slog.Attr {
-	if a.Value.Kind() == slog.KindGroup {
+	a.Value = a.Value.Resolve()
+	switch a.Value.Kind() {
+	case slog.KindGroup:
 		members := a.Value.Group()
 		out := make([]slog.Attr, len(members))
 		for i, member := range members {
@@ -69,8 +74,16 @@ func redactAttr(a slog.Attr) slog.Attr {
 	if sensitiveAttrKey(a.Key) {
 		return slog.String(a.Key, valueMarker)
 	}
-	if a.Value.Kind() == slog.KindString {
+	switch a.Value.Kind() {
+	case slog.KindString:
 		return slog.String(a.Key, Redact(a.Value.String()))
+	case slog.KindAny:
+		if err, ok := a.Value.Any().(error); ok {
+			return slog.String(a.Key, Redact(err.Error()))
+		}
+		if s, ok := a.Value.Any().(fmt.Stringer); ok {
+			return slog.String(a.Key, Redact(s.String()))
+		}
 	}
 	return a
 }

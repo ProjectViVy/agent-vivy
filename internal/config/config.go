@@ -179,8 +179,12 @@ type TUI struct {
 type Logging struct {
 	// Level is the minimum severity: debug, info (default), warn, error.
 	Level string `yaml:"level"`
-	// Format selects the line encoding: json (default) or text.
+	// Format selects the file-sink line encoding: json (default) or text.
 	Format string `yaml:"format"`
+	// ConsoleFormat selects the console-sink encoding independently of
+	// the file sink: auto (default, pretty on a terminal, JSON when
+	// redirected), pretty, json, or text.
+	ConsoleFormat string `yaml:"console_format"`
 	// Dir is the log sink directory. Empty derives <data_dir>/logs.
 	Dir string `yaml:"dir"`
 	// RetentionDays deletes rotated vivy.log.* files older than this many
@@ -664,6 +668,7 @@ func Default() Config {
 		Logging: Logging{
 			Level:         "info",
 			Format:        "json",
+			ConsoleFormat: "auto",
 			Dir:           "",
 			RetentionDays: 30,
 			Stdout:        true,
@@ -1032,6 +1037,11 @@ func (c *Config) Validate() error {
 	case "", "json", "text":
 	default:
 		return fmt.Errorf("logging.format %q must be json or text", c.Logging.Format)
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Logging.ConsoleFormat)) {
+	case "", "auto", "pretty", "json", "text":
+	default:
+		return fmt.Errorf("logging.console_format %q must be auto, pretty, json, or text", c.Logging.ConsoleFormat)
 	}
 	if c.Logging.RetentionDays < 0 {
 		return errors.New("logging.retention_days must not be negative")

@@ -23,10 +23,53 @@ import (
 // and byte lengths only (D-010). V2 assistant text is reassembled from the
 // durable bounded model.delta sequence and verified at model.completed;
 // legacy v1 journals keep their authoritative completion content.
+//
+// OBS-04 / D4: the projection is a live Journal view. Every model call gets
+// a stable request_id and an honest call_status/usage_state; run_activity
+// reports queued/active/waiting/terminal state derived from durable events;
+// watermarks name the last folded seq per run so subscribers can dedup and
+// detect gaps; has_older_runs exposes the window boundary. Legacy status/
+// completed_at/usage fields stay populated for v1 clients.
 const (
 	trajectoryTextBound   = 8 << 10
 	defaultTrajectoryRuns = 20
 	maxTrajectoryRuns     = 50
+
+	trajectoryProjectionVersion = 2
+)
+
+// Call lifecycle vocabulary (D4).
+const (
+	TrajCallActive      = "active"
+	TrajCallCompleted   = "completed"
+	TrajCallFailed      = "failed"
+	TrajCallCancelled   = "cancelled"
+	TrajCallInterrupted = "interrupted"
+	TrajCallLegacy      = "legacy"
+)
+
+// Usage evidence vocabulary (D4).
+const (
+	TrajUsageMissing  = "missing"
+	TrajUsageReported = "reported"
+	TrajUsagePartial  = "partial"
+	TrajUsageActive   = "active"
+	TrajUsageLegacy   = "legacy"
+)
+
+// Run activity vocabulary (D4).
+const (
+	TrajActivityQueued    = "queued"
+	TrajActivityActive    = "active"
+	TrajActivityWaiting   = "waiting"
+	TrajActivityCompleted = "completed"
+	TrajActivityFailed    = "failed"
+	TrajActivityCancelled = "cancelled"
+
+	TrajWaitApproval = "approval"
+	TrajWaitQuestion = "question"
+	TrajWaitChild    = "child"
+	TrajWaitWorkflow = "workflow"
 )
 
 // TrajectoryTokens is per-model-call token usage (model.usage payload).
@@ -38,9 +81,23 @@ type TrajectoryTokens struct {
 	CacheWrite int `json:"cache_write,omitempty"`
 }
 
+// TrajectoryUsageEvidence is the nullable v2 usage block on a request row.
+// Reasoning/Cached keep pointer presence: nil means the provider did not
+// report the bucket, never zero (D2: no synthetic usage).
+type TrajectoryUsageEvidence struct {
+	PromptTokens     int  `json:"prompt_tokens"`
+	CompletionTokens int  `json:"completion_tokens"`
+	TotalTokens      int  `json:"total_tokens"`
+	ReasoningTokens  *int `json:"reasoning_tokens,omitempty"`
+	CachedTokens     *int `json:"cached_tokens,omitempty"`
+	// Partial marks evidence the normalizer flagged as contradictory.
+	Partial bool `json:"partial,omitempty"`
+}
+
 // TrajectoryRecord is one ledger/timeline/detail row (closed kind set:
 // system, user, message, tool, compacted; the UI additionally renders the
-// DSH context/subtool kinds which Vivy never emits).
+// DSH context/subtool kinds which Vivy never emits). ID is stable and
+// derived from the persisted (run_id, seq, record_kind) triple.
 type TrajectoryRecord struct {
 	Index        int               `json:"index"`
 	ID           string            `json:"id"`
@@ -61,29 +118,57 @@ type TrajectoryRecord struct {
 	OpensTurn    bool              `json:"opens_turn,omitempty"`
 }
 
-// TrajectoryRequest is one model call (request → usage → completed).
+// TrajectoryRequest is one model call (request → usage → finished).
+// Status/CompletedAt/Usage are the legacy v1 compatibility fields; v2
+// clients read call_status/finished_at/usage_state/usage_evidence.
 type TrajectoryRequest struct {
-	Number        int              `json:"number"`
-	Turn          *int             `json:"turn"`
-	Group         string           `json:"group"`
-	Status        string           `json:"status"`
-	StartedAt     int64            `json:"started_at"`
-	CompletedAt   int64            `json:"completed_at"`
-	Provider      string           `json:"provider,omitempty"`
-	Model         string           `json:"model,omitempty"`
-	Usage         TrajectoryTokens `json:"usage"`
-	Retry         int              `json:"retry,omitempty"`
-	Messages      int              `json:"messages,omitempty"`
-	PreambleBytes int              `json:"preamble_bytes,omitempty"`
-	Error         string           `json:"error,omitempty"`
+	Number        int                      `json:"number"`
+	RequestID     string                   `json:"request_id"`
+	RunID         string                   `json:"run_id"`
+	CallID        string                   `json:"call_id,omitempty"`
+	Turn          *int                     `json:"turn"`
+	Group         string                   `json:"group"`
+	Status        string                   `json:"status"`
+	CallStatus    string                   `json:"call_status"`
+	StartedAt     int64                    `json:"started_at"`
+	CompletedAt   int64                    `json:"completed_at"`
+	FinishedAt    *int64                   `json:"finished_at,omitempty"`
+	Provider      string                   `json:"provider,omitempty"`
+	Model         string                   `json:"model,omitempty"`
+	Usage         TrajectoryTokens         `json:"usage"`
+	UsageState    string                   `json:"usage_state"`
+	UsageEvidence *TrajectoryUsageEvidence `json:"usage_evidence"`
+	Retry         int                      `json:"retry,omitempty"`
+	Messages      int                      `json:"messages,omitempty"`
+	PreambleBytes int                      `json:"preamble_bytes,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+}
+
+// TrajectoryRunActivity is one run's authoritative status plus its
+// activity state and — only when a durable event identifies it — the
+// kind of wait the run is parked on.
+type TrajectoryRunActivity struct {
+	RunID         string   `json:"run_id"`
+	Status        string   `json:"status"`
+	ActivityState string   `json:"activity_state"`
+	WaitKind      string   `json:"wait_kind,omitempty"`
+	ParentRunID   string   `json:"parent_run_id,omitempty"`
+	ChildRunIDs   []string `json:"child_run_ids,omitempty"`
+	WorkflowID    string   `json:"workflow_id,omitempty"`
 }
 
 // TrajectorySession is the trajectory/session projection result.
 type TrajectorySession struct {
-	SessionID string              `json:"session_id"`
-	Turns     int                 `json:"turns"`
-	Records   []TrajectoryRecord  `json:"records"`
-	Requests  []TrajectoryRequest `json:"requests"`
+	SessionID         string                  `json:"session_id"`
+	ProjectionVersion int                     `json:"projection_version"`
+	Turns             int                     `json:"turns"`
+	Records           []TrajectoryRecord      `json:"records"`
+	Requests          []TrajectoryRequest     `json:"requests"`
+	RunActivity       []TrajectoryRunActivity `json:"run_activity"`
+	// Watermarks is the last folded journal seq per run, from the same read
+	// prefix the snapshot used; subscribers resume/dedup against it.
+	Watermarks   map[string]int64 `json:"watermarks"`
+	HasOlderRuns bool             `json:"has_older_runs"`
 }
 
 // SessionTrajectory projects the session's most recent `limit` runs
@@ -102,7 +187,8 @@ func (s *Service) SessionTrajectory(ctx context.Context, sessionID domain.Sessio
 	if err != nil {
 		return TrajectorySession{}, err
 	}
-	if len(runs) > limit {
+	hasOlder := len(runs) > limit
+	if hasOlder {
 		runs = runs[len(runs)-limit:]
 	}
 	messages, err := s.deps.Messages.ListMessages(ctx, sessionID)
@@ -122,26 +208,38 @@ func (s *Service) SessionTrajectory(ctx context.Context, sessionID domain.Sessio
 			userText[message.RunID] = message.Content
 		}
 	}
-	out := TrajectorySession{SessionID: string(sessionID), Records: []TrajectoryRecord{}, Requests: []TrajectoryRequest{}}
+	out := TrajectorySession{
+		SessionID:         string(sessionID),
+		ProjectionVersion: trajectoryProjectionVersion,
+		Records:           []TrajectoryRecord{},
+		Requests:          []TrajectoryRequest{},
+		RunActivity:       []TrajectoryRunActivity{},
+		Watermarks:        map[string]int64{},
+		HasOlderRuns:      hasOlder,
+	}
 	for i, run := range runs {
 		turn := i + 1
 		var userRow *TrajectoryRecord
 		if text, ok := userText[run.ID]; ok {
-			userRow = &TrajectoryRecord{Turn: &turn, Group: "User", Kind: "user",
+			userRow = &TrajectoryRecord{ID: string(run.ID) + ":user", Turn: &turn, Group: "User", Kind: "user",
 				Text: boundTrajectoryText(text), OpensTurn: true}
 		}
-		records, requests, failure := s.projectRunTrajectory(ctx, run, turn, len(out.Requests), i == 0)
+		records, requests, activity, watermark, failure := s.projectRunTrajectory(ctx, run, turn, i == 0)
 		records = insertTrajectoryUserRow(records, userRow)
 		out.Records = append(out.Records, records...)
 		out.Requests = append(out.Requests, requests...)
+		out.RunActivity = append(out.RunActivity, activity)
+		out.Watermarks[string(run.ID)] = watermark
 		if failure != "" {
-			out.Records = append(out.Records, TrajectoryRecord{Turn: &turn, Group: "Run",
+			out.Records = append(out.Records, TrajectoryRecord{ID: string(run.ID) + ":failed", Turn: &turn, Group: "Run",
 				Kind: "message", Text: boundTrajectoryText(failure), IsError: true})
 		}
 	}
 	for i := range out.Records {
 		out.Records[i].Index = i + 1
-		out.Records[i].ID = fmt.Sprintf("rec-%d", i+1)
+		if out.Records[i].ID == "" {
+			out.Records[i].ID = fmt.Sprintf("rec-%d", i+1)
+		}
 	}
 	for i := range out.Requests {
 		out.Requests[i].Number = i + 1
@@ -166,53 +264,93 @@ func insertTrajectoryUserRow(records []TrajectoryRecord, userRow *TrajectoryReco
 	return append(out, records[cut:]...)
 }
 
-// projectRunTrajectory folds one run's journal into records and requests.
-// Only the first projected run emits the Session-section system row; later
-// run.started events still update provider/model provenance. It returns a
-// non-empty failure string when the run ended in failure.
-func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn, requestOffset int, firstRun bool) ([]TrajectoryRecord, []TrajectoryRequest, string) {
+// trajectoryCall is the fold state of one model-call attempt.
+type trajectoryCall struct {
+	request     *TrajectoryRequest
+	evidence    *TrajectoryUsageEvidence
+	partial     bool
+	legacy      bool // no call_id: pre-OBS-02 journal row
+	legacyUsage *TrajectoryTokens
+	sawComplete bool // legacy model.completed observed
+	finished    bool
+}
+
+// projectRunTrajectory folds one run's journal into records, requests, run
+// activity and the folded watermark. Only the first projected run emits the
+// Session-section system row; later run.started events still update
+// provider/model provenance. It returns a non-empty failure string when the
+// run ended in failure.
+func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn int, firstRun bool) ([]TrajectoryRecord, []TrajectoryRequest, TrajectoryRunActivity, int64, string) {
+	activity := TrajectoryRunActivity{
+		RunID:       string(run.ID),
+		Status:      string(run.Status),
+		ParentRunID: string(run.ParentID),
+	}
+	if run.Kind == domain.RunKindWorkflow {
+		activity.WorkflowID = string(run.ID)
+	}
+	if children, err := s.deps.Runs.ListChildRuns(ctx, run.ID); err == nil && len(children) > 0 {
+		activity.ChildRunIDs = make([]string, 0, len(children))
+		for _, child := range children {
+			activity.ChildRunIDs = append(activity.ChildRunIDs, string(child.ID))
+		}
+	}
 	it, err := s.deps.Journal.Replay(ctx, run.ID, 0)
 	if err != nil {
-		return []TrajectoryRecord{trajectoryFoldErrorRecord(turn, err)}, nil, ""
+		activity.ActivityState = trajectoryActivityState(run, "")
+		return []TrajectoryRecord{trajectoryFoldErrorRecord(turn, err)}, nil, activity, 0, ""
 	}
 	defer func() { _ = it.Close() }()
 
 	var (
-		records  []TrajectoryRecord
-		requests []TrajectoryRequest
-		open     *TrajectoryRequest
-		usage    *TrajectoryTokens
-		provider string
-		modelID  string
-		step     int
-		failure  string
-		toolArgs = map[string]string{}
-		toolT0   = map[string]int64{}
-		deltas   strings.Builder
+		records   []TrajectoryRecord
+		requests  []TrajectoryRequest
+		calls     = map[string]*trajectoryCall{}
+		callOrder []string
+		open      *trajectoryCall // most recently started, unfinished call
+		lastCall  *trajectoryCall // most recently started, finished or not
+		provider  string
+		modelID   string
+		step      int
+		failure   string
+		toolArgs  = map[string]string{}
+		toolT0    = map[string]int64{}
+		deltas    strings.Builder
+		watermark int64
+		waitKind  string
+		pendAppr  = map[string]bool{}
+		pendQuest = map[string]bool{}
+		childWait bool
+		wfWait    bool
 	)
 	appendRecord := func(record TrajectoryRecord) {
 		if record.Turn == nil {
-			turn := turn
-			record.Turn = &turn
+			t := turn
+			record.Turn = &t
 		}
 		records = append(records, record)
 	}
-	closeOpen := func(completedAt int64, status, message string) {
+	startCall := func(key string, req *TrajectoryRequest) *trajectoryCall {
+		call := &trajectoryCall{request: req}
+		calls[key] = call
+		callOrder = append(callOrder, key)
+		return call
+	}
+	// interruptOpen marks a still-open attempt interrupted: a new request was
+	// journaled before the call closed. It never terminalizes the run.
+	interruptOpen := func(at int64) {
 		if open == nil {
 			return
 		}
-		open.CompletedAt = completedAt
-		open.Status = status
-		open.Error = message
-		if usage != nil {
-			open.Usage = *usage
-		}
-		requests = append(requests, *open)
+		finishTrajectoryCall(open, TrajCallInterrupted, at, "interrupted by a new model request")
+		requests = append(requests, *open.request)
 		open = nil
-		usage = nil
 	}
 	for it.Next() {
 		event := it.Value().Event
+		if int64(event.Seq) > watermark {
+			watermark = int64(event.Seq)
+		}
 		switch event.Type {
 		case domain.EventRunStarted:
 			var payload payloadRunStarted
@@ -220,18 +358,47 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				provider, modelID = payload.Provider, payload.Model
 				if firstRun {
 					// Session-section row: turn stays null like the DSH view.
-					records = append(records, TrajectoryRecord{Group: "Session", Kind: "system",
+					records = append(records, TrajectoryRecord{
+						ID:    trajectoryRecordID(run.ID, event.Seq, "system"),
+						Group: "Session", Kind: "system",
 						Text: fmt.Sprintf("Run start · %s / %s · mode %s", payload.Provider, payload.Model, payload.Mode)})
 				}
 			}
 		case domain.EventModelRequest:
-			var payload payloadModelRequest
-			_ = json.Unmarshal(event.Payload, &payload)
-			closeOpen(event.CreatedAt, "error", "interrupted by a new model request")
+			var v3 payloadModelRequestV3
+			_ = json.Unmarshal(event.Payload, &v3)
+			interruptOpen(event.CreatedAt)
 			step++
-			open = &TrajectoryRequest{Turn: &turn, Group: fmt.Sprintf("Step %d", step),
-				Status: "complete", StartedAt: event.CreatedAt, Provider: provider, Model: modelID,
-				Messages: len(payload.Messages), PreambleBytes: payload.PreambleBytes}
+			req := &TrajectoryRequest{
+				RunID:      string(run.ID),
+				Turn:       &turn,
+				Group:      fmt.Sprintf("Step %d", step),
+				Status:     "active",
+				CallStatus: TrajCallActive,
+				StartedAt:  event.CreatedAt,
+				UsageState: TrajUsageActive,
+				Messages:   len(v3.Messages), PreambleBytes: v3.PreambleBytes,
+			}
+			var key string
+			if v3.CallID != "" {
+				req.CallID = v3.CallID
+				req.RequestID = trajectoryRequestID(run.ID, v3.CallID)
+				req.Provider = firstNonEmpty(v3.Provider, provider)
+				req.Model = firstNonEmpty(v3.Model, modelID)
+				key = "call/" + v3.CallID
+			} else {
+				var v1 payloadModelRequest
+				_ = json.Unmarshal(event.Payload, &v1)
+				req.RequestID = fmt.Sprintf("%s:req-%d", run.ID, event.Seq)
+				req.Provider = provider
+				req.Model = modelID
+				req.CallStatus = TrajCallLegacy
+				req.UsageState = TrajUsageLegacy
+				key = fmt.Sprintf("req/%d", event.Seq)
+			}
+			open = startCall(key, req)
+			lastCall = open
+			open.legacy = v3.CallID == ""
 			deltas.Reset()
 		case domain.EventModelDelta:
 			var payload payloadModelDelta
@@ -239,35 +406,131 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				deltas.WriteString(payload.Delta)
 			}
 		case domain.EventModelUsage:
-			var payload payloadModelUsage
-			if json.Unmarshal(event.Payload, &payload) == nil {
-				usage = &TrajectoryTokens{Input: payload.PromptTokens, Output: payload.CompletionTokens,
-					Think: payload.ReasoningTokens, CacheRead: payload.CachedTokens}
+			var v2 payloadModelUsageV2
+			_ = json.Unmarshal(event.Payload, &v2)
+			if v2.CallID != "" {
+				call := calls["call/"+v2.CallID]
+				if call == nil {
+					// Orphan sample: create an untracked attempt so evidence
+					// still lands on a stable row.
+					req := &TrajectoryRequest{
+						RunID:      string(run.ID),
+						Turn:       &turn,
+						Group:      fmt.Sprintf("Step %d", step+1),
+						Status:     "active",
+						CallStatus: TrajCallActive,
+						StartedAt:  event.CreatedAt,
+						UsageState: TrajUsageActive,
+						RequestID:  trajectoryRequestID(run.ID, v2.CallID),
+						CallID:     v2.CallID,
+						Provider:   v2.Provider,
+						Model:      v2.Model,
+					}
+					call = startCall("call/"+v2.CallID, req)
+					lastCall = call
+				}
+				call.evidence = &TrajectoryUsageEvidence{
+					PromptTokens: v2.PromptTokens, CompletionTokens: v2.CompletionTokens,
+					TotalTokens: v2.TotalTokens, ReasoningTokens: v2.ReasoningTokens,
+					CachedTokens: v2.CachedTokens,
+				}
+				if v2.NormalizationPartial != nil && *v2.NormalizationPartial {
+					call.partial = true
+				}
+			} else {
+				var payload payloadModelUsage
+				if json.Unmarshal(event.Payload, &payload) == nil && open != nil {
+					open.legacyUsage = &TrajectoryTokens{Input: payload.PromptTokens, Output: payload.CompletionTokens,
+						Think: payload.ReasoningTokens, CacheRead: payload.CachedTokens}
+				}
 			}
 		case domain.EventProviderRetry:
 			if open != nil {
-				open.Retry++
+				open.request.Retry++
 			}
+		case domain.EventModelCallFinished:
+			var payload payloadModelCallFinished
+			if json.Unmarshal(event.Payload, &payload) != nil {
+				continue
+			}
+			call := calls["call/"+payload.CallID]
+			if call == nil {
+				// Orphan finish: keep the row rather than dropping evidence.
+				req := &TrajectoryRequest{
+					RunID:     string(run.ID),
+					Turn:      &turn,
+					Group:     fmt.Sprintf("Step %d", step+1),
+					StartedAt: event.CreatedAt,
+					RequestID: trajectoryRequestID(run.ID, payload.CallID),
+					CallID:    payload.CallID,
+					Provider:  payload.Provider,
+					Model:     payload.Model,
+				}
+				call = startCall("call/"+payload.CallID, req)
+				lastCall = call
+			}
+			status := payload.Status
+			switch status {
+			case "completed":
+				status = TrajCallCompleted
+			case "cancelled":
+				status = TrajCallCancelled
+			default:
+				status = TrajCallFailed
+			}
+			if payload.Usage != nil && call.evidence == nil {
+				call.evidence = &TrajectoryUsageEvidence{
+					PromptTokens: payload.Usage.PromptTokens, CompletionTokens: payload.Usage.CompletionTokens,
+					TotalTokens: payload.Usage.TotalTokens, ReasoningTokens: payload.Usage.ReasoningTokens,
+					CachedTokens: payload.Usage.CachedTokens,
+				}
+				if payload.Usage.NormalizationPartial != nil && *payload.Usage.NormalizationPartial {
+					call.partial = true
+				}
+			}
+			message := ""
+			if payload.Error != nil {
+				message = payload.Error.Message
+			}
+			finishTrajectoryCall(call, status, event.CreatedAt, message)
+			if call == open {
+				open = nil
+			}
+			requests = append(requests, *call.request)
 		case domain.EventModelCompleted:
 			content, projectionErr := completedProjectionContent(event, deltas.String())
 			deltas.Reset()
 			if projectionErr != nil {
 				appendRecord(trajectoryFoldErrorRecord(turn, projectionErr))
-				closeOpen(event.CreatedAt, "error", projectionErr.Error())
+				interruptOpen(event.CreatedAt)
 				continue
 			}
-			if open != nil {
-				group := open.Group
-				startedAt := open.StartedAt
-				appendRecord(TrajectoryRecord{Group: group, Kind: "message", Text: boundTrajectoryText(content),
+			// call.finished may precede model.completed (OBS-02 lifecycle
+			// closes at stream End); the message still belongs to the latest
+			// call's step, finished or not.
+			if lastCall != nil {
+				lastCall.sawComplete = true
+				group := lastCall.request.Group
+				startedAt := lastCall.request.StartedAt
+				appendRecord(TrajectoryRecord{
+					ID:    trajectoryRecordID(run.ID, event.Seq, "message"),
+					Group: group, Kind: "message", Text: boundTrajectoryText(content),
 					TimeSeconds: trajectorySeconds(startedAt, event.CreatedAt), StartedAt: &startedAt,
-					Tokens: usage, Provider: provider, Model: modelID})
-				closeOpen(event.CreatedAt, "complete", "")
+					Tokens: lastCall.legacyUsage, Provider: provider, Model: modelID})
+				if lastCall.legacy && !lastCall.finished {
+					finishTrajectoryCall(lastCall, TrajCallCompleted, event.CreatedAt, "")
+					requests = append(requests, *lastCall.request)
+					if open == lastCall {
+						open = nil
+					}
+				}
 			}
 		case domain.EventToolRequested:
-			if deltas.Len() > 0 && open != nil {
-				startedAt := open.StartedAt
-				appendRecord(TrajectoryRecord{Group: open.Group, Kind: "message", Text: boundTrajectoryText(deltas.String()),
+			if deltas.Len() > 0 && lastCall != nil {
+				startedAt := lastCall.request.StartedAt
+				appendRecord(TrajectoryRecord{
+					ID:    trajectoryRecordID(run.ID, event.Seq, "message"),
+					Group: lastCall.request.Group, Kind: "message", Text: boundTrajectoryText(deltas.String()),
 					TimeSeconds: trajectorySeconds(startedAt, event.CreatedAt), StartedAt: &startedAt,
 					Provider: provider, Model: modelID})
 			}
@@ -291,12 +554,14 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				startedAt = t0
 			}
 			group := "Step 1"
-			if open != nil {
-				group = open.Group
+			if lastCall != nil {
+				group = lastCall.request.Group
 			} else if step > 0 {
 				group = fmt.Sprintf("Step %d", step)
 			}
-			record := TrajectoryRecord{Group: group, Kind: "tool", Text: payload.ToolName,
+			record := TrajectoryRecord{
+				ID:    trajectoryRecordID(run.ID, event.Seq, "tool"),
+				Group: group, Kind: "tool", Text: payload.ToolName,
 				CallID: payload.ToolCallID, TimeSeconds: trajectorySeconds(startedAt, event.CreatedAt),
 				StartedAt: &startedAt, IsError: payload.Error != ""}
 			if payload.Error != "" {
@@ -315,9 +580,59 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 			var payload payloadContextCompacted
 			if json.Unmarshal(event.Payload, &payload) == nil {
 				// Session-section row: turn stays null like the DSH view.
-				records = append(records, TrajectoryRecord{Group: "Compaction", Kind: "compacted",
+				records = append(records, TrajectoryRecord{
+					ID:    trajectoryRecordID(run.ID, event.Seq, "compacted"),
+					Group: "Compaction", Kind: "compacted",
 					Text: fmt.Sprintf("%s · %d → %d tokens", payload.Mode, payload.BeforeTokens, payload.AfterTokens)})
 			}
+		case domain.EventToolApprovalRequired:
+			var payload payloadToolApprovalRequired
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				pendAppr[payload.ApprovalID] = true
+			}
+		case domain.EventToolApprovalDecided, domain.EventToolProposalStale:
+			var payload payloadApprovalDecided
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				delete(pendAppr, payload.ApprovalID)
+			}
+			var stale payloadProposalStale
+			if json.Unmarshal(event.Payload, &stale) == nil {
+				delete(pendAppr, stale.ApprovalID)
+			}
+		case domain.EventToolApprovalCancelled:
+			var payload payloadApprovalCancelled
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				delete(pendAppr, payload.ApprovalID)
+			}
+		case domain.EventUserQuestionRequired:
+			var payload payloadUserQuestionRequired
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				pendQuest[payload.QuestionID] = true
+			}
+		case domain.EventUserQuestionAnswered:
+			var payload payloadUserQuestionAnswered
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				delete(pendQuest, payload.QuestionID)
+			}
+		case domain.EventUserQuestionCancelled:
+			var payload payloadQuestionCancelled
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				delete(pendQuest, payload.QuestionID)
+			}
+		case domain.EventToolApprovalExpired, domain.EventUserQuestionExpired:
+			var payload payloadInteractionExpired
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				delete(pendAppr, payload.ReviewID)
+				delete(pendQuest, payload.ReviewID)
+			}
+		case domain.EventChildSuspended:
+			childWait = true
+		case domain.EventChildResumed, domain.EventChildCompleted, domain.EventChildFailed, domain.EventChildCancelled:
+			childWait = false
+		case domain.EventWorkflowWaiting:
+			wfWait = true
+		case domain.EventWorkflowResumed:
+			wfWait = false
 		case domain.EventRunFailed:
 			var payload payloadRunFailed
 			if json.Unmarshal(event.Payload, &payload) == nil {
@@ -326,10 +641,141 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 		}
 	}
 	if err := it.Err(); err != nil {
-		return append(records, trajectoryFoldErrorRecord(turn, err)), requests, failure
+		appendRecord(trajectoryFoldErrorRecord(turn, err))
 	}
-	closeOpen(lastEventTime(records), "error", failureOrInterrupted(failure))
-	return records, requests, failure
+	runLive := run.Status == domain.RunActive || run.Status == domain.RunQueued || run.Status == domain.RunAccepted
+	for _, key := range callOrder {
+		call := calls[key]
+		if call.finished {
+			continue
+		}
+		if runLive {
+			// Still running: the call is active, never a fake completion.
+			call.request.CallStatus = TrajCallActive
+			call.request.Status = "active"
+			applyUsageState(call)
+		} else {
+			finishTrajectoryCall(call, TrajCallInterrupted, lastEventTime(records), failureOrInterrupted(failure))
+		}
+		requests = append(requests, *call.request)
+	}
+	if len(pendAppr) > 0 {
+		waitKind = TrajWaitApproval
+	} else if len(pendQuest) > 0 {
+		waitKind = TrajWaitQuestion
+	} else if childWait {
+		waitKind = TrajWaitChild
+	} else if wfWait {
+		waitKind = TrajWaitWorkflow
+	}
+	activity.ActivityState = trajectoryActivityState(run, waitKind)
+	if waitKind != "" && activity.ActivityState == TrajActivityWaiting {
+		activity.WaitKind = waitKind
+	}
+	return records, requests, activity, watermark, failure
+}
+
+// finishTrajectoryCall writes the terminal lifecycle fields on an attempt
+// and mirrors them into the legacy status/completed_at/usage fields.
+func finishTrajectoryCall(call *trajectoryCall, status string, at int64, message string) {
+	call.finished = true
+	call.request.CallStatus = status
+	call.request.FinishedAt = &at
+	call.request.CompletedAt = at
+	call.request.Error = message
+	switch status {
+	case TrajCallCompleted:
+		call.request.Status = "complete"
+	case TrajCallCancelled:
+		call.request.Status = "cancelled"
+	case TrajCallInterrupted:
+		call.request.Status = "error"
+	default:
+		call.request.Status = "error"
+	}
+	applyUsageState(call)
+	if call.legacyUsage != nil {
+		call.request.Usage = *call.legacyUsage
+	} else if call.evidence != nil {
+		call.request.Usage = TrajectoryTokens{
+			Input: call.evidence.PromptTokens, Output: call.evidence.CompletionTokens,
+		}
+		if call.evidence.ReasoningTokens != nil {
+			call.request.Usage.Think = *call.evidence.ReasoningTokens
+		}
+		if call.evidence.CachedTokens != nil {
+			call.request.Usage.CacheRead = *call.evidence.CachedTokens
+		}
+	}
+}
+
+// applyUsageState derives usage_state from the attempt's evidence so nil
+// usage never reads as reported zero.
+func applyUsageState(call *trajectoryCall) {
+	if call.legacy {
+		call.request.UsageState = TrajUsageLegacy
+		if call.legacyUsage != nil {
+			call.request.UsageEvidence = &TrajectoryUsageEvidence{
+				PromptTokens:     call.legacyUsage.Input,
+				CompletionTokens: call.legacyUsage.Output,
+				TotalTokens:      call.legacyUsage.Input + call.legacyUsage.Output,
+			}
+			if call.legacyUsage.Think != 0 {
+				v := call.legacyUsage.Think
+				call.request.UsageEvidence.ReasoningTokens = &v
+			}
+			if call.legacyUsage.CacheRead != 0 {
+				v := call.legacyUsage.CacheRead
+				call.request.UsageEvidence.CachedTokens = &v
+			}
+		}
+		return
+	}
+	if !call.finished && call.request.CallStatus == TrajCallActive {
+		call.request.UsageState = TrajUsageActive
+	} else if call.evidence == nil {
+		call.request.UsageState = TrajUsageMissing
+	} else if call.partial {
+		call.request.UsageState = TrajUsagePartial
+	} else {
+		call.request.UsageState = TrajUsageReported
+	}
+	call.request.UsageEvidence = call.evidence
+}
+
+func trajectoryActivityState(run domain.Run, waitKind string) string {
+	switch run.Status {
+	case domain.RunCompleted:
+		return TrajActivityCompleted
+	case domain.RunFailed:
+		return TrajActivityFailed
+	case domain.RunCancelled:
+		return TrajActivityCancelled
+	case domain.RunQueued, domain.RunAccepted:
+		return TrajActivityQueued
+	default:
+		if waitKind != "" {
+			return TrajActivityWaiting
+		}
+		return TrajActivityActive
+	}
+}
+
+func trajectoryRecordID(runID domain.RunID, seq domain.EventSeq, kind string) string {
+	return fmt.Sprintf("%s:%d:%s", runID, seq, kind)
+}
+
+func trajectoryRequestID(runID domain.RunID, callID string) string {
+	return fmt.Sprintf("%s:%s", runID, callID)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func failureOrInterrupted(failure string) string {

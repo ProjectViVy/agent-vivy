@@ -68,6 +68,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/larksuite/oapi-sdk-go/v3 v3.11.0 // indirect
+	github.com/mastwet/prettylog v0.0.0-20261002164743-8b8e03760378 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/mymmrac/telego v1.10.0 // indirect

@@ -41,7 +41,7 @@ func main() {
 		os.Exit(runTUI(os.Args[2:]))
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := logging.NewBootstrap(os.Stderr)
 	slog.SetDefault(logger)
 
 	cfg, err := loadConfig(logger)
@@ -59,6 +59,7 @@ func main() {
 	vivyLog, eff, closeLog, err := logging.Setup(logging.Options{
 		Level:         cfg.Logging.Level,
 		Format:        cfg.Logging.Format,
+		ConsoleFormat: cfg.Logging.ConsoleFormat,
 		Dir:           cfg.LogDirectory(),
 		RetentionDays: cfg.Logging.RetentionDays,
 		Stdout:        cfg.Logging.Stdout,
@@ -73,6 +74,7 @@ func main() {
 	vivyLog.Info("logging initialized",
 		"level", eff.Level,
 		"format", eff.Format,
+		"console_format", eff.Console,
 		"dir", cfg.LogDirectory(),
 		"stdout", cfg.Logging.Stdout)
 

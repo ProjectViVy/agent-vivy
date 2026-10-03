@@ -9,9 +9,11 @@ Planned contents:
 Landed:
 
 - `events/run-event.schema.json` + `events/payloads/*.json` — the journal
-  `RunEvent` vocabulary, including parent-child worker lifecycle events. This
-  is the single contract that runtime, the JSON-RPC control plane, and the UI
-  speak; the vocabulary mirrors
+  `RunEvent` vocabulary, including parent-child worker lifecycle events and
+  the observed model-call lifecycle (OBS-02: `model.request` v3 request,
+  `model.usage` v2 cumulative samples, `model.call.finished` v1 closure,
+  joined by `call_id`). This is the single contract that runtime, the
+  JSON-RPC control plane, and the UI speak; the vocabulary mirrors
   `internal/domain` EventTypes (B3).
 - Provider data schema — **moved in PROV-P1** to
   `../internal/provider/data/provider.schema.json`, beside the data it

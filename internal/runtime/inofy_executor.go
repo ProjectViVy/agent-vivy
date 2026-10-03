@@ -95,7 +95,8 @@ func (e *inofyNodeExecutor) Execute(ctx context.Context, call inofy.NodeCall) (i
 	if err != nil {
 		return inofy.NodeReply{}, classifyINOFYEffectError(err)
 	}
-	stopCancel := context.AfterFunc(ctx, func() { e.svc.Cancel(child.Run.ID) })
+	childRunID := child.Run.ID
+	stopCancel := context.AfterFunc(ctx, func() { e.svc.Cancel(childRunID) })
 	defer stopCancel()
 	for !child.Run.Status.Terminal() {
 		current, getErr := e.svc.deps.Runs.GetRun(ctx, child.Run.ID)

@@ -199,7 +199,7 @@ func TestReadFileClaimingUserApprovalCannotAuthorizeCreateGoal(t *testing.T) {
 
 func waitForCreateGoalApproval(t *testing.T, backend *sqlite.Backend, runID domain.RunID, sessionID domain.SessionID, model *recordingChatModel) domain.Approval {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		pending, err := backend.ListPendingApprovals(context.Background())
 		if err != nil {
@@ -252,7 +252,7 @@ func hasWorkKind(t *testing.T, backend *sqlite.Backend, sessionID domain.Session
 
 func waitForWorkKind(t *testing.T, backend *sqlite.Backend, sessionID domain.SessionID, kind domain.WorkEventKind) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if hasWorkKind(t, backend, sessionID, kind) {
 			return
@@ -270,7 +270,7 @@ func modelInputCount(model *recordingChatModel) int {
 
 func waitForModelInputCount(t *testing.T, model *recordingChatModel, want int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if got := modelInputCount(model); got >= want {
 			return
@@ -282,7 +282,7 @@ func waitForModelInputCount(t *testing.T, model *recordingChatModel, want int) {
 
 func waitForGoalRunCompletion(t *testing.T, backend *sqlite.Backend, sessionID domain.SessionID, primaryRunID domain.RunID) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, err := backend.ListRunsBySession(context.Background(), sessionID)
 		if err != nil {

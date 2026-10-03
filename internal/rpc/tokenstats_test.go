@@ -218,3 +218,114 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 		t.Fatal("cached tokens greater than prompt tokens were priced")
 	}
 }
+
+// TestBuildTokenSnapshotCoverage: projection v2 distinguishes usage reports
+// from observed attempts, partitions coverage honestly and never turns an
+// incomplete scope into a known cost.
+func TestBuildTokenSnapshotCoverage(t *testing.T) {
+	ctx := context.Background()
+	meta := func(_ context.Context, provider, model string) domain.ModelInfo {
+		return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 1, CachedInputPerMTokens: 1, OutputPerMTokens: 1}
+	}
+	rows := []storage.UsageRow{
+		// settled, fully known buckets → completed
+		{CallID: "c1", AttemptState: storage.AttemptSettled, HasUsage: true, RequestCount: 1,
+			ReasoningKnown: true, CachedKnown: true, PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15,
+			Model: "m1", Provider: "p1", SessionID: "s1"},
+		// settled without any sample → missing
+		{CallID: "c2", AttemptState: storage.AttemptSettled, SessionID: "s1", Model: "m1", Provider: "p1"},
+		// failed finish with valid sample → partial
+		{CallID: "c3", AttemptState: storage.AttemptFailed, HasUsage: true, RequestCount: 1,
+			ReasoningKnown: true, CachedKnown: true, PromptTokens: 5, CompletionTokens: 2, TotalTokens: 7,
+			Model: "m1", Provider: "p1", SessionID: "s1"},
+		// live stream — active, reported but never a zero-cost failure
+		{CallID: "c4", AttemptState: storage.AttemptActive, HasUsage: true, RequestCount: 1,
+			ReasoningKnown: true, CachedKnown: true, PromptTokens: 3, CompletionTokens: 1, TotalTokens: 4,
+			Model: "m1", Provider: "p1", SessionID: "s2"},
+		// settled but optional buckets unknown → completed but flags buckets
+		{CallID: "c5", AttemptState: storage.AttemptSettled, HasUsage: true, RequestCount: 1,
+			PromptTokens: 8, CompletionTokens: 4, TotalTokens: 12,
+			Model: "m2", Provider: "p1", SessionID: "s2"},
+		// legacy v1 record — counted, not retrofitted
+		{SessionID: "s1", PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6, Model: "m1", Provider: "p1", RequestCount: 1},
+	}
+	snap := buildTokenSnapshot(ctx, rows, "1d", 0, 50, meta)
+
+	if snap.ProjectionVersion != 2 {
+		t.Fatalf("projection_version = %d, want 2", snap.ProjectionVersion)
+	}
+	cov := snap.Coverage
+	if cov.ObservedCalls != 5 || cov.CompletedWithUsage != 2 || cov.PartialUsageCalls != 1 ||
+		cov.MissingUsageCalls != 1 || cov.ActiveCalls != 1 || cov.LegacyUsageRecords != 1 {
+		t.Fatalf("coverage = %+v", cov)
+	}
+	if cov.ReportedCalls != 4 {
+		t.Fatalf("reported_calls = %d, want 4 (usage reports incl. active)", cov.ReportedCalls)
+	}
+	if cov.ObservedCalls != cov.CompletedWithUsage+cov.PartialUsageCalls+cov.MissingUsageCalls+cov.ActiveCalls {
+		t.Fatalf("coverage partition broken: %+v", cov)
+	}
+	if cov.State != "partial" {
+		t.Fatalf("coverage state = %q, want partial", cov.State)
+	}
+	if len(cov.UnknownBuckets) != 2 {
+		t.Fatalf("unknown_buckets = %v, want [reasoning cached]", cov.UnknownBuckets)
+	}
+	if cov.HiddenRetriesObservable {
+		t.Fatal("provider-internal retries are never observable")
+	}
+	// request_count counts usage reports, not observed attempts.
+	if snap.Total.RequestCount != 5 {
+		t.Fatalf("request_count = %d, want 5 (4 reported + 1 legacy)", snap.Total.RequestCount)
+	}
+	// cost_known stays false for partial coverage even though every priced
+	// row resolved — never read the zero placeholder as "free" or complete.
+	if snap.Total.CostKnown || snap.Total.TotalCostUSD != 0 {
+		t.Fatalf("partial coverage cost = %+v, want known=false", snap.Total)
+	}
+	// Per-aggregate coverage differs: s1 mixes settled+missing+failed,
+	// s2 has an active call plus unknown buckets.
+	bySession := map[string]tokenSessionUsage{}
+	for _, s := range snap.Sessions {
+		bySession[s.ID] = s
+	}
+	if s := bySession["s1"]; s.Coverage.State != "partial" || s.Coverage.LegacyUsageRecords != 1 {
+		t.Fatalf("s1 coverage = %+v", s.Coverage)
+	}
+	if s := bySession["s2"]; s.Coverage.ActiveCalls != 1 || len(s.Coverage.UnknownBuckets) == 0 {
+		t.Fatalf("s2 coverage = %+v", s.Coverage)
+	}
+}
+
+// TestBuildTokenSnapshotCoverageStates: empty / legacy / complete states.
+func TestBuildTokenSnapshotCoverageStates(t *testing.T) {
+	ctx := context.Background()
+	meta := func(_ context.Context, provider, model string) domain.ModelInfo {
+		return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 1, CachedInputPerMTokens: 1, OutputPerMTokens: 1}
+	}
+	empty := buildTokenSnapshot(ctx, nil, "1d", 0, 50, meta)
+	if empty.Coverage.State != "empty" || empty.Coverage.ObservedCalls != 0 {
+		t.Fatalf("empty coverage = %+v", empty.Coverage)
+	}
+	legacy := buildTokenSnapshot(ctx, []storage.UsageRow{
+		{SessionID: "s1", PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6, Model: "m", Provider: "p", RequestCount: 1},
+	}, "1d", 0, 50, meta)
+	if legacy.Coverage.State != "legacy" {
+		t.Fatalf("legacy coverage = %+v", legacy.Coverage)
+	}
+	// A pure-legacy scope can still claim known cost when every row priced.
+	if !legacy.Total.CostKnown {
+		t.Fatal("pure legacy priced scope should keep cost_known semantics")
+	}
+	complete := buildTokenSnapshot(ctx, []storage.UsageRow{
+		{CallID: "c1", AttemptState: storage.AttemptSettled, HasUsage: true, RequestCount: 1,
+			ReasoningKnown: true, CachedKnown: true, PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6,
+			Model: "m", Provider: "p", SessionID: "s1"},
+	}, "1d", 0, 50, meta)
+	if complete.Coverage.State != "complete" {
+		t.Fatalf("complete coverage = %+v", complete.Coverage)
+	}
+	if !complete.Total.CostKnown {
+		t.Fatalf("fully observed priced scope must be cost_known: %+v", complete.Total)
+	}
+}

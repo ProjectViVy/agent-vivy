@@ -720,12 +720,30 @@ export interface TokenUsageTotal {
   cost_known: boolean;
 }
 
+/** D3 usage coverage: how complete the scope's usage evidence is.
+ *  observed_calls = completed_with_usage + partial_usage_calls +
+ *  missing_usage_calls + active_calls. request_count stays "usage
+ *  reports" (reported calls + legacy records), never billed requests. */
+export interface UsageCoverage {
+  state: 'empty' | 'complete' | 'partial' | 'legacy';
+  observed_calls: number;
+  completed_with_usage: number;
+  reported_calls: number;
+  missing_usage_calls: number;
+  partial_usage_calls: number;
+  active_calls: number;
+  legacy_usage_records: number;
+  unknown_buckets: ('reasoning' | 'cached')[];
+  hidden_retries_observable: false;
+}
+
 export interface TokenModelShare {
   model: string;
   percentage: number;
   total_tokens: number;
   cost_usd: number;
   cost_known: boolean;
+  coverage: UsageCoverage;
 }
 
 export interface TokenProviderGroup {
@@ -752,11 +770,14 @@ export interface TokenSessionUsage {
   total_tokens: number;
   cost_usd: number;
   cost_known: boolean;
+  coverage: UsageCoverage;
 }
 
 export interface TokenUsageSnapshot {
   period: TokenUsagePeriod;
   scope: 'chat_runs';
+  projection_version: number;
+  coverage: UsageCoverage;
   total: TokenUsageTotal;
   models: TokenModelShare[];
   providers: TokenProviderGroup[];
@@ -913,6 +934,20 @@ export interface TrajectoryRecordWire {
   opens_turn?: boolean;
 }
 
+// OBS-04 (D4): call lifecycle vocabulary.
+export type TrajectoryCallStatus = 'active' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'legacy';
+export type TrajectoryUsageState = 'missing' | 'reported' | 'partial' | 'active' | 'legacy';
+export type TrajectoryActivityState = 'queued' | 'active' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+
+export interface TrajectoryUsageEvidenceWire {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  reasoning_tokens?: number | null;
+  cached_tokens?: number | null;
+  partial?: boolean;
+}
+
 export interface TrajectoryRequestWire {
   number: number;
   turn: number | null;
@@ -927,6 +962,24 @@ export interface TrajectoryRequestWire {
   messages?: number;
   preamble_bytes?: number;
   error?: string;
+  // v2 fields (projection_version 2):
+  request_id?: string;
+  run_id?: string;
+  call_id?: string;
+  call_status?: TrajectoryCallStatus;
+  finished_at?: number | null;
+  usage_state?: TrajectoryUsageState;
+  usage_evidence?: TrajectoryUsageEvidenceWire | null;
+}
+
+export interface TrajectoryRunActivityWire {
+  run_id: string;
+  status: string;
+  activity_state: TrajectoryActivityState;
+  wait_kind?: 'approval' | 'question' | 'child' | 'workflow';
+  parent_run_id?: string;
+  child_run_ids?: string[];
+  workflow_id?: string;
 }
 
 export interface TrajectorySessionWire {
@@ -934,6 +987,10 @@ export interface TrajectorySessionWire {
   turns: number;
   records: TrajectoryRecordWire[];
   requests: TrajectoryRequestWire[];
+  projection_version?: number;
+  run_activity?: TrajectoryRunActivityWire[];
+  watermarks?: Record<string, number>;
+  has_older_runs?: boolean;
 }
 
 export const fetchSessionTrajectory = (sessionId: string, limit?: number) =>

@@ -26,6 +26,7 @@
         "model.usage",
         "model.completed",
         "model.request",
+        "model.call.finished",
         "tool.requested",
         "tool.approval_required",
         "tool.approval_decided",

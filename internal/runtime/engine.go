@@ -344,7 +344,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		Description:   agentDescription,
 		Instruction:   instruction,
 		GenModelInput: literalGenModelInput,
-		Model:         observeModelStreams(m),
+		Model:         observeChatModel(m),
 		Handlers:      handlers,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},

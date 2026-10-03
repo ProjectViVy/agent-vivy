@@ -90,7 +90,8 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 	}
 	vivyLog, _, closeLog, err := logging.Setup(logging.Options{
 		Level: cfg.Logging.Level, Format: cfg.Logging.Format,
-		Dir: prepared.Config.LogDirectory(), RetentionDays: cfg.Logging.RetentionDays,
+		ConsoleFormat: cfg.Logging.ConsoleFormat,
+		Dir:           prepared.Config.LogDirectory(), RetentionDays: cfg.Logging.RetentionDays,
 		Stdout: false,
 	})
 	if err != nil {

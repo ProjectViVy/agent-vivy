@@ -223,10 +223,14 @@ tools:
     expiration: 5m
 
 logging:
-  # Kernel log output (docs/architecture/LOGGING.md). VIVY_LOG_LEVEL and
-  # VIVY_LOG_FORMAT override level/format for one launch.
+  # Kernel log output (docs/architecture/LOGGING.md). VIVY_LOG_LEVEL,
+  # VIVY_LOG_FORMAT and VIVY_LOG_CONSOLE_FORMAT override the matching
+  # keys for one launch.
   level: info          # debug | info | warn | error
-  format: json         # json | text
+  format: json         # file sink: json | text
+  # Console sink format, independent of the file sink: auto = pretty on
+  # a real terminal, JSON when redirected. pretty | json | text force it.
+  console_format: auto
   # Empty = <data_dir>/logs. Rotated files are vivy.log.YYYY-MM-DD.
   dir: ""
   # Startup sweep deletes vivy.log* files older than this many days.

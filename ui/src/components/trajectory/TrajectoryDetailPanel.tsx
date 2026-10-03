@@ -8,7 +8,9 @@ import { X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 import {
+  TRAJECTORY_CALL_STATUS_LABEL,
   TRAJECTORY_KIND_LABEL,
+  TRAJECTORY_USAGE_STATE_LABEL,
   type TrajectoryRecord,
   type TrajectoryRequest,
 } from './trajectory-types';
@@ -79,10 +81,38 @@ function RequestDetails({
           <dl className="space-y-2.5 px-3 py-3 text-xs">
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">{t('trajectory.status')}</dt>
-              <dd className={request.status === 'error' ? 'text-red-600' : undefined}>
-                {request.status === 'error' ? t('trajectory.statusError') : t('trajectory.statusComplete')}
+              <dd className={request.status === 'error' ? 'text-red-600' : request.status === 'active' ? 'text-primary' : undefined}>
+                {request.status === 'error' ? t('trajectory.statusError')
+                  : request.status === 'active' ? t('trajectory.callStatus.active')
+                    : request.status === 'cancelled' ? t('trajectory.callStatus.cancelled')
+                      : t('trajectory.statusComplete')}
               </dd>
             </div>
+            {request.callStatus !== undefined && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t('trajectory.callStatusLabel')}</dt>
+                <dd className={request.callStatus === 'failed' || request.callStatus === 'interrupted'
+                  ? 'text-red-600'
+                  : request.callStatus === 'active' ? 'text-primary' : undefined}
+                >
+                  {TRAJECTORY_CALL_STATUS_LABEL[request.callStatus]}
+                </dd>
+              </div>
+            )}
+            {request.usageState !== undefined && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t('trajectory.usageStateLabel')}</dt>
+                <dd className={request.usageState === 'missing' ? 'text-muted-foreground' : undefined}>
+                  {TRAJECTORY_USAGE_STATE_LABEL[request.usageState]}
+                </dd>
+              </div>
+            )}
+            {request.callId !== undefined && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t('trajectory.callId')}</dt>
+                <dd className="max-w-52 truncate font-mono" title={request.callId}>{request.callId}</dd>
+              </div>
+            )}
             {request.purpose === 'compaction' && (
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{t('trajectory.purpose')}</dt>
@@ -142,18 +172,55 @@ function RequestDetails({
         )}
         {tab === 'usage' && (
           <dl className="space-y-2.5 px-3 py-3 text-xs">
-            {([
-              ['input', request.usage.input],
-              ['cacheRead', request.usage.cacheRead],
-              ['cacheWrite', request.usage.cacheWrite],
-              ['output', request.usage.output],
-              ['think', request.usage.think],
-            ] as const).map(([key, value]) => (
-              <div key={key} className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{t(`trajectory.token.${key}`)}</dt>
-                <dd className="font-mono tabular-nums">{value.toLocaleString(dateTimeLocale())}</dd>
+            {request.usageEvidence !== undefined && request.usageEvidence !== null ? (
+              <>
+                {([
+                  ['input', request.usageEvidence.promptTokens],
+                  ['output', request.usageEvidence.completionTokens],
+                  ['total', request.usageEvidence.totalTokens],
+                ] as const).map(([key, value]) => (
+                  <div key={key} className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t(`trajectory.token.${key}`)}</dt>
+                    <dd className="font-mono tabular-nums">{value.toLocaleString(dateTimeLocale())}</dd>
+                  </div>
+                ))}
+                {request.usageEvidence.reasoningTokens !== null && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t('trajectory.token.think')}</dt>
+                    <dd className="font-mono tabular-nums">{request.usageEvidence.reasoningTokens.toLocaleString(dateTimeLocale())}</dd>
+                  </div>
+                )}
+                {request.usageEvidence.cachedTokens !== null && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t('trajectory.token.cacheRead')}</dt>
+                    <dd className="font-mono tabular-nums">{request.usageEvidence.cachedTokens.toLocaleString(dateTimeLocale())}</dd>
+                  </div>
+                )}
+                {request.usageEvidence.partial && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t('trajectory.usagePartial')}</dt>
+                    <dd className="text-amber-600 dark:text-amber-400">{t('trajectory.usagePartialHint')}</dd>
+                  </div>
+                )}
+              </>
+            ) : request.usageState === 'missing' || request.usageState === 'active' ? (
+              <div className="px-1 py-2 text-muted-foreground">
+                {request.usageState === 'active' ? t('trajectory.usagePending') : t('trajectory.usageMissing')}
               </div>
-            ))}
+            ) : (
+              ([
+                ['input', request.usage.input],
+                ['cacheRead', request.usage.cacheRead],
+                ['cacheWrite', request.usage.cacheWrite],
+                ['output', request.usage.output],
+                ['think', request.usage.think],
+              ] as const).map(([key, value]) => (
+                <div key={key} className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{t(`trajectory.token.${key}`)}</dt>
+                  <dd className="font-mono tabular-nums">{value.toLocaleString(dateTimeLocale())}</dd>
+                </div>
+              ))
+            )}
           </dl>
         )}
         {tab === 'timing' && (
