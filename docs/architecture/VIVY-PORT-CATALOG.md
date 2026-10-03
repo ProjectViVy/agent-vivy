@@ -369,6 +369,21 @@ re-enters ToolHost.
 | `core/status-host@v1` | `0..1` | Required when a Status Source exists |
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
+| `core/cognitive-factory@v1` | `0..1` | Required when the DIVA cognitive owner is selected |
+
+`core/cognitive-factory@v1` is a **SUPPORTED**, optional T1 backend contract
+owned by `vivy/diva-cognitive` with cardinality `0..1` and App composition as
+its sole consumer (agent-diva backend-separation-contracts C2-6). It mirrors
+`core/mask-service@v1`: the Source Catalog carries a typed `CognitiveFactory`
+binding, the generated Assembly emits the field plus `CognitiveFactoryValue()/
+HasCognitiveFactory()` opaque accessors (nil/false when unselected), and App
+resolves the bound bundle, wires its capture sink into the ObserverHost
+durable-cursor path, stamps its binding into `ServiceDeps.Cognitive`, and
+attaches its armed control cell after `runtime.NewService`. The bundle owns
+one Garden embedded owner; `BoundDomain` resolves the selected memory writer
+lazily so an unavailable backend fails the affected effect, not composition.
+The `diva.cognitive.*` control-action inventory is sealed now; handlers fail
+closed until the DN-4C dispatch lands.
 
 `core/mask-service@v1` is a **SUPPORTED**, optional T1 backend contract owned
 by `vivy/masks` with cardinality `0..1` and Runtime as its sole consumer. Its

@@ -27,3 +27,4 @@ modules:
   - vivy/face-host
   - vivy/provider-profiles
   - vivy/masks
+  - vivy/diva-cognitive

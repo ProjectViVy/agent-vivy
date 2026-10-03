@@ -10,6 +10,7 @@ import (
 
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/storage"
@@ -21,16 +22,12 @@ const cognitiveStateKey = "cognitive/state"
 // CognitiveSource reports the committed-activity watermark of the bound
 // input source. The evolution window's Through is read here so a crash
 // between capture and wake cannot fabricate or lose input.
-type CognitiveSource interface {
-	HighWatermark(ctx context.Context) (uint64, error)
-}
+type CognitiveSource = cognitivecontract.Source
 
 // CognitiveMissionSource reports the current authority Mission revision.
 // The bound Domain (or its persona adapter) implements it; 0 means
 // unassigned.
-type CognitiveMissionSource interface {
-	MissionRevision(ctx context.Context) (uint64, error)
-}
+type CognitiveMissionSource = cognitivecontract.MissionSource
 
 // cognitiveState is the durable trigger record persisted under the
 // host-owned snapshot store. Every admission decision reads it; every settle
@@ -45,6 +42,7 @@ type cognitiveState struct {
 	Attempt             int                           `json:"attempt"`
 	LastCompletedUnixMS int64                         `json:"last_completed_unix_ms"`
 	Policy              laputaevolution.TriggerPolicy `json:"policy"`
+	PolicyRevision      uint64                        `json:"policy_revision"`
 	LastReason          string                        `json:"last_reason,omitempty"`
 }
 
@@ -84,13 +82,51 @@ func (s *Service) NotifyCognitiveInput(ctx context.Context, seq uint64) error {
 }
 
 // UpdateCognitivePolicy persists the enabled trigger policy; admission reads
-// the durable copy on every wake.
+// the durable copy on every wake. The durable policy revision increments on
+// every accepted write so control-plane writers CAS against it.
 func (s *Service) UpdateCognitivePolicy(ctx context.Context, policy laputaevolution.TriggerPolicy) error {
 	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
 		return ErrCognitiveUnavailable
 	}
-	return s.updateCognitiveState(ctx, func(st *cognitiveState) { st.Policy = policy })
+	return s.updateCognitiveState(ctx, func(st *cognitiveState) {
+		st.Policy = policy
+		st.PolicyRevision++
+	})
 }
+
+// CognitivePolicyState returns the durable trigger policy and its revision.
+func (s *Service) CognitivePolicyState(ctx context.Context) (laputaevolution.TriggerPolicy, uint64, error) {
+	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
+		return laputaevolution.TriggerPolicy{}, 0, ErrCognitiveUnavailable
+	}
+	st, _, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return laputaevolution.TriggerPolicy{}, 0, err
+	}
+	return st.Policy, st.PolicyRevision, nil
+}
+
+// UpdateCognitivePolicyCAS replaces the durable trigger policy only when the
+// caller's base revision still matches; otherwise it fails conflicted and
+// the write is rejected instead of silently dropped.
+func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevolution.TriggerPolicy, baseRevision uint64) error {
+	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
+		return ErrCognitiveUnavailable
+	}
+	st, _, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return err
+	}
+	if st.PolicyRevision != baseRevision {
+		return ErrPolicyConflict
+	}
+	st.Policy = policy
+	st.PolicyRevision++
+	return s.saveCognitiveState(ctx, st)
+}
+
+// ErrPolicyConflict rejects a policy write whose base revision is stale.
+var ErrPolicyConflict = errors.New("runtime: cognitive policy revision conflict")
 
 // CognitiveStatus exposes the durable trigger record for inspection.
 func (s *Service) CognitiveStatus(ctx context.Context) (laputaevolution.TriggerState, uint64, error) {
@@ -458,31 +494,16 @@ var CognitiveCapturePayloadFields = []string{
 // CognitiveCapture is the host-owned capture request for one terminal
 // primary run. EventID is the stable redelivery key
 // ("<run_id>:<journal_seq>"): the sink's dedupe boundary.
-type CognitiveCapture struct {
-	SubjectID   string
-	WorkspaceID string
-	SessionID   string
-	RunID       domain.RunID
-	EventID     string
-	Phase       string // completed | failed | canceled
-	Content     string
-	OccurredAt  int64 // unix ms
-}
+type CognitiveCapture = cognitivecontract.Capture
 
 // CognitiveCaptureReceipt is the durable acceptance returned by the bound
 // capture surface. Seq is the committed-activity ledger position the
 // evolution watermark advances against.
-type CognitiveCaptureReceipt struct {
-	IngestionID string
-	Seq         uint64
-	Status      string
-}
+type CognitiveCaptureReceipt = cognitivecontract.CaptureReceipt
 
 // CognitiveCaptureSink is the ViVy-owned port to the bound capture surface.
 // Implementations must return the original receipt on redelivery.
-type CognitiveCaptureSink interface {
-	Capture(ctx context.Context, capture CognitiveCapture) (CognitiveCaptureReceipt, error)
-}
+type CognitiveCaptureSink = cognitivecontract.CaptureSink
 
 // CognitiveCaptureProvider delivers terminal primary-run events into the
 // bound capture sink through the ObserverHost durable-cursor path. Cursor

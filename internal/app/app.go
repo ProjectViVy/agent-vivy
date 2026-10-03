@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -73,6 +74,7 @@ type App struct {
 	channels     *channelhost.Host
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
+	cognitive    cognitivecontract.Bundle
 	backend      storage.Engine
 	worker       *workerManager
 	resolver     *ModelResolver
@@ -725,8 +727,29 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if channelHost != nil {
 		runHooks = append(runHooks, channelHost)
 	}
-	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend)
+	generationID := runtimeGenerationID(runtimeAssembly)
+	// DN-LC: the one cognitive owner binds through the same sealed accessor
+	// pattern as the mask factory. A selected-but-unarmed binding fails the
+	// composition; an omitted module changes nothing.
+	cognitiveBundle, err := cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
 	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	var cognitiveSubs []observerhost.RunSubscription
+	if cognitiveBundle != nil {
+		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
+			func(receipt runtime.CognitiveCaptureReceipt) {
+				if svc != nil && receipt.Seq != 0 {
+					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
+				}
+			}))
+	}
+	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
+	if err != nil {
+		if cognitiveBundle != nil {
+			_ = cognitiveBundle.Close()
+		}
 		_ = backend.Close()
 		return nil, err
 	}
@@ -739,7 +762,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			runObserverHost.Close()
 		}
 	}()
-	generationID := runtimeGenerationID(runtimeAssembly)
 	// A sealed first-party composition must never silently downgrade to the
 	// legacy sequential primary admission path. An unpacked development/test
 	// embedder has no sealed identity and remains on the explicitly compatible
@@ -759,6 +781,25 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	maskFrame, maskFrameDigest := "", ""
 	if maskService != nil {
 		maskFrame, maskFrameDigest = maskService.PromptAssets()
+	}
+	var cognitiveBinding *runtime.CognitiveBinding
+	if cognitiveBundle != nil {
+		resolvedBinding, err := cognitiveBundle.ResolveBinding(ctx)
+		if err != nil {
+			_ = cognitiveBundle.Close()
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: resolve cognitive binding: %w", err)
+		}
+		cognitiveBinding = &runtime.CognitiveBinding{
+			Domain:   &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle},
+			Binding:  resolvedBinding,
+			SourceID: cognitiveBundle.SourceID(),
+			Source:   cognitiveBundle.Source(),
+			Sink:     cognitiveBundle.Sink(),
+			Store:    backend.Snapshot(),
+			Mission:  cognitiveBundle.Mission(),
+			Policy:   cognitiveBundle.Policy(),
+		}
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
@@ -798,6 +839,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MaskFrame:       maskFrame,
 		MaskFrameDigest: maskFrameDigest,
 		GenerationID:    generationID,
+		Cognitive:       cognitiveBinding,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -807,6 +849,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return loopDriver.Build(ctx, live, ec)
 		},
 	})
+	if cognitiveBundle != nil {
+		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {
+			_ = cognitiveBundle.Close()
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
+		}
+	}
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend)
 	agentOps.arm(workerManager)
@@ -1204,6 +1253,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		channels:     channelHost,
 		actionHost:   actionHost,
 		observerHost: runObserverHost,
+		cognitive:    cognitiveBundle,
 		backend:      backend,
 		worker:       workerManager,
 		resolver:     resolver,
@@ -1313,6 +1363,11 @@ func (a *App) Close() error {
 		}
 		if a.observerHost != nil {
 			a.observerHost.Close()
+		}
+		// The owned Garden runtime outlives the Service and observer
+		// admission paths but closes before the storage backend.
+		if a.cognitive != nil {
+			a.closeErr = errors.Join(a.closeErr, a.cognitive.Close())
 		}
 		if a.mcpBackend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
