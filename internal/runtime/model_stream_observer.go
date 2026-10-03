@@ -217,6 +217,15 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			_ = obs.End(ctx, meta, result)
 			writer.Close()
 		}
+		// fail journals the finish record BEFORE the error enters the
+		// pipe: a downstream terminal emitted on that error (e.g. the
+		// budget breaker) must never overtake the mandatory closure.
+		fail := func(err error) {
+			result.Usage = lastUsage
+			_ = obs.End(ctx, meta, result)
+			writer.Send(nil, err)
+			writer.Close()
+		}
 		for {
 			chunk, recvErr := upstream.Recv()
 			if recvErr == io.EOF {
@@ -226,8 +235,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			}
 			if recvErr != nil {
 				result.Err = recvErr
-				writer.Send(nil, recvErr)
-				finish()
+				fail(recvErr)
 				return
 			}
 			if chunk == nil {
@@ -238,8 +246,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			}
 			if err := obs.Chunk(ctx, meta, chunk); err != nil {
 				result.Err = err
-				writer.Send(nil, err)
-				finish()
+				fail(err)
 				return
 			}
 			if writer.Send(chunk, nil) {
