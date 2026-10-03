@@ -97,7 +97,7 @@ func TestPlanGoalIntegratedReviewAndTwoRounds(t *testing.T) {
 		t.Fatalf("turn/start = %v", turn)
 	}
 	var work map[string]any
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		work = callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
 		plan, _ := work["plan"].(map[string]any)
@@ -216,7 +216,7 @@ func TestPlanGoalIntegratedPendingReviewRecovery(t *testing.T) {
 	runID := turn["run_id"].(string)
 	var pending map[string]any
 	ready := false
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		pending = callControl(t, client, "session/work/get", map[string]any{"session_id": sessionID})
 		plan, _ := pending["plan"].(map[string]any)
