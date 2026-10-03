@@ -85,3 +85,50 @@ func TestGatewayControlActionUsesConnectionBoundSession(t *testing.T) {
 		t.Fatalf("gateway action StartRun result = %+v", run)
 	}
 }
+
+// The embedded face dials the same control plane over an in-process pipe with
+// no handshake; the serving peer must still present an authenticated caller or
+// every module action is dead code on the DIVA shared-library path.
+func TestEmbeddedControlActionInvokesWithBoundCaller(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	t.Setenv("DEEPSEEK_API_KEY", "embedded-action-test-key")
+
+	assembly := genassembly.BuildDefault()
+	assembly.ActionSets = []controlaction.ProviderSet{{
+		ModuleID:   "fixture/actions",
+		AllowedIDs: []string{"fixture.action"},
+		Providers:  []controlaction.Provider{gatewayActionProvider},
+	}}
+	assembly.GenerationID = "generation-embedded-action-test"
+	assembly.Manifest.Modules = append(assembly.Manifest.Modules, "fixture/actions")
+	assembly.Manifest.Actions = []string{"fixture.action"}
+
+	a, err := NewWithAssembly(context.Background(), newDeepSeekTestConfig(t), assembly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	client, err := a.DialControl(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("dial embedded control: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	callControl(t, client, "initialize", map[string]any{"protocol_version": "vivy.rpc.v1"})
+	created := callControl(t, client, "session/create", map[string]any{"title": "embedded action"})
+	sessionID, _ := created["id"].(string)
+	if sessionID == "" {
+		t.Fatalf("session/create = %v", created)
+	}
+
+	result := callControl(t, client, "module.action.invoke", map[string]any{
+		"module_id": "fixture/actions",
+		"action_id": "fixture.action",
+		"input":     map[string]string{"session_id": sessionID},
+	})
+	if result["status"] != "accepted" || result["id"] == "" {
+		t.Fatalf("embedded module.action.invoke = %v", result)
+	}
+}

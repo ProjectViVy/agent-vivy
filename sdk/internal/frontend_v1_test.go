@@ -1085,3 +1085,103 @@ func TestCanonicalResolvedModfileSealsSemanticsWithoutLocalPaths(t *testing.T) {
 		t.Fatal("resolved dependency version did not change canonical modfile")
 	}
 }
+
+// DN-L: the shared library target must produce a sealed DLL/.so whose
+// embedded Manifest, ABI headers, and artifact identity all verify through
+// the same inspect path as the executable, and whose failures publish
+// nothing.
+func TestPackAndInspectSharedTarget(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "diva-shared")
+	artifact, err := Pack(context.Background(), packOptions{Recipe: "../../recipes/diva.vivy.yml", Output: out, Target: packTargetShared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedName := artifactSharedName(runtime.GOOS)
+	if filepath.Base(artifact.Binary) != sharedName {
+		t.Fatalf("shared binary = %q, want %q", artifact.Binary, sharedName)
+	}
+	if _, err := os.Stat(filepath.Join(out, "vivy_abi.h")); err != nil {
+		t.Fatalf("ABI constants header missing: %v", err)
+	}
+	headerName := strings.TrimSuffix(sharedName, filepath.Ext(sharedName)) + ".h"
+	if _, err := os.Stat(filepath.Join(out, headerName)); err != nil {
+		t.Fatalf("generated ABI header missing: %v", err)
+	}
+	inspected, err := InspectArtifact(out)
+	if err != nil {
+		t.Fatalf("shared inspect failed: %v", err)
+	}
+	if inspected.Manifest.GenerationID != artifact.Manifest.GenerationID {
+		t.Fatal("shared inspect identity drift")
+	}
+	// A shared artifact directory must not satisfy the executable check:
+	// no vivy binary may exist beside the library.
+	if _, err := os.Stat(filepath.Join(out, artifactBinaryName(runtime.GOOS))); !os.IsNotExist(err) {
+		t.Fatalf("shared artifact unexpectedly contains an executable: %v", err)
+	}
+
+	// Tampered ABI header is an inspection failure.
+	abiPath := filepath.Join(out, "vivy_abi.h")
+	original, err := os.ReadFile(abiPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := bytes.Replace(original, []byte("VIVY_ABI_VERSION 1"), []byte("VIVY_ABI_VERSION 999"), 1)
+	if err := os.WriteFile(abiPath, tampered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectArtifact(out); err == nil {
+		t.Fatal("inspect accepted a tampered ABI header")
+	}
+	if err := os.WriteFile(abiPath, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Tampered library bytes inside the embedded Manifest break the binding.
+	// Some platforms (PE) store the framed constant more than once, so every
+	// occurrence must be corrupted: inspection skips invalid frames and only
+	// rejects when no intact copy survives.
+	bin, err := os.ReadFile(artifact.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte("VIVY_GENERATION_V1_BEGIN[")
+	frames := 0
+	for scan := 0; ; {
+		offset := bytes.Index(bin[scan:], marker)
+		if offset < 0 {
+			break
+		}
+		offset += scan
+		bin[offset+len(marker)+8] ^= 0xFF
+		frames++
+		scan = offset + len(marker)
+	}
+	if frames == 0 {
+		t.Fatal("shared library does not carry the sealed manifest frame")
+	}
+	if err := os.WriteFile(artifact.Binary, bin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectArtifact(out); err == nil {
+		t.Fatal("inspect accepted a tampered shared library")
+	}
+}
+
+// DN-L: a recipe naming a missing module must fail before any Generation is
+// published to the output directory.
+func TestPackSharedMissingModulePublishesNothing(t *testing.T) {
+	root := t.TempDir()
+	recipe := filepath.Join(root, "bad.vivy.yml")
+	if err := os.WriteFile(recipe, []byte("apiVersion: vivy.generation/v1\nprofile: minimal\nmodules: [vivy/loop, vivy/does-not-exist]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(root, "out")
+	if _, err := Pack(context.Background(), packOptions{Recipe: recipe, Output: out, Target: packTargetShared}); err == nil {
+		t.Fatal("pack accepted a missing module")
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("failed pack published output: %v", err)
+	}
+}

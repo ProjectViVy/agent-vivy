@@ -5327,6 +5327,34 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 		entry.ID = "custom-" + providerIDNonce()
 	}
 	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		// Patch semantics on update-by-id: fields left empty keep the stored
+		// values — mirroring the settings/update convention that an empty
+		// api_key leaves the credential alone. Without this a models-only
+		// edit would wipe the entry's key, base_url, and display name.
+		for _, existing := range cur.Providers {
+			if existing.ID != entry.ID {
+				continue
+			}
+			if entry.ApiKey == "" {
+				entry.ApiKey = existing.ApiKey
+			}
+			if entry.Bundle == "" {
+				entry.Bundle = existing.Bundle
+			}
+			if entry.BaseURL == "" {
+				entry.BaseURL = existing.BaseURL
+			}
+			if entry.DisplayName == "" {
+				entry.DisplayName = existing.DisplayName
+			}
+			if entry.DefaultModel == "" {
+				entry.DefaultModel = existing.DefaultModel
+			}
+			if entry.Models == nil {
+				entry.Models = existing.Models
+			}
+			break
+		}
 		return cur.UpsertProvider(entry), nil
 	})
 	if rpcErr != nil {
