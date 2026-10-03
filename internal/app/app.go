@@ -883,41 +883,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				allowedTools[candidate.Spec().Name] = struct{}{}
 			}
 		}
-		authenticateAction := func(ctx context.Context, caller actionhost.Caller) (actionhost.Identity, error) {
-			if caller.Opaque() == "" || subtle.ConstantTimeCompare([]byte(caller.Opaque()), []byte(rpcToken)) != 1 {
-				return actionhost.Identity{}, actionport.ErrUnauthenticated
-			}
-			// The HTTP/RPC authentication middleware must attach this identity;
-			// a browser-supplied session or face field is never accepted here.
-			identity, ok := actionhost.IdentityFromContext(ctx)
-			if !ok {
-				return actionhost.Identity{}, actionport.ErrUnauthenticated
-			}
-			return identity, nil
-		}
-		authorizeAction := func(_ context.Context, _ actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
-			if policy == nil {
-				return actionport.ErrAuthorizationUnavailable
-			}
-			spec := actionToolSpec(definition)
-			evaluation, evalErr := policy.Evaluate(liveProfile, spec, input)
-			if evalErr != nil {
-				return actionport.ErrAuthorizationUnavailable
-			}
-			if evaluation.Decision != domain.PolicyAllow {
-				if evaluation.Decision == domain.PolicyPrompt || definition.RequiresApproval || definition.ApprovalRequired {
-					return actionport.ErrApprovalRequired
-				}
-				return runtime.ErrPolicyDenied
-			}
-			// This composition has no action-specific approval row/continuation
-			// route. Requiring one is safer than treating a provider claim as an
-			// approval; ordinary full-auto policy remains an explicit authority.
-			if definition.RequiresApproval || definition.ApprovalRequired {
-				return actionport.ErrApprovalRequired
-			}
-			return nil
-		}
+		authenticateAction := actionAuthenticate(string(rpcToken))
+		authorizeAction := actionAuthorize(policy, liveProfile)
 		authorizeBridge := func(ctx context.Context, identity actionhost.Identity, request actionhost.BridgeRequest) error {
 			if identity.SessionID == "" {
 				return actionport.ErrUnauthenticated
@@ -931,9 +898,23 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			}
 			return authorizeAction(ctx, identity, request.Action, request.Input)
 		}
+		var cognitiveProvider cognitivecontract.DispatcherProvider
+		if cognitiveBundle != nil {
+			provider, ok := cognitiveBundle.(cognitivecontract.DispatcherProvider)
+			if !ok {
+				_ = backend.Close()
+				return nil, fmt.Errorf("app: cognitive bundle does not expose the action dispatcher")
+			}
+			cognitiveProvider = provider
+		}
 		actionHost, err = actionhost.New(actionhost.Deps{
 			ProviderSets:        runtimeAssembly.ActionSets,
 			MaskManager:         maskService,
+			Cognitive:           cognitiveProvider,
+			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
+				_, err := backend.GetSession(ctx, sessionID)
+				return err
+			},
 			GenerationAvailable: true,
 			GenerationID:        generationID,
 			Audit:               actionhost.JournalAuditSink{Journal: backend, Logger: logger},
@@ -1425,6 +1406,52 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
 	}
 	return engine
+}
+
+// actionAuthenticate is the exact caller-authentication predicate the
+// composed control plane installs on the action host: the caller must carry
+// the process-owned RPC token and the serving peer must have stamped the
+// trusted identity into the context. A caller-supplied identity field is
+// never accepted.
+func actionAuthenticate(rpcToken string) func(context.Context, actionhost.Caller) (actionhost.Identity, error) {
+	return func(ctx context.Context, caller actionhost.Caller) (actionhost.Identity, error) {
+		if caller.Opaque() == "" || subtle.ConstantTimeCompare([]byte(caller.Opaque()), []byte(rpcToken)) != 1 {
+			return actionhost.Identity{}, actionport.ErrUnauthenticated
+		}
+		identity, ok := actionhost.IdentityFromContext(ctx)
+		if !ok {
+			return actionhost.Identity{}, actionport.ErrUnauthenticated
+		}
+		return identity, nil
+	}
+}
+
+// actionAuthorize is the exact authorization predicate the composed control
+// plane installs: evaluate the declared action against the live governance
+// profile; an approval-required effect in a composition without an approval
+// continuation route fails closed, and only an explicit full-auto profile
+// admits effectful actions.
+func actionAuthorize(policy *runtime.PolicyEngine, liveProfile domain.PolicyProfile) func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error {
+	return func(_ context.Context, _ actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
+		if policy == nil {
+			return actionport.ErrAuthorizationUnavailable
+		}
+		spec := actionToolSpec(definition)
+		evaluation, evalErr := policy.Evaluate(liveProfile, spec, input)
+		if evalErr != nil {
+			return actionport.ErrAuthorizationUnavailable
+		}
+		if evaluation.Decision != domain.PolicyAllow {
+			if evaluation.Decision == domain.PolicyPrompt || definition.RequiresApproval || definition.ApprovalRequired {
+				return actionport.ErrApprovalRequired
+			}
+			return runtime.ErrPolicyDenied
+		}
+		if definition.RequiresApproval || definition.ApprovalRequired {
+			return actionport.ErrApprovalRequired
+		}
+		return nil
+	}
 }
 
 func actionToolSpec(definition actionport.Definition) domain.ToolSpec {
