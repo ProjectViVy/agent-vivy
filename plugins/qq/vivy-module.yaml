@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/qq, version: 0.1.0}
-source: {ref: repo:plugins/qq, sha256: 7f1e76eaca03777e948c984e33b4bac9d289bee225dacdf7d5675d4f5e378f46}
+source: {ref: repo:plugins/qq, sha256: ee1603a7fe325d9adc01e62809a7798897110cc1c1622f683642a699bed90355}
 provides: [{port: std/channel@v1, id: vivy.qq}]
 requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
 requestedGrants: [channel.poll, secret.read, net.client]
