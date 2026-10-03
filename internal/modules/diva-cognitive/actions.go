@@ -3,6 +3,7 @@ package divacognitive
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"agent-vivy/internal/cognitivecontract"
 	controlaction "agent-vivy/sdk/port/controlaction"
@@ -16,8 +17,7 @@ const (
 )
 
 // cognitiveAction is a sealed action definition; invocation resolves the
-// armed dispatcher through the private ActionHost facade. Until that facade
-// exists the invoke path fails closed — no action reports success.
+// armed dispatcher through the private ActionHost facade.
 type cognitiveAction struct {
 	definition controlaction.Definition
 }
@@ -30,7 +30,7 @@ func (a cognitiveAction) Invoke(ctx context.Context, host controlaction.Host, in
 		return nil, cognitivecontract.ErrUnarmed
 	}
 	if len(input) > maxCognitiveInput {
-		return nil, cognitivecontract.ErrUnarmed
+		return nil, controlaction.ErrInvalidInput
 	}
 	dispatcher, err := privateHost.Cognitive()
 	if err != nil {
@@ -40,45 +40,52 @@ func (a cognitiveAction) Invoke(ctx context.Context, host controlaction.Host, in
 }
 
 // ActionProviders returns the closed ledger C2-3 inventory owned by
-// vivy/diva-cognitive. Every definition is emitted now so the manifest equals
-// the ActionSets; handlers stay fail-closed until DN-4C.
+// vivy/diva-cognitive. Input schemas are strict closed objects; required
+// fields follow the contract table verbatim.
 func ActionProviders() []controlaction.Provider {
+	anyObject := `{"type":"object","additionalProperties":true}`
+	boolProp := `{"type":"boolean"}`
 	defs := []controlaction.Definition{
-		actionDef(ActionStatus, "Cognitive capability status", controlaction.EffectRead, schema(sessionProp)),
-		actionDef(ActionPersonaInitialize, "Initialize the persona authority", controlaction.EffectWrite, schema(
-			sessionProp, prop("initialization", `{"type":"object","additionalProperties":true}`), prop("reason", strProp))),
-		actionDef(ActionPersonaRead, "Read a persona authority document", controlaction.EffectRead, schema(
-			sessionProp, prop("kind", strProp))),
-		actionDef(ActionPersonaSave, "Save a persona authority document", controlaction.EffectWrite, schema(
-			sessionProp, prop("kind", strProp), prop("content", strProp), prop("reason", strProp))),
-		actionDef(ActionPersonaReviewList, "List persona review requests", controlaction.EffectRead, schema(
-			sessionProp, prop("kind", strProp), prop("state", strProp), prop("cursor", strProp), prop("limit", numProp))),
-		actionDef(ActionPersonaReviewDecide, "Approve or reject a persona review", controlaction.EffectWrite, schema(
-			sessionProp, prop("request_id", strProp), prop("decision", strProp), prop("reason", strProp))),
-		actionDef(ActionFrozenRead, "Read the session Frozen Core", controlaction.EffectRead, schema(sessionProp)),
-		actionDef(ActionActmemRead, "Read the ACTMEM authority", controlaction.EffectRead, schema(sessionProp)),
-		actionDef(ActionActmemWorkPatch, "Apply an ACTMEM work patch", controlaction.EffectWrite, schema(
-			sessionProp, prop("patch", `{"type":"object","additionalProperties":true}`))),
-		actionDef(ActionActmemOwnerRead, "Read the owner's ACTMEM", controlaction.EffectRead, schema(sessionProp)),
-		actionDef(ActionActmemOwnerSave, "Save the owner's ACTMEM", controlaction.EffectWrite, schema(
-			sessionProp, prop("content", strProp), prop("reason", strProp))),
-		actionDef(ActionMemorySearch, "Search memory cards", controlaction.EffectRead, schema(
-			sessionProp, prop("query", strProp), prop("cursor", strProp), prop("limit", numProp))),
-		actionDef(ActionMemoryExpand, "Expand a memory card to evidence", controlaction.EffectRead, schema(
-			sessionProp, prop("card_id", strProp))),
-		actionDef(ActionMemoryMutate, "Submit a memory mutation", controlaction.EffectWrite, schema(
-			sessionProp, prop("mutation", `{"type":"object","additionalProperties":true}`))),
-		actionDef(ActionMemoryReceipt, "Read a memory mutation receipt", controlaction.EffectRead, schema(
-			sessionProp, prop("receipt_id", strProp))),
-		actionDef(ActionPolicyGet, "Read the trigger policy", controlaction.EffectRead, schema(sessionProp)),
-		actionDef(ActionPolicySet, "CAS-update the trigger policy", controlaction.EffectWrite, schema(
-			sessionProp, prop("base_revision", numProp), prop("policy", `{"type":"object","additionalProperties":true}`))),
-		actionDef(ActionTrigger, "Manually trigger a cognitive run", controlaction.EffectWrite, schema(
-			sessionProp, prop("reason", strProp))),
-		actionDef(ActionCancel, "Cancel the active cognitive run", controlaction.EffectWrite, schema(
-			sessionProp, prop("run_id", strProp))),
-		actionDef(ActionResultsList, "Page effect receipts", controlaction.EffectRead, schema(
-			sessionProp, prop("cursor", strProp), prop("limit", numProp))),
+		actionDef(ActionStatus, "Cognitive capability status", controlaction.EffectRead,
+			schema(nil, sessionProp)),
+		actionDef(ActionPersonaInitialize, "Initialize the persona authority", controlaction.EffectWrite,
+			schema(req("initialization"), sessionProp, prop("initialization", anyObject), prop("reason", strProp))),
+		actionDef(ActionPersonaRead, "Read a persona authority document", controlaction.EffectRead,
+			schema(req("kind"), sessionProp, prop("kind", strProp))),
+		actionDef(ActionPersonaSave, "Save a persona authority document", controlaction.EffectWrite,
+			schema(req("kind", "content", "base_revision"), sessionProp, prop("kind", strProp), prop("content", strProp), prop("base_revision", numProp), prop("reason", strProp))),
+		actionDef(ActionPersonaReviewList, "List persona review requests", controlaction.EffectRead,
+			schema(nil, sessionProp, prop("kind", strProp), prop("state", strProp), prop("cursor", strProp), prop("limit", numProp))),
+		actionDef(ActionPersonaReviewDecide, "Approve or reject a persona review", controlaction.EffectWrite,
+			schema(req("review_id", "decision"), sessionProp, prop("review_id", strProp), prop("decision", `{"type":"string","enum":["accept","reject"]}`))),
+		actionDef(ActionFrozenRead, "Read the session Frozen Core", controlaction.EffectRead,
+			schema(nil, sessionProp)),
+		actionDef(ActionActmemRead, "Read the ACTMEM authority", controlaction.EffectRead,
+			schema(req("sections", "max_chars"), sessionProp, prop("sections", `{"type":"array","items":{"type":"string","enum":["pulse","recap","work"]}}`), prop("max_chars", numProp))),
+		actionDef(ActionActmemWorkPatch, "Apply an ACTMEM work patch", controlaction.EffectWrite,
+			schema(req("patch"), sessionProp, prop("patch", anyObject))),
+		actionDef(ActionActmemOwnerRead, "Read the owner's ACTMEM", controlaction.EffectRead,
+			schema(nil, sessionProp)),
+		actionDef(ActionActmemOwnerSave, "Save the owner's ACTMEM", controlaction.EffectWrite,
+			schema(req("markdown", "base_revision"), sessionProp, prop("markdown", strProp), prop("base_revision", numProp))),
+		actionDef(ActionMemorySearch, "Search memory cards", controlaction.EffectRead,
+			schema(req("query", "limit", "budget_chars"), sessionProp, prop("query", strProp), prop("collection", strProp), prop("cursor", strProp), prop("limit", numProp), prop("budget_chars", numProp))),
+		actionDef(ActionMemoryExpand, "Expand a memory card to evidence", controlaction.EffectRead,
+			schema(req("card_id", "expected_revision", "budget_chars"), sessionProp, prop("card_id", strProp), prop("expected_revision", numProp), prop("budget_chars", numProp))),
+		actionDef(ActionMemoryMutate, "Submit a memory mutation", controlaction.EffectWrite,
+			schema(req("mutation"), sessionProp, prop("mutation", anyObject))),
+		actionDef(ActionMemoryReceipt, "Read a memory mutation receipt", controlaction.EffectRead,
+			schema(req("operation_id"), sessionProp, prop("operation_id", strProp))),
+		actionDef(ActionPolicyGet, "Read the trigger policy", controlaction.EffectRead,
+			schema(nil, sessionProp)),
+		actionDef(ActionPolicySet, "CAS-update the trigger policy", controlaction.EffectWrite,
+			schema(req("enabled", "min_interval_ms", "base_revision"), sessionProp, prop("enabled", boolProp), prop("min_interval_ms", numProp), prop("base_revision", numProp))),
+		actionDef(ActionTrigger, "Manually trigger a cognitive run", controlaction.EffectWrite,
+			schema(nil, sessionProp)),
+		actionDef(ActionCancel, "Cancel the active cognitive run", controlaction.EffectWrite,
+			schema(req("run_id"), sessionProp, prop("run_id", strProp))),
+		actionDef(ActionResultsList, "Page effect receipts", controlaction.EffectRead,
+			schema(nil, sessionProp, prop("cursor", strProp), prop("limit", numProp))),
 	}
 	providers := make([]controlaction.Provider, 0, len(defs))
 	for _, def := range defs {
@@ -104,7 +111,13 @@ func prop(name, schemaJSON string) string {
 	return `"` + name + `":` + schemaJSON
 }
 
-func schema(props ...string) json.RawMessage {
+// req lists contract-required fields beyond session_id, which is always
+// required for the closed C2-3 inventory.
+func req(names ...string) []string {
+	return append([]string{"session_id"}, names...)
+}
+
+func schema(required []string, props ...string) json.RawMessage {
 	joined := "{"
 	for i, p := range props {
 		if i > 0 {
@@ -113,5 +126,12 @@ func schema(props ...string) json.RawMessage {
 		joined += p
 	}
 	joined += "}"
-	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["session_id"],"properties":` + joined + `}`)
+	if required == nil {
+		required = []string{"session_id"}
+	}
+	quoted := make([]string, 0, len(required))
+	for _, name := range required {
+		quoted = append(quoted, `"`+name+`"`)
+	}
+	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":[` + strings.Join(quoted, ",") + `],"properties":` + joined + `}`)
 }

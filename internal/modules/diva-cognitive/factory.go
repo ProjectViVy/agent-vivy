@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"agent-vivy/internal/cognitivecontract"
-	"agent-vivy/internal/domain"
 
 	"github.com/ProjectViVy/inofy"
 	"github.com/dashimaki/garden/agentapi"
@@ -265,65 +265,15 @@ func (b *bundle) Close() error {
 	return b.owner.Close()
 }
 
-// Dispatch routes the armed control-plane actions to the ControlPort. Every
-// other declared action stays honestly unavailable until DN-4C owns their
-// handlers.
-type dispatch struct{ bundle *bundle }
-
-func (d dispatch) Invoke(ctx context.Context, actionID string, input json.RawMessage) (json.RawMessage, error) {
-	control, err := d.bundle.armed()
-	if err != nil {
-		return nil, err
-	}
-	switch actionID {
-	case ActionStatus, ActionPolicyGet:
-		state, err := control.GetState(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(state)
-	case ActionTrigger:
-		state, err := control.Trigger(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(state)
-	case ActionCancel:
-		var in struct {
-			RunID string `json:"run_id"`
-		}
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
-		state, err := control.Cancel(ctx, domain.RunID(in.RunID))
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(state)
-	case ActionPolicySet:
-		var in struct {
-			BaseRevision uint64                        `json:"base_revision"`
-			Policy       laputaevolution.TriggerPolicy `json:"policy"`
-		}
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
-		state, err := control.SetPolicyCAS(ctx, in.Policy, in.BaseRevision)
-		if err != nil {
-			return nil, err
-		}
-		d.bundle.setPolicy(in.Policy)
-		return json.Marshal(state)
-	default:
-		return nil, fmt.Errorf("diva-cognitive: action %s unavailable until handlers land", actionID)
-	}
-}
-
 func decodeInput(input json.RawMessage, out any) error {
 	dec := json.NewDecoder(strings.NewReader(string(input)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(out); err != nil {
 		return fmt.Errorf("diva-cognitive: input: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("diva-cognitive: trailing data after input")
 	}
 	return nil
 }

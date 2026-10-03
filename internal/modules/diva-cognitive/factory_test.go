@@ -34,7 +34,9 @@ func openBundle(t *testing.T) (context.Context, cognitivecontract.Bundle) {
 }
 
 type fakeControl struct {
-	state cognitivecontract.ControlState
+	state     cognitivecontract.ControlState
+	triggers  bool
+	cancelled string
 }
 
 func (f *fakeControl) GetState(context.Context) (cognitivecontract.ControlState, error) {
@@ -44,9 +46,11 @@ func (f *fakeControl) SetPolicyCAS(context.Context, laputaevolution.TriggerPolic
 	return f.state, nil
 }
 func (f *fakeControl) Trigger(context.Context) (cognitivecontract.ControlState, error) {
+	f.triggers = true
 	return f.state, nil
 }
-func (f *fakeControl) Cancel(context.Context, domain.RunID) (cognitivecontract.ControlState, error) {
+func (f *fakeControl) Cancel(_ context.Context, runID domain.RunID) (cognitivecontract.ControlState, error) {
+	f.cancelled = string(runID)
 	return f.state, nil
 }
 
@@ -133,8 +137,23 @@ func TestAttachRuntimeIsSingleUse(t *testing.T) {
 func TestDispatcherFailsClosedWhenUnarmed(t *testing.T) {
 	ctx, bundle := openBundle(t)
 	dispatcher := bundle.(cognitivecontract.DispatcherProvider).Dispatcher()
-	if _, err := dispatcher.Invoke(ctx, ActionStatus, json.RawMessage(`{"session_id":"s"}`)); !errors.Is(err, cognitivecontract.ErrUnarmed) {
-		t.Fatalf("unarmed dispatch error = %v", err)
+	// Unarmed control reports an unavailable envelope, never a success.
+	raw, err := dispatcher.Invoke(ctx, ActionStatus, json.RawMessage(`{"session_id":"s"}`))
+	if err != nil {
+		t.Fatalf("unarmed dispatch transport error = %v", err)
+	}
+	var out struct {
+		Status string `json:"status"`
+		Error  struct {
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("status payload = %s err=%v", raw, err)
+	}
+	if out.Status != "unavailable" || out.Error.Code != "capability_unavailable" || !out.Error.Retryable {
+		t.Fatalf("unarmed outcome = %s", raw)
 	}
 }
 
@@ -148,12 +167,44 @@ func TestDispatcherRoutesArmedControlActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status invoke: %v", err)
 	}
-	var state cognitivecontract.ControlState
-	if err := json.Unmarshal(raw, &state); err != nil || !state.Enabled {
+	var out struct {
+		Status string `json:"status"`
+		Value  struct {
+			Cognition struct {
+				Enabled  bool   `json:"enabled"`
+				SourceID string `json:"source_id"`
+			} `json:"cognition"`
+			Persona struct {
+				State string `json:"state"`
+			} `json:"persona"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("status payload = %s err=%v", raw, err)
 	}
-	if _, err := dispatcher.Invoke(ctx, ActionMemorySearch, json.RawMessage(`{"session_id":"s","query":"x"}`)); err == nil {
-		t.Fatal("unhandled action reported success")
+	if out.Status != "ok" || !out.Value.Cognition.Enabled || out.Value.Cognition.SourceID != "src" {
+		t.Fatalf("status outcome = %s", raw)
+	}
+	if out.Value.Persona.State == "" {
+		t.Fatalf("status outcome missing persona state = %s", raw)
+	}
+	// A handled action without a selected backend reports an honest
+	// unavailable envelope, never a success and never a transport failure.
+	raw, err = dispatcher.Invoke(ctx, ActionMemorySearch, json.RawMessage(`{"session_id":"s","query":"x","limit":10,"budget_chars":1000}`))
+	if err != nil {
+		t.Fatalf("search invoke transport error = %v", err)
+	}
+	var searchOut struct {
+		Status string `json:"status"`
+		Error  struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &searchOut); err != nil {
+		t.Fatalf("search payload = %s err=%v", raw, err)
+	}
+	if searchOut.Status != "unavailable" || searchOut.Error.Code == "" {
+		t.Fatalf("search outcome = %s", raw)
 	}
 }
 
