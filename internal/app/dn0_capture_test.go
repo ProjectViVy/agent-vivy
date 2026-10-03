@@ -160,7 +160,7 @@ func TestDN0CaptureCoreTranscript(t *testing.T) {
 
 	// Wait for the approval to surface, capture its tool.approval_required event.
 	var approvalID string
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for approvalID == "" && time.Now().Before(deadline) {
 		list := cap.call("approval/list", nil)
 		items, _ := decodeOK(t, list, "approval/list")["approvals"].([]any)

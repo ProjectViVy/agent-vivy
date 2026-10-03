@@ -183,23 +183,41 @@ func TestPollOverflowReportsGap(t *testing.T) {
 	runID, _ := turn["run_id"].(string)
 	mustCall(t, h, "run/subscribe", map[string]any{"run_id": runID})
 
-	// Let events accumulate past capacity before polling.
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		// The run emits >2 events quickly (run.started, model.request, ...).
-		time.Sleep(300 * time.Millisecond)
-		res, err := h.Poll(context.Background(), 0)
-		if err != nil {
-			t.Fatalf("Poll: %v", err)
+	// Drive the run to a terminal state while the queue accumulates; neither
+	// approval/list, approval/respond, nor run/get drains it, so the first
+	// Poll afterwards must report the overflow gap.
+	deadline := time.Now().Add(60 * time.Second)
+	answered := false
+	for done := false; !done; {
+		if !answered {
+			list := mustCall(t, h, "approval/list", nil)
+			if items, _ := list["approvals"].([]any); len(items) > 0 {
+				id, _ := items[0].(map[string]any)["id"].(string)
+				mustCall(t, h, "approval/respond", map[string]any{"approval_id": id, "decision": "approved"})
+				answered = true
+			}
 		}
-		if len(res.Events) > 2 {
-			t.Fatalf("poll drained %d events, capacity was 2", len(res.Events))
-		}
-		if res.Gap {
-			return
+		run := mustCall(t, h, "run/get", map[string]any{"run_id": runID})
+		switch run["status"] {
+		case "completed", "failed", "cancelled":
+			done = true
+		default:
+			if time.Now().After(deadline) {
+				t.Fatalf("run stuck in status %v", run["status"])
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
 	}
-	t.Fatal("overflow never reported a gap")
+	res, err := h.Poll(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(res.Events) > 2 {
+		t.Fatalf("poll drained %d events, capacity was 2", len(res.Events))
+	}
+	if !res.Gap {
+		t.Fatal("overflow never reported a gap")
+	}
 }
 
 func TestCloseIsIdempotentAndRejectsCalls(t *testing.T) {
