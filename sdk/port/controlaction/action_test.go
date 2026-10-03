@@ -58,6 +58,28 @@ func TestDefinitionValidateRequiresOwnerSchemasAndEffect(t *testing.T) {
 	}
 }
 
+func TestDefinitionValidateSealedModuleNamespace(t *testing.T) {
+	definition := typedProvider{}.Definition()
+	definition.Owner = "vivy/diva-cognitive"
+	definition.ModuleID = "vivy/diva-cognitive"
+	definition.ID = "diva.cognitive.status"
+	if err := definition.Validate(); err != nil {
+		t.Fatalf("sealed namespace rejected: %v", err)
+	}
+	definition.ID = "diva.cognitive.evil.suffix"
+	if err := definition.Validate(); err != nil {
+		t.Fatalf("sealed namespace rejected deeper id: %v", err)
+	}
+	definition.ID = "diva.other.status"
+	if err := definition.Validate(); err == nil {
+		t.Fatal("foreign sealed namespace admitted")
+	}
+	definition.ID = "cognitive.status"
+	if err := definition.Validate(); err == nil {
+		t.Fatal("partial sealed namespace admitted")
+	}
+}
+
 func TestDefinitionNormalizeAliases(t *testing.T) {
 	definition := Definition{
 		ID:           "example.action.read",

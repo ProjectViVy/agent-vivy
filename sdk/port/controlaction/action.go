@@ -288,7 +288,8 @@ func (definition Definition) Validate() error {
 	}
 	namespace := strings.SplitN(owner, "/", 2)[0] + "."
 	literalNamespace := "plugin." + owner + "."
-	if !strings.HasPrefix(definition.ID, namespace) && !strings.HasPrefix(definition.ID, literalNamespace) {
+	sealed := sealedNamespace(owner)
+	if !strings.HasPrefix(definition.ID, namespace) && !strings.HasPrefix(definition.ID, literalNamespace) && (sealed == "" || !strings.HasPrefix(definition.ID, sealed)) {
 		return fmt.Errorf("%w: action id %q is outside owner namespace %s*", ErrInvalidDefinition, definition.ID, namespace)
 	}
 	switch definition.Effect {
@@ -341,6 +342,23 @@ const (
 	maxSchemaNodes      = 2048
 	maxSchemaKeywords   = 8192
 )
+
+// sealedNamespace is the owner-derived dotted form of the Module's own name:
+// the second owner segment with dashes mapped to dots ("vivy/diva-cognitive"
+// -> "diva.cognitive."). A sealed T1 module may publish actions under this
+// product namespace in addition to its vendor namespace; it is still derived
+// entirely from the owner identity and admits no foreign prefix.
+func sealedNamespace(owner string) string {
+	parts := strings.SplitN(owner, "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	seg := strings.TrimSpace(parts[1])
+	if seg == "" {
+		return ""
+	}
+	return strings.ReplaceAll(seg, "-", ".") + "."
+}
 
 func containsControl(value string) bool {
 	return strings.ContainsAny(value, "\r\n\x00")

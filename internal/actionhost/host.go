@@ -23,6 +23,7 @@ import (
 
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/maskcontract"
@@ -391,6 +392,15 @@ type Deps struct {
 	// exposed through the public Host interface; only sealed T1 actions owned
 	// by vivy/masks receive the named mask operations.
 	MaskManager maskcontract.Manager
+	// Cognitive is the sealed dispatcher provider resolved only for actions
+	// owned by vivy/diva-cognitive. It is never exposed through the public
+	// Host interface; the facade hands providers a session-guarded
+	// dispatcher bound to the authenticated peer identity.
+	Cognitive cognitivecontract.DispatcherProvider
+	// CognitiveSessionCheck verifies a claimed session against the host-side
+	// session registry before the cognitive dispatcher runs. storage
+	// ErrNotFound becomes a grant denial; other failures propagate.
+	CognitiveSessionCheck func(context.Context, domain.SessionID) error
 
 	// GenerationAvailable is the sealed Generation readiness attestation. A
 	// zero value is unavailable (fail closed).
@@ -1065,6 +1075,9 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	if definition.Owner == maskModuleOwner {
 		providerInvocationHost = newMaskActionHost(invocationHost, host.deps.MaskManager)
 	}
+	if definition.Owner == cognitiveModuleOwner {
+		providerInvocationHost = newCognitiveActionHost(invocationHost, host.deps.Cognitive, host.deps.CognitiveSessionCheck)
+	}
 	token, accepted := host.trackInvocation(cancel)
 	if !accepted {
 		host.release()
@@ -1113,6 +1126,9 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		}
 		if errors.Is(providerOut.err, action.ErrGrantDenied) {
 			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeDenied, action.ErrGrantDenied, started)
+		}
+		if errors.Is(providerOut.err, action.ErrInvalidInput) {
+			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeDenied, action.ErrInvalidInput, started)
 		}
 		var maskErr *maskcontract.Error
 		if definition.Owner == maskModuleOwner && errors.As(providerOut.err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
