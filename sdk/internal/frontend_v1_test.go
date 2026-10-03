@@ -1139,16 +1139,28 @@ func TestPackAndInspectSharedTarget(t *testing.T) {
 	}
 
 	// Tampered library bytes inside the embedded Manifest break the binding.
+	// Some platforms (PE) store the framed constant more than once, so every
+	// occurrence must be corrupted: inspection skips invalid frames and only
+	// rejects when no intact copy survives.
 	bin, err := os.ReadFile(artifact.Binary)
 	if err != nil {
 		t.Fatal(err)
 	}
 	marker := []byte("VIVY_GENERATION_V1_BEGIN[")
-	offset := bytes.Index(bin, marker)
-	if offset < 0 {
+	frames := 0
+	for scan := 0; ; {
+		offset := bytes.Index(bin[scan:], marker)
+		if offset < 0 {
+			break
+		}
+		offset += scan
+		bin[offset+len(marker)+8] ^= 0xFF
+		frames++
+		scan = offset + len(marker)
+	}
+	if frames == 0 {
 		t.Fatal("shared library does not carry the sealed manifest frame")
 	}
-	bin[offset+len(marker)+8] ^= 0xFF
 	if err := os.WriteFile(artifact.Binary, bin, 0o644); err != nil {
 		t.Fatal(err)
 	}
