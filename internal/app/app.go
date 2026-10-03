@@ -1723,6 +1723,11 @@ func (a *App) Run(ctx context.Context) error {
 		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
 		defer a.service.StopCronScheduler()
 	}
+	// The cognitive wake loop delivers strategy wakeups for a bound
+	// Cognitive service; unbound compositions are a no-op. Stop order:
+	// admission stops before runs are cancelled below.
+	a.service.StartCognitiveLoop(context.Background(), 0)
+	defer a.service.StopCognitiveLoop()
 	// The listener is faces/web's effect (VIVY-FACE-PACK §7); a
 	// gateway-less assembly has no server error source to wait on.
 	errCh := make(chan error, 1)
@@ -1763,6 +1768,9 @@ func (a *App) Run(ctx context.Context) error {
 	// terminal watcher still writes its state back while storage is open
 	// (bounded by StopCronScheduler's drain window).
 	a.service.StopCronScheduler()
+	// Cognitive admission stops before in-flight workflow runs are
+	// cancelled; their durable state resumes on the next boot.
+	a.service.StopCognitiveLoop()
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {

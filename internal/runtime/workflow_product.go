@@ -285,7 +285,7 @@ func (s *Service) INOFYStartRun(ctx context.Context, sessionID domain.SessionID,
 	if parent.SessionID != sessionID {
 		return WorkflowStartResult{}, storage.ErrNotFound
 	}
-	return s.startINOFYWorkflow(ctx, params.ParentRunID, params.OperationKey, defJSON, params.Input, &source)
+	return s.startINOFYWorkflow(ctx, params.ParentRunID, params.OperationKey, defJSON, params.Input, &source, nil)
 }
 
 // INOFYListRuns pages the session's product runs (runs admitted with a

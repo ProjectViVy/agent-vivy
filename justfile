@@ -21,8 +21,9 @@ test:
     # The Windows runtime package exercises hundreds of SQLite-backed real paths
     # and now legitimately exceeds Go's default 10-minute per-package timeout;
     # the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
-    # exceeds it too. Both are well inside this bound.
-    & "{{go}}" test -timeout 20m ./...
+    # exceeds it too. internal/runtime crossed the 20-minute bound on the
+    # Windows runner, so the shared bound is 35m.
+    & "{{go}}" test -timeout 35m ./...
 
 vet:
     & "{{go}}" vet ./...
