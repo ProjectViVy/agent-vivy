@@ -201,11 +201,11 @@ func TestDN0CaptureCoreTranscript(t *testing.T) {
 	cap.call("session/delete", map[string]any{"session_id": sessionID})
 
 	out := map[string]any{
-		"captured_at":       time.Now().UTC().Format(time.RFC3339),
-		"vivy_pin":          "5347032d8f18a047b67e85761c0dcc48728bee7c",
-		"protocol_version":  "vivy.rpc.v1",
-		"transport":         "DialControl net.Pipe JSONLTransport",
-		"provider_fixture":  "scriptedDeepSeekServer (OpenAI chat.completions wire; write_note gated by prompt policy)",
+		"captured_at":        time.Now().UTC().Format(time.RFC3339),
+		"vivy_pin":           "5347032d8f18a047b67e85761c0dcc48728bee7c",
+		"protocol_version":   "vivy.rpc.v1",
+		"transport":          "DialControl net.Pipe JSONLTransport",
+		"provider_fixture":   "scriptedDeepSeekServer (OpenAI chat.completions wire; write_note gated by prompt policy)",
 		"requests_responses": cap.records,
 		"notifications":      cap.notifications,
 	}

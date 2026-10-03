@@ -51,9 +51,9 @@ const (
 )
 
 type envelope struct {
-	OK    bool             `json:"ok"`
-	Value json.RawMessage  `json:"value,omitempty"`
-	Err   *envelopeError   `json:"error,omitempty"`
+	OK    bool            `json:"ok"`
+	Value json.RawMessage `json:"value,omitempty"`
+	Err   *envelopeError  `json:"error,omitempty"`
 }
 
 type envelopeError struct {
@@ -84,10 +84,10 @@ func failEnvelope(kind string, code int, message string) *C.char {
 }
 
 var (
-	handles   sync.Map // uint64 -> *embedded.Host
-	nextID    atomic.Uint64
-	initMu    sync.Mutex
-	initHeld  uint64
+	handles  sync.Map // uint64 -> *embedded.Host
+	nextID   atomic.Uint64
+	initMu   sync.Mutex
+	initHeld uint64
 )
 
 func lookup(handle C.uint64_t) (*embedded.Host, *C.char) {
