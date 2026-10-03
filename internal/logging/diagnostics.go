@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -149,9 +148,9 @@ func NewDiagnostics(dir string) (*Diagnostics, error) {
 	return &Diagnostics{dir: dir, now: time.Now, gui: newDailyFile(dir, GUIFilePrefix, time.Now)}, nil
 }
 
-// diagFileStat is the cursor-verifiable file identity: device+inode plus
-// size and mtime, so rotation/rename/truncation cannot pass as the same
-// file.
+// diagFileStat is the cursor-verifiable file identity: platform file ID
+// (inode / Windows file index) plus size and mtime, so
+// rotation/rename/truncation cannot pass as the same file.
 type diagFileStat struct {
 	ino   uint64
 	size  int64
@@ -159,11 +158,7 @@ type diagFileStat struct {
 }
 
 func statIdentity(info os.FileInfo) diagFileStat {
-	s := diagFileStat{size: info.Size(), modNs: info.ModTime().UnixNano()}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		s.ino = st.Ino
-	}
-	return s
+	return diagFileStat{ino: fileIdentity(info), size: info.Size(), modNs: info.ModTime().UnixNano()}
 }
 
 // diagCursor is the server-issued opaque token `<date>.<ino>.<modns>.<size>.<offset>`.
