@@ -140,9 +140,13 @@ require (
 )
 
 require (
+	agent-vivy/faces/headless v0.0.0
+	agent-vivy/faces/tui v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
+	agent-vivy/plugins/governance v0.0.0
+	agent-vivy/plugins/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
@@ -220,6 +224,8 @@ replace agent-vivy/plugins/feishu => ./plugins/feishu
 replace agent-vivy/plugins/qq => ./plugins/qq
 
 replace agent-vivy/plugins/lsp => ./plugins/lsp
+
+replace agent-vivy/plugins/governance => ./plugins/governance
 
 replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
