@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"agent-vivy/internal/actionhost"
@@ -87,7 +88,13 @@ type App struct {
 	assembly    *genassembly.RuntimeAssembly
 	diagnostics *logging.Diagnostics
 	closeOnce   sync.Once
+	closeDone   chan struct{}
+	closeStage  atomic.Value // string: component currently tearing down
 	closeErr    error
+
+	// closeHook runs at the start of teardown while the close stage is
+	// "automatic work". Test seam: lets deadline tests hold the teardown open.
+	closeHook func()
 }
 
 // AppOption tweaks one composition of the process. The zero value is the
@@ -1246,6 +1253,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		mcpBackend:   mcpBackend,
 		assembly:     &runtimeAssembly,
 		diagnostics:  diagnostics,
+		closeDone:    make(chan struct{}),
 	}
 	if runObserverHost != nil {
 		// Start only after every fallible composition and recovery step has
@@ -1324,55 +1332,110 @@ func (a *App) Close() error {
 	if a == nil {
 		return nil
 	}
-	a.closeOnce.Do(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
-		defer cancel()
-		if a.service != nil {
-			a.service.StopAutomaticWork()
-		}
-		if a.actionHost != nil {
-			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
-		}
-		if a.channels != nil {
-			a.channels.StopAll(shutdownCtx)
-		}
-		if a.service != nil {
-			a.service.StopInteractionSweeper()
-			a.service.StopCronScheduler()
-			// Cognitive admission stops before drains; in-flight workflow
-			// runs stay durable and resume on the next open.
-			a.service.StopCognitiveLoop()
-			a.service.CancelAll()
-		}
-		if a.worker != nil {
-			a.closeErr = errors.Join(a.closeErr, a.worker.Close(shutdownCtx))
-		}
-		if a.service != nil && !a.service.WaitIdle(shutdownCtx) {
-			a.closeErr = errors.Join(a.closeErr, shutdownCtx.Err())
-		}
-		if a.observerHost != nil {
-			a.observerHost.Close()
-		}
-		// The owned Garden runtime outlives the Service and observer
-		// admission paths but closes before the storage backend.
-		if a.cognitive != nil {
-			a.closeErr = errors.Join(a.closeErr, a.cognitive.Close())
-		}
-		if a.mcpBackend != nil {
-			a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
-		}
-		if a.assembly != nil {
-			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
-		}
-		a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
-		if a.diagnostics != nil {
-			a.closeErr = errors.Join(a.closeErr, a.diagnostics.Close())
-		}
-		if a.backend != nil {
-			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
-		}
-	})
+	a.startClose()
+	<-a.closeDone
 	return a.closeErr
+}
+
+// CloseContext is Close with a caller deadline: on ctx expiry it reports
+// which component is still unwinding instead of blocking, while teardown
+// continues in the background and later Close calls still observe its
+// completion. The teardown's internal shutdownGrace bound is unchanged.
+func (a *App) CloseContext(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	a.startClose()
+	select {
+	case <-a.closeDone:
+		return a.closeErr
+	case <-ctx.Done():
+		return fmt.Errorf("app: close timed out during %s: %w", a.currentCloseStage(), ctx.Err())
+	}
+}
+
+// startClose spawns the teardown exactly once; every caller then waits on
+// closeDone so a deadline-aware waiter can leave without stranding shutdown.
+func (a *App) startClose() {
+	a.closeOnce.Do(func() {
+		if a.closeDone == nil {
+			// Tests compose partial Apps by literal; keep the channel
+			// lazily so every App value can Close.
+			a.closeDone = make(chan struct{})
+		}
+		go func() {
+			defer close(a.closeDone)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+			defer cancel()
+			a.closeStage.Store("automatic work")
+			if a.closeHook != nil {
+				a.closeHook()
+			}
+			if a.service != nil {
+				a.service.StopAutomaticWork()
+			}
+			if a.actionHost != nil {
+				a.closeStage.Store("control action host")
+				a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
+			}
+			if a.channels != nil {
+				a.closeStage.Store("channels")
+				a.channels.StopAll(shutdownCtx)
+			}
+			if a.service != nil {
+				a.closeStage.Store("lifecycle services")
+				a.service.StopInteractionSweeper()
+				a.service.StopCronScheduler()
+				// Cognitive admission stops before drains; in-flight workflow
+				// runs stay durable and resume on the next open.
+				a.service.StopCognitiveLoop()
+				a.service.CancelAll()
+			}
+			if a.worker != nil {
+				a.closeStage.Store("run worker")
+				a.closeErr = errors.Join(a.closeErr, a.worker.Close(shutdownCtx))
+			}
+			if a.service != nil && !a.service.WaitIdle(shutdownCtx) {
+				a.closeErr = errors.Join(a.closeErr, shutdownCtx.Err())
+			}
+			if a.observerHost != nil {
+				a.closeStage.Store("run observer")
+				a.observerHost.Close()
+			}
+			// The owned Garden runtime outlives the Service and observer
+			// admission paths but closes before the storage backend.
+			if a.cognitive != nil {
+				a.closeStage.Store("cognitive runtime")
+				a.closeErr = errors.Join(a.closeErr, a.cognitive.Close())
+			}
+			if a.mcpBackend != nil {
+				a.closeStage.Store("mcp backend")
+				a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
+			}
+			if a.assembly != nil {
+				a.closeStage.Store("assembly")
+				a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
+			}
+			a.closeStage.Store("memory")
+			a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
+			if a.diagnostics != nil {
+				a.closeStage.Store("diagnostics")
+				a.closeErr = errors.Join(a.closeErr, a.diagnostics.Close())
+			}
+			if a.backend != nil {
+				a.closeStage.Store("storage backend")
+				a.closeErr = errors.Join(a.closeErr, a.backend.Close())
+			}
+			a.closeStage.Store("done")
+		}()
+	})
+}
+
+func (a *App) currentCloseStage() string {
+	if stage, ok := a.closeStage.Load().(string); ok {
+		return stage
+	}
+	return "startup"
 }
 
 // ActionHost returns the process-owned typed Control Action host. Callers

@@ -113,9 +113,10 @@ type Peer struct {
 	caller    actionhost.Caller
 	identity  actionhost.Identity
 
-	out  chan []byte
-	done chan struct{}
-	stop sync.Once
+	out       chan []byte
+	done      chan struct{}
+	serveDone chan struct{}
+	stop      sync.Once
 
 	sequence atomic.Uint64
 	mu       sync.Mutex
@@ -137,14 +138,23 @@ func NewPeer(transport Transport, handler Handler, options Options) *Peer {
 		identity:  options.Identity,
 		out:       make(chan []byte, options.OutgoingBuffer),
 		done:      make(chan struct{}),
+		serveDone: make(chan struct{}),
 		pending:   make(map[string]chan responseFrame),
 		after:     make(map[string][]func()),
 	}
 }
 
+// ServeDone closes when a started Serve loop has fully unwound (read loop
+// and writer joined). It never closes for a peer that never served; owners
+// that spawn Serve may wait on it to join the pump during teardown.
+func (p *Peer) ServeDone() <-chan struct{} {
+	return p.serveDone
+}
+
 // Serve owns the transport read loop. Requests are handled concurrently;
 // writes are serialized by one bounded writer goroutine.
 func (p *Peer) Serve(ctx context.Context) error {
+	defer close(p.serveDone)
 	if p.transport == nil {
 		return errors.New("rpc: nil transport")
 	}
