@@ -90,6 +90,20 @@ func TestGoalPausePersistenceFailureDisarmsWithoutDurablePause(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Goal run was not admitted")
 	}
+	// The durable-commit notification precedes the service's process-local
+	// goalRuns registration; poll until the run is armed before asserting
+	// on GoalActivation (same wait as TestCancelGoalRunDoesNotImmediatelyReplaceIt).
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		activation, current := svc.GoalActivation(sessionID)
+		if activation == "armed" && current == admitted.Run.ID {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if activation, current := svc.GoalActivation(sessionID); activation != "armed" || current != admitted.Run.ID {
+		t.Fatalf("committed Goal run never became armed: activation=%q run=%q", activation, current)
+	}
 	if _, err := svc.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: 2, RequestID: "pause-error", RequestHash: "pause-error",
 		Kind: domain.WorkEventGoalPaused, Goal: ref, Reason: "stop now",

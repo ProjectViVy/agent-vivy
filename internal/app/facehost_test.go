@@ -109,7 +109,7 @@ func composeGatewayless(t *testing.T) (*App, *controlrpc.Peer) {
 	if err != nil {
 		t.Fatalf("compose gateway-less: %v", err)
 	}
-	t.Cleanup(func() { _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	if a.httpServer != nil {
 		t.Fatalf("gateway-less composition built an HTTP server")
 	}

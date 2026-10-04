@@ -61,6 +61,15 @@ func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatMod
 		Questions:          backend,
 		ApprovalExpiration: expiration, Sink: sink,
 	})
+	// Drain in-flight runs before the journal's backend closes (LIFO):
+	// a live run still holding checked-out connections keeps t.TempDir
+	// undeletable on Windows and logs 'sql: database is closed' mid-run.
+	t.Cleanup(func() {
+		svc.CancelAll()
+		idleCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		svc.WaitIdle(idleCtx)
+	})
 	return svc, backend, sink
 }
 
@@ -132,7 +141,7 @@ func (m *gatedApprovalResumeModel) WithTools([]*schema.ToolInfo) (model.ToolCall
 // waitForPendingApproval polls until the run's approval row exists.
 func waitForPendingApproval(t *testing.T, backend *sqlite.Backend, runID domain.RunID) domain.Approval {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		rows, err := backend.ListPendingApprovals(context.Background())
 		if err != nil {

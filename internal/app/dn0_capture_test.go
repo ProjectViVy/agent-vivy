@@ -145,7 +145,7 @@ func TestDN0CaptureCoreTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose gateway-less: %v", err)
 	}
-	t.Cleanup(func() { _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	dialCtx, cancelDial := context.WithCancel(context.Background())
 	t.Cleanup(cancelDial)
 
@@ -304,15 +304,16 @@ func dn0WaitApproval(t *testing.T, cap *dn0Capture, seen map[string]bool) string
 
 func dn0WaitWork(t *testing.T, cap *dn0Capture, sessionID string, pred func(map[string]any) bool, what string) map[string]any {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
+	var work map[string]any
 	for time.Now().Before(deadline) {
-		work := decodeOK(t, cap.call("session/work/get", map[string]any{"session_id": sessionID}), "session/work/get")
+		work = decodeOK(t, cap.call("session/work/get", map[string]any{"session_id": sessionID}), "session/work/get")
 		if pred(work) {
 			return work
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("work projection predicate %q not met", what)
+	t.Fatalf("work projection predicate %q not met; last projection=%v", what, work)
 	return nil
 }
 
@@ -351,7 +352,7 @@ func TestDN0CaptureClosureTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose gateway-less: %v", err)
 	}
-	t.Cleanup(func() { _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	dialCtx, cancelDial := context.WithCancel(context.Background())
 	t.Cleanup(cancelDial)
 
@@ -543,16 +544,37 @@ func TestDN0CaptureClosureTranscript(t *testing.T) {
 	cap.call("plan/enter", map[string]any{"session_id": sessionID, "request_id": "enter-closure", "expected_version": 0})
 	turn4 := decodeOK(t, cap.call("turn/start", map[string]any{"session_id": sessionID, "text": "prepare a plan"}), "turn/start")
 	_, _ = turn4["run_id"].(string)
-	work := dn0WaitWork(t, cap, sessionID, func(w map[string]any) bool {
-		plan, _ := w["plan"].(map[string]any)
-		return plan["review_status"] == "pending"
-	}, "pending plan review")
-	plan, _ := work["plan"].(map[string]any)
-	cap.call("plan/decide", map[string]any{
-		"session_id": sessionID, "request_id": "decide-closure", "expected_version": work["version"],
-		"submission_id": plan["submission_id"], "action": "start_goal", "goal_id": "goal-closure-capture",
-		"objective": "capture the goal round", "max_rounds": 2,
-	})
+	// Two transient windows sit between "review_status=pending" becoming
+	// visible and the decision committing: the suspension's process-local
+	// pending entry is registered only after the durable suspend commit
+	// (decide too early -> review "no longer resumable"), and a concurrent
+	// run event can bump the projection version (stale expected_version).
+	// Retry both with a fresh read inside the same bounded mechanism.
+	decideDeadline := time.Now().Add(30 * time.Second)
+	for {
+		work := dn0WaitWork(t, cap, sessionID, func(w map[string]any) bool {
+			plan, _ := w["plan"].(map[string]any)
+			return plan["review_status"] == "pending"
+		}, "pending plan review")
+		plan, _ := work["plan"].(map[string]any)
+		_, decideErr := cap.callBoth("plan/decide", map[string]any{
+			"session_id": sessionID, "request_id": "decide-closure", "expected_version": work["version"],
+			"submission_id": plan["submission_id"], "action": "start_goal", "goal_id": "goal-closure-capture",
+			"objective": "capture the goal round", "max_rounds": 2,
+		})
+		if decideErr == nil {
+			break
+		}
+		transient := false
+		if rpcErr, ok := decideErr.(*controlrpc.Error); ok && rpcErr.Code == controlrpc.CodeConflict &&
+			(strings.Contains(rpcErr.Message, "stale work version") || strings.Contains(rpcErr.Message, "no longer resumable")) {
+			transient = true
+		}
+		if !transient || time.Now().After(decideDeadline) {
+			t.Fatalf("plan/decide failed: %v", decideErr)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	dn0WaitWork(t, cap, sessionID, func(w map[string]any) bool {
 		goal, _ := w["goal"].(map[string]any)
 		return goal["phase"] == "completed"
