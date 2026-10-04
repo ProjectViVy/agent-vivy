@@ -75,6 +75,10 @@ type goHostLock struct {
 	// echoes them into the build report.
 	Tools   map[string]any `json:"tools"`
 	Keyring map[string]any `json:"keyring"`
+	// BuildTags lists extra `go build` tags the host package needs beyond
+	// the mandatory vivy_headless (e.g. gtk3 on Linux where the GTK4
+	// backend is unavailable). Optional; sealed into hostBuild.tools.
+	BuildTags []string `json:"buildTags"`
 }
 
 type goHostLockSource struct {
@@ -160,7 +164,31 @@ func parseGoHostLock(path string) (goHostLock, error) {
 	if !isHexString(lock.Recipe.SHA256, 64) {
 		return lock, fmt.Errorf("sdk: --host-lock recipe.sha256 is required")
 	}
+	if len(lock.BuildTags) > 16 {
+		return lock, fmt.Errorf("sdk: --host-lock buildTags may list at most 16 tags")
+	}
+	for _, tag := range lock.BuildTags {
+		if !isBuildTag(tag) {
+			return lock, fmt.Errorf("sdk: --host-lock buildTags entry %q is not a valid go build tag", tag)
+		}
+		if tag == "vivy_headless" {
+			return lock, fmt.Errorf("sdk: --host-lock buildTags must not repeat vivy_headless")
+		}
+	}
 	return lock, nil
+}
+
+// isBuildTag reports whether tag is a plain go build constraint identifier.
+func isBuildTag(tag string) bool {
+	if tag == "" || len(tag) > 64 {
+		return false
+	}
+	for _, r := range tag {
+		if !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || r == '_' || r == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 // validateGoHostArgs normalizes the host inputs shared by flag parsing and
@@ -841,11 +869,12 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 		ConsumerModfileSHA256: sha256Hex(canonicalMod),
 		ConsumerSumSHA256:     sha256Hex(consumerSum),
 		Tools: assemblyv1.HostBuildTools{
-			Go:     goVersion,
-			Wails:  lockToolVersion(inputs.LockDoc.Tools, "wails"),
-			GOOS:   runtime.GOOS,
-			GOARCH: runtime.GOARCH,
-			CGO:    goEnvValue(staged.Host, "CGO_ENABLED") == "1",
+			Go:        goVersion,
+			Wails:     lockToolVersion(inputs.LockDoc.Tools, "wails"),
+			GOOS:      runtime.GOOS,
+			GOARCH:    runtime.GOARCH,
+			CGO:       goEnvValue(staged.Host, "CGO_ENABLED") == "1",
+			BuildTags: inputs.LockDoc.BuildTags,
 		},
 	}
 	uiArtifacts := map[string]string{"ui/dist": uiBuild.Digest}
@@ -936,7 +965,8 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	}
 	binaryName := artifactHostBinaryName(runtime.GOOS, goHostBinaryBase(inputs))
 	binary := filepath.Join(stage, binaryName)
-	cmd := exec.CommandContext(ctx, "go", "build", "-modfile", staged.Modfile, "-mod=readonly", "-overlay", overlayFile, "-tags", "vivy_headless", "-o", binary, "./"+inputs.Package)
+	tags := append([]string{"vivy_headless"}, inputs.LockDoc.BuildTags...)
+	cmd := exec.CommandContext(ctx, "go", "build", "-modfile", staged.Modfile, "-mod=readonly", "-overlay", overlayFile, "-tags", strings.Join(tags, " "), "-o", binary, "./"+inputs.Package)
 	cmd.Dir = staged.Host
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build go-host generation: %w: %s", buildErr, output)

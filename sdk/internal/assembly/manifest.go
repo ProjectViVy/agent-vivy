@@ -120,11 +120,12 @@ type HostBuildAssets struct {
 }
 
 type HostBuildTools struct {
-	Go     string `json:"go"`
-	Wails  string `json:"wails,omitempty"`
-	GOOS   string `json:"goos"`
-	GOARCH string `json:"goarch"`
-	CGO    bool   `json:"cgo"`
+	Go        string   `json:"go"`
+	Wails     string   `json:"wails,omitempty"`
+	GOOS      string   `json:"goos"`
+	GOARCH    string   `json:"goarch"`
+	CGO       bool     `json:"cgo"`
+	BuildTags []string `json:"buildTags,omitempty"`
 }
 
 // HostBuildSchema is the only schema value accepted for hostBuild
