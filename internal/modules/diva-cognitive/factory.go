@@ -121,7 +121,24 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 	}
 	frozen, err := human.ReadFrozen(ctx)
 	if err != nil {
-		return cognitivecontract.PreparedPrimaryContext{}, err
+		var apiErr *agentapi.Error
+		if !errors.As(err, &apiErr) || apiErr.Code != "not_found" {
+			return cognitivecontract.PreparedPrimaryContext{}, err
+		}
+		// ADR-0012 captures the Frozen Core at session start; for a session
+		// that never ran a recall the capture is still absent, so the first
+		// Prepare performs it through the same SessionProvider.Get path a
+		// bootstrap recall uses, then re-reads the persisted snapshot.
+		bound, bindErr := b.owner.BindSession(string(in.SessionID))
+		if bindErr != nil {
+			return cognitivecontract.PreparedPrimaryContext{}, bindErr
+		}
+		if _, bootErr := bound.Bootstrap(ctx, agentapi.BootstrapRequest{}); bootErr != nil {
+			return cognitivecontract.PreparedPrimaryContext{}, fmt.Errorf("diva-cognitive: session-start frozen capture: %w", bootErr)
+		}
+		if frozen, err = human.ReadFrozen(ctx); err != nil {
+			return cognitivecontract.PreparedPrimaryContext{}, err
+		}
 	}
 	// Reject v1/corrupt/oversize snapshots explicitly: the strict v2
 	// validator also enforces the seven-slot roster and per-slot caps.
