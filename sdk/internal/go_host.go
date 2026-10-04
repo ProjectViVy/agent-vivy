@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -103,10 +104,17 @@ func isHexString(value string, length int) bool {
 // path that cannot escape its documented root. "." is allowed (the root
 // itself); absolute paths, drive prefixes and parent traversal are not.
 func isLocalRelative(value string) bool {
-	if value == "" || filepath.IsAbs(value) || strings.ContainsRune(value, 0) {
+	if value == "" || strings.ContainsRune(value, 0) {
 		return false
 	}
-	cleaned := filepath.Clean(filepath.ToSlash(value))
+	slashed := filepath.ToSlash(value)
+	// Reject before OS-specific cleaning: "/abs" is absolute even where the
+	// platform wants a drive letter, and filepath.Clean re-emits the local
+	// separator so a "../" check on its output misses "..\" on Windows.
+	if filepath.IsAbs(value) || strings.HasPrefix(slashed, "/") {
+		return false
+	}
+	cleaned := path.Clean(slashed)
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return false
 	}

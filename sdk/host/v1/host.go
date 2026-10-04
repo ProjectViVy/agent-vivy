@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -112,13 +113,12 @@ type Host struct {
 	reader      atomic.Bool
 	releaseOnce sync.Once
 	release     func()
+	logCloser   io.Closer
 }
 
 var (
-	ownerMu    sync.Mutex
-	ownerHeld  bool
-	logOnce    sync.Once
-	logInitErr error
+	ownerMu   sync.Mutex
+	ownerHeld bool
 )
 
 func hostError(kind string, code int, format string, args ...any) *Error {
@@ -163,7 +163,15 @@ func Open(ctx context.Context, options Options) (*Host, error) {
 		release()
 		return nil, hostError(KindInvalidInput, CodeInvalidInput, "load config: %v", err)
 	}
-	if err := initLogging(cfg); err != nil {
+	logger, effective, logCloser, err := logging.Setup(logging.Options{
+		Level:         cfg.Logging.Level,
+		Format:        cfg.Logging.Format,
+		ConsoleFormat: cfg.Logging.ConsoleFormat,
+		Dir:           cfg.LogDirectory(),
+		RetentionDays: cfg.Logging.RetentionDays,
+		Stdout:        cfg.Logging.Stdout,
+	})
+	if err != nil {
 		release()
 		return nil, hostError(KindInternal, CodeInternal, "init logging: %v", err)
 	}
@@ -174,38 +182,15 @@ func Open(ctx context.Context, options Options) (*Host, error) {
 	}
 	inner, err := embedded.Open(ctx, cfg, embedded.Options{AppOptions: appOptions})
 	if err != nil {
+		_ = logCloser.Close()
 		release()
 		return nil, mapError(fmt.Errorf("open runtime: %w", err))
 	}
+	slog.SetDefault(logger)
+	slog.Info("vivy host logging initialized",
+		"level", effective.Level, "format", effective.Format, "console", effective.Console)
 	slog.Info("vivy host opened", "generation", generationID)
-	return &Host{inner: inner, release: release}, nil
-}
-
-// initLogging initializes the runtime's redacted, rotated logging exactly
-// once per process; later opens reuse the existing sinks.
-func initLogging(cfg config.Config) error {
-	logOnce.Do(func() {
-		logger, effective, closer, err := logging.Setup(logging.Options{
-			Level:         cfg.Logging.Level,
-			Format:        cfg.Logging.Format,
-			ConsoleFormat: cfg.Logging.ConsoleFormat,
-			Dir:           cfg.LogDirectory(),
-			RetentionDays: cfg.Logging.RetentionDays,
-			Stdout:        cfg.Logging.Stdout,
-		})
-		if err != nil {
-			logInitErr = err
-			return
-		}
-		// The sinks live for the process lifetime; closing them at host
-		// close would strand a later owner, so the closer is intentionally
-		// retained until process exit.
-		_ = closer
-		slog.SetDefault(logger)
-		slog.Info("vivy host logging initialized",
-			"level", effective.Level, "format", effective.Format, "console", effective.Console)
-	})
-	return logInitErr
+	return &Host{inner: inner, release: release, logCloser: logCloser}, nil
 }
 
 // Call issues one control-plane request and returns the raw result.
@@ -265,7 +250,15 @@ func (h *Host) Close(ctx context.Context) error {
 	}
 	err := h.inner.CloseContext(ctx)
 	if err == nil {
-		h.releaseOnce.Do(h.release)
+		h.releaseOnce.Do(func() {
+			h.release()
+			// The sinks belong to this host's lifetime: closing them on
+			// Windows releases the rotated log file so profile dirs can be
+			// removed; a later Open builds fresh sinks.
+			if h.logCloser != nil {
+				_ = h.logCloser.Close()
+			}
+		})
 		return nil
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
