@@ -247,6 +247,11 @@ replace agent-vivy/plugins/vivy-workflow => ./plugins/vivy-workflow
 
 replace github.com/ProjectViVy/agent-vivy/bml => ./bml
 
+// renameio upstream ships only !windows files (the package is empty on
+// Windows); third_party/renameio is a verbatim v1.0.1 copy plus the same
+// API for Windows. Required by github.com/coder/hnsw (vector DB).
+replace github.com/google/renameio => ./third_party/renameio
+
 replace github.com/dashimaki/garden => ../laputa/garden
 
 replace github.com/dashimaki/mentle => ../laputa/mentle
