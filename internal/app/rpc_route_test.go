@@ -25,7 +25,7 @@ func TestRPCBootstrapRoutePrecedesUIShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/rpc/bootstrap", nil)
 	request.Header.Set("Origin", "http://127.0.0.1:3015")

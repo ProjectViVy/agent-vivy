@@ -38,7 +38,7 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 	ts := httptest.NewServer(a.httpServer.Handler)
 	t.Cleanup(func() {
 		ts.Close()
-		_ = a.backend.Close()
+		_ = a.Close()
 	})
 
 	client := connectSmokeRPC(t, ts.URL, a.rpcToken)

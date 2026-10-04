@@ -41,7 +41,7 @@ func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { a.service.CancelAll(); _ = a.mcpBackend.Close(); _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	if got := a.channels.Started(); len(got) != 0 {
 		t.Fatalf("unconfigured channels started: %v", got)
 	}
@@ -70,7 +70,7 @@ func TestAppUsesGeneratedRuntimeAssembly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { a.service.CancelAll(); _ = a.mcpBackend.Close(); _ = a.backend.Close() })
+	t.Cleanup(func() { _ = a.Close() })
 	if got := a.channels.Inspect(); len(got) != 0 {
 		t.Fatalf("app ignored supplied runtime assembly channels: %+v", got)
 	}
