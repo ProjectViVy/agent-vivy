@@ -77,8 +77,8 @@ func newCognitiveOriginFixture(t *testing.T) *cognitiveOriginFixture {
 		// The operator-selected full_auto profile admits effectful actions
 		// explicitly; the predicate itself still rejects approval-marked
 		// definitions, and the session/origin guards stay independent of it.
-		Authenticate:        actionAuthenticate(token),
-		Authorize:           actionAuthorize(engine, domain.PolicyProfileFullAuto),
+		Authenticate: actionAuthenticate(token),
+		Authorize:    actionAuthorize(engine, domain.PolicyProfileFullAuto),
 	})
 	if err != nil {
 		t.Fatalf("build action host: %v", err)

@@ -328,9 +328,9 @@ func (d *dispatch) memoryStatus(ctx context.Context, human *agentapi.HumanClient
 
 func personaInitialize(_ dispatch, ctx context.Context, human *agentapi.HumanClient, input json.RawMessage) (any, error) {
 	var in struct {
-		SessionID     string                 `json:"session_id"`
+		SessionID      string                 `json:"session_id"`
 		Initialization persona.Initialization `json:"initialization"`
-		Reason        string                 `json:"reason"`
+		Reason         string                 `json:"reason"`
 	}
 	if bad, failed := decodeTyped(input, &in); failed {
 		return nil, bad
@@ -433,9 +433,9 @@ func frozenRead(_ dispatch, ctx context.Context, human *agentapi.HumanClient, in
 
 func actmemRead(_ dispatch, ctx context.Context, human *agentapi.HumanClient, input json.RawMessage) (any, error) {
 	var in struct {
-		SessionID string                       `json:"session_id"`
+		SessionID string                         `json:"session_id"`
 		Sections  []laputaevolution.EntrySection `json:"sections"`
-		MaxChars  uint32                       `json:"max_chars"`
+		MaxChars  uint32                         `json:"max_chars"`
 	}
 	if bad, failed := decodeTyped(input, &in); failed {
 		return nil, bad
@@ -445,7 +445,7 @@ func actmemRead(_ dispatch, ctx context.Context, human *agentapi.HumanClient, in
 
 func actmemWorkPatch(_ dispatch, ctx context.Context, human *agentapi.HumanClient, input json.RawMessage) (any, error) {
 	var in struct {
-		SessionID string                  `json:"session_id"`
+		SessionID string                    `json:"session_id"`
 		Patch     laputaevolution.WorkPatch `json:"patch"`
 	}
 	if bad, failed := decodeTyped(input, &in); failed {

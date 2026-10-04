@@ -908,9 +908,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			cognitiveProvider = provider
 		}
 		actionHost, err = actionhost.New(actionhost.Deps{
-			ProviderSets:        runtimeAssembly.ActionSets,
-			MaskManager:         maskService,
-			Cognitive:           cognitiveProvider,
+			ProviderSets: runtimeAssembly.ActionSets,
+			MaskManager:  maskService,
+			Cognitive:    cognitiveProvider,
 			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
 				_, err := backend.GetSession(ctx, sessionID)
 				return err
