@@ -926,6 +926,17 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	if err := copySourceTree(assetsDir, frontendDir); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: stage final host assets: %w", err)
 	}
+	if _, err := os.Stat(filepath.Join(frontendDir, "index.html")); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: --host-assets has no index.html — run the frontend build first: %w", err)
+	}
+	// The staged host tree is a git ls-files snapshot: untracked build output
+	// under --host-assets (agent-diva-gui/dist) is absent there, so the host's
+	// go:embed would capture only the tracked .gitkeep. Overlay the built
+	// assets into the staged host before compiling.
+	stagedAssets := filepath.Join(staged.Host, filepath.FromSlash(inputs.Assets))
+	if err := copySourceTree(assetsDir, stagedAssets); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: stage host assets for embed: %w", err)
+	}
 	// Publish the resolved consumer modfile/sum so the DIVA wrapper can run
 	// Go builds and race tests against the exact sealed module closure
 	// (replacements are staged-relative, so the file is location-independent).
