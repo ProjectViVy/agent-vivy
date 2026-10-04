@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -86,6 +87,101 @@ type SealInputs struct {
 	RunObserverPolicies   []RunObserverPolicy
 	ConformanceResults    []providerconformance.ConformanceResult
 	PortSupport           []generationconformance.PortSupportRecord
+	// HostBuild is present only for --target go-host artifacts (schema
+	// vivy.go-host/v1): the external desktop host's sealed provenance.
+	HostBuild *HostBuild
+}
+
+// HostBuild is the optional vivy.go-host/v1 provenance object sealed into a
+// Generation Manifest when the pack target compiles an external Go desktop
+// host instead of agent-vivy's own executable. It participates in the
+// Generation ID exactly like the rest of the manifest.
+type HostBuild struct {
+	Schema                string          `json:"schema"`
+	ModulePath            string          `json:"modulePath"`
+	Package               string          `json:"package"`
+	Source                HostBuildSource `json:"source"`
+	Assets                HostBuildAssets `json:"assets"`
+	DependencyLockSHA256  string          `json:"dependencyLockSHA256"`
+	ConsumerModfileSHA256 string          `json:"consumerModfileSHA256"`
+	ConsumerSumSHA256     string          `json:"consumerSumSHA256"`
+	Tools                 HostBuildTools  `json:"tools"`
+}
+
+type HostBuildSource struct {
+	Repository string `json:"repository"`
+	Commit     string `json:"commit"`
+	TreeSHA256 string `json:"treeSHA256"`
+}
+
+type HostBuildAssets struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type HostBuildTools struct {
+	Go     string `json:"go"`
+	Wails  string `json:"wails,omitempty"`
+	GOOS   string `json:"goos"`
+	GOARCH string `json:"goarch"`
+	CGO    bool   `json:"cgo"`
+}
+
+// HostBuildSchema is the only schema value accepted for hostBuild
+// provenance on a Generation Manifest.
+const HostBuildSchema = "vivy.go-host/v1"
+
+// ValidateHostBuild enforces the vivy.go-host/v1 contract for both sealing
+// and inspection. Legacy manifests without the field stay valid.
+func ValidateHostBuild(build *HostBuild) error {
+	if build == nil {
+		return nil
+	}
+	if build.Schema != HostBuildSchema {
+		return fmt.Errorf("hostBuild schema is %q, want %s", build.Schema, HostBuildSchema)
+	}
+	if build.ModulePath == "" {
+		return fmt.Errorf("hostBuild.modulePath is required")
+	}
+	if build.Package == "" || filepath.IsAbs(build.Package) || strings.HasPrefix(build.Package, "..") {
+		return fmt.Errorf("hostBuild.package must be a host-relative package path: %q", build.Package)
+	}
+	if !isSHA1(build.Source.Commit) {
+		return fmt.Errorf("hostBuild.source.commit must be a full commit SHA")
+	}
+	for label, value := range map[string]string{
+		"hostBuild.source.treeSHA256":     build.Source.TreeSHA256,
+		"hostBuild.assets.sha256":         build.Assets.SHA256,
+		"hostBuild.dependencyLockSHA256":  build.DependencyLockSHA256,
+		"hostBuild.consumerModfileSHA256": build.ConsumerModfileSHA256,
+		"hostBuild.consumerSumSHA256":     build.ConsumerSumSHA256,
+	} {
+		if !isSHA256(value) {
+			return fmt.Errorf("%s must be a sha256 hex digest", label)
+		}
+	}
+	if build.Assets.Path == "" {
+		return fmt.Errorf("hostBuild.assets.path is required")
+	}
+	if build.Tools.Go == "" || build.Tools.GOOS == "" || build.Tools.GOARCH == "" {
+		return fmt.Errorf("hostBuild.tools requires go, goos and goarch")
+	}
+	return nil
+}
+
+func isSHA1(value string) bool   { return isHexDigest(value, 40) }
+func isSHA256(value string) bool { return isHexDigest(value, 64) }
+
+func isHexDigest(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, r := range value {
+		if !('0' <= r && r <= '9') && !('a' <= r && r <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 type ContextSourcePolicy struct {
@@ -128,6 +224,7 @@ type GenerationManifest struct {
 	RunObserverPolicies   []RunObserverPolicy                       `json:"runObserverPolicies,omitempty"`
 	ConformanceResults    []providerconformance.ConformanceResult   `json:"conformanceResults,omitempty"`
 	PortSupport           []generationconformance.PortSupportRecord `json:"portSupport,omitempty"`
+	HostBuild             *HostBuild                                `json:"hostBuild,omitempty"`
 }
 
 func CanonicalRecipe(recipe Recipe) ([]byte, error) {
@@ -185,6 +282,7 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		ContextSourcePolicies: cloneContextSourcePolicies(inputs.ContextSourcePolicies),
 		RunObserverPolicies:   cloneRunObserverPolicies(inputs.RunObserverPolicies),
 		ConformanceResults:    conformanceResults,
+		HostBuild:             inputs.HostBuild,
 	}
 	manifest.PortSupport, err = generationconformance.CanonicalPortSupport(inputs.PortSupport)
 	if err != nil {
@@ -221,6 +319,9 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		return GenerationManifest{}, nil, err
 	}
 	if err := validateCanonicalPortSupport(manifest.PortSupport); err != nil {
+		return GenerationManifest{}, nil, err
+	}
+	if err := ValidateHostBuild(manifest.HostBuild); err != nil {
 		return GenerationManifest{}, nil, err
 	}
 	for _, resolved := range plan.Modules {
@@ -294,6 +395,9 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	}
 	if err := validateCanonicalPortSupport(manifest.PortSupport); err != nil {
 		return GenerationManifest{}, err
+	}
+	if err := ValidateHostBuild(manifest.HostBuild); err != nil {
+		return GenerationManifest{}, fmt.Errorf("inspect Generation Manifest hostBuild: %w", err)
 	}
 	if err := validateInspectedCatalogs(manifest); err != nil {
 		return GenerationManifest{}, err

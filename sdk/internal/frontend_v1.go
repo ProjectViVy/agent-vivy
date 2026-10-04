@@ -72,9 +72,14 @@ func Verify(dir string) (VerifyReport, error) {
 type packOptions struct {
 	Recipe, Output string
 	Sources        []string
-	// Target selects the published artifact kind: "executable" (default) or
-	// "shared" (the sealed DIVA C-ABI library, cmd/vivy-shared).
+	// Target selects the published artifact kind: "executable" (default),
+	// "shared" (the sealed DIVA C-ABI library, cmd/vivy-shared), or
+	// "go-host" (the sealed external Go desktop host, W3-4).
 	Target string
+	// Host* inputs are required for --target go-host and rejected on the
+	// retained targets.
+	HostDir, HostPackage, HostAssets, HostLock string
+	GoHost                                     goHostInputs
 }
 
 const (
@@ -110,6 +115,30 @@ func parsePackArgs(args []string) (packOptions, error) {
 				return o, errors.New("--target requires a value")
 			}
 			o.Target = args[i]
+		case "--host-dir":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--host-dir requires a directory")
+			}
+			o.HostDir = args[i]
+		case "--host-package":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--host-package requires a package path")
+			}
+			o.HostPackage = args[i]
+		case "--host-assets":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--host-assets requires a directory")
+			}
+			o.HostAssets = args[i]
+		case "--host-lock":
+			i++
+			if i >= len(args) {
+				return o, errors.New("--host-lock requires a file")
+			}
+			o.HostLock = args[i]
 		default:
 			return o, fmt.Errorf("unknown pack argument %q", args[i])
 		}
@@ -120,8 +149,23 @@ func parsePackArgs(args []string) (packOptions, error) {
 	if o.Target == "" {
 		o.Target = packTargetExecutable
 	}
-	if o.Target != packTargetExecutable && o.Target != packTargetShared {
+	switch o.Target {
+	case packTargetExecutable, packTargetShared:
+	case packTargetGoHost:
+	default:
 		return o, fmt.Errorf("unknown pack target %q", o.Target)
+	}
+	if o.HostDir != "" || o.HostPackage != "" || o.HostAssets != "" || o.HostLock != "" {
+		if o.Target != packTargetGoHost {
+			return o, errors.New("--host-* inputs are only valid with --target go-host")
+		}
+	}
+	if o.Target == packTargetGoHost {
+		inputs, err := validateGoHostArgs(o)
+		if err != nil {
+			return o, err
+		}
+		o.GoHost = inputs
 	}
 	return o, nil
 }
@@ -263,6 +307,9 @@ func copySourceTree(source, destination string) error {
 }
 
 func Pack(ctx context.Context, o packOptions) (Artifact, error) {
+	if o.Target == "" {
+		o.Target = packTargetExecutable
+	}
 	recipeRaw, err := os.ReadFile(o.Recipe)
 	if err != nil {
 		return Artifact{}, err
@@ -396,8 +443,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	var uiBuild builtWebUI
-	if o.Target == packTargetShared {
-		// A shared-library Generation has no embedded Web UI — DIVA renders
+	if o.Target != packTargetExecutable {
+		// Non-executable Generations have no embedded Web UI — DIVA renders
 		// its own face. Seal an empty dist so the manifest's ui/dist digest
 		// and the staged artifact still verify through the same path.
 		buildRoot, mkErr := os.MkdirTemp("", "vivy-shared-ui-")
@@ -443,7 +490,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	if o.Target != packTargetShared {
+	if o.Target == packTargetExecutable {
 		if err := overlaySelectedUIDist(overlayFile, filepath.Join(repoRoot, "ui", "dist"), uiBuild.Dist); err != nil {
 			return Artifact{}, fmt.Errorf("sdk: bind selected UI to executable embed: %w", err)
 		}
@@ -460,6 +507,9 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	selectedConformanceResults, err := assemblyv1.ConformanceResultsForPlan(plan)
 	if err != nil {
 		return Artifact{}, err
+	}
+	if o.Target == packTargetGoHost {
+		return packGoHostArtifact(ctx, o, repoRoot, recipe, canonical, uiInput, uiAssembly, catalogs, uiBuild, plan, capabilityStates, portSupport, selectedConformanceResults, binder, runtimeSource)
 	}
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
@@ -1626,6 +1676,9 @@ func InspectArtifact(dir string) (Artifact, error) {
 	manifest, err := assemblyv1.InspectManifest(raw)
 	if err != nil {
 		return Artifact{}, err
+	}
+	if manifest.HostBuild != nil {
+		return inspectGoHostArtifact(dir, raw, manifest)
 	}
 	binary := filepath.Join(dir, artifactBinaryName(runtime.GOOS))
 	shared := false
