@@ -17,7 +17,7 @@ concurrency:
 env:
   # go.mod replaces github.com/dashimaki/laputa with ../laputa/laputa; CI
   # materializes that sibling checkout at this pinned commit (laputa main).
-  LAPUTA_REF: c9c5efe3184b7bd54bd223014a81641e6d1f67b9
+  LAPUTA_REF: 6f2eed2d71c82261333e50883e98b404070a6801
 
 jobs:
   backend:
