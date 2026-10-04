@@ -1718,7 +1718,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	}
 	records := make([]assemblyv1.SourceRecord, 0, len(internal)+len(sources)+8)
 	for _, r := range internal {
-		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, MaskFactory: r.Binding.MaskFactory, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider, RunObserverProvider: r.Binding.RunObserverProvider}})
+		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, MaskFactory: r.Binding.MaskFactory, CognitiveFactory: r.Binding.CognitiveFactory, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider, RunObserverProvider: r.Binding.RunObserverProvider}})
 	}
 	known := repoSourceDirs
 	seen := map[string]bool{}

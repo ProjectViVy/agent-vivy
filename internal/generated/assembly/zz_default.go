@@ -110,6 +110,10 @@ func (assembly *RuntimeAssembly) HasMaskFactory() bool { return assembly.MaskFac
 
 func (assembly *RuntimeAssembly) MaskServiceFactoryValue() any { return assembly.MaskFactory }
 
+func (assembly *RuntimeAssembly) HasCognitiveFactory() bool { return false }
+
+func (assembly *RuntimeAssembly) CognitiveFactoryValue() any { return nil }
+
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")

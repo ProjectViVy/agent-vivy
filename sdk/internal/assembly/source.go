@@ -30,12 +30,17 @@ type SourceRecord struct {
 // GoBinding is build metadata owned by the Source Catalog. It is not part of
 // a Module Descriptor and therefore cannot redirect its own generated import.
 type GoBinding struct {
-	ImportPath                   string
-	Package                      string
-	Constructor                  string
-	ProviderConstructor          string
-	ProviderCollection           bool
-	MaskFactory                  string
+	ImportPath          string
+	Package             string
+	Constructor         string
+	ProviderConstructor string
+	ProviderCollection  bool
+	MaskFactory         string
+	// CognitiveFactory names the typed core/cognitive-factory@v1 binding. It
+	// mirrors MaskFactory: emitted only when the owner module is selected,
+	// always exposed through CognitiveFactoryValue() as any (nil when
+	// unselected).
+	CognitiveFactory             string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool

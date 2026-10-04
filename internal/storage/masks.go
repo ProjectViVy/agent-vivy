@@ -38,8 +38,11 @@ type PersonaSnapshot struct {
 }
 
 type RunPromptPayload struct {
-	Persona       PersonaSnapshot
-	Mask          *mask.Snapshot
+	Persona PersonaSnapshot
+	Mask    *mask.Snapshot
+	// Frozen is the session-frozen FrozenCore v2 projection admitted
+	// into this run's instruction; nil when no bound bundle prepared it.
+	Frozen        *PersonaSnapshot
 	Instruction   string
 	FramingDigest string
 }

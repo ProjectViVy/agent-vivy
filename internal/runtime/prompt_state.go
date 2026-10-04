@@ -30,6 +30,12 @@ type PromptInput struct {
 	Face         domain.Face
 	Frame        string
 	FrameDigest  string
+	// FrozenText is the rendered FrozenCore v2 authority section
+	// projected for this session's first primary run; FrozenDigest is
+	// its sha256. Both come from the bound cognitive bundle's Prepare
+	// and are persisted verbatim in the payload.
+	FrozenText   string
+	FrozenDigest string
 }
 
 type runPromptContextKey struct{}
@@ -97,7 +103,10 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if persona.Revision == "" {
 		persona.Revision = "1"
 	}
-	instruction, err := composeAuthoritativeInstruction(persona.Body, in.Capture.Mask, face, in.Frame)
+	if (in.FrozenText == "") != (in.FrozenDigest == "") {
+		return storage.RunPromptSnapshot{}, errors.New("runtime: frozen core text and digest must travel together")
+	}
+	instruction, err := composeAuthoritativeInstruction(persona.Body, in.FrozenText, in.Capture.Mask, face, in.Frame)
 	if err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
@@ -106,6 +115,12 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 		Mask:          clonePromptMask(in.Capture.Mask),
 		Instruction:   instruction,
 		FramingDigest: in.FrameDigest,
+	}
+	if in.FrozenDigest != "" {
+		payload.Frozen = &storage.PersonaSnapshot{
+			Source: "garden/frozen-core", Revision: "v2",
+			Digest: in.FrozenDigest, Body: in.FrozenText,
+		}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -160,8 +175,13 @@ func validatePromptCapture(capture maskcontract.Capture, generationID string) er
 	return nil
 }
 
-func composeAuthoritativeInstruction(persona string, selected *maskcontract.Snapshot, face domain.Face, frame string) (string, error) {
+func composeAuthoritativeInstruction(persona, frozen string, selected *maskcontract.Snapshot, face domain.Face, frame string) (string, error) {
 	sections := []string{promptAsset("runtime.md"), promptAsset("configuration.md"), persona}
+	if strings.TrimSpace(frozen) != "" {
+		// FrozenCore v2 slots render verbatim after the persona body;
+		// they are session-frozen authority, not optional evidence.
+		sections = append(sections, frozen)
+	}
 	if face == domain.FaceCode {
 		sections = append(sections, promptAsset("code-mode.md"))
 	}

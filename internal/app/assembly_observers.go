@@ -71,11 +71,14 @@ func buildRunSubscriptions(inventory any, manifest generation.Manifest) ([]obser
 	return subscriptions, nil
 }
 
-func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAssembly, backend storage.Engine) (*observerhost.Host, error) {
+func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAssembly, backend storage.Engine, extraSubs ...observerhost.RunSubscription) (*observerhost.Host, error) {
 	subscriptions, err := buildRunSubscriptions(&assembly, assembly.Manifest)
 	if err != nil {
 		return nil, err
 	}
+	// Construction-owned subscriptions (e.g. the cognitive capture seam)
+	// append after the sealed inventory; nothing may subscribe after Start.
+	subscriptions = append(subscriptions, extraSubs...)
 	if len(subscriptions) == 0 {
 		return nil, nil
 	}

@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -73,6 +74,7 @@ type App struct {
 	channels     *channelhost.Host
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
+	cognitive    cognitivecontract.Bundle
 	backend      storage.Engine
 	worker       *workerManager
 	resolver     *ModelResolver
@@ -725,8 +727,29 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if channelHost != nil {
 		runHooks = append(runHooks, channelHost)
 	}
-	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend)
+	generationID := runtimeGenerationID(runtimeAssembly)
+	// DN-LC: the one cognitive owner binds through the same sealed accessor
+	// pattern as the mask factory. A selected-but-unarmed binding fails the
+	// composition; an omitted module changes nothing.
+	cognitiveBundle, err := cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
 	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	var cognitiveSubs []observerhost.RunSubscription
+	if cognitiveBundle != nil {
+		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
+			func(receipt runtime.CognitiveCaptureReceipt) {
+				if svc != nil && receipt.Seq != 0 {
+					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
+				}
+			}))
+	}
+	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
+	if err != nil {
+		if cognitiveBundle != nil {
+			_ = cognitiveBundle.Close()
+		}
 		_ = backend.Close()
 		return nil, err
 	}
@@ -739,7 +762,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			runObserverHost.Close()
 		}
 	}()
-	generationID := runtimeGenerationID(runtimeAssembly)
 	// A sealed first-party composition must never silently downgrade to the
 	// legacy sequential primary admission path. An unpacked development/test
 	// embedder has no sealed identity and remains on the explicitly compatible
@@ -759,6 +781,27 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	maskFrame, maskFrameDigest := "", ""
 	if maskService != nil {
 		maskFrame, maskFrameDigest = maskService.PromptAssets()
+	}
+	var cognitiveBinding *runtime.CognitiveBinding
+	if cognitiveBundle != nil {
+		resolvedBinding, err := cognitiveBundle.ResolveBinding(ctx)
+		if err != nil {
+			_ = cognitiveBundle.Close()
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: resolve cognitive binding: %w", err)
+		}
+		cognitiveBinding = &runtime.CognitiveBinding{
+			Domain:   &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle},
+			Binding:  resolvedBinding,
+			SourceID: cognitiveBundle.SourceID(),
+			Source:   cognitiveBundle.Source(),
+			Sink:     cognitiveBundle.Sink(),
+			Store:    backend.Snapshot(),
+			Mission:  cognitiveBundle.Mission(),
+			Primary:  cognitiveBundle,
+			Resolve:  cognitiveBundle.ResolveBinding,
+			Policy:   cognitiveBundle.Policy(),
+		}
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
@@ -798,6 +841,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MaskFrame:       maskFrame,
 		MaskFrameDigest: maskFrameDigest,
 		GenerationID:    generationID,
+		Cognitive:       cognitiveBinding,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -807,6 +851,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return loopDriver.Build(ctx, live, ec)
 		},
 	})
+	if cognitiveBundle != nil {
+		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {
+			_ = cognitiveBundle.Close()
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
+		}
+	}
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend)
 	agentOps.arm(workerManager)
@@ -832,41 +883,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				allowedTools[candidate.Spec().Name] = struct{}{}
 			}
 		}
-		authenticateAction := func(ctx context.Context, caller actionhost.Caller) (actionhost.Identity, error) {
-			if caller.Opaque() == "" || subtle.ConstantTimeCompare([]byte(caller.Opaque()), []byte(rpcToken)) != 1 {
-				return actionhost.Identity{}, actionport.ErrUnauthenticated
-			}
-			// The HTTP/RPC authentication middleware must attach this identity;
-			// a browser-supplied session or face field is never accepted here.
-			identity, ok := actionhost.IdentityFromContext(ctx)
-			if !ok {
-				return actionhost.Identity{}, actionport.ErrUnauthenticated
-			}
-			return identity, nil
-		}
-		authorizeAction := func(_ context.Context, _ actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
-			if policy == nil {
-				return actionport.ErrAuthorizationUnavailable
-			}
-			spec := actionToolSpec(definition)
-			evaluation, evalErr := policy.Evaluate(liveProfile, spec, input)
-			if evalErr != nil {
-				return actionport.ErrAuthorizationUnavailable
-			}
-			if evaluation.Decision != domain.PolicyAllow {
-				if evaluation.Decision == domain.PolicyPrompt || definition.RequiresApproval || definition.ApprovalRequired {
-					return actionport.ErrApprovalRequired
-				}
-				return runtime.ErrPolicyDenied
-			}
-			// This composition has no action-specific approval row/continuation
-			// route. Requiring one is safer than treating a provider claim as an
-			// approval; ordinary full-auto policy remains an explicit authority.
-			if definition.RequiresApproval || definition.ApprovalRequired {
-				return actionport.ErrApprovalRequired
-			}
-			return nil
-		}
+		authenticateAction := actionAuthenticate(string(rpcToken))
+		authorizeAction := actionAuthorize(policy, liveProfile)
 		authorizeBridge := func(ctx context.Context, identity actionhost.Identity, request actionhost.BridgeRequest) error {
 			if identity.SessionID == "" {
 				return actionport.ErrUnauthenticated
@@ -880,9 +898,23 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			}
 			return authorizeAction(ctx, identity, request.Action, request.Input)
 		}
+		var cognitiveProvider cognitivecontract.DispatcherProvider
+		if cognitiveBundle != nil {
+			provider, ok := cognitiveBundle.(cognitivecontract.DispatcherProvider)
+			if !ok {
+				_ = backend.Close()
+				return nil, fmt.Errorf("app: cognitive bundle does not expose the action dispatcher")
+			}
+			cognitiveProvider = provider
+		}
 		actionHost, err = actionhost.New(actionhost.Deps{
-			ProviderSets:        runtimeAssembly.ActionSets,
-			MaskManager:         maskService,
+			ProviderSets: runtimeAssembly.ActionSets,
+			MaskManager:  maskService,
+			Cognitive:    cognitiveProvider,
+			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
+				_, err := backend.GetSession(ctx, sessionID)
+				return err
+			},
 			GenerationAvailable: true,
 			GenerationID:        generationID,
 			Audit:               actionhost.JournalAuditSink{Journal: backend, Logger: logger},
@@ -1204,6 +1236,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		channels:     channelHost,
 		actionHost:   actionHost,
 		observerHost: runObserverHost,
+		cognitive:    cognitiveBundle,
 		backend:      backend,
 		worker:       workerManager,
 		resolver:     resolver,
@@ -1279,6 +1312,9 @@ func (a *App) StartEmbeddedServices() {
 	if a.cfg.Runtime.Cron.Enabled {
 		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
 	}
+	// Selected cognition starts once, exactly like Run; the loop is
+	// idempotent and a no-op without a bound trigger store.
+	a.service.StartCognitiveLoop(context.Background(), 0)
 }
 
 // Close shuts down a gateway-less composition and is safe to call more than
@@ -1303,6 +1339,9 @@ func (a *App) Close() error {
 		if a.service != nil {
 			a.service.StopInteractionSweeper()
 			a.service.StopCronScheduler()
+			// Cognitive admission stops before drains; in-flight workflow
+			// runs stay durable and resume on the next open.
+			a.service.StopCognitiveLoop()
 			a.service.CancelAll()
 		}
 		if a.worker != nil {
@@ -1313,6 +1352,11 @@ func (a *App) Close() error {
 		}
 		if a.observerHost != nil {
 			a.observerHost.Close()
+		}
+		// The owned Garden runtime outlives the Service and observer
+		// admission paths but closes before the storage backend.
+		if a.cognitive != nil {
+			a.closeErr = errors.Join(a.closeErr, a.cognitive.Close())
 		}
 		if a.mcpBackend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
@@ -1362,6 +1406,52 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
 	}
 	return engine
+}
+
+// actionAuthenticate is the exact caller-authentication predicate the
+// composed control plane installs on the action host: the caller must carry
+// the process-owned RPC token and the serving peer must have stamped the
+// trusted identity into the context. A caller-supplied identity field is
+// never accepted.
+func actionAuthenticate(rpcToken string) func(context.Context, actionhost.Caller) (actionhost.Identity, error) {
+	return func(ctx context.Context, caller actionhost.Caller) (actionhost.Identity, error) {
+		if caller.Opaque() == "" || subtle.ConstantTimeCompare([]byte(caller.Opaque()), []byte(rpcToken)) != 1 {
+			return actionhost.Identity{}, actionport.ErrUnauthenticated
+		}
+		identity, ok := actionhost.IdentityFromContext(ctx)
+		if !ok {
+			return actionhost.Identity{}, actionport.ErrUnauthenticated
+		}
+		return identity, nil
+	}
+}
+
+// actionAuthorize is the exact authorization predicate the composed control
+// plane installs: evaluate the declared action against the live governance
+// profile; an approval-required effect in a composition without an approval
+// continuation route fails closed, and only an explicit full-auto profile
+// admits effectful actions.
+func actionAuthorize(policy *runtime.PolicyEngine, liveProfile domain.PolicyProfile) func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error {
+	return func(_ context.Context, _ actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
+		if policy == nil {
+			return actionport.ErrAuthorizationUnavailable
+		}
+		spec := actionToolSpec(definition)
+		evaluation, evalErr := policy.Evaluate(liveProfile, spec, input)
+		if evalErr != nil {
+			return actionport.ErrAuthorizationUnavailable
+		}
+		if evaluation.Decision != domain.PolicyAllow {
+			if evaluation.Decision == domain.PolicyPrompt || definition.RequiresApproval || definition.ApprovalRequired {
+				return actionport.ErrApprovalRequired
+			}
+			return runtime.ErrPolicyDenied
+		}
+		if definition.RequiresApproval || definition.ApprovalRequired {
+			return actionport.ErrApprovalRequired
+		}
+		return nil
+	}
 }
 
 func actionToolSpec(definition actionport.Definition) domain.ToolSpec {
