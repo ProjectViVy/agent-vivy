@@ -813,6 +813,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
 		Work:                  workStore,
+		WorkSink:              workBus,
 		Runs:                  backend,
 		Messages:              backend,
 		GoalRuns:              goalRunStore,

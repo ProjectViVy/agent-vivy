@@ -65,7 +65,7 @@ async function openMasksPage(page: Page): Promise<void> {
 /** Creates a session through the UI so the app peer owns it. */
 async function newSession(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'New session' }).first().click();
-  await expect(page.getByPlaceholder('Type a message... (Enter to send)')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Message' })).toBeVisible();
 }
 
 async function chooseMask(page: Page, name: string): Promise<void> {
@@ -199,7 +199,7 @@ test('selection during an active run is queued for the next run', async ({ page 
   await newSession(page);
 
   // The mock provider hangs forever, keeping the run active.
-  await page.getByPlaceholder('Type a message... (Enter to send)').fill('keep the run active');
+  await page.getByRole('combobox', { name: 'Message' }).fill('keep the run active');
   await page.getByRole('button', { name: 'Send' }).click();
 
   const selector = page.getByRole('button', { name: 'Session mask', exact: true });
@@ -243,7 +243,7 @@ test('compact mask menu stays inside the toolbar with a fully visible mobile com
   await page.getByRole('menuitem').filter({ hasText: 'Programmer' }).click();
   await expect(selector).toHaveAttribute('title', 'Programmer');
   await expect(page.getByRole('menu')).toBeHidden();
-  const composer = page.getByPlaceholder('Type a message... (Enter to send)');
+  const composer = page.getByRole('combobox', { name: 'Message' });
   await expect(composer).toBeVisible();
   const bounds = await composer.boundingBox();
   expect(bounds).not.toBeNull();

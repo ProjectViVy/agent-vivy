@@ -44,7 +44,7 @@ function settings(locale: 'en' | 'zh', workspaceLocale: '' | 'en' | 'zh' = local
 }
 function work(sessionId: string, version: number, activation: 'armed' | 'disarmed', processEpoch: string, runId = '') {
   return { session_id: sessionId, version, activation, process_epoch: processEpoch, current_run_id: runId,
-    plan: { active: false, review_status: 'none' }, goal: { id: 'goal-1', revision: 1, objective: 'ship', phase: 'active', max_rounds: 2, rounds_started: 1 } };
+    plan: { active: false, review_status: 'none' as const }, goal: { id: 'goal-1', revision: 1, objective: 'ship', phase: 'active' as const, max_rounds: 2, rounds_started: 1 } };
 }
 
 describe('Vivy store integrity', () => {
@@ -393,6 +393,32 @@ describe('Vivy store integrity', () => {
 
     expect(useVivyStore.getState().activeSessionId).toBe('s2');
     expect(useVivyStore.getState().work).toMatchObject({ session_id: 's2', process_epoch: 'process-b', activation: 'disarmed' });
+  });
+
+  it('keeps newer Goal progress when the creation response arrives after its work events', async () => {
+    const pending = deferred<unknown>();
+    api.commitWork.mockReturnValueOnce(pending.promise);
+    useVivyStore.setState({ activeSessionId: 's1', work: work('s1', 1, 'disarmed', 'process-a') });
+    const creation = useVivyStore.getState().createGoal('ship', 3);
+    const progressed = { ...work('s1', 5, 'disarmed', 'process-a'), goal: { ...work('s1', 5, 'disarmed', 'process-a').goal, phase: 'blocked' as const, rounds_started: 3 } };
+    useVivyStore.setState({ work: progressed });
+    pending.resolve({ work: work('s1', 2, 'armed', 'process-a'), event: { seq: 2 }, replayed: false });
+    await creation;
+    expect(useVivyStore.getState().work).toEqual(progressed);
+  });
+
+  it('does not settle an old Work mutation in a reopened session with the same ID', async () => {
+    const pending = deferred<unknown>();
+    api.commitWork.mockReturnValueOnce(pending.promise);
+    api.listMessages.mockResolvedValue({ messages: [] });
+    useVivyStore.setState({ activeSessionId: 's1', work: work('s1', 1, 'disarmed', 'process-a') });
+    const creation = useVivyStore.getState().createGoal('ship', 3);
+    await useVivyStore.getState().selectSession('s2');
+    await useVivyStore.getState().selectSession('s1');
+    const reopened = useVivyStore.getState().work;
+    pending.resolve({ work: work('s1', 2, 'armed', 'process-a'), event: { seq: 2 }, replayed: false });
+    await creation;
+    expect(useVivyStore.getState().work).toEqual(reopened);
   });
 
   it('sets a workspace on the empty active session without creating another chat', async () => {
