@@ -32,13 +32,14 @@ ownership and gate evidence. This is design direction, not a shipped capability.
 - `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
   unreachable from this network). Already persisted via `go env -w`.
 - Node.js 22+ and pnpm for the embedded React UI.
+- Git and PowerShell for the pinned source bootstrap and Windows development scripts.
 - Optional: [just](https://github.com/casey/just) for the task recipes in
   `justfile`. Without it, run the underlying `go` commands directly.
 
 ## Quick start
 
 ```powershell
-just setup         # go mod download
+just setup         # prepare pinned ProjectViVy/laputa sources, then go mod download
 just ensure-studio # git submodule update --init studio/ (ProjectViVy/vivy-studio)
 just build         # go build ./...
 just test          # go test ./...
@@ -53,6 +54,25 @@ just docker-up     # one-container image, SQLite on a volume, host 127.0.0.1:878
 
 Prefer `git clone --recurse-submodules` so `studio/` is present immediately.
 `just ensure-studio` / `launch-vivy-studio.ps1` will init it on first use if not.
+
+`just setup` and `just dev` work after a plain clone: they automatically prepare
+`../laputa` from `ProjectViVy/laputa` at the commit in `laputa-source.lock.json`.
+The Garden, Mentle and Laputa modules live in that one repository under the
+`github.com/ProjectViVy/laputa/` namespace. This complete Git source checkout is
+also part of the SDK's sealed go-host source closure; it is separate from the
+optional Studio submodule. The parent directory must be writable, and the first
+bootstrap requires access to GitHub. No sibling INOFY checkout is required.
+
+The same bootstrap runs in CI and is a no-op when the pinned checkout is ready.
+A clean older checkout is updated to the pin; local changes at a different
+revision or an unrelated repository cause an actionable error without overwriting
+files. Commit or stash local changes before retrying. Without `just`, run:
+
+```powershell
+.\scripts\ensure-laputa.ps1
+go mod download
+.\dev.ps1
+```
 
 Docker is a packaging of the same organism (embedded UI, one process,
 replica=1). `docker compose up --build` publishes **only**

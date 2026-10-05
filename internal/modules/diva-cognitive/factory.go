@@ -17,9 +17,9 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 
 	"github.com/ProjectViVy/inofy"
-	"github.com/dashimaki/garden/agentapi"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	laputainofy "github.com/dashimaki/laputa/evolution/inofy"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 )
 
 // Identity fixed by composition, never by payload. DIVA embeds exactly one

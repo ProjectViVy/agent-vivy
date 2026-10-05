@@ -12,10 +12,10 @@ import (
 	"agent-vivy/internal/storage"
 	controlaction "agent-vivy/sdk/port/controlaction"
 
-	"github.com/dashimaki/garden/agentapi"
-	"github.com/dashimaki/garden/memory"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	"github.com/dashimaki/laputa/persona"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
+	"github.com/ProjectViVy/laputa/garden/memory"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	"github.com/ProjectViVy/laputa/laputa/persona"
 )
 
 // dispatch is the bundle's armed dispatch surface. Every ledger C2-3 action

@@ -9,15 +9,22 @@ go := "go"
 gofmt := "gofmt"
 vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 
-# Persist GOPROXY mirror (proxy.golang.org is unreachable) and download deps
-setup:
-    & "{{go}}" env -w GOPROXY=https://goproxy.cn,direct
-    & "{{go}}" mod download
+# Prepare the pinned Laputa source closure shared by local development and CI.
+ensure-laputa:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
 
-build:
+bootstrap-test:
+    node --test scripts/ensure-laputa.test.mjs
+
+# Prepare sibling sources before asking Go to resolve local replacements.
+setup: ensure-laputa
+    & "{{go}}" env -w GOPROXY=https://goproxy.cn,direct; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    & "{{go}}" mod download; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+build: ensure-laputa
     & "{{go}}" build ./...
 
-test:
+test: ensure-laputa
     # The Windows runtime package exercises hundreds of SQLite-backed real paths
     # and now legitimately exceeds Go's default 10-minute per-package timeout;
     # the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
@@ -25,7 +32,7 @@ test:
     # Windows runner, so the shared bound is 35m.
     & "{{go}}" test -timeout 35m ./...
 
-vet:
+vet: ensure-laputa
     & "{{go}}" vet ./...
 
 fmt-check:
@@ -40,10 +47,10 @@ plugin-ci:
 
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.
-ui-build:
+ui-build: ensure-laputa
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
-ui-core:
+ui-core: ensure-laputa
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
 # Uses the locked TypeScript parser installed by ui-core.
@@ -55,10 +62,10 @@ i18n-check: ui-core
 # Complete standalone UI gate, including cross-face I18N conformance.
 ui-ci: i18n-check
 
-headless-compile:
+headless-compile: ensure-laputa
     & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
 
-build-split:
+build-split: ensure-laputa
     New-Item -ItemType Directory -Force -Path dist | Out-Null
     & "{{go}}" build -tags vivy_headless -o dist/vivy-backend.exe ./cmd/vivy; if ($LASTEXITCODE) { exit $LASTEXITCODE }
     Set-Location ui; pnpm build -- --outDir ../dist/vivy-ui --emptyOutDir
@@ -67,20 +74,20 @@ build-split:
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: fmt-check ui-ci vet test headless-compile plugin-ci
+ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test headless-compile plugin-ci
 
 # Independent backend gate for Actions. It builds ui/dist for go:embed but
 # leaves UI typechecking and tests to ui-ci so both lanes always report.
-backend-ci: fmt-check ui-build vet test headless-compile plugin-ci
+backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
 
-run:
+run: ensure-laputa
     & "{{go}}" run ./cmd/vivy
 
 # Build the independent VIVY CODE terminal product.
-vivy-code:
+vivy-code: ensure-laputa
     & "{{go}}" build -tags vivy_headless -o "{{vivy_code}}" ./cmd/vivy-code
 
 # Start an independent VIVY CODE instance in the current project.
@@ -88,8 +95,8 @@ tui: vivy-code
     & "./{{vivy_code}}"
 
 # One-click split loop: backend :8787 + Vite :3015. Ctrl+C stops both.
-dev:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1
+dev *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 {{args}}
 
 # Container packaging of the default embedded-UI binary. Not part of just ci.
 docker-build:
@@ -106,11 +113,11 @@ test-postgres:
     if (-not $env:VIVY_POSTGRES_TEST_DSN) { Write-Output 'VIVY_POSTGRES_TEST_DSN unset; skipping'; exit 0 }; & "{{go}}" test ./internal/storage/postgres
 
 # Packer only. Not the daily gateway.
-sdk:
+sdk: ensure-laputa
     & "{{go}}" build -o vivy-sdk.exe ./sdk
 
 # Studio lifecycle tool. Owns the Studio ledger and lifecycle ops. Not the daily gateway.
-studio:
+studio: ensure-laputa
     & "{{go}}" build -o vivy-studio.exe ./cmd/vivy-studio
 
 # Ensure git submodule studio/ (ProjectViVy/vivy-studio) is checked out.

@@ -10,6 +10,8 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 Set-Location $root
 
+& (Join-Path $root "scripts/ensure-laputa.ps1") -RepoRoot $root -Quiet
+
 $go = "C:\Program Files\Go\bin\go.exe"
 if (-not (Test-Path $go)) {
     $goCmd = Get-Command go -ErrorAction SilentlyContinue
@@ -107,7 +109,7 @@ try {
         Write-Host "installing ui dependencies"
         Push-Location $uiDir
         try {
-            & $pnpm install
+            & $pnpm install --frozen-lockfile
             if ($LASTEXITCODE) { throw "pnpm install failed: $LASTEXITCODE" }
         } finally {
             Pop-Location
@@ -118,8 +120,17 @@ try {
         Write-Host "no provider API key; Vivy will start without a model; configure Settings -> Model"
     }
 
+    # Vite owns the development UI; a fresh clone has no embedded ui/dist.
+    # Finish the cold compile before applying the server-readiness timeout.
+    $buildDir = Join-Path $root ".workspace/dev"
+    New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+    $backendExe = Join-Path $buildDir "vivy-backend.exe"
+    Write-Host "building split-loop backend"
+    & $go build -tags vivy_headless -o $backendExe ./cmd/vivy
+    if ($LASTEXITCODE) { throw "backend build failed: $LASTEXITCODE" }
+
     Write-Host "starting backend 127.0.0.1:8787"
-    $backend = Start-LoggedProcess $go "run ./cmd/vivy" $root "vivy"
+    $backend = Start-LoggedProcess $backendExe "" $root "vivy"
     Wait-TcpPort 8787 90 "backend" $backend
 
     Write-Host "starting vite 127.0.0.1:3015"

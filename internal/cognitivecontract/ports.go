@@ -15,7 +15,7 @@ import (
 	"agent-vivy/internal/storage"
 	controlaction "agent-vivy/sdk/port/controlaction"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // Factory is emitted into a generated RuntimeAssembly only when the

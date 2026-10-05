@@ -14,7 +14,7 @@ import (
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func genassemblyForCognitive(modules []string) *genassembly.RuntimeAssembly {

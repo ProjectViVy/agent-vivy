@@ -11,7 +11,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // generatedCognitiveFactoryBinding is the opaque accessor emitted by the

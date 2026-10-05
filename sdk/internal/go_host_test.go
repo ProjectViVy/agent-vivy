@@ -41,7 +41,7 @@ func stageGoHostFixture(t *testing.T, vivyRoot string) string {
 }
 
 // A consumer module sees only its own go.mod: agent-vivy's local replaces
-// (dashimaki laputa/garden/mentle, agent-vivy/* submodules, bml) are not
+// (ProjectViVy laputa modules, agent-vivy/* submodules, bml) are not
 // inherited, so the fixture cannot compile until the pack target generates
 // the consumer modfile with the full replacement closure (W3-4).
 func TestGoHostFixtureRequiresGeneratedReplaceClosure(t *testing.T) {
@@ -62,7 +62,7 @@ func TestGoHostFixtureRequiresGeneratedReplaceClosure(t *testing.T) {
 		t.Fatal("go-host fixture built without the generated replacement closure; replaces were inherited unexpectedly")
 	}
 	text := string(output)
-	for _, missing := range []string{"dashimaki/laputa", "dashimaki/garden", "agent-vivy/bml", "agent-vivy/plugins/"} {
+	for _, missing := range []string{"ProjectViVy/laputa/laputa", "ProjectViVy/laputa/garden", "agent-vivy/bml", "agent-vivy/plugins/"} {
 		if strings.Contains(text, missing) {
 			return
 		}

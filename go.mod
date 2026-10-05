@@ -15,8 +15,8 @@ require (
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
-	github.com/dashimaki/garden v0.0.0-00010101000000-000000000000
-	github.com/dashimaki/laputa v0.0.0
+	github.com/ProjectViVy/laputa/garden v0.0.0-20261005120945-ff3936f44ff8
+	github.com/ProjectViVy/laputa/laputa v0.0.0-20261005120945-ff3936f44ff8
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
@@ -60,7 +60,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/hnsw v0.6.1 // indirect
-	github.com/dashimaki/mentle v0.0.0 // indirect
+	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -252,8 +252,8 @@ replace github.com/ProjectViVy/agent-vivy/bml => ./bml
 // API for Windows. Required by github.com/coder/hnsw (vector DB).
 replace github.com/google/renameio => ./third_party/renameio
 
-replace github.com/dashimaki/garden => ../laputa/garden
+replace github.com/ProjectViVy/laputa/garden => ../laputa/garden
 
-replace github.com/dashimaki/mentle => ../laputa/mentle
+replace github.com/ProjectViVy/laputa/mentle => ../laputa/mentle
 
-replace github.com/dashimaki/laputa => ../laputa/laputa
+replace github.com/ProjectViVy/laputa/laputa => ../laputa/laputa
