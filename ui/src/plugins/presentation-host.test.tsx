@@ -25,6 +25,7 @@ import { defineNavigationItem, defineUIRoute } from '@vivy/ui-sdk';
 import { useVivyStore } from '@/lib/store';
 import {
   createWebFaceHost,
+  ChatHeaderSlot,
   PRESENTATION_COMMAND_EVENT,
   PresentationHost,
   useActivePresentationRoute,
@@ -164,7 +165,7 @@ describe('PresentationHost', () => {
     });
 
     await act(async () => {
-      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]}><header data-chat-toolbar><ChatHeaderSlot host={selectedHost} /></header></PresentationHost>);
     });
 
     const rendered = [...container.querySelectorAll('[data-testid^="header-"]')].map((node) => node.textContent);
@@ -191,7 +192,7 @@ describe('PresentationHost', () => {
     });
 
     await act(async () => {
-      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]}><header data-chat-toolbar><ChatHeaderSlot host={selectedHost} /></header></PresentationHost>);
     });
     expect(container.querySelector('[data-testid="header-session"]')?.textContent).toBe('session-a');
 
@@ -214,7 +215,7 @@ describe('PresentationHost', () => {
     });
 
     await act(async () => {
-      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]}><header data-chat-toolbar><ChatHeaderSlot host={selectedHost} /></header></PresentationHost>);
     });
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture header failed');

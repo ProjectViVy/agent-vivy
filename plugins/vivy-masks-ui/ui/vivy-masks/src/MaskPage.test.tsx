@@ -28,7 +28,7 @@ describe('MaskPage', () => {
     expect(container.querySelector('[data-testid="mask-page"]')).not.toBeNull();
     expect(container.textContent).toContain('plugin.vivy/masks-ui.noActiveSession');
     expect(container.querySelector('button[data-mask-action="new"]')).not.toBeNull();
-    expect(container.querySelector('select')).toHaveProperty('disabled', true);
+    expect(container.querySelector('select')).toBeNull();
   });
 
   it('does not show session A after the active host session changes to B before A resolves', async () => {
@@ -68,7 +68,7 @@ describe('MaskPage', () => {
       .map(([, params]) => (params as { input?: { session_id?: string } }).input?.session_id)
       .filter((sessionId): sessionId is string => typeof sessionId === 'string');
     expect(selectionSessions).toContain('session-b');
-    expect(container.querySelector('select')).toHaveProperty('value', 'builtin/writer');
+    expect(container.querySelector('[data-active-mask]')?.getAttribute('data-active-mask')).toBe('builtin/writer');
   });
 });
 

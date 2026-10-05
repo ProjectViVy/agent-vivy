@@ -36,7 +36,7 @@ describe('MaskHeader', () => {
         <MaskHeader context={{ sessionId: null, running: false }} />
       </PluginHostProvider>,
     ));
-    expect(container.querySelector('select')).toHaveProperty('disabled', true);
-    expect(container.textContent).toContain('plugin.vivy/masks-ui.noActiveSession');
+    expect(container.querySelector('button')).toHaveProperty('disabled', true);
+    expect(container.querySelector('button')?.title).toBe('plugin.vivy/masks-ui.noActiveSession');
   });
 });

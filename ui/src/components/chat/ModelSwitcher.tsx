@@ -133,7 +133,7 @@ export function ModelSwitcher() {
   const settings = useVivyStore((state) => state.settings);
   const codeModeAvailable = useVivyStore((state) => state.codeModeAvailable);
 
-  return <div className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border bg-background/70 p-0.5 shadow-sm">
+  return <div className="flex min-w-0 max-w-full items-center gap-1">
     <ModelMenu settings={settings} />
     {codeModeAvailable ? <>
       <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />

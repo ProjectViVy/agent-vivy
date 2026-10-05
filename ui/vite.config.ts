@@ -1,10 +1,10 @@
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, normalizePath } from "vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import {
   UI_SDK_PACKAGE_NAME as UI_SDK_SOURCE_PACKAGE_NAME,
@@ -83,6 +83,17 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: "vivy-assembly-styles",
+      enforce: "pre",
+      transform(code, id) {
+        if (id.split("?")[0] !== normalizePath(resolve(UI_SOURCE_ROOT, "styles.css"))) return;
+        // Both split development and SDK packing must scan the selected
+        // Assembly's Module sources, including isolated temporary staging.
+        const moduleSources = normalizePath(resolve(dirname(UI_ASSEMBLY_ENTRY), "ui"));
+        return `${code}\n@source ${JSON.stringify(moduleSources)};\n`;
+      },
+    },
     tailwindcss(),
     TanStackRouterVite(),
     viteReact({
