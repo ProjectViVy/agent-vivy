@@ -5,7 +5,8 @@
 - Original `go list -m all` reproduced the missing `../laputa/garden/go.mod`.
 - The unchanged Laputa evolution suite reproduced the missing `../../INOFY`
   replacement; canonical Laputa main now pins the published INOFY revision.
-- Bootstrap tests: 5/5 passed, using real local Git repositories without network.
+- Bootstrap tests: 6/6 passed, using real local Git repositories without network,
+  including direct invocation from another directory without `-RepoRoot`.
 - Actual `just setup`: passed both in the working checkout and an independent
   fresh clone with no sibling repositories.
 - A separate external module downloaded and compiled the published canonical
@@ -22,19 +23,34 @@
   startup acceptance claim.
 - `go generate ./internal/generated/assembly`: passed; no output drift.
 - `git diff --check`: passed.
+- Full `just ci`: passed on `d5d62784` with the Go toolchain on PATH and
+  `GOPROXY=https://proxy.golang.org,direct` for the verification process.
+  This includes format, UI, vet, all Go tests, headless compile and plugin gates.
+  SDK packaging completed in 403.708 seconds and conformance in 74.595 seconds.
+- Windows CI run [37310455843](https://github.com/ProjectViVy/agent-vivy/actions/runs/37310455843):
+  fresh-clone setup and independent cold dev both passed. The latter required
+  backend `/healthz` and Vite `/` to return HTTP 200 without inheriting setup's
+  sibling or prebuilt `ui/dist`. UI CI and full UI browser smoke also passed.
 
 ## Full gates
 
-Full `just ci` is running its SDK packaging tests; completion is not yet claimed.
-The independent Windows startup smoke is pending GitHub Actions. An initial
-conformance-only run before creating the embedded UI
-failed on missing `ui/dist`; the required UI build has since completed.
+The Windows backend full-suite job is still running; its final outcome is not
+yet claimed. Local full `just ci` and the targeted native startup checks passed.
+An initial conformance-only run before creating the embedded UI failed on
+missing `ui/dist`; the required UI build subsequently completed.
 
 A separate full Go run hit a missing subprocess Go PATH and a goproxy.cn
 checksum-service 502. The affected runtime and external-consumer packages passed
 after supplying PATH and the official Go proxy for that verification process.
-That duplicate full run was stopped because existing SDK tests temporarily edit
-a repository recipe; the authoritative `just ci` run proceeds on its own.
+Overlapping full runs temporarily edited the same repository recipe and caused
+the recipe-drift and reproducibility checks to fail. The duplicate run was
+stopped, its temporary recipe change restored, and the final full gate passed
+serially without implementation edits during sealing.
+
+The first native Windows run exposed an empty `PSScriptRoot` in the bootstrap's
+parameter default under Windows PowerShell 5. Root resolution now runs in the
+script body, and the added default-entry regression plus the repeated native
+setup/dev checks passed. The final local full gate includes that correction.
 
 An initial CI run was blocked by automatic approval review for an external
 Visual Studio telemetry request. Microsoft documents PowerShell's Application
