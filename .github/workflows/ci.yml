@@ -14,11 +14,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # go.mod replaces github.com/dashimaki/laputa with ../laputa/laputa; CI
-  # materializes that sibling checkout at this pinned commit (laputa main).
-  LAPUTA_REF: 6f2eed2d71c82261333e50883e98b404070a6801
-
 jobs:
   backend:
     name: backend ci
@@ -28,11 +23,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Check out laputa sibling dependency
-        run: |
-          git clone https://github.com/ProjectViVy/laputa ../laputa
-          git -C ../laputa checkout $env:LAPUTA_REF
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -61,6 +51,49 @@ jobs:
       - name: Validate plugin v1 fixture corpus
         run: node scripts/check-plugin-v1-fixtures.mjs
 
+      - name: Verify fresh-clone setup
+        run: |
+          $proxy = go env GOPROXY
+          try {
+            just setup
+            if ($LASTEXITCODE) { throw "just setup failed: $LASTEXITCODE" }
+          } finally {
+            # setup's developer mirror must not change the runner's later gates.
+            go env -w "GOPROXY=$proxy"
+          }
+
+      - name: Verify independent fresh-clone dev startup
+        shell: pwsh
+        run: |
+          # The dev entry must prepare Laputa without inheriting setup's checkout.
+          Move-Item ../laputa ../laputa-setup-checked
+          if (Test-Path ui/dist) { throw 'cold dev smoke must start without ui/dist' }
+          New-Item -ItemType Directory -Force .workspace | Out-Null
+          $dev = Start-Process just -ArgumentList @('dev', '-NoBrowser') -PassThru `
+            -RedirectStandardOutput .workspace/cold-dev.stdout.log `
+            -RedirectStandardError .workspace/cold-dev.stderr.log
+          try {
+            $ready = $false
+            $deadline = (Get-Date).AddMinutes(8)
+            while ((Get-Date) -lt $deadline) {
+              if ($dev.HasExited) { throw "just dev exited with $($dev.ExitCode)" }
+              try {
+                $backend = Invoke-WebRequest http://127.0.0.1:8787/healthz -TimeoutSec 2
+                $ui = Invoke-WebRequest http://127.0.0.1:3015/ -TimeoutSec 2
+                if ($backend.StatusCode -eq 200 -and $ui.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch { }
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) { throw 'fresh-clone just dev did not become ready' }
+          } finally {
+            Get-Content .workspace/cold-dev.stdout.log -ErrorAction SilentlyContinue
+            Get-Content .workspace/cold-dev.stderr.log -ErrorAction SilentlyContinue
+            if (-not $dev.HasExited) { taskkill.exe /T /F /PID $dev.Id }
+          }
+
       - name: Run backend CI
         run: just backend-ci
 
@@ -85,10 +118,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
 
-      - name: Check out laputa sibling dependency
-        run: |
-          git clone https://github.com/ProjectViVy/laputa ../laputa
-          git -C ../laputa checkout $env:LAPUTA_REF
+      - name: Prepare pinned Laputa sources through the developer bootstrap
+        run: ./scripts/ensure-laputa.ps1
 
       # The UI builds the projection the SDK's Assembler writes from
       # recipes/default.vivy.yml (ui/package.json pre-hooks call
@@ -114,10 +145,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check out laputa sibling dependency
-        run: |
-          git clone https://github.com/ProjectViVy/laputa ../laputa
-          git -C ../laputa checkout $env:LAPUTA_REF
+      - name: Prepare pinned Laputa sources through the developer bootstrap
+        run: ./scripts/ensure-laputa.ps1
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4

@@ -11,7 +11,7 @@ import (
 	"agent-vivy/internal/runtime"
 	controlaction "agent-vivy/sdk/port/controlaction"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 type envelope struct {

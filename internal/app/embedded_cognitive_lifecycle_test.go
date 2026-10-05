@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/runtime"
