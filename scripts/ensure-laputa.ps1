@@ -1,11 +1,15 @@
 # Prepare the Git source closure used by Go and sealed go-host packaging.
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot,
     [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $RepoRoot) {
+    # Windows PowerShell initializes PSScriptRoot after parameter defaults.
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
 $root = (Resolve-Path -LiteralPath $RepoRoot).Path
 $lock = Get-Content -Raw -LiteralPath (Join-Path $root "laputa-source.lock.json") | ConvertFrom-Json
 if (-not $lock.repository -or $lock.commit -notmatch '^[0-9a-f]{40}$') {

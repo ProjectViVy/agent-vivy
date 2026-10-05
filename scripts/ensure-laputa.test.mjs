@@ -38,6 +38,18 @@ function ensure(f) {
   return spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-RepoRoot', f.root, '-Quiet'], { encoding: 'utf8' });
 }
 
+test('the direct-script entry locates its repository without RepoRoot or a matching cwd', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.root, 'scripts'));
+  const entry = join(f.root, 'scripts', 'ensure-laputa.ps1');
+  writeFileSync(entry, readFileSync(script));
+  const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', entry, '-Quiet'], {
+    cwd: f.source, encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(git(f.checkout, 'rev-parse', 'HEAD'), f.commit);
+});
+
 test('a fresh checkout installs all three modules at the pinned commit and is repeatable', t => {
   const f = fixture(t);
   let result = ensure(f);
