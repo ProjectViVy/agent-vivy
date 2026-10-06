@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AttachmentInput, Face, RunMode, ThinkingMode, TurnContinuity, TurnSubmission } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
@@ -36,7 +36,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const cancelRun = useVivyStore((state) => state.cancelCurrentRun);
   const rewindSession = useVivyStore((state) => state.rewindSession);
   const forkSession = useVivyStore((state) => state.forkSession);
-  const [draftPreset, setDraftPreset] = useState<{ text: string; seq: number } | null>(null);
+  const [draftPreset, setDraftPreset] = useState<{ sessionId: string; text: string; seq: number } | null>(null);
+  const viewEpoch = useRef(0);
   const [actionError, setActionError] = useState<unknown>(null);
 	const [historyAction, setHistoryAction] = useState(false);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
@@ -49,6 +50,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   // send, queue, edit, or regenerate semantics.
   const face: Face | undefined = codeMode ? 'code' : undefined;
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
+  useEffect(() => {
+    viewEpoch.current += 1;
+    setDraftPreset(null);
+    setActionError(null);
+    setHistoryAction(false);
+    return () => { viewEpoch.current += 1; };
+  }, [sessionId]);
 
   // 同一类型化提交对象贯穿直发与排队：引用选择与任务级读域不可被
   // 位置参数漂移丢弃（SC-D4 §13.3）。发送/入队成功后清空草稿上下文；
@@ -91,14 +99,17 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 	finally { setHistoryAction(false); }
   };
   const handleRewind = async (messageId: string) => {
+    const epoch = viewEpoch.current;
+    const current = () => epoch === viewEpoch.current && useVivyStore.getState().activeSessionId === sessionId;
     setActionError(null);
 	setHistoryAction(true);
     try {
       const remaining = await rewindSession(sessionId, messageId);
+      if (!current()) return;
       const lastUser = [...remaining].reverse().find((message) => message.role === 'user');
-      if (lastUser) setDraftPreset({ text: lastUser.content, seq: Date.now() });
-	} catch (error) { setActionError(error); throw error; }
-	finally { setHistoryAction(false); }
+      if (lastUser) setDraftPreset({ sessionId, text: lastUser.content, seq: Date.now() });
+	} catch (error) { if (current()) { setActionError(error); throw error; } }
+	finally { if (current()) setHistoryAction(false); }
   };
   const handleFork = async (messageId: string) => {
     setActionError(null);
@@ -127,7 +138,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <WorkControlBar key={sessionId} sessionId={sessionId} />
         <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
@@ -140,8 +150,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
           {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}
         </div></ScrollArea>
+        <WorkControlBar key={`work-${sessionId}`} sessionId={sessionId} />
         <TodoProgressStrip />
-        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset} />
+        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

@@ -9,7 +9,7 @@
     "plugin.vivy/masks-ui.subtitle": {
       "description": "Mask catalog page subtitle",
       "placeholders": [],
-      "messages": {"en": "Choose the next run mask and manage custom definitions", "zh": "选择下一次运行的面具并管理自定义定义"}
+      "messages": {"en": "Choose a working role for this conversation and manage custom masks", "zh": "为当前会话选择工作角色，并管理自定义面具"}
     },
     "plugin.vivy/masks-ui.nav": {
       "description": "Mask catalog navigation label",
@@ -69,7 +69,7 @@
     "plugin.vivy/masks-ui.catalogTitle": {
       "description": "Mask catalog title",
       "placeholders": [],
-      "messages": {"en": "Catalog", "zh": "目录"}
+      "messages": {"en": "Mask library", "zh": "面具库"}
     },
     "plugin.vivy/masks-ui.empty": {
       "description": "Empty mask catalog message",
@@ -89,7 +89,7 @@
     "plugin.vivy/masks-ui.editorTitle": {
       "description": "Mask editor title",
       "placeholders": [],
-      "messages": {"en": "Definition", "zh": "定义"}
+      "messages": {"en": "Mask details", "zh": "面具详情"}
     },
     "plugin.vivy/masks-ui.editorHint": {
       "description": "Mask editor empty hint",
@@ -150,6 +150,71 @@
       "description": "Mask action capability unavailable",
       "placeholders": [],
       "messages": {"en": "The selected generation cannot provide mask instructions.", "zh": "当前选中的 Generation 无法提供面具指令。"}
+    },
+    "plugin.vivy/masks-ui.chooseMask": {
+      "description": "Mask UI chooseMask",
+      "placeholders": [],
+      "messages": {"en": "Choose a mask", "zh": "选择面具"}
+    },
+    "plugin.vivy/masks-ui.manageMasks": {
+      "description": "Mask UI manageMasks",
+      "placeholders": [],
+      "messages": {"en": "Manage masks", "zh": "管理面具"}
+    },
+    "plugin.vivy/masks-ui.retry": {
+      "description": "Mask UI retry",
+      "placeholders": [],
+      "messages": {"en": "Retry", "zh": "重试"}
+    },
+    "plugin.vivy/masks-ui.unmaskedHint": {
+      "description": "Mask UI unmaskedHint",
+      "placeholders": [],
+      "messages": {"en": "Use Vivy without an additional working role", "zh": "使用 Vivy，不附加工作角色"}
+    },
+    "plugin.vivy/masks-ui.current": {
+      "description": "Mask UI current",
+      "placeholders": ["name"],
+      "messages": {"en": "Current: {{name}}", "zh": "当前：{{name}}"}
+    },
+    "plugin.vivy/masks-ui.currentBadge": {
+      "description": "Mask UI currentBadge",
+      "placeholders": [],
+      "messages": {"en": "Current", "zh": "当前"}
+    },
+    "plugin.vivy/masks-ui.libraryHint": {
+      "description": "Mask UI libraryHint",
+      "placeholders": [],
+      "messages": {"en": "Explore a role or apply it to this conversation.", "zh": "选择面具查看工作范围，或直接设为当前会话的面具。"}
+    },
+    "plugin.vivy/masks-ui.inUse": {
+      "description": "Mask UI inUse",
+      "placeholders": [],
+      "messages": {"en": "In use", "zh": "当前使用"}
+    },
+    "plugin.vivy/masks-ui.useMask": {
+      "description": "Mask UI useMask",
+      "placeholders": ["name"],
+      "messages": {"en": "Use {{name}}", "zh": "使用{{name}}"}
+    },
+    "plugin.vivy/masks-ui.duplicate": {
+      "description": "Mask UI duplicate",
+      "placeholders": [],
+      "messages": {"en": "Duplicate and edit", "zh": "复制并编辑"}
+    },
+    "plugin.vivy/masks-ui.copyName": {
+      "description": "Mask UI copyName",
+      "placeholders": ["name"],
+      "messages": {"en": "{{name}} copy", "zh": "{{name}}副本"}
+    },
+    "plugin.vivy/masks-ui.roleHint": {
+      "description": "Mask UI roleHint",
+      "placeholders": [],
+      "messages": {"en": "A mask changes the working role for this conversation. Persona, model, permissions, and code mode are managed separately.", "zh": "面具调整当前会话的工作角色。人格、模型、权限与代码模式分别管理。"}
+    },
+    "plugin.vivy/masks-ui.errors.selectionConflict": {
+      "description": "Mask UI errors.selectionConflict",
+      "placeholders": [],
+      "messages": {"en": "The mask choice changed elsewhere. The current choice has been reloaded; retry to apply yours.", "zh": "面具选择已在其他位置变更。已重新读取当前选择，请重试。"}
     }
   }
 }

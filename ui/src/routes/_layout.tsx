@@ -14,10 +14,13 @@ import { isWelcomeCompleted, openWelcome } from '@/hooks/use-welcome';
 import { ModelSwitcher } from '@/components/chat/ModelSwitcher';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { usePluginHost } from '@vivy/ui-sdk';
+import { ChatHeaderSlot } from '@/plugins/presentation-host';
 
 export const Route = createFileRoute('/_layout')({ component: Layout });
 
 function Layout() {
+  const host = usePluginHost();
   const mobile = useIsMobile();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -126,7 +129,10 @@ function Layout() {
             </div>
           </div>
           <div className="flex min-w-0 flex-1 justify-center">
-            <ModelSwitcher />
+            <div className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border bg-background/70 p-0.5 shadow-sm" data-chat-toolbar>
+              {host ? <ChatHeaderSlot host={host} /> : null}
+              <ModelSwitcher />
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button

@@ -1,4 +1,4 @@
-import type { MaskDefinition, MaskMetadata, MaskSelection } from './mask-client';
+import type { MaskDefinition } from './mask-client';
 
 export interface MaskDraft {
   readonly id?: string;
@@ -17,13 +17,7 @@ export interface MaskUIError {
 }
 
 export interface MaskState {
-  readonly epoch: number;
-  readonly activeSessionId: string | null;
-  readonly catalog: readonly MaskMetadata[];
   readonly definitions: Readonly<Record<string, MaskDefinition>>;
-  readonly selection: MaskSelection | null;
-  readonly selectionPending: boolean;
-  readonly catalogPending: boolean;
   readonly definitionPending: readonly string[];
   readonly draft: MaskDraft | null;
   readonly draftDirty: boolean;
@@ -33,13 +27,7 @@ export interface MaskState {
 }
 
 export const initialMaskState: MaskState = Object.freeze({
-  epoch: 0,
-  activeSessionId: null,
-  catalog: [],
   definitions: {},
-  selection: null,
-  selectionPending: false,
-  catalogPending: false,
   definitionPending: [],
   draft: null,
   draftDirty: false,
@@ -49,20 +37,10 @@ export const initialMaskState: MaskState = Object.freeze({
 });
 
 export type MaskAction =
-  | { readonly type: 'catalog/load-start' }
-  | { readonly type: 'catalog/load-success'; readonly items: readonly MaskMetadata[] }
-  | { readonly type: 'catalog/load-error'; readonly error: MaskUIError }
-  | { readonly type: 'session/change'; readonly epoch: number; readonly sessionId: string | null }
-  | { readonly type: 'session/load-start'; readonly epoch: number; readonly sessionId: string }
-  | { readonly type: 'session/load-success'; readonly epoch: number; readonly selection: MaskSelection }
-  | { readonly type: 'session/load-error'; readonly epoch: number; readonly sessionId: string; readonly error: MaskUIError }
-  | { readonly type: 'selection/save-start'; readonly epoch: number; readonly sessionId: string }
-  | { readonly type: 'selection/save-success'; readonly epoch: number; readonly sessionId: string; readonly selection: MaskSelection }
-  | { readonly type: 'selection/save-error'; readonly epoch: number; readonly sessionId: string; readonly error: MaskUIError }
   | { readonly type: 'definition/load-start'; readonly id: string }
   | { readonly type: 'definition/loaded'; readonly definition: MaskDefinition }
   | { readonly type: 'definition/load-error'; readonly id: string; readonly error: MaskUIError }
-  | { readonly type: 'draft/new' }
+  | { readonly type: 'draft/new'; readonly draft?: Pick<MaskDraft, 'name' | 'description' | 'body'> }
   | { readonly type: 'definition/open'; readonly definition: MaskDefinition }
   | { readonly type: 'draft/change'; readonly field: 'name' | 'description' | 'body'; readonly value: string }
   | { readonly type: 'draft/save-start'; readonly operationId?: string }
@@ -74,43 +52,6 @@ export type MaskAction =
 
 export function maskReducer(state: MaskState, action: MaskAction): MaskState {
   switch (action.type) {
-    case 'catalog/load-start':
-      return { ...state, catalogPending: true, error: null };
-    case 'catalog/load-success':
-      return { ...state, catalogPending: false, catalog: [...action.items], error: null };
-    case 'catalog/load-error':
-      return { ...state, catalogPending: false, error: action.error };
-    case 'session/change':
-      return {
-        ...state,
-        epoch: action.epoch,
-        activeSessionId: action.sessionId,
-        selection: null,
-        selectionPending: Boolean(action.sessionId),
-        error: null,
-      };
-    case 'session/load-start':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: true, error: null };
-    case 'session/load-success':
-      if (state.epoch !== action.epoch || state.activeSessionId !== action.selection.session_id) return state;
-      return { ...state, selection: action.selection, selectionPending: false, error: null };
-    case 'session/load-error':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: false, error: action.error };
-    case 'selection/save-start':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return {
-        ...state,
-        selectionPending: true,
-        error: null,
-      };
-    case 'selection/save-success':
-      if (!matchesSession(state, action.epoch, action.sessionId) || action.selection.session_id !== action.sessionId) return state;
-      return { ...state, selection: action.selection, selectionPending: false, error: null };
-    case 'selection/save-error':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: false, error: action.error };
     case 'definition/load-start':
       return { ...state, definitionPending: unique([...state.definitionPending, action.id]), error: null };
     case 'definition/loaded': {
@@ -140,7 +81,7 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
     case 'draft/new':
       return {
         ...state,
-        draft: { name: '', description: '', body: '' },
+        draft: action.draft ?? { name: '', description: '', body: '' },
         draftDirty: false,
         draftSaving: false,
         error: null,
@@ -189,7 +130,6 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
       delete definitions[action.id];
       return {
         ...state,
-        catalog: state.catalog.filter((item) => item.id !== action.id),
         definitions,
         draft: state.draft?.id === action.id ? null : state.draft,
         draftDirty: state.draft?.id === action.id ? false : state.draftDirty,
@@ -210,10 +150,6 @@ export function draftFromDefinition(definition: MaskDefinition): MaskDraft {
     description: definition.description,
     body: definition.body,
   };
-}
-
-function matchesSession(state: MaskState, epoch: number, sessionId: string): boolean {
-  return state.epoch === epoch && state.activeSessionId === sessionId;
 }
 
 function unique(values: readonly string[]): string[] {

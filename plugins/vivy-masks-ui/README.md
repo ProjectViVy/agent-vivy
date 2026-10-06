@@ -1,13 +1,16 @@
 # vivy/masks-ui
 
-This removable UI Module owns the mask catalog/editor page and session-bound
-selector. It invokes the authenticated `module.action.invoke` transport with
-backend owner `vivy/masks` and the seven `vivy.masks.*` actions.
+This removable UI Module owns the mask card library, detail editor, and compact
+session selector next to the model selector in the shell's chat toolbar. It
+invokes the authenticated `module.action.invoke` transport with backend owner
+`vivy/masks` and the seven `vivy.masks.*` actions.
 
-The UI keeps the active session and selection behind an epoch/CAS reducer. A
-late response from a previous session is ignored, selection writes carry the
-server revision, and a custom editor draft remains intact across a revision
-conflict reread.
+One extension-owned `MaskSession` projects the backend catalog and session
+selection to both surfaces. It ignores late responses from previous sessions,
+carries the server revision on writes, and refreshes after conflicts, window
+focus, and reconnect. Selection errors stay visible for retry. Editor drafts
+remain page-local. Builtin definitions are read-only; duplication starts a new
+custom draft without changing the builtin.
 
 The Module source is intentionally independent from the internal `vivy/masks`
 backend source tree. A Recipe must select this UI provider separately and the

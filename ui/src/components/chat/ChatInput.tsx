@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
-  Paperclip, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
+  Paperclip, Send, Shield, ShieldCheck, Sparkles, Square, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { dateTimeLocale, useTranslation } from '@/i18n';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { HistoryPicker } from './HistoryPicker';
 import { ContextReferenceChip } from './ContextReferenceChip';
+import { ComposerCommandControls, useComposerCommands } from './ComposerCommands';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
@@ -33,7 +34,6 @@ interface ChatInputProps {
   draftPreset?: { text: string; seq: number } | null;
 }
 
-type ExecMode = 'agent' | 'plan';
 type PermissionMode = 'cautious' | 'smart' | 'trusted';
 
 const ESTIMATED_CONTEXT_LIMIT_TOKENS = 128000;
@@ -55,12 +55,6 @@ const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((
   reader.readAsDataURL(file);
 });
 
-// 执行模式选项（对照 Agent-DIVA ChatView.modeOptions，仅保留已真实接通的 agent 与 plan）
-const MODES: { value: ExecMode; icon: LucideIcon; label: string; desc: string }[] = [
-  { value: 'agent', icon: Zap, label: 'chatInput.agentMode', desc: 'chatInput.agentModeDesc' },
-  { value: 'plan', icon: Settings2, label: 'chatInput.planMode', desc: 'chatInput.planModeDesc' },
-];
-
 // 思考模式选项（对照 Agent-DIVA ThinkingToggle）
 const THINKING_MODES: { value: ThinkingMode; icon: LucideIcon; label: string; filled?: boolean }[] = [
   { value: 'auto', icon: Lightbulb, label: 'chatInput.thinkingModeAuto' },
@@ -75,11 +69,15 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
+export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<AttachmentInput[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
-  const [execMode, setExecMode] = useState<ExecMode>('agent');
+  const [sending, setSending] = useState(false);
+  const sendLock = useRef(false);
+  const commands = useComposerCommands(value, setValue);
+  const disabled = Boolean(inputDisabled || sending);
+  const canSend = Boolean(value.trim() || commands.draft?.name === 'plan' || commands.draft?.skill || commands.draft?.goalRef);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('auto');
   const [confirmTrusted, setConfirmTrusted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -123,7 +121,6 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         : '';
     return base + bytes + status;
   };
-  const execModeOption = MODES.find((mode) => mode.value === execMode)!;
   const thinkingModeOption = THINKING_MODES.find((mode) => mode.value === thinkingMode)!;
   const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
   const permissionLocked = Boolean(running) || permissionBusy || !activeSessionId;
@@ -171,23 +168,32 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   };
 
   const send = async () => {
+    if (disabled || sendLock.current || !activeSessionId) return;
+    if (commands.menuOpen) { commands.choose(commands.index); textareaRef.current?.focus(); return; }
     const content = value.trim();
-    if (!content || disabled) return;
-    const mode: RunMode = execMode === 'plan' ? 'plan' : 'normal';
-    const outgoing = pending.length ? pending : undefined;
-    if (running) {
-      // 运行中不阻断输入：入队等待本轮结束（对照 Crush 队列 pill）。
-      await onQueue?.(content, mode, outgoing, thinkingMode);
-      setValue('');
-      setPending([]);
-      return;
-    }
+    if (!content && !commands.draft) return;
+    if (commands.draft && useVivyStore.getState().workBusy) return;
+    sendLock.current = true;
+    setSending(true);
     try {
-      await onSend(content, mode, outgoing, thinkingMode);
+      const prepared = await commands.prepare(content, Boolean(pending.length || draftReferences.length));
+      if (!commands.isCurrent()) return;
+      if (prepared) {
+        const outgoing = pending.length ? pending : undefined;
+        if (running && !prepared.forceSend) {
+          if (!onQueue) return;
+          await onQueue(prepared.text, 'normal', outgoing, thinkingMode);
+        } else await onSend(prepared.text, 'normal', outgoing, thinkingMode);
+      }
+      if (!commands.isCurrent()) return;
       setValue('');
       setPending([]);
-    } catch {
-      /* keep the draft; ChatView / store already expose the failure */
+      commands.clear();
+    } catch (error) {
+      if (commands.isCurrent()) commands.setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      sendLock.current = false;
+      if (commands.isCurrent()) setSending(false);
     }
   };
 
@@ -209,36 +215,9 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
     void applyPermission(preset);
   };
 
-  return <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:p-4 sm:pb-4"><div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
+  return <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:p-4 sm:pb-4"><div className="mx-auto relative max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
     {/* 顶部功能栏（内容与交互对照 Agent-DIVA chat-input-toolbar） */}
     <div className="flex items-center gap-1 overflow-x-auto px-3 pb-1 pt-2.5 text-muted-foreground">
-      {/* 执行模式选择 */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-accent">
-            <execModeOption.icon className="h-3.5 w-3.5" />
-            <span>{t(execModeOption.label)}</span>
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-64 p-1.5">
-          {MODES.map((mode) => (
-            <DropdownMenuItem
-              key={mode.value}
-              onSelect={() => setExecMode(mode.value)}
-              className={cn('gap-2.5 py-2', execMode === mode.value && 'bg-accent text-accent-foreground')}
-            >
-              <mode.icon className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">{t(mode.label)}</span>
-                <span className="block text-xs text-muted-foreground">{t(mode.desc)}</span>
-              </span>
-              {execMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       {/* 历史引用（SC-D4 §13.1）：打开选择器只列会话元数据，不预载转写。 */}
       {activeSessionId ? (
         <button type="button" onClick={() => setPickerOpen(true)} disabled={disabled} title={t('chatInput.attachHistory')} aria-label={t('chatInput.attachHistory')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
@@ -349,13 +328,15 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         ))}
       </div>
     ) : null}
-    <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onPaste={(event) => {
+    <ComposerCommandControls commands={commands} disabled={disabled} focus={() => textareaRef.current?.focus()} />
+    <Textarea ref={textareaRef} role="combobox" aria-label={t('chatInput.message')} aria-autocomplete="list" aria-expanded={commands.menuOpen} aria-controls={commands.menuOpen ? commands.menuId : undefined} aria-activedescendant={commands.menuOpen && commands.options.length ? `${commands.menuId}-${commands.index}` : undefined} value={value} onChange={(event) => commands.changeValue(event.target.value)} onPaste={(event) => {
       // 剪贴板贴图（对照 Crush）：有图片时接管粘贴，文本粘贴不受影响。
       const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
       if (!images.length) return;
       event.preventDefault();
       void addFiles(images);
-    }} onKeyDown={(event) => {
+    }} onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) commands.dismiss(); }} onKeyDown={(event) => {
+      if (commands.handleKeyDown(event)) return;
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); return; }
       // esc 两段式（对照 Crush）：第一次清空队列，再一次取消运行
       if (event.key === 'Escape' && running) {
@@ -363,7 +344,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         if (queuedMessages.length) clearQueue();
         else void onCancel?.();
       }
-    }} placeholder={placeholder || t('chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
+    }} placeholder={placeholder || t(commands.draft?.name === 'goal' ? (commands.draft.goalRef ? 'composerCommands.resumePlaceholder' : 'composerCommands.goalPlaceholder') : commands.draft?.name === 'plan' ? 'composerCommands.planPlaceholder' : 'chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
     <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={contextTitleText()}>
       <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="relative h-7 w-7">
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
@@ -371,10 +352,10 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
     </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
-    <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
+    <button type="button" onClick={() => void send()} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
     <Button size="icon" variant="destructive" className="rounded-full" onClick={queuedMessages.length ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
   </>
-) : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+) : <button type="button" onClick={() => void send()} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>

@@ -711,6 +711,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     }
   },
   commitWork: async (method, fields = {}) => {
+    const epoch = sessionEpoch;
     const state = get();
     const sessionId = state.activeSessionId;
     const work = state.work;
@@ -723,13 +724,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         request_id: workRequestID(method.replace('/', '-')),
         ...fields,
       });
-      if (get().activeSessionId === sessionId) set({ work: result.work, workPhase: 'ready', workError: null });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) {
+        // Automatic rounds may publish newer Work before the mutation's
+        // response reaches this peer. Never roll those facts back.
+        const latest = get().work;
+        set({ work: latest && latest.version > result.work.version ? latest : result.work, workPhase: 'ready', workError: null });
+      }
       return result;
     } catch (error) {
-      if (get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
       throw error;
     } finally {
-      if (get().activeSessionId === sessionId) set({ workBusy: false });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) set({ workBusy: false });
     }
   },
   createGoal: (objective, maxRounds) => get().commitWork('goal/create', { objective, max_rounds: maxRounds }),
@@ -1132,6 +1138,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   recordEval: async (params) => { set({ lifecycleBusy: true, lifecycleError: null }); try { await api.recordEval(params); await get().loadLifecycle(); } catch (error) { set({ lifecycleError: errorMessage(error) }); throw error; } finally { set({ lifecycleBusy: false }); } },
   promoteGeneration: async (params) => { set({ lifecycleBusy: true, lifecycleError: null }); try { await api.promoteGeneration(params); await get().loadLifecycle(); } catch (error) { set({ lifecycleError: errorMessage(error) }); throw error; } finally { set({ lifecycleBusy: false }); } },
 }));
+
+/** Reconcile an admission-changing RPC before using the local queue gate. */
+export async function reconcileRun(runId: string, sessionId: string): Promise<void> {
+  const epoch = sessionEpoch;
+  const run = await api.getRun(runId);
+  const state = useVivyStore.getState();
+  if (epoch !== sessionEpoch || state.activeSessionId !== sessionId || state.currentRun?.id !== runId) return;
+  // A terminal notification may win this read; never restore an active
+  // snapshot over it. Keep the existing transcript and subscription intact.
+  if (!runActive(state.currentRun)) return;
+  useVivyStore.setState({ currentRun: run, backgroundRuns: state.backgroundRuns.map((item) => item.id === runId ? run : item) });
+}
 
 export function resetStoreForTests(): void {
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;

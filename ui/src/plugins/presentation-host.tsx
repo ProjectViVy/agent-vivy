@@ -2,6 +2,8 @@ import {
   Component,
   Fragment,
   createElement,
+  createContext,
+  useContext,
   isValidElement,
   useMemo,
   useEffect,
@@ -872,12 +874,11 @@ export function PresentationHost({
     ? diagnosticsNode(diagnostic, resolvedProvenance)
     : phase.status === 'ready'
       ? createElement(PresentationErrorBoundary, { controller, provenance: resolvedProvenance }, createElement(Fragment, null,
-        root ? null : createElement(ChatHeaderSlot, { host, runtime }),
         navigationNode(runtime, controller.getRouter()),
         selectedNode,
       ))
       : null;
-  return createElement('div', { className: 'vivy-presentation-host', 'data-vivy-presentation-tree': '', 'data-vivy-presentation-provenance': serializedProvenance(resolvedProvenance) }, hostedContent);
+  return createElement(ChatCompositionContext.Provider, { value: runtime }, createElement('div', { className: 'vivy-presentation-host', 'data-vivy-presentation-tree': '', 'data-vivy-presentation-provenance': serializedProvenance(resolvedProvenance) }, hostedContent));
 }
 
 /**
@@ -889,11 +890,14 @@ export function PresentationHost({
  * is rendered below PresentationErrorBoundary so a Module render failure uses
  * the same diagnostic and owner cleanup path as the selected root.
  */
+const ChatCompositionContext = createContext<LiveCompositionRuntime | undefined>(undefined);
+
 export function ChatHeaderSlot({ host, runtime: suppliedRuntime }: {
   readonly host: FullUIHost;
   readonly runtime?: LiveCompositionRuntime;
 }): ReactNode {
-  const runtime = suppliedRuntime ?? compositionRuntimeOf(host);
+  const inheritedRuntime = useContext(ChatCompositionContext);
+  const runtime = suppliedRuntime ?? inheritedRuntime ?? compositionRuntimeOf(host);
   useSyncExternalStore(
     runtime ? runtime.subscribe : noopSubscribe,
     runtime ? runtime.getSnapshot : noopSnapshot,

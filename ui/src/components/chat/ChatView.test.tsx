@@ -23,7 +23,7 @@ vi.mock('@/lib/store', async (importOriginal) => {
   return { ...original, useVivyStore };
 });
 // 输入区与待办条不参与转写渲染，避免把无关的 RPC 副作用带进断言。
-vi.mock('./ChatInput', () => ({ ChatInput: () => null }));
+vi.mock('./ChatInput', () => ({ ChatInput: ({ draftPreset }: { draftPreset?: { text: string } | null }) => <div data-composer>{draftPreset?.text}</div> }));
 vi.mock('./TodoProgressStrip', () => ({ TodoProgressStrip: () => null }));
 
 const RUN: Run = { id: 'r1', session_id: 's1', status: 'active', created_at: 10 };
@@ -120,17 +120,29 @@ describe('ChatView transcript', () => {
     expect(container.textContent).toContain('历史答案');
   });
 
-  it('does not carry a Goal creation draft into another session', async () => {
-    hydrateLocale('en');
-    view.state = { activeSessionId: 's1', messages: [], messagesPhase: 'empty', currentRun: null, runEvents: [], runLogs: {},
-      work: { session_id: 's1', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' } }, workPhase: 'ready',
+  it('places actual work after the transcript and before the composer', async () => {
+    view.state = { activeSessionId: 's1', messages: [USER], messagesPhase: 'ready', currentRun: null, runEvents: [], runLogs: {},
+      work: { session_id: 's1', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' },
+        goal: { id: 'g1', revision: 1, objective: 'Ship it', phase: 'active', max_rounds: 3, rounds_started: 0 } }, workPhase: 'ready',
     };
     await render();
-    await act(async () => { [...container.querySelectorAll('button')].find((button) => button.textContent === 'Create Goal')?.click(); });
-    expect(container.querySelector('textarea[placeholder="What should Vivy accomplish?"]')).not.toBeNull();
+    const work = container.querySelector('section[aria-label]')!;
+    const message = container.querySelector('[data-message-id="m1"]')!;
+    const composer = container.querySelector('[data-composer]')!;
+    expect(message).not.toBeNull();
+    expect(message.compareDocumentPosition(work) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(work.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 
-    view.state = { ...view.state, activeSessionId: 's2', work: { session_id: 's2', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' } } };
+  it('does not replay an old rewind preset when the composer remounts in another session', async () => {
+    hydrateLocale('en');
+    view.state = { activeSessionId: 's1', messages: [USER, { id: 'm2', run_id: 'r1', role: 'assistant', content: 'Answer', created_at: 2 }], messagesPhase: 'ready', currentRun: null, runBusy: false, runEvents: [], runLogs: {}, rewindSession: vi.fn(async () => [USER]) };
+    await render();
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[title="Rewind to here"]')!.click(); });
+    await act(async () => { [...document.querySelectorAll('button')].find((button) => button.textContent === 'Rewind to here')!.click(); });
+    expect(container.querySelector('[data-composer]')?.textContent).toBe(USER.content);
+    view.state = { ...view.state, activeSessionId: 's2', messages: [] };
     await act(async () => root.render(<ChatView sessionId="s2" />));
-    expect(container.querySelector('textarea[placeholder="What should Vivy accomplish?"]')).toBeNull();
+    expect(container.querySelector('[data-composer]')?.textContent).toBe('');
   });
 });
