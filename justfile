@@ -98,6 +98,10 @@ tui: vivy-code
 dev *args:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 {{args}}
 
+# Same prep as dev, but backend and Vite run in two separate windows.
+dev-split:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 -Split
+
 # Container packaging of the default embedded-UI binary. Not part of just ci.
 docker-build:
     docker build -t vivy:local --build-arg GOPROXY=https://goproxy.cn,direct --build-arg NPM_REGISTRY=https://registry.npmmirror.com .

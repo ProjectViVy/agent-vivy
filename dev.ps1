@@ -1,9 +1,11 @@
 # Split-loop inner development: backend :8787 + Vite UI :3015.
 # Ctrl+C stops both process trees. Open http://127.0.0.1:3015
 # Usage: .\dev.ps1   or   just dev   or   .\dev.cmd
+#        .\dev.ps1 -Split  -> backend and Vite in two separate windows
 
 param(
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$Split
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +54,7 @@ function Test-TcpPort([int]$Port) {
 function Wait-TcpPort([int]$Port, [int]$Seconds, [string]$Label, $Proc) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
-        if ($Proc.HasExited) {
+        if ($Proc -and $Proc.HasExited) {
             throw "$Label exited before port $Port was ready (exit $($Proc.ExitCode))"
         }
         if (Test-TcpPort $Port) { return }
@@ -128,6 +130,24 @@ try {
     Write-Host "building split-loop backend"
     & $go build -tags vivy_headless -o $backendExe ./cmd/vivy
     if ($LASTEXITCODE) { throw "backend build failed: $LASTEXITCODE" }
+
+    if ($Split) {
+        # Two detached windows; the launcher exits after both ports answer.
+        $backendCmd = "`$Host.UI.RawUI.WindowTitle = 'vivy backend :8787'; Set-Location -LiteralPath '$root'; & '$backendExe'"
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"$backendCmd`"" | Out-Null
+        $uiCmd = "`$Host.UI.RawUI.WindowTitle = 'vite :3015'; Set-Location -LiteralPath '$uiDir'; & '$pnpm' dev"
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"$uiCmd`"" | Out-Null
+
+        Wait-TcpPort 8787 90 "backend" $null
+        Wait-TcpPort 3015 45 "vite" $null
+        Write-Host ""
+        Write-Host "split windows ready: http://127.0.0.1:3015  (control plane http://127.0.0.1:8787)"
+        Write-Host "stop each part with Ctrl+C in its own window."
+        if (-not $NoBrowser) {
+            Start-Process "http://127.0.0.1:3015" | Out-Null
+        }
+        return
+    }
 
     Write-Host "starting backend 127.0.0.1:8787"
     $backend = Start-LoggedProcess $backendExe "" $root "vivy"
