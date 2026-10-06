@@ -1,5 +1,12 @@
 # CH-C9 — A2A / NeuroLink (DEFERRED Note, Not a Work Order)
 
+> **2026-10-07 A2A design review:** [Issue #2 architecture draft](../../superpowers/specs/2026-10-07-a2a-server-design.md)
+> proposes official `a2a-go/v2` transport reuse through a custom RequestHandler
+> and a native ChannelHost TaskHost. The EinoExt codec choice below is historical,
+> not the proposed implementation dependency. Exact wire replay versus standard
+> snapshot recovery requires owner review. Architecture work is authorized;
+> implementation remains unscheduled. NeuroLink is unchanged.
+
 ## 1. Identity
 
 | | |
