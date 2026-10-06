@@ -36,6 +36,7 @@ var englishCatalog = map[string]string{
 	"vivy.tui.live.streamWarning":              "stream replay: ",
 	"vivy.tui.live.runFooter":                  " · run…",
 	"vivy.tui.live.queueFooter":                " · queued {{count}}",
+	"vivy.tui.live.queueLanes":                 " · steer {{steer}} · queued {{follow}}",
 	"vivy.tui.live.viewCommand":                "/{{command}} is handled by the shared view or is unavailable",
 	"vivy.tui.live.imagesCleared":              "cleared {{count}} pending image attachment(s)",
 	"vivy.tui.live.imageNotPending":            "image attachment {{index}} is not pending",

@@ -84,14 +84,25 @@ type Live struct {
 	seq int
 	// cursor is the shared durable stream reducer state. The local fields
 	// below are transport subscription bookkeeping only.
-	cursor               stream.Cursor
-	subscriptionID       string
-	subscriptionRequest  uint64
-	closed               bool
-	recoveryInFlight     bool
-	recoveryNeeded       bool
-	replayPending        bool
-	terminalSucceeded    bool
+	cursor              stream.Cursor
+	subscriptionID      string
+	subscriptionRequest uint64
+	closed              bool
+	recoveryInFlight    bool
+	recoveryNeeded      bool
+	replayPending       bool
+	terminalSucceeded   bool
+	// settledRunID is the run that just reached a terminal event; the queue
+	// admission lookup (queue/state{after_run_id}) polls it briefly.
+	settledRunID string
+	// queueView holds the kernel dual-track lane counts shown in the footer;
+	// refreshed via queue/state whenever a turn.* notice arrives.
+	queueSteer  int
+	queueFollow int
+	queueDirty  bool
+	// restoreDraft is the newest dequeued/flushed text pending editor
+	// restore (pi returns queued messages on abort/dequeue).
+	restoreDraft         string
 	nextRecoveryAt       time.Time
 	streamFailures       map[string]string
 	retiredSubscriptions map[string]struct{}
@@ -304,7 +315,7 @@ func (l *Live) PendingGate() *surface.Gate {
 func (l *Live) Meta() surface.Meta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	queued := 0
+	queued := l.queueSteer + l.queueFollow
 	for _, turn := range l.queue {
 		if turn.SessionID == "" || turn.SessionID == l.activeID {
 			queued++
@@ -320,18 +331,22 @@ func (l *Live) Meta() surface.Meta {
 	if l.busy {
 		footer += l.translator.T("vivy.tui.live.runFooter", nil)
 	}
-	if queued > 0 {
+	if l.queueSteer > 0 || l.queueFollow > 0 {
+		footer += l.translator.T("vivy.tui.live.queueLanes", map[string]any{"steer": l.queueSteer, "follow": l.queueFollow})
+	} else if queued > 0 {
 		footer += l.translator.T("vivy.tui.live.queueFooter", map[string]any{"count": queued})
 	}
 	return surface.Meta{
-		Host:      l.host,
-		Busy:      l.busy,
-		Queued:    queued,
-		RunID:     l.runID,
-		Error:     l.lastErr,
-		Footer:    footer,
-		BusySince: l.busySince,
-		Loading:   l.loadPending,
+		Host:           l.host,
+		Busy:           l.busy,
+		Queued:         queued,
+		SteerQueued:    l.queueSteer,
+		FollowUpQueued: l.queueFollow,
+		RunID:          l.runID,
+		Error:          l.lastErr,
+		Footer:         footer,
+		BusySince:      l.busySince,
+		Loading:        l.loadPending,
 	}
 }
 
@@ -409,6 +424,25 @@ type liveAttachmentResolvedMsg struct {
 	SessionID   string
 	Attachments []surface.Attachment
 	Err         error
+}
+
+type liveQueuedTurnMsg struct {
+	Track, SessionID, Text, Thinking, Mode string
+	Queued                                 bool
+	RunID                                  string
+	Err                                    error
+}
+
+type liveAdmittedRunMsg struct {
+	SessionID string
+	RunID     string
+}
+
+type liveQueueMsg struct {
+	SessionID   string
+	View        queueStateView
+	Err         error
+	RestoreText string
 }
 
 type liveSubscribedMsg struct {
@@ -519,10 +553,12 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 			l.markRecoveryNeeded()
 		}
 		if finished {
+			cmds := []tea.Cmd{l.admitSettledCmd(), l.refreshQueueCmd(), l.restoreDraftCmd(),
+				l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd()}
 			if l.takeTerminalSucceeded() {
-				return tea.Batch(l.dequeueCmd(), l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd())
+				cmds = append([]tea.Cmd{l.dequeueCmd()}, cmds...)
 			}
-			return tea.Batch(l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd())
+			return tea.Batch(cmds...)
 		}
 		if lspChanged {
 			return tea.Batch(l.refreshSidebarCmd(), l.recoverSubscriptionCmd(), l.tickCmd())
@@ -542,6 +578,12 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyAttachmentResolved(msg)
 	case liveSubscribedMsg:
 		return l.applySubscribed(msg)
+	case liveQueuedTurnMsg:
+		return l.applyQueuedTurn(msg)
+	case liveAdmittedRunMsg:
+		return l.applyAdmittedRun(msg)
+	case liveQueueMsg:
+		return l.applyQueueMsg(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
 	case surface.CommandResultMsg:
@@ -776,6 +818,10 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 		l.mu.Unlock()
 		return nil
 	}
+	// A session switch/load may surface a rebuilt kernel queue (restart
+	// recovery) — refresh lane counts on the next tick.
+	l.queueDirty = true
+	l.queueSteer, l.queueFollow = 0, 0
 	if len(msg.Sessions) > 0 {
 		l.sessions = msg.Sessions
 	}
@@ -1287,6 +1333,153 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 	}
 }
 
+// queueTurnCmd issues a queued turn through the kernel dual-track queue
+// (turn/steer | turn/follow_up). The kernel degrades an idle session to a
+// fresh run — the response then carries run_id.
+func (l *Live) queueTurnCmd(track, sessionID, text, thinking, mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		queued, runID, err := l.client.queueTurn(ctx, track, sessionID, text, thinking, mode)
+		return liveQueuedTurnMsg{Track: track, SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Queued: queued, RunID: runID, Err: err}
+	}
+}
+
+func (l *Live) applyQueuedTurn(msg liveQueuedTurnMsg) tea.Cmd {
+	if msg.Err != nil {
+		l.mu.Lock()
+		l.lastErr = shortErr(msg.Err)
+		l.mu.Unlock()
+		return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.Text} }
+	}
+	if msg.RunID != "" {
+		// Idle-session fallback: the queued turn became a fresh run. Paint
+		// the optimistic bubble and subscribe like a normal send.
+		l.mu.Lock()
+		if msg.SessionID == l.activeID || l.activeID == "" {
+			l.appendLocked(surface.Message{
+				ID:      l.nextID("user"),
+				Role:    roleUser,
+				Content: msg.Text,
+			})
+		}
+		l.mu.Unlock()
+		return l.applyTurnStarted(liveTurnStartedMsg{SessionID: msg.SessionID, UserText: msg.Text, RunID: msg.RunID})
+	}
+	l.mu.Lock()
+	l.queueDirty = true
+	if msg.Track == "steer" && msg.SessionID == l.activeID {
+		// Optimistic steer bubble: the resume injects the text via history
+		// modifier, which emits no user event — the composer needs the echo.
+		l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: msg.Text})
+	}
+	l.mu.Unlock()
+	return l.refreshQueueCmd()
+}
+
+// admitSettledCmd resolves the follow-up run the kernel auto-started for
+// the settled run (queue/state{after_run_id}); admission races the terminal
+// publish, so poll briefly, then subscribe like a started turn.
+func (l *Live) admitSettledCmd() tea.Cmd {
+	l.mu.Lock()
+	sessionID := l.activeID
+	settled := l.settledRunID
+	l.mu.Unlock()
+	if sessionID == "" || settled == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		for i := 0; i < 40; i++ {
+			ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+			view, err := l.client.queueState(ctx, sessionID, settled)
+			cancel()
+			if err == nil && view.AdmittedRunID != "" {
+				return liveAdmittedRunMsg{SessionID: sessionID, RunID: view.AdmittedRunID}
+			}
+			select {
+			case <-l.ctx.Done():
+				return liveAdmittedRunMsg{SessionID: sessionID}
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		return liveAdmittedRunMsg{SessionID: sessionID}
+	}
+}
+
+func (l *Live) applyAdmittedRun(msg liveAdmittedRunMsg) tea.Cmd {
+	if msg.RunID == "" {
+		return nil
+	}
+	l.mu.Lock()
+	if msg.SessionID != l.activeID {
+		l.mu.Unlock()
+		return nil
+	}
+	l.setBusyLocked(true)
+	l.runsSeen++
+	l.runID = msg.RunID
+	l.cursor.Reset()
+	l.subscriptionID = ""
+	l.mu.Unlock()
+	return l.subscribeCmd(msg.RunID, 0, false)
+}
+
+// refreshQueueCmd re-reads the kernel lane counts when they may have moved.
+func (l *Live) refreshQueueCmd() tea.Cmd {
+	l.mu.Lock()
+	if !l.queueDirty {
+		l.mu.Unlock()
+		return nil
+	}
+	l.queueDirty = false
+	sessionID := l.activeID
+	l.mu.Unlock()
+	if sessionID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		view, err := l.client.queueState(ctx, sessionID, "")
+		return liveQueueMsg{SessionID: sessionID, View: view, Err: err}
+	}
+}
+
+func (l *Live) applyQueueMsg(msg liveQueueMsg) tea.Cmd {
+	if msg.Err != nil {
+		l.mu.Lock()
+		l.lastErr = shortErr(msg.Err)
+		l.mu.Unlock()
+		return nil
+	}
+	if msg.SessionID == "" {
+		return nil
+	}
+	l.mu.Lock()
+	if msg.SessionID == l.activeID {
+		l.queueSteer = len(msg.View.Steering)
+		l.queueFollow = len(msg.View.FollowUps)
+	}
+	l.mu.Unlock()
+	if msg.RestoreText != "" {
+		return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.RestoreText} }
+	}
+	return func() tea.Msg { return surface.RefreshMsg{} }
+}
+
+// restoreDraftCmd emits the newest text the kernel returned to the editor
+// (abort flush / dequeue). Oldest wins while a draft is already pending.
+func (l *Live) restoreDraftCmd() tea.Cmd {
+	l.mu.Lock()
+	text := l.restoreDraft
+	l.restoreDraft = ""
+	l.mu.Unlock()
+	if text == "" {
+		return nil
+	}
+	return func() tea.Msg { return surface.RestoreInputMsg{Text: text} }
+}
+
 func (l *Live) dequeueCmd() tea.Cmd {
 	l.mu.Lock()
 	if l.busy || l.gate != nil || len(l.queue) == 0 {
@@ -1318,8 +1511,19 @@ func (l *Live) applyNotice(notice eventNotice) {
 	done := projection.Apply(stream.Notice(notice), l.nextID)
 	l.messages[l.activeID] = projection.Messages
 	l.gate = projection.Gate
+	switch notice.Kind {
+	case "queue_queued", "queue_dequeued", "queue_steered":
+		l.queueDirty = true
+		// Abort/clear flush restores the newest queued text into the
+		// composer — same as pi's Alt+Up recall.
+		if notice.Kind == "queue_dequeued" && notice.Message != "" &&
+			(notice.QueueReason == "aborted" || notice.QueueReason == "cleared") {
+			l.restoreDraft = notice.Message
+		}
+	}
 	if done {
 		l.terminalSucceeded = !notice.Failed
+		l.settledRunID = notice.RunID
 		l.setBusyLocked(false)
 		l.runID = ""
 		l.retireSubscriptionLocked(l.subscriptionID)
@@ -1809,6 +2013,48 @@ func (l *Live) Send(text string) tea.Cmd {
 	return l.sendWithAttachments(text, thinking, mode, attachments, true)
 }
 
+// SendFollowUp implements surface.Driver (pi Alt+Enter): queues text on
+// the kernel follow-up lane behind the active run; an idle session degrades
+// to a normal send.
+func (l *Live) SendFollowUp(text string) tea.Cmd {
+	l.mu.Lock()
+	thinking := l.thinkingMode
+	mode := l.runMode
+	sessionID := l.activeID
+	if (l.busy || l.gate != nil) && sessionID != "" {
+		l.mu.Unlock()
+		return l.queueTurnCmd("follow_up", sessionID, text, thinking, mode)
+	}
+	attachments := cloneAttachments(l.drafts[sessionID])
+	l.mu.Unlock()
+	return l.sendWithAttachments(text, thinking, mode, attachments, true)
+}
+
+// Dequeue implements surface.Driver (pi Alt+Up): withdraws the newest
+// pending queued turn into the composer.
+func (l *Live) Dequeue() tea.Cmd {
+	l.mu.Lock()
+	sessionID := l.activeID
+	l.mu.Unlock()
+	if sessionID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		text, ok, err := l.client.dequeueQueue(ctx, sessionID)
+		if err != nil {
+			return liveQueueMsg{Err: err}
+		}
+		view, _ := l.client.queueState(ctx, sessionID, "")
+		msg := liveQueueMsg{SessionID: sessionID, View: view}
+		if ok {
+			msg.RestoreText = text
+		}
+		return msg
+	}
+}
+
 // SendWithContext implements surface.ContextSender. The packed face has no
 // filesystem grant; it forwards untrusted project-relative hints to the
 // control plane for metadata resolution and turn-time revalidation.
@@ -1881,10 +2127,18 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 	}
 	sessionID := l.activeID
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		if consumeDraft {
 			delete(l.drafts, sessionID)
 		}
+		if len(attachments) == 0 && len(contextPaths) == 0 {
+			// Kernel dual-track queue (VCP-B2): Enter steers at the next
+			// turn boundary; a gate demotes it to the follow-up lane.
+			l.mu.Unlock()
+			return l.queueTurnCmd("steer", sessionID, text, thinking, mode)
+		}
+		// Attachments/context paths cannot ride the kernel text queue yet —
+		// keep the face-local FIFO for those turns.
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
@@ -2151,13 +2405,17 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		}
 		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.cancelUnavailable", nil)))
 	case "queue":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
+		}
+		if len(args) == 0 {
+			return l.queueSummaryCmd(sessionID)
+		}
 		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
-			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/queue clear"})))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/queue [clear]"})))
 		}
-		if l.ClearQueue() {
-			return commandResultCmd(name, l.translator.T("vivy.tui.live.queueCleared", nil), nil)
-		}
-		return commandResultCmd(name, l.translator.T("vivy.tui.live.queueEmpty", nil), nil)
+		return l.queueClearCmd(sessionID)
 	case "permission":
 		preset := ""
 		if len(args) == 1 {
@@ -2380,14 +2638,91 @@ func commandResultCmd(name, output string, err error) tea.Cmd {
 	return func() tea.Msg { return surface.CommandResultMsg{Name: name, Output: output, Err: err} }
 }
 
+// ClearQueue implements surface.Driver. The local buffer clears
+// synchronously; the kernel lanes clear through a fire-and-forget
+// queue/clear — the journaled turn.dequeued notices refresh lane counts
+// and restore the newest text into the composer.
 func (l *Live) ClearQueue() bool {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(l.queue) == 0 {
-		return false
-	}
+	had := len(l.queue) > 0 || l.queueSteer+l.queueFollow > 0
 	l.queue = nil
-	return true
+	sessionID := l.activeID
+	l.mu.Unlock()
+	if sessionID != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+			defer cancel()
+			if texts, err := l.client.clearQueue(ctx, sessionID); err == nil && len(texts) > 0 {
+				l.mu.Lock()
+				l.restoreDraft = texts[len(texts)-1]
+				l.mu.Unlock()
+				select {
+				case l.eventWake <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	return had
+}
+
+// queueSummaryCmd renders both kernel lanes with text previews (pi /queue).
+func (l *Live) queueSummaryCmd(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		view, err := l.client.queueState(ctx, sessionID, "")
+		if err != nil {
+			return surface.CommandResultMsg{Name: "queue", Err: err}
+		}
+		if len(view.Steering)+len(view.FollowUps) == 0 {
+			return surface.CommandResultMsg{Name: "queue", Output: l.translator.T("vivy.tui.live.queueEmpty", nil)}
+		}
+		var b strings.Builder
+		write := func(label string, items []queuedTurnView) {
+			if len(items) == 0 {
+				return
+			}
+			fmt.Fprintf(&b, "%s (%d):", label, len(items))
+			for i, item := range items {
+				line := strings.ReplaceAll(item.Text, "\n", " ")
+				if len(line) > 72 {
+					line = line[:72] + "…"
+				}
+				fmt.Fprintf(&b, "\n  %d. %s", i+1, line)
+			}
+			b.WriteString("\n")
+		}
+		write("steer", view.Steering)
+		write("follow-up", view.FollowUps)
+		return surface.CommandResultMsg{Name: "queue", Output: strings.TrimSpace(b.String())}
+	}
+}
+
+// queueClearCmd drains both kernel lanes (and the local shell buffer) and
+// restores the newest text into the composer — pi returns queued messages
+// to the editor.
+func (l *Live) queueClearCmd(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		texts, err := l.client.clearQueue(ctx, sessionID)
+		if err != nil {
+			return surface.CommandResultMsg{Name: "queue", Err: err}
+		}
+		l.mu.Lock()
+		local := len(l.queue)
+		l.queue = nil
+		if len(texts) > 0 {
+			l.restoreDraft = texts[len(texts)-1]
+		}
+		l.queueDirty = true
+		l.mu.Unlock()
+		if len(texts) == 0 && local == 0 {
+			return surface.CommandResultMsg{Name: "queue", Output: l.translator.T("vivy.tui.live.queueEmpty", nil)}
+		}
+		return surface.CommandResultMsg{Name: "queue", Output: l.translator.T("vivy.tui.live.queueCleared", nil)}
+	}
 }
 
 // Cancel implements surface.Driver.

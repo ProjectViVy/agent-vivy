@@ -36,6 +36,7 @@ var chineseCatalog = map[string]string{
 	"vivy.tui.live.streamWarning":              "流重放：",
 	"vivy.tui.live.runFooter":                  " · 运行中…",
 	"vivy.tui.live.queueFooter":                " · 排队 {{count}}",
+	"vivy.tui.live.queueLanes":                 " · 纠偏 {{steer}} · 排队 {{follow}}",
 	"vivy.tui.live.viewCommand":                "/{{command}} 由共享视图处理或不可用",
 	"vivy.tui.live.imagesCleared":              "已清除 {{count}} 个待发送图片附件",
 	"vivy.tui.live.imageNotPending":            "图片附件 {{index}} 不在待发送列表中",

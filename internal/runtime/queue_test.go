@@ -7,6 +7,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"path/filepath"
@@ -531,4 +532,56 @@ func TestSteerDuringSuspendedRunDemotesToFollowUp(t *testing.T) {
 	if len(state.FollowUps) != 1 || len(state.Steering) != 0 {
 		t.Fatalf("queue = %+v", state)
 	}
+}
+
+func TestDequeuePopsNewestFollowUp(t *testing.T) {
+	model := newGateModel()
+	svc, backend := newQueueTestService(t, model)
+	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-deq")
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := svc.Run(ctx, "sess-deq", "first")
+		runDone <- err
+	}()
+	<-model.entered
+	if _, err := svc.FollowUp(ctx, "sess-deq", "older"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.FollowUp(ctx, "sess-deq", "newest"); err != nil {
+		t.Fatal(err)
+	}
+	item, ok := svc.Dequeue(ctx, "sess-deq")
+	if !ok || item.Text != "newest" {
+		t.Fatalf("dequeue = %+v ok=%v, want newest", item, ok)
+	}
+	state := svc.QueueState(ctx, "sess-deq", "")
+	if len(state.FollowUps) != 1 || state.FollowUps[0].Text != "older" {
+		t.Fatalf("tail after dequeue = %+v", state.FollowUps)
+	}
+	// Second dequeue drains the lane; an empty lane reports not-found.
+	if item, ok := svc.Dequeue(ctx, "sess-deq"); !ok || item.Text != "older" {
+		t.Fatalf("second dequeue = %+v ok=%v", item, ok)
+	}
+	if _, ok := svc.Dequeue(ctx, "sess-deq"); ok {
+		t.Fatal("empty lane must report not-found")
+	}
+	// Journal carries turn.dequeued{reason:"dequeued", text} per item.
+	var reasons []string
+	runs, _ := backend.ListRunsBySession(ctx, "sess-deq")
+	for _, ev := range journalEvents(t, backend, runs[len(runs)-1].ID) {
+		if ev.Type != domain.EventTurnDequeued {
+			continue
+		}
+		var p payloadTurnDequeued
+		if err := json.Unmarshal(ev.Payload, &p); err == nil {
+			reasons = append(reasons, p.Reason+":"+p.Text)
+		}
+	}
+	if len(reasons) != 2 {
+		t.Fatalf("dequeue markers = %v", reasons)
+	}
+	close(model.release)
+	<-runDone
 }

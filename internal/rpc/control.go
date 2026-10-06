@@ -1369,6 +1369,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.queueState(ctx, request)
 	case "queue/clear":
 		return h.clearQueue(ctx, request)
+	case "queue/dequeue":
+		return h.dequeueQueue(ctx, request)
 	case "queue/mode":
 		return h.setQueueMode(ctx, request)
 	case "run/get":
@@ -3605,6 +3607,25 @@ func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, 
 		texts = append(texts, item.Text)
 	}
 	return map[string]any{"cleared": true, "texts": texts}, nil
+}
+
+// dequeueQueue pops the newest pending follow-up for editor restore
+// (pi Alt+Up). Empty lane reports dequeued:false rather than an error.
+func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	item, ok := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	if !ok {
+		return map[string]any{"dequeued": false}, nil
+	}
+	return map[string]any{"dequeued": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
 }
 
 func (h *controlHandler) setQueueMode(ctx context.Context, request Request) (any, *Error) {

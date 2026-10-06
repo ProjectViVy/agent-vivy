@@ -426,7 +426,10 @@ type payloadTurnQueued struct {
 type payloadTurnDequeued struct {
 	QueueID string `json:"queue_id"`
 	Track   string `json:"track"`
-	Reason  string `json:"reason"` // started | cleared | aborted
+	Reason  string `json:"reason"` // started | cleared | aborted | dequeued
+	// Text repeats the queued turn's text so faces can restore it into the
+	// editor (abort flush / Alt+Up dequeue) without tracking queue ids.
+	Text string `json:"text,omitempty"`
 	// NextRunID announces the run an admitted item started — publish-only
 	// wire hint on the settling run's topic (journal truth lives on the
 	// new run's journal).

@@ -605,6 +605,94 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 	return accepted, nil
 }
 
+// queuedTurnView is one kernel queued turn (VCP-B2).
+type queuedTurnView struct {
+	Text string `json:"text"`
+}
+
+// queueStateView is the kernel dual-track queue snapshot (VCP-B2).
+type queueStateView struct {
+	Steering      []queuedTurnView `json:"steering"`
+	FollowUps     []queuedTurnView `json:"follow_up"`
+	SteerMode     string           `json:"steer_mode"`
+	FollowUpMode  string           `json:"follow_up_mode"`
+	AdmittedRunID string           `json:"admitted_run_id"`
+}
+
+// queueTurn issues one queued turn through the kernel dual-track queue
+// (turn/steer | turn/follow_up). An idle session degrades to a fresh run —
+// the response then carries run_id instead of queued:true.
+func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string) (queued bool, runID string, err error) {
+	params := map[string]any{
+		"session_id": sessionID,
+		"text":       text,
+		"face":       "code",
+	}
+	if thinking = strings.TrimSpace(thinking); thinking != "" {
+		params["thinking"] = thinking
+	}
+	if mode = strings.TrimSpace(mode); mode != "" && mode != "normal" {
+		params["mode"] = mode
+	}
+	raw, err := c.Call(ctx, "turn/"+track, params)
+	if err != nil {
+		return false, "", err
+	}
+	var res struct {
+		Queued bool   `json:"queued"`
+		RunID  string `json:"run_id"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return false, "", fmt.Errorf("tui: turn/%s: %w", track, err)
+	}
+	return res.Queued, res.RunID, nil
+}
+
+func (c *client) queueState(ctx context.Context, sessionID, afterRunID string) (queueStateView, error) {
+	params := map[string]any{"session_id": sessionID}
+	if afterRunID != "" {
+		params["after_run_id"] = afterRunID
+	}
+	raw, err := c.Call(ctx, "queue/state", params)
+	if err != nil {
+		return queueStateView{}, err
+	}
+	var view queueStateView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return queueStateView{}, fmt.Errorf("tui: queue/state: %w", err)
+	}
+	return view, nil
+}
+
+func (c *client) clearQueue(ctx context.Context, sessionID string) ([]string, error) {
+	raw, err := c.Call(ctx, "queue/clear", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Texts []string `json:"texts"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("tui: queue/clear: %w", err)
+	}
+	return res.Texts, nil
+}
+
+func (c *client) dequeueQueue(ctx context.Context, sessionID string) (string, bool, error) {
+	raw, err := c.Call(ctx, "queue/dequeue", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return "", false, err
+	}
+	var res struct {
+		Dequeued bool   `json:"dequeued"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", false, fmt.Errorf("tui: queue/dequeue: %w", err)
+	}
+	return res.Text, res.Dequeued, nil
+}
+
 func (c *client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
 	// shell/start intentionally accepts only session_id and script. Policy,
 	// approval and execution remain runtime-owned by the control plane.

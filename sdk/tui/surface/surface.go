@@ -195,9 +195,13 @@ type Meta struct {
 	Host   string
 	Busy   bool
 	Queued int
-	RunID  string
-	Error  string
-	Footer string // short status fragment after help keys
+	// SteerQueued / FollowUpQueued are the kernel dual-track lane counts
+	// (VCP-B2); Queued keeps the total for older renderers.
+	SteerQueued    int
+	FollowUpQueued int
+	RunID          string
+	Error          string
+	Footer         string // short status fragment after help keys
 	// BusySince is when the current run started; zero while idle. The chrome
 	// uses it for the elapsed-run timer.
 	BusySince time.Time
@@ -222,6 +226,14 @@ type Driver interface {
 	MoveSession(delta int) tea.Cmd
 	NewSession(title string) tea.Cmd
 	Send(text string) tea.Cmd
+	// SendFollowUp queues text behind the active run (pi Alt+Enter). On an
+	// idle session the driver may degrade it to a fresh turn — same as
+	// Send.
+	SendFollowUp(text string) tea.Cmd
+	// Dequeue withdraws the newest pending queued turn for editor restore
+	// (pi Alt+Up); the driver answers with RestoreInputMsg or nil when the
+	// queue is empty.
+	Dequeue() tea.Cmd
 	DecideApproval(decision string) tea.Cmd
 	AnswerQuestion(answer string) tea.Cmd
 	SetPermission(preset string) tea.Cmd

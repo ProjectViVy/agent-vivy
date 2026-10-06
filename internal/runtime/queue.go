@@ -212,7 +212,7 @@ func (s *Service) Steer(ctx context.Context, sessionID domain.SessionID, text st
 		q.steer = removeQueued(q.steer, item.ID)
 		s.mu.Unlock()
 		s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{
-			QueueID: item.ID, Track: domain.QueueTrackSteer, Reason: "aborted",
+			QueueID: item.ID, Track: domain.QueueTrackSteer, Reason: "aborted", Text: item.Text,
 		})
 		item.Track = domain.QueueTrackFollowUp
 		s.mu.Lock()
@@ -267,10 +267,31 @@ func (s *Service) ClearQueue(ctx context.Context, sessionID domain.SessionID) Qu
 	s.mu.Unlock()
 	for _, item := range cleared {
 		s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{
-			QueueID: item.ID, Track: item.Track, Reason: "cleared",
+			QueueID: item.ID, Track: item.Track, Reason: "cleared", Text: item.Text,
 		})
 	}
 	return state
+}
+
+// Dequeue pops the most recently enqueued still-pending item (follow-up
+// tail — steer items arm a boundary cancel at enqueue and are already in
+// flight, so only the follow-up lane is withdrawable) and journals
+// turn.dequeued{reason:"dequeued"}. pi: Alt+Up restores queued text into
+// the editor. Returns ok=false when the lane is empty.
+func (s *Service) Dequeue(ctx context.Context, sessionID domain.SessionID) (domain.QueuedTurn, bool) {
+	q := s.queueFor(ctx, sessionID)
+	s.mu.Lock()
+	if len(q.followUp) == 0 {
+		s.mu.Unlock()
+		return domain.QueuedTurn{}, false
+	}
+	item := q.followUp[len(q.followUp)-1]
+	q.followUp = q.followUp[:len(q.followUp)-1]
+	s.mu.Unlock()
+	s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{
+		QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text,
+	})
+	return item, true
 }
 
 // QueueState returns the session's pending queue without mutating it.
@@ -593,7 +614,7 @@ func (s *Service) flushQueue(sessionID domain.SessionID) {
 	s.mu.Unlock()
 	for _, item := range cleared {
 		s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{
-			QueueID: item.ID, Track: item.Track, Reason: "aborted",
+			QueueID: item.ID, Track: item.Track, Reason: "aborted", Text: item.Text,
 		})
 	}
 }

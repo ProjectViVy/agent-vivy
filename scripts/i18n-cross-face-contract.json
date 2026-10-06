@@ -1764,6 +1764,7 @@
       "vivy.tui.live.queueCleared",
       "vivy.tui.live.queueEmpty",
       "vivy.tui.live.queueFooter",
+      "vivy.tui.live.queueLanes",
       "vivy.tui.live.replayFailed",
       "vivy.tui.live.runFooter",
       "vivy.tui.live.runIDRequired",

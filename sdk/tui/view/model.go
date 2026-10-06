@@ -787,10 +787,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.cycleWorkingMode()
 		}
 		return m, nil
-	case tea.KeyTab, tea.KeyUp, tea.KeyDown:
+	case tea.KeyUp:
+		if msg.Alt && gate == nil {
+			// pi Alt+Up: withdraw the newest queued turn into the composer.
+			return m, m.driver.Dequeue()
+		}
+		return m, nil
+	case tea.KeyTab, tea.KeyDown:
 		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
 		return m, nil
+	case tea.KeyCtrlQ:
+		// Terminals without a working Alt modifier: Ctrl+Q is the follow-up
+		// fallback for Alt+Enter (pi steering key scheme).
+		if gate != nil {
+			return m, nil
+		}
+		return m.submitFollowUp()
 	case tea.KeyEnter:
 		if gate != nil {
 			if gate.Submitting {
@@ -800,6 +813,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				return m, m.driver.AnswerQuestion(m.input)
 			}
 			return m, m.driver.DecideApproval(approvalApproved)
+		}
+		if msg.Alt {
+			// pi Alt+Enter: follow-up lane — runs after the turn settles.
+			return m.submitFollowUp()
 		}
 		return m.submitInput()
 	case tea.KeyBackspace:
@@ -1702,6 +1719,29 @@ func safeDynamicCommandName(name string) bool {
 		return false
 	}
 	return true
+}
+
+// submitFollowUp sends plain-text input through the kernel follow-up lane
+// (pi Alt+Enter). Command/shell/file submissions keep the normal path —
+// the kernel text queue cannot carry their payloads yet.
+func (m Model) submitFollowUp() (Model, tea.Cmd) {
+	if m.dynamicCommandPending {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicPending", nil))), nil
+	}
+	registry, _ := m.effectiveCommandRegistry()
+	parsed, err := registry.Parse(m.input)
+	if err != nil {
+		return m.showCommandError(err), nil
+	}
+	if parsed.IsCommand() || parsed.IsShell() || parsed.IsFile() || parsed.IsUnavailable() {
+		return m.submitInput()
+	}
+	cmd := m.driver.SendFollowUp(parsed.Text)
+	if cmd != nil {
+		m.input = ""
+		m.chatFollow = true
+	}
+	return m, cmd
 }
 
 func (m Model) submitInput() (Model, tea.Cmd) {
