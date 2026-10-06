@@ -181,6 +181,17 @@ type CompactionSettings struct {
 	MaxTokens      int   `yaml:"max_tokens,omitempty"`
 	TriggerPercent int   `yaml:"trigger_percent,omitempty"`
 	KeepRecent     int   `yaml:"keep_recent,omitempty"`
+	// PerModel overrides selected fields when the active route's model ID
+	// matches the key (settings.yaml compaction.per_model.<model>).
+	PerModel map[string]CompactionOverride `yaml:"per_model,omitempty"`
+}
+
+// CompactionOverride overrides selected compaction fields for one model.
+// Zero values inherit the global policy.
+type CompactionOverride struct {
+	MaxTokens      int `yaml:"max_tokens,omitempty"`
+	TriggerPercent int `yaml:"trigger_percent,omitempty"`
+	KeepRecent     int `yaml:"keep_recent,omitempty"`
 }
 
 // HTTPSettings is the UI-managed overlay for the read-only http_request

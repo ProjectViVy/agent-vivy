@@ -2461,7 +2461,11 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		if !ok {
 			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
-		return l.commandRPCCmd(name, "context/compact", map[string]string{"session_id": sessionID})
+		params := map[string]string{"session_id": sessionID}
+		if len(args) > 0 {
+			params["instructions"] = strings.TrimSpace(strings.Join(args, " "))
+		}
+		return l.commandRPCCmd(name, "context/compact", params)
 	case "fork":
 		sessionID, ok := l.commandSessionID()
 		if !ok {

@@ -3636,6 +3636,25 @@ func TestContextCompactionRPC(t *testing.T) {
 	if result, ok := disabledResult.(runtime.CompactionResult); !ok || !result.Skipped {
 		t.Fatalf("disabled compaction = %+v, want skipped", disabledResult)
 	}
+
+	// instructions past the bound is a parameter error, not a compaction.
+	_, rpcErr = callControl(t, handler, "context/compact", map[string]any{
+		"session_id": sessionID, "instructions": strings.Repeat("x", 4097),
+	})
+	if rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("overlong instructions = %v, want InvalidParams", rpcErr)
+	}
+	// A valid instructions argument flows through (still skipped on an
+	// empty session — the kernel path is covered in runtime tests).
+	focusResult, rpcErr := callControl(t, handler, "context/compact", map[string]any{
+		"session_id": sessionID, "instructions": "focus on auth",
+	})
+	if rpcErr != nil {
+		t.Fatalf("compact with instructions: %v", rpcErr)
+	}
+	if !focusResult.(runtime.CompactionResult).Skipped {
+		t.Fatalf("expected skipped compaction, got %+v", focusResult)
+	}
 }
 
 // TestChannelInspectRPC covers channel/inspect: the method is disabled

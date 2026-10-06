@@ -1904,7 +1904,7 @@ export interface FaceClientAPI {
   getPlan(sessionId: string, submissionId: string): Promise<FaceWorkPlan>;
   commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
-  compactSession(sessionId: string): Promise<FaceCompactResult>;
+  compactSession(sessionId: string, instructions?: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
   forkSession(sessionId: string, messageId: string, title?: string): Promise<FaceForkResult>;
   /** session/tree + portability verbs (VCP C1 kernel, C3 face). */
@@ -2268,7 +2268,7 @@ export interface FaceStoreState {
   saveSettings(value: FaceSettingsUpdate): Promise<void>;
   saveLocale(locale: FaceLocale): Promise<void>;
   loadSessionContext(sessionId?: string): Promise<void>;
-  compactSession(sessionId: string): Promise<FaceCompactResult>;
+  compactSession(sessionId: string, instructions?: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceMessage[]>;
   forkSession(sessionId: string, messageId: string, title?: string): Promise<string>;
   loadProviders(): Promise<void>;

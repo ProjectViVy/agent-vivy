@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -125,12 +126,19 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	return out, nil
 }
 
+// CompactOptions tunes one manual compaction. Instructions steers the
+// summarizer (pi's /compact <instructions>): it is appended to the summary
+// prompt under a Focus: section, verbatim and unredacted.
+type CompactOptions struct {
+	Instructions string
+}
+
 // CompactSession runs one durable, session-level compaction now: it
 // summarizes the assembled history with the provider model, records the
 // summary (with the kept tail) in the compaction store so future feeds fold
 // the covered rows, and journals a context.compacted event. It refuses to
 // run while a run is active: live runs already compress in-run.
-func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID) (CompactionResult, error) {
+func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID, opts CompactOptions) (CompactionResult, error) {
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")
 	}
@@ -182,7 +190,7 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		return CompactionResult{}, fmt.Errorf("runtime: gather session references: %w", err)
 	}
 	manifest := referenceManifest(feed[:foldIdx], refsByRun)
-	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun)
+	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun, opts.Instructions)
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
 	}
@@ -190,6 +198,13 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		// The durable record keeps the folded snapshots addressable by ID
 		// even when the model omits the transcript's manifest lines.
 		summary = strings.TrimSpace(summary) + "\n\nFolded references: " + strings.Join(manifest, ", ")
+	}
+	filesRead, filesModified := fileManifest(feed[:foldIdx])
+	if len(filesRead) > 0 {
+		summary += "\nFiles read: " + strings.Join(filesRead, ", ")
+	}
+	if len(filesModified) > 0 {
+		summary += "\nFiles modified: " + strings.Join(filesModified, ", ")
 	}
 	tailFrom := feed[len(feed)-1].CreatedAt
 	if foldIdx > 0 {
@@ -215,6 +230,7 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, runID, domain.EventContextCompacted, payloadContextCompacted{
 		Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens,
 		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: manifest,
+		FilesRead: len(filesRead), FilesModified: len(filesModified),
 	}); err != nil {
 		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
 	}
@@ -303,9 +319,48 @@ func foldedFor(rec storage.SessionCompaction, stored []domain.Message) []domain.
 	return out
 }
 
+// fileManifest collects the workspace paths the folded turns touched, split
+// into read (read_file/search_files/grep/glob/list_dir) and modified
+// (write_file/patch/multiedit) sets. Paths come from each tool call's `path`
+// argument (glob falls back to `pattern`); output is deduped and bounded.
+func fileManifest(folded []domain.Message) (filesRead, filesModified []string) {
+	const maxEntries = 50
+	readTools := map[string]bool{"read_file": true, "search_files": true, "grep": true, "glob": true, "list_dir": true}
+	writeTools := map[string]bool{"write_file": true, "patch": true, "multiedit": true}
+	collect := func(names map[string]bool, out []string) []string {
+		seen := make(map[string]bool)
+		for _, msg := range folded {
+			if !names[msg.ToolName] || len(msg.ToolArgs) == 0 {
+				continue
+			}
+			var args struct {
+				Path    string `json:"path"`
+				Pattern string `json:"pattern"`
+			}
+			if err := json.Unmarshal(msg.ToolArgs, &args); err != nil {
+				continue
+			}
+			path := args.Path
+			if path == "" {
+				path = args.Pattern
+			}
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+			if len(out) >= maxEntries {
+				break
+			}
+		}
+		return out
+	}
+	return collect(readTools, nil), collect(writeTools, nil)
+}
+
 // generateSessionSummary condenses the assembled history with the same
 // provider model the run uses. Returns a plain-text summary.
-func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference) (string, error) {
+func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference, instructions string) (string, error) {
 	const maxTranscriptBytes = 200 * 1024
 	var transcript strings.Builder
 	transcript.WriteString("需压缩的会话历史（旧→新）：\n\n")
@@ -333,8 +388,12 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 		transcript.WriteString(line)
 		remaining -= len(line)
 	}
+	systemPrompt := sessionSummarySystemPrompt
+	if trimmed := strings.TrimSpace(instructions); trimmed != "" {
+		systemPrompt += "\n\nFocus: " + trimmed
+	}
 	input := []*schema.Message{
-		schema.SystemMessage(sessionSummarySystemPrompt),
+		schema.SystemMessage(systemPrompt),
 		schema.UserMessage(transcript.String()),
 	}
 	resp, err := s.engine.chatModel.Generate(ctx, input)

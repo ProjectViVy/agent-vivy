@@ -447,6 +447,17 @@ type sessionParams struct {
 	IncludeAttachmentData *bool  `json:"include_attachment_data,omitempty"`
 }
 
+// compactParams adds the optional summarizer focus (pi's
+// /compact <instructions>) to the session params.
+type compactParams struct {
+	SessionID    string `json:"session_id"`
+	Instructions string `json:"instructions,omitempty"`
+}
+
+// compactInstructionsMaxLen bounds the instructions a face can attach to a
+// manual compaction; the summarizer prompt stays a bounded input.
+const compactInstructionsMaxLen = 4096
+
 // sessionCompactionsParams extends sessionParams with a result cap for
 // session/compactions (clamped server-side to 200).
 type sessionCompactionsParams struct {
@@ -2291,14 +2302,20 @@ func (h *controlHandler) sessionContext(ctx context.Context, request Request) (a
 // reports before/after tokens. A busy session (run in flight) is a 409: the
 // run already compresses in-run.
 func (h *controlHandler) compactContext(ctx context.Context, request Request) (any, *Error) {
-	params, rpcErr := parseSessionParams(request)
-	if rpcErr != nil {
-		return nil, rpcErr
+	var params compactParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.SessionID) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if len(params.Instructions) > compactInstructionsMaxLen {
+		return nil, &Error{Code: InvalidParams, Message: "instructions exceeds the 4096-byte bound"}
 	}
 	if h.deps.Service == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
 	}
-	result, err := h.deps.Service.CompactSession(ctx, domain.SessionID(params.SessionID))
+	result, err := h.deps.Service.CompactSession(ctx, domain.SessionID(params.SessionID), runtime.CompactOptions{Instructions: params.Instructions})
 	if errors.Is(err, runtime.ErrCompactionBusy) {
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}

@@ -432,8 +432,13 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return nil
 	}
 	switch spec.Name {
-	case "help", "init", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
+	case "help", "init", "status", "sessions", "cancel", "todos", "tools", "quit":
 		return count(0, 0)
+	case "compact":
+		if len(args) > 0 && strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return usage()
+		}
+		return count(0, -1)
 	case "model":
 		return count(0, -1)
 	case "mcp":
@@ -606,7 +611,7 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: description("permission")},
 		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: description("thinking")},
 		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
-		Spec{Name: "compact", Usage: "/compact", Description: description("compact")},
+		Spec{Name: "compact", Usage: "/compact [instructions]", Description: description("compact")},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},
 		Spec{Name: "clone", Usage: "/clone [title]", Description: description("clone")},
 		Spec{Name: "tree", Usage: "/tree", Description: description("tree")},

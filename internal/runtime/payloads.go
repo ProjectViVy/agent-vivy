@@ -95,6 +95,10 @@ type payloadContextCompacted struct {
 	// ReferenceIDs is the explicit manifest of snapshots folded into the
 	// summary; they stay readable by ID against the destination journal.
 	ReferenceIDs []string `json:"reference_ids,omitempty"`
+	// FilesRead / FilesModified count the workspace paths the folded turns
+	// touched (manifest lines live in the durable summary, not the event).
+	FilesRead     int `json:"files_read,omitempty"`
+	FilesModified int `json:"files_modified,omitempty"`
 }
 
 type payloadProviderRetry struct {

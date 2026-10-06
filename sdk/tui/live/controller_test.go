@@ -2321,3 +2321,28 @@ func TestLiveSettleAdmissionSubscribesNextRun(t *testing.T) {
 		t.Fatalf("admitted run not active: busy=%v run=%q", live.busy, live.runID)
 	}
 }
+
+// /compact <instructions> forwards the joined args verbatim as the RPC
+// instructions field (pi parity: /compact focuses the summary).
+func TestLiveCompactForwardsInstructions(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["context/compact"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"before_tokens": 20, "after_tokens": 8}, nil
+	}
+	live := bootLive(t, env, Options{})
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+
+	msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("compact", []string{"focus", "on", "auth"}))
+	if msg.Err != nil {
+		t.Fatalf("/compact with args = %+v", msg)
+	}
+	var params map[string]string
+	if err := json.Unmarshal(env.params["context/compact"], &params); err != nil {
+		t.Fatalf("compact params: %v", err)
+	}
+	if params["instructions"] != "focus on auth" || params["session_id"] != "sess_1" {
+		t.Fatalf("compact params = %v, want session_id + joined instructions", params)
+	}
+}

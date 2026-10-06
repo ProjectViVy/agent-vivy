@@ -252,7 +252,7 @@ interface RuntimeState {
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   saveLocale: (locale: api.Locale) => Promise<void>;
   loadSessionContext: (sessionId?: string) => Promise<void>;
-  compactSession: (sessionId: string) => Promise<api.CompactResult>;
+  compactSession: (sessionId: string, instructions?: string) => Promise<api.CompactResult>;
   /** session/rewind 后重读消息；返回刷新后的可见视图。 */
   rewindSession: (sessionId: string, messageId: string) => Promise<api.Message[]>;
   /** session/fork 后刷新会话列表；返回新会话 id（导航由调用方做）。 */
@@ -1215,8 +1215,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     } finally { finishSettingsMutation(operation); }
   },
   loadSessionContext: async (sessionId = get().activeSessionId ?? undefined) => { if (sessionId) await loadContextIntoStore(sessionId); },
-  compactSession: async (sessionId) => {
-    const result = await api.compactSession(sessionId);
+  compactSession: async (sessionId, instructions) => {
+    const result = await api.compactSession(sessionId, instructions);
     await loadContextIntoStore(sessionId);
     return result;
   },

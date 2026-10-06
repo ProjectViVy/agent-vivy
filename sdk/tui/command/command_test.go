@@ -188,7 +188,7 @@ func TestInitCommandAcceptsNoArgumentsAndAppearsInHelp(t *testing.T) {
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry(tuii18n.New(corei18n.English))
-	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
+	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -197,7 +197,7 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 			t.Fatalf("Validate(%q): %v", input, err)
 		}
 	}
-	for _, input := range []string{"/thinking max", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact now", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
+	for _, input := range []string{"/thinking max", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)

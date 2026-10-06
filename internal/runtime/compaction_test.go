@@ -668,7 +668,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 		t.Fatalf("40 long messages should read as over budget: %+v", before)
 	}
 
-	result, err := svc.CompactSession(ctx, sessionID)
+	result, err := svc.CompactSession(ctx, sessionID, CompactOptions{})
 	if err != nil {
 		t.Fatalf("compact session: %v", err)
 	}
@@ -894,5 +894,156 @@ func TestSafeOffloadCallID(t *testing.T) {
 		if got := safeOffloadCallID(tc.in); got != tc.want {
 			t.Fatalf("safeOffloadCallID(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// captureModel records every input it is handed (the summarizer's system
+// prompt is input[0]) so tests can assert instructions and transcript
+// reach the summarizer verbatim.
+type captureModel struct {
+	mu     sync.Mutex
+	inputs [][]*domain.Message
+	reply  string
+}
+
+func (m *captureModel) Stream(_ context.Context, input []*domain.Message) (domain.Stream[*domain.Message], error) {
+	m.mu.Lock()
+	m.inputs = append(m.inputs, append([]*domain.Message(nil), input...))
+	m.mu.Unlock()
+	return &fixedReplyStream{replies: []string{m.reply}}, nil
+}
+
+func (m *captureModel) systemPrompt(t *testing.T) string {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.inputs) == 0 || len(m.inputs[len(m.inputs)-1]) == 0 {
+		t.Fatal("summarizer never invoked")
+	}
+	return m.inputs[len(m.inputs)-1][0].Content
+}
+
+func TestCompactionPolicyForModelOverride(t *testing.T) {
+	p := CompactionPolicy{Enabled: true, MaxTokens: 1000, TriggerPercent: 50, KeepRecent: 10,
+		PerModel: map[string]CompactionOverride{"m-x": {MaxTokens: 2000, TriggerPercent: 20}}}
+	got := p.For("m-x")
+	if got.MaxTokens != 2000 || got.TriggerPercent != 20 || got.KeepRecent != 10 {
+		t.Fatalf("For(m-x) = %+v, want per-model overlay", got)
+	}
+	if got.PerModel != nil {
+		t.Fatal("resolved policy must drop PerModel")
+	}
+	other := p.For("other")
+	if other.MaxTokens != 1000 || other.TriggerPercent != 50 || other.KeepRecent != 10 {
+		t.Fatalf("For(other) = %+v, want global values", other)
+	}
+	if got := p.For("m-x").TriggerTokens(0); got != 400 {
+		t.Fatalf("trigger with override = %d, want 400 (20%% of 2000)", got)
+	}
+}
+
+func TestFileManifestSplitsReadAndModified(t *testing.T) {
+	folded := []domain.Message{
+		{Role: domain.RoleAssistant, ToolName: "read_file", ToolArgs: json.RawMessage(`{"path":"src/a.go"}`)},
+		{Role: domain.RoleAssistant, ToolName: "write_file", ToolArgs: json.RawMessage(`{"path":"src/b.go"}`)},
+		{Role: domain.RoleAssistant, ToolName: "read_file", ToolArgs: json.RawMessage(`{"path":"src/a.go"}`)},
+		{Role: domain.RoleAssistant, ToolName: "glob", ToolArgs: json.RawMessage(`{"pattern":"docs/**/*.md"}`)},
+		{Role: domain.RoleAssistant, ToolName: "patch", ToolArgs: json.RawMessage(`{"path":"src/c.go"}`)},
+		{Role: domain.RoleAssistant, ToolName: "bash", ToolArgs: json.RawMessage(`{"command":"ls"}`)},
+		{Role: domain.RoleAssistant, ToolName: "read_file", ToolArgs: json.RawMessage(`not-json`)},
+	}
+	read, modified := fileManifest(folded)
+	if strings.Join(read, ",") != "src/a.go,docs/**/*.md" {
+		t.Fatalf("files read = %v", read)
+	}
+	if strings.Join(modified, ",") != "src/b.go,src/c.go" {
+		t.Fatalf("files modified = %v", modified)
+	}
+}
+
+// TestCompactSessionInstructionsAndManifest proves /compact <instructions>
+// lands on the summarizer prompt as a Focus: section and that the durable
+// summary gains the file manifest lines + event counts.
+func TestCompactSessionInstructionsAndManifest(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	capture := &captureModel{reply: "compact digest."}
+	eng, err := NewEngine(ctx, WrapModel(capture), ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+		MaxContextBytes:      1 << 20,
+		Compaction:           &CompactionPolicy{Enabled: true, MaxTokens: 400, TriggerPercent: 50, KeepRecent: 4},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: newTestSink(), Compactions: backend,
+	})
+	sessionID := domain.SessionID("sess-compact-focus")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "focus", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// Foldable head: tool-call rows first so the manifest lands in the fold.
+	for i, msg := range []domain.Message{
+		{Role: domain.RoleAssistant, ToolName: "read_file", ToolArgs: json.RawMessage(`{"path":"src/auth.go"}`), Content: "x"},
+		{Role: domain.RoleAssistant, ToolName: "multiedit", ToolArgs: json.RawMessage(`{"path":"src/auth.go"}`), Content: "x"},
+	} {
+		msg.ID = fmt.Sprintf("tool-%d", i)
+		msg.SessionID = sessionID
+		msg.CreatedAt = int64(500 + i)
+		if err := backend.AppendMessage(ctx, msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 40; i++ {
+		if err := backend.AppendMessage(ctx, domain.Message{
+			ID: fmt.Sprintf("msg-%d", i), SessionID: sessionID, Role: domain.RoleUser,
+			CreatedAt: int64(1_000 + i), Content: strings.Repeat("会话内容", 60),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := svc.CompactSession(ctx, sessionID, CompactOptions{Instructions: "focus on the auth refactor"})
+	if err != nil {
+		t.Fatalf("compact session: %v", err)
+	}
+	if result.Skipped || result.Folded == 0 {
+		t.Fatalf("compaction result = %+v, want folded > 0", result)
+	}
+	if prompt := capture.systemPrompt(t); !strings.Contains(prompt, "Focus: focus on the auth refactor") {
+		t.Fatalf("summarizer prompt missing Focus section: %q", prompt)
+	}
+	comp, ok, err := backend.LatestSessionCompaction(ctx, sessionID)
+	if err != nil || !ok {
+		t.Fatalf("latest compaction = %+v ok=%v err=%v", comp, ok, err)
+	}
+	if !strings.Contains(comp.Summary, "Files read: src/auth.go") {
+		t.Fatalf("summary missing Files read manifest: %q", comp.Summary)
+	}
+	if !strings.Contains(comp.Summary, "Files modified: src/auth.go") {
+		t.Fatalf("summary missing Files modified manifest: %q", comp.Summary)
+	}
+	var payload map[string]any
+	for _, ev := range replayAll(t, backend, comp.RunID) {
+		if ev.Type != domain.EventContextCompacted {
+			continue
+		}
+		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+			t.Fatalf("event payload: %v", err)
+		}
+	}
+	if payload["files_read"] != float64(1) || payload["files_modified"] != float64(1) {
+		t.Fatalf("event file counts = %v", payload)
 	}
 }

@@ -640,7 +640,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if info, infoErr := catalog.ResolveModelInfo(ctx, providerName, modelID); infoErr == nil {
 		modelWindow = info.ContextWindow
 	}
-	cmp := compactionPolicyFor(cfg, nil, modelWindow)
+	cmp := compactionPolicyFor(cfg, nil, modelWindow, modelID)
 	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend, backend)
 	if err != nil {
 		_ = backend.Close()
@@ -1189,8 +1189,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			// summarization middleware) only when the effective policy
 			// changed. The rebuild lands immediately when idle, otherwise
 			// at the next idle run start.
-			window := svc.GetModelInfo(context.Background()).ContextWindow
-			cmp := compactionPolicyFor(cfg, s.Compaction, window)
+			modelInfo := svc.GetModelInfo(context.Background())
+			cmp := compactionPolicyFor(cfg, s.Compaction, modelInfo.ContextWindow, modelInfo.ID)
 			compactionChanged := !sameCompactionPolicy(svc.CompactionPolicy(), &cmp)
 			if toolsChanged || mcpChanged || compactionChanged {
 				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)

@@ -326,7 +326,8 @@ export const getPlan = (sessionId: string, submissionId: string) =>
 export const commitWork = (method: WorkMethod, params: Record<string, unknown>) =>
   request<WorkCommitView>(method, params);
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
-export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
+export const compactSession = (sessionId: string, instructions?: string) =>
+  request<CompactResult>('context/compact', { session_id: sessionId, ...(instructions ? { instructions } : {}) });
 /** session/rewind：截点互斥（含截点）之后退出上下文，行留档不删除。 */
 export const rewindSession = (sessionId: string, messageId: string) =>
   request<{ cutoff_message_id: string; remaining_count: number }>('session/rewind', { session_id: sessionId, message_id: messageId });

@@ -10,6 +10,37 @@ type CompactionPolicy struct {
 	MaxTokens      int
 	TriggerPercent int
 	KeepRecent     int
+	// PerModel carries unresolved per-model overrides keyed by model ID.
+	// For resolves them into the flat fields; the stored policy is always
+	// the resolved form (PerModel is nil after For).
+	PerModel map[string]CompactionOverride
+}
+
+// CompactionOverride overrides selected policy fields for one model. Zero
+// values inherit the global policy.
+type CompactionOverride struct {
+	MaxTokens      int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	TriggerPercent int `json:"trigger_percent,omitempty" yaml:"trigger_percent,omitempty"`
+	KeepRecent     int `json:"keep_recent,omitempty" yaml:"keep_recent,omitempty"`
+}
+
+// For returns the policy resolved against a concrete model: matching
+// PerModel entries overlay the global fields. The result drops PerModel —
+// it is a model-bound snapshot.
+func (p CompactionPolicy) For(model string) CompactionPolicy {
+	if o, ok := p.PerModel[model]; ok {
+		if o.MaxTokens > 0 {
+			p.MaxTokens = o.MaxTokens
+		}
+		if o.TriggerPercent > 0 {
+			p.TriggerPercent = o.TriggerPercent
+		}
+		if o.KeepRecent > 0 {
+			p.KeepRecent = o.KeepRecent
+		}
+	}
+	p.PerModel = nil
+	return p
 }
 
 // fallbackContextWindowTokens is used when neither the overlay nor the

@@ -376,6 +376,18 @@ type CompactionConfig struct {
 	// remains the automatic one-shot failover when the summary model
 	// errors.
 	SummaryModel string `yaml:"summary_model"`
+	// PerModel overrides selected fields when the active route's model ID
+	// matches the key. Operator default; the settings overlay merges on top
+	// per key.
+	PerModel map[string]CompactionOverride `yaml:"per_model,omitempty"`
+}
+
+// CompactionOverride overrides selected compaction fields for one model.
+// Zero values inherit the global policy.
+type CompactionOverride struct {
+	MaxTokens      int `yaml:"max_tokens,omitempty"`
+	TriggerPercent int `yaml:"trigger_percent,omitempty"`
+	KeepRecent     int `yaml:"keep_recent,omitempty"`
 }
 
 // DefaultCompactionConfig returns the safe built-in compaction defaults.
