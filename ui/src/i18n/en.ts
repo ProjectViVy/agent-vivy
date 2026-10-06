@@ -558,6 +558,11 @@ export const en: Dictionary = {
     manageModelSettings: 'Manage model settings',
   },
   codeMode: {
+    code: "Code",
+    life: "Life",
+    placeholderAria: "Conversation mode: {{mode}} (preview only)",
+    placeholderHint: "Preview only; this choice does not change conversation behavior",
+
     enabled: 'Code mode on',
     disabled: 'Enable code mode',
     noSession: 'Select a conversation first',

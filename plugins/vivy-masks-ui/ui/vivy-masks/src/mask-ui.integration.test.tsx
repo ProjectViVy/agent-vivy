@@ -86,6 +86,133 @@ describe('assembled mask UI', () => {
     await act(async () => option!.click());
   }
 
+  it('renders the default identity without creating or reading a catalog definition', async () => {
+    const ui = await assemble(async (p) => {
+      if (p.action_id.endsWith('catalog.list')) return { items: [], next_after_id: '' };
+      if (p.action_id.endsWith('selection.get')) return selection('A', '', 1);
+      throw new Error('Unexpected catalog definition action');
+    });
+    expect(container.querySelector('[data-mask-id=""]')).not.toBeNull();
+    expect(container.querySelector('[data-test-header]')?.textContent).toContain('plugin.vivy/masks-ui.unmasked');
+    expect(container.querySelector('[data-mask-instructions]')?.textContent).toContain('plugin.vivy/masks-ui.defaultBody');
+    expect((ui.host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.some(([, p]) => p.action_id.endsWith('catalog.get'))).toBe(false);
+  });
+
+  it('previews a role without changing the session identity', async () => {
+    const ui = await assemble(async (p) => {
+      if (p.action_id.endsWith('catalog.list')) return { items: catalog, next_after_id: '' };
+      if (p.action_id.endsWith('selection.get')) return selection('A', '', 1);
+      if (p.action_id.endsWith('catalog.get')) return { ...catalog[0], body: 'Programmer instructions' };
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-id="builtin/programmer"] button')!.click());
+    expect(container.querySelector('[data-mask-instructions]')?.textContent).toBe('Programmer instructions');
+    expect(container.querySelector('[data-active-mask]')?.getAttribute('data-active-mask')).toBe('');
+    expect((ui.host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.some(([, p]) => p.action_id.endsWith('selection.set'))).toBe(false);
+  });
+
+  it('creates a mask and applies the committed definition when Save and use is chosen', async () => {
+    let items = [...catalog];
+    let committed = selection('A', '', 1);
+    const ui = await assemble(async (p) => {
+      if (p.action_id.endsWith('catalog.list')) return { items, next_after_id: '' };
+      if (p.action_id.endsWith('selection.get')) return committed;
+      if (p.action_id.endsWith('catalog.create')) {
+        const mask = { ...catalog[0], ...p.input, id: 'custom/new', built_in: false };
+        items = [...items, mask];
+        return mask;
+      }
+      if (p.action_id.endsWith('selection.set')) { committed = selection('A', p.input.mask_id, 2); return committed; }
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-action="new"]')!.click());
+    const editor = document.querySelector('[data-mask-editor]')!;
+    await fill(editor.querySelector('input')!, 'Frontend partner');
+    await fill(editor.querySelector('textarea')!, 'Check responsive layouts.');
+    const save = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.saveAndUse')!;
+    await act(async () => save.click());
+    expect(document.querySelector('[data-mask-editor]')).toBeNull();
+    expect(container.querySelector('[data-test-header]')?.textContent).toContain('Frontend partner');
+    expect(container.querySelector('[data-active-mask]')?.getAttribute('data-active-mask')).toBe('custom/new');
+    const calls = (ui.host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.map(([, p]) => p);
+    expect(calls.find((p) => p.action_id.endsWith('catalog.create')).input.operation_id).toMatch(/^[a-f0-9-]{36}$/);
+    expect(calls.find((p) => p.action_id.endsWith('selection.set')).input.expected_revision).toBe(1);
+  });
+
+  it('keeps a dirty draft until discard is explicitly confirmed', async () => {
+    await assemble(async (p) => p.action_id.endsWith('selection.get') ? selection('A', '', 1) : { items: catalog, next_after_id: '' });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-action="new"]')!.click());
+    await fill(document.querySelector('[data-mask-editor] input')!, 'Unsaved');
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.cancel')!;
+    await act(async () => cancel.click());
+    expect(document.querySelector('[data-mask-editor] input')).toHaveProperty('value', 'Unsaved');
+    const discard = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.discard')!;
+    await act(async () => discard.click());
+    expect(document.querySelector('[data-mask-editor]')).toBeNull();
+  });
+
+  it('closes a committed editor before a slow catalog refresh can accept more edits', async () => {
+    const refresh = deferred<unknown>();
+    let committed = false;
+    let creates = 0;
+    await assemble(async (p) => {
+      if (p.action_id.endsWith('catalog.list')) return committed ? refresh.promise : { items: catalog, next_after_id: '' };
+      if (p.action_id.endsWith('selection.get')) return selection('A', '', 1);
+      if (p.action_id.endsWith('catalog.create')) {
+        committed = true;
+        creates++;
+        return { ...catalog[0], ...p.input, id: `custom/saved-${creates}`, built_in: false };
+      }
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-action="new"]')!.click());
+    await fill(document.querySelector('[data-mask-editor] input')!, 'Saved');
+    await fill(document.querySelector('[data-mask-editor] textarea')!, 'Committed instructions');
+    const save = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.save')!;
+    await act(async () => save.click());
+    expect(document.querySelector('[data-mask-editor]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-action="new"]')!.click());
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.cancel')!;
+    await act(async () => cancel.click());
+    expect(document.querySelector('[data-mask-editor]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-action="new"]')!.click());
+    await fill(document.querySelector('[data-mask-editor] input')!, 'Another saved mask');
+    await fill(document.querySelector('[data-mask-editor] textarea')!, 'More instructions');
+    const nextSave = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'plugin.vivy/masks-ui.save')!;
+    await act(async () => nextSave.click());
+    expect(creates).toBe(2);
+    expect(document.querySelector('[data-mask-editor]')).toBeNull();
+    await act(async () => refresh.resolve({ items: catalog, next_after_id: '' }));
+  });
+
+  it('preserves conflict recovery after typing and retries a failed authoritative reload', async () => {
+    const custom = { ...catalog[0], id: 'custom/stale', name: 'Stale', built_in: false, body: 'Old instructions' };
+    let reads = 0;
+    await assemble(async (p) => {
+      if (p.action_id.endsWith('catalog.list')) return { items: [...catalog, custom], next_after_id: '' };
+      if (p.action_id.endsWith('selection.get')) return selection('A', '', 1);
+      if (p.action_id.endsWith('catalog.get')) {
+        reads++;
+        if (reads === 2) throw new Error('Connection lost');
+        return reads === 1 ? custom : { ...custom, revision: 2, body: 'Latest instructions' };
+      }
+      if (p.action_id.endsWith('catalog.update')) throw { message: 'Conflict', data: { code: 'revision_conflict', current_revision: 2 } };
+    });
+    const click = async (text: string) => act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === `plugin.vivy/masks-ui.${text}`)!.click();
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-mask-id="custom/stale"] button')!.click());
+    await click('edit');
+    await fill(document.querySelector('[data-mask-editor] textarea')!, 'Local draft');
+    await click('save');
+    await fill(document.querySelector('[data-mask-editor] textarea')!, 'Continued local draft');
+    await click('reloadLatest');
+    await click('discard');
+    expect(document.querySelector('[data-mask-editor] textarea')).toHaveProperty('value', 'Continued local draft');
+    expect(document.querySelector('[data-mask-editor] [role="alert"]')?.textContent).toContain('errors.reloadFailed');
+    await click('reloadLatest');
+    await click('discard');
+    expect(document.querySelector('[data-mask-editor] textarea')).toHaveProperty('value', 'Latest instructions');
+    expect(reads).toBe(3);
+  });
+
   it('ignores a late selection write from A after B is active', async () => {
     const late = deferred<unknown>();
     const ui = await assemble(async (p) => {
@@ -133,12 +260,13 @@ describe('assembled mask UI', () => {
     });
     const button = [...container.querySelectorAll<HTMLButtonElement>('[data-testid="mask-page"] button')].find((item) => item.textContent?.includes('Programmer'))!;
     await act(async () => button.click());
-    expect(container.querySelector('textarea')).toHaveProperty('readOnly', true);
+    expect(container.querySelector('[data-mask-instructions]')?.textContent).toBe('Builtin instructions');
+    expect(document.querySelector('textarea')).toBeNull();
     const duplicate = [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('plugin.vivy/masks-ui.duplicate'));
     expect(duplicate).not.toBeUndefined();
     await act(async () => duplicate!.click());
-    expect(container.querySelector('textarea')).toHaveProperty('readOnly', false);
-    expect(container.querySelector('textarea')).toHaveProperty('value', 'Builtin instructions');
+    expect(document.querySelector('textarea')).toHaveProperty('readOnly', false);
+    expect(document.querySelector('textarea')).toHaveProperty('value', 'Builtin instructions');
   });
 
   it('shows a selection conflict, reloads the committed choice, and retries with its revision', async () => {
@@ -193,3 +321,11 @@ describe('assembled mask UI', () => {
     expect(container.querySelector('[data-active-mask]')?.getAttribute('data-active-mask')).toBe('custom/extra');
   });
 });
+
+async function fill(element: Element, value: string) {
+  const prototype = element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}

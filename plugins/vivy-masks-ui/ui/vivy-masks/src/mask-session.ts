@@ -10,8 +10,10 @@ interface SessionState {
   readonly selection: MaskSelection | null;
   readonly selectionPending: boolean;
   readonly error: MaskUIError | null;
+  readonly catalogError: MaskUIError | null;
+  readonly selectionError: MaskUIError | null;
 }
-const EMPTY: SessionState = { sessionId: null, catalog: [], catalogPending: false, selection: null, selectionPending: false, error: null };
+const EMPTY: SessionState = { sessionId: null, catalog: [], catalogPending: false, selection: null, selectionPending: false, error: null, catalogError: null, selectionError: null };
 
 /** One extension-owned projection of backend state for the page and quick menu. */
 export class MaskSession {
@@ -27,8 +29,15 @@ export class MaskSession {
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private update(patch: Partial<SessionState>) {
-    this.state = { ...this.state, ...patch };
+    const next = { ...this.state, ...patch };
+    this.state = { ...next, error: next.selectionError ?? next.catalogError };
     for (const listener of this.listeners) listener();
+  }
+  recordDefinition(definition: MaskMetadata) {
+    this.update({ catalog: [...this.state.catalog.filter((item) => item.id !== definition.id), definition].sort((a, b) => a.id.localeCompare(b.id)) });
+  }
+  recordDeletion(id: string) {
+    this.update({ catalog: this.state.catalog.filter((item) => item.id !== id) });
   }
   connect = () => {
     if (this.consumers++ === 0) {
@@ -53,7 +62,7 @@ export class MaskSession {
   };
   async refreshCatalog() {
     const epoch = ++this.catalogEpoch;
-    this.update({ catalogPending: true });
+    this.update({ catalogPending: true, catalogError: null });
     try {
       const items: MaskMetadata[] = [];
       let afterId = '';
@@ -63,9 +72,9 @@ export class MaskSession {
         if (!page.next_after_id || page.next_after_id === afterId) break;
         afterId = page.next_after_id;
       }
-      if (epoch === this.catalogEpoch) this.update({ catalog: items, catalogPending: false });
+      if (epoch === this.catalogEpoch) this.update({ catalog: items, catalogPending: false, catalogError: null });
     } catch (cause) {
-      if (epoch === this.catalogEpoch) this.update({ catalogPending: false, error: toMaskError(cause) });
+      if (epoch === this.catalogEpoch) this.update({ catalogPending: false, catalogError: toMaskError(cause) });
     }
   }
   async refreshSelection(sessionId = this.host.store.getState().activeSessionId, preserveError = false) {
@@ -76,13 +85,13 @@ export class MaskSession {
       return;
     }
     const epoch = ++this.epoch;
-    this.update({ sessionId, selection: this.state.sessionId === sessionId ? this.state.selection : null, selectionPending: Boolean(sessionId), ...(!preserveError ? { error: null } : {}) });
+    this.update({ sessionId, selection: this.state.sessionId === sessionId ? this.state.selection : null, selectionPending: Boolean(sessionId), ...(!preserveError ? { selectionError: null } : {}) });
     if (!sessionId) return;
     try {
       const next = await this.client.getSelection(sessionId);
       if (epoch === this.epoch && next.session_id === this.state.sessionId) this.update({ selection: next, selectionPending: false });
     } catch (cause) {
-      if (epoch === this.epoch) this.update({ selectionPending: false, error: toMaskError(cause) });
+      if (epoch === this.epoch) this.update({ selectionPending: false, selectionError: toMaskError(cause) });
     }
   }
   async select(maskId: string): Promise<boolean> {
@@ -91,7 +100,7 @@ export class MaskSession {
     const epoch = this.epoch;
     const write = { epoch, sessionId, refreshRequested: false };
     this.write = write;
-    this.update({ selectionPending: true, error: null });
+    this.update({ selectionPending: true, selectionError: null });
     try {
       const next = await this.client.setSelection({ session_id: sessionId, mask_id: maskId, expected_revision: selection.revision });
       if (epoch !== this.epoch || next.session_id !== this.state.sessionId) return false;
@@ -99,7 +108,7 @@ export class MaskSession {
       return true;
     } catch (cause) {
       if (epoch === this.epoch && sessionId === this.state.sessionId) {
-        this.update({ selectionPending: false, error: toMaskError(cause) });
+        this.update({ selectionPending: false, selectionError: toMaskError(cause) });
         // A lost response can follow a committed write. Recover the server's
         // revision while retaining a visible reason for the failed operation.
         this.write = undefined;

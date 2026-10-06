@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n';
-import { CodeModeControl } from './CodeModeControl';
 
 function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], catalog: readonly ProviderCatalogEntry[], t: ReturnType<typeof useTranslation>['t']): string {
   // 目录/注册表命中时显示厂商名（如 provider=openai-completions + DeepSeek 端点
@@ -71,11 +70,11 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 
   return <DropdownMenu open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setError(null); }}>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" className="h-9 max-w-[270px] gap-2 px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('modelSwitcher.switchModelAria', { provider: providerLabel, model: currentModel || t('modelSwitcher.defaultModel') })} title={t('modelSwitcher.switchModelTitle')}>
+      <Button variant="ghost" className="h-9 min-w-0 max-w-[230px] gap-1.5 rounded-xl px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('modelSwitcher.switchModelAria', { provider: providerLabel, model: currentModel || t('modelSwitcher.defaultModel') })} title={t('modelSwitcher.switchModelTitle')}>
         {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : <CircleDot className="h-4 w-4 shrink-0 text-foreground" />}
-        <span className="hidden min-w-0 truncate text-sm md:inline">{providerLabel}</span>
-        <span className="hidden shrink-0 text-muted-foreground md:inline">|</span>
-        <span className="hidden min-w-0 truncate text-sm text-muted-foreground md:inline">{currentModel || t('modelSwitcher.defaultModel')}</span>
+        <span className="hidden min-w-0 truncate text-sm lg:inline">{providerLabel}</span>
+        <span className="hidden shrink-0 text-muted-foreground lg:inline">|</span>
+        <span className="hidden min-w-0 truncate text-sm text-muted-foreground lg:inline">{currentModel || t('modelSwitcher.defaultModel')}</span>
         <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
       </Button>
     </DropdownMenuTrigger>
@@ -131,13 +130,5 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 
 export function ModelSwitcher() {
   const settings = useVivyStore((state) => state.settings);
-  const codeModeAvailable = useVivyStore((state) => state.codeModeAvailable);
-
-  return <div className="flex min-w-0 max-w-full items-center gap-1">
-    <ModelMenu settings={settings} />
-    {codeModeAvailable ? <>
-      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
-      <CodeModeControl />
-    </> : null}
-  </div>;
+  return <div className="flex min-w-0 max-w-full items-center"><ModelMenu settings={settings} /></div>;
 }

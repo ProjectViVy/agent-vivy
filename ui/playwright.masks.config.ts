@@ -17,7 +17,9 @@ const UI = '127.0.0.1:3015';
 // Masks require a sealed generation identity, which only a packed binary
 // carries (go run/build of cmd/vivy embeds no manifest). Pack once with:
 //   go run ./sdk pack --recipe recipes/masks-selected.vivy.yml --output .workspace/mask-verify/selected
-const packedBinary = path.join(repoRoot, '.workspace', 'mask-verify', 'selected', 'vivy');
+const packedBinary =
+  process.env.VIVY_MASKS_E2E_BINARY ||
+  path.join(repoRoot, '.workspace', 'mask-verify', 'selected', 'vivy');
 
 export const mockProviderBaseURL = `http://${MOCK_PROVIDER}/v1`;
 
@@ -26,16 +28,38 @@ if (!process.env.VIVY_MASKS_E2E_PREPARED) {
   fs.mkdirSync(path.join(workdir, 'state'), { recursive: true });
   const dbPath = path.join(workdir, 'state', 'e2e.db').replace(/\\/g, '/');
   const workspaceRoot = path.join(workdir, 'workspace').replace(/\\/g, '/');
-  fs.writeFileSync(maskConfig, [
-    'server:', `  addr: "${BACKEND}"`, '  allowed_origins: []',
-    'storage:', '  backend: sqlite', `  data_dir: "${workdir.replace(/\\/g, '/')}"`, '  sqlite:', `    path: "${dbPath}"`,
-    'providers:', '  active: deepseek',
-    // Mask write actions follow normal policy; only full_auto grants them
-    // without an approval route (module actions have no approval row).
-    'governance:', '  profile: full_auto',
-    'runtime:', `  workspace_root: "${workspaceRoot}"`, '  stream_buffer: 256', '  max_event_payload_bytes: 65536',
-    'tools:', '  enabled:', '    - echo_info', '    - write_note', '    - ask_user', '  approval:', '    expiration: 5m', '',
-  ].join('\n'), 'utf8');
+  fs.writeFileSync(
+    maskConfig,
+    [
+      'server:',
+      `  addr: "${BACKEND}"`,
+      '  allowed_origins: []',
+      'storage:',
+      '  backend: sqlite',
+      `  data_dir: "${workdir.replace(/\\/g, '/')}"`,
+      '  sqlite:',
+      `    path: "${dbPath}"`,
+      'providers:',
+      '  active: deepseek',
+      // Mask write actions follow normal policy; only full_auto grants them
+      // without an approval route (module actions have no approval row).
+      'governance:',
+      '  profile: full_auto',
+      'runtime:',
+      `  workspace_root: "${workspaceRoot}"`,
+      '  stream_buffer: 256',
+      '  max_event_payload_bytes: 65536',
+      'tools:',
+      '  enabled:',
+      '    - echo_info',
+      '    - write_note',
+      '    - ask_user',
+      '  approval:',
+      '    expiration: 5m',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
   process.env.VIVY_MASKS_E2E_PREPARED = '1';
 }
 

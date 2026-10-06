@@ -556,6 +556,11 @@ export const zh = {
     manageModelSettings: '管理模型设置',
   },
   codeMode: {
+    code: "代码",
+    life: "生活",
+    placeholderAria: "会话模式：{{mode}}（界面占位）",
+    placeholderHint: "界面占位；暂不改变会话行为",
+
     enabled: '代码模式已开启',
     disabled: '开启代码模式',
     noSession: '请先选择一个会话',
