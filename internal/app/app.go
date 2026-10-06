@@ -343,7 +343,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
 	modelHost := modelProvider.Host()
-	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost, credentialResolver)
+	resolver := newModelResolverForProject(cfg, liveSettingsPath, ao.projectRoot, catalog, modelHost, credentialResolver)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {

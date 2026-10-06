@@ -41,6 +41,7 @@ type ModelResolver struct {
 	mu          sync.Mutex
 	cfg         config.Config
 	path        string
+	projectRoot string
 	catalog     *provider.Catalog
 	host        *modelhost.Host
 	credentials *credentialmodule.Resolver
@@ -48,6 +49,10 @@ type ModelResolver struct {
 }
 
 func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog, host *modelhost.Host, supplied ...*credentialmodule.Resolver) *ModelResolver {
+	return newModelResolverForProject(cfg, path, "", catalog, host, supplied...)
+}
+
+func newModelResolverForProject(cfg config.Config, path, projectRoot string, catalog *provider.Catalog, host *modelhost.Host, supplied ...*credentialmodule.Resolver) *ModelResolver {
 	var credentials *credentialmodule.Resolver
 	if len(supplied) > 0 {
 		credentials = supplied[0]
@@ -57,7 +62,7 @@ func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog,
 		// configuration block (PROV-P3).
 		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": modelCredentialAllowlist(catalog)})
 	}
-	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog, host: host, credentials: credentials}
+	r := &ModelResolver{cfg: cfg, path: path, projectRoot: projectRoot, catalog: catalog, host: host, credentials: credentials}
 	if frozen, ok := freezeFromEnv(cfg, catalog, credentials); ok {
 		r.frozen = &frozen
 	}
@@ -172,6 +177,14 @@ func (r *ModelResolver) currentLocked() ResolvedModel {
 	s, err := settings.Load(r.path)
 	if err != nil || s.IsZero() {
 		return ResolvedModel{}
+	}
+	// A project pin restores the last model the operator picked inside this
+	// project over the global selection (VCP F3). Frozen ENV sessions and
+	// processes without a project root ignore it.
+	if r.projectRoot != "" {
+		if pin, ok := s.ProjectDefault(r.projectRoot); ok {
+			s.Provider, s.DefaultModel, s.BaseURL = pin.Provider, pin.Model, pin.BaseURL
+		}
 	}
 	if s.Provider == "" {
 		return ResolvedModel{}

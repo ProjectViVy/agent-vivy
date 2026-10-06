@@ -996,6 +996,8 @@ func (*testDriver) RefreshModels(uint64) tea.Cmd       { return nil }
 func (*testDriver) SelectModel(uint64, surface.ModelOption) tea.Cmd {
 	return nil
 }
+func (*testDriver) CycleModel(uint64) tea.Cmd                      { return nil }
+func (*testDriver) ScopeModel(uint64, surface.ModelOption) tea.Cmd { return nil }
 func (d *testDriver) PendingAttachments() []surface.Attachment {
 	return append([]surface.Attachment(nil), d.attachments...)
 }

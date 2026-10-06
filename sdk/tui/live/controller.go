@@ -694,6 +694,44 @@ func (l *Live) SelectModel(request uint64, option surface.ModelOption) tea.Cmd {
 	}
 }
 
+// CycleModel selects the next scoped_models entry (pi scoped-model cycling).
+// Same busy-fence as SelectModel: a mid-run swap is refused by both layers.
+func (l *Live) CycleModel(request uint64) tea.Cmd {
+	l.mu.Lock()
+	l.modelRequest = request
+	blocked := l.busy || l.gate != nil || l.loadPending || l.commandInFlight || len(l.queue) > 0
+	l.mu.Unlock()
+	return func() tea.Msg {
+		if blocked {
+			return surface.ModelSelectedMsg{Request: request, Err: errors.New(l.translator.T("vivy.tui.error.modelBusy", nil))}
+		}
+		if !l.SupportsCapability("model.cycle") {
+			return surface.ModelSelectedMsg{Request: request, Err: errors.New(l.translator.T("vivy.tui.error.modelUnavailable", nil))}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		catalog, err := l.client.cycleModel(ctx)
+		return surface.ModelSelectedMsg{Request: request, Catalog: catalog, Err: err}
+	}
+}
+
+// ScopeModel toggles the option in/out of the cycle set (pi /scope-model).
+// It only mutates the list — no model change — so it is not run-gated.
+func (l *Live) ScopeModel(request uint64, option surface.ModelOption) tea.Cmd {
+	l.mu.Lock()
+	l.modelRequest = request
+	l.mu.Unlock()
+	return func() tea.Msg {
+		if !l.SupportsCapability("model.scope") {
+			return surface.ModelScopedMsg{Request: request, Option: option, Err: errors.New(l.translator.T("vivy.tui.error.modelUnavailable", nil))}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		catalog, scoped, err := l.client.scopeModel(ctx, option)
+		return surface.ModelScopedMsg{Request: request, Option: option, Scoped: scoped, Catalog: catalog, Err: err}
+	}
+}
+
 func (l *Live) applyModelsMsg(msg surface.ModelsMsg) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

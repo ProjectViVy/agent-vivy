@@ -135,6 +135,14 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 				provider = safeModelLabel(option.Provider)
 			}
 			line := marker + provider + " · " + safeModelLabel(option.Model)
+			// pi picker badges: ◆ = member of the scoped_models cycle set,
+			// ⌁ = the model declares extended-thinking support (VCP F3).
+			if option.Scoped {
+				line += " ◆"
+			}
+			if option.Thinking {
+				line += " ⌁"
+			}
 			style := p.Idle
 			if i == cursor {
 				line = "▸ " + strings.TrimPrefix(line, "  ")

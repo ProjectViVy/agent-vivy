@@ -175,6 +175,100 @@ type Settings struct {
 	// the startup overlay silently drops those (with a warning) so a stale
 	// overlay can never fail startup.
 	Channels []ChannelOverlay `yaml:"channels,omitempty"`
+	// ScopedModels is the operator-curated model cycle set (pi
+	// scoped_models): the terminal's /scope-model command toggles the
+	// active selection in and out of this list, and the cycle chord walks
+	// it in declared order, skipping entries whose adapter is not
+	// executable or whose model is no longer in the catalog.
+	ScopedModels []ScopedModel `yaml:"scoped_models,omitempty"`
+	// ProjectDefaults pins a model selection per project root (keyed by
+	// the absolute code project path the process serves). A terminal model
+	// pick in a project records an entry here; the next launch in the same
+	// project restores it over the global provider/default_model
+	// selection.
+	ProjectDefaults map[string]ScopedModel `yaml:"project_defaults,omitempty"`
+}
+
+// ScopedModel is one (provider, model, base_url) selection identity: the
+// same triple settings/model/select accepts, stored as a settings.yaml
+// record for the cycle set and per-project pins.
+type ScopedModel struct {
+	// Provider is the sealed adapter name (or a pre-migration vendor name,
+	// which NormalizeAdapter still understands).
+	Provider string `yaml:"provider"`
+	// Model is the selected model id.
+	Model string `yaml:"model"`
+	// BaseURL is the optional OpenAI-compatible gateway that selects a
+	// registry endpoint; empty resolves to a vendor-declared address.
+	BaseURL string `yaml:"base_url,omitempty"`
+}
+
+// normalized returns the selection identity with whitespace removed; a
+// scoped_models entry with an empty provider or model can never match or
+// be offered.
+func (m ScopedModel) normalized() ScopedModel {
+	return ScopedModel{
+		Provider: strings.TrimSpace(m.Provider),
+		Model:    strings.TrimSpace(m.Model),
+		BaseURL:  strings.TrimSpace(m.BaseURL),
+	}
+}
+
+// Matches reports whether two selection identities address the same
+// endpoint+model pair.
+func (m ScopedModel) Matches(other ScopedModel) bool {
+	return m.normalized() == other.normalized()
+}
+
+// Scoped reports whether sel is a member of the cycle set.
+func (s Settings) Scoped(sel ScopedModel) bool {
+	for _, candidate := range s.ScopedModels {
+		if candidate.Matches(sel) {
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleScoped flips sel's membership in the cycle set and reports the new
+// membership state.
+func (s *Settings) ToggleScoped(sel ScopedModel) bool {
+	sel = sel.normalized()
+	for i, candidate := range s.ScopedModels {
+		if candidate.Matches(sel) {
+			s.ScopedModels = append(s.ScopedModels[:i], s.ScopedModels[i+1:]...)
+			return false
+		}
+	}
+	s.ScopedModels = append(s.ScopedModels, sel)
+	return true
+}
+
+// ProjectDefault returns the pinned selection for a project root.
+func (s Settings) ProjectDefault(root string) (ScopedModel, bool) {
+	pin, ok := s.ProjectDefaults[root]
+	if !ok {
+		return ScopedModel{}, false
+	}
+	pin = pin.normalized()
+	if pin.Provider == "" || pin.Model == "" {
+		return ScopedModel{}, false
+	}
+	return pin, true
+}
+
+// PinProjectDefault records sel as the pinned selection for a project
+// root; an empty root pins nothing.
+func (s *Settings) PinProjectDefault(root string, sel ScopedModel) {
+	root = strings.TrimSpace(root)
+	sel = sel.normalized()
+	if root == "" || sel.Provider == "" || sel.Model == "" {
+		return
+	}
+	if s.ProjectDefaults == nil {
+		s.ProjectDefaults = map[string]ScopedModel{}
+	}
+	s.ProjectDefaults[root] = sel
 }
 
 // CompactionSettings is the UI-managed context compression overlay. Zero
@@ -360,7 +454,9 @@ func (s Settings) IsZero() bool {
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
 		s.Compaction == nil &&
 		s.HTTP == nil &&
-		len(s.Channels) == 0
+		len(s.Channels) == 0 &&
+		len(s.ScopedModels) == 0 &&
+		len(s.ProjectDefaults) == 0
 }
 
 // Load reads and validates the settings document at path. A missing file is
@@ -437,6 +533,36 @@ func load(path string) (Settings, error) {
 			next = append(next, entry)
 		}
 		s.Channels = next
+	}
+	if len(s.ScopedModels) == 0 {
+		s.ScopedModels = nil
+	} else {
+		// Entries missing a provider or model can never be selected; drop
+		// them rather than reject a hand-edited document.
+		next := make([]ScopedModel, 0, len(s.ScopedModels))
+		for _, entry := range s.ScopedModels {
+			entry = entry.normalized()
+			if entry.Provider == "" || entry.Model == "" {
+				continue
+			}
+			next = append(next, entry)
+		}
+		s.ScopedModels = next
+	}
+	if len(s.ProjectDefaults) == 0 {
+		s.ProjectDefaults = nil
+	} else {
+		for root, pin := range s.ProjectDefaults {
+			pin = pin.normalized()
+			if strings.TrimSpace(root) == "" || pin.Provider == "" || pin.Model == "" {
+				delete(s.ProjectDefaults, root)
+				continue
+			}
+			s.ProjectDefaults[root] = pin
+		}
+		if len(s.ProjectDefaults) == 0 {
+			s.ProjectDefaults = nil
+		}
 	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)

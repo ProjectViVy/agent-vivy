@@ -1142,6 +1142,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"generations.reject", "species.inspect",
 			"settings.get", "settings.update", "settings.locale",
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh", "settings.model.select",
+			"model.scope", "model.cycle",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
@@ -1574,6 +1575,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.refreshProviderModels(ctx, request)
 	case "settings/model/select":
 		return h.selectModel(ctx, request)
+	case "model/scope":
+		return h.toggleModelScope(ctx, request)
+	case "model/cycle":
+		return h.cycleModel(ctx, request)
 	case "settings/mcp":
 		return h.listMCP(ctx)
 	case "settings/mcp/upsert":
@@ -5492,6 +5497,9 @@ type catalogEndpointResult struct {
 	BaseURL      string   `json:"base_url"`
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
+	// ThinkingModels is the subset of Models that declares extended-thinking
+	// support; the terminal picker renders it as the thinking badge (VCP F3).
+	ThinkingModels []string `json:"thinking_models"`
 	// Executable is false for an adapter this Generation seals but cannot
 	// construct (DEFERRED-INDEFINITE): the UI shows it and disables it.
 	Executable bool `json:"executable"`
@@ -5519,14 +5527,24 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 			if models == nil {
 				models = []string{}
 			}
+			thinking := make([]string, 0, len(endpoint.Models))
+			for _, model := range endpoint.Models {
+				if model.SupportsThinking {
+					thinking = append(thinking, model.ID)
+				}
+			}
+			if thinking == nil {
+				thinking = []string{}
+			}
 			state := capabilities[endpoint.Adapter]
 			endpoints = append(endpoints, catalogEndpointResult{
-				Adapter:      endpoint.Adapter,
-				BaseURL:      endpoint.BaseURL,
-				DefaultModel: endpoint.DefaultModel,
-				Models:       models,
-				Executable:   state == modelhost.CapabilitySupported,
-				State:        string(state),
+				Adapter:        endpoint.Adapter,
+				BaseURL:        endpoint.BaseURL,
+				DefaultModel:   endpoint.DefaultModel,
+				Models:         models,
+				ThinkingModels: thinking,
+				Executable:     state == modelhost.CapabilitySupported,
+				State:          string(state),
 			})
 		}
 		catalog = append(catalog, catalogEntryResult{
@@ -5534,6 +5552,14 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 		})
 	}
 	return catalog
+}
+
+// scopedModelResult is one selection identity in the operator's cycle set
+// (settings.yaml scoped_models), in declared order.
+type scopedModelResult struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url,omitempty"`
 }
 
 // providersResult is the full registry view: entries (redacted), the embedded
@@ -5545,10 +5571,14 @@ type providersResult struct {
 	ActiveProvider string                        `json:"active_provider"`
 	ActiveModel    string                        `json:"active_model"`
 	ActiveBaseURL  string                        `json:"active_base_url"`
-	ReadOnly       bool                          `json:"read_only"`
-	Frozen         bool                          `json:"frozen"`
-	ConfigProvider string                        `json:"config_provider"`
-	ConfigModel    string                        `json:"config_model"`
+	// ScopedModels is the declared-order cycle set (pi scoped_models): the
+	// identity list the terminal marks scoped entries against and the order
+	// model/cycle walks.
+	ScopedModels   []scopedModelResult `json:"scoped_models"`
+	ReadOnly       bool                `json:"read_only"`
+	Frozen         bool                `json:"frozen"`
+	ConfigProvider string              `json:"config_provider"`
+	ConfigModel    string              `json:"config_model"`
 }
 
 func (h *controlHandler) providersView(s settings.Settings) providersResult {
@@ -5564,6 +5594,10 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	if h.deps.Frozen || activeProvider != s.Provider || activeModel != s.DefaultModel {
 		activeBaseURL = h.deps.RuntimeBaseURL
 	}
+	scoped := make([]scopedModelResult, 0, len(s.ScopedModels))
+	for _, entry := range s.ScopedModels {
+		scoped = append(scoped, scopedModelResult{Provider: entry.Provider, Model: entry.Model, BaseURL: entry.BaseURL})
+	}
 	return providersResult{
 		Entries:        entries,
 		Catalog:        catalog,
@@ -5571,6 +5605,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 		ActiveProvider: activeProvider,
 		ActiveModel:    activeModel,
 		ActiveBaseURL:  activeBaseURL,
+		ScopedModels:   scoped,
 		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
 		Frozen:         h.deps.Frozen,
 		ConfigProvider: h.deps.ConfigProvider,
@@ -5757,59 +5792,17 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	var updateErr *Error
 	changeErr := h.deps.Service.ChangeModelWhenIdle(params.Provider, params.Model, func() error {
 		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
-			allowed := adapter == h.deps.ConfigAdapter &&
-				params.Model == h.deps.ConfigModel && params.BaseURL == ""
-			// Preserve a current legacy selection as an idempotent no-op even if
-			// its old registry row has since disappeared. It is not offered as a
-			// new target to other clients.
-			if !allowed && settings.NormalizeAdapter(cur.Provider) == adapter && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
-				allowed = true
-			}
-			for _, entry := range cur.Providers {
-				if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != params.BaseURL {
-					continue
-				}
-				if entry.DefaultModel == params.Model {
-					allowed = true
-				}
-				for _, modelID := range entry.Models {
-					if modelID == params.Model {
-						allowed = true
-						break
-					}
-				}
-			}
-			// An address-less selection resolves to a vendor's declared endpoint for
-			// that adapter: the vendor a pre-migration client named, or else the
-			// configured one. That endpoint's model list is the embedded catalog a
-			// client may pick from.
-			if params.BaseURL == "" {
-				vendorName := settings.NormalizeProviderSelection(params.Provider).LegacyVendor
-				if vendorName == "" {
-					vendorName = h.deps.ConfigProvider
-				}
-				for _, vendor := range h.deps.ProviderVendors {
-					if vendor.Name != vendorName {
-						continue
-					}
-					endpoint, ok := vendor.EndpointForAdapter(adapter)
-					if !ok {
-						continue
-					}
-					for _, modelID := range endpoint.ModelIDs() {
-						if modelID == params.Model {
-							allowed = true
-							break
-						}
-					}
-				}
-			}
-			if !allowed {
+			if !h.modelSelectionAllowed(cur, params.Provider, params.Model, params.BaseURL) {
 				return settings.Settings{}, &settingsFnError{&Error{Code: InvalidParams, Message: "model is not present in the provider catalog"}}
 			}
 			cur.Provider = params.Provider
 			cur.DefaultModel = params.Model
 			cur.BaseURL = params.BaseURL
+			// A project-bound process pins its picks so the next launch in the
+			// same project restores this selection (VCP F3).
+			cur.PinProjectDefault(h.deps.ProjectRoot, settings.ScopedModel{
+				Provider: params.Provider, Model: params.Model, BaseURL: params.BaseURL,
+			})
 			return cur, nil
 		})
 		if updateErr != nil {
@@ -5817,6 +5810,205 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 		}
 		return nil
 	})
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	if errors.Is(changeErr, runtime.ErrModelChangeBusy) {
+		return nil, &Error{Code: CodeConflict, Message: "finish or cancel active and suspended runs before changing models"}
+	}
+	if changeErr != nil {
+		return nil, internalError(changeErr)
+	}
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return h.providersView(saved), nil
+}
+
+// modelSelectionAllowed reports whether the (provider, model, base_url)
+// selection names a target the redacted settings/providers catalog offers:
+// the configured default, a persisted registry entry, or a vendor-declared
+// endpoint model. selectModel and cycleModel share it so the cycle cannot
+// land on a selection the picker could not have offered.
+func (h *controlHandler) modelSelectionAllowed(s settings.Settings, providerName, model, baseURL string) bool {
+	adapter := settings.NormalizeAdapter(providerName)
+	allowed := adapter == h.deps.ConfigAdapter &&
+		model == h.deps.ConfigModel && baseURL == ""
+	// Preserve a current legacy selection as an idempotent no-op even if its
+	// old registry row has since disappeared. It is not offered as a new
+	// target to other clients.
+	if !allowed && settings.NormalizeAdapter(s.Provider) == adapter && s.DefaultModel == model && s.BaseURL == baseURL {
+		allowed = true
+	}
+	for _, entry := range s.Providers {
+		if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != baseURL {
+			continue
+		}
+		if entry.DefaultModel == model {
+			allowed = true
+		}
+		for _, modelID := range entry.Models {
+			if modelID == model {
+				allowed = true
+				break
+			}
+		}
+	}
+	// An address-less selection resolves to a vendor's declared endpoint for
+	// that adapter: the vendor a pre-migration client named, or else the
+	// configured one. That endpoint's model list is the embedded catalog a
+	// client may pick from.
+	if baseURL == "" {
+		vendorName := settings.NormalizeProviderSelection(providerName).LegacyVendor
+		if vendorName == "" {
+			vendorName = h.deps.ConfigProvider
+		}
+		for _, vendor := range h.deps.ProviderVendors {
+			if vendor.Name != vendorName {
+				continue
+			}
+			endpoint, ok := vendor.EndpointForAdapter(adapter)
+			if !ok {
+				continue
+			}
+			for _, modelID := range endpoint.ModelIDs() {
+				if modelID == model {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	return allowed
+}
+
+// toggleModelScope is model/scope (pi /scope-model): it flips the named
+// selection — the live selection by default — in and out of the operator's
+// scoped_models cycle set and reports the new membership state. The write is
+// a settings overlay only; it never changes the active model and is not
+// gated on run state.
+func (h *controlHandler) toggleModelScope(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"base_url"`
+	}
+	if len(request.Params) > 0 {
+		if err := decodeParams(request, &params); err != nil {
+			return nil, err
+		}
+	}
+	sel := settings.ScopedModel{
+		Provider: strings.TrimSpace(params.Provider),
+		Model:    strings.TrimSpace(params.Model),
+		BaseURL:  strings.TrimSpace(params.BaseURL),
+	}
+	if sel.Provider == "" && sel.Model == "" {
+		// No explicit selection: scope the live one.
+		current, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		provider, model := current.Provider, current.DefaultModel
+		if h.deps.Service != nil {
+			provider, model = h.deps.Service.CurrentModel()
+		}
+		sel = settings.ScopedModel{Provider: provider, Model: model, BaseURL: current.BaseURL}
+	}
+	if sel.Provider == "" || sel.Model == "" {
+		return nil, &Error{Code: InvalidParams, Message: "provider and model are required when no active selection exists"}
+	}
+	scoped := false
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		scoped = cur.ToggleScoped(sel)
+		return cur, nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return struct {
+		providersResult
+		Scoped bool `json:"scoped"`
+	}{providersResult: h.providersView(saved), Scoped: scoped}, nil
+}
+
+// cycleModel is model/cycle (pi scoped-model cycling): it walks the
+// operator's scoped_models set in declared order starting after the live
+// selection, picks the first entry whose selection is still offered by the
+// catalog — skipping providers this Generation cannot execute and models
+// that left the catalog — and selects it through the same busy-fence and
+// project-pin path as settings/model/select.
+func (h *controlHandler) cycleModel(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: CodeConflict, Message: "live model selection is unavailable in this deployment"}
+	}
+	h.modelChangeMu.Lock()
+	defer h.modelChangeMu.Unlock()
+	current, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if len(current.ScopedModels) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "no scoped models; toggle entries with /scope-model"}
+	}
+	activeProvider, activeModel := h.deps.Service.CurrentModel()
+	active := settings.ScopedModel{Provider: activeProvider, Model: activeModel, BaseURL: current.BaseURL}
+	start := 0
+	for i, entry := range current.ScopedModels {
+		if entry.Matches(active) {
+			start = i + 1
+			break
+		}
+	}
+	var next settings.ScopedModel
+	found := false
+	for step := 0; step < len(current.ScopedModels); step++ {
+		candidate := current.ScopedModels[(start+step)%len(current.ScopedModels)]
+		if candidate.Matches(active) {
+			continue
+		}
+		if err := h.profileSelectionError(settings.NormalizeAdapter(candidate.Provider)); err != nil {
+			continue
+		}
+		if !h.modelSelectionAllowed(current, candidate.Provider, candidate.Model, candidate.BaseURL) {
+			continue
+		}
+		next = candidate
+		found = true
+		break
+	}
+	if !found {
+		return nil, &Error{Code: InvalidParams, Message: "no scoped model is selectable in this generation"}
+	}
+	var saved settings.Settings
+	var updateErr *Error
+	changeErr := h.deps.Service.ChangeModelWhenIdle(next.Provider, next.Model, func() error {
+		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			cur.Provider = next.Provider
+			cur.DefaultModel = next.Model
+			cur.BaseURL = next.BaseURL
+			cur.PinProjectDefault(h.deps.ProjectRoot, next)
+			return cur, nil
+		})
+		if updateErr != nil {
+			return updateErr
+		}
+		return nil
+	})
+	_ = request
 	if updateErr != nil {
 		return nil, updateErr
 	}

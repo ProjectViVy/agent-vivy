@@ -361,6 +361,13 @@ type ModelOption struct {
 	BaseURL     string
 	DisplayName string
 	Current     bool
+	// Scoped marks membership in the operator's scoped_models cycle set
+	// (pi scoped_models); the picker renders it as a scope marker.
+	Scoped bool
+	// Thinking marks a model that declares extended-thinking support; the
+	// picker renders it as a badge. False also covers "unknown" (custom
+	// registry entries carry no capability metadata).
+	Thinking bool
 }
 
 // ModelCatalog is the complete redacted candidate set returned by
@@ -380,6 +387,13 @@ type ModelController interface {
 	ModelCatalog() ModelCatalog
 	RefreshModels(request uint64) tea.Cmd
 	SelectModel(request uint64, option ModelOption) tea.Cmd
+	// CycleModel selects the next scoped_models entry in declared order
+	// (pi scoped-model cycling; the chord is Alt+P — Ctrl+P is the command
+	// palette in this face). The server skips unavailable entries.
+	CycleModel(request uint64) tea.Cmd
+	// ScopeModel toggles the option in/out of the scoped_models set
+	// (pi /scope-model).
+	ScopeModel(request uint64, option ModelOption) tea.Cmd
 }
 
 type ModelsMsg struct {
@@ -391,6 +405,17 @@ type ModelsMsg struct {
 type ModelSelectedMsg struct {
 	Request uint64
 	Option  ModelOption
+	Catalog ModelCatalog
+	Err     error
+}
+
+// ModelScopedMsg carries the /scope-model toggle result: the option that was
+// flipped, its new membership state, and the refreshed catalog (with updated
+// Scoped markers).
+type ModelScopedMsg struct {
+	Request uint64
+	Option  ModelOption
+	Scoped  bool
 	Catalog ModelCatalog
 	Err     error
 }

@@ -109,6 +109,11 @@ type Model struct {
 	modelPickerCursor    int
 	modelPickerError     string
 	modelPickerRequest   uint64
+	// modelActionRequest routes picker-less model actions (Alt+P scope
+	// cycle, /scope-model toggle) — their results land in
+	// ModelSelectedMsg/ModelScopedMsg while the picker is closed.
+	modelActionRequest uint64
+	modelActionPending bool
 
 	fileCompletionOpen       bool
 	fileCompletionLoading    bool
@@ -365,6 +370,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyModelsMsg(msg)
 	case surface.ModelSelectedMsg:
 		m.applyModelSelectedMsg(msg)
+	case surface.ModelScopedMsg:
+		m.applyModelScopedMsg(msg)
 	case fileCompletionStartMsg:
 		if m.fileCompletionOpen && msg.Request == m.fileCompletionRequest && msg.Query == m.fileCompletionQuery && msg.SessionID == m.fileCompletionSessionID {
 			if cmd := m.driver.CompleteProjectFiles(msg.Request, msg.Query); cmd != nil {
@@ -853,6 +860,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyRunes:
 		text := string(msg.Runes)
+		if msg.Alt && gate == nil && (text == "p" || text == "P") {
+			// pi scoped-model cycling. Ctrl+P is the command palette in
+			// this face, so the chord lives on the steering modifier
+			// (Alt+Enter / Alt+Up family).
+			return m.cycleScopedModel()
+		}
 		if gate != nil && gate.Kind == "approval" {
 			if gate.Submitting {
 				return m, nil
@@ -1426,7 +1439,28 @@ func (m *Model) applyModelsMsg(msg surface.ModelsMsg) {
 }
 
 func (m *Model) applyModelSelectedMsg(msg surface.ModelSelectedMsg) {
-	if !m.modelPickerOpen || msg.Request != m.modelPickerRequest {
+	if !m.modelPickerOpen {
+		// Picker-less action (Alt+P scope cycle): acknowledge the new
+		// selection or surface the refusal.
+		if !m.modelActionPending || msg.Request != m.modelActionRequest {
+			return
+		}
+		m.modelActionPending = false
+		if msg.Err != nil {
+			*m = m.showCommandError(msg.Err)
+			return
+		}
+		current := ""
+		for _, option := range msg.Catalog.Options {
+			if option.Current {
+				current = option.Provider + " · " + option.Model
+				break
+			}
+		}
+		*m = m.showCommandResult(m.translator.T("vivy.tui.dialog.model", nil), m.translator.T("vivy.tui.model.cycled", map[string]any{"model": current}))
+		return
+	}
+	if msg.Request != m.modelPickerRequest {
 		return
 	}
 	m.modelPickerSelecting = false
@@ -1435,6 +1469,69 @@ func (m *Model) applyModelSelectedMsg(msg surface.ModelSelectedMsg) {
 		return
 	}
 	m.closeModelPicker()
+}
+
+func (m *Model) applyModelScopedMsg(msg surface.ModelScopedMsg) {
+	if !m.modelActionPending || msg.Request != m.modelActionRequest {
+		return
+	}
+	m.modelActionPending = false
+	if msg.Err != nil {
+		*m = m.showCommandError(msg.Err)
+		return
+	}
+	label := msg.Option.Provider + " · " + msg.Option.Model
+	key := "vivy.tui.model.scope.removed"
+	if msg.Scoped {
+		key = "vivy.tui.model.scope.added"
+	}
+	*m = m.showCommandResult(m.translator.T("vivy.tui.dialog.model", nil), m.translator.T(key, map[string]any{"model": label}))
+}
+
+// cycleScopedModel is the Alt+P action: the control plane walks the
+// scoped_models set in declared order and selects the first available entry
+// after the live one (pi scoped-model cycling; the chord differs from pi's
+// Ctrl+P because that key is the command palette in this face).
+func (m Model) cycleScopedModel() (Model, tea.Cmd) {
+	if !m.modelSelectionAvailable() {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+	}
+	m.modelActionRequest++
+	m.modelActionPending = true
+	request := m.modelActionRequest
+	if cmd := m.driver.CycleModel(request); cmd != nil {
+		return m, cmd
+	}
+	m.modelActionPending = false
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+}
+
+// scopeCurrentModel is /scope-model: it toggles the active selection in and
+// out of the scoped_models cycle set.
+func (m Model) scopeCurrentModel() (Model, tea.Cmd) {
+	if !m.modelSelectionAvailable() {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+	}
+	var current surface.ModelOption
+	found := false
+	for _, option := range m.driver.ModelCatalog().Options {
+		if option.Current {
+			current = option
+			found = true
+			break
+		}
+	}
+	if !found {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelNoCurrent", nil))), nil
+	}
+	m.modelActionRequest++
+	m.modelActionPending = true
+	request := m.modelActionRequest
+	if cmd := m.driver.ScopeModel(request, current); cmd != nil {
+		return m, cmd
+	}
+	m.modelActionPending = false
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
 }
 
 func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1963,6 +2060,11 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			mode = strings.ToLower(strings.TrimSpace(args[0]))
 		}
 		return m.setThinking(mode)
+	case "scope-model":
+		// pi /scope-model: toggle the active selection in/out of the
+		// scoped_models cycle set. The write is settings-only, so it is
+		// allowed while a run is in flight.
+		return m.scopeCurrentModel()
 	case "image":
 		return m.executeImageCommand(args)
 	case "compact":

@@ -533,7 +533,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			return usage()
 		}
 		return count(0, -1)
-	case "tree", "export", "copy", "bug", "debug":
+	case "tree", "export", "copy", "bug", "debug", "scope-model":
 		return count(0, 0)
 	case "import":
 		return count(1, 1)
@@ -618,6 +618,7 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 		Spec{Name: "queue", Usage: "/queue clear", Description: description("queue")},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: description("permission")},
 		Spec{Name: "thinking", Usage: "/thinking [auto|on|off|minimal|low|medium|high|xhigh|max]", Description: description("thinking")},
+		Spec{Name: "scope-model", Usage: "/scope-model", Description: description("scope-model")},
 		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
 		Spec{Name: "compact", Usage: "/compact [instructions]", Description: description("compact")},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},
