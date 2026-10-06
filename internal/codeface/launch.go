@@ -82,8 +82,10 @@ func Prepare(cfg config.Config, projectDir string) (Prepared, error) {
 	return Prepared{Config: cfg, SharedSettingsPath: sharedSettingsPath, InstanceRoot: instanceRoot}, nil
 }
 
-// Run starts the real terminal face on the prepared private runtime.
-func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut io.Writer) (plugin.FaceResult, error) {
+// Run starts the real terminal face on the prepared private runtime. Face
+// launch overrides arrive through opts; the config's TUI debug switch is
+// merged in so --debug-tools can only widen it, never suppress it.
+func Run(ctx context.Context, cfg config.Config, projectDir string, opts plugin.FaceOptions) (plugin.FaceResult, error) {
 	prepared, err := Prepare(cfg, projectDir)
 	if err != nil {
 		return plugin.FaceResult{Status: "failed"}, err
@@ -100,11 +102,18 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 	defer closeLog.Close()
 	slog.SetDefault(vivyLog)
 	vivyLog.Info("vivy-code instance initialized", "instance_root", prepared.InstanceRoot, "settings_path", prepared.SharedSettingsPath)
+	opts.DebugToolOutput = opts.DebugToolOutput || prepared.Config.TUI.Debug
+	if opts.Out == nil {
+		opts.Out = io.Discard
+	}
+	if opts.Err == nil {
+		opts.Err = io.Discard
+	}
 	return app.RunFaceWithAppOptions(
 		ctx,
 		prepared.Config,
 		tuiface.New,
-		plugin.FaceOptions{DebugToolOutput: prepared.Config.TUI.Debug, Out: out, Err: errOut},
+		opts,
 		codeAppOptions(prepared)...,
 	)
 }

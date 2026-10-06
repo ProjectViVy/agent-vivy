@@ -4,6 +4,7 @@ package face
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"agent-vivy/sdk/module"
@@ -29,11 +30,50 @@ type FaceOptions = Options
 type FaceResult = Result
 type FaceEnv = Host
 type FaceConstructor func(Options) Runner
+
+// Options is the launch surface handed to a face Runner. Mode selects the
+// face-internal dispatch ("", "text" = interactive; "print", "json", "rpc" =
+// headless); the remaining fields are launch-time overrides parsed from the
+// CLI. Faces are free to ignore fields that do not apply to their medium.
 type Options struct {
-	Prompt                          string
-	ContinueNewest, DebugToolOutput bool
+	Prompt                          string // -p/--print value or joined positionals
+	Mode                            string // "" or "text" (default) | "print" | "json" | "rpc"
+	Model, Provider, Thinking       string
+	APIKey                          string // process-scoped override; never logged or persisted
+	SystemPrompt                    string
+	AppendSystemPrompt              []string
+	ContinueNewest, Resume          bool
+	Session, SessionID, Fork        string
+	SessionDir                      string
+	NoSession                       bool
+	Name                            string
+	Models                          []string // scoped model cycle set
+	Tools, ExcludeTools             []string
+	NoTools, NoBuiltinTools         bool
+	NoMCP                           bool
+	Skills, PromptTemplates, Themes []string
+	NoSkills, NoPromptTemplates     bool
+	NoThemes, NoContextFiles        bool
+	UseTheme                        string
+	ListModels                      bool
+	ListModelsPattern               string
+	Export                          string
+	TUIMode                         string // "" | "regular" | "fullscreen"
+	Offline, Verbose                bool
+	Approve                         *bool // --approve / --no-approve tri-state; nil = default policy
+	DebugToolOutput                 bool
+	Files                           []string // @file positional arguments
 	Out, Err                        io.Writer
 }
+
+// ModeUnavailableError reports a face mode that is declared on the CLI
+// surface but not yet (or never) implemented by the running face.
+type ModeUnavailableError struct{ Mode string }
+
+func (e ModeUnavailableError) Error() string {
+	return fmt.Sprintf("face mode %q is not available", e.Mode)
+}
+
 type Result struct{ Status string }
 type Host interface {
 	module.Host

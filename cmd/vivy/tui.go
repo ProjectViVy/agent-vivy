@@ -12,6 +12,7 @@ import (
 	"agent-vivy/internal/codeface"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/tui"
+	plugin "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 	"agent-vivy/sdk/tui/surface"
 	"agent-vivy/sdk/tui/view"
@@ -70,7 +71,7 @@ func runTUI(args []string) int {
 			fmt.Fprintln(os.Stderr, "vivy tui: resolve current project:", err)
 			return 1
 		}
-		result, err := codeface.Run(ctx, cfg, cwd, os.Stdout, os.Stderr)
+		result, err := codeface.Run(ctx, cfg, cwd, plugin.FaceOptions{Out: os.Stdout, Err: os.Stderr})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "vivy tui:", err)
 			return 1

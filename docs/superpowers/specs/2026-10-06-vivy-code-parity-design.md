@@ -51,19 +51,35 @@ VCP-O1..O8 plus: mermaid transcript rendering (defer to a theme-era follow-up), 
 
 ```go
 type Options struct {
-    Prompt                          string   // -p / positional prompt
-    ContinueNewest, DebugToolOutput bool
-    Mode                            string   // "text" (default) | "json" | "rpc" | "print"
+    Prompt                          string   // -p value / joined positionals
+    Mode                            string   // "" or "text" (default) | "print" | "json" | "rpc"
     Model, Provider, Thinking       string   // overrides for this launch
-    APIKey                          string   // never logged; env fallback stays primary
+    APIKey                          string   // process-scoped; never logged or persisted
+    SystemPrompt                    string
+    AppendSystemPrompt              []string
+    ContinueNewest, Resume          bool     // -c / -r (picker)
+    Session, SessionID, Fork        string   // --session / --session-id / --fork <id>
+    SessionDir, Name                string
+    NoSession                       bool
+    Models                          []string // scoped cycle set
     Tools, ExcludeTools             []string // nil = defaults
-    SessionID, SessionDir           string
-    Continue, Resume, Fork          string   // session selectors
-    NoSession, Offline, Verbose     bool
-    Name, Export                    string
+    NoTools, NoBuiltinTools, NoMCP  bool
+    Skills, PromptTemplates, Themes []string
+    NoSkills, NoPromptTemplates     bool
+    NoThemes, NoContextFiles        bool
+    UseTheme, TUIMode               string
+    ListModels                      bool
+    ListModelsPattern               string
+    Export                          string
+    Offline, Verbose                bool
+    Approve                         *bool    // --approve / --no-approve tri-state
+    DebugToolOutput                 bool
+    Files                           []string // @file args
     Out, Err                        io.Writer
 }
 ```
+
+Implemented field set supersedes the initial sketch (A1): selectors follow pi's real types (`-r` is a picker flag, `--fork`/`--session`/`--session-id` carry ids). `-p` requests the non-interactive print path but never overrides an explicit `--mode json|rpc`; a non-TTY stdin/stdout also resolves to `print` (pi `resolveAppMode` parity).
 
 - `text` → existing TUI loop.
 - `print`/`json`/`rpc` → a headless runner inside the same face module (pattern proven by `faces/headless`: drive `Host.Call` + `Host.OnEvent`, no kernel import).

@@ -31,6 +31,12 @@ type terminalFace struct {
 func (*terminalFace) Kind() string { return Kind }
 
 func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Result, error) {
+	switch f.opts.Mode {
+	case "", "text":
+		// interactive path below
+	default:
+		return faceport.Result{Status: "failed"}, faceport.ModeUnavailableError{Mode: f.opts.Mode}
+	}
 	if !looksTerminal(f.opts.Out) {
 		return faceport.Result{Status: "failed"}, errors.New("tui: an interactive terminal is required")
 	}
