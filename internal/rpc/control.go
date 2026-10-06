@@ -1361,6 +1361,16 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
 		return h.cancelRun(ctx, request)
+	case "turn/steer":
+		return h.steerTurn(ctx, request)
+	case "turn/follow_up":
+		return h.followUpTurn(ctx, request)
+	case "queue/state":
+		return h.queueState(ctx, request)
+	case "queue/clear":
+		return h.clearQueue(ctx, request)
+	case "queue/mode":
+		return h.setQueueMode(ctx, request)
 	case "run/get":
 		result, rpcErr := h.getRun(ctx, request)
 		if rpcErr == nil {
@@ -2114,10 +2124,24 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	for _, message := range messages {
 		out = append(out, toMessageResult(message, includeAttachmentData(params)))
 	}
-	return map[string]any{
+	result := map[string]any{
 		"session":  toSessionResult(session),
 		"messages": out,
-	}, nil
+	}
+	// VCP-B1: faces render the dual-track queue (steer + follow_up lanes)
+	// directly from session/get — the pi get_state surface.
+	if h.deps.Service != nil {
+		state := h.deps.Service.QueueState(ctx, session.ID, "")
+		result["queue"] = map[string]any{
+			"steering":             state.Steering,
+			"follow_up":            state.FollowUps,
+			"steer_mode":           state.SteerMode,
+			"follow_up_mode":       state.FollowUpMode,
+			"pending":              len(state.Steering) + len(state.FollowUps),
+			"last_admitted_run_id": state.LastAdmittedRunID,
+		}
+	}
+	return result, nil
 }
 
 func (h *controlHandler) deleteSession(ctx context.Context, request Request) (any, *Error) {
@@ -3475,6 +3499,130 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		return nil, runtimeError(err)
 	}
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+}
+
+// Queue handlers (VCP-B1, pi parity): steer injects at the next turn
+// boundary of the active run; follow_up waits for terminal settle. Both
+// fall back to a fresh turn/start when the session is idle — matching pi's
+// "prompt while idle" semantics (busy rules in the B1 plan).
+
+type queueTurnParams struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+	Mode      string `json:"mode,omitempty"`
+	Face      string `json:"face,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`
+}
+
+func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *Error) {
+	var params queueTurnParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
+	}
+	item, err := h.deps.Service.Steer(ctx, domain.SessionID(params.SessionID), params.Text)
+	if err != nil {
+		if errors.Is(err, runtime.ErrQueueUnavailable) {
+			return h.queueStartFallback(ctx, params)
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
+}
+
+func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any, *Error) {
+	var params queueTurnParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
+	}
+	item, err := h.deps.Service.FollowUp(ctx, domain.SessionID(params.SessionID), params.Text)
+	if err != nil {
+		if errors.Is(err, runtime.ErrQueueUnavailable) {
+			return h.queueStartFallback(ctx, params)
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
+}
+
+// queueStartFallback runs a queued turn as a fresh prompt when the session
+// is idle — pi: steering/follow-up on an idle session equals prompt.
+func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams) (any, *Error) {
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face),
+		Thinking: domain.ThinkingMode(params.Thinking), HumanAdmission: true,
+	})
+	if err != nil {
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted, "queued": false}, nil
+}
+
+func (h *controlHandler) queueState(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID  string `json:"session_id"`
+		AfterRunID string `json:"after_run_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	state := h.deps.Service.QueueState(ctx, domain.SessionID(params.SessionID), domain.RunID(params.AfterRunID))
+	return map[string]any{
+		"steering":             state.Steering,
+		"follow_up":            state.FollowUps,
+		"steer_mode":           state.SteerMode,
+		"follow_up_mode":       state.FollowUpMode,
+		"pending":              len(state.Steering) + len(state.FollowUps),
+		"last_admitted_run_id": state.LastAdmittedRunID,
+		"admitted_run_id":      state.AdmittedRunID,
+	}, nil
+}
+
+func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	state := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	texts := make([]string, 0, len(state.Steering)+len(state.FollowUps))
+	for _, item := range state.Steering {
+		texts = append(texts, item.Text)
+	}
+	for _, item := range state.FollowUps {
+		texts = append(texts, item.Text)
+	}
+	return map[string]any{"cleared": true, "texts": texts}, nil
+}
+
+func (h *controlHandler) setQueueMode(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+		Track     string `json:"track"`
+		Mode      string `json:"mode"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Track == "" || params.Mode == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id, track and mode are required"}
+	}
+	if err := h.deps.Service.SetQueueMode(ctx, domain.SessionID(params.SessionID), params.Track, params.Mode); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	return map[string]any{"set": true, "track": params.Track, "mode": params.Mode}, nil
 }
 
 func (h *controlHandler) startShell(ctx context.Context, request Request) (any, *Error) {

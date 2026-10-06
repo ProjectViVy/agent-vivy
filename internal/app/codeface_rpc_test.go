@@ -181,9 +181,13 @@ func TestCodeFaceRPCModeGoldenTranscript(t *testing.T) {
 		t.Fatalf("switch_session: %v", sw)
 	}
 
+	// steer is kernel-implemented (B1): with no active run it degrades to
+	// the prompt path and reports a started disposition.
+	if r := s.response(s.send(map[string]any{"type": "steer", "message": "x"})); r["success"] != true {
+		t.Fatalf("steer: %v", r)
+	}
 	// Commands not yet landed fail closed, not silently.
 	for _, cmd := range []map[string]any{
-		{"type": "steer", "message": "x"},
 		{"type": "get_tree"},
 		{"type": "bash", "command": "ls"},
 	} {

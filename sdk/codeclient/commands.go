@@ -42,8 +42,7 @@ func decode[T any](raw json.RawMessage, err error) (T, error) {
 	return v, nil
 }
 
-// Prompt starts a turn; while a run is active it queues face-locally (until
-// B1 lands kernel steering/follow-up truth).
+// Prompt starts a turn.
 func (c *Client) Prompt(ctx context.Context, message string) (Disposition, error) {
 	return decode[Disposition](c.Call(ctx, "prompt", map[string]any{"message": message}))
 }
@@ -53,9 +52,10 @@ func (c *Client) FollowUp(ctx context.Context, message string) (Disposition, err
 	return decode[Disposition](c.Call(ctx, "follow_up", map[string]any{"message": message}))
 }
 
-// Steer injects a message mid-turn (lands with B1; errors until then).
-func (c *Client) Steer(ctx context.Context, message string) (json.RawMessage, error) {
-	return c.Call(ctx, "steer", map[string]any{"message": message})
+// Steer injects a message at the next turn boundary; on a settled session
+// it starts a run, equivalent to prompt.
+func (c *Client) Steer(ctx context.Context, message string) (Disposition, error) {
+	return decode[Disposition](c.Call(ctx, "steer", map[string]any{"message": message}))
 }
 
 // Abort cancels the active run.

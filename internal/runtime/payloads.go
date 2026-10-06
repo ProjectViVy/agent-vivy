@@ -415,3 +415,25 @@ type payloadChildFailed struct {
 type payloadChildCancelled struct {
 	Reason string `json:"reason"`
 }
+
+// turn.* queue markers (VCP-B1): the durable queue lives on the run journal.
+type payloadTurnQueued struct {
+	QueueID string `json:"queue_id"`
+	Track   string `json:"track"`
+	Text    string `json:"text"`
+}
+
+type payloadTurnDequeued struct {
+	QueueID string `json:"queue_id"`
+	Track   string `json:"track"`
+	Reason  string `json:"reason"` // started | cleared | aborted
+	// NextRunID announces the run an admitted item started — publish-only
+	// wire hint on the settling run's topic (journal truth lives on the
+	// new run's journal).
+	NextRunID string `json:"next_run_id,omitempty"`
+}
+
+type payloadTurnSteered struct {
+	QueueID string `json:"queue_id"`
+	Text    string `json:"text"`
+}

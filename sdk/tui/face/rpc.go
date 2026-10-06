@@ -18,6 +18,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"agent-vivy/sdk/facerun"
 	faceport "agent-vivy/sdk/port/face"
@@ -41,7 +42,6 @@ type rpcMode struct {
 	mu        sync.Mutex
 	sessionID string
 	activeRun string
-	queue     []string // face-local follow-up queue until B1 lands kernel truth
 
 	proj facerun.JSONLSink // event projection (shares --mode json record names)
 }
@@ -154,10 +154,10 @@ func (m *rpcMode) resolveSession(ctx context.Context, opts faceport.Options) err
 }
 
 // sessionState snapshots the rpc session state (pi RpcSessionState shape).
-func (m *rpcMode) snapshot() (sessionID, activeRun string, pending int) {
+func (m *rpcMode) snapshot() (sessionID, activeRun string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.sessionID, m.activeRun, len(m.queue)
+	return m.sessionID, m.activeRun
 }
 
 func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
@@ -183,7 +183,30 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 		return true
 	}
 
-	sessionID, activeRun, pending := m.snapshot()
+	sessionID, activeRun := m.snapshot()
+	// steerCommand issues one queued turn through the kernel-owned
+	// dual-track queue (VCP-B1): "steer" injects at the next turn boundary,
+	// "follow_up" waits for terminal settle. Both answer pi-style
+	// disposition; an idle session degrades to a fresh run via the RPC
+	// fallback (run_id in the payload).
+	steerCommand := func(track, message string) {
+		raw, ok := call("turn/"+track, map[string]any{
+			"session_id": sessionID, "text": message,
+		})
+		if !ok {
+			return
+		}
+		var res struct {
+			Queued bool   `json:"queued"`
+			RunID  string `json:"run_id"`
+		}
+		_ = json.Unmarshal(raw, &res)
+		if res.Queued {
+			respond(true, map[string]any{"disposition": "queued"}, "")
+			return
+		}
+		respond(true, map[string]any{"disposition": "started", "run_id": res.RunID}, "")
+	}
 	switch cmd.Type {
 	case "prompt", "follow_up":
 		var p struct {
@@ -198,14 +221,11 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 			return
 		}
 		if p.StreamingBehavior == "steer" {
-			notImplemented("B1 steering")
+			steerCommand("steer", p.Message)
 			return
 		}
-		if activeRun != "" {
-			m.mu.Lock()
-			m.queue = append(m.queue, p.Message)
-			m.mu.Unlock()
-			respond(true, map[string]any{"disposition": "queued"}, "")
+		if cmd.Type == "follow_up" || activeRun != "" {
+			steerCommand("follow_up", p.Message)
 			return
 		}
 		runID, err := m.startTurn(ctx, p.Message)
@@ -215,7 +235,17 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 		}
 		respond(true, map[string]any{"disposition": "started", "run_id": runID}, "")
 	case "steer":
-		notImplemented("B1 steering")
+		var p struct {
+			Message string `json:"message"`
+		}
+		if !decode(&p) {
+			return
+		}
+		if strings.TrimSpace(p.Message) == "" {
+			respond(false, nil, "message is required")
+			return
+		}
+		steerCommand("steer", p.Message)
 	case "abort":
 		if activeRun == "" {
 			respond(true, nil, "")
@@ -233,11 +263,15 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 			respond(true, nil, "")
 		}
 	case "clear_queue":
-		m.mu.Lock()
-		followUps := m.queue
-		m.queue = nil
-		m.mu.Unlock()
-		respond(true, map[string]any{"steering": []string{}, "followUp": followUps}, "")
+		raw, ok := call("queue/clear", map[string]any{"session_id": sessionID})
+		if !ok {
+			return
+		}
+		var res struct {
+			Texts []string `json:"texts"`
+		}
+		_ = json.Unmarshal(raw, &res)
+		respond(true, map[string]any{"steering": []string{}, "followUp": res.Texts}, "")
 	case "new_session":
 		var p struct {
 			ParentSession string `json:"parentSession"`
@@ -290,13 +324,25 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 			respond(true, nil, "")
 		}
 	case "get_state":
+		pending := 0
+		steerMode, followUpMode := "all", "all"
+		if raw, ok := call("queue/state", map[string]any{"session_id": sessionID}); ok {
+			var res struct {
+				Pending      int    `json:"pending"`
+				SteerMode    string `json:"steer_mode"`
+				FollowUpMode string `json:"follow_up_mode"`
+			}
+			if json.Unmarshal(raw, &res) == nil {
+				pending, steerMode, followUpMode = res.Pending, res.SteerMode, res.FollowUpMode
+			}
+		}
 		respond(true, map[string]any{
 			"session_id":            sessionID,
 			"isStreaming":           activeRun != "",
 			"isCompacting":          false,
 			"pendingMessageCount":   pending,
-			"steeringMode":          "all",
-			"followUpMode":          "all",
+			"steeringMode":          steerMode,
+			"followUpMode":          followUpMode,
 			"autoCompactionEnabled": true,
 		}, "")
 	case "get_messages":
@@ -398,7 +444,21 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 	case "set_thinking_level", "cycle_thinking_level", "get_available_thinking_levels":
 		notImplemented("F1 thinking levels")
 	case "set_steering_mode", "set_follow_up_mode":
-		notImplemented("B1 queue modes")
+		var p struct {
+			Mode string `json:"mode"`
+		}
+		if !decode(&p) {
+			return
+		}
+		track := "follow_up"
+		if cmd.Type == "set_steering_mode" {
+			track = "steer"
+		}
+		if _, ok := call("queue/mode", map[string]any{
+			"session_id": sessionID, "track": track, "mode": p.Mode,
+		}); ok {
+			respond(true, nil, "")
+		}
 	case "set_auto_compaction", "set_auto_retry", "abort_retry":
 		notImplemented("settings/retry surfaces")
 	case "cycle_model":
@@ -465,6 +525,34 @@ func (m *rpcMode) adoptForked(raw json.RawMessage) {
 	}
 }
 
+// admitSettledFollowUp resolves the follow-up run the kernel auto-started
+// for a settle, then subscribes it onto the stream. The admission lands in
+// the session queue moments after the terminal event, so poll briefly.
+func (m *rpcMode) admitSettledFollowUp(settledRunID string) {
+	for i := 0; i < 40; i++ {
+		raw, err := m.env.Call(context.Background(), "queue/state", map[string]any{
+			"session_id":   m.sessionID,
+			"after_run_id": settledRunID,
+		})
+		if err == nil {
+			var qs struct {
+				AdmittedRunID string `json:"admitted_run_id"`
+			}
+			if json.Unmarshal(raw, &qs) == nil && qs.AdmittedRunID != "" {
+				m.mu.Lock()
+				m.activeRun = qs.AdmittedRunID
+				m.mu.Unlock()
+				m.proj.Emit("turn_start", map[string]any{"session_id": m.sessionID, "run_id": qs.AdmittedRunID, "admitted": true})
+				if _, err := m.env.Call(context.Background(), "run/subscribe", map[string]any{"run_id": qs.AdmittedRunID}); err != nil {
+					m.proj.Emit("error", map[string]any{"message": fmt.Sprintf("follow-up run/subscribe failed: %v", err)})
+				}
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // onNotify projects journal events of the active run onto stdout and drives
 // the settle tail + follow-up drain.
 func (m *rpcMode) onNotify(method string, params json.RawMessage) {
@@ -482,6 +570,8 @@ func (m *rpcMode) onNotify(method string, params json.RawMessage) {
 	if err := json.Unmarshal(params, &wire); err != nil {
 		return
 	}
+	typ := wire.Event.Type
+
 	m.mu.Lock()
 	if wire.Event.RunID == "" || wire.Event.RunID != m.activeRun {
 		m.mu.Unlock()
@@ -489,7 +579,6 @@ func (m *rpcMode) onNotify(method string, params json.RawMessage) {
 	}
 	m.mu.Unlock()
 
-	typ := wire.Event.Type
 	// Terminal statuses settle through the lifecycle tail; everything else
 	// projects through the shared mapping table.
 	switch typ {
@@ -509,17 +598,12 @@ func (m *rpcMode) onNotify(method string, params json.RawMessage) {
 		m.proj.RunSettled(status)
 		m.mu.Lock()
 		m.activeRun = ""
-		next := ""
-		if len(m.queue) > 0 {
-			next = m.queue[0]
-			m.queue = m.queue[1:]
-		}
 		m.mu.Unlock()
-		if next != "" {
-			if _, err := m.startTurn(context.Background(), next); err != nil {
-				m.proj.Emit("error", map[string]any{"message": fmt.Sprintf("queued follow-up failed to start: %v", err)})
-			}
-		}
+		// Kernel-admitted follow-up: the queue drain may auto-start a run
+		// when this run settles. Admission races the terminal publish, so
+		// poll queue/state{after_run_id} briefly for the admission record,
+		// then subscribe so the stream projects like a prompt's.
+		go m.admitSettledFollowUp(wire.Event.RunID)
 		return
 	}
 	// model.delta is sink-rendered in facerun; rpc mode projects it itself.
@@ -615,7 +699,7 @@ func rpcCommands() []map[string]any {
 		avail bool
 	}
 	cmds := []c{
-		{"prompt", true}, {"follow_up", true}, {"steer", false},
+		{"prompt", true}, {"follow_up", true}, {"steer", true},
 		{"abort", true}, {"interrupt", true}, {"clear_queue", true},
 		{"new_session", true}, {"switch_session", true}, {"set_session_name", true},
 		{"get_state", true}, {"get_messages", true}, {"get_last_assistant_text", true},
@@ -623,7 +707,7 @@ func rpcCommands() []map[string]any {
 		{"set_model", true}, {"get_available_models", true}, {"cycle_model", false},
 		{"compact", true}, {"set_auto_compaction", false},
 		{"set_thinking_level", false}, {"cycle_thinking_level", false}, {"get_available_thinking_levels", false},
-		{"set_steering_mode", false}, {"set_follow_up_mode", false},
+		{"set_steering_mode", true}, {"set_follow_up_mode", true},
 		{"set_auto_retry", false}, {"abort_retry", false},
 		{"bash", false}, {"abort_bash", false},
 		{"export_html", false}, {"get_tree", false}, {"get_entries", false},

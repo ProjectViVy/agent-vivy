@@ -95,8 +95,8 @@ func TestChildModeDefaultsLegacyChildrenToOneShot(t *testing.T) {
 }
 
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 57 {
-		t.Fatalf("vocabulary size = %d, want 57", len(EventTypes))
+	if len(EventTypes) != 60 {
+		t.Fatalf("vocabulary size = %d, want 60", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0

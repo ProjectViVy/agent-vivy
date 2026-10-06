@@ -126,6 +126,9 @@ type EngineConfig struct {
 type Engine struct {
 	runner *adk.Runner
 	cfg    EngineConfig
+	// agentName is the root ChatModelAgent's name — its resume-data address
+	// segment ("agent:<name>") when steer resumes inject history modifiers.
+	agentName string
 	// chatModel is the wrapped provider model; the service reuses it for
 	// session-level summary generation (context/compact).
 	chatModel model.ToolCallingChatModel
@@ -368,7 +371,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
+	return &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
 }
 
 const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."

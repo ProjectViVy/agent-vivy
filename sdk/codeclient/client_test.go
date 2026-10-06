@@ -203,7 +203,7 @@ settled:
 	if err := c.SetSessionName(ctx, "codeclient e2e"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Steer(ctx, "x"); err == nil {
-		t.Fatal("steer should fail until B1")
+	if _, err := c.Steer(ctx, "x"); err != nil {
+		t.Fatalf("steer on settled session should start a run: %v", err)
 	}
 }

@@ -288,6 +288,12 @@ type Service struct {
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
+	// queues holds per-session dual-track turn queues (VCP-B1).
+	queues map[domain.SessionID]*sessionQueue
+	// steerCancels holds the adk boundary-cancel handle per live run; armed
+	// marks a boundary cancel triggered by a steer (vs a user abort).
+	steerCancels map[domain.RunID]adk.AgentCancelFunc
+	steerArmed   map[domain.RunID]bool
 	// runTools pins the compiler/runtime-selected ToolHost surface for each
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
@@ -488,6 +494,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		shellStates:      make(map[string]shellState),
 		ledgers:          make(map[domain.RunID]*BudgetLedger),
 		snapshots:        make(map[domain.RunID]domain.PolicySnapshot),
+		queues:           make(map[domain.SessionID]*sessionQueue),
+		steerCancels:     make(map[domain.RunID]adk.AgentCancelFunc),
+		steerArmed:       make(map[domain.RunID]bool),
 		runTools:         make(map[domain.RunID]map[string]struct{}),
 		contextViews:     make(map[domain.RunID]string),
 		lastCompaction:   make(map[domain.SessionID]*LastCompaction),
@@ -2904,7 +2913,14 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 			return
 		}
 	}
-	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	var steerCancel adk.AgentCancelFunc
+	cancelOpt, steerCancel := adk.WithCancel()
+	if steerCancel != nil {
+		s.mu.Lock()
+		s.steerCancels[m.runID] = steerCancel
+		s.mu.Unlock()
+	}
+	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)), cancelOpt)
 	var beforeComplete func() error
 	if execution.child != nil {
 		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(runCtx, execution.child) }
@@ -3480,6 +3496,18 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			// VCP-B1: a steer-armed boundary cancel surfaces as a checkpoint
+			// interrupt, not a CancelError. Consume it here: resume the
+			// checkpoint with the steered message injected via a
+			// HistoryModifier — same run, turn.steered continuity marker.
+			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+				// The resume leg must NOT run inside the cancelled run's own
+				// consume — Runner.Resume serializes on the checkpoint while
+				// this iterator is still open (same reason approval resumes
+				// drive from the responding goroutine, not the suspended leg).
+				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+				return
+			}
 			if state != nil {
 				state.Abort(errRunInterrupted)
 			}
@@ -3487,6 +3515,13 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if err != nil {
+			// VCP-B1: a steer-triggered boundary cancel is not a run failure.
+			// Resume the checkpoint with the steered message injected into
+			// history — same run, single turn.steered continuity marker.
+			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+				return
+			}
 			if state != nil {
 				state.Abort(err)
 			}
@@ -4524,9 +4559,15 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	ctx = withNudgeState(ctx, state)
 	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	cancelOpt, steerCancel := adk.WithCancel()
+	if steerCancel != nil {
+		s.mu.Lock()
+		s.steerCancels[runID] = steerCancel
+		s.mu.Unlock()
+	}
 	iter, err := eng.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
-	})
+	}, cancelOpt)
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
@@ -4821,6 +4862,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
 	}
+	delete(s.steerCancels, terminal.RunID)
+	delete(s.steerArmed, terminal.RunID)
 	if pending, ok := s.shellPending[terminal.RunID]; ok {
 		delete(s.shellPending, terminal.RunID)
 		shellStateRefToDelete = pending.stateRef
@@ -4846,6 +4889,18 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// A completed human turn, or a failed/cancelled turn that created
 		// the current Goal, releases the session for the next candidate.
 		s.wakeGoal(runSession, false)
+	}
+	// VCP-B1: a settling human turn admits the follow-up lane (steer items
+	// left behind demote into it); a user abort flushes both lanes instead —
+	// pi semantics: queued text returns to the caller via turn.dequeued, not
+	// into a run the user just cancelled. Goal/cron runs are excluded.
+	if runSession != "" && goalSession == "" {
+		switch terminal.Type {
+		case domain.EventRunCompleted, domain.EventRunFailed:
+			s.drainFollowUps(runSession, terminal.RunID)
+		case domain.EventRunCancelled:
+			s.flushQueue(runSession)
+		}
 	}
 }
 

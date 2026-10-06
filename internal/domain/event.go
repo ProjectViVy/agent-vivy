@@ -63,6 +63,9 @@ const (
 	EventChannelInbound           EventType = "channel.inbound"
 	EventContextReferenceAttached EventType = "context.reference_attached"
 	EventDeliverablesPresented    EventType = "deliverables.presented"
+	EventTurnQueued               EventType = "turn.queued"
+	EventTurnDequeued             EventType = "turn.dequeued"
+	EventTurnSteered              EventType = "turn.steered"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -120,6 +123,9 @@ var EventTypes = []EventType{
 	EventSessionForked,
 	EventContextReferenceAttached,
 	EventDeliverablesPresented,
+	EventTurnQueued,
+	EventTurnDequeued,
+	EventTurnSteered,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,
