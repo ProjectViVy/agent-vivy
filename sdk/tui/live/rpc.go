@@ -693,12 +693,14 @@ func (c *client) dequeueQueue(ctx context.Context, sessionID string) (string, bo
 	return res.Text, res.Dequeued, nil
 }
 
-func (c *client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
-	// shell/start intentionally accepts only session_id and script. Policy,
-	// approval and execution remain runtime-owned by the control plane.
-	raw, err := c.Call(ctx, "shell/start", map[string]string{
+func (c *client) startShell(ctx context.Context, sessionID, script string, noContext bool) (runAccepted, error) {
+	// shell/start intentionally accepts only session_id, script and the
+	// no_context flag. Policy, approval and execution remain runtime-owned
+	// by the control plane.
+	raw, err := c.Call(ctx, "shell/start", map[string]any{
 		"session_id": sessionID,
 		"script":     script,
+		"no_context": noContext,
 	})
 	if err != nil {
 		return runAccepted{}, err

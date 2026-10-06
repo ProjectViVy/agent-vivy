@@ -510,6 +510,8 @@ func (s *Service) resumeNativeOrchestrationApproval(p pendingRun, approval domai
 	ctx = withToolOperationCoordinator(ctx, s.newToolOperationCoordinator(approval.RunID, p.sessionID))
 	ctx = withSessionSandbox(ctx, p.sandboxMode, p.approvalPolicy)
 	ctx = tools.WithSessionID(ctx, p.sessionID)
+	providerLabel, modelLabel := s.CurrentModel()
+	ctx = domain.WithRunLabels(ctx, domain.RunLabels{Provider: providerLabel, Model: modelLabel})
 	mounted := p.mounted
 	if mounted == nil {
 		mounted = tools.NewMountedTools()

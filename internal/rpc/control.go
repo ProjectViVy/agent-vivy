@@ -493,6 +493,9 @@ type turnParams struct {
 type shellParams struct {
 	SessionID string `json:"session_id"`
 	Script    string `json:"script"`
+	// NoContext keeps the shell result out of the model feed (the !!
+	// variant); the transcript still shows the journaled run.
+	NoContext bool `json:"no_context"`
 }
 
 type editSessionParams struct {
@@ -3832,7 +3835,7 @@ func (h *controlHandler) startShell(ctx context.Context, request Request) (any, 
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	runID, err := h.deps.Service.RunShell(ctx, domain.SessionID(params.SessionID), params.Script)
+	runID, err := h.deps.Service.RunShell(ctx, domain.SessionID(params.SessionID), params.Script, runtime.ShellRunOptions{NoContext: params.NoContext})
 	if err != nil {
 		if errors.Is(err, runtime.ErrShellUnavailable) {
 			return nil, &Error{Code: MethodNotFound, Message: "governed shell is unavailable"}
@@ -4388,8 +4391,8 @@ func parseShellParams(request Request) (shellParams, *Error) {
 		return params, &Error{Code: InvalidParams, Message: "params must be a JSON object"}
 	}
 	for name := range fields {
-		if name != "session_id" && name != "script" {
-			return params, &Error{Code: InvalidParams, Message: "shell/start accepts only session_id and script"}
+		if name != "session_id" && name != "script" && name != "no_context" {
+			return params, &Error{Code: InvalidParams, Message: "shell/start accepts only session_id, script and no_context"}
 		}
 	}
 	if params.SessionID == "" || params.Script == "" {

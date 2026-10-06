@@ -1003,8 +1003,8 @@ func (*testDriver) SendWithContext(string, []string) tea.Cmd { return nil }
 func (*testDriver) CompleteProjectFiles(uint64, string) tea.Cmd {
 	return nil
 }
-func (*testDriver) ExecuteShell(string) tea.Cmd    { return nil }
-func (*testDriver) SupportsCapability(string) bool { return false }
+func (*testDriver) ExecuteShell(string, bool) tea.Cmd { return nil }
+func (*testDriver) SupportsCapability(string) bool    { return false }
 
 func TestComputeLayoutUsesBothCrushBreakpoints(t *testing.T) {
 	for _, tc := range []struct {

@@ -43,12 +43,10 @@ func TestParseDoubleSlashEscapesOneSlash(t *testing.T) {
 	}
 }
 
-func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
+func TestParseDoubleAtEscapesOneMarker(t *testing.T) {
 	for _, tc := range []struct {
 		input, want string
 	}{
-		{"!!echo", "!echo"},
-		{"  !!你好 🙂", "  !你好 🙂"},
 		{"@@file.txt", "@file.txt"},
 		{"@@你好", "@你好"},
 	} {
@@ -59,6 +57,23 @@ func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
 		if got.Kind != Plain || got.Text != tc.want || got.IsUnavailable() {
 			t.Fatalf("Parse(%q) = %+v, want plain %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestParseDoubleBangIsNoContextShell(t *testing.T) {
+	got, err := Parse("  !!echo hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsShell() || got.Shell.Script != "echo hi" || !got.Shell.NoContext {
+		t.Fatalf("Parse(!!) = %+v, want no-context shell", got)
+	}
+	plain, err := Parse("!echo hi")
+	if err != nil || !plain.IsShell() || plain.Shell.NoContext {
+		t.Fatalf("Parse(!) = %+v, %v; want context shell", plain, err)
+	}
+	if _, err := Parse("!!"); err == nil {
+		t.Fatal("bare !! must be a syntax error")
 	}
 }
 

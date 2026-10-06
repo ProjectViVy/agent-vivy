@@ -21,6 +21,10 @@ type CommandRequest struct {
 	Env        map[string]string
 	TimeoutMS  int
 	Background bool
+	// ApplyShellPrefix opts this request into runtime.shell_command_prefix:
+	// bash runs it in front of the -c script, commandline wraps its argv in
+	// `bash -c '<prefix> "$@"'` after allowlist validation. execute opts out.
+	ApplyShellPrefix bool
 }
 
 type CommandResult struct {
@@ -39,6 +43,13 @@ type CommandResult struct {
 	JobID      string `json:"job_id,omitempty"`
 	Background bool   `json:"background,omitempty"`
 	JobStatus  string `json:"job_status,omitempty"`
+	// Spill fields appear when a stream exceeded the inline bound: the full
+	// output lives in the spill file inside the run workspace and the stream
+	// field carries its retained tail plus the total byte count.
+	StdoutSpillPath  string `json:"stdout_spill_path,omitempty"`
+	StderrSpillPath  string `json:"stderr_spill_path,omitempty"`
+	StdoutTotalBytes int64  `json:"stdout_total_bytes,omitempty"`
+	StderrTotalBytes int64  `json:"stderr_total_bytes,omitempty"`
 }
 
 type CommandOperations interface {
@@ -71,6 +82,7 @@ func (t *commandTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 	if err != nil {
 		return "", err
 	}
+	request.ApplyShellPrefix = t.name == CommandlineName
 	request, err = expandExecuteRequest(t.name, request)
 	if err != nil {
 		return "", err
@@ -90,6 +102,7 @@ func (t *commandTool) PrepareProposal(ctx context.Context, args json.RawMessage)
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
+	request.ApplyShellPrefix = t.name == CommandlineName
 	request, err = expandExecuteRequest(t.name, request)
 	if err != nil {
 		return domain.ToolProposal{}, err

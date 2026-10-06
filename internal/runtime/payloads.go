@@ -29,6 +29,9 @@ type payloadRunStarted struct {
 	PromptDigest         string `json:"prompt_digest,omitempty"`
 	CollaborationMode    string `json:"collaboration_mode,omitempty"`
 	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	// NoContext marks a run whose journal events project to the transcript
+	// but must never enter the model feed (the !! direct-shell variant).
+	NoContext bool `json:"no_context,omitempty"`
 }
 
 // payloadContextReferenceAttached persists the destination-owned sanitized

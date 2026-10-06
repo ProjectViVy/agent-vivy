@@ -431,7 +431,9 @@ type ProjectFilesMsg struct {
 // Implementations must call the server-owned shell/start route; no terminal
 // face may execute a process locally.
 type ShellExecutor interface {
-	ExecuteShell(script string) tea.Cmd
+	// ExecuteShell runs one governed direct shell. noContext selects the !!
+	// variant: the run journals and renders but never enters the model feed.
+	ExecuteShell(script string, noContext bool) tea.Cmd
 }
 
 // CapabilityReporter exposes only capabilities returned by initialize.

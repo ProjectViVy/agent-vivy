@@ -1325,6 +1325,8 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	runCtx = domain.WithThinkingMode(runCtx, thinking)
+	providerLabel, modelLabel := s.CurrentModel()
+	runCtx = domain.WithRunLabels(runCtx, domain.RunLabels{Provider: providerLabel, Model: modelLabel})
 	selectedToolSet := make(map[string]struct{})
 	for _, name := range s.engine.SelectTools().Names() {
 		selectedToolSet[name] = struct{}{}

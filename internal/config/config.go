@@ -293,6 +293,14 @@ type Runtime struct {
 	// such as go test or git clone; values above the runtime hard cap are
 	// rejected so a typo cannot silently re-clamp the ceiling.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+	// ShellCommandPrefix (VCP-E1) is prepended to every bash invocation and
+	// wraps commandline argv, e.g. "set -euo pipefail &&" or a nix-shell
+	// enter line. It is trusted operator config, never model-visible input.
+	ShellCommandPrefix string `yaml:"shell_command_prefix"`
+	// ToolOutputSpillBytes bounds each process output stream kept inline;
+	// beyond it the full stream spills to <workspace>/.vivy/tool-output/.
+	// Non-positive keeps the 64 KiB default; larger values are clamped.
+	ToolOutputSpillBytes int `yaml:"tool_output_spill_bytes"`
 	// Compaction controls automatic context compression (Eino native
 	// reduction + summarization middlewares).
 	Compaction CompactionConfig `yaml:"compaction"`

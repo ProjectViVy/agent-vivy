@@ -1776,7 +1776,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		if !m.driver.SupportsCapability("shell.start") {
 			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.shellUnavailable", nil))), nil
 		}
-		if cmd := m.driver.ExecuteShell(parsed.Shell.Script); cmd != nil {
+		if cmd := m.driver.ExecuteShell(parsed.Shell.Script, parsed.Shell.NoContext); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd

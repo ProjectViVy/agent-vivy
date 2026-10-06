@@ -761,6 +761,29 @@ func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
 		t.Fatalf("shell/start result = %s, err = %v", acceptedJSON, err)
 	}
 	waitForControlRunTerminal(t, env.backend, accepted.RunID)
+	// The !! variant rides the same route with a no_context flag.
+	noCtx, rpcErr := callControl(t, env.handler, "shell/start", map[string]any{
+		"session_id": string(session.ID), "script": "printf rpc_shell_nc", "no_context": true,
+	})
+	if rpcErr != nil {
+		t.Fatalf("no-context shell/start = %v", rpcErr)
+	}
+	noCtxJSON, _ := json.Marshal(noCtx)
+	var noCtxAccepted struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(noCtxJSON, &noCtxAccepted); err != nil || noCtxAccepted.RunID == "" {
+		t.Fatalf("no-context shell/start result = %s", noCtxJSON)
+	}
+	waitForControlRunTerminal(t, env.backend, noCtxAccepted.RunID)
+	ncLog, rpcErr := callControl(t, env.handler, "run/log", map[string]any{"run_id": noCtxAccepted.RunID, "after_seq": 0})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	ncJSON, _ := json.Marshal(ncLog)
+	if !strings.Contains(string(ncJSON), `"no_context":true`) {
+		t.Fatalf("no-context run.started missing flag: %s", ncJSON)
+	}
 	events, rpcErr := callControl(t, env.handler, "run/log", map[string]any{"run_id": accepted.RunID, "after_seq": 0})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)

@@ -58,9 +58,10 @@ func (d *dynamicCommandDriver) CancelDynamicCommand(request uint64) {
 
 type contextCommandDriver struct {
 	*testDriver
-	contextText  string
-	contextPaths []string
-	shellScript  string
+	contextText    string
+	contextPaths   []string
+	shellScript    string
+	shellNoContext bool
 }
 
 func (d *commandDriver) ExecuteCommand(name string, args []string) tea.Cmd {
@@ -75,8 +76,9 @@ func (d *contextCommandDriver) SendWithContext(text string, paths []string) tea.
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 
-func (d *contextCommandDriver) ExecuteShell(script string) tea.Cmd {
+func (d *contextCommandDriver) ExecuteShell(script string, noContext bool) tea.Cmd {
 	d.shellScript = script
+	d.shellNoContext = noContext
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 

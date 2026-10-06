@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +92,7 @@ func TestLoadValid(t *testing.T) {
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
 		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != filepath.Join(userDataRoot(), "workspace") ||
 		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 ||
-		cfg.Runtime.Compaction != (CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {
+		!reflect.DeepEqual(cfg.Runtime.Compaction, CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {

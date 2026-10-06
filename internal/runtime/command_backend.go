@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"path/filepath"
 	goRuntime "runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"mvdan.cc/sh/v3/expand"
@@ -37,13 +35,25 @@ const (
 )
 
 type CommandBackend struct {
-	manager        *WorkspaceManager
-	sandbox        *SandboxManager
-	allowed        map[string]struct{}
-	maxOutputBytes int
-	maxTimeout     time.Duration
-	shellPath      string
-	jobs           *tools.JobRegistry
+	manager     *WorkspaceManager
+	sandbox     *SandboxManager
+	allowed     map[string]struct{}
+	maxTimeout  time.Duration
+	shellPath   string
+	shellPrefix string
+	spillBytes  int64
+	jobs        *tools.JobRegistry
+}
+
+// CommandBackendOptions carries optional runtime.* settings that only the
+// module wiring layer supplies; zero values keep historical behavior.
+type CommandBackendOptions struct {
+	// ShellPrefix (runtime.shell_command_prefix) is prepended to every bash
+	// script and wraps commandline argv as `bash -c '<prefix> "$@"'`.
+	ShellPrefix string
+	// SpillBytes (runtime.tool_output_spill_bytes) is the per-stream inline
+	// bound beyond which the full output spills to a workspace file.
+	SpillBytes int
 }
 
 var _ tools.CommandOperations = (*CommandBackend)(nil)
@@ -56,7 +66,7 @@ var _ interface {
 // single execute/commandline run (from runtime.execute_max_timeout_seconds);
 // non-positive falls back to the 30s default and values above
 // hardMaxCommandTimeout are clamped to it.
-func NewCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string, maxTimeout time.Duration) *CommandBackend {
+func NewCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string, maxTimeout time.Duration, options ...CommandBackendOptions) *CommandBackend {
 	if len(allowed) == 0 {
 		allowed = []string{"go", "git", "rg"}
 	}
@@ -72,8 +82,16 @@ func NewCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allow
 			commands[name] = struct{}{}
 		}
 	}
+	var opts CommandBackendOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	spillBytes := int64(opts.SpillBytes)
+	if spillBytes <= 0 || spillBytes > maxCommandOutput {
+		spillBytes = maxCommandOutput
+	}
 	shellPath, _ := exec.LookPath("bash")
-	return &CommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath, jobs: tools.NewJobRegistry()}
+	return &CommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxTimeout: maxTimeout, shellPath: shellPath, shellPrefix: opts.ShellPrefix, spillBytes: spillBytes, jobs: tools.NewJobRegistry()}
 }
 
 func (b *CommandBackend) ShellAvailable() bool {
@@ -81,48 +99,34 @@ func (b *CommandBackend) ShellAvailable() bool {
 }
 
 func (b *CommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
-	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
+	validated, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
 		return tools.CommandResult{}, err
 	}
 	path := b.shellPath
-	if command != "bash" {
-		path, err = exec.LookPath(command)
+	if validated.command != "bash" {
+		path, err = exec.LookPath(validated.command)
 		if err != nil {
-			return tools.CommandResult{}, fmt.Errorf("command: executable %q is unavailable: %w", command, err)
+			return tools.CommandResult{}, fmt.Errorf("command: executable %q is unavailable: %w", validated.command, err)
 		}
 	}
-	if command == "bash" {
-		return b.executeBash(ctx, path, args, cwd, env, timeout, request.Background)
+	if validated.command == "bash" {
+		return b.executeBash(ctx, path, validated, request.Background)
 	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	started := time.Now()
-	cmd := exec.CommandContext(execCtx, path, args...)
-	cmd.Dir = cwd
-	cmd.Env = env
-	var out, errOut boundedCommandOutput
-	out.limit, errOut.limit = b.maxOutputBytes, b.maxOutputBytes
-	cmd.Stdout = &out
-	cmd.Stderr = &errOut
-	if err := cmd.Start(); err != nil {
-		return tools.CommandResult{}, fmt.Errorf("command: start: %w", err)
+	// execute/commandline share the job registry's foreground path so the
+	// output spill and tail-bound behavior match the bash surface.
+	spec := tools.JobSpec{
+		Display: strings.Join(append([]string{validated.command}, validated.args...), " "),
+		Path:    path, Args: validated.args, Dir: validated.scope.cwd, Env: validated.scope.env,
+		SpillDir: validated.scope.spillDir, SpillID: validated.scope.spillID, SpillBytes: b.spillBytes,
 	}
-	waitErr := cmd.Wait()
-	result := tools.CommandResult{Command: strings.Join(append([]string{command}, args...), " "), Cwd: cwd, Stdout: out.String(), Stderr: errOut.String(), StdoutTrunc: out.truncated, StderrTrunc: errOut.truncated, DurationMS: time.Since(started).Milliseconds(), Untrusted: true}
-	if cmd.ProcessState != nil {
-		result.ExitCode = cmd.ProcessState.ExitCode()
-	} else {
-		result.ExitCode = -1
+	result, err := b.jobs.RunForeground(ctx, spec, validated.scope.timeout)
+	if result.Command == "" {
+		result.Command = spec.Display
 	}
-	if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
-		result.TimedOut = true
-	}
-	if ctx.Err() != nil {
-		return result, ctx.Err()
-	}
-	if waitErr != nil && result.ExitCode == -1 {
-		return result, fmt.Errorf("command: wait: %w", waitErr)
+	result.Cwd, result.Untrusted = validated.scope.cwd, true
+	if err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -131,18 +135,29 @@ func (b *CommandBackend) Execute(ctx context.Context, runID domain.RunID, reques
 // the timeout budget and are adopted as background jobs on timeout; explicit
 // background runs return their job id immediately. Jobs are bound to the run
 // context, so a finishing or cancelled run reaps them.
-func (b *CommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
+func (b *CommandBackend) executeBash(ctx context.Context, path string, validated commandValidated, background bool) (tools.CommandResult, error) {
+	args, cwd, env, timeout := validated.args, validated.scope.cwd, validated.scope.env, validated.scope.timeout
 	display := strings.Join(append([]string{"bash"}, args...), " ")
-	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env}
+	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env,
+		SpillDir: validated.scope.spillDir, SpillID: validated.scope.spillID, SpillBytes: b.spillBytes}
 	direct := isDirectShell(ctx)
 	if direct && background {
 		return tools.CommandResult{}, errors.New("command: direct shell cannot run in background")
 	}
 	if direct || goRuntime.GOOS == "windows" || path == "" {
-		if len(args) != 2 || args[0] != "-c" {
+		var script string
+		switch {
+		case len(args) == 2 && args[0] == "-c":
+			script = args[1]
+		case len(args) >= 4 && args[0] == "-c" && args[2] == shellPrefixArgv0:
+			// commandline wrapped for the configured prefix: flatten to one
+			// script for the embedded interpreter (prefix must end with a
+			// shell separator, same contract as the OS-bash wrap).
+			prefix := strings.TrimSuffix(args[1], " \"$@\"")
+			script = prefix + " " + shellQuoteJoin(args[3:])
+		default:
 			return tools.CommandResult{}, errors.New("command: embedded bash requires -c script")
 		}
-		script := args[1]
 		spec.Path, spec.Args = "", nil
 		spec.Run = func(runCtx context.Context, stdout, stderr io.Writer) error {
 			file, err := syntax.NewParser().Parse(strings.NewReader(script), "")
@@ -217,22 +232,40 @@ func (b *CommandBackend) JobKill(jobID string) (tools.JobKillResult, error) {
 	return b.jobs.Kill(jobID)
 }
 func (b *CommandBackend) PrepareCommand(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (domain.ToolProposal, error) {
-	command, args, cwd, _, timeout, err := b.validateRequest(ctx, runID, request)
+	validated, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
 	payload, _ := json.Marshal(request)
-	preview := strings.Join(append([]string{command}, args...), " ")
+	preview := strings.Join(append([]string{validated.command}, validated.args...), " ")
 	if len(preview) > 4096 {
 		preview = preview[:4096] + "..."
 	}
-	return domain.ToolProposal{Action: "commandline", Target: filepath.Join(cwd, command), Preview: fmt.Sprintf("%s (timeout %s)", preview, timeout), RiskFindings: []string{"local process execution", "command output is untrusted"}, Data: payload}, nil
+	return domain.ToolProposal{Action: "commandline", Target: filepath.Join(validated.scope.cwd, validated.command), Preview: fmt.Sprintf("%s (timeout %s)", preview, validated.scope.timeout), RiskFindings: []string{"local process execution", "command output is untrusted"}, Data: payload}, nil
 }
 
-func (b *CommandBackend) validateRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (string, []string, string, []string, time.Duration, error) {
+// commandScope is the resolved execution context for one request: sandboxed
+// cwd, sanitized env, bounded timeout, and the workspace spill target.
+type commandScope struct {
+	cwd      string
+	env      []string
+	timeout  time.Duration
+	spillDir string
+	spillID  string
+}
+
+// commandValidated is a request that passed policy/allowlist checks and is
+// ready for process launch; args may already carry the shell prefix rewrite.
+type commandValidated struct {
+	command string
+	args    []string
+	scope   commandScope
+}
+
+func (b *CommandBackend) validateRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (commandValidated, error) {
 	command := strings.TrimSpace(request.Command)
 	if command == "" || strings.ContainsAny(command, " \t\r\n/\\;&|><$()") {
-		return "", nil, "", nil, 0, errors.New("command: command must be one allowlisted executable name without shell syntax")
+		return commandValidated{}, errors.New("command: command must be one allowlisted executable name without shell syntax")
 	}
 
 	mode := sandboxMode(ctx)
@@ -249,106 +282,120 @@ func (b *CommandBackend) validateRequest(ctx context.Context, runID domain.RunID
 	// Sandbox validation: check command against sandbox policy (D-021)
 	if b.sandbox != nil {
 		if err := b.sandbox.ConfineCommandWithMode(command, request.Args, mode); err != nil {
-			return "", nil, "", nil, 0, fmt.Errorf("sandbox: %w", err)
+			return commandValidated{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
 
 	name := normalizeCommandName(command)
 	if mode != domain.SandboxModeDangerFullAccess {
 		if _, ok := b.allowed[name]; !ok {
-			return "", nil, "", nil, 0, fmt.Errorf("command: executable %q is not allowlisted", command)
+			return commandValidated{}, fmt.Errorf("command: executable %q is not allowlisted", command)
 		}
 	}
 	if len(request.Args) > 128 {
-		return "", nil, "", nil, 0, errors.New("command: too many arguments")
+		return commandValidated{}, errors.New("command: too many arguments")
 	}
 	argsBytes := 0
 	for _, arg := range request.Args {
 		if len(arg) > 4096 {
-			return "", nil, "", nil, 0, errors.New("command: argument exceeds 4096 bytes")
+			return commandValidated{}, errors.New("command: argument exceeds 4096 bytes")
 		}
 		argsBytes += len(arg)
 		if strings.IndexByte(arg, 0) >= 0 {
-			return "", nil, "", nil, 0, errors.New("command: NUL in argument")
+			return commandValidated{}, errors.New("command: NUL in argument")
 		}
 	}
 	if argsBytes > maxCommandArgsBytes {
-		return "", nil, "", nil, 0, errors.New("command: argument payload exceeds size limit")
+		return commandValidated{}, errors.New("command: argument payload exceeds size limit")
 	}
-	cwdPath, env, timeout, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, request.Env)
+	scope, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, request.Env)
 	if err != nil {
-		return "", nil, "", nil, 0, err
+		return commandValidated{}, err
 	}
-	return command, append([]string(nil), request.Args...), cwdPath, env, timeout, nil
+	args := append([]string(nil), request.Args...)
+	if request.ApplyShellPrefix && b.shellPrefix != "" && b.shellPath != "" {
+		// commandline opts into the configured prefix: the argv survives
+		// verbatim through "$@"; only the trusted prefix string is shell.
+		wrapped := append([]string{"-c", b.shellPrefix + " \"$@\"", shellPrefixArgv0, command}, args...)
+		return commandValidated{command: "bash", args: wrapped, scope: scope}, nil
+	}
+	return commandValidated{command: command, args: args, scope: scope}, nil
 }
 
 // validateBashRequest is the bash-tool path: the sandbox command whitelist
 // does not apply (the classifier deny table plus tiered approval own that
 // risk), but read-only sandboxes still deny execution and the deny table is
 // re-checked here as defense in depth.
-func (b *CommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (string, []string, string, []string, time.Duration, error) {
+func (b *CommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (commandValidated, error) {
 	if b.shellPath == "" && goRuntime.GOOS != "windows" {
-		return "", nil, "", nil, 0, errors.New("command: bash is not available on this host")
+		return commandValidated{}, errors.New("command: bash is not available on this host")
 	}
 	if mode == domain.SandboxModeReadOnly {
-		return "", nil, "", nil, 0, fmt.Errorf("%w: command execution not allowed in read-only mode", ErrSandboxDenied)
+		return commandValidated{}, fmt.Errorf("%w: command execution not allowed in read-only mode", ErrSandboxDenied)
 	}
 	if len(request.Args) != 2 || request.Args[0] != "-c" {
-		return "", nil, "", nil, 0, errors.New("command: bash expects a single -c script")
+		return commandValidated{}, errors.New("command: bash expects a single -c script")
 	}
+	// The classifier always sees the caller's script alone; the configured
+	// prefix is trusted operator config applied after classification.
 	if class, findings, err := tools.ClassifyShellScript(request.Args[1]); err != nil {
-		return "", nil, "", nil, 0, err
+		return commandValidated{}, err
 	} else if class == tools.InvocationDenied {
-		return "", nil, "", nil, 0, fmt.Errorf("command: bash: %s", strings.Join(findings, "; "))
+		return commandValidated{}, fmt.Errorf("command: bash: %s", strings.Join(findings, "; "))
 	}
-	cwdPath, env, timeout, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, nil)
+	scope, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, nil)
 	if err != nil {
-		return "", nil, "", nil, 0, err
+		return commandValidated{}, err
 	}
-	return "bash", append([]string(nil), request.Args...), cwdPath, env, timeout, nil
+	args := append([]string(nil), request.Args...)
+	if b.shellPrefix != "" {
+		args[1] = b.shellPrefix + " " + args[1]
+	}
+	return commandValidated{command: "bash", args: args, scope: scope}, nil
 }
 
-func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain.RunID, cwdRequest string, timeoutMS int, envOverrides map[string]string) (string, []string, time.Duration, error) {
+func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain.RunID, cwdRequest string, timeoutMS int, envOverrides map[string]string) (commandScope, error) {
 	if err := ctx.Err(); err != nil {
-		return "", nil, 0, err
+		return commandScope{}, err
 	}
 	if b.manager == nil {
-		return "", nil, 0, errors.New("command: workspace manager not wired")
+		return commandScope{}, errors.New("command: workspace manager not wired")
 	}
 	workspace, err := b.manager.Ensure(ctx, runID)
 	if err != nil {
-		return "", nil, 0, err
+		return commandScope{}, err
 	}
 	cwd := strings.TrimSpace(cwdRequest)
 	if cwd == "" {
 		cwd = "."
 	}
 	if filepath.IsAbs(cwd) {
-		return "", nil, 0, errors.New("command: cwd must be workspace-relative")
+		return commandScope{}, errors.New("command: cwd must be workspace-relative")
 	}
 	cwdPath := filepath.Join(workspace.Path, filepath.Clean(cwd))
 	relativeCwd, err := filepath.Rel(workspace.Path, cwdPath)
 	if err != nil || relativeCwd == ".." || strings.HasPrefix(relativeCwd, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeCwd) {
-		return "", nil, 0, errors.New("command: cwd escapes workspace")
+		return commandScope{}, errors.New("command: cwd escapes workspace")
 	}
 	realCwd, err := filepath.EvalSymlinks(cwdPath)
 	if err != nil {
-		return "", nil, 0, fmt.Errorf("command: resolve cwd: %w", err)
+		return commandScope{}, fmt.Errorf("command: resolve cwd: %w", err)
 	}
 	realWorkspace, _ := filepath.EvalSymlinks(workspace.Path)
 	if !strings.EqualFold(filepath.Clean(realCwd), filepath.Clean(realWorkspace)) {
 		if err := b.manager.ValidateRunPath(ctx, runID, realCwd); err != nil {
-			return "", nil, 0, errors.New("command: cwd symlink escapes workspace")
+			return commandScope{}, errors.New("command: cwd symlink escapes workspace")
 		}
 	}
 	info, err := os.Stat(realCwd)
 	if err != nil || !info.IsDir() {
-		return "", nil, 0, errors.New("command: cwd is not a directory")
+		return commandScope{}, errors.New("command: cwd is not a directory")
 	}
 	env, err := safeCommandEnv(envOverrides)
 	if err != nil {
-		return "", nil, 0, err
+		return commandScope{}, err
 	}
+	env = appendRunLabels(ctx, env, runID)
 	timeout := defaultCommandTimeout
 	if timeoutMS > 0 {
 		timeout = time.Duration(timeoutMS) * time.Millisecond
@@ -356,37 +403,56 @@ func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain
 	if timeout > b.maxTimeout {
 		timeout = b.maxTimeout
 	}
-	return realCwd, env, timeout, nil
-}
-
-type boundedCommandOutput struct {
-	mu        sync.Mutex
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (w *boundedCommandOutput) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	remaining := w.limit - w.buffer.Len()
-	if remaining > 0 {
-		if len(data) > remaining {
-			_, _ = w.buffer.Write(data[:remaining])
-			w.truncated = true
-		} else {
-			_, _ = w.buffer.Write(data)
-		}
-	} else if len(data) > 0 {
-		w.truncated = true
+	spillID := tools.ToolCallIDFromContext(ctx)
+	if spillID == "" {
+		spillID = "run-" + string(runID)
 	}
-	return len(data), nil
+	return commandScope{
+		cwd: realCwd, env: env, timeout: timeout,
+		spillDir: filepath.Join(workspace.Path, ".vivy", "tool-output"),
+		spillID:  spillID,
+	}, nil
 }
 
-func (w *boundedCommandOutput) String() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.buffer.String()
+// appendRunLabels injects the run's identity labels into the sanitized
+// process env. None of the values are secrets: session/run ids and the
+// provider/model/thinking labels are operational metadata the spawned tool
+// may legitimately observe. Values are flattened to one line.
+func appendRunLabels(ctx context.Context, env []string, runID domain.RunID) []string {
+	put := func(key, value string) {
+		value = strings.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' || r == 0 {
+				return '_'
+			}
+			return r
+		}, value)
+		if value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	put("VIVY_SESSION_ID", string(tools.SessionIDFromContext(ctx)))
+	put("VIVY_RUN_ID", string(runID))
+	labels := domain.RunLabelsFromContext(ctx)
+	put("VIVY_PROVIDER", labels.Provider)
+	put("VIVY_MODEL", labels.Model)
+	if thinking := domain.ThinkingModeFromContext(ctx); thinking != "" {
+		put("VIVY_THINKING", string(thinking))
+	}
+	return env
+}
+
+// shellPrefixArgv0 marks the commandline prefix wrap so the embedded-shell
+// fallback can recognize and flatten it back into one script.
+const shellPrefixArgv0 = "vivy-shell-prefix"
+
+// shellQuoteJoin renders argv as a single-quoted POSIX command line for the
+// embedded interpreter, which has no argv-preserving exec form.
+func shellQuoteJoin(argv []string) string {
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+	}
+	return strings.Join(quoted, " ")
 }
 
 func normalizeCommandName(command string) string {

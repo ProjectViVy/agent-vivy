@@ -115,13 +115,14 @@ type Live struct {
 }
 
 type queuedTurn struct {
-	SessionID    string
-	Text         string
-	Thinking     string
-	Mode         string
-	Attachments  []surface.Attachment
-	ContextPaths []string
-	ShellScript  string
+	SessionID      string
+	Text           string
+	Thinking       string
+	Mode           string
+	Attachments    []surface.Attachment
+	ContextPaths   []string
+	ShellScript    string
+	ShellNoContext bool
 }
 
 // Options configure one live fullscreen session.
@@ -1515,7 +1516,7 @@ func (l *Live) dequeueCmd() tea.Cmd {
 	l.queue = l.queue[1:]
 	l.mu.Unlock()
 	if turn.ShellScript != "" {
-		return l.sendShell(turn.ShellScript)
+		return l.sendShell(turn.ShellScript, turn.ShellNoContext)
 	}
 	return l.sendWithAttachmentsAndContext(turn.Text, turn.Thinking, turn.Mode, turn.Attachments, turn.ContextPaths, false)
 }
@@ -2194,20 +2195,20 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 
 // ExecuteShell implements surface.ShellExecutor and only requests the
 // server-owned shell/start route. A packed face never starts a local process.
-func (l *Live) ExecuteShell(script string) tea.Cmd {
+func (l *Live) ExecuteShell(script string, noContext bool) tea.Cmd {
 	if !l.SupportsCapability("shell.start") {
 		return func() tea.Msg {
 			return surface.ErrMsg{Err: errors.New(l.translator.T("vivy.tui.live.shellUnavailable", nil))}
 		}
 	}
-	return l.sendShell(script)
+	return l.sendShell(script, noContext)
 }
 
 func (l *Live) SupportsCapability(name string) bool {
 	return l != nil && l.client != nil && l.client.SupportsCapability(name)
 }
 
-func (l *Live) sendShell(script string) tea.Cmd {
+func (l *Live) sendShell(script string, noContext bool) tea.Cmd {
 	if strings.TrimSpace(script) == "" {
 		return commandResultCmd("shell", "", errors.New(l.translator.T("vivy.tui.live.shellScriptRequired", nil)))
 	}
@@ -2222,21 +2223,25 @@ func (l *Live) sendShell(script string) tea.Cmd {
 		return commandResultCmd("shell", "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 	}
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, ShellScript: script})
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, ShellScript: script, ShellNoContext: noContext})
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
-	l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: "!" + script})
+	display := "!" + script
+	if noContext {
+		display = "!!" + script
+	}
+	l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: display})
 	l.setBusyLocked(true)
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		accepted, err := l.client.startShell(ctx, sessionID, script)
+		accepted, err := l.client.startShell(ctx, sessionID, script, noContext)
 		if err != nil {
-			return liveTurnStartedMsg{SessionID: sessionID, UserText: "!" + script, Shell: true, Err: err}
+			return liveTurnStartedMsg{SessionID: sessionID, UserText: display, Shell: true, Err: err}
 		}
-		return liveTurnStartedMsg{SessionID: sessionID, UserText: "!" + script, Shell: true, RunID: accepted.RunID}
+		return liveTurnStartedMsg{SessionID: sessionID, UserText: display, Shell: true, RunID: accepted.RunID}
 	}
 }
 

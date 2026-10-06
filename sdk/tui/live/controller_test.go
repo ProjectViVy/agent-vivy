@@ -514,8 +514,8 @@ func TestControllerLocaleDirectValidationAndRawErrors(t *testing.T) {
 				{controller.SetThinkingMode("bad"), "thinking must be auto, on, or off", "思考档必须为 auto、on 或 off"},
 				{controller.SetThinkingMode("on"), "extended thinking is unavailable for the active model", "当前模型不支持扩展思考"},
 				{mustMsg[surface.CommandResultMsg](t, controller.SendWithContext("", []string{"原文.md"})).Err, "@file references require a prompt", "@file 引用需要提示文本"},
-				{mustMsg[surface.ErrMsg](t, controller.ExecuteShell("echo 原文")).Err, "governed shell is unavailable", "受治理的 shell 不可用"},
-				{mustMsg[surface.CommandResultMsg](t, controller.sendShell("")).Err, "shell script is required", "需要 shell 脚本"},
+				{mustMsg[surface.ErrMsg](t, controller.ExecuteShell("echo 原文", false)).Err, "governed shell is unavailable", "受治理的 shell 不可用"},
+				{mustMsg[surface.CommandResultMsg](t, controller.sendShell("", false)).Err, "shell script is required", "需要 shell 脚本"},
 			}
 			for _, check := range checks {
 				want := check.en
@@ -1089,7 +1089,7 @@ func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
-		if len(params) != 2 || params["session_id"] != "sess_1" || params["script"] != " echo safe " {
+		if len(params) != 3 || params["session_id"] != "sess_1" || params["script"] != " echo safe " || params["no_context"] != false {
 			return nil, fmt.Errorf("shell params = %#v", params)
 		}
 		return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
@@ -1104,7 +1104,7 @@ func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
 	live.activeID = "sess_1"
 	live.messages = map[string][]surface.Message{"sess_1": nil}
 	live.mu.Unlock()
-	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(" echo safe "))
+	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(" echo safe ", false))
 	if started.Err != nil || started.RunID != "run_shell" || !started.Shell {
 		t.Fatalf("shell start = %+v", started)
 	}

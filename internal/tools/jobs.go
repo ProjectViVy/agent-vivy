@@ -49,6 +49,14 @@ type JobSpec struct {
 	// Args are ignored while lifecycle/output/cancellation still use the same
 	// bounded job registry.
 	Run func(context.Context, io.Writer, io.Writer) error
+	// SpillDir + SpillID enable output spilling: once a stream exceeds the
+	// inline bound the full output is appended to <SpillDir>/<SpillID>.<stream>.txt
+	// inside the run workspace; the in-memory stream keeps its tail excerpt.
+	SpillDir string
+	SpillID  string
+	// SpillBytes overrides the per-stream threshold; non-positive keeps the
+	// registry default.
+	SpillBytes int64
 }
 
 // JobReadResult is what job_output returns: new output since the previous
@@ -143,6 +151,9 @@ type job struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	stdoutSpill *spillWriter
+	stderrSpill *spillWriter
 }
 
 func (j *job) read() JobReadResult {
@@ -249,12 +260,14 @@ func (r *JobRegistry) RunUntil(ctx context.Context, spec JobSpec, timeout time.D
 		j.mu.Lock()
 		stdout, stderr := j.readAll()
 		elapsed := time.Since(j.started).Milliseconds()
-		j.mu.Unlock()
-		return id, CommandResult{
+		result := CommandResult{
 			ExitCode: -1, Stdout: stdout, Stderr: stderr,
 			TimedOut: true, DurationMS: elapsed,
 			JobID: id, Background: true, JobStatus: string(JobRunning),
-		}, nil
+		}
+		j.applySpill(&result)
+		j.mu.Unlock()
+		return id, result, nil
 	}
 }
 
@@ -317,15 +330,31 @@ func (r *JobRegistry) Kill(id string) (JobKillResult, error) {
 // spawn starts the process with readers and a finalizer; the job is not
 // yet registered or counted against the limit.
 func (r *JobRegistry) spawn(ctx context.Context, spec JobSpec) (*job, error) {
+	var stdoutSpill, stderrSpill *spillWriter
+	if spec.SpillDir != "" {
+		threshold := spec.SpillBytes
+		if threshold <= 0 {
+			threshold = maxJobOutputBytes
+		}
+		stdoutSpill = newSpillWriter(nil, spec.SpillDir, SpillFileName(spec.SpillID, "stdout"), threshold)
+		stderrSpill = newSpillWriter(nil, spec.SpillDir, SpillFileName(spec.SpillID, "stderr"), threshold)
+	}
 	if spec.Run != nil {
 		jobCtx, cancel := context.WithCancel(ctx)
 		j := &job{
 			display: spec.Display, started: time.Now(), status: JobRunning, exitCode: -1,
 			stdout: newJobStream(maxJobOutputBytes), stderr: newJobStream(maxJobOutputBytes),
 			cancel: cancel, done: make(chan struct{}),
+			stdoutSpill: stdoutSpill, stderrSpill: stderrSpill,
+		}
+		var outW, errW io.Writer = j.stdout, j.stderr
+		if stdoutSpill != nil {
+			stdoutSpill.inner = j.stdout
+			stderrSpill.inner = j.stderr
+			outW, errW = stdoutSpill, stderrSpill
 		}
 		go func() {
-			runErr := spec.Run(jobCtx, j.stdout, j.stderr)
+			runErr := spec.Run(jobCtx, outW, errW)
 			j.finish(runErr, jobCtx.Err())
 			close(j.done)
 		}()
@@ -341,9 +370,14 @@ func (r *JobRegistry) spawn(ctx context.Context, spec JobSpec) (*job, error) {
 		display: spec.Display, started: time.Now(), status: JobRunning, exitCode: -1,
 		stdout: newJobStream(maxJobOutputBytes), stderr: newJobStream(maxJobOutputBytes),
 		cmd: cmd, done: make(chan struct{}),
+		stdoutSpill: stdoutSpill, stderrSpill: stderrSpill,
 	}
-	cmd.Stdout = j.stdout
-	cmd.Stderr = j.stderr
+	cmd.Stdout, cmd.Stderr = j.stdout, j.stderr
+	if stdoutSpill != nil {
+		stdoutSpill.inner = j.stdout
+		stderrSpill.inner = j.stderr
+		cmd.Stdout, cmd.Stderr = stdoutSpill, stderrSpill
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("command: start: %w", err)
 	}
@@ -392,15 +426,46 @@ func (r *JobRegistry) discard(j *job) {
 		j.cancel()
 	}
 	<-j.done
+	j.mu.Lock()
+	if j.stdoutSpill != nil {
+		j.stdoutSpill.finish(true)
+	}
+	if j.stderrSpill != nil {
+		j.stderrSpill.finish(true)
+	}
+	j.mu.Unlock()
 }
 
 func (j *job) collectFinal() CommandResult {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	stdout, stderr := j.readAll()
-	return CommandResult{
+	result := CommandResult{
 		ExitCode: j.exitCode, Stdout: stdout, Stderr: stderr,
 		DurationMS: time.Since(j.started).Milliseconds(),
+	}
+	j.applySpill(&result)
+	return result
+}
+
+// applySpill carries spill paths and totals into the result. Callers must
+// hold j.mu. While the job is still running the files stay open and keep
+// appending; a terminal collect finalizes (closes) them.
+func (j *job) applySpill(result *CommandResult) {
+	running := j.status == JobRunning
+	if j.stdoutSpill != nil {
+		path, total, spilled := j.stdoutSpill.finish(!running)
+		if spilled {
+			result.StdoutSpillPath, result.StdoutTotalBytes = path, total
+			result.StdoutTrunc = true
+		}
+	}
+	if j.stderrSpill != nil {
+		path, total, spilled := j.stderrSpill.finish(!running)
+		if spilled {
+			result.StderrSpillPath, result.StderrTotalBytes = path, total
+			result.StderrTrunc = true
+		}
 	}
 }
 

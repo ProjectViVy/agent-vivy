@@ -227,6 +227,49 @@ func TestRunShellSafeAutoUsesUnifiedLifecycleWithoutModel(t *testing.T) {
 	}
 }
 
+func TestRunShellNoContextKeepsOutputOutOfModelFeed(t *testing.T) {
+	f := newShellFixture(t, domain.ApprovalPolicyAuto)
+	feedRun, err := f.service.RunShell(context.Background(), f.sessionID, "echo feed_marker")
+	if err != nil {
+		t.Fatalf("run shell: %v", err)
+	}
+	waitForRunStatus(t, f.backend, feedRun, domain.RunCompleted)
+
+	noCtxRun, err := f.service.RunShell(context.Background(), f.sessionID, "echo nofeed_marker", ShellRunOptions{NoContext: true})
+	if err != nil {
+		t.Fatalf("run no-context shell: %v", err)
+	}
+	waitForRunStatus(t, f.backend, noCtxRun, domain.RunCompleted)
+
+	// The no-context run still journals its full lifecycle for the transcript.
+	events := replayAll(t, f.backend, noCtxRun)
+	if eventIndex(events, domain.EventToolFinished) < 0 {
+		t.Fatalf("no-context run lost its tool events: %v", events)
+	}
+	blob := shellEventString(t, events)
+	if !strings.Contains(blob, `"no_context":true`) || !strings.Contains(blob, "nofeed_marker") {
+		t.Fatalf("no-context run.started/output = %s", blob)
+	}
+
+	// Only the ordinary ! run projects tool rows into the message feed.
+	messages, err := f.backend.ListMessages(context.Background(), f.sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	feed, noFeed := 0, 0
+	for _, message := range messages {
+		switch message.RunID {
+		case feedRun:
+			feed++
+		case noCtxRun:
+			noFeed++
+		}
+	}
+	if feed != 2 || noFeed != 0 {
+		t.Fatalf("projected messages feed=%d noctx=%d: %+v", feed, noFeed, messages)
+	}
+}
+
 func TestRunShellApprovalApproveRunsAfterDurableDecision(t *testing.T) {
 	f := newShellFixture(t, domain.ApprovalPolicyAsk)
 	runID, err := f.service.RunShell(context.Background(), f.sessionID, "echo approved > approved_marker")
