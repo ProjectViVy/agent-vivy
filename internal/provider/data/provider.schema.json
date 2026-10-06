@@ -113,7 +113,9 @@
             },
             "additionalProperties": false
           }
-        }
+        },
+        "supports_warming": { "type": "boolean", "description": "The provider accepts explicit prompt-cache refreshes for this model (Anthropic-family only)." },
+        "cache_lifetime_seconds": { "type": "integer", "minimum": 1, "description": "Cache TTL the warming scheduler refreshes before. Required when supports_warming is set." }
       }
     },
     "provenance": {

@@ -176,12 +176,30 @@ type payloadModelUsageV2 struct {
 	TotalTokens      int    `json:"total_tokens"`
 	ReasoningTokens  *int   `json:"reasoning_tokens,omitempty"`
 	CachedTokens     *int   `json:"cached_tokens,omitempty"`
+	// CacheWriteTokens counts tokens written to the provider cache on a
+	// cache-warming call (VCP F2); nil keeps the bucket unknown on every
+	// other sample.
+	CacheWriteTokens *int `json:"cache_write_tokens,omitempty"`
 	// NormalizationPartial marks samples that contradicted the pinned
 	// monotonic merge (decreasing counters, non-cumulative convention).
 	NormalizationPartial *bool `json:"normalization_partial,omitempty"`
 	// Settlement marks the single mandatory End sample, which is exempt
 	// from the MaxEvents budget like run terminal events are.
 	Settlement *bool `json:"settlement,omitempty"`
+}
+
+// payloadCacheWarmed is the silent diagnostic of one warm decision
+// (VCP F2): the refresh never enters model context or Journal messages;
+// this event is the only trace.
+type payloadCacheWarmed struct {
+	CallID           string `json:"call_id"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Mode             string `json:"mode"`             // streaming | idle
+	Status           string `json:"status"`           // warmed | skipped | failed
+	Reason           string `json:"reason,omitempty"` // gate reason or error class
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CacheWriteTokens int    `json:"cache_write_tokens,omitempty"`
 }
 
 // payloadModelCallUsage is the normalized usage sample embedded in

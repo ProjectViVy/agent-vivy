@@ -78,6 +78,11 @@ const (
 	// recovery inside a run (VCP-D2; pi auto_retry_start/auto_retry_end).
 	EventAutoRetryStarted  EventType = "auto_retry.started"
 	EventAutoRetryFinished EventType = "auto_retry.finished"
+
+	// EventCacheWarmed is the silent diagnostic of the prompt-cache
+	// warming scheduler (VCP F2): one event per warm decision — warmed,
+	// skipped (gate), or failed — never a run error.
+	EventCacheWarmed EventType = "cache.warmed"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -142,6 +147,7 @@ var EventTypes = []EventType{
 	EventTurnSteered,
 	EventAutoRetryStarted,
 	EventAutoRetryFinished,
+	EventCacheWarmed,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

@@ -86,6 +86,15 @@ func modelCallObserverFactoryFrom(ctx context.Context) modelCallObserverFactory 
 	return factory
 }
 
+// withoutModelCallObserver strips the per-run observer binding: cache-warm
+// calls (VCP F2) are runtime-owned maintenance traffic, never journaled as
+// model.request/model.usage/model.call.finished — cache.warmed is their
+// only trace. Other context values (run id, workspace, cancellation) pass
+// through unchanged.
+func withoutModelCallObserver(ctx context.Context) context.Context {
+	return context.WithValue(ctx, modelCallObserverKey{}, modelCallObserverFactory(nil))
+}
+
 // observedModelCallCore carries the wrapper state shared by the
 // ToolCallingChatModel and BaseModel observers.
 type observedModelCallCore struct {

@@ -135,6 +135,13 @@ type Engine struct {
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
 	toolSpecs []domain.ToolSpec
+	// instruction is the static system prompt every model call starts
+	// with; the cache warmer (VCP F2) needs it to rebuild the warmable
+	// prefix.
+	instruction string
+	// toolInfos mirrors every bound tool's wire schema by name so a warm
+	// request can carry the run's selected surface.
+	toolInfos map[string]*schema.ToolInfo
 	// activeTools is the config-resolved surface bound on every request,
 	// in registry order.
 	activeTools []tools.Tool
@@ -231,6 +238,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	deferredInfos := make(map[string]*schema.ToolInfo)
 	deferredOrder := make([]string, 0)
 	suppressedTools := make(map[string]struct{})
+	allToolInfos := make(map[string]*schema.ToolInfo, len(ts)+len(cfg.HiddenTools))
 	for _, t := range ts {
 		if t == nil {
 			return nil, errors.New("runtime: nil active tool")
@@ -245,15 +253,16 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
 		specs = append(specs, spec)
 		byName[spec.Name] = t
+		info, err := adapter.Info(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: tool %q info: %w", spec.Name, err)
+		}
+		allToolInfos[spec.Name] = info
 		switch tools.ResolveToolExposure(spec) {
 		case domain.ToolExposureHidden:
 			suppressedTools[spec.Name] = struct{}{}
 			staticTools = append(staticTools, adapter)
 		case domain.ToolExposureDeferred:
-			info, err := adapter.Info(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("runtime: deferred tool %q info: %w", spec.Name, err)
-			}
 			deferredInfos[spec.Name] = info
 			deferredOrder = append(deferredOrder, spec.Name)
 			dynamicTools = append(dynamicTools, adapter)
@@ -278,6 +287,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, fmt.Errorf("runtime: hidden tool %q info: %w", spec.Name, err)
 		}
 		staticTools = append(staticTools, adapter)
+		allToolInfos[spec.Name] = info
 		hiddenInfos[spec.Name] = info
 		hiddenOrder = append(hiddenOrder, spec.Name)
 		byName[spec.Name] = t
@@ -415,7 +425,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	eng := &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}
+	eng := &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, instruction: instruction, toolInfos: allToolInfos, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}
 	eng.setRetryDecider = func(d ModelRetryDecider) { retryDecider = d }
 	return eng, nil
 }

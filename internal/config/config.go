@@ -107,6 +107,11 @@ const defaultMaxToolTurns = 8
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
 
+// defaultCacheWarmingMinSavingsUSD is the avoided re-read cost a warm
+// must beat before the scheduler spends a request on it (pi's ≈$0.05
+// floor, kept as a fixed floor rather than a derived one).
+const defaultCacheWarmingMinSavingsUSD = 0.05
+
 const (
 	maxMCPArgs       = 128
 	maxMCPArgBytes   = 4096
@@ -301,6 +306,16 @@ type Runtime struct {
 	// beyond it the full stream spills to <workspace>/.vivy/tool-output/.
 	// Non-positive keeps the 64 KiB default; larger values are clamped.
 	ToolOutputSpillBytes int `yaml:"tool_output_spill_bytes"`
+	// CacheWarming selects the prompt-cache warming scheduler: "off",
+	// "streaming" (refresh after each settled model call), or "idle"
+	// (refresh before the model's declared cache lifetime expires).
+	// Warming only runs for models declaring supports_warming; it costs
+	// one extra minimal request per refresh.
+	CacheWarming string `yaml:"cache_warming"`
+	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
+	// which a warm is skipped; non-positive keeps the 0.05 default. When
+	// the model is unpriced a token-count proxy applies instead.
+	CacheWarmingMinSavingsUSD float64 `yaml:"cache_warming_min_savings"`
 	// Compaction controls automatic context compression (Eino native
 	// reduction + summarization middlewares).
 	Compaction CompactionConfig `yaml:"compaction"`
@@ -649,27 +664,29 @@ func Default() Config {
 			Active: "deepseek",
 		},
 		Runtime: Runtime{
-			StreamBuffer:             256,
-			MaxEventPayloadBytes:     65536,
-			MaxToolTurns:             defaultMaxToolTurns,
-			MaxContextBytes:          defaultMaxContextBytes,
-			MaxHistoryMessages:       defaultMaxHistoryMessages,
-			MaxToolResultBytes:       32 << 10,
-			MaxRunEvents:             defaultMaxRunEvents,
-			MaxModelCalls:            defaultMaxModelCalls,
-			MaxRunToolCalls:          defaultMaxRunToolCalls,
-			MaxRunRetries:            defaultMaxRunRetries,
-			WorkspaceRoot:            filepath.Join(root, "workspace"),
-			World:                    "sandbox",
-			SkillsRoot:               filepath.Join(root, "skills"),
-			SkillsMarketplaceURL:     DefaultSkillsMarketplaceURL,
-			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
-			HTTPMaxResponseBytes:     1 << 20,
-			HTTPTimeoutSeconds:       10,
-			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
-			ExecuteMaxTimeoutSeconds: 30,
-			Compaction:               DefaultCompactionConfig(),
-			Cron:                     CronConfig{Enabled: true},
+			StreamBuffer:              256,
+			MaxEventPayloadBytes:      65536,
+			MaxToolTurns:              defaultMaxToolTurns,
+			MaxContextBytes:           defaultMaxContextBytes,
+			MaxHistoryMessages:        defaultMaxHistoryMessages,
+			MaxToolResultBytes:        32 << 10,
+			MaxRunEvents:              defaultMaxRunEvents,
+			MaxModelCalls:             defaultMaxModelCalls,
+			MaxRunToolCalls:           defaultMaxRunToolCalls,
+			MaxRunRetries:             defaultMaxRunRetries,
+			WorkspaceRoot:             filepath.Join(root, "workspace"),
+			World:                     "sandbox",
+			SkillsRoot:                filepath.Join(root, "skills"),
+			SkillsMarketplaceURL:      DefaultSkillsMarketplaceURL,
+			HTTPAllowedHosts:          []string{"localhost", "127.0.0.1", "::1"},
+			HTTPMaxResponseBytes:      1 << 20,
+			HTTPTimeoutSeconds:        10,
+			ExecuteAllowedCommands:    []string{"go", "git", "rg"},
+			ExecuteMaxTimeoutSeconds:  30,
+			CacheWarming:              "streaming",
+			CacheWarmingMinSavingsUSD: defaultCacheWarmingMinSavingsUSD,
+			Compaction:                DefaultCompactionConfig(),
+			Cron:                      CronConfig{Enabled: true},
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",
@@ -862,6 +879,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.ExecuteMaxTimeoutSeconds <= 0 || c.Runtime.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
 		return fmt.Errorf("runtime.execute_max_timeout_seconds must be between 1 and %d seconds", maxExecuteTimeoutSeconds)
+	}
+	switch c.Runtime.CacheWarming {
+	case "off", "streaming", "idle":
+	default:
+		return fmt.Errorf("runtime.cache_warming %q must be off, streaming, or idle", c.Runtime.CacheWarming)
+	}
+	if c.Runtime.CacheWarmingMinSavingsUSD < 0 {
+		return errors.New("runtime.cache_warming_min_savings must not be negative")
 	}
 	if c.Runtime.Compaction.MaxTokens < 0 {
 		return errors.New("runtime.compaction.max_tokens must not be negative")

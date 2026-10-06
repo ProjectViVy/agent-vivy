@@ -867,6 +867,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			ec.HiddenTools = hidden
 			return loopDriver.Build(ctx, live, ec)
 		},
+		CacheWarmingMode:          cfg.Runtime.CacheWarming,
+		CacheWarmingMinSavingsUSD: cfg.Runtime.CacheWarmingMinSavingsUSD,
 	})
 	if cognitiveBundle != nil {
 		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {

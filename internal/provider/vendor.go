@@ -53,6 +53,12 @@ type Model struct {
 	// ThinkingSampling carries per-level sampling overrides merged into
 	// the request when that level is effective.
 	ThinkingSampling map[string]ModelSampling `yaml:"thinking_sampling"`
+	// SupportsWarming declares the provider accepts explicit prompt-cache
+	// refreshes for this model (Anthropic-family endpoints only).
+	SupportsWarming bool `yaml:"supports_warming"`
+	// CacheLifetimeSeconds is the cache TTL the warming scheduler
+	// refreshes before; required when supports_warming is set.
+	CacheLifetimeSeconds int `yaml:"cache_lifetime_seconds"`
 }
 
 // ModelSampling holds per-thinking-level sampling overrides. Pointers
@@ -300,6 +306,12 @@ func validateEndpoint(vendor Vendor, endpoint Endpoint, where string, seenEndpoi
 			if !declared {
 				errs = append(errs, fmt.Errorf("%s: default_thinking %q must appear in thinking_levels", modelWhere, model.DefaultThinking))
 			}
+		}
+		if model.SupportsWarming && model.CacheLifetimeSeconds <= 0 {
+			errs = append(errs, fmt.Errorf("%s: supports_warming requires a positive cache_lifetime_seconds", modelWhere))
+		}
+		if model.CacheLifetimeSeconds < 0 {
+			errs = append(errs, fmt.Errorf("%s: cache_lifetime_seconds must not be negative", modelWhere))
 		}
 		for level := range model.ThinkingSampling {
 			if !domain.ThinkingMode(level).IsLevel() {

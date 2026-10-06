@@ -78,6 +78,8 @@
           supports_thinking: true
           thinking_levels: [minimal, low, medium, high, xhigh, max]
           default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-sonnet-4-5
           context_window: 200000
           input_per_mtok: 3
@@ -86,6 +88,8 @@
           supports_thinking: true
           thinking_levels: [minimal, low, medium, high, xhigh, max]
           default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-haiku-4-5
           context_window: 200000
           input_per_mtok: 1
@@ -94,6 +98,8 @@
           supports_thinking: true
           thinking_levels: [minimal, low, medium, high]
           default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-opus-4-5
           context_window: 200000
           input_per_mtok: 5
@@ -102,6 +108,8 @@
           supports_thinking: true
           thinking_levels: [minimal, low, medium, high, xhigh, max]
           default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
       supports_prompt_caching: true
   provenance:
     source: agent-diva/agent-diva-providers/src/providers.yaml

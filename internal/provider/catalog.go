@@ -225,17 +225,19 @@ func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.Model
 	}
 	meta, _ := endpoint.Model(modelID)
 	return domain.ModelInfo{
-		ID:               modelID,
-		Provider:         vendor.Name,
-		ContextWindow:    meta.ContextWindow, // zero means unknown; callers use defaults
-		MaxOutputTokens:  0,                  // varies by model; let the API decide
-		InputPerMTokens:  meta.InputPerMTok,
-		OutputPerMTokens: meta.OutputPerMTok,
-		SupportsImages:   meta.SupportsImages,
-		SupportsThinking: meta.SupportsThinking,
-		ThinkingLevels:   meta.ThinkingLevels,
-		DefaultThinking:  meta.DefaultThinking,
-		ThinkingSampling: modelSamplingFor(meta),
+		ID:                   modelID,
+		Provider:             vendor.Name,
+		ContextWindow:        meta.ContextWindow, // zero means unknown; callers use defaults
+		MaxOutputTokens:      0,                  // varies by model; let the API decide
+		InputPerMTokens:      meta.InputPerMTok,
+		OutputPerMTokens:     meta.OutputPerMTok,
+		SupportsImages:       meta.SupportsImages,
+		SupportsThinking:     meta.SupportsThinking,
+		ThinkingLevels:       meta.ThinkingLevels,
+		DefaultThinking:      meta.DefaultThinking,
+		ThinkingSampling:     modelSamplingFor(meta),
+		SupportsWarming:      meta.SupportsWarming,
+		CacheLifetimeSeconds: meta.CacheLifetimeSeconds,
 	}
 }
 

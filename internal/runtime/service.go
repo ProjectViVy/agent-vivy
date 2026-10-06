@@ -230,6 +230,14 @@ type ServiceDeps struct {
 	// the composition root so settings saves can hot-swap compaction
 	// middleware; nil disables ScheduleEngineReload.
 	RebuildEngine func(ctx context.Context, cfg EngineConfig) (*Engine, error)
+	// CacheWarmingMode selects the prompt-cache warming trigger
+	// (runtime.cache_warming): "off", "streaming", or "idle". Empty keeps
+	// the "streaming" default; "off" makes the scheduler inert.
+	CacheWarmingMode string
+	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
+	// which a warm is skipped; the token-count proxy covers unpriced
+	// models (runtime.cache_warming_min_savings).
+	CacheWarmingMinSavingsUSD float64
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -2933,7 +2941,10 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil)
+	// The cache warmer (VCP F2) binds before the observer so settled
+	// calls feed it; nil when the run's model or config opts out.
+	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, selection.Names())
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
 	// context so in-context seams share exactly this instance.
@@ -2975,7 +2986,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 // The factory binds the run's routes: the chat route resolves to
 // "main" or "child" from the execution context; the summary routes are
 // claimed by the wrapped summarizer models in compaction_middleware.go.
-func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool) context.Context {
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
@@ -2988,11 +2999,15 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 				model = m.summaryModel
 			}
 		}
-		return &runModelCallObserver{
+		observer := &runModelCallObserver{
 			svc: s, m: m, sessionID: sessionID, ledger: ledger,
 			source: source, provider: provider, model: model,
 			onDelta: onDelta, calls: map[string]*observedModelCall{},
 		}
+		if source != modelCallSourceSummary {
+			observer.warmer = warmer
+		}
+		return observer
 	})
 }
 
@@ -3012,6 +3027,10 @@ type runModelCallObserver struct {
 	provider  string
 	model     string
 	onDelta   func(string)
+	// warmer is the run's cache-warming scheduler (VCP F2); nil when
+	// config or the model's declared capabilities opt out. Summary-route
+	// observers never carry one.
+	warmer *runCacheWarmer
 
 	mu    sync.Mutex
 	calls map[string]*observedModelCall
@@ -3170,6 +3189,11 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 	}
 	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
 		return errors.New("runtime: model call finish event could not be journaled")
+	}
+	if o.warmer != nil && result.Err == nil && usage != nil {
+		if sample, ok := usage.sample(); ok {
+			o.warmer.settled(sample)
+		}
 	}
 	return nil
 }
@@ -4612,7 +4636,10 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil)
+	// The resume leg binds its own cache warmer (VCP F2): the prior leg's
+	// scheduler died with its context.
+	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, selectedTools)
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.

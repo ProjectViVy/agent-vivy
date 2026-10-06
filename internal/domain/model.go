@@ -45,6 +45,14 @@ type ModelInfo struct {
 	// ThinkingSampling carries per-level sampling overrides (temperature,
 	// top_p) merged into the request when that level is effective.
 	ThinkingSampling map[string]ThinkingSampling
+	// SupportsWarming reports whether the model's provider accepts explicit
+	// prompt-cache refreshes (Anthropic-family only today). Zero-value
+	// (false) is the conservative default: the scheduler never warms an
+	// unknown model.
+	SupportsWarming bool
+	// CacheLifetimeSeconds is the provider's cache TTL the warming
+	// scheduler must refresh before (Anthropic ephemeral = 300).
+	CacheLifetimeSeconds int
 }
 
 // ThinkingSampling holds the sampling overrides a model declares for one
