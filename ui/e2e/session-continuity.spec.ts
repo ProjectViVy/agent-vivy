@@ -69,7 +69,7 @@ async function newChat(page: Page): Promise<string> {
 }
 
 async function send(page: Page, text: string): Promise<void> {
-  const composer = page.getByPlaceholder('Type a message... (Enter to send)');
+  const composer = page.getByRole('combobox', { name: 'Message' });
   await composer.fill(text);
   await composer.press('Enter');
 }

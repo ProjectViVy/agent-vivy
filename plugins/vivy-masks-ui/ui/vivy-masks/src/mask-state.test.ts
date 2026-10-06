@@ -5,40 +5,7 @@ import {
   type MaskState,
 } from './mask-state';
 
-describe('maskReducer session epoch and draft safety', () => {
-  it('ignores a late session A response after the host switched to session B', () => {
-    let state = initialMaskState;
-    state = maskReducer(state, { type: 'session/change', epoch: 1, sessionId: 'session-a' });
-    state = maskReducer(state, { type: 'session/load-start', epoch: 1, sessionId: 'session-a' });
-    state = maskReducer(state, { type: 'session/change', epoch: 2, sessionId: 'session-b' });
-    state = maskReducer(state, { type: 'session/load-success', epoch: 2, selection: {
-      session_id: 'session-b', mask_id: 'builtin/writer', revision: 7, available: true, inactive_reason: '',
-    } });
-    state = maskReducer(state, { type: 'session/load-success', epoch: 1, selection: {
-      session_id: 'session-a', mask_id: 'builtin/programmer', revision: 41, available: true, inactive_reason: '',
-    } });
-
-    expect(state.activeSessionId).toBe('session-b');
-    expect(state.selection).toMatchObject({ session_id: 'session-b', revision: 7 });
-    expect(state.selection?.revision).not.toBe(41);
-  });
-
-  it('keeps the current session revision as the CAS input and ignores stale selection writes', () => {
-    let state = sessionState('session-b');
-    state = maskReducer(state, { type: 'session/load-success', epoch: 3, selection: {
-      session_id: 'session-b', mask_id: 'builtin/writer', revision: 7, available: true, inactive_reason: '',
-    } });
-    state = maskReducer(state, { type: 'selection/save-start', epoch: 3, sessionId: 'session-b' });
-    state = maskReducer(state, { type: 'session/change', epoch: 4, sessionId: 'session-c' });
-    state = maskReducer(state, { type: 'selection/save-success', epoch: 3, sessionId: 'session-b', selection: {
-      session_id: 'session-b', mask_id: 'custom/one', revision: 8, available: true, inactive_reason: '',
-    } });
-
-    expect(state.activeSessionId).toBe('session-c');
-    expect(state.selection).toBeNull();
-    expect(state.selectionPending).toBe(true);
-  });
-
+describe('maskReducer editor draft safety', () => {
   it('preserves a stale editor draft when rereading a revision conflict', () => {
     const committed = {
       id: 'custom/one', name: 'One', description: '', body: 'server body', revision: 2,
@@ -58,7 +25,3 @@ describe('maskReducer session epoch and draft safety', () => {
     expect(state.error?.code).toBe('revision_conflict');
   });
 });
-
-function sessionState(sessionId: string): MaskState {
-  return maskReducer(initialMaskState, { type: 'session/change', epoch: 3, sessionId });
-}

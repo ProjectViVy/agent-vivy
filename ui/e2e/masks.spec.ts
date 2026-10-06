@@ -65,7 +65,14 @@ async function openMasksPage(page: Page): Promise<void> {
 /** Creates a session through the UI so the app peer owns it. */
 async function newSession(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'New session' }).first().click();
-  await expect(page.getByPlaceholder('Type a message... (Enter to send)')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Message' })).toBeVisible();
+}
+
+async function chooseMask(page: Page, name: string): Promise<void> {
+  const selector = page.getByRole('button', { name: 'Session mask', exact: true });
+  await selector.click();
+  await page.getByRole('menuitem').filter({ hasText: name }).click();
+  await expect(selector).toContainText(name);
 }
 
 /** Selects the first (most recent) session row in the sidebar. */
@@ -99,23 +106,23 @@ async function configureHangingProvider(page: Page): Promise<void> {
 test('mask module nav entry, catalog, and builtin definitions render', async ({ page }) => {
   await openApp(page);
   await openMasksPage(page);
-  await expect(page.getByRole('button', { name: 'Programmer built-in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Researcher built-in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Writer built-in' })).toBeVisible();
+  await expect(page.locator('[data-mask-id="builtin/programmer"]')).toBeVisible();
+  await expect(page.locator('[data-mask-id="builtin/researcher"]')).toBeVisible();
+  await expect(page.locator('[data-mask-id="builtin/writer"]')).toBeVisible();
 });
 
 test('chat header selector applies a session mask and persists across reload', async ({ page }) => {
   await openApp(page);
   await newSession(page);
 
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
+  const selector = page.getByRole('button', { name: 'Session mask', exact: true });
   await expect(selector).toBeEnabled();
-  await selector.selectOption({ label: 'Programmer' });
-  await expect(selector).toHaveValue('builtin/programmer');
+  await chooseMask(page, 'Programmer');
+  await expect(selector).toContainText('Programmer');
 
   await page.reload();
   await selectFirstSession(page);
-  await expect(page.getByRole('combobox', { name: 'Session mask' })).toHaveValue('builtin/programmer');
+  await expect(page.getByRole('button', { name: 'Session mask', exact: true })).toContainText('Programmer');
 });
 
 test('custom mask create, stale revision conflict, and in-use delete refusal', async ({ page, browser }) => {
@@ -129,7 +136,7 @@ test('custom mask create, stale revision conflict, and in-use delete refusal', a
   await editor.locator('input').first().fill('E2E Mask');
   await editor.locator('textarea').fill('You are an e2e mask.');
   await editor.getByRole('button', { name: 'Save' }).click();
-  const catalogItem = page.getByRole('button', { name: /E2E Mask/ });
+  const catalogItem = page.locator('[data-mask-id]').filter({ hasText: 'E2E Mask' }).locator('button').first();
   await expect(catalogItem).toBeVisible();
 
   // Two browser contexts racing the same definition: the second save must
@@ -139,7 +146,7 @@ test('custom mask create, stale revision conflict, and in-use delete refusal', a
   await openApp(page2);
   await newSession(page2);
   await openMasksPage(page2);
-  await page2.getByRole('button', { name: /E2E Mask/ }).click();
+  await page2.locator('[data-mask-id]').filter({ hasText: 'E2E Mask' }).locator('button').first().click();
   const editor2 = page2.locator('section[aria-label="Mask editor"]');
   // The second context must hold the pre-write revision before the first
   // context commits, otherwise its "stale" save silently wins.
@@ -157,7 +164,8 @@ test('custom mask create, stale revision conflict, and in-use delete refusal', a
   await second.close();
 
   // Bind the mask to the session via the page selector, then prove delete is refused in-use.
-  await page.getByTestId('mask-page').getByRole('combobox', { name: 'Session mask' }).selectOption({ label: 'E2E Mask · custom' });
+  await page.getByRole('button', { name: 'Use E2E Mask', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Session mask', exact: true })).toContainText('E2E Mask');
   await catalogItem.click();
   await editor.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
@@ -171,30 +179,76 @@ test('code mode toggles independently of the session mask', async ({ page }) => 
   const codeToggle = page.getByRole('button', { name: 'Enable code mode' });
   test.skip(!(await codeToggle.isVisible()), 'packed generation does not advertise code_mode_available');
 
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
-  await selector.selectOption({ label: 'Programmer' });
-  await expect(selector).toHaveValue('builtin/programmer');
+  const selector = page.getByRole('button', { name: 'Session mask', exact: true });
+  await chooseMask(page, 'Programmer');
+  await expect(selector).toContainText('Programmer');
 
   await codeToggle.click();
   await expect(page.getByRole('button', { name: 'Code mode on' })).toBeVisible();
-  await expect(selector).toHaveValue('builtin/programmer');
+  await expect(selector).toContainText('Programmer');
 
   await page.getByRole('button', { name: 'Code mode on' }).click();
   await expect(page.getByRole('button', { name: 'Enable code mode' })).toBeVisible();
-  await expect(selector).toHaveValue('builtin/programmer');
+  await expect(selector).toContainText('Programmer');
 });
 
 test('selection during an active run is queued for the next run', async ({ page }) => {
   await openApp(page);
   await configureHangingProvider(page);
+  await page.reload();
   await newSession(page);
 
   // The mock provider hangs forever, keeping the run active.
-  await page.getByPlaceholder('Type a message... (Enter to send)').fill('keep the run active');
+  await page.getByRole('combobox', { name: 'Message' }).fill('keep the run active');
   await page.getByRole('button', { name: 'Send' }).click();
 
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
-  await expect(page.getByText('Next run choice; the current run already captured its mask')).toBeVisible();
-  await selector.selectOption({ label: 'Writer' });
-  await expect(selector).toHaveValue('builtin/writer');
+  const selector = page.getByRole('button', { name: 'Session mask', exact: true });
+  await expect(selector).toHaveAttribute('title', 'Next run choice; the current run already captured its mask');
+  await chooseMask(page, 'Writer');
+  await expect(selector).toContainText('Writer');
+});
+
+
+test('library selection and builtin duplication stay synchronized with the toolbar', async ({ page }) => {
+  await openApp(page);
+  await newSession(page);
+  await openMasksPage(page);
+  await page.getByRole('button', { name: 'Use Writer', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Session mask', exact: true })).toContainText('Writer');
+  await chooseMask(page, 'Researcher');
+  await expect(page.locator('[data-active-mask="builtin/researcher"]')).toContainText('Researcher');
+  await page.locator('[data-mask-id="builtin/programmer"]').locator('button').first().click();
+  const editor = page.getByRole('region', { name: 'Mask editor' });
+  await expect(editor.locator('textarea')).toHaveAttribute('readonly', '');
+  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Duplicate and edit' }).click();
+  await expect(editor.locator('textarea')).not.toHaveAttribute('readonly', '');
+  await expect(editor.locator('input').first()).toHaveValue('Programmer copy');
+  const libraryBounds = await page.getByRole('region', { name: 'Mask catalog' }).boundingBox();
+  const editorBounds = await editor.boundingBox();
+  expect(libraryBounds!.x + libraryBounds!.width).toBeLessThanOrEqual(editorBounds!.x);
+  await page.getByTestId('mask-page').evaluate((node) => node.scrollTo(0, 0));
+  await page.screenshot({ path: test.info().outputPath('library-desktop.png'), fullPage: true });
+});
+
+test('compact mask menu stays inside the toolbar with a fully visible mobile composer', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await newSession(page);
+  // The session action closes the sidebar sheet on mobile.
+  const selector = page.getByRole('button', { name: 'Session mask', exact: true });
+  await expect(page.locator('[data-chat-toolbar] [data-mask-header]')).toBeVisible();
+  await selector.click();
+  await page.getByRole('menuitem').filter({ hasText: 'Programmer' }).click();
+  await expect(selector).toHaveAttribute('title', 'Programmer');
+  await expect(page.getByRole('menu')).toBeHidden();
+  const composer = page.getByRole('combobox', { name: 'Message' });
+  await expect(composer).toBeVisible();
+  const bounds = await composer.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath('chat-mobile.png'), fullPage: true });
 });
