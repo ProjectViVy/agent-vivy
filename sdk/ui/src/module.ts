@@ -633,7 +633,35 @@ export interface FaceAttachmentInput {
   readonly data: string;
 }
 
-export type FaceThinkingMode = "auto" | "on" | "off";
+export type FaceThinkingMode =
+  | "auto"
+  | "on"
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+/** model/thinking report: the persisted preference plus the level the
+ * active model's declared policy resolves it to (VCP F1). */
+export interface FaceThinkingReport {
+  readonly thinking: FaceThinkingMode;
+  readonly effective: string;
+  readonly supported: readonly string[] | null;
+  readonly supports_thinking: boolean;
+  readonly default_thinking: string;
+  readonly read_only: boolean;
+}
+
+/** model/thinking/levels: the active model's declared level surface; a
+ * thinking-capable model with no declared levels reports all seven. */
+export interface FaceThinkingLevelsView {
+  readonly levels: readonly string[];
+  readonly default: string;
+  readonly supports_thinking: boolean;
+}
 
 /** Exact identity and safe projection kind of one source record (SC-D4). */
 export interface FaceSourceRef {
@@ -1981,6 +2009,11 @@ export interface FaceClientAPI {
   listTools(): Promise<FaceToolsCatalogView>;
   setActiveTools(tools: string[]): Promise<FaceToolsCatalogView>;
   updateSettings(params: FaceSettingsUpdate): Promise<FaceSettings>;
+  /** model/thinking verbs (VCP F1): set persists the default preference,
+   * a bare get reports the resolved state. */
+  getThinking(): Promise<FaceThinkingReport>;
+  setThinking(level: FaceThinkingMode): Promise<FaceThinkingReport>;
+  thinkingLevels(): Promise<FaceThinkingLevelsView>;
   listProviders(): Promise<FaceProvidersView>;
   upsertProvider(input: FaceProviderEntryInput): Promise<FaceProviderEntry>;
   deleteProvider(id: string): Promise<FaceProviderDeleteResult>;

@@ -256,6 +256,25 @@ type dynamicCommandExpansionView struct {
 	Text string `json:"text"`
 }
 
+// thinkingReportView mirrors the model/thinking response relevant to the
+// footer: the resolved effective level for the live model.
+type thinkingReportView struct {
+	Thinking  string `json:"thinking"`
+	Effective string `json:"effective"`
+}
+
+func (c *client) setThinking(ctx context.Context, level string) (thinkingReportView, error) {
+	var out thinkingReportView
+	raw, err := c.Call(ctx, "model/thinking", map[string]string{"level": level})
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("tui: model/thinking: %w", err)
+	}
+	return out, nil
+}
+
 func (c *client) dynamicCommands(ctx context.Context) ([]surface.DynamicCommand, error) {
 	raw, err := c.Call(ctx, "commands/list", nil)
 	if err != nil {

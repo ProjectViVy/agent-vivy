@@ -181,7 +181,7 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 	if !errors.As(err, &unknown) || unknown.Name != "does-not-exist" {
 		t.Fatalf("unknown error = %T %v, want UnknownCommandError", err, err)
 	}
-	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off]") || !strings.Contains(r.Help(), "/model [filter]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
+	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off|minimal|low|medium|high|xhigh|max]") || !strings.Contains(r.Help(), "/model [filter]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
 		t.Fatalf("help missing builtins:\n%s", r.Help())
 	}
 }
@@ -203,7 +203,7 @@ func TestInitCommandAcceptsNoArgumentsAndAppearsInHelp(t *testing.T) {
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry(tuii18n.New(corei18n.English))
-	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
+	for _, input := range []string{"/thinking", "/thinking on", "/thinking max", "/thinking xhigh", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -212,7 +212,7 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 			t.Fatalf("Validate(%q): %v", input, err)
 		}
 	}
-	for _, input := range []string{"/thinking max", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
+	for _, input := range []string{"/thinking brain", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)

@@ -109,15 +109,19 @@ func TestDecideThinkingRuleTable(t *testing.T) {
 		{"unknown adapter sends nothing", "gemini-generate-content", false, true, domain.ThinkingModeOn, false, "", ""},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := decideThinking(testCase.adapter, testCase.deepSeek, testCase.supports, testCase.mode)
-			if got.claudeThinking != testCase.wantClaude || got.deepSeekFlag != testCase.wantDeepSeek || got.reasoningEffort != testCase.wantEffort {
+			info := domain.ModelInfo{SupportsThinking: testCase.supports}
+			got := decideThinking(testCase.adapter, testCase.deepSeek, info, testCase.mode)
+			if (got.claudeBudget > 0) != testCase.wantClaude || got.deepSeekFlag != testCase.wantDeepSeek || got.reasoningEffort != testCase.wantEffort {
 				t.Fatalf("decideThinking(%q, deepseek=%v, supports=%v, %q) = %+v, want claude=%v deepseek=%q effort=%q",
 					testCase.adapter, testCase.deepSeek, testCase.supports, testCase.mode, got,
 					testCase.wantClaude, testCase.wantDeepSeek, testCase.wantEffort)
 			}
 			options := got.options()
 			want := 0
-			for _, present := range []bool{got.claudeThinking, got.deepSeekFlag != "", got.reasoningEffort != ""} {
+			if got.claudeBudget > 0 {
+				want += 2 // thinking object + the required larger max_tokens
+			}
+			for _, present := range []bool{got.deepSeekFlag != "", got.reasoningEffort != ""} {
 				if present {
 					want++
 				}
@@ -243,5 +247,126 @@ func TestResolvingModelWithToolsInjectsThinking(t *testing.T) {
 	}
 	if body["thinking"] == nil {
 		t.Fatal("thinking param missing on bound model path")
+	}
+}
+
+// TestThinkingLevelClampAndDefault pins the per-model policy surface
+// (VCP F1): declared levels clamp an explicit request, a declared default
+// resolves "on"/"auto", and an undeclared model honors whatever level was
+// requested.
+func TestThinkingLevelClampAndDefault(t *testing.T) {
+	info := domain.ModelInfo{
+		SupportsThinking: true,
+		ThinkingLevels:   []string{"minimal", "low", "medium"},
+		DefaultThinking:  "low",
+	}
+	if got := ResolveThinkingLevel(info, domain.ThinkingLevelMax); got != domain.ThinkingLevelMedium {
+		t.Fatalf("clamp(max) = %q, want medium", got)
+	}
+	if got := ResolveThinkingLevel(info, domain.ThinkingModeOn); got != domain.ThinkingLevelLow {
+		t.Fatalf("on with default = %q, want low", got)
+	}
+	if got := ResolveThinkingLevel(info, domain.ThinkingModeAuto); got != domain.ThinkingLevelLow {
+		t.Fatalf("auto with default = %q, want low", got)
+	}
+	if got := ResolveThinkingLevel(info, domain.ThinkingModeOff); got != domain.ThinkingModeOff {
+		t.Fatalf("off = %q, want off", got)
+	}
+	// No declared levels: "on" picks the highest declared level when a list
+	// exists, else stays the bare alias; an explicit level passes through.
+	highOnly := domain.ModelInfo{SupportsThinking: true, ThinkingLevels: []string{"medium", "high"}}
+	if got := ResolveThinkingLevel(highOnly, domain.ThinkingModeOn); got != domain.ThinkingLevelHigh {
+		t.Fatalf("on with levels, no default = %q, want high", got)
+	}
+	undeclared := domain.ModelInfo{SupportsThinking: true}
+	if got := ResolveThinkingLevel(undeclared, domain.ThinkingLevelXHigh); got != domain.ThinkingLevelXHigh {
+		t.Fatalf("explicit level on undeclared model = %q, want xhigh", got)
+	}
+	if got := ResolveThinkingLevel(undeclared, domain.ThinkingModeOn); got != domain.ThinkingModeOn {
+		t.Fatalf("on on undeclared model = %q, want on", got)
+	}
+}
+
+// TestThinkingLevelClaudeBudget asserts each effort level maps to its
+// Anthropic budget_tokens value and arrives on the wire.
+func TestThinkingLevelClaudeBudget(t *testing.T) {
+	for _, testCase := range []struct {
+		level  domain.ThinkingMode
+		budget int
+	}{
+		{domain.ThinkingLevelMinimal, 1024},
+		{domain.ThinkingLevelLow, 2048},
+		{domain.ThinkingLevelMedium, 4096},
+		{domain.ThinkingLevelHigh, 8192},
+		{domain.ThinkingLevelXHigh, 16384},
+		{domain.ThinkingLevelMax, 32768},
+	} {
+		t.Run(string(testCase.level), func(t *testing.T) {
+			body := thinkingBody(t, testCase.level, "claude-sonnet-4-5")
+			thinking, ok := body["thinking"].(map[string]any)
+			if !ok || thinking["type"] != "enabled" {
+				t.Fatalf("thinking = %v, want enabled", body["thinking"])
+			}
+			if got, ok := thinking["budget_tokens"].(float64); !ok || int(got) != testCase.budget {
+				t.Fatalf("budget_tokens = %v, want %d", thinking["budget_tokens"], testCase.budget)
+			}
+		})
+	}
+}
+
+// TestThinkingLevelOpenAIReasoningEffort asserts a level reaches the OpenAI
+// wire verbatim as reasoning_effort (levels beyond the eino enum are data,
+// not code).
+func TestThinkingLevelOpenAIReasoningEffort(t *testing.T) {
+	vendor := testVendor("gateway", "Gateway", "GATEWAY_API_KEY", AdapterOpenAICompletions, "https://gateway.invalid/v1", "gpt-5", []Model{
+		{ID: "gpt-5", SupportsThinking: true, ThinkingLevels: []string{"minimal", "low", "medium", "high"}},
+	})
+	if body := openAIBody(t, vendor, "gpt-5", domain.ThinkingLevelLow); body["reasoning_effort"] != "low" {
+		t.Fatalf("reasoning_effort = %v, want low", body["reasoning_effort"])
+	}
+	// An above-clamp request resolves to the model's declared maximum.
+	if body := openAIBody(t, vendor, "gpt-5", domain.ThinkingLevelMax); body["reasoning_effort"] != "high" {
+		t.Fatalf("clamped reasoning_effort = %v, want high", body["reasoning_effort"])
+	}
+}
+
+// TestThinkingLevelSamplingParamsReachBody asserts the per-level sampling
+// table lands on the outbound request.
+func TestThinkingLevelSamplingParamsReachBody(t *testing.T) {
+	temperature := 0.7
+	topP := 0.9
+	// The model id is deliberately outside the o1/o3/o4/gpt-5 reasoning
+	// families: those models legitimately reject sampling params
+	// client-side, and a vendor would never declare overrides for them.
+	vendor := testVendor("gateway", "Gateway", "GATEWAY_API_KEY", AdapterOpenAICompletions, "https://gateway.invalid/v1", "nova-thinker", []Model{
+		{ID: "nova-thinker", SupportsThinking: true,
+			ThinkingSampling: map[string]ModelSampling{"high": {Temperature: &temperature, TopP: &topP}}},
+	})
+	body := openAIBody(t, vendor, "nova-thinker", domain.ThinkingLevelHigh)
+	if got, ok := body["temperature"].(float64); !ok || got != temperature {
+		t.Fatalf("temperature = %v, want %v", body["temperature"], temperature)
+	}
+	if got, ok := body["top_p"].(float64); !ok || got != topP {
+		t.Fatalf("top_p = %v, want %v", body["top_p"], topP)
+	}
+	// A level without declared sampling sends no overrides.
+	plain := openAIBody(t, vendor, "nova-thinker", domain.ThinkingLevelLow)
+	if plain["temperature"] != nil || plain["top_p"] != nil {
+		t.Fatalf("undeclared level received sampling overrides: %v", plain)
+	}
+}
+
+// TestThinkingDeepSeekStaysBinary pins the DeepSeek surface: an explicit
+// level maps onto the canonical enabled+high request because the endpoint's
+// thinking surface is binary.
+func TestThinkingDeepSeekStaysBinary(t *testing.T) {
+	vendor := testDeepSeekVendor("https://api.deepseek.com")
+	body := openAIBody(t, vendor, "deepseek-flash", domain.ThinkingLevelMax)
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "enabled" {
+		t.Fatalf("thinking = %v, want enabled", body["thinking"])
+	}
+	if body["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %v, want high", body["reasoning_effort"])
 	}
 }

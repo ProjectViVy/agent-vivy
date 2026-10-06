@@ -12,6 +12,7 @@ var chineseCatalog = map[string]string{
 	"vivy.tui.live.sessionLoading":             "会话仍在加载",
 	"vivy.tui.live.runMode":                    "运行模式必须为 normal 或 plan",
 	"vivy.tui.live.thinkingUnavailable":        "当前模型不支持扩展思考",
+	"vivy.tui.live.thinkingPersistFailed":      "思考偏好未能保存：",
 	"vivy.tui.live.commandRequired":            "需要命令名称",
 	"vivy.tui.live.sessionBusy":                "运行或交互关卡正在进行；请先完成再更改会话状态",
 	"vivy.tui.live.cancelEmpty":                "没有可取消的任务",

@@ -15,13 +15,70 @@ const (
 	ThinkingModeOff  ThinkingMode = "off"
 )
 
-// Valid reports whether the mode is one of the three known values.
+// The seven-level thinking surface (VCP F1): "on" resolves to the model's
+// declared default level, "off" and "auto" keep their aliased meaning.
+const (
+	ThinkingLevelMinimal ThinkingMode = "minimal"
+	ThinkingLevelLow     ThinkingMode = "low"
+	ThinkingLevelMedium  ThinkingMode = "medium"
+	ThinkingLevelHigh    ThinkingMode = "high"
+	ThinkingLevelXHigh   ThinkingMode = "xhigh"
+	ThinkingLevelMax     ThinkingMode = "max"
+)
+
+// ThinkingLevelOrder lists the real effort levels in ascending order;
+// aliases (auto/on/off) never appear in it.
+var ThinkingLevelOrder = []ThinkingMode{
+	ThinkingLevelMinimal,
+	ThinkingLevelLow,
+	ThinkingLevelMedium,
+	ThinkingLevelHigh,
+	ThinkingLevelXHigh,
+	ThinkingLevelMax,
+}
+
+// Valid reports whether the mode is an alias or a real level.
 func (m ThinkingMode) Valid() bool {
 	switch m {
 	case ThinkingModeAuto, ThinkingModeOn, ThinkingModeOff:
 		return true
 	}
-	return false
+	return m.LevelIndex() >= 0
+}
+
+// IsLevel reports whether the mode names a real effort level.
+func (m ThinkingMode) IsLevel() bool { return m.LevelIndex() >= 0 }
+
+// LevelIndex returns the mode's rank inside ThinkingLevelOrder, or -1 for
+// aliases and unknown values.
+func (m ThinkingMode) LevelIndex() int {
+	for i, level := range ThinkingLevelOrder {
+		if level == m {
+			return i
+		}
+	}
+	return -1
+}
+
+// ClampThinkingLevel bounds mode to the highest valid entry of supported
+// (model-declared level names). Aliases pass through untouched, and a
+// model with no declared levels honors whatever level was requested.
+func ClampThinkingLevel(mode ThinkingMode, supported []string) ThinkingMode {
+	if !mode.IsLevel() {
+		return mode
+	}
+	max := ThinkingMode("")
+	maxIdx := -1
+	for _, name := range supported {
+		if idx := ThinkingMode(name).LevelIndex(); idx > maxIdx {
+			maxIdx = idx
+			max = ThinkingMode(name)
+		}
+	}
+	if maxIdx < 0 || mode.LevelIndex() <= maxIdx {
+		return mode
+	}
+	return max
 }
 
 type thinkingModeContextKey struct{}

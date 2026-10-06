@@ -233,5 +233,24 @@ func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.Model
 		OutputPerMTokens: meta.OutputPerMTok,
 		SupportsImages:   meta.SupportsImages,
 		SupportsThinking: meta.SupportsThinking,
+		ThinkingLevels:   meta.ThinkingLevels,
+		DefaultThinking:  meta.DefaultThinking,
+		ThinkingSampling: modelSamplingFor(meta),
 	}
+}
+
+// modelSamplingFor projects the per-level sampling table; nil stays nil so
+// the run path does not iterate an empty map per call.
+func modelSamplingFor(meta Model) map[string]domain.ThinkingSampling {
+	if len(meta.ThinkingSampling) == 0 {
+		return nil
+	}
+	out := make(map[string]domain.ThinkingSampling, len(meta.ThinkingSampling))
+	for level, sampling := range meta.ThinkingSampling {
+		out[level] = domain.ThinkingSampling{
+			Temperature: sampling.Temperature,
+			TopP:        sampling.TopP,
+		}
+	}
+	return out
 }

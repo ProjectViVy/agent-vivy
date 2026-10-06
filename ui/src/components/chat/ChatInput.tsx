@@ -63,9 +63,15 @@ const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((
   reader.readAsDataURL(file);
 });
 
-// 思考模式选项（对照 Agent-DIVA ThinkingToggle）
+// 思考模式选项：七级 effort 面 + auto/on/off 别名（VCP F1）；level 项直接显示原值。
 const THINKING_MODES: { value: ThinkingMode; icon: LucideIcon; label: string; filled?: boolean }[] = [
   { value: 'auto', icon: Lightbulb, label: 'chatInput.thinkingModeAuto' },
+  { value: 'minimal', icon: Lightbulb, label: 'minimal' },
+  { value: 'low', icon: Lightbulb, label: 'low' },
+  { value: 'medium', icon: Lightbulb, label: 'medium' },
+  { value: 'high', icon: Lightbulb, label: 'high' },
+  { value: 'xhigh', icon: Lightbulb, label: 'xhigh' },
+  { value: 'max', icon: Lightbulb, label: 'max', filled: true },
   { value: 'on', icon: Lightbulb, label: 'chatInput.thinkingModeOn', filled: true },
   { value: 'off', icon: LightbulbOff, label: 'chatInput.thinkingModeOff' },
 ];
@@ -302,7 +308,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
                 {mode.filled
                   ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
                   : <mode.icon className="size-4 shrink-0" />}
-                <span className="flex-1">{t(mode.label)}</span>
+                <span className="flex-1">{mode.label.startsWith('chatInput.') ? t(mode.label) : mode.label}</span>
                 {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
               </DropdownMenuItem>
             ))}

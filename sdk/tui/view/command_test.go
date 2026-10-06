@@ -597,8 +597,18 @@ func TestThinkingCommandAndShortcutUseTruthfulModelCapability(t *testing.T) {
 	m = updated.(Model)
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 	m = updated.(Model)
-	if cmd != nil || d.thinking != "off" {
-		t.Fatalf("Ctrl+T did not cycle snapshotted preference: %q", d.thinking)
+	if cmd != nil || d.thinking != "minimal" {
+		t.Fatalf("Ctrl+T did not cycle snapshotted preference into the level surface: %q", d.thinking)
+	}
+
+	// An explicit level lands on the draft preference unchanged.
+	levelDriver := &testDriver{sidebar: surface.Sidebar{HasContext: true, Context: surface.Context{ThinkingSupported: true}}}
+	lm := New(levelDriver)
+	lm.input = "/thinking xhigh"
+	updated, cmd = lm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	lm = updated.(Model)
+	if cmd != nil || levelDriver.thinking != "xhigh" {
+		t.Fatalf("/thinking xhigh = mode %q cmd=%v", levelDriver.thinking, cmd != nil)
 	}
 
 	unsupported := &testDriver{sidebar: surface.Sidebar{HasContext: true}}

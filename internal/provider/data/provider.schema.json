@@ -94,7 +94,26 @@
         "input_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million input tokens. 0 or absent means unpriced, never free." },
         "output_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million output tokens. 0 or absent means unpriced, never free." },
         "supports_images": { "type": "boolean", "description": "Absent means unknown; the image gate fails open for custom gateways." },
-        "supports_thinking": { "type": "boolean", "description": "Absent means unknown; no reasoning parameters are sent." }
+        "supports_thinking": { "type": "boolean", "description": "Absent means unknown; no reasoning parameters are sent." },
+        "thinking_levels": {
+          "type": "array",
+          "items": { "enum": ["minimal", "low", "medium", "high", "xhigh", "max"] },
+          "description": "Effort levels the model accepts. Absent keeps the legacy auto/on/off surface; an explicitly requested level is honored anyway."
+        },
+        "default_thinking": { "enum": ["minimal", "low", "medium", "high", "xhigh", "max"], "description": "The model's own default level, used when a run asks for 'on' (or 'auto'). Must appear in thinking_levels when that list is declared." },
+        "thinking_sampling": {
+          "type": "object",
+          "description": "Per-level sampling overrides merged into the request when that level is effective.",
+          "propertyNames": { "enum": ["minimal", "low", "medium", "high", "xhigh", "max"] },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "temperature": { "type": "number" },
+              "top_p": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        }
       }
     },
     "provenance": {

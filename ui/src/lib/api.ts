@@ -21,6 +21,7 @@ export const RPC_METHODS = [
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
+  'model/thinking', 'model/thinking/levels',
   'channel/inspect', 'channel/get', 'channel/update',
   'channel/deliveries/list', 'channel/deliveries/redeliver',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
@@ -66,8 +67,8 @@ export interface MessageProvenance { source: string; channel?: string; chat_id?:
 export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number; attachments?: MessageAttachment[]; provenance?: MessageProvenance }
 /** turn/start 附件输入：data 为原始 base64（不带 data: 前缀），服务端做类型/大小校验。 */
 export interface AttachmentInput { name?: string; mime_type: string; data: string }
-/** turn/start 思考偏好：on 仅在模型元数据支持时由内核翻译为 provider 原生参数。 */
-export type ThinkingMode = 'auto' | 'on' | 'off';
+/** turn/start 思考偏好：七级 effort 面 + auto/on/off 别名；on 仅在模型元数据支持时由内核翻译为 provider 原生参数。 */
+export type ThinkingMode = 'auto' | 'on' | 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** session/messages 返回的用户消息附件：data_url 为服务端拼好的 data URL。 */
 export interface MessageAttachment { name?: string; mime_type: string; data_url: string }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
@@ -515,6 +516,23 @@ export const updateSettings = (params: SettingsUpdate) => {
   if (params.api_key === undefined) delete payload.api_key;
   return request<Settings>('settings/update', payload);
 };
+
+/** model/thinking 报告：持久化偏好 + 按活跃模型声明策略解析出的有效级。 */
+export interface ThinkingReport {
+  thinking: ThinkingMode;
+  effective: string;
+  supported: string[] | null;
+  supports_thinking: boolean;
+  default_thinking: string;
+  read_only: boolean;
+}
+/** model/thinking/levels：活跃模型声明的 levels 面（未声明但支持思考时报告全七级）。 */
+export interface ThinkingLevelsView { levels: string[]; default: string; supports_thinking: boolean }
+
+/** model/thinking：带 level 持久化默认思考偏好；不带只读当前状态。 */
+export const getThinking = () => request<ThinkingReport>('model/thinking');
+export const setThinking = (level: ThinkingMode) => request<ThinkingReport>('model/thinking', { level });
+export const thinkingLevels = () => request<ThinkingLevelsView>('model/thinking/levels');
 
 /** 密封协议适配器 id（后端 provider.AdapterFamilies()）：选择写侧的唯一词汇。 */
 export type ProviderAdapterId = 'openai-completions' | 'openai-responses' | 'anthropic-messages';

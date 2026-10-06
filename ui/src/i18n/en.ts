@@ -580,6 +580,13 @@ export const en: Dictionary = {
     disabled: 'Enable code mode',
     noSession: 'Select a conversation first',
   },
+  thinkingSettings: {
+    title: 'Thinking level',
+    description: 'Default extended-thinking preference persisted to settings.yaml; a per-turn override still wins.',
+    level: 'Default level',
+    effective: 'Effective for the active model: {{level}}',
+    unsupported: 'The active model does not declare extended-thinking support.',
+  },
   settingsModel: {
     searchPlaceholder: 'Search providers',
     currentBadge: 'Current',

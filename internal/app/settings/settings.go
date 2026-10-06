@@ -118,6 +118,10 @@ type Settings struct {
 	// DefaultModel overrides the bundle's default model; empty means "use
 	// bundle default".
 	DefaultModel string `yaml:"default_model"`
+	// Thinking is the persisted default thinking preference (auto/on/off or
+	// a minimal..max level). Empty means "auto"; a per-turn explicit
+	// thinking parameter overrides it.
+	Thinking string `yaml:"thinking,omitempty"`
 	// BaseURL is an optional OpenAI-compatible gateway; empty means "use
 	// bundle default". It is applied through the existing VIVY_API_BASE
 	// mechanism.

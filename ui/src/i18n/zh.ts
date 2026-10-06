@@ -578,6 +578,13 @@ export const zh = {
     disabled: '开启代码模式',
     noSession: '请先选择一个会话',
   },
+  thinkingSettings: {
+    title: '思考级别',
+    description: '默认扩展思考偏好，保存至 settings.yaml；单轮显式覆盖优先。',
+    level: '默认级别',
+    effective: '当前模型实际生效级别：{{level}}',
+    unsupported: '当前模型未声明扩展思考支持。',
+  },
   settingsModel: {
     searchPlaceholder: '搜索供应商',
     currentBadge: '当前',

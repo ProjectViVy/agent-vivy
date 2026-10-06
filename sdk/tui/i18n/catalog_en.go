@@ -12,6 +12,7 @@ var englishCatalog = map[string]string{
 	"vivy.tui.live.sessionLoading":             "session is still loading",
 	"vivy.tui.live.runMode":                    "run mode must be normal or plan",
 	"vivy.tui.live.thinkingUnavailable":        "extended thinking is unavailable for the active model",
+	"vivy.tui.live.thinkingPersistFailed":      "thinking preference not persisted: ",
 	"vivy.tui.live.commandRequired":            "command name is required",
 	"vivy.tui.live.sessionBusy":                "a run or gate is active; finish it before changing session state",
 	"vivy.tui.live.cancelEmpty":                "nothing to cancel",

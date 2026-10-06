@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
@@ -136,65 +137,172 @@ type resolvingChatModelWithTools struct {
 // keeping it out of the request path means no call site can special-case a
 // vendor.
 type thinkingShape struct {
-	// claudeThinking sends the Anthropic extended-thinking budget.
-	claudeThinking bool
+	// effective is the level the request resolves to, for diagnostics and
+	// level reporting; "off"/"" means no explicit thinking option.
+	effective domain.ThinkingMode
+	// claudeBudget carries the Anthropic extended-thinking budget in tokens,
+	// or 0 to send no thinking object.
+	claudeBudget int
 	// deepSeekFlag is "enabled" or "disabled" for the DeepSeek thinking
 	// object, or "" to omit it.
 	deepSeekFlag string
 	// reasoningEffort is an OpenAI reasoning_effort level, or "" to omit it.
 	reasoningEffort string
+	// sampling carries the level's declared sampling overrides.
+	sampling domain.ThinkingSampling
 }
 
-// decideThinking is the whole rule:
+// claudeThinkingBudget maps an effort level to an Anthropic budget_tokens
+// value. The budget stays modest so thinking never swallows the response
+// window on its own.
+func claudeThinkingBudget(level domain.ThinkingMode) int {
+	switch level {
+	case domain.ThinkingLevelMinimal:
+		return 1024
+	case domain.ThinkingLevelLow:
+		return 2048
+	case domain.ThinkingLevelMedium:
+		return claudeThinkingBudgetTokens
+	case domain.ThinkingLevelHigh:
+		return 8192
+	case domain.ThinkingLevelXHigh:
+		return 16384
+	case domain.ThinkingLevelMax:
+		return 32768
+	}
+	return claudeThinkingBudgetTokens
+}
+
+// ResolveThinkingLevel normalizes a requested mode into the effective level:
 //
-//   - anthropic-messages with a thinking-capable model: "on" sends the
-//     extended-thinking budget, every other preference sends nothing and leaves
-//     the provider default in force.
-//   - openai-completions on an endpoint declaring the deepseek-thinking
-//     capability: "auto" and "on" send the documented canonical request
-//     (thinking enabled plus reasoning_effort high); "off" disables thinking.
-//   - openai-completions anywhere else: a thinking-capable model is a reasoning
-//     model, so "auto" and "on" send reasoning_effort high; "off" sends nothing.
+//   - "auto": the model's declared default_thinking when it declares one,
+//     else the provider default (reports "").
+//   - "on": the model's declared default_thinking, else the highest declared
+//     level, else the bare "on" marker.
+//   - "off": stays "off".
+//   - an explicit level: clamped to the model's declared levels.
 //
-// A model whose metadata does not declare thinking support is left alone: the
-// conservative default is off, and an unknown model must never be sent a field
-// the upstream may reject.
-func decideThinking(adapter string, deepSeekThinking, supportsThinking bool, mode domain.ThinkingMode) thinkingShape {
-	if !supportsThinking {
+// The result is what callers should treat as the effective level; the
+// adapter mapping decides what it means on the wire.
+func ResolveThinkingLevel(info domain.ModelInfo, mode domain.ThinkingMode) domain.ThinkingMode {
+	switch {
+	case mode == domain.ThinkingModeOff:
+		return domain.ThinkingModeOff
+	case mode.IsLevel():
+		return domain.ClampThinkingLevel(mode, info.ThinkingLevels)
+	case mode == domain.ThinkingModeOn || mode == domain.ThinkingModeAuto || mode == "":
+		if info.DefaultThinking != "" {
+			return domain.ClampThinkingLevel(domain.ThinkingMode(info.DefaultThinking), info.ThinkingLevels)
+		}
+		if mode == domain.ThinkingModeOn && len(info.ThinkingLevels) > 0 {
+			return domain.ClampThinkingLevel(domain.ThinkingLevelMax, info.ThinkingLevels)
+		}
+		return mode // alias preserved
+	}
+	return mode
+}
+
+// decideThinking is the whole rule. It takes the resolved effective level
+// (see ResolveThinkingLevel) plus the adapter and the endpoint's
+// capabilities:
+//
+//   - anthropic-messages: any effective level sends extended thinking with
+//     the level's budget; the legacy "on" marker sends the legacy budget;
+//     everything else sends nothing (provider default).
+//   - openai-completions on a deepseek-thinking endpoint: "off" sends
+//     thinking disabled; "auto"/"" send nothing... wait, legacy behavior
+//     must hold: auto/on send enabled + effort high, off sends disabled.
+//     Levels send enabled + the level as reasoning_effort.
+//   - openai-completions elsewhere: a reasoning model, so auto/on send
+//     reasoning_effort high (legacy), a level sends it verbatim, "off"
+//     sends nothing.
+//
+// A model whose metadata does not declare thinking support is left alone:
+// the conservative default is off, and an unknown model must never be sent
+// a field the upstream may reject.
+func decideThinking(adapter string, deepSeekThinking bool, info domain.ModelInfo, mode domain.ThinkingMode) thinkingShape {
+	if !info.SupportsThinking {
 		return thinkingShape{}
 	}
+	resolved := ResolveThinkingLevel(info, mode)
+	shape := thinkingShape{effective: resolved}
 	switch adapter {
 	case AdapterAnthropicMessages:
-		if mode != domain.ThinkingModeOn {
-			return thinkingShape{}
+		switch {
+		case resolved.IsLevel():
+			shape.claudeBudget = claudeThinkingBudget(resolved)
+		case resolved == domain.ThinkingModeOn:
+			shape.claudeBudget = claudeThinkingBudgetTokens
+			shape.effective = domain.ThinkingLevelMedium
 		}
-		return thinkingShape{claudeThinking: true}
 	case AdapterOpenAICompletions:
-		if !deepSeekThinking {
-			if mode == domain.ThinkingModeOff {
-				return thinkingShape{}
-			}
-			return thinkingShape{reasoningEffort: string(einoopenai.ReasoningEffortLevelHigh)}
+		effort := string(einoopenai.ReasoningEffortLevelHigh)
+		if resolved.IsLevel() {
+			effort = string(resolved)
 		}
-		if mode == domain.ThinkingModeOff {
-			return thinkingShape{deepSeekFlag: "disabled"}
+		switch {
+		case resolved == domain.ThinkingModeOff && !deepSeekThinking:
+			shape.effective = domain.ThinkingModeOff
+		case resolved == domain.ThinkingModeOff:
+			shape.deepSeekFlag = "disabled"
+		case !deepSeekThinking:
+			shape.reasoningEffort = effort
+		default:
+			// DeepSeek's thinking surface is binary; a requested level
+			// still maps to the canonical effort the endpoint documents.
+			shape.deepSeekFlag = "enabled"
+			shape.reasoningEffort = string(einoopenai.ReasoningEffortLevelHigh)
 		}
-		return thinkingShape{deepSeekFlag: "enabled", reasoningEffort: string(einoopenai.ReasoningEffortLevelHigh)}
 	}
-	return thinkingShape{}
+	if shape.effective.IsLevel() {
+		if sampling, ok := info.ThinkingSampling[string(shape.effective)]; ok {
+			shape.sampling = sampling
+		}
+	}
+	return shape
 }
+
+// EffectiveThinkingLevel resolves a requested mode against the model's
+// declared policy — the level the run path will actually send. Exposed for
+// the control plane's thinking report.
+func EffectiveThinkingLevel(info domain.ModelInfo, mode domain.ThinkingMode) domain.ThinkingMode {
+	return ResolveThinkingLevel(info, mode)
+}
+
+// claudeNonStreamingTokenCeiling is the Anthropic SDK's non-streaming
+// ceiling: a Generate whose max_tokens crosses 128000/6 tokens is refused
+// client-side with "streaming is required". Requests above it carry an
+// explicit request timeout, which is the SDK's documented bypass.
+const claudeNonStreamingTokenCeiling = 128000 / 6
+
+// claudeLongRequestTimeout bounds a non-streaming thinking request whose
+// max_tokens crosses the SDK ceiling. The estimate behind the ceiling puts
+// 40960 tokens at ~19 minutes; half an hour leaves headroom.
+const claudeLongRequestTimeout = 30 * time.Minute
 
 // options renders the shape as Eino per-call options.
 func (s thinkingShape) options() []model.Option {
 	var options []model.Option
-	if s.claudeThinking {
-		options = append(options, einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens}))
+	if s.claudeBudget > 0 {
+		options = append(options, einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: s.claudeBudget}))
+		// The response budget must exceed the thinking budget by headroom;
+		// the provider rejects thinking budgets >= max_tokens.
+		options = append(options, model.WithMaxTokens(s.claudeBudget+claudeDefaultMaxTokens))
+		if s.claudeBudget+claudeDefaultMaxTokens > claudeNonStreamingTokenCeiling {
+			options = append(options, einoclaude.WithRequestTimeout(claudeLongRequestTimeout))
+		}
 	}
 	if s.deepSeekFlag != "" {
 		options = append(options, einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": s.deepSeekFlag}}))
 	}
 	if s.reasoningEffort != "" {
 		options = append(options, einoopenai.WithReasoningEffort(einoopenai.ReasoningEffortLevel(s.reasoningEffort)))
+	}
+	if s.sampling.Temperature != nil {
+		options = append(options, model.WithTemperature(float32(*s.sampling.Temperature)))
+	}
+	if s.sampling.TopP != nil {
+		options = append(options, model.WithTopP(float32(*s.sampling.TopP)))
 	}
 	return options
 }
@@ -215,7 +323,7 @@ func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option
 	return decideThinking(
 		endpoint.Adapter,
 		endpoint.HasCapability(CapabilityDeepSeekThinking),
-		info.SupportsThinking,
+		info,
 		domain.ThinkingModeFromContext(ctx),
 	).options()
 }

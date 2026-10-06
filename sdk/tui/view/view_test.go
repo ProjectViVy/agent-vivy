@@ -909,7 +909,7 @@ func (d *testDriver) ThinkingMode() string {
 	return d.thinking
 }
 func (d *testDriver) SetThinkingMode(mode string) error {
-	if mode == "on" && (!d.sidebar.HasContext || !d.sidebar.Context.ThinkingSupported) {
+	if mode != "auto" && mode != "off" && (!d.sidebar.HasContext || !d.sidebar.Context.ThinkingSupported) {
 		return fmt.Errorf("extended thinking is unavailable for the active model")
 	}
 	d.thinking = mode

@@ -503,7 +503,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 		}
 		if len(args) == 1 {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
-			case "auto", "on", "off":
+			case "auto", "on", "off", "minimal", "low", "medium", "high", "xhigh", "max":
 			default:
 				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.thinking", nil))
 			}
@@ -617,7 +617,7 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 		Spec{Name: "cancel", Usage: "/cancel", Description: description("cancel")},
 		Spec{Name: "queue", Usage: "/queue clear", Description: description("queue")},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: description("permission")},
-		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: description("thinking")},
+		Spec{Name: "thinking", Usage: "/thinking [auto|on|off|minimal|low|medium|high|xhigh|max]", Description: description("thinking")},
 		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
 		Spec{Name: "compact", Usage: "/compact [instructions]", Description: description("compact")},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},

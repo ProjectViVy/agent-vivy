@@ -1996,24 +1996,70 @@ func (m Model) executeImageCommand(args []string) (Model, tea.Cmd) {
 	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.commandUnavailable", map[string]any{"command": "image"}))), nil
 }
 
+// thinkingDisplay prefers the control-plane resolved effective level once
+// a persist report has arrived; before that it shows the requested mode.
+func (m Model) thinkingDisplay() string {
+	if reporter, ok := m.driver.(interface {
+		ThinkingEffective() string
+	}); ok {
+		if effective := reporter.ThinkingEffective(); effective != "" {
+			return effective
+		}
+	}
+	return m.driver.ThinkingMode()
+}
+
 func (m Model) setThinking(mode string) (Model, tea.Cmd) {
 	if mode == "" {
 		mode = nextThinking(m.driver.ThinkingMode())
 	}
-	if mode != "auto" && mode != "on" && mode != "off" {
+	if !validThinkingMode(mode) {
 		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.thinking", nil))), nil
 	}
 	if err := m.driver.SetThinkingMode(mode); err != nil {
 		return m.showCommandError(err), nil
 	}
-	return m.showCommandResult(m.translator.T("vivy.tui.dialog.thinking", nil), m.translator.T("vivy.tui.thinking.next", map[string]any{"mode": mode})), nil
+	m = m.showCommandResult(m.translator.T("vivy.tui.dialog.thinking", nil), m.translator.T("vivy.tui.thinking.next", map[string]any{"mode": mode}))
+	// Persist through the control plane when the driver supports it; the
+	// report carries the effective level the model resolves to.
+	if persister, ok := m.driver.(interface {
+		PersistThinkingMode(string) tea.Cmd
+	}); ok {
+		return m, persister.PersistThinkingMode(mode)
+	}
+	return m, nil
 }
 
+// thinkingModes is the TUI's seven-level surface mirrored from
+// internal/domain (sdk/ cannot import internal/).
+var thinkingModes = []string{"auto", "minimal", "low", "medium", "high", "xhigh", "max", "off", "on"}
+
+func validThinkingMode(mode string) bool {
+	for _, candidate := range thinkingModes {
+		if candidate == mode {
+			return true
+		}
+	}
+	return false
+}
+
+// nextThinking cycles the draft preference: auto → minimal..max → off →
+// auto. "on" (legacy alias) resolves to auto in the cycle.
 func nextThinking(current string) string {
 	switch strings.ToLower(strings.TrimSpace(current)) {
-	case "auto":
-		return "on"
-	case "on":
+	case "auto", "on":
+		return "minimal"
+	case "minimal":
+		return "low"
+	case "low":
+		return "medium"
+	case "medium":
+		return "high"
+	case "high":
+		return "xhigh"
+	case "xhigh":
+		return "max"
+	case "max":
 		return "off"
 	default:
 		return "auto"
@@ -2163,7 +2209,7 @@ func (m Model) statusText() string {
 	if active.PermissionPreset != "" {
 		lines = append(lines, m.translator.T("vivy.tui.status.permission", map[string]any{"preset": active.PermissionPreset}))
 	}
-	lines = append(lines, m.translator.T("vivy.tui.status.thinking", map[string]any{"mode": m.driver.ThinkingMode()}))
+	lines = append(lines, m.translator.T("vivy.tui.status.thinking", map[string]any{"mode": m.thinkingDisplay()}))
 	snapshot := m.driver.Sidebar()
 	if snapshot.HasContext {
 		ctx := snapshot.Context

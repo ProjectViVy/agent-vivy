@@ -72,12 +72,13 @@ type Live struct {
 	queue     []queuedTurn
 	// drafts is keyed by session id so unsent image chips cannot cross a
 	// session switch. Values contain metadata only; bytes stay server-side.
-	drafts           map[string][]surface.Attachment
-	thinkingMode     string
-	runMode          string
-	commandInFlight  bool
-	completionReq    uint64
-	completionCancel context.CancelFunc
+	drafts            map[string][]surface.Attachment
+	thinkingMode      string
+	thinkingEffective string
+	runMode           string
+	commandInFlight   bool
+	completionReq     uint64
+	completionCancel  context.CancelFunc
 
 	initialPrompt  string
 	continueNewest bool
@@ -475,6 +476,13 @@ type liveSubscribedMsg struct {
 }
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
+// liveThinkingReportMsg carries the persisted thinking preference's
+// effective level back from the control plane (model/thinking).
+type liveThinkingReportMsg struct {
+	Effective string
+	Err       error
+}
+
 type liveRPCMsg struct {
 	Kind      string
 	SessionID string
@@ -606,6 +614,17 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyQueueMsg(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
+	case liveThinkingReportMsg:
+		if msg.Err != nil {
+			l.mu.Lock()
+			l.lastErr = l.translator.T("vivy.tui.live.thinkingPersistFailed", nil) + shortErr(msg.Err)
+			l.mu.Unlock()
+			return nil
+		}
+		l.mu.Lock()
+		l.thinkingEffective = msg.Effective
+		l.mu.Unlock()
+		return nil
 	case surface.CommandResultMsg:
 		return l.applyCommandResult(msg)
 	case surface.SessionsMsg:
@@ -866,8 +885,9 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 		if l.sidebar.Session.ID == "" {
 			l.sidebar.Session = msg.Session
 		}
-		if l.thinkingMode == "on" && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
+		if thinkingModeNeedsSupport(l.thinkingMode) && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
 			l.thinkingMode = "auto"
+			l.thinkingEffective = ""
 		}
 	}
 	l.gate = nil
@@ -2280,18 +2300,56 @@ func (l *Live) SetRunMode(mode string) error {
 
 // SetThinkingMode updates only future turns. Send snapshots the value so a
 // later toggle cannot retroactively change already queued work.
+// thinkingModeValues is the seven-level surface plus the three aliases,
+// mirrored here because sdk/ cannot import internal/domain.
+var thinkingModeValues = map[string]bool{
+	"auto": true, "on": true, "off": true,
+	"minimal": true, "low": true, "medium": true,
+	"high": true, "xhigh": true, "max": true,
+}
+
+// thinkingModeNeedsSupport reports whether the mode requires a
+// thinking-capable model (anything beyond auto/off).
+func thinkingModeNeedsSupport(mode string) bool {
+	return mode != "auto" && mode != "off"
+}
+
 func (l *Live) SetThinkingMode(mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode != "auto" && mode != "on" && mode != "off" {
+	if !thinkingModeValues[mode] {
 		return errors.New(l.translator.T("vivy.tui.error.thinking", nil))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if mode == "on" && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
+	if thinkingModeNeedsSupport(mode) && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
 		return errors.New(l.translator.T("vivy.tui.live.thinkingUnavailable", nil))
 	}
 	l.thinkingMode = mode
+	l.thinkingEffective = ""
 	return nil
+}
+
+// ThinkingEffective reports the level the control plane resolved the
+// persisted preference to; empty means no report has arrived yet.
+func (l *Live) ThinkingEffective() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.thinkingEffective
+}
+
+// PersistThinkingMode stores the preference as the default through
+// model/thinking and returns the effective level report. It is best-effort
+// — the local draft preference stands regardless.
+func (l *Live) PersistThinkingMode(mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		report, err := l.client.setThinking(ctx, mode)
+		if err != nil {
+			return liveThinkingReportMsg{Err: err}
+		}
+		return liveThinkingReportMsg{Effective: report.Effective}
+	}
 }
 
 // DecideApproval implements surface.Driver.

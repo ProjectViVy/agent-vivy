@@ -1560,6 +1560,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.updateLocale(request)
 	case "settings/update":
 		return h.updateSettings(ctx, request)
+	case "model/thinking":
+		return h.setThinking(ctx, request)
+	case "model/thinking/levels":
+		return h.thinkingLevels(ctx, request)
 	case "settings/providers":
 		return h.listProviders(ctx)
 	case "settings/providers/upsert":
@@ -3661,7 +3665,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
-		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		Thinking: h.thinkingFor(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true, Continuity: params.continuity,
 	})
 	if err != nil {
@@ -3724,7 +3728,7 @@ func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any
 func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams) (any, *Error) {
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face),
-		Thinking: domain.ThinkingMode(params.Thinking), HumanAdmission: true,
+		Thinking: h.thinkingFor(params.Thinking), HumanAdmission: true,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -3863,7 +3867,7 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
-		Thinking:       domain.ThinkingMode(params.Thinking),
+		Thinking:       h.thinkingFor(params.Thinking),
 		HumanAdmission: true,
 	})
 	if err != nil {
@@ -5607,6 +5611,92 @@ func (h *controlHandler) updateSettingsOrError(fn func(settings.Settings) (setti
 		return settings.Settings{}, internalError(err)
 	}
 	return saved, nil
+}
+
+// thinkingFor merges a caller's per-turn preference with the persisted
+// default: an explicit parameter wins, else the settings default applies.
+// A settings read failure degrades to "" (auto at admission) — the turn
+// must not fail on a preferences read.
+func (h *controlHandler) thinkingFor(requested string) domain.ThinkingMode {
+	if requested != "" {
+		return domain.ThinkingMode(requested)
+	}
+	cur, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return ""
+	}
+	return domain.ThinkingMode(cur.Thinking)
+}
+
+// setThinking is the model/thinking verb: a present "level" persists it as
+// the default (validated against the seven-level surface); an absent level
+// only reports the current state.
+func (h *controlHandler) setThinking(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		Level string `json:"level"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.Level != "" {
+		mode := domain.ThinkingMode(params.Level)
+		if !mode.Valid() {
+			return nil, &Error{Code: InvalidParams, Message: "thinking level must be auto, on, off, or one of minimal|low|medium|high|xhigh|max"}
+		}
+		if h.deps.SettingsPath == "" {
+			return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+		}
+		if _, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			if mode == domain.ThinkingModeAuto {
+				cur.Thinking = ""
+			} else {
+				cur.Thinking = params.Level
+			}
+			return cur, nil
+		}); rpcErr != nil {
+			return nil, rpcErr
+		}
+	}
+	return h.thinkingReport(ctx)
+}
+
+// thinkingReport renders the thinking state for the live model: the
+// persisted preference plus the level it resolves to under the model's
+// declared policy.
+func (h *controlHandler) thinkingReport(ctx context.Context) (any, *Error) {
+	requested := domain.ThinkingMode(h.thinkingFor(""))
+	if requested == "" {
+		requested = domain.ThinkingModeAuto
+	}
+	info := h.deps.Service.GetModelInfo(ctx)
+	return map[string]any{
+		"thinking":          string(requested),
+		"effective":         string(provider.EffectiveThinkingLevel(info, requested)),
+		"supported":         info.ThinkingLevels,
+		"supports_thinking": info.SupportsThinking,
+		"default_thinking":  info.DefaultThinking,
+		"read_only":         h.deps.SettingsPath == "" || h.deps.Frozen,
+	}, nil
+}
+
+// thinkingLevels is the model/thinking/levels verb: the live model's
+// declared thinking policy. A thinking-capable model with no declared
+// levels reports the full seven-level surface (the run path honors any
+// requested level); a non-thinking model reports an empty list.
+func (h *controlHandler) thinkingLevels(ctx context.Context, request Request) (any, *Error) {
+	info := h.deps.Service.GetModelInfo(ctx)
+	levels := info.ThinkingLevels
+	if len(levels) == 0 && info.SupportsThinking {
+		levels = make([]string, 0, len(domain.ThinkingLevelOrder))
+		for _, level := range domain.ThinkingLevelOrder {
+			levels = append(levels, string(level))
+		}
+	}
+	return map[string]any{
+		"levels":            levels,
+		"default":           info.DefaultThinking,
+		"supports_thinking": info.SupportsThinking,
+	}, nil
 }
 
 // listProviders returns the registry plus the active selection and config
