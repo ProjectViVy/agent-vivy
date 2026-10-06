@@ -74,6 +74,7 @@ func TestPlanGoalIntegratedReviewAndTwoRounds(t *testing.T) {
 		Tools:     config.Tools{Enabled: []string{tools.WriteFileName, tools.SubmitPlanName, tools.ExecuteName, tools.ReportGoalName}, Approval: config.Approval{Expiration: time.Minute}},
 	}
 	cfg.Runtime.Sandbox.Approval.AutoApproveTools = []string{tools.WriteFileName, tools.SubmitPlanName, tools.ExecuteName, tools.ReportGoalName}
+	initializeTestPersona(t, cfg)
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
 	if err != nil {
 		t.Fatalf("compose app: %v", err)
@@ -487,6 +488,7 @@ func planGoalTestConfig(t *testing.T, enabled []string) (config.Config, string) 
 	cfg.Runtime.WorkspaceRoot = workspace
 	cfg.Tools.Enabled = enabled
 	cfg.Runtime.Sandbox.Approval.AutoApproveTools = enabled
+	initializeTestPersona(t, cfg)
 	return cfg, workspace
 }
 

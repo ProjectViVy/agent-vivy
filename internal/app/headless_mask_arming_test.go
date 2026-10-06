@@ -27,9 +27,10 @@ import (
 func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) {
 	var once sync.Once
 	entered := make(chan struct{})
+	modelInput := make(chan string, 1)
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.ReadAll(r.Body)
-		once.Do(func() { close(entered) })
+		raw, _ := io.ReadAll(r.Body)
+		once.Do(func() { modelInput <- string(raw); close(entered) })
 		<-r.Context().Done()
 	}))
 	t.Cleanup(model.Close)
@@ -40,7 +41,7 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	t.Setenv("VIVY_PROVIDER", "deepseek")
 	t.Setenv("VIVY_API_BASE", model.URL)
 
-	cfg := newDeepSeekTestConfig(t)
+	cfg := uninitializedDeepSeekTestConfig(t)
 	cfg.Storage.SQLite.Path = filepath.Join(t.TempDir(), "headless-arming.db")
 	// The product default governance profile must allow mask operations on
 	// its own: module actions have no approval row, so without the shipped
@@ -80,6 +81,21 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	sessionID, _ := session["id"].(string)
 	if sessionID == "" {
 		t.Fatalf("session/create result = %v", session)
+	}
+	_, uninitializedErr := client.Call(context.Background(), "turn/start", map[string]any{"session_id": sessionID, "text": "not initialized"})
+	if uninitializedErr == nil || !strings.Contains(uninitializedErr.Error(), "open Persona") {
+		t.Fatalf("fresh install did not explain persona initialization: %v", uninitializedErr)
+	}
+	initialized := callControl(t, client, "module.action.invoke", map[string]any{
+		"module_id": "vivy/diva-cognitive",
+		"action_id": "diva.cognitive.persona.initialize",
+		"input": map[string]any{"session_id": sessionID, "initialization": map[string]string{
+			"identity": "HEADLESS_PERSONA_SENTINEL", "relationship": "partner",
+			"redline": "respect boundaries", "user": "preferences", "world": "WORLD_EXCLUDED_SENTINEL",
+		}},
+	})
+	if initialized["status"] != "ok" {
+		t.Fatalf("persona initialization failed: %v", initialized)
 	}
 
 	catalog := callControl(t, client, "module.action.invoke", map[string]any{
@@ -124,6 +140,10 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	}
 	select {
 	case <-entered:
+		input := <-modelInput
+		if !strings.Contains(input, "HEADLESS_PERSONA_SENTINEL") || strings.Contains(input, "WORLD_EXCLUDED_SENTINEL") {
+			t.Fatalf("model request did not use the real persona projection: %s", input)
+		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("run never reached the model; admission likely failed")
 	}
@@ -141,5 +161,8 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	}
 	if !strings.Contains(string(snapshot.Payload), "builtin/writer") {
 		t.Fatalf("snapshot payload does not carry the selected mask: %s", snapshot.Payload)
+	}
+	if !strings.Contains(string(snapshot.Payload), "HEADLESS_PERSONA_SENTINEL") {
+		t.Fatal("persisted prompt omits the real persona")
 	}
 }

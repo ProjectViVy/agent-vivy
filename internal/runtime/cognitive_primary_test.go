@@ -50,7 +50,7 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 		Text: frozenSlotOrderText, Digest: "frozen-digest-1",
 	}}
 	recorder := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("first", nil), schema.AssistantMessage("second", nil))}
+		schema.AssistantMessage("first", nil), schema.AssistantMessage("second", nil), schema.AssistantMessage("code", nil))}
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "frozen.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +148,26 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	}
 	if preparer.calls != 1 {
 		t.Fatalf("prepare calls on gate = %d", preparer.calls)
+	}
+
+	// The independent coding face has no companion-persona setup flow.
+	// Selecting cognition in the shared default assembly must not make a
+	// fresh vivy-code instance depend on personal authority initialization.
+	codeRun, err := svc.RunWithOptions(ctx, "session-frozen", "code task", RunOptions{Face: domain.FaceCode})
+	if err != nil {
+		t.Fatalf("coding admission consulted companion authority: %v", err)
+	}
+	waitForRunStatus(t, backend, codeRun, domain.RunCompleted)
+	codeSnapshot, found, err := svc.promptSnapshotForRun(ctx, codeRun)
+	if err != nil || !found {
+		t.Fatalf("coding snapshot: %v", err)
+	}
+	var codePayload storage.RunPromptPayload
+	if err := json.Unmarshal(codeSnapshot.Payload, &codePayload); err != nil {
+		t.Fatal(err)
+	}
+	if codePayload.Frozen != nil || strings.Contains(codePayload.Instruction, "IDENTITY BODY") {
+		t.Fatal("companion authority leaked into coding instruction")
 	}
 }
 

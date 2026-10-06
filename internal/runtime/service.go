@@ -1000,7 +1000,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 		}
 		var frozenText, frozenDigest string
-		if b := s.deps.Cognitive; b != nil && b.Primary != nil {
+		if b := s.deps.Cognitive; face != domain.FaceCode && b != nil && b.Primary != nil {
+			// The coding face keeps its project instruction contract and
+			// does not require companion-persona onboarding.
 			// Session authority rides in the primary run's input before
 			// optional evidence/history consumes budget. A missing or
 			// corrupt FrozenCore gates inference explicitly.

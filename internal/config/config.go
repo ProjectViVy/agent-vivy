@@ -671,6 +671,18 @@ func Default() Config {
 						Tool:     "vivy.masks.*",
 						Decision: "allow",
 						Reason:   "mask selection and catalog edits are reversible in-session preferences",
+					}, {
+						Tool:     "diva.cognitive.persona.initialize",
+						Decision: "allow",
+						Reason:   "owner initializes the persona authority through the session-bound control plane",
+					}, {
+						Tool:     "diva.cognitive.persona.save",
+						Decision: "allow",
+						Reason:   "owner edits persona documents with authority revision checks",
+					}, {
+						Tool:     "diva.cognitive.persona.review.decide",
+						Decision: "allow",
+						Reason:   "owner decides persona reviews through the session-bound control plane",
 					}},
 				},
 				"plan":      {Default: "deny"},
