@@ -18,6 +18,18 @@ import (
 const configPath = "config.yaml"
 
 func main() {
+	// Subcommands consume their own argv (mcp add --command accepts raw args
+	// like `-y` that flag parsing would reject); dispatch before parseArgs.
+	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "config") {
+		bootstrap := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		cfg, err := loadConfig(bootstrap)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_, code := runSubcommand(os.Args[1:], cfg, os.Stdout, os.Stderr)
+		os.Exit(code)
+	}
 	parsed := parseArgs(os.Args[1:])
 	switch {
 	case parsed.Help:
