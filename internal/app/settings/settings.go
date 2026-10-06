@@ -296,6 +296,9 @@ type MCPServer struct {
 	// Enabled defaults to true when omitted. A pointer distinguishes
 	// "unset" from an explicit false (YAML bool zero is false).
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// ToolExposure maps glob patterns on this server's discovered tool ids
+	// to an exposure level (direct, model-only, deferred, hidden).
+	ToolExposure map[string]string `yaml:"tool_exposure,omitempty"`
 }
 
 // MCPServerEnabled reports whether the server joins the live catalog.

@@ -242,6 +242,14 @@ type payloadToolFinished struct {
 	Effects    string            `json:"effects,omitempty"`
 }
 
+// payloadToolsExposureChanged is journaled when tools/activate or
+// tools/deactivate flips a session's deferred-tool activation set. Folding
+// it on session rebuild reproduces activation across restarts and resumes.
+type payloadToolsExposureChanged struct {
+	Activated   []string `json:"activated,omitempty"`
+	Deactivated []string `json:"deactivated,omitempty"`
+}
+
 // payloadToolNudge is the durable record of one reminder scheduled for
 // the next model invocation (NUDGE-DESIGN §7). It denotes scheduling
 // inside this run, not remote receipt.

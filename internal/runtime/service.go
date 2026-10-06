@@ -294,6 +294,12 @@ type Service struct {
 	snapshots map[domain.RunID]domain.PolicySnapshot
 	// queues holds per-session dual-track turn queues (VCP-B1).
 	queues map[domain.SessionID]*sessionQueue
+	// toolActivations caches each session's deferred-tool activation set
+	// (VCP-E2), folded once from the session's journals and updated live
+	// by the journal pipeline and the tools/activate control path. Its own
+	// mutex avoids ordering against s.mu/projectionMu.
+	toolActivationMu sync.Mutex
+	toolActivations  map[domain.SessionID]*tools.ToolActivation
 	// steerCancels holds the adk boundary-cancel handle per live run; armed
 	// marks a boundary cancel triggered by a steer (vs a user abort).
 	steerCancels map[domain.RunID]adk.AgentCancelFunc
@@ -507,6 +513,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		ledgers:           make(map[domain.RunID]*BudgetLedger),
 		snapshots:         make(map[domain.RunID]domain.PolicySnapshot),
 		queues:            make(map[domain.SessionID]*sessionQueue),
+		toolActivations:   make(map[domain.SessionID]*tools.ToolActivation),
 		steerCancels:      make(map[domain.RunID]adk.AgentCancelFunc),
 		steerArmed:        make(map[domain.RunID]bool),
 		runTools:          make(map[domain.RunID]map[string]struct{}),
@@ -783,6 +790,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	if s.deps.Deliverables != nil {
 		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
+	s.dropSessionToolActivation(id)
 	return nil
 }
 
@@ -2908,6 +2916,10 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		mounts = tools.NewMountedTools()
 	}
 	runCtx = tools.WithMountedTools(runCtx, mounts)
+	// Deferred-tool activation: the session tracker is journal-folded once
+	// and shared by every run of the session; the activation middleware and
+	// the governedTool call-time check read the same object live.
+	runCtx = tools.WithToolActivation(runCtx, s.sessionToolActivation(ctx, sessionID))
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkControl(runCtx, s)
@@ -4849,6 +4861,11 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		return false
 	}
 	re.Seq = seq
+	// tool_search completions widen the session's deferred-tool activation
+	// synchronously — the next model leg may already call a matched tool.
+	if re.Type == domain.EventToolFinished {
+		s.noteToolSearchMatches(sessionID, re.Payload)
+	}
 	if !sessionMessageProjectionDisabled(ctx) && (re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished) {
 		projectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		err := s.projectRunMessagesLocked(projectCtx, sessionID, re.RunID)

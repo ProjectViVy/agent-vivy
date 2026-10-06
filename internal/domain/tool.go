@@ -43,6 +43,39 @@ type ToolSpec struct {
 	Keywords []string
 	// Interaction identifies a control-flow tool that suspends the run.
 	Interaction ToolInteraction
+	// Exposure declares model-visibility for this tool. Empty inherits the
+	// runtime default (fixed core is direct; everything else is deferred
+	// behind tool_search). Config tools.exposure and MCP tool_exposure
+	// globs stamp the resolved level at binding time.
+	Exposure ToolExposure
+}
+
+// ToolExposure selects how a tool reaches the model surface.
+type ToolExposure string
+
+const (
+	// ToolExposureUnset inherits the runtime default split.
+	ToolExposureUnset ToolExposure = ""
+	// ToolExposureDirect is always disclosed in the prompt catalog.
+	ToolExposureDirect ToolExposure = "direct"
+	// ToolExposureModelOnly is model-visible but never human-invokable.
+	ToolExposureModelOnly ToolExposure = "model-only"
+	// ToolExposureDeferred is withheld from the model until activated — by
+	// tool_search inside the run or by tools/activate for the session.
+	ToolExposureDeferred ToolExposure = "deferred"
+	// ToolExposureHidden is never model-visible; internal callers only.
+	ToolExposureHidden ToolExposure = "hidden"
+)
+
+// ParseToolExposure validates a config-supplied level; empty stays unset.
+func ParseToolExposure(value string) (ToolExposure, bool) {
+	switch ToolExposure(value) {
+	case ToolExposureUnset:
+		return ToolExposureUnset, true
+	case ToolExposureDirect, ToolExposureModelOnly, ToolExposureDeferred, ToolExposureHidden:
+		return ToolExposure(value), true
+	}
+	return ToolExposureUnset, false
 }
 
 // ToolInteraction distinguishes ordinary calls from user-input suspension.

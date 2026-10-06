@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"path"
 	"sort"
 	"strings"
 
+	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/modules/defaults"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/toolhost"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/pretool"
@@ -110,6 +114,15 @@ type governedTool struct {
 func (tool governedTool) GovernedToolID() string { return tool.id }
 func (tool governedTool) Spec() domain.ToolSpec  { return tool.spec }
 func (tool governedTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	// ToolHost-boundary enforcement of the exposure contract: a
+	// model-dispatched call (marked by a bound tool_call identity) to a
+	// hidden tool fails with tool_not_active. Hidden is a disclosure and
+	// execution wall; deferred is disclosure-only — the model may already
+	// know the name from search results or an activated schema. Calls
+	// without the marker are internal and stay unrestricted.
+	if tools.ToolCallIDFromContext(ctx) != "" && tools.ResolveToolExposure(tool.spec) == domain.ToolExposureHidden {
+		return "", toolhost.ErrToolNotActive
+	}
 	result, err := tool.host.Invoke(ctx, toolhost.Request{ID: tool.id, Args: args})
 	return result.Text, err
 }
@@ -162,7 +175,77 @@ func newGovernedRuntimeTool(host *toolhost.Host, id string, spec domain.ToolSpec
 	}
 }
 
-func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry, middleware ...pretool.Provider) (*tools.Registry, error) {
+// toolExposureResolver stamps the effective exposure level on each bound
+// tool spec. Empty means the engine default split applies. serverID is the
+// MCP server instance that produced the tool, empty otherwise.
+type toolExposureResolver func(name, serverID string) domain.ToolExposure
+
+// resolveToolExposure builds the resolver from config: tools.exposure
+// exact names win, then per-server tool_exposure globs, then
+// tools.deferred_tools. Invalid levels are skipped with a warning so a
+// typo never widens or destroys the tool surface.
+func resolveToolExposure(toolsCfg config.Tools, mcpConfigs []runtime.MCPServerConfig) toolExposureResolver {
+	exposure := make(map[string]domain.ToolExposure, len(toolsCfg.Exposure))
+	for name, level := range toolsCfg.Exposure {
+		parsed, ok := domain.ParseToolExposure(level)
+		if !ok {
+			slog.Warn("tools.exposure: invalid level ignored", "tool", name, "level", level)
+			continue
+		}
+		exposure[name] = parsed
+	}
+	deferred := make(map[string]struct{}, len(toolsCfg.DeferredTools))
+	for _, name := range toolsCfg.DeferredTools {
+		deferred[name] = struct{}{}
+	}
+	globs := make(map[string][]mcpExposureRule)
+	for _, server := range mcpConfigs {
+		if len(server.ToolExposure) == 0 {
+			continue
+		}
+		keys := make([]string, 0, len(server.ToolExposure))
+		for glob := range server.ToolExposure {
+			keys = append(keys, glob)
+		}
+		// Most-specific pattern wins: longer glob first, lexicographic
+		// tie-break keeps the order deterministic.
+		sort.SliceStable(keys, func(i, j int) bool {
+			if len(keys[i]) != len(keys[j]) {
+				return len(keys[i]) > len(keys[j])
+			}
+			return keys[i] < keys[j]
+		})
+		for _, glob := range keys {
+			parsed, ok := domain.ParseToolExposure(server.ToolExposure[glob])
+			if !ok {
+				slog.Warn("mcp tool_exposure: invalid level ignored", "server", server.Name, "glob", glob, "level", server.ToolExposure[glob])
+				continue
+			}
+			globs[server.Name] = append(globs[server.Name], mcpExposureRule{glob: glob, level: parsed})
+		}
+	}
+	return func(name, serverID string) domain.ToolExposure {
+		if level, ok := exposure[name]; ok {
+			return level
+		}
+		for _, rule := range globs[serverID] {
+			if matched, err := path.Match(rule.glob, name); err == nil && matched {
+				return rule.level
+			}
+		}
+		if _, ok := deferred[name]; ok {
+			return domain.ToolExposureDeferred
+		}
+		return domain.ToolExposureUnset
+	}
+}
+
+type mcpExposureRule struct {
+	glob  string
+	level domain.ToolExposure
+}
+
+func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry, resolve toolExposureResolver, middleware ...pretool.Provider) (*tools.Registry, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("app: ToolHost requires a registry projection")
 	}
@@ -209,6 +292,9 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			Host:     legacyToolHost("vivy/legacy/" + spec.Name),
 			Trust:    toolhost.TrustPublic,
 		})
+		if resolve != nil {
+			spec.Exposure = resolve(spec.Name, "")
+		}
 		specByID[spec.Name] = spec
 		behaviorByID[spec.Name] = implementation
 		legacyOrder = append(legacyOrder, spec.Name)
@@ -242,6 +328,9 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			spec = implementation.Spec()
 			behaviorByID[id] = implementation
 		}
+		if resolve != nil {
+			spec.Exposure = resolve(spec.Name, "")
+		}
 		trust := toolhost.TrustPublic
 		if defaults.IsProtectedToolProvider(provider) {
 			trust = toolhost.TrustCore
@@ -270,7 +359,7 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 		if !ok || !entry.Dynamic {
 			continue
 		}
-		specByID[definition.ID] = domain.ToolSpec{
+		spec := domain.ToolSpec{
 			Name:        definition.ID,
 			Description: definition.Description,
 			Readonly:    definition.Effect != toolport.EffectWrite,
@@ -278,6 +367,10 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			Params:      schemaParams(definition.Schema),
 			Schema:      append(json.RawMessage(nil), definition.Schema...),
 		}
+		if resolve != nil {
+			spec.Exposure = resolve(spec.Name, entry.Provenance.ServerInstanceID)
+		}
+		specByID[definition.ID] = spec
 		dynamicOrder = append(dynamicOrder, definition.ID)
 	}
 
@@ -299,5 +392,5 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 // BindGeneratedTools exposes the internal ToolHost binding boundary to the
 // SDK conformance suite. Product composition uses the same implementation.
 func BindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry, middleware ...pretool.Provider) (*tools.Registry, error) {
-	return bindGeneratedTools(providers, registry, middleware...)
+	return bindGeneratedTools(providers, registry, nil, middleware...)
 }

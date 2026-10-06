@@ -1583,9 +1583,13 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "settings/mcp/read", "settings/mcp/resources/read", "mcp/read", "mcp/resources/read":
 		return h.readMCPResource(ctx, request)
 	case "tools/list":
-		return h.listTools()
+		return h.listTools(ctx, request)
 	case "tools/set-active":
-		return h.setActiveTools(request)
+		return h.setActiveTools(ctx, request)
+	case "tools/activate":
+		return h.setToolActivation(ctx, request, true)
+	case "tools/deactivate":
+		return h.setToolActivation(ctx, request, false)
 	case "channel/inspect":
 		return h.inspectChannels()
 	case "channel/get":
@@ -5165,6 +5169,11 @@ type toolsCatalogEntry struct {
 	Description string `json:"description"`
 	Readonly    bool   `json:"readonly"`
 	Active      bool   `json:"active"`
+	// Exposure is the resolved model-visibility level (direct, model-only,
+	// deferred, hidden); Activated marks a deferred tool currently
+	// visible for the session named by tools/list's session_id.
+	Exposure  string `json:"exposure"`
+	Activated bool   `json:"activated,omitempty"`
 }
 
 // toolsCatalogView is the tools/list payload: the full catalog with active
@@ -5244,7 +5253,15 @@ func reconcileMCPToolSelection(selection []string, catalog []domain.ToolSpec) []
 	return result
 }
 
-func (h *controlHandler) listTools() (any, *Error) {
+func (h *controlHandler) listTools(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if len(request.Params) > 0 {
+		if err := decodeParams(request, &params); err != nil {
+			return nil, err
+		}
+	}
 	active, written, rpcErr := h.activeToolsFromOverlay()
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -5255,11 +5272,20 @@ func (h *controlHandler) listTools() (any, *Error) {
 	for _, name := range active {
 		activeSet[name] = struct{}{}
 	}
+	var activated map[string]struct{}
+	if params.SessionID != "" && h.deps.Service != nil {
+		activated = make(map[string]struct{})
+		for _, name := range h.deps.Service.ToolActivation(ctx, domain.SessionID(params.SessionID)) {
+			activated[name] = struct{}{}
+		}
+	}
 	entries := make([]toolsCatalogEntry, 0, len(catalog))
 	for _, spec := range catalog {
 		_, isActive := activeSet[spec.Name]
+		_, isActivated := activated[spec.Name]
 		entries = append(entries, toolsCatalogEntry{
 			Name: spec.Name, Description: spec.Description, Readonly: spec.Readonly, Active: isActive,
+			Exposure: string(tools.ResolveToolExposure(spec)), Activated: isActivated,
 		})
 	}
 	return toolsCatalogView{
@@ -5270,11 +5296,67 @@ func (h *controlHandler) listTools() (any, *Error) {
 	}, nil
 }
 
+// setToolActivation flips a session's deferred-tool activation (pi
+// tools/activate). Only deferred tools are activatable: hidden rejects
+// outright, direct/model-only report as already visible without a state
+// change. The service journals the flip so it survives restart.
+func (h *controlHandler) setToolActivation(ctx context.Context, request Request, activate bool) (any, *Error) {
+	if h.deps.Service == nil {
+		return nil, &Error{Code: InternalError, Message: "runtime service unavailable"}
+	}
+	var params struct {
+		SessionID string   `json:"session_id"`
+		IDs       []string `json:"ids"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if len(params.IDs) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "ids must not be empty"}
+	}
+	catalog := h.toolCatalog()
+	specs := make(map[string]domain.ToolSpec, len(catalog))
+	for _, spec := range catalog {
+		specs[spec.Name] = spec
+	}
+	outcomes := make(map[string]string, len(params.IDs))
+	apply := make([]string, 0, len(params.IDs))
+	for _, id := range params.IDs {
+		spec, ok := specs[id]
+		if !ok {
+			outcomes[id] = "unknown_tool"
+			continue
+		}
+		switch tools.ResolveToolExposure(spec) {
+		case domain.ToolExposureHidden:
+			outcomes[id] = "hidden"
+		case domain.ToolExposureDeferred:
+			apply = append(apply, id)
+			if activate {
+				outcomes[id] = "activated"
+			} else {
+				outcomes[id] = "deactivated"
+			}
+		default:
+			outcomes[id] = "already_visible"
+		}
+	}
+	if len(apply) > 0 {
+		if err := h.deps.Service.SetToolActivation(ctx, domain.SessionID(params.SessionID), apply, activate); err != nil {
+			return nil, &Error{Code: InternalError, Message: err.Error()}
+		}
+	}
+	return map[string]any{"tools": outcomes}, nil
+}
+
 // setActiveTools replaces the operator-managed active set (tools_enabled
 // overlay) wholesale, matching the UI's checkbox model. An empty list is
 // the legal chat-only mode. Names must be registered: an unknown name here
 // would fail the engine's Resolve gate on the next launch (FR-10).
-func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
+func (h *controlHandler) setActiveTools(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
@@ -5319,7 +5401,7 @@ func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
 		return nil, rpcErr
 	}
 	h.notifySettingsChanged()
-	return h.listTools()
+	return h.listTools(ctx, request)
 }
 
 // providerEntryResult is one registry entry surfaced in the Settings UI.

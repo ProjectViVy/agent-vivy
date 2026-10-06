@@ -398,7 +398,7 @@ func TestProductionMCPGovernancePathUsesToolHostOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), middleware)
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil, middleware)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +512,7 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 		json.RawMessage(`{"mode":"safe","items":[2],"config":{"enabled":true}}`),
 		json.RawMessage(`{"mode":"safe","items":[3],"config":{"enabled":true}}`),
 	}}
-	registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), middleware)
+	registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), nil, middleware)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func TestToolApprovalBindingCannotBeBypassedWhenResumeBecomesAllowed(t *testing.
 				{Kind: pretool.RequireApproval, ApprovalClass: "external-effect"},
 				{Kind: pretool.Pass},
 			}}
-			registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), rewriter, gate)
+			registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), nil, rewriter, gate)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -673,7 +673,7 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 	middleware := &sequencedGovernanceMiddleware{rewrites: []json.RawMessage{
 		json.RawMessage(`{"mode":"safe","items":[2],"config":{"enabled":true},"credential":"` + secret + `"}`),
 	}}
-	registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), middleware)
+	registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), nil, middleware)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +737,7 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), middleware)
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil, middleware)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -901,7 +901,7 @@ func TestToolEnvelopeConformanceAcrossAllSourceClasses(t *testing.T) {
 				if provider == nil {
 					t.Fatal("write_file protected provider missing")
 				}
-				registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(implementation), middleware)
+				registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(implementation), nil, middleware)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -917,6 +917,7 @@ func TestToolEnvelopeConformanceAcrossAllSourceClasses(t *testing.T) {
 				registry, err := bindGeneratedTools(
 					[]toolport.ToolProvider{provider},
 					tools.NewRegistry(),
+					nil,
 					middleware,
 				)
 				if err != nil {
@@ -935,7 +936,7 @@ func TestToolEnvelopeConformanceAcrossAllSourceClasses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), middleware)
+				registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil, middleware)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -959,7 +960,7 @@ func TestToolEnvelopeConformanceAcrossAllSourceClasses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), middleware)
+				registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil, middleware)
 				if err != nil {
 					t.Fatal(err)
 				}

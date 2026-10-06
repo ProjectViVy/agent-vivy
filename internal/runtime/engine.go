@@ -223,6 +223,14 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
 	hiddenInfos := make(map[string]*schema.ToolInfo, len(cfg.HiddenTools))
 	hiddenOrder := make([]string, 0, len(cfg.HiddenTools))
+	// deferred infos feed the activation middleware: a session-activated
+	// deferred tool's schema is rehydrated on every model call (Eino's own
+	// forward selection only covers names matched inside this run's
+	// conversation). suppressedTools stay executable but are never
+	// disclosed to the model.
+	deferredInfos := make(map[string]*schema.ToolInfo)
+	deferredOrder := make([]string, 0)
+	suppressedTools := make(map[string]struct{})
 	for _, t := range ts {
 		if t == nil {
 			return nil, errors.New("runtime: nil active tool")
@@ -237,10 +245,20 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
 		specs = append(specs, spec)
 		byName[spec.Name] = t
-		if isFixedVisibleTool(spec.Name) {
+		switch tools.ResolveToolExposure(spec) {
+		case domain.ToolExposureHidden:
+			suppressedTools[spec.Name] = struct{}{}
 			staticTools = append(staticTools, adapter)
-		} else {
+		case domain.ToolExposureDeferred:
+			info, err := adapter.Info(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("runtime: deferred tool %q info: %w", spec.Name, err)
+			}
+			deferredInfos[spec.Name] = info
+			deferredOrder = append(deferredOrder, spec.Name)
 			dynamicTools = append(dynamicTools, adapter)
+		default:
+			staticTools = append(staticTools, adapter)
 		}
 	}
 	for _, t := range cfg.HiddenTools {
@@ -320,6 +338,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	// after Eino's persisted ToolInfo rewrite.
 	if searchHandler != nil {
 		handlers = append(handlers, searchHandler)
+	}
+	// Session activation sits next to the dynamic search middleware: the
+	// search exposes tools discovered inside this run, the activation
+	// projection rehydrates tools activated for the whole session.
+	if len(deferredInfos) > 0 {
+		handlers = append(handlers, newActivatedToolVisibilityMiddleware(deferredInfos, deferredOrder))
+	}
+	if len(suppressedTools) > 0 {
+		handlers = append(handlers, newSuppressedToolVisibilityMiddleware(suppressedTools))
 	}
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))

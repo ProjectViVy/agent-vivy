@@ -434,6 +434,11 @@ type MCPServer struct {
 	// Enabled defaults to true when omitted. Settings overlays may carry an
 	// explicit false through startup.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// ToolExposure maps glob patterns matched against this server's
+	// discovered tool ids to an exposure level (direct, model-only,
+	// deferred, hidden). First matching pattern wins; unmatched tools keep
+	// the runtime default.
+	ToolExposure map[string]string `yaml:"tool_exposure,omitempty"`
 }
 
 // SandboxConfig controls the file-effect policy boundary (D-021). It
@@ -485,6 +490,16 @@ type Tools struct {
 	// environment-only (D-010) — this field never holds them.
 	NetworkSearch NetworkSearchConfig `yaml:"network_search"`
 	Approval      Approval            `yaml:"approval"`
+	// Exposure pins a tool's model-visibility level by name:
+	// direct (always disclosed), model-only (model-visible, never
+	// human-invokable), deferred (withheld until tool_search or
+	// tools/activate), or hidden (internal callers only). Unlisted tools
+	// keep the runtime default split.
+	Exposure map[string]string `yaml:"exposure,omitempty"`
+	// DeferredTools is sugar for exposure: deferred — candidates are
+	// low-frequency tools such as sequential_thinking or job_output/
+	// job_kill that cost catalog tokens on every call while rarely used.
+	DeferredTools []string `yaml:"deferred_tools,omitempty"`
 }
 
 // NetworkSearchConfig selects the preferred network_search provider.

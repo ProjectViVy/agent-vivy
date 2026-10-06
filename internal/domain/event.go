@@ -70,6 +70,7 @@ const (
 	EventChannelInbound           EventType = "channel.inbound"
 	EventContextReferenceAttached EventType = "context.reference_attached"
 	EventDeliverablesPresented    EventType = "deliverables.presented"
+	EventToolsExposureChanged     EventType = "tools.exposure_changed"
 	EventTurnQueued               EventType = "turn.queued"
 	EventTurnDequeued             EventType = "turn.dequeued"
 	EventTurnSteered              EventType = "turn.steered"

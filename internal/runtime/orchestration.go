@@ -517,6 +517,7 @@ func (s *Service) resumeNativeOrchestrationApproval(p pendingRun, approval domai
 		mounted = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounted)
+	ctx = tools.WithToolActivation(ctx, s.sessionToolActivation(ctx, p.sessionID))
 	promptCtx, hasPrompt, promptErr := s.promptSnapshotContext(ctx, approval.RunID)
 	if promptErr != nil || !hasPrompt {
 		if promptErr == nil {

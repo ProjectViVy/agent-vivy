@@ -522,7 +522,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
-		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
+		var mcpCfgs []runtime.MCPServerConfig
+		if s, err := settings.Load(liveSettingsPath); err == nil {
+			mcpCfgs = liveMCPConfigs(cfg, s)
+		} else {
+			mcpCfgs = mcpRuntimeConfigs(cfg.Runtime.MCPServers)
+		}
+		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next, resolveToolExposure(cfg.Tools, mcpCfgs))
 		if stageErr != nil {
 			return stageErr
 		}
@@ -1771,6 +1777,7 @@ func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
 			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
 			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
+			ToolExposure: cloneMCPToolExposure(server.ToolExposure),
 		})
 	}
 	return out
@@ -1784,6 +1791,7 @@ func mcpRuntimeConfigs(servers []config.MCPServer) []runtime.MCPServerConfig {
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
 			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
 			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
+			ToolExposure: cloneMCPToolExposure(server.ToolExposure),
 		})
 	}
 	return out
@@ -1795,6 +1803,17 @@ func cloneBoolPtr(value *bool) *bool {
 	}
 	copy := *value
 	return &copy
+}
+
+func cloneMCPToolExposure(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for glob, level := range value {
+		out[glob] = level
+	}
+	return out
 }
 
 func cloneMCPEnvFrom(value map[string]string) map[string]string {

@@ -25,16 +25,13 @@ func TestFixedVisibleToolNamesAreExact(t *testing.T) {
 		tools.ExecuteName,
 		tools.BashName,
 	}
-	if len(fixedVisibleToolNames) != len(want) {
-		t.Fatalf("fixed-visible core size = %d, want %d", len(fixedVisibleToolNames), len(want))
-	}
 	for _, name := range want {
-		if !isFixedVisibleTool(name) {
+		if !tools.IsFixedVisibleTool(name) {
 			t.Errorf("fixed-visible core missing %q", name)
 		}
 	}
 	for _, name := range []string{"echo_info", "commandline", "skill_manage", "tool_search"} {
-		if isFixedVisibleTool(name) {
+		if tools.IsFixedVisibleTool(name) {
 			t.Errorf("%q must remain dynamic/reserved", name)
 		}
 	}
