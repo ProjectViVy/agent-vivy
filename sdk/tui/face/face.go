@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 
+	"agent-vivy/sdk/facerun"
 	faceport "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 	"agent-vivy/sdk/tui/surface"
@@ -34,6 +35,10 @@ func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Res
 	switch f.opts.Mode {
 	case "", "text":
 		// interactive path below
+	case "print":
+		return facerun.Run(ctx, env, f.headlessOptions(), &facerun.TextSink{Out: f.opts.Out, Err: f.opts.Err})
+	case "json":
+		return facerun.Run(ctx, env, f.headlessOptions(), facerun.JSONLSink{Out: f.opts.Out})
 	default:
 		return faceport.Result{Status: "failed"}, faceport.ModeUnavailableError{Mode: f.opts.Mode}
 	}
@@ -60,6 +65,25 @@ func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Res
 	}
 	controller.Shutdown()
 	return faceport.Result{Status: "completed"}, nil
+}
+
+// headlessOptions maps the face launch surface onto the shared non-interactive
+// engine used by print and json modes.
+func (f *terminalFace) headlessOptions() facerun.Options {
+	return facerun.Options{
+		Prompt:         f.opts.Prompt,
+		ContinueNewest: f.opts.ContinueNewest,
+		Resume:         f.opts.Resume,
+		SessionID:      f.opts.SessionID,
+		Session:        f.opts.Session,
+		Fork:           f.opts.Fork,
+		SessionDir:     f.opts.SessionDir,
+		NoSession:      f.opts.NoSession,
+		Export:         f.opts.Export,
+		Face:           "code",
+		Out:            f.opts.Out,
+		Err:            f.opts.Err,
+	}
 }
 
 type faceTransport struct {

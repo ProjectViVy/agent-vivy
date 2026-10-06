@@ -159,7 +159,7 @@
     {
       "port": "std/context-source@v1",
       "providerId": "vivy/context-source",
-      "sourceSha256": "b86ee8199307e8fe6c10d2848c7e44a8b4562dc1226536376cb59445dea3c968",
+      "sourceSha256": "605219601e9b6e8993af47bfa916481c86fa340623f3d0af6cb3c889d7d459e1",
       "evidenceId": "internal/contexthost/conformance_test.go#TestContextSourceConformance",
       "passedChecks": [
         "registration",
@@ -205,7 +205,7 @@
     {
       "port": "std/face@v1",
       "providerId": "vivy/headless",
-      "sourceSha256": "67a85422b652dc9d8da6f878e6d0f3fae70e49237795df1e443f95d88e0f8fdb",
+      "sourceSha256": "24ba4a2b09d270a0c1a9a55acd4eb34ef2cba1343f97e1cddb1f923a108f64b4",
       "evidenceId": "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus",
       "passedChecks": [
         "registration",
@@ -343,7 +343,7 @@
     {
       "port": "std/provider-profile@v1",
       "providerId": "vivy/provider-profiles",
-      "sourceSha256": "b86ee8199307e8fe6c10d2848c7e44a8b4562dc1226536376cb59445dea3c968",
+      "sourceSha256": "605219601e9b6e8993af47bfa916481c86fa340623f3d0af6cb3c889d7d459e1",
       "evidenceId": "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
       "passedChecks": [
         "registration",
@@ -366,7 +366,7 @@
     {
       "port": "std/skill-source@v1",
       "providerId": "vivy/skill-source",
-      "sourceSha256": "b86ee8199307e8fe6c10d2848c7e44a8b4562dc1226536376cb59445dea3c968",
+      "sourceSha256": "605219601e9b6e8993af47bfa916481c86fa340623f3d0af6cb3c889d7d459e1",
       "evidenceId": "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
       "passedChecks": [
         "registration",
@@ -458,7 +458,7 @@
     {
       "port": "std/tool-world@v1",
       "providerId": "vivy/mcp-host",
-      "sourceSha256": "b86ee8199307e8fe6c10d2848c7e44a8b4562dc1226536376cb59445dea3c968",
+      "sourceSha256": "605219601e9b6e8993af47bfa916481c86fa340623f3d0af6cb3c889d7d459e1",
       "evidenceId": "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost",
       "passedChecks": [
         "registration",
@@ -481,7 +481,7 @@
     {
       "port": "std/tool@v1",
       "providerId": "vivy/protected-tools",
-      "sourceSha256": "b86ee8199307e8fe6c10d2848c7e44a8b4562dc1226536376cb59445dea3c968",
+      "sourceSha256": "605219601e9b6e8993af47bfa916481c86fa340623f3d0af6cb3c889d7d459e1",
       "evidenceId": "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses",
       "passedChecks": [
         "registration",
