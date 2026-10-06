@@ -194,6 +194,10 @@ type ControlDeps struct {
 	// DiagnosticsBundleDir is where diagnostics/bundle writes bug-report
 	// files (VCP C2). Empty disables diagnostics/bundle.
 	DiagnosticsBundleDir string
+	// ExportsDir is the controlled artifact root exports/read serves from
+	// (VCP C3): the same directory session/export and diagnostics/bundle
+	// write into. Empty disables exports/read.
+	ExportsDir string
 	// ModelMeta resolves reference model metadata (pricing, image support)
 	// for the stats/tokens cost math (D9). Nil or zero rates mark a route
 	// unpriced — the snapshot reports cost_known=false, never $0-free.
@@ -1151,6 +1155,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				capabilities = append(capabilities, "diagnostics.bundle")
 			}
 		}
+		if h.deps.ExportsDir != "" {
+			// VCP C3: verified-download reads for session exports and /bug bundles.
+			capabilities = append(capabilities, "exports.read")
+		}
 		if h.deps.Work != nil && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
 		}
@@ -1339,6 +1347,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "session/export":
 		return h.exportSession(ctx, request)
+	case "exports/read":
+		return h.exportsRead(ctx, request)
 	case "session/edit":
 		result, rpcErr := h.editSession(ctx, request)
 		if rpcErr == nil {

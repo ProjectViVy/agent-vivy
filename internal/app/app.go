@@ -1081,7 +1081,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Diagnostics:      diagnostics,
 		// /bug bundles land beside session exports (VCP C2).
 		DiagnosticsBundleDir: filepath.Join(dataRoot, "exports"),
-		FileVersions:         fileVersions,
+		// exports/read serves verified downloads from the same artifact root (VCP C3).
+		ExportsDir:   filepath.Join(dataRoot, "exports"),
+		FileVersions: fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
 		// compaction use (D9: no separate data source). Resolve failures
 		// mean unpriced/unknown, which the cost math reports as such.

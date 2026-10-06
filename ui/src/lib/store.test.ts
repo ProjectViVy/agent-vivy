@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { QueueState } from './api';
 
 const api = vi.hoisted(() => ({
 	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
@@ -8,7 +9,7 @@ const api = vi.hoisted(() => ({
   deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
   steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
-  getQueueState: vi.fn(async () => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
+  getQueueState: vi.fn(async (): Promise<QueueState> => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
 const workSubscription = vi.hoisted(() => ({

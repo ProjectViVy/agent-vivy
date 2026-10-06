@@ -28,6 +28,7 @@
     "vivy/provider-profiles",
     "vivy/qq",
     "vivy/sandbox",
+    "vivy/session-tree",
     "vivy/skill-host",
     "vivy/skill-source",
     "vivy/status-host",

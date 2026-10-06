@@ -810,6 +810,54 @@ export interface FaceDeliverySetPage {
   readonly next_cursor?: string;
 }
 
+/** session/tree read model (VCP C1/C3): bounded nodes + fork/clone edges. */
+export interface FaceSessionTreeNode {
+  readonly session_id: string;
+  readonly title: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+  readonly parent_session_id?: string;
+  readonly fork_point_message_id?: string;
+}
+
+export interface FaceSessionTreeEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: string;
+}
+
+export interface FaceSessionTree {
+  readonly nodes: readonly FaceSessionTreeNode[];
+  readonly edges: readonly FaceSessionTreeEdge[];
+}
+
+/** session/clone returns the same shape as session/fork (ForkResult). */
+export type FaceSessionCloneResult = FaceForkResult;
+
+export interface FaceSessionImportResult {
+  readonly session_id: string;
+  readonly imported: number;
+  readonly skipped: number;
+}
+
+/** session/export: the written artifact, its verified-download binding
+ * (name + sha256 for exports/read), and the visible message count. */
+export interface FaceSessionExportResult {
+  readonly path: string;
+  readonly name: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly message_count: number;
+}
+
+/** exports/read: one bounded artifact from the exports directory. */
+export interface FaceExportReadResult {
+  readonly name: string;
+  readonly digest: string;
+  readonly size: number;
+  readonly data_base64: string;
+}
+
 /** deliverables/read request: digest binding is mandatory; a received
  * transfer_id resumes that owner's open transfer. */
 export interface FaceDeliveryReadRequest {
@@ -1859,6 +1907,14 @@ export interface FaceClientAPI {
   compactSession(sessionId: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
   forkSession(sessionId: string, messageId: string, title?: string): Promise<FaceForkResult>;
+  /** session/tree + portability verbs (VCP C1 kernel, C3 face). */
+  sessionTree(): Promise<FaceSessionTree>;
+  cloneSession(sessionId: string, title?: string): Promise<FaceSessionCloneResult>;
+  importSession(data: string): Promise<FaceSessionImportResult>;
+  exportSession(sessionId: string): Promise<FaceSessionExportResult>;
+  /** Digest-bound read of one exports-dir artifact; pass the sha256 the
+   * export result reported so a changed file answers an error. */
+  readExport(name: string, expectedDigest?: string): Promise<FaceExportReadResult>;
   editSession(
     sessionId: string,
     messageId: string,
@@ -2118,6 +2174,9 @@ export interface FaceStoreState {
   readonly reviewCenterOpen: boolean;
   readonly filesPanelOpen: boolean;
   readonly sessionDrawerOpen: boolean;
+  /** Store action mirrored for UI Modules (VCP C3): selects a session and
+   * loads its transcript — the same path the sidebar's session list uses. */
+  selectSession(id: string): Promise<void>;
   readonly settings: FaceSettings | null;
   readonly settingsPhase: FacePhase;
   readonly settingsError: string | null;

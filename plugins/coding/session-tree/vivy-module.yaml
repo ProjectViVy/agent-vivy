@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/session-tree, version: 0.1.0}
+source: {ref: repo:plugins/coding/session-tree, sha256: 583d525d9188a108fac9d8b2fff8f3f0440bfa2300cdab2aae5ba6ded96c7fd0}
+provides:
+  - {port: std/ui-extension@v1, id: vivy.session-tree.page}
+i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}
+lifecycle: {scope: generation}

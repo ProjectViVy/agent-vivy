@@ -7,6 +7,7 @@ export const RPC_METHODS = [
   'plan/get', 'plan/enter', 'plan/leave', 'plan/decide',
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
+	'session/tree', 'session/clone', 'session/import', 'session/export', 'exports/read',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'history/search', 'history/read', 'history/sessions', 'reference/preview', 'reference/get',
   'deliverables/list', 'deliverables/get', 'deliverables/read', 'deliverables/close',
@@ -332,6 +333,20 @@ export const rewindSession = (sessionId: string, messageId: string) =>
 /** session/fork：以截点（含）为止的历史复制出新会话，原会话不动。 */
 export const forkSession = (sessionId: string, messageId: string, title?: string) =>
   request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/fork', { session_id: sessionId, message_id: messageId, title });
+/** session/tree：C1 派生只读模型——节点为有界会话集，边为 fork/clone 链路。 */
+export const sessionTree = () => request<FaceSessionTree>('session/tree');
+/** session/clone：整份历史复制出新会话，返回 fork 形状。 */
+export const cloneSession = (sessionId: string, title?: string) =>
+  request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/clone', { session_id: sessionId, title });
+/** session/import：pi JSONL 导入为新会话（永不合并）。 */
+export const importSession = (data: string) =>
+  request<{ session_id: string; imported: number; skipped: number }>('session/import', { data });
+/** session/export：可见视图渲染为 exports 目录下的独立 HTML。 */
+export const exportSession = (sessionId: string) =>
+  request<{ path: string; name: string; sha256: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
+/** exports/read：digest 绑定的 exports 目录读取，是导出文件的验证下载通道。 */
+export const readExport = (name: string, expectedDigest?: string) =>
+  request<{ name: string; digest: string; size: number; data_base64: string }>('exports/read', { name, expected_digest: expectedDigest });
 export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
   request<{ run_id: string; status: RunStatus }>('session/edit', {
     session_id: sessionId, message_id: messageId, text,
@@ -353,6 +368,7 @@ import type {
   FaceHistorySessionPage, FaceReferencePreview, FaceReferenceSelection, FaceReferenceView,
   FaceSourceRef, FaceTurnContinuity, FaceTurnSubmission,
   FaceDeliverable, FaceDeliveryChunk, FaceDeliveryFailure, FaceDeliveryItemState,
+  FaceSessionTree,
   FaceDeliveryItemStatus, FaceDeliveryReadRequest, FaceDeliverySet, FaceDeliverySetPage,
   FaceDeliverySetStatus,
 } from '@vivy/ui-sdk';

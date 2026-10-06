@@ -28,6 +28,8 @@ export default defineConfig({
       'src/**/*.test.ts', 'src/**/*.test.tsx',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.ts',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.tsx',
+      '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.ts',
+      '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.tsx',
     ],
     exclude: ['node_modules/**', 'dist/**', 'src/generated/ui/vivy-masks/src/**/*.test.*'],
   },

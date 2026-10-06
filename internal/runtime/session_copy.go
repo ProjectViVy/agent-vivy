@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -365,10 +367,14 @@ func parseEntryTimestamp(raw json.RawMessage) int64 {
 	return time.Now().UnixMilli()
 }
 
-// ExportResult reports a session export: the written file and how many
-// visible messages it contains.
+// ExportResult reports a session export: the written file, its digest for
+// verified download (exports/read), and how many visible messages it
+// contains.
 type ExportResult struct {
 	Path         string `json:"path"`
+	Name         string `json:"name"`
+	SHA256       string `json:"sha256"`
+	Size         int64  `json:"size"`
 	MessageCount int    `json:"message_count"`
 }
 
@@ -404,10 +410,18 @@ func (s *Service) ExportSession(ctx context.Context, sessionID domain.SessionID,
 	}
 	name := fmt.Sprintf("%s-%d.html", sanitizeExportName(string(sessionID)), time.Now().UnixMilli())
 	path := filepath.Join(s.deps.ExportDir, name)
-	if err := os.WriteFile(path, []byte(body), sessionExportPerms); err != nil {
+	raw := []byte(body)
+	if err := os.WriteFile(path, raw, sessionExportPerms); err != nil {
 		return ExportResult{}, fmt.Errorf("runtime: write export: %w", err)
 	}
-	return ExportResult{Path: path, MessageCount: len(messages)}, nil
+	digest := sha256.Sum256(raw)
+	return ExportResult{
+		Path:         path,
+		Name:         name,
+		SHA256:       hex.EncodeToString(digest[:]),
+		Size:         int64(len(raw)),
+		MessageCount: len(messages),
+	}, nil
 }
 
 // renderSessionHTML emits the standalone transcript document: inline

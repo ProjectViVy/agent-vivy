@@ -186,9 +186,23 @@ func TestCodeFaceRPCModeGoldenTranscript(t *testing.T) {
 	if r := s.response(s.send(map[string]any{"type": "steer", "message": "x"})); r["success"] != true {
 		t.Fatalf("steer: %v", r)
 	}
+	// get_tree is kernel-implemented (C1): the golden session reports its own
+	// node and no fork edges.
+	tree := s.response(s.send(map[string]any{"type": "get_tree"}))
+	if tree["success"] != true {
+		t.Fatalf("get_tree: %v", tree)
+	}
+	td, _ := tree["data"].(map[string]any)
+	nodes, _ := td["nodes"].([]any)
+	if len(nodes) != 1 {
+		t.Fatalf("get_tree nodes = %v", nodes)
+	}
+	if edges, _ := td["edges"].([]any); len(edges) != 0 {
+		t.Fatalf("get_tree edges = %v", edges)
+	}
+
 	// Commands not yet landed fail closed, not silently.
 	for _, cmd := range []map[string]any{
-		{"type": "get_tree"},
 		{"type": "bash", "command": "ls"},
 	} {
 		r := s.response(s.send(cmd))
