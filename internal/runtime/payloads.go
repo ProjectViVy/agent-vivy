@@ -102,7 +102,20 @@ type payloadContextCompacted struct {
 }
 
 type payloadProviderRetry struct {
-	Attempt int `json:"attempt"`
+	Attempt int    `json:"attempt"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// payloadAutoRetryStarted/Finished are the pi-parity run markers for one
+// overflow compact-and-retry recovery (pi: auto_retry_start/auto_retry_end).
+type payloadAutoRetryStarted struct {
+	Attempt int    `json:"attempt"`
+	Reason  string `json:"reason"`
+}
+
+type payloadAutoRetryFinished struct {
+	Attempt int  `json:"attempt"`
+	Success bool `json:"success"`
 }
 
 type payloadProviderStall struct {

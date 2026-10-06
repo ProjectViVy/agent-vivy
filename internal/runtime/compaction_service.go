@@ -185,14 +185,48 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if foldIdx == 0 {
 		return CompactionResult{BeforeTokens: tokens, AfterTokens: tokens, Skipped: true}, nil
 	}
+	outcome, err := s.foldToCompactionRecord(ctx, sessionID, feed, foldIdx, stored, opts.Instructions)
+	if err != nil {
+		return CompactionResult{}, err
+	}
+	result := CompactionResult{BeforeTokens: tokens, AfterTokens: outcome.afterTokens, Folded: foldIdx}
+
+	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, outcome.rec.RunID, domain.EventContextCompacted, payloadContextCompacted{
+		Mode: "session", BeforeTokens: tokens, AfterTokens: outcome.afterTokens,
+		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: outcome.manifest,
+		FilesRead: outcome.filesRead, FilesModified: outcome.filesModified,
+	}); err != nil {
+		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
+	}
+	s.recordLastCompaction(sessionID, &LastCompaction{Mode: "session", BeforeTokens: tokens, AfterTokens: outcome.afterTokens, At: outcome.rec.CreatedAt})
+	return result, nil
+}
+
+// compactionFoldOutcome is the shared product of one durable fold: the
+// stored compaction record plus the event/report fields derived from it.
+type compactionFoldOutcome struct {
+	rec           storage.SessionCompaction
+	beforeTokens  int
+	afterTokens   int
+	manifest      []string
+	filesRead     int
+	filesModified int
+}
+
+// foldToCompactionRecord summarizes feed[:foldIdx], persists the
+// SessionCompaction (TailFrom = the last folded row so every newer stored
+// row — including any pending live turn — stays verbatim), and reports the
+// post-fold token count against the caller's stored list.
+func (s *Service) foldToCompactionRecord(ctx context.Context, sessionID domain.SessionID, feed []domain.Message, foldIdx int, stored []domain.Message, instructions string) (*compactionFoldOutcome, error) {
+	_, beforeTokens := historyBytesTokens(feed)
 	refsByRun, err := s.sessionAttachedReferences(ctx, sessionID)
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: gather session references: %w", err)
+		return nil, fmt.Errorf("runtime: gather session references: %w", err)
 	}
 	manifest := referenceManifest(feed[:foldIdx], refsByRun)
-	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun, opts.Instructions)
+	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun, instructions)
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
+		return nil, fmt.Errorf("runtime: generate session summary: %w", err)
 	}
 	if len(manifest) > 0 {
 		// The durable record keeps the folded snapshots addressable by ID
@@ -210,37 +244,23 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if foldIdx > 0 {
 		tailFrom = feed[foldIdx-1].CreatedAt
 	}
-	runID := domain.RunID(newPrefixedID("cmp_"))
 	rec := storage.SessionCompaction{
 		SessionID:    sessionID,
-		RunID:        runID,
+		RunID:        domain.RunID(newPrefixedID("cmp_")),
 		Summary:      summary,
 		TailFrom:     tailFrom,
 		DroppedCount: foldIdx,
 		CreatedAt:    time.Now().UnixMilli(),
 	}
 	if err := s.deps.Compactions.SaveSessionCompaction(ctx, rec); err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: save session compaction: %w", err)
+		return nil, fmt.Errorf("runtime: save session compaction: %w", err)
 	}
-
 	foldedFeed := feedableMessages(foldedFor(rec, stored))
 	_, afterTokens := historyBytesTokens(foldedFeed)
-	result := CompactionResult{BeforeTokens: tokens, AfterTokens: afterTokens, Folded: foldIdx}
-
-	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, runID, domain.EventContextCompacted, payloadContextCompacted{
-		Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens,
-		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: manifest,
-		FilesRead: len(filesRead), FilesModified: len(filesModified),
-	}); err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
-	}
-	s.mu.Lock()
-	if s.lastCompaction == nil {
-		s.lastCompaction = make(map[domain.SessionID]*LastCompaction)
-	}
-	s.lastCompaction[sessionID] = &LastCompaction{Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens, At: rec.CreatedAt}
-	s.mu.Unlock()
-	return result, nil
+	return &compactionFoldOutcome{
+		rec: rec, beforeTokens: beforeTokens, afterTokens: afterTokens,
+		manifest: manifest, filesRead: len(filesRead), filesModified: len(filesModified),
+	}, nil
 }
 
 func fileContextSafeFoldIndex(feed []domain.Message, desired int) int {

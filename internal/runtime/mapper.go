@@ -162,7 +162,8 @@ func (m *eventMapper) onEventEach(ev *adk.AgentEvent, emit func([]domain.RunEven
 		m.takeObservedStream()
 		var retry *adk.WillRetryError
 		if errors.As(ev.Err, &retry) {
-			return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
+			reason, _ := retry.RejectReason().(string)
+			return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt, Reason: reason})})
 		}
 		var ce *adk.CancelError
 		if errors.As(ev.Err, &ce) {
@@ -233,7 +234,8 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 		if err != nil {
 			var retry *adk.WillRetryError
 			if errors.As(err, &retry) {
-				return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
+				reason, _ := retry.RejectReason().(string)
+				return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt, Reason: reason})})
 			}
 			var ce *adk.CancelError
 			if errors.As(err, &ce) {

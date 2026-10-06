@@ -139,6 +139,9 @@ type Engine struct {
 	// in registry order.
 	activeTools []tools.Tool
 	toolByName  map[string]tools.Tool
+	// setRetryDecider fills the late-bound VCP-D2 decider slot captured by
+	// the agent's ModelRetryConfig.ShouldRetry closure.
+	setRetryDecider func(ModelRetryDecider)
 }
 
 // EngineFactory pins the production LoopDriver to the Eino v0.9.13 APIs used
@@ -342,6 +345,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		agentName = "task-child"
 		agentDescription = "Bounded task runner."
 	}
+	// VCP-D2: the overflow retry decider is service-bound (it needs Messages,
+	// Compactions, and the run's governance sink), which is not constructed
+	// until after the engine. The slot is filled by Engine.SetRetryDecider;
+	// a nil decider accepts every call as-is (no retry).
+	var retryDecider ModelRetryDecider
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:          agentName,
 		Description:   agentDescription,
@@ -349,6 +357,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		GenModelInput: literalGenModelInput,
 		Model:         observeChatModel(m),
 		Handlers:      handlers,
+		ModelRetryConfig: &adk.ModelRetryConfig{
+			MaxRetries: 1,
+			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+				if retryDecider == nil {
+					return nil
+				}
+				return retryDecider(ctx, rc)
+			},
+		},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
 		},
@@ -371,7 +388,22 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
+	eng := &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}
+	eng.setRetryDecider = func(d ModelRetryDecider) { retryDecider = d }
+	return eng, nil
+}
+
+// ModelRetryDecider is the VCP-D2 overflow-recovery hook: the service binds
+// its compact-and-retry decider after the engine exists. The signature uses
+// ADK types because it is invoked verbatim by ModelRetryConfig.ShouldRetry.
+type ModelRetryDecider func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision
+
+// SetRetryDecider binds the overflow recovery decider (nil decider = every
+// model error propagates as before). Called once by the service at wiring.
+func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
+	if e != nil && e.setRetryDecider != nil {
+		e.setRetryDecider(d)
+	}
 }
 
 const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."

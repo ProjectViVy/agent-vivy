@@ -73,6 +73,10 @@ const (
 	EventTurnQueued               EventType = "turn.queued"
 	EventTurnDequeued             EventType = "turn.dequeued"
 	EventTurnSteered              EventType = "turn.steered"
+	// EventAutoRetryStarted/Finished bound one overflow compact-and-retry
+	// recovery inside a run (VCP-D2; pi auto_retry_start/auto_retry_end).
+	EventAutoRetryStarted  EventType = "auto_retry.started"
+	EventAutoRetryFinished EventType = "auto_retry.finished"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -135,6 +139,8 @@ var EventTypes = []EventType{
 	EventTurnQueued,
 	EventTurnDequeued,
 	EventTurnSteered,
+	EventAutoRetryStarted,
+	EventAutoRetryFinished,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,
