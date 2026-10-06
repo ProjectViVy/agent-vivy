@@ -72,9 +72,27 @@ module actions have no approval row — the UI surfaces
 "module action is not authorized". This is the shipped policy semantics (the
 masks e2e config documents it and uses `profile: full_auto` for the same
 reason); the smoke therefore ran with `governance.profile: full_auto`,
-matching `ui/playwright.masks.config.ts`. Whether mask selection should be
-allowed by default under the `default` profile is a product decision, left
-open for the owner.
+matching `ui/playwright.masks.config.ts`.
+
+## Follow-up (same day): default posture allow rule — owner approved
+
+The owner approved allowing mask operations in the default posture:
+
+- `go test ./internal/runtime/ -run TestPolicy -count=1` — pass, including
+  new `TestPolicyToolPrefixRuleMatchesModuleActions` (trailing-`*` Tool
+  prefix match; `vivy.masksx.*` namespace-boundary case does not match).
+- `go test ./internal/config/ -run 'TestDefaultGovernance|TestGovernance'
+  -count=1` — pass, including new `TestDefaultGovernanceAllowsMaskActionsInDefaultProfile`.
+- `go test ./internal/config/... ./internal/runtime/...` — pass in full.
+- `go test ./internal/app/ -run
+  TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity -count=1` —
+  pass with `cfg.Governance = config.Default().Governance` (pure product
+  default profile, no full_auto escape hatch).
+- Browser re-smoke under the pure default posture (no config file): mask
+  picker opens, switching the selection Writer → Researcher succeeds with
+  zero error alerts, and the new selection survives a page reload.
+- The full_auto e2e config comment (`ui/playwright.masks.config.ts`) remains
+  accurate for deployments that pin stricter profiles.
 
 ## Not run
 

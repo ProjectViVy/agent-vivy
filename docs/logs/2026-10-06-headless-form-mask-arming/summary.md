@@ -1,5 +1,26 @@
 # Headless form declares its identity; masks arm in every form — 2026-10-06
 
+## Follow-up (same day): default posture allows mask operations
+
+The owner approved allowing mask operations under the repository-default
+governance profile. `internal/runtime/policy.go` `ruleMatches` now treats a
+trailing `*` in a rule's Tool as a name-prefix match (symmetric with the
+existing Field `prefix` semantics; exact and global `*` matching unchanged),
+and `config.Default()` ships one rule in the `default` profile:
+`vivy.masks.* → allow` ("mask selection and catalog edits are reversible
+in-session preferences"). Module actions have no approval row, so without
+this rule every mask operation died as "module action is not authorized" in
+the default posture (the packed masks e2e had to use `profile: full_auto`
+for the same reason). Deployments can still deny or prompt via their own
+profile overrides; policy stays authoritative.
+
+Changes in the follow-up: `internal/runtime/policy.go` (matcher), 
+`internal/config/config.go` (Default profile rule), 
+`internal/runtime/policy_test.go` (prefix match + namespace-boundary cases), 
+`internal/config/config_test.go` (Default carries the rule and validates),
+`internal/app/headless_mask_arming_test.go` (armed test now runs under the
+product-default governance).
+
 ## What changed
 
 The unsealed dev binary is now treated as what it is: the species' headless

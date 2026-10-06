@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
@@ -41,6 +42,11 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 
 	cfg := newDeepSeekTestConfig(t)
 	cfg.Storage.SQLite.Path = filepath.Join(t.TempDir(), "headless-arming.db")
+	// The product default governance profile must allow mask operations on
+	// its own: module actions have no approval row, so without the shipped
+	// vivy.masks.* allow rule every mask operation would die as
+	// "module action is not authorized" in the default posture.
+	cfg.Governance = config.Default().Governance
 
 	assembly := genassembly.BuildDefault()
 	if assembly.GenerationID != genassembly.HeadlessGenerationID {

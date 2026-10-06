@@ -884,3 +884,20 @@ func TestHookConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultGovernanceAllowsMaskActionsInDefaultProfile(t *testing.T) {
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("defaults do not validate: %v", err)
+	}
+	rules := cfg.Governance.Profiles["default"].Rules
+	var maskRule *GovernanceRule
+	for i := range rules {
+		if rules[i].Tool == "vivy.masks.*" {
+			maskRule = &rules[i]
+		}
+	}
+	if maskRule == nil || maskRule.Decision != "allow" {
+		t.Fatalf("default profile rules = %+v, want a vivy.masks.* allow rule", rules)
+	}
+}

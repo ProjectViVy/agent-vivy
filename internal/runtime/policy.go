@@ -16,8 +16,10 @@ var (
 	ErrPolicyDenied         = errors.New("runtime: policy denied tool")
 )
 
-// PolicyRule is the runtime form of one configuration rule. A rule without a
-// field matches the tool itself; field rules match string command/path args.
+// PolicyRule is the runtime form of one configuration rule. Tool matches a
+// tool or action name exactly, every name as "*", or a name prefix when it
+// ends with "*" ("vivy.masks.*"). A rule without a field matches the tool
+// itself; field rules match string command/path args.
 type PolicyRule struct {
 	Tool     string
 	Field    string
@@ -170,7 +172,10 @@ func defaultReason(decision domain.PolicyDecision, spec domain.ToolSpec) string 
 
 func ruleMatches(rule PolicyRule, tool string, fields map[string]string) bool {
 	if rule.Tool != "*" && rule.Tool != tool {
-		return false
+		prefix, wildcard := strings.CutSuffix(rule.Tool, "*")
+		if !wildcard || !strings.HasPrefix(tool, prefix) {
+			return false
+		}
 	}
 	if rule.Field == "" {
 		return true

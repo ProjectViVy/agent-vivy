@@ -659,7 +659,20 @@ func Default() Config {
 			HookTimeout:    time.Second,
 			HookTimeoutRaw: "1s",
 			Profiles: map[string]GovernanceProfile{
-				"default":   {},
+				"default": {
+					Rules: []GovernanceRule{{
+						// Module actions have no approval row, so a prompt
+						// decision would leave every mask operation dead in
+						// the default posture. Selection and catalog edits
+						// are user-initiated, session-scoped, reversible
+						// preferences; policy stays authoritative and a
+						// deployment can still deny or prompt via its own
+						// profile overrides.
+						Tool:     "vivy.masks.*",
+						Decision: "allow",
+						Reason:   "mask selection and catalog edits are reversible in-session preferences",
+					}},
+				},
 				"plan":      {Default: "deny"},
 				"read_only": {Default: "deny"},
 				"full_auto": {Default: "allow"},
