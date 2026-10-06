@@ -302,3 +302,35 @@ func TestGenerateRuntimeAssemblyMCPStateRequiresTypedHostBinding(t *testing.T) {
 		t.Fatalf("typed MCP binding did not produce compiled MCP signal:\n%s", generated)
 	}
 }
+
+func TestGenerateRuntimeAssemblyFormIdentity(t *testing.T) {
+	channelDescriptor := testDescriptor("fixture/chat")
+	channelDescriptor.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.chat"}}
+	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: channelDescriptor, Binding: GoBinding{ImportPath: "example.com/fixture/chat", Package: "chat", Constructor: "New", ProviderConstructor: "NewProvider"}}}}
+
+	declared, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity("vivy-headless/1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`const HeadlessGenerationID = "vivy-headless/1"`,
+		"GenerationID:",
+		"HeadlessGenerationID,",
+	} {
+		if !strings.Contains(string(declared), want) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, declared)
+		}
+	}
+
+	plain, err := GenerateRuntimeAssembly(plan, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "HeadlessGenerationID") || strings.Contains(string(plain), "GenerationID:") {
+		t.Fatalf("plain generation must not declare a form identity:\n%s", plain)
+	}
+
+	if _, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity("bad\x01id")); err == nil {
+		t.Fatal("expected invalid form identity to fail")
+	}
+}

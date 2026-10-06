@@ -64,8 +64,16 @@ type RuntimeAssembly struct {
 	generation                 *module.Generation
 }
 
+// HeadlessGenerationID is the declared identity of this composition's
+// form. It is part of the generated artifact, not invented at runtime: every
+// binary built from this Assembly carries the same form identity, while a
+// packed build replaces this file and derives its sealed identity from the
+// embedded Generation Manifest instead.
+const HeadlessGenerationID = "vivy-headless/1"
+
 func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{
+		GenerationID:     HeadlessGenerationID,
 		MaskFactory:      masks.Open,
 		Tools:            append(append([]tool.ToolProvider{}, memory.ToolProviders()...), defaults.ProtectedToolProviders()...),
 		Worlds:           []toolworld.Provider{defaults.NewMCPProvider()},

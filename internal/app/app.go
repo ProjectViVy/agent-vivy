@@ -770,10 +770,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 	// A sealed first-party composition must never silently downgrade to the
-	// legacy sequential primary admission path. An unpacked development/test
-	// embedder has no sealed identity and remains on the explicitly compatible
-	// path; a packed build is marked by presentation.SealedGeneration and a
-	// non-empty linker-derived identity is also treated as sealed.
+	// legacy sequential primary admission path. The headless default
+	// composition carries its own declared identity in the generated Assembly
+	// (HeadlessGenerationID), so every binary built from this repository —
+	// dev, headless, or embedded — arms the same mask/admission contracts as
+	// a packed build. Only a custom embedder Assembly without any identity
+	// stays on the explicitly compatible path.
 	sealed := presentation.SealedGeneration || generationID != ""
 	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID, sealed)
 	if err != nil {
@@ -878,9 +880,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	// The action host is enabled only when the compiler emitted action
-	// ProviderSets and the process can prove the exact sealed Generation. An
-	// empty or unverifiable inventory is a disabled capability, never an
-	// implicit default-allow host.
+	// ProviderSets and the composition carries a proven identity — the
+	// linker-embedded sealed manifest for a packed build, or the declared
+	// HeadlessGenerationID for the default headless composition. An empty or
+	// unverifiable inventory is a disabled capability, never an implicit
+	// default-allow host.
 	rpcToken := controlrpc.NewSessionToken()
 	var actionHost *actionhost.Host
 	actionHostOwned := false
@@ -1526,10 +1530,12 @@ func actionToolSpec(definition actionport.Definition) domain.ToolSpec {
 	}
 }
 
-// runtimeGenerationID accepts an explicitly injected identity in tests and
-// generated compositions, then falls back to the linker-embedded sealed
-// manifest used by packed binaries. It intentionally never invents an ID
-// from mutable runtime state.
+// runtimeGenerationID resolves the composition identity: the generated
+// Assembly's declared identity first (the headless default composition
+// declares HeadlessGenerationID in its generated artifact), then the
+// linker-embedded sealed manifest used by packed binaries. It intentionally
+// never invents an ID from mutable runtime state; an Assembly without either
+// source stays unidentified and its capability seams stay dormant.
 func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	if id := strings.TrimSpace(runtimeAssembly.GenerationID); id != "" {
 		return id

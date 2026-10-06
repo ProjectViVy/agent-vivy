@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/masks-ui, version: 0.1.0}
-source: {ref: repo:plugins/vivy-masks-ui, sha256: 2f99200d1d7820b7428f893625a0115e5c9a0429b77a766d510f2fa8d059e2ca}
+source: {ref: repo:plugins/vivy-masks-ui, sha256: cc325f54d7c64e3bd60a9c831ba4c65b638ec7536df22eaa5e5c937ac3752257}
 provides:
   - {port: std/ui-extension@v1, id: vivy.masks-ui.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

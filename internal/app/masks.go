@@ -20,16 +20,17 @@ type generatedMaskFactoryBinding interface {
 }
 
 // primaryAdmissionForComposition selects the primary-run persistence seam.
-// A sealed first-party composition must carry both immutable Generation
-// identity and the atomic Core Storage extension; otherwise the runtime would
-// silently downgrade to the pre-MASK-3 sequential write path. The unsealed
-// branch is reserved for explicit development/test embedders that predate the
-// prompt snapshot contract.
+// Every composition with a proven identity — a packed build's sealed
+// Generation identity or the headless default composition's declared
+// HeadlessGenerationID — must carry the atomic Core Storage extension; a
+// legacy downgrade would silently skip the prompt snapshot contract. The
+// legacy sequential branch is reserved for custom embedder Assemblies that
+// declare no identity at all.
 func primaryAdmissionForComposition(backend any, generationID string, sealed bool) (storage.RunAdmissionStore, error) {
 	generationID = strings.TrimSpace(generationID)
-	// An unsealed development/test embedder deliberately stays on the legacy
-	// sequential path. Core Storage may already implement RunAdmissionStore,
-	// but without a sealed Generation identity it cannot produce a valid
+	// An unidentified development/test embedder deliberately stays on the
+	// legacy sequential path. Core Storage may already implement RunAdmissionStore,
+	// but without a proven Generation identity it cannot produce a valid
 	// immutable prompt snapshot, so do not opt into that seam accidentally.
 	if !sealed {
 		return nil, nil
@@ -44,10 +45,11 @@ func primaryAdmissionForComposition(backend any, generationID string, sealed boo
 	return nil, fmt.Errorf("app: sealed first-party composition requires Core Storage RunAdmissionStore")
 }
 
-// maskManagerForAssembly wires the selected mask capability. Selection without
-// a sealed Generation identity stays dormant in unsealed development/test
-// embedders (same compatible path as primary admission); a sealed composition
-// that selected vivy/masks without proving its identity fails closed.
+// maskManagerForAssembly wires the selected mask capability. The headless
+// default composition carries a declared identity (HeadlessGenerationID) in
+// its generated Assembly, so masks arm exactly as in a packed build; a
+// sealed composition that selected vivy/masks without proving its identity
+// still fails closed.
 func maskManagerForAssembly(ctx context.Context, assembly genassembly.RuntimeAssembly, backend storage.Engine, generationID string, sealed bool) (maskcontract.Service, error) {
 	if !assemblyHasModule(assembly.Manifest.Modules, "vivy/masks") {
 		return nil, nil

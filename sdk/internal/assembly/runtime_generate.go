@@ -42,11 +42,50 @@ func RunObserverPoliciesForPlan(plan AssemblyPlan) []RunObserverPolicy {
 	return cloneRunObserverPolicies(policies)
 }
 
+// GenerateOption adjusts what the emitted runtime assembly declares.
+type GenerateOption func(*generateOptions)
+
+type generateOptions struct {
+	formIdentity string
+}
+
+// WithFormIdentity declares the composition's own form identity in the
+// generated artifact: the emitted source carries the HeadlessGenerationID
+// constant and BuildDefault assigns it to RuntimeAssembly.GenerationID. Only
+// the repository's default (headless) composition passes it. Packed builds
+// never do, so their generated assembly keeps an empty GenerationID and the
+// runtime derives its identity from the linker-embedded sealed manifest.
+func WithFormIdentity(id string) GenerateOption {
+	return func(options *generateOptions) { options.formIdentity = id }
+}
+
+func validFormIdentity(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] >= 0x80 || value[index] < 0x20 || value[index] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // GenerateRuntimeAssembly emits the application-facing Provider inventory
 // from the same compiled plan used for the lifecycle binder and manifest.
-func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, error) {
+func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...GenerateOption) ([]byte, error) {
 	if !goIdentifierPattern.MatchString(packageName) {
 		return nil, fmt.Errorf("invalid generated package name %q", packageName)
+	}
+	var opts generateOptions
+	for _, apply := range options {
+		if apply == nil {
+			continue
+		}
+		apply(&opts)
+	}
+	if opts.formIdentity != "" && !validFormIdentity(opts.formIdentity) {
+		return nil, fmt.Errorf("invalid form identity %q", opts.formIdentity)
 	}
 	modules := append([]ResolvedModule(nil), plan.Modules...)
 	contextSourcePolicies := ContextSourcePoliciesForPlan(plan)
@@ -177,7 +216,11 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	if hasRunObservers {
 		source.WriteString("\tRunObservers []observer.RunProvider\n")
 	}
-	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\nfunc BuildDefault() RuntimeAssembly {\n")
+	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\n")
+	if opts.formIdentity != "" {
+		fmt.Fprintf(&source, "// HeadlessGenerationID is the declared identity of this composition's\n// form. It is part of the generated artifact, not invented at runtime: every\n// binary built from this Assembly carries the same form identity, while a\n// packed build replaces this file and derives its sealed identity from the\n// embedded Generation Manifest instead.\nconst HeadlessGenerationID = %q\n\n", opts.formIdentity)
+	}
+	source.WriteString("func BuildDefault() RuntimeAssembly {\n")
 	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs, runObserverIDs []string
 	faceName := "kernel-headless"
 	for _, resolved := range modules {
@@ -228,6 +271,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 		fmt.Fprintf(&source, "\t%s := %s.%s()\n", name, aliases[resolved.Descriptor.Module.ID], binding.ProviderConstructor)
 	}
 	source.WriteString("\treturn RuntimeAssembly{\n")
+	if opts.formIdentity != "" {
+		source.WriteString("\t\tGenerationID: HeadlessGenerationID,\n")
+	}
 	if maskProvider != nil {
 		fmt.Fprintf(&source, "\t\tMaskFactory: %s.%s,\n", aliases[maskProvider.Descriptor.Module.ID], maskProvider.Binding.MaskFactory)
 	}

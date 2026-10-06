@@ -63,7 +63,11 @@ func main() {
 	evidence := assemblyv1.SupportedPortEvidence()
 	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: assemblyv1.SupportedPortConformance()}).Compile(context.Background(), recipe)
 	must(err)
-	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly")
+	// The committed default composition is the species' headless form: it
+	// declares its own form identity in the generated artifact. Packed builds
+	// replace this file through a build overlay and never pass the identity,
+	// so their sealed identity keeps coming from the embedded manifest.
+	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly", assemblyv1.WithFormIdentity("vivy-headless/1"))
 	must(err)
 	must(os.WriteFile(*output, generated, 0o644))
 }
