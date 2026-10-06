@@ -31,6 +31,13 @@ import (
 // config needs no bundle directory and no copied fixtures.
 func newDeepSeekTestConfig(t *testing.T) config.Config {
 	t.Helper()
+	cfg := uninitializedDeepSeekTestConfig(t)
+	initializeTestPersona(t, cfg)
+	return cfg
+}
+
+func uninitializedDeepSeekTestConfig(t *testing.T) config.Config {
+	t.Helper()
 	return config.Config{
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "facehost.db")}},

@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/moduleport"
 	checkpoint "agent-vivy/internal/modules/checkpoint"
 	credential "agent-vivy/internal/modules/credential"
 	defaults "agent-vivy/internal/modules/defaults"
+	divacognitive "agent-vivy/internal/modules/diva-cognitive"
 	loop "agent-vivy/internal/modules/loop"
 	masks "agent-vivy/internal/modules/masks"
 	memory "agent-vivy/internal/modules/memory"
@@ -50,6 +52,7 @@ type RuntimeAssembly struct {
 	ActionSets                 []controlaction.ProviderSet
 	Face                       face.FaceProvider
 	MaskFactory                moduleport.MaskFactory
+	CognitiveFactory           cognitivecontract.Factory
 	ProviderProfiles           []providerprofile.Provider
 	ContextSources             []contextsource.Provider
 	SkillSources               []skillsource.Provider
@@ -75,6 +78,7 @@ func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{
 		GenerationID:     HeadlessGenerationID,
 		MaskFactory:      masks.Open,
+		CognitiveFactory: divacognitive.Open,
 		Tools:            append(append([]tool.ToolProvider{}, memory.ToolProviders()...), defaults.ProtectedToolProviders()...),
 		Worlds:           []toolworld.Provider{defaults.NewMCPProvider()},
 		ProviderProfiles: append([]providerprofile.Provider{}, defaults.ProviderProfiles()...),
@@ -82,7 +86,7 @@ func BuildDefault() RuntimeAssembly {
 		SkillSources:     append([]skillsource.Provider{}, defaults.SkillSourceProviders()...),
 		RunObservers:     append([]observer.RunProvider{}, memory.NewProvider()),
 		Channels:         []channel.ChannelProvider{dingtalk.NewProvider(), discord.NewProvider(), feishu.NewProvider(), qq.NewProvider(), telegram.NewProvider()},
-		ActionSets:       []controlaction.ProviderSet{controlaction.ProviderSet{ModuleID: "vivy/masks", AllowedIDs: []string{"vivy.masks.catalog.list", "vivy.masks.catalog.get", "vivy.masks.catalog.create", "vivy.masks.catalog.update", "vivy.masks.catalog.delete", "vivy.masks.selection.get", "vivy.masks.selection.set"}, Providers: masks.ActionProviders(), EffectiveGrants: []module.GrantBinding{}}, controlaction.ProviderSet{ModuleID: "vivy/memory-bml", AllowedIDs: []string{"vivy.memory.list", "vivy.memory.search", "vivy.memory.get", "vivy.memory.add", "vivy.memory.update", "vivy.memory.remove", "vivy.memory.rules.read", "vivy.memory.rules.write", "vivy.memory.status"}, Providers: memory.ActionProviders(), EffectiveGrants: []module.GrantBinding{}}},
+		ActionSets:       []controlaction.ProviderSet{controlaction.ProviderSet{ModuleID: "vivy/diva-cognitive", AllowedIDs: []string{"diva.cognitive.status", "diva.cognitive.persona.initialize", "diva.cognitive.persona.read", "diva.cognitive.persona.save", "diva.cognitive.persona.reviews.list", "diva.cognitive.persona.review.decide", "diva.cognitive.frozen.read", "diva.cognitive.actmem.read", "diva.cognitive.actmem.work.patch", "diva.cognitive.actmem.owner.read", "diva.cognitive.actmem.owner.save", "diva.cognitive.memory.search", "diva.cognitive.memory.expand", "diva.cognitive.memory.mutate", "diva.cognitive.memory.receipt", "diva.cognitive.policy.get", "diva.cognitive.policy.set", "diva.cognitive.trigger", "diva.cognitive.cancel", "diva.cognitive.results.list"}, Providers: divacognitive.ActionProviders(), EffectiveGrants: []module.GrantBinding{}}, controlaction.ProviderSet{ModuleID: "vivy/masks", AllowedIDs: []string{"vivy.masks.catalog.list", "vivy.masks.catalog.get", "vivy.masks.catalog.create", "vivy.masks.catalog.update", "vivy.masks.catalog.delete", "vivy.masks.selection.get", "vivy.masks.selection.set"}, Providers: masks.ActionProviders(), EffectiveGrants: []module.GrantBinding{}}, controlaction.ProviderSet{ModuleID: "vivy/memory-bml", AllowedIDs: []string{"vivy.memory.list", "vivy.memory.search", "vivy.memory.get", "vivy.memory.add", "vivy.memory.update", "vivy.memory.remove", "vivy.memory.rules.read", "vivy.memory.rules.write", "vivy.memory.status"}, Providers: memory.ActionProviders(), EffectiveGrants: []module.GrantBinding{}}},
 		ToolWorldGrants: map[string][]module.GrantBinding{
 			"mcp": {},
 		},
@@ -94,10 +98,10 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:             []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/masks", "vivy/masks-ui", "vivy/mcp-host", "vivy/memory", "vivy/memory-bml", "vivy/memory-bml-sync", "vivy/memory-bml-tools", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow-ui"},
+			Modules:             []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/diva-cognitive", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/masks", "vivy/masks-ui", "vivy/mcp-host", "vivy/memory", "vivy/memory-bml", "vivy/memory-bml-sync", "vivy/memory-bml-tools", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow-ui"},
 			Channels:            []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:               []string{"memory_add", "memory_get", "memory_list", "memory_search", "memory_update", "memory_remove", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
-			Actions:             []string{"vivy.masks.catalog.list", "vivy.masks.catalog.get", "vivy.masks.catalog.create", "vivy.masks.catalog.update", "vivy.masks.catalog.delete", "vivy.masks.selection.get", "vivy.masks.selection.set", "vivy.memory.list", "vivy.memory.search", "vivy.memory.get", "vivy.memory.add", "vivy.memory.update", "vivy.memory.remove", "vivy.memory.rules.read", "vivy.memory.rules.write", "vivy.memory.status"},
+			Actions:             []string{"diva.cognitive.status", "diva.cognitive.persona.initialize", "diva.cognitive.persona.read", "diva.cognitive.persona.save", "diva.cognitive.persona.reviews.list", "diva.cognitive.persona.review.decide", "diva.cognitive.frozen.read", "diva.cognitive.actmem.read", "diva.cognitive.actmem.work.patch", "diva.cognitive.actmem.owner.read", "diva.cognitive.actmem.owner.save", "diva.cognitive.memory.search", "diva.cognitive.memory.expand", "diva.cognitive.memory.mutate", "diva.cognitive.memory.receipt", "diva.cognitive.policy.get", "diva.cognitive.policy.set", "diva.cognitive.trigger", "diva.cognitive.cancel", "diva.cognitive.results.list", "vivy.masks.catalog.list", "vivy.masks.catalog.get", "vivy.masks.catalog.create", "vivy.masks.catalog.update", "vivy.masks.catalog.delete", "vivy.masks.selection.get", "vivy.masks.selection.set", "vivy.memory.list", "vivy.memory.search", "vivy.memory.get", "vivy.memory.add", "vivy.memory.update", "vivy.memory.remove", "vivy.memory.rules.read", "vivy.memory.rules.write", "vivy.memory.status"},
 			ToolWorlds:          []string{"mcp"},
 			ProviderProfiles:    []string{"openai-completions", "openai-responses", "anthropic-messages"},
 			ContextSources:      []string{"vivy.project-context", "vivy.memory.bml"},
@@ -118,15 +122,15 @@ func (assembly *RuntimeAssembly) HasMaskFactory() bool { return assembly.MaskFac
 
 func (assembly *RuntimeAssembly) MaskServiceFactoryValue() any { return assembly.MaskFactory }
 
-func (assembly *RuntimeAssembly) HasCognitiveFactory() bool { return false }
+func (assembly *RuntimeAssembly) HasCognitiveFactory() bool { return assembly.CognitiveFactory != nil }
 
-func (assembly *RuntimeAssembly) CognitiveFactoryValue() any { return nil }
+func (assembly *RuntimeAssembly) CognitiveFactoryValue() any { return assembly.CognitiveFactory }
 
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 35)
+	owners := make([]module.Instance, 0, 36)
 	owner0, err := defaults.NewActionHost().Construct(ctx, hosts.ForModule("vivy/action-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
@@ -202,106 +206,111 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner14)
-	owner15, err := memory.NewModule().Construct(ctx, hosts.ForModule("vivy/memory-bml-sync"))
+	owner15, err := divacognitive.NewModule().Construct(ctx, hosts.ForModule("vivy/diva-cognitive"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner15)
-	owner16, err := defaults.NewPresentationHost().Construct(ctx, hosts.ForModule("vivy/presentation-host"))
+	owner16, err := memory.NewModule().Construct(ctx, hosts.ForModule("vivy/memory-bml-sync"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner16)
-	owner17, err := vivyevolution.New().Construct(ctx, hosts.ForModule("vivy/evolution"))
+	owner17, err := defaults.NewPresentationHost().Construct(ctx, hosts.ForModule("vivy/presentation-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner17)
-	owner18, err := vivymasksui.New().Construct(ctx, hosts.ForModule("vivy/masks-ui"))
+	owner18, err := vivyevolution.New().Construct(ctx, hosts.ForModule("vivy/evolution"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner18)
-	owner19, err := vivymemory.New().Construct(ctx, hosts.ForModule("vivy/memory"))
+	owner19, err := vivymasksui.New().Construct(ctx, hosts.ForModule("vivy/masks-ui"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner19)
-	owner20, err := vivynotebook.New().Construct(ctx, hosts.ForModule("vivy/notebook"))
+	owner20, err := vivymemory.New().Construct(ctx, hosts.ForModule("vivy/memory"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner20)
-	owner21, err := vivypersona.New().Construct(ctx, hosts.ForModule("vivy/persona"))
+	owner21, err := vivynotebook.New().Construct(ctx, hosts.ForModule("vivy/notebook"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner21)
-	owner22, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
+	owner22, err := vivypersona.New().Construct(ctx, hosts.ForModule("vivy/persona"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner22)
-	owner23, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
+	owner23, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner23)
-	owner24, err := sandbox.NewModule().Construct(ctx, hosts.ForModule("vivy/sandbox"))
+	owner24, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner24)
-	owner25, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
+	owner25, err := sandbox.NewModule().Construct(ctx, hosts.ForModule("vivy/sandbox"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner25)
-	owner26, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
+	owner26, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner26)
-	owner27, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
+	owner27, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner27)
-	owner28, err := storage.NewModule().Construct(ctx, hosts.ForModule("vivy/storage"))
+	owner28, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner28)
-	owner29, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	owner29, err := storage.NewModule().Construct(ctx, hosts.ForModule("vivy/storage"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner29)
-	owner30, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	owner30, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner30)
-	owner31, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	owner31, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner31)
-	owner32, err := memory.NewModule().Construct(ctx, hosts.ForModule("vivy/memory-bml-tools"))
+	owner32, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner32)
-	owner33, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	owner33, err := memory.NewModule().Construct(ctx, hosts.ForModule("vivy/memory-bml-tools"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner33)
-	owner34, err := vivyworkflow.New().Construct(ctx, hosts.ForModule("vivy/workflow-ui"))
+	owner34, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner34)
+	owner35, err := vivyworkflow.New().Construct(ctx, hosts.ForModule("vivy/workflow-ui"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner35)
 	generation, err := module.StartGeneration(ctx, owners)
 	if err != nil {
 		return err

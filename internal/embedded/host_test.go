@@ -138,6 +138,15 @@ func TestPollCollectsRunEvents(t *testing.T) {
 	h := openHost(t, embedded.Options{AppOptions: []app.AppOption{app.WithoutEars()}})
 	session := mustCall(t, h, "session/create", map[string]any{"title": "poll"})
 	sessionID, _ := session["id"].(string)
+	initialized := mustCall(t, h, "module.action.invoke", map[string]any{
+		"module_id": "vivy/diva-cognitive", "action_id": "diva.cognitive.persona.initialize",
+		"input": map[string]any{"session_id": sessionID, "initialization": map[string]string{
+			"identity": "test assistant", "relationship": "partner", "redline": "boundaries", "user": "preferences", "world": "test workspace",
+		}},
+	})
+	if initialized["status"] != "ok" {
+		t.Fatalf("initialize persona: %v", initialized)
+	}
 	turn := mustCall(t, h, "turn/start", map[string]any{"session_id": sessionID, "text": "hi"})
 	runID, _ := turn["run_id"].(string)
 	sub := mustCall(t, h, "run/subscribe", map[string]any{"run_id": runID})
@@ -179,6 +188,15 @@ func TestPollOverflowReportsGap(t *testing.T) {
 	h := openHost(t, embedded.Options{QueueCapacity: 2, AppOptions: []app.AppOption{app.WithoutEars()}})
 	session := mustCall(t, h, "session/create", map[string]any{"title": "overflow"})
 	sessionID, _ := session["id"].(string)
+	initialized := mustCall(t, h, "module.action.invoke", map[string]any{
+		"module_id": "vivy/diva-cognitive", "action_id": "diva.cognitive.persona.initialize",
+		"input": map[string]any{"session_id": sessionID, "initialization": map[string]string{
+			"identity": "test assistant", "relationship": "partner", "redline": "boundaries", "user": "preferences", "world": "test workspace",
+		}},
+	})
+	if initialized["status"] != "ok" {
+		t.Fatalf("initialize persona: %v", initialized)
+	}
 	turn := mustCall(t, h, "turn/start", map[string]any{"session_id": sessionID, "text": "hi"})
 	runID, _ := turn["run_id"].(string)
 	mustCall(t, h, "run/subscribe", map[string]any{"run_id": runID})

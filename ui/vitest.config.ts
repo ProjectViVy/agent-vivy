@@ -28,7 +28,14 @@ export default defineConfig({
       'src/**/*.test.ts', 'src/**/*.test.tsx',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.ts',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.tsx',
+      '../plugins/vivy-persona/ui/vivy-persona/src/**/*.test.ts',
+      '../plugins/vivy-persona/ui/vivy-persona/src/**/*.test.tsx',
     ],
-    exclude: ['node_modules/**', 'dist/**', 'src/generated/ui/vivy-masks/src/**/*.test.*'],
+    exclude: [
+      'node_modules/**',
+      'dist/**',
+      'src/generated/ui/vivy-masks/src/**/*.test.*',
+      'src/generated/ui/vivy-persona/src/**/*.test.*',
+    ],
   },
 });
