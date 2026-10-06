@@ -515,6 +515,15 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/image <relative-path> | /image remove <index> | /image clear"}))
 	case "fork":
 		return count(1, 2)
+	case "clone":
+		if len(args) > 0 && strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return usage()
+		}
+		return count(0, -1)
+	case "tree", "export", "copy", "bug", "debug":
+		return count(0, 0)
+	case "import":
+		return count(1, 1)
 	case "rewind":
 		return count(1, 1)
 	case "stats":
@@ -599,6 +608,13 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
 		Spec{Name: "compact", Usage: "/compact", Description: description("compact")},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},
+		Spec{Name: "clone", Usage: "/clone [title]", Description: description("clone")},
+		Spec{Name: "tree", Usage: "/tree", Description: description("tree")},
+		Spec{Name: "import", Usage: "/import <path>", Description: description("import")},
+		Spec{Name: "export", Usage: "/export", Description: description("export")},
+		Spec{Name: "copy", Usage: "/copy", Description: description("copy")},
+		Spec{Name: "bug", Usage: "/bug", Description: description("bug")},
+		Spec{Name: "debug", Usage: "/debug", Description: description("debug")},
 		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: description("rewind")},
 		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: description("todos")},
 		Spec{Name: "stats", Usage: "/stats [period]", Description: description("stats")},

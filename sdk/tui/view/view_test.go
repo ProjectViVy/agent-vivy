@@ -812,6 +812,9 @@ type testDriver struct {
 	decision    string
 	messages    map[string][]surface.Message
 	attachments []surface.Attachment
+	treeNodes   []surface.TreeNode
+	treeEdges   []surface.TreeEdge
+	treeErr     error
 }
 
 func (d *testDriver) Sessions() []surface.Session {
@@ -947,6 +950,13 @@ func (d *testDriver) RenameSession(id, title string) tea.Cmd {
 func (d *testDriver) DeleteSession(id string) tea.Cmd {
 	d.deleted = id
 	return func() tea.Msg { return surface.SessionsMsg{Action: "delete", ID: id} }
+}
+
+// SessionTree answers the canned tree snapshot; tests may replace it.
+func (d *testDriver) SessionTree() tea.Cmd {
+	return func() tea.Msg {
+		return surface.TreeMsg{Nodes: d.treeNodes, Edges: d.treeEdges, Err: d.treeErr}
+	}
 }
 
 func (d *testDriver) ExecuteCommand(name string, args []string) tea.Cmd {

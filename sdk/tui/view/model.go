@@ -74,6 +74,11 @@ type Model struct {
 	sessionActionBusy  bool
 	sessionError       string
 	sessionRequest     uint64
+	treeOpen           bool
+	treeRows           []treeRow
+	treeCursor         int
+	treeLoading        bool
+	treeError          string
 
 	commandOverlayTitle    string
 	commandOverlay         string
@@ -303,6 +308,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouse(msg)
 	case surface.SessionsMsg:
 		m.applySessionsMsg(msg)
+	case surface.TreeMsg:
+		m.applyTreeMsg(msg)
 	case surface.GateResolvedMsg:
 		if msg.Kind == "question" {
 			m.input = ""
@@ -469,7 +476,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		}
 		return
 	}
-	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" || m.shortcutsOpen {
+	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.treeOpen || m.commandConfirmName != "" || m.commandOverlay != "" || m.shortcutsOpen {
 		return
 	}
 	if msg.Action != tea.MouseActionPress {
@@ -562,6 +569,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.sessionDeleteID = ""
 		m.sessionActionBusy = false
 	}
+	if gate != nil && m.treeOpen {
+		m.treeOpen = false
+	}
 	if gate != nil && msg.Type == tea.KeyCtrlS {
 		// A pending approval/question remains the top-most interaction. Do not
 		// let a secondary dialog hide it or mutate another session through it.
@@ -617,6 +627,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if m.treeOpen {
+		return m.handleTreeKey(msg)
 	}
 	if gate == nil && m.shortcutsOpen {
 		switch msg.Type {
@@ -1363,6 +1376,7 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	m.closeFileCompletion()
 	m.shortcutsOpen = false
 	m.sessionsOpen = false
+	m.treeOpen = false
 	m.commandOverlayTitle = ""
 	m.commandOverlay = ""
 	m.modelPickerOpen = true
@@ -1848,6 +1862,34 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/sessions"}))), nil
 		}
 		return m.openSessions()
+	case "tree":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/tree"}))), nil
+		}
+		return m.openTree()
+	case "copy":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/copy"}))), nil
+		}
+		return m.copyLastAssistant()
+	case "clone":
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.confirmCommand(name, args)
+	case "import":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/import <path>"}))), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "export", "bug", "debug":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/" + name}))), nil
+		}
+		return m.executeDriverCommand(name, args)
 	case "model":
 		return m.openModelPicker(strings.Join(args, " "))
 	case "init":
@@ -2146,6 +2188,7 @@ func (m Model) openSessions() (Model, tea.Cmd) {
 	m.closeFileCompletion()
 	m.closeModelPicker()
 	m.shortcutsOpen = false
+	m.treeOpen = false
 	m.sessionsOpen = true
 	m.sessionRows = append([]surface.Session(nil), m.driver.Sessions()...)
 	m.sessionFilter = ""

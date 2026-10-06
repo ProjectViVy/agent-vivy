@@ -191,6 +191,9 @@ type ControlDeps struct {
 	// Diagnostics serves bounded log reads and GUI capture (D5).
 	// Nil disables the methods.
 	Diagnostics DiagnosticsService
+	// DiagnosticsBundleDir is where diagnostics/bundle writes bug-report
+	// files (VCP C2). Empty disables diagnostics/bundle.
+	DiagnosticsBundleDir string
 	// ModelMeta resolves reference model metadata (pricing, image support)
 	// for the stats/tokens cost math (D9). Nil or zero rates mark a route
 	// unpriced — the snapshot reports cost_known=false, never $0-free.
@@ -1144,6 +1147,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.Diagnostics != nil {
 			// OBS-05 (D5): bounded diagnostic reads and GUI capture.
 			capabilities = append(capabilities, "diagnostics.logs", "diagnostics.gui_append")
+			if h.deps.DiagnosticsBundleDir != "" {
+				capabilities = append(capabilities, "diagnostics.bundle")
+			}
 		}
 		if h.deps.Work != nil && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
@@ -1572,6 +1578,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.diagnosticsLogs(ctx, request)
 	case "diagnostics/gui/append":
 		return h.diagnosticsGUIAppend(ctx, request)
+	case "diagnostics/bundle":
+		return h.diagnosticsBundle(ctx, request)
 	case "skills/list":
 		return h.listSkills(ctx)
 	case "skills/get":

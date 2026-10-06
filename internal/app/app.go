@@ -1079,7 +1079,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
 		Diagnostics:      diagnostics,
-		FileVersions:     fileVersions,
+		// /bug bundles land beside session exports (VCP C2).
+		DiagnosticsBundleDir: filepath.Join(dataRoot, "exports"),
+		FileVersions:         fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
 		// compaction use (D9: no separate data source). Resolve failures
 		// mean unpriced/unknown, which the cost math reports as such.

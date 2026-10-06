@@ -255,6 +255,7 @@ type Driver interface {
 	ShellExecutor
 	CapabilityReporter
 	SessionController
+	SessionTreeProvider
 }
 
 // CommandExecutor translates an already-canonical command into its
@@ -444,6 +445,38 @@ type SessionController interface {
 	SelectSession(id string) tea.Cmd
 	RenameSession(id, title string) tea.Cmd
 	DeleteSession(id string) tea.Cmd
+}
+
+// SessionTreeProvider fetches the kernel session-tree read model for the
+// /tree navigator (VCP C2). The control plane owns the graph; the view only
+// lays it out.
+type SessionTreeProvider interface {
+	SessionTree() tea.Cmd
+}
+
+// TreeNode mirrors the control plane's session/tree node shape without
+// importing kernel types.
+type TreeNode struct {
+	SessionID          string `json:"session_id"`
+	Title              string `json:"title"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
+	ParentSessionID    string `json:"parent_session_id"`
+	ForkPointMessageID string `json:"fork_point_message_id"`
+}
+
+// TreeEdge is one provenance link between two sessions.
+type TreeEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
+}
+
+// TreeMsg carries the session/tree RPC snapshot to the view.
+type TreeMsg struct {
+	Nodes []TreeNode
+	Edges []TreeEdge
+	Err   error
 }
 
 // SessionsMsg is emitted by a SessionController after list or mutation RPCs.

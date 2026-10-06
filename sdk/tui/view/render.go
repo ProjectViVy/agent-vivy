@@ -55,6 +55,9 @@ func (m Model) renderFrame() string {
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
+	if m.treeOpen {
+		return placeOverlay(frame, m.renderTreeDialog(l, p), l.width, l.height)
+	}
 	if m.commandConfirmName != "" || m.commandOverlay != "" {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
@@ -1911,6 +1914,56 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	}
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
+	}
+	inner := strings.Join(lines, "\n")
+	return p.Dialog.Width(w).Render(inner)
+}
+
+// renderTreeDialog draws the /tree navigator (VCP C2): an indented list of
+// the kernel's session tree — arrows move, Enter switches, Esc closes.
+func (m Model) renderTreeDialog(l layout, p Palette) string {
+	w := max(1, min(l.width-8, 72))
+	lines := []string{p.DialogTitle.Render(m.translator.T("vivy.tui.tree.title", nil))}
+	if m.treeLoading {
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.tree.loading", nil)))
+	} else if len(m.treeRows) == 0 {
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.tree.empty", nil)))
+	} else {
+		lines = append(lines, "")
+		windowRows := max(1, (max(4, l.height-12))/2)
+		start := max(0, m.treeCursor-windowRows/2)
+		if start+windowRows > len(m.treeRows) {
+			start = max(0, len(m.treeRows)-windowRows)
+		}
+		end := min(len(m.treeRows), start+windowRows)
+		for i := start; i < end; i++ {
+			row := m.treeRows[i]
+			marker := "  "
+			style := p.Idle
+			if i == m.treeCursor {
+				marker = "▸ "
+				style = p.Active
+			}
+			name := strings.TrimSpace(row.node.Title)
+			if name == "" {
+				name = m.translator.T("vivy.tui.session.untitled", nil)
+			}
+			indent := strings.Repeat("  ", min(row.depth, 8))
+			if row.depth > 0 {
+				indent += "↳ "
+			}
+			active := ""
+			if row.node.SessionID == m.driver.Active().ID {
+				active = " " + m.translator.T("vivy.tui.tree.current", nil)
+			}
+			lines = append(lines, style.Render(truncate(marker+indent+name+active, max(8, l.width-14))))
+			lines = append(lines, p.Dim.Render(truncate("   "+indent+row.node.SessionID, max(8, l.width-14))))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, p.DialogFooter.Render(wrapWords(m.translator.T("vivy.tui.tree.footer", nil), max(1, w-p.Dialog.GetHorizontalPadding()))))
+	if m.treeError != "" {
+		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.treeError, max(8, l.width-14))))
 	}
 	inner := strings.Join(lines, "\n")
 	return p.Dialog.Width(w).Render(inner)

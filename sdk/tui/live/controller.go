@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -289,6 +290,24 @@ func (l *Live) ActiveMessages() []surface.Message {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]surface.Message(nil), l.messages[l.activeID]...)
+}
+
+// SessionTree implements surface.SessionTreeProvider: it fetches the kernel's
+// session/tree read model for the /tree navigator (VCP C2).
+func (l *Live) SessionTree() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 20*time.Second)
+		defer cancel()
+		raw, err := l.client.Call(ctx, "session/tree", nil)
+		if err != nil {
+			return surface.TreeMsg{Err: err}
+		}
+		var tree surface.TreeMsg
+		if err := json.Unmarshal(raw, &tree); err != nil {
+			return surface.TreeMsg{Err: err}
+		}
+		return tree
+	}
 }
 
 // PendingAttachments implements surface.AttachmentProvider. Only resolver
@@ -1150,7 +1169,7 @@ func (l *Live) applyCommandResult(msg surface.CommandResultMsg) tea.Cmd {
 	switch msg.Name {
 	case "compact", "rewind":
 		return l.loadSessionCmd(msg.SessionID)
-	case "fork":
+	case "fork", "clone", "import":
 		var result struct {
 			SessionID string `json:"session_id"`
 		}
@@ -2453,6 +2472,35 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 			params["title"] = strings.TrimSpace(args[1])
 		}
 		return l.commandRPCCmd(name, "session/fork", params)
+	case "clone":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
+		}
+		params := map[string]string{"session_id": sessionID}
+		if len(args) > 0 {
+			params["title"] = strings.TrimSpace(strings.Join(args, " "))
+		}
+		return l.commandRPCCmd(name, "session/clone", params)
+	case "tree":
+		return l.SessionTree()
+	case "import":
+		data, err := os.ReadFile(strings.TrimSpace(args[0]))
+		if err != nil {
+			return commandResultCmd(name, "", err)
+		}
+		return l.commandRPCCmd(name, "session/import", map[string]string{"data": string(data)})
+	case "export":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
+		}
+		return l.commandRPCCmd(name, "session/export", map[string]string{"session_id": sessionID, "format": "html"})
+	case "bug":
+		sessionID, _ := l.commandSessionID()
+		return l.commandRPCCmd(name, "diagnostics/bundle", map[string]string{"session_id": sessionID})
+	case "debug":
+		return l.commandRPCCmd(name, "diagnostics/logs", map[string]any{"source": "runtime", "limit": 80})
 	case "rewind":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
@@ -2512,7 +2560,7 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 
 func commandMutates(name string) bool {
 	switch name {
-	case "init", "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
+	case "init", "new", "session", "rename", "delete", "permission", "compact", "fork", "clone", "import", "rewind":
 		return true
 	default:
 		return false
