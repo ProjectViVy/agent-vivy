@@ -837,6 +837,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
+		ExportDir:            filepath.Join(dataRoot, "exports"),
 		// A backend without the atomic ContinuityStore seam leaves the dep
 		// nil; continuity submissions then fail unavailable rather than
 		// degrading to a non-atomic write (SC-D4).

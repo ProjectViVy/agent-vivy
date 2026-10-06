@@ -57,6 +57,13 @@ const (
 	EventContextCompacted         EventType = "context.compacted"
 	EventSessionTruncated         EventType = "session.truncated"
 	EventSessionForked            EventType = "session.forked"
+	// EventSessionClonedFrom marks a clone child (fork at the source's
+	// visible tail). Distinct from session.forked so the tree can label
+	// full-copy branches.
+	EventSessionClonedFrom EventType = "session.cloned_from"
+	// EventSessionImported marks a session rebuilt from an external
+	// transcript (pi JSONL). It is the child's only provenance record.
+	EventSessionImported          EventType = "session.imported"
 	EventRunCompleted             EventType = "run.completed"
 	EventRunFailed                EventType = "run.failed"
 	EventRunCancelled             EventType = "run.cancelled"
@@ -121,6 +128,8 @@ var EventTypes = []EventType{
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,
+	EventSessionClonedFrom,
+	EventSessionImported,
 	EventContextReferenceAttached,
 	EventDeliverablesPresented,
 	EventTurnQueued,

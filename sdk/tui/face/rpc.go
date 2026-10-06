@@ -4,9 +4,9 @@
 // journal events for the active run stream as un-correlated records using
 // the same record names as --mode json (sdk/facerun JSONLSink).
 //
-// Commands whose backend does not exist yet (steer/queue, thinking levels,
-// session tree/export, retry knobs, bash) answer success:false with
-// "not implemented" and land as B1/C1/F1 arrive — see the spec §5.3 map.
+// Commands whose backend does not exist yet (thinking levels, retry knobs,
+// bash) answer success:false with "not implemented" and land as F1 and the
+// deferred set arrive — see the spec §5.3 map.
 package face
 
 import (
@@ -418,21 +418,14 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 		m.adoptForked(raw)
 		respond(true, map[string]any{"cancelled": false, "session": rawToMap(raw)}, "")
 	case "clone":
-		raw, ok := call("session/messages", map[string]any{"session_id": sessionID})
+		// Kernel C1 clone: a fork pinned at the effective tail with the
+		// session.cloned_from provenance event (also covers empty sessions).
+		cloned, ok := call("session/clone", map[string]any{"session_id": sessionID})
 		if !ok {
 			return
 		}
-		lastID := lastMessageID(raw)
-		if lastID == "" {
-			respond(false, nil, "session has no messages to clone from")
-			return
-		}
-		forked, ok := call("session/fork", map[string]any{"session_id": sessionID, "message_id": lastID})
-		if !ok {
-			return
-		}
-		m.adoptForked(forked)
-		respond(true, map[string]any{"cancelled": false, "session": rawToMap(forked)}, "")
+		m.adoptForked(cloned)
+		respond(true, map[string]any{"cancelled": false, "session": rawToMap(cloned)}, "")
 	case "get_fork_messages":
 		raw, ok := call("session/messages", map[string]any{"session_id": sessionID})
 		if !ok {
@@ -465,8 +458,27 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 		notImplemented("scoped model cycling (F3)")
 	case "bash", "abort_bash":
 		respond(false, nil, "bash is refused: commands must route through the governed ToolHost, not a raw exec")
-	case "export_html", "get_tree", "get_entries":
-		notImplemented("C1 session tree/export")
+	case "export_html":
+		// The kernel renders a standalone HTML transcript into the instance
+		// exports dir and returns its path; the pi outputPath parameter is
+		// accepted but the kernel chooses the location.
+		raw, ok := call("session/export", map[string]any{"session_id": sessionID, "format": "html"})
+		if !ok {
+			return
+		}
+		respond(true, rawToMap(raw), "")
+	case "get_tree":
+		raw, ok := call("session/tree", map[string]any{})
+		if !ok {
+			return
+		}
+		respond(true, rawToMap(raw), "")
+	case "get_entries":
+		raw, ok := call("session/messages", map[string]any{"session_id": sessionID})
+		if !ok {
+			return
+		}
+		respond(true, map[string]any{"entries": forkableMessages(raw)}, "")
 	case "extension_ui_response":
 		// no extension UI surface — acknowledged and ignored
 	default:
@@ -642,23 +654,6 @@ func lastAssistantText(raw json.RawMessage) string {
 	return ""
 }
 
-func lastMessageID(raw json.RawMessage) string {
-	var list struct {
-		Messages []map[string]any `json:"messages"`
-	}
-	if json.Unmarshal(raw, &list) != nil || len(list.Messages) == 0 {
-		return ""
-	}
-	for i := len(list.Messages) - 1; i >= 0; i-- {
-		for _, key := range []string{"id", "message_id"} {
-			if s, ok := list.Messages[i][key].(string); ok && s != "" {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
 func forkableMessages(raw json.RawMessage) []map[string]any {
 	var list struct {
 		Messages []map[string]any `json:"messages"`
@@ -710,7 +705,7 @@ func rpcCommands() []map[string]any {
 		{"set_steering_mode", true}, {"set_follow_up_mode", true},
 		{"set_auto_retry", false}, {"abort_retry", false},
 		{"bash", false}, {"abort_bash", false},
-		{"export_html", false}, {"get_tree", false}, {"get_entries", false},
+		{"export_html", true}, {"get_tree", true}, {"get_entries", true},
 		{"get_commands", true},
 	}
 	out := make([]map[string]any, 0, len(cmds))

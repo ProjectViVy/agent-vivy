@@ -167,6 +167,10 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// ExportDir is the instance directory session/export writes standalone
+	// HTML transcripts into (VCP C1). Empty leaves session/export
+	// unavailable; the tree, clone, and import paths are unaffected.
+	ExportDir string
 	// Continuity commits task admissions and guarded operations atomically
 	// (SC-D4 §7/§9). Nil keeps ordinary submission working; a continuity
 	// submission then fails unavailable instead of silently degrading to a

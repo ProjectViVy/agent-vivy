@@ -1317,6 +1317,22 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			bindPeerSessionResult(peer, result)
 		}
 		return result, rpcErr
+	case "session/clone":
+		result, rpcErr := h.cloneSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
+	case "session/tree":
+		return h.sessionTree(ctx)
+	case "session/import":
+		result, rpcErr := h.importSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
+	case "session/export":
+		return h.exportSession(ctx, request)
 	case "session/edit":
 		result, rpcErr := h.editSession(ctx, request)
 		if rpcErr == nil {
@@ -2337,6 +2353,113 @@ func (h *controlHandler) forkSession(ctx context.Context, request Request) (any,
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}
 	if errors.Is(err, runtime.ErrInvalidCutoff) || errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type cloneParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+// cloneSession copies the session's whole visible view into a new session
+// (VCP C1): a fork pinned at the effective tail, recorded with the
+// session.cloned_from provenance event.
+func (h *controlHandler) cloneSession(ctx context.Context, request Request) (any, *Error) {
+	var params cloneParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.CloneSession(ctx, domain.SessionID(params.SessionID), params.Title)
+	if errors.Is(err, runtime.ErrSessionBusy) {
+		return nil, &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+// sessionTree returns the bounded session-tree read model (VCP C1): nodes
+// are the newest sessions, edges are the fork/clone provenance anchors.
+func (h *controlHandler) sessionTree(ctx context.Context) (any, *Error) {
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.SessionTree(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+// importMaxDataBytes bounds an inline JSONL transcript body (VCP C1).
+const importMaxDataBytes = 8 << 20
+
+type importParams struct {
+	Data  string `json:"data"`
+	Title string `json:"title"`
+}
+
+// importSession rebuilds a pi session transcript (JSONL) as a new session
+// (VCP C1). Import never merges into an existing session.
+func (h *controlHandler) importSession(ctx context.Context, request Request) (any, *Error) {
+	var params importParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.Data == "" {
+		return nil, &Error{Code: InvalidParams, Message: "data is required"}
+	}
+	if len(params.Data) > importMaxDataBytes {
+		return nil, &Error{Code: InvalidParams, Message: "data exceeds the 8 MiB import cap"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.ImportSession(ctx, params.Data, params.Title)
+	if errors.Is(err, runtime.ErrImportMalformed) {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type exportParams struct {
+	SessionID string `json:"session_id"`
+	Format    string `json:"format"`
+}
+
+// exportSession writes the session's visible view as a standalone HTML
+// file in the instance exports directory (VCP C1) and returns its path.
+func (h *controlHandler) exportSession(ctx context.Context, request Request) (any, *Error) {
+	var params exportParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.ExportSession(ctx, domain.SessionID(params.SessionID), params.Format)
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
 	}
 	if err != nil {

@@ -442,6 +442,7 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Work: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
+		ExportDir: filepath.Join(t.TempDir(), "exports"),
 	})
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
 	for _, tool := range ts {
@@ -4671,6 +4672,119 @@ func TestSessionForkRoute(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "session/fork", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != InvalidParams {
 		t.Fatalf("missing message_id err = %v, want InvalidParams", rpcErr)
+	}
+}
+
+// TestSessionTreeCloneImportExportRPC covers the VCP C1 surface end-to-end: session/tree,
+// session/clone, session/import and session/export.
+func TestSessionTreeCloneImportExportRPC(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "origin"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []domain.Message{
+		{ID: "msg-1", SessionID: session.ID, Role: domain.RoleUser, Content: "one"},
+		{ID: "msg-2", SessionID: session.ID, Role: domain.RoleAssistant, Content: "two"},
+	} {
+		if err := env.backend.AppendMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cloned, rpcErr := callControl(t, env.handler, "session/clone", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	clonedJSON, _ := json.Marshal(cloned)
+	var clone struct {
+		SessionID   string `json:"session_id"`
+		CopiedCount int    `json:"copied_count"`
+	}
+	if err := json.Unmarshal(clonedJSON, &clone); err != nil || clone.SessionID == "" || clone.CopiedCount != 2 {
+		t.Fatalf("session/clone = %s, %v; want new session with 2 copied rows", clonedJSON, err)
+	}
+	tree, rpcErr := callControl(t, env.handler, "session/tree", map[string]string{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	treeJSON, _ := json.Marshal(tree)
+	var treeResult struct {
+		Nodes []struct {
+			SessionID       string `json:"session_id"`
+			ParentSessionID string `json:"parent_session_id"`
+		} `json:"nodes"`
+		Edges []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+			Kind string `json:"kind"`
+		} `json:"edges"`
+	}
+	if err := json.Unmarshal(treeJSON, &treeResult); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range treeResult.Edges {
+		if e.From == string(session.ID) && e.To == clone.SessionID && e.Kind == "fork" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("session/tree edges = %s, want %s→%s", treeJSON, session.ID, clone.SessionID)
+	}
+
+	imported, rpcErr := callControl(t, env.handler, "session/import", map[string]string{
+		"data": `{"type":"session","version":3,"id":"x1","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}` + "\n" +
+			`{"type":"message","id":"m1","parentId":null,"timestamp":"2025-01-01T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"hi"}],"timestamp":1735689601000}}`,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	importedJSON, _ := json.Marshal(imported)
+	var imp struct {
+		SessionID string `json:"session_id"`
+		Imported  int    `json:"imported"`
+		Skipped   int    `json:"skipped"`
+	}
+	if err := json.Unmarshal(importedJSON, &imp); err != nil || imp.SessionID == "" || imp.Imported != 1 || imp.Skipped != 0 {
+		t.Fatalf("session/import = %s, %v; want 1 imported", importedJSON, err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/import", map[string]string{"data": "nope"}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("malformed import err = %v, want InvalidParams", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/import", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("empty import err = %v, want InvalidParams", rpcErr)
+	}
+
+	exported, rpcErr := callControl(t, env.handler, "session/export", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	exportedJSON, _ := json.Marshal(exported)
+	var exp struct {
+		Path         string `json:"path"`
+		MessageCount int    `json:"message_count"`
+	}
+	if err := json.Unmarshal(exportedJSON, &exp); err != nil || exp.Path == "" || exp.MessageCount != 2 {
+		t.Fatalf("session/export = %s, %v; want a path over 2 messages", exportedJSON, err)
+	}
+	body, err := os.ReadFile(exp.Path)
+	if err != nil {
+		t.Fatalf("read export: %v", err)
+	}
+	if !strings.Contains(string(body), `"one"`) && !strings.Contains(string(body), ">one<") && !strings.Contains(string(body), "one") {
+		t.Fatalf("export body missing message content")
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/export", map[string]string{"session_id": string(session.ID), "format": "pdf"}); rpcErr == nil {
+		t.Fatalf("format=pdf accepted, want error")
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/export", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing session_id err = %v, want InvalidParams", rpcErr)
 	}
 }
 
