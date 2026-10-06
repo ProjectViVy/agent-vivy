@@ -1,0 +1,18 @@
+{
+  "name": "dark",
+  "colors": {
+    "primary": "#A78BFA",
+    "secondary": "#2DD4BF",
+    "fg": "#E4E4E7",
+    "muted": "#71717A",
+    "subtle": "#52525B",
+    "success": "#4ADE80",
+    "warn": "#FBBF24",
+    "danger": "#FB7185",
+    "user": "#93C5FD",
+    "on_primary": "#1C1917",
+    "code_bg": "#27272A",
+    "string": "#FDBA74",
+    "link": "#A1A1AA"
+  }
+}

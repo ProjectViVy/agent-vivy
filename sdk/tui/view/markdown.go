@@ -10,6 +10,8 @@ import (
 	glansi "github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+
+	"agent-vivy/sdk/tui/theme"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 type mdRendererKey struct {
 	width int
 	quiet bool
+	theme string
 }
 
 var (
@@ -51,7 +54,7 @@ func markdownWrapWidth(contentWidth int) int {
 	return contentWidth
 }
 
-func renderMarkdown(source string, width int, quiet bool) (string, error) {
+func renderMarkdown(source string, width int, quiet bool, colors theme.Colors) (string, error) {
 	if width < 1 {
 		return "", errMarkdownW
 	}
@@ -60,14 +63,14 @@ func renderMarkdown(source string, width int, quiet bool) (string, error) {
 	}
 	mdRenderMu.Lock()
 	defer mdRenderMu.Unlock()
-	return renderMarkdownLocked(source, width, quiet)
+	return renderMarkdownLocked(source, width, quiet, colors)
 }
 
 // renderMarkdownLocked renders with a shared renderer; the caller must hold
 // mdRenderMu so multi-fragment streaming renders cannot interleave with other
 // renders on the same goldmark state.
-func renderMarkdownLocked(source string, width int, quiet bool) (string, error) {
-	renderer, err := markdownRenderer(width, quiet)
+func renderMarkdownLocked(source string, width int, quiet bool, colors theme.Colors) (string, error) {
+	renderer, err := markdownRenderer(width, quiet, colors)
 	if err != nil {
 		return "", err
 	}
@@ -82,16 +85,16 @@ func trimMarkdownOutput(out string) string {
 	return strings.Trim(out, "\n\r")
 }
 
-func markdownRenderer(width int, quiet bool) (*glamour.TermRenderer, error) {
-	key := mdRendererKey{width: width, quiet: quiet}
+func markdownRenderer(width int, quiet bool, colors theme.Colors) (*glamour.TermRenderer, error) {
+	key := mdRendererKey{width: width, quiet: quiet, theme: colors.ID()}
 	mdCacheMu.Lock()
 	defer mdCacheMu.Unlock()
 	if renderer, ok := mdRenderers[key]; ok {
 		return renderer, nil
 	}
-	styles := markdownStyle()
+	styles := markdownStyle(colors)
 	if quiet {
-		styles = quietMarkdownStyle()
+		styles = quietMarkdownStyle(colors)
 	}
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithStyles(styles),
@@ -105,20 +108,20 @@ func markdownRenderer(width int, quiet bool) (*glamour.TermRenderer, error) {
 	return renderer, nil
 }
 
-func markdownStyle() glansi.StyleConfig {
-	fg := hex(paletteFg)
-	info := hex(paletteSecondary)
-	primary := hex(palettePrimary)
-	onPrimary := hex(paletteOnPrimary)
-	muted := hex(paletteMuted)
-	subtle := hex(paletteSubtle)
-	success := hex(paletteSuccess)
-	warn := hex(paletteWarn)
-	danger := hex(paletteDanger)
-	codeBg := hex(paletteCodeBg)
-	str := hex(paletteString)
-	link := hex(paletteLink)
-	user := hex(paletteUser)
+func markdownStyle(colors theme.Colors) glansi.StyleConfig {
+	fg := hex(colors.Fg)
+	info := hex(colors.Secondary)
+	primary := hex(colors.Primary)
+	onPrimary := hex(colors.OnPrimary)
+	muted := hex(colors.Muted)
+	subtle := hex(colors.Subtle)
+	success := hex(colors.Success)
+	warn := hex(colors.Warn)
+	danger := hex(colors.Danger)
+	codeBg := hex(colors.CodeBg)
+	str := hex(colors.String)
+	link := hex(colors.Link)
+	user := hex(colors.User)
 	yes := boolPtr(true)
 	no := boolPtr(false)
 	indent := uintPtr(1)
@@ -249,9 +252,9 @@ func markdownStyle() glansi.StyleConfig {
 	}
 }
 
-func quietMarkdownStyle() glansi.StyleConfig {
-	fg := hex(paletteMuted)
-	bg := hex(paletteCodeBg)
+func quietMarkdownStyle(colors theme.Colors) glansi.StyleConfig {
+	fg := hex(colors.Muted)
+	bg := hex(colors.CodeBg)
 	yes := boolPtr(true)
 	no := boolPtr(false)
 	indent := uintPtr(1)

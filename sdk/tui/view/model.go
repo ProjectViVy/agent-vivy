@@ -20,6 +20,7 @@ import (
 	"agent-vivy/sdk/tui/command"
 	tuii18n "agent-vivy/sdk/tui/i18n"
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/theme"
 )
 
 const (
@@ -158,6 +159,16 @@ type Options struct {
 	// owned by the caller, not the view.
 	Locale          corei18n.Locale
 	DebugToolOutput bool
+	// Theme names the color theme: "", "auto" (terminal detect), "dark",
+	// "light", or a file under ThemesDir. Resolution always succeeds —
+	// failures degrade to dark with a startup warning overlay.
+	Theme string
+	// ThemesDir is the operator theme directory; empty uses
+	// theme.DefaultDir().
+	ThemesDir string
+	// NoThemes disables the user theme directory entirely; only embedded
+	// themes resolve.
+	NoThemes bool
 }
 
 // New returns a model bound to the given driver.
@@ -172,18 +183,23 @@ func New(driver surface.Driver, options ...Options) Model {
 	if opts.Locale == "" {
 		opts.Locale = corei18n.English
 	}
+	themesDir := strings.TrimSpace(opts.ThemesDir)
+	if themesDir == "" && !opts.NoThemes {
+		themesDir = theme.DefaultDir()
+	}
+	colors, themeWarnings := theme.Resolve(themesDir, opts.Theme)
 	translator := tuii18n.New(opts.Locale)
 	registry := command.DefaultRegistry(translator)
 	if !driver.SupportsCapability("project.init.status") {
 		registry = registry.Without("init")
 	}
-	return Model{
+	m := Model{
 		driver:          driver,
 		translator:      translator,
 		commandRegistry: registry,
 		width:           120,
 		height:          36,
-		palette:         DefaultPalette(),
+		palette:         PaletteFromColors(colors),
 		debugToolOutput: opts.DebugToolOutput,
 		windowTitle:     windowTitleBrand,
 		chatFollow:      true,
@@ -192,6 +208,10 @@ func New(driver surface.Driver, options ...Options) Model {
 		chatAssembly:    &chatAssembly{},
 		mdCache:         newMessageMarkdownCache(),
 	}
+	if len(themeWarnings) != 0 {
+		m = m.showCommandResult(m.translator.T("vivy.tui.dialog.theme", nil), strings.Join(themeWarnings, "\n"))
+	}
+	return m
 }
 
 type messageMarkdownKey struct {

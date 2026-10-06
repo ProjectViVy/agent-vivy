@@ -176,6 +176,10 @@ type Config struct {
 type TUI struct {
 	// Debug shows complete tool results. The default keeps tool cards bounded.
 	Debug bool `yaml:"debug"`
+	// Theme selects the terminal palette: "auto" (terminal background
+	// detect, the default), "dark", "light", or a file name under
+	// <data dir>/themes/<name>.json.
+	Theme string `yaml:"theme"`
 }
 
 // Logging configures the kernel's slog output (see internal/logging and

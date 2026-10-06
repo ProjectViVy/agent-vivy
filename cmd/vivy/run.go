@@ -102,6 +102,8 @@ func runRun(args []string) int {
 			Prompt:          prompt,
 			ContinueNewest:  continueNewest,
 			DebugToolOutput: cfg.TUI.Debug,
+			UseTheme:        cfg.TUI.Theme,
+			ThemesDir:       filepath.Join(cfg.DataDirectory(), "themes"),
 			Out:             os.Stdout,
 			Err:             os.Stderr,
 		}

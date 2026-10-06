@@ -190,6 +190,7 @@ var englishCatalog = map[string]string{
 	"vivy.tui.dialog.close":                    "enter / esc close",
 	"vivy.tui.dialog.thinking":                 "Thinking",
 	"vivy.tui.dialog.model":                    "Model",
+	"vivy.tui.dialog.theme":                    "Theme",
 	"vivy.tui.dialog.commandError":             "Command error",
 	"vivy.tui.dialog.command":                  "Command",
 	"vivy.tui.sidebar.unsupported":             "unsupported",

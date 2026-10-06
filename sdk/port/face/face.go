@@ -55,16 +55,20 @@ type Options struct {
 	NoSkills, NoPromptTemplates     bool
 	NoThemes, NoContextFiles        bool
 	UseTheme                        string
-	ListModels                      bool
-	ListModelsPattern               string
-	Export                          string
-	TUIMode                         string // "" | "regular" | "fullscreen"
-	Offline, Verbose                bool
-	Approve                         *bool // --approve / --no-approve tri-state; nil = default policy
-	DebugToolOutput                 bool
-	Files                           []string  // @file positional arguments
-	In                              io.Reader // stdin for --mode rpc and interactive input
-	Out, Err                        io.Writer
+	// ThemesDir is the operator theme directory (<agent home>/themes). The
+	// TUI face loads <name>.json files from it; embedded themes still win
+	// when no file matches.
+	ThemesDir         string
+	ListModels        bool
+	ListModelsPattern string
+	Export            string
+	TUIMode           string // "" | "regular" | "fullscreen"
+	Offline, Verbose  bool
+	Approve           *bool // --approve / --no-approve tri-state; nil = default policy
+	DebugToolOutput   bool
+	Files             []string  // @file positional arguments
+	In                io.Reader // stdin for --mode rpc and interactive input
+	Out, Err          io.Writer
 }
 
 // ModeUnavailableError reports a face mode that is declared on the CLI

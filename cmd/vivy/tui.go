@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -82,7 +83,7 @@ func runTUI(args []string) int {
 		return 0
 	}
 
-	debugToolOutput, err := remoteTUIDebug()
+	tuiOpts, err := remoteTUIOptions()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -95,36 +96,42 @@ func runTUI(args []string) int {
 	}
 	defer client.Close()
 
-	if err := runRemoteTUI(ctx, client, live.Options{Host: addr, Title: title}, debugToolOutput, view.Run); err != nil {
+	if err := runRemoteTUI(ctx, client, live.Options{Host: addr, Title: title}, tuiOpts, view.Run); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0
 }
 
-func runRemoteTUI(ctx context.Context, transport live.Transport, opts live.Options, debugToolOutput bool, runView func(surface.Driver, ...view.Options) error) error {
+func runRemoteTUI(ctx context.Context, transport live.Transport, opts live.Options, tuiOpts view.Options, runView func(surface.Driver, ...view.Options) error) error {
 	controller, err := live.New(ctx, transport, opts)
 	if err != nil {
 		return err
 	}
 	defer controller.Close()
-	if err := runView(controller, view.Options{DebugToolOutput: debugToolOutput, Locale: controller.Locale()}); err != nil {
+	tuiOpts.Locale = controller.Locale()
+	if err := runView(controller, tuiOpts); err != nil {
 		return err
 	}
 	controller.Shutdown()
 	return nil
 }
 
-func remoteTUIDebug() (bool, error) {
+func remoteTUIOptions() (view.Options, error) {
 	path := os.Getenv("VIVY_CONFIG")
-	if path == "" {
-		return config.Default().TUI.Debug, nil
+	cfg := config.Default()
+	if path != "" {
+		loaded, err := config.Load(path)
+		if err != nil {
+			return view.Options{}, err
+		}
+		cfg = loaded
 	}
-	cfg, err := config.Load(path)
-	if err != nil {
-		return false, err
-	}
-	return cfg.TUI.Debug, nil
+	return view.Options{
+		DebugToolOutput: cfg.TUI.Debug,
+		Theme:           cfg.TUI.Theme,
+		ThemesDir:       filepath.Join(cfg.DataDirectory(), "themes"),
+	}, nil
 }
 
 func defaultListenAddr() string {

@@ -190,6 +190,7 @@ var chineseCatalog = map[string]string{
 	"vivy.tui.dialog.close":                    "enter / esc 关闭",
 	"vivy.tui.dialog.thinking":                 "思考档",
 	"vivy.tui.dialog.model":                    "模型",
+	"vivy.tui.dialog.theme":                    "主题",
 	"vivy.tui.dialog.commandError":             "命令错误",
 	"vivy.tui.dialog.command":                  "命令",
 	"vivy.tui.sidebar.unsupported":             "不支持",

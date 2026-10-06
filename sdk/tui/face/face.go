@@ -61,7 +61,7 @@ func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Res
 	if runView == nil {
 		runView = view.RunWithOutput
 	}
-	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale()}); err != nil {
+	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale(), Theme: f.opts.UseTheme, ThemesDir: f.opts.ThemesDir, NoThemes: f.opts.NoThemes}); err != nil {
 		controller.Shutdown()
 		return faceport.Result{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}

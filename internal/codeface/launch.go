@@ -103,6 +103,14 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, opts plugin.
 	slog.SetDefault(vivyLog)
 	vivyLog.Info("vivy-code instance initialized", "instance_root", prepared.InstanceRoot, "settings_path", prepared.SharedSettingsPath)
 	opts.DebugToolOutput = opts.DebugToolOutput || prepared.Config.TUI.Debug
+	// --theme wins over config; the themes directory sits beside the shared
+	// settings document so one agent home owns the palette.
+	if opts.UseTheme == "" {
+		opts.UseTheme = prepared.Config.TUI.Theme
+	}
+	if opts.ThemesDir == "" {
+		opts.ThemesDir = filepath.Join(filepath.Dir(prepared.SharedSettingsPath), "themes")
+	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}

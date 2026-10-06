@@ -17,6 +17,7 @@ import (
 
 	"agent-vivy/sdk/tui/internal/textsafe"
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/theme"
 )
 
 const headerDiag = "╱"
@@ -857,7 +858,7 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 		contentWidth = max(1, width)
 	}
 
-	bodyLines, painted := renderMessageBody(message, contentWidth)
+	bodyLines, painted := renderMessageBody(message, contentWidth, p.Colors)
 	if message.Reasoning && reasoningCollapsed {
 		if len(bodyLines) > 0 {
 			bodyLines = []string{m.translator.T("vivy.tui.reasoning.lines", map[string]any{"count": len(bodyLines)})}
@@ -897,7 +898,7 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 	return out
 }
 
-func renderMessageBody(message surface.Message, contentWidth int) ([]string, bool) {
+func renderMessageBody(message surface.Message, contentWidth int, colors theme.Colors) ([]string, bool) {
 	quiet := message.Reasoning
 	source := sanitizeMarkdownSource(message.Content)
 	if source == "" {
@@ -909,9 +910,9 @@ func renderMessageBody(message surface.Message, contentWidth int) ([]string, boo
 	if message.Streaming {
 		// A growing bubble renders through the stable-prefix cache so each
 		// flush re-renders only the trailing segment, not the whole document.
-		rendered, err = streamMarkdownRender(message.ID, source, wrapWidth, quiet)
+		rendered, err = streamMarkdownRender(message.ID, source, wrapWidth, quiet, colors)
 	} else {
-		rendered, err = renderMarkdown(source, wrapWidth, quiet)
+		rendered, err = renderMarkdown(source, wrapWidth, quiet, colors)
 	}
 	if err != nil {
 		return wrapText(source, contentWidth), false
@@ -1066,7 +1067,7 @@ func renderToolBodyLines(body string, contentWidth int, p Palette) []string {
 		source := sanitizeMarkdownSource(content)
 		// The quiet style carries no chroma config; the normal style provides
 		// the palette chroma highlighting for the fenced code block.
-		rendered, err := renderMarkdown("```"+lang+"\n"+source+"\n```", markdownWrapWidth(contentWidth), false)
+		rendered, err := renderMarkdown("```"+lang+"\n"+source+"\n```", markdownWrapWidth(contentWidth), false, p.Colors)
 		if err != nil || rendered == "" {
 			return wrapText(body, contentWidth)
 		}
