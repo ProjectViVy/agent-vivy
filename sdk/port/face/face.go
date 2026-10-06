@@ -62,7 +62,8 @@ type Options struct {
 	Offline, Verbose                bool
 	Approve                         *bool // --approve / --no-approve tri-state; nil = default policy
 	DebugToolOutput                 bool
-	Files                           []string // @file positional arguments
+	Files                           []string  // @file positional arguments
+	In                              io.Reader // stdin for --mode rpc and interactive input
 	Out, Err                        io.Writer
 }
 

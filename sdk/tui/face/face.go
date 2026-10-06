@@ -39,6 +39,8 @@ func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Res
 		return facerun.Run(ctx, env, f.headlessOptions(), &facerun.TextSink{Out: f.opts.Out, Err: f.opts.Err})
 	case "json":
 		return facerun.Run(ctx, env, f.headlessOptions(), facerun.JSONLSink{Out: f.opts.Out})
+	case "rpc":
+		return f.runRPCMode(ctx, env)
 	default:
 		return faceport.Result{Status: "failed"}, faceport.ModeUnavailableError{Mode: f.opts.Mode}
 	}

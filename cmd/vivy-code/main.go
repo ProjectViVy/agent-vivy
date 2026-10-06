@@ -52,6 +52,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	opts := parsed.Options
+	opts.In = os.Stdin
 	opts.Out = os.Stdout
 	opts.Err = os.Stderr
 	// pi parity: a non-TTY stdin/stdout means the non-interactive print path
