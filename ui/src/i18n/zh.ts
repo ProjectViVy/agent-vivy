@@ -385,6 +385,10 @@ export const zh = {
     queuedCount: '已排队 {{count}} 条',
     clearQueue: '清空队列',
     removeQueued: '移除',
+    steer: '引导 (Enter)',
+    sendAsFollowUp: '排队跟进 (Shift+Alt+Enter)',
+    queueLaneSteer: '引导',
+    queueLaneFollowUp: '排队',
     attachHistory: '引用历史',
   },
   historyPicker: {

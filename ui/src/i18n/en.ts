@@ -387,6 +387,10 @@ export const en: Dictionary = {
     queuedCount: '{{count}} queued',
     clearQueue: 'Clear queue',
     removeQueued: 'Remove',
+    steer: 'Steer (Enter)',
+    sendAsFollowUp: 'Queue follow-up (Shift+Alt+Enter)',
+    queueLaneSteer: 'steer',
+    queueLaneFollowUp: 'queued',
     attachHistory: 'Attach history',
   },
   historyPicker: {

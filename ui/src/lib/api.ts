@@ -312,7 +312,7 @@ export async function request<T>(method: string, params?: unknown): Promise<T> {
 
 export const initialize = async (): Promise<RpcCapabilities> => (await getRpcClient()).capabilities;
 export const listSessions = () => request<{ sessions: Session[] }>('session/list');
-export const getSession = (id: string) => request<{ session: Session; messages: Message[] }>('session/get', { session_id: id });
+export const getSession = (id: string) => request<{ session: Session; messages: Message[]; queue?: QueueState }>('session/get', { session_id: id });
 export const createSession = (title: string, workspacePath = '') => request<Session>('session/create', { title, workspace_path: workspacePath });
 export const renameSession = (id: string, title: string) => request<Session>('session/rename', { session_id: id, title });
 export const setSessionPermission = (id: string, preset: Exclude<PermissionPreset, 'custom'>) => request<Session>('session/set_permission', { session_id: id, preset });
@@ -385,6 +385,33 @@ export const startTurn = (sessionId: string, submission: TurnSubmission) =>
     references: submission.continuity?.references,
     history_scope: submission.continuity?.history_scope,
   });
+/** Kernel dual-track queue (pi parity, VCP-B3): steer injects at the next
+ * turn boundary of the active run; follow_up is admitted after terminal
+ * settle. Kernel items are text-only. Types owned by @vivy/ui-sdk so the
+ * Face contract and this host API share one shape (SC-D4). */
+import type {
+  FaceQueuedTurn, FaceQueueState, FaceQueueTurnResult,
+  FaceQueueDequeueResult, FaceQueueRemoveResult, FaceQueueClearResult,
+} from '@vivy/ui-sdk';
+export type QueuedTurn = FaceQueuedTurn;
+export type QueueState = FaceQueueState;
+export type QueueTurnResult = FaceQueueTurnResult;
+
+export const steerTurn = (sessionId: string, text: string) =>
+  request<QueueTurnResult>('turn/steer', { session_id: sessionId, text });
+export const followUpTurn = (sessionId: string, text: string) =>
+  request<QueueTurnResult>('turn/follow_up', { session_id: sessionId, text });
+export const getQueueState = (sessionId: string, afterRunId?: string) =>
+  request<QueueState>('queue/state', { session_id: sessionId, after_run_id: afterRunId })
+    // Go nil slices marshal as null; faces always want arrays.
+    .then((state) => ({ ...state, steering: state.steering ?? [], follow_up: state.follow_up ?? [] }));
+export const clearSessionQueue = (sessionId: string) =>
+  request<FaceQueueClearResult>('queue/clear', { session_id: sessionId });
+export const dequeueQueuedTurn = (sessionId: string) =>
+  request<FaceQueueDequeueResult>('queue/dequeue', { session_id: sessionId });
+export const removeQueuedTurn = (sessionId: string, queueId: string) =>
+  request<FaceQueueRemoveResult>('queue/remove', { session_id: sessionId, queue_id: queueId });
+
 export const historySearch = (sessionId: string, params: FaceHistorySearchRequest) =>
   request<HistoryPage>('history/search', { session_id: sessionId, ...params });
 export const historySessions = (params: { query?: string; cursor?: string; limit?: number }) =>

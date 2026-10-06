@@ -7,6 +7,8 @@ const api = vi.hoisted(() => ({
   historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
   deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
+  steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
+  getQueueState: vi.fn(async () => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
 const workSubscription = vi.hoisted(() => ({
@@ -721,6 +723,92 @@ describe('Vivy store integrity', () => {
     expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
     await useVivyStore.getState().selectSession('s2');
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
+
+  // ---- VCP-B3: kernel dual-track queue (pi parity) ----
+
+  it('routes a busy steer send to turn/steer and shows an optimistic user bubble', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.steerTurn.mockResolvedValue({ queued: true, queue_id: 'q1', track: 'steer' });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().steerMessage({ text: 'nudge it', mode: 'normal' });
+    expect(api.steerTurn).toHaveBeenCalledWith('s1', 'nudge it');
+    expect(useVivyStore.getState().messages.at(-1)).toMatchObject({ role: 'user', content: 'nudge it' });
+    expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
+
+  it('adopts the fallback run when turn/steer lands on an idle session', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.steerTurn.mockResolvedValue({ queued: false, run_id: 'r9', status: 'active' });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().steerMessage({ text: 'fresh turn', mode: 'normal' });
+    expect(useVivyStore.getState().currentRun).toMatchObject({ id: 'r9', status: 'active' });
+    expect(useVivyStore.getState().messages.at(-1)).toMatchObject({ role: 'user', content: 'fresh turn' });
+    expect(subscription.onEvent).toBeDefined();
+  });
+
+  it('routes attachment submissions to the local FIFO instead of the kernel queue', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().steerMessage({ text: 'look', mode: 'normal', attachments: [{ name: 'a.png', mime_type: 'image/png', data: 'aGk=' }] });
+    expect(api.steerTurn).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
+  });
+
+  it('routes a busy follow-up send to turn/follow_up without an optimistic bubble', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.followUpTurn.mockResolvedValue({ queued: true, queue_id: 'q2', track: 'follow_up' });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().followUpMessage({ text: 'after this', mode: 'normal' });
+    expect(api.followUpTurn).toHaveBeenCalledWith('s1', 'after this');
+    expect(useVivyStore.getState().messages.find((m) => m.content === 'after this')).toBeUndefined();
+  });
+
+  it('adopts a kernel-admitted run after the settling run completes', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    // mockResolvedValue 的实现跨 clearAllMocks 泄漏——终态前挂上、用后还原。
+    api.getQueueState.mockResolvedValue({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0, admitted_run_id: 'r2' });
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
+    await vi.waitFor(() => expect(useVivyStore.getState().currentRun).toMatchObject({ id: 'r2', status: 'active' }));
+    expect(api.getQueueState).toHaveBeenCalledWith('s1', 'r1');
+    api.getQueueState.mockResolvedValue({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 });
+  });
+
+  it('restores dequeued kernel text into the editor draft', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.dequeueQueuedTurn.mockResolvedValue({ dequeued: true, queue_id: 'q1', track: 'follow_up', text: 'take me back' });
+    await useVivyStore.getState().selectSession('s1');
+    const text = await useVivyStore.getState().dequeueQueuedTurn();
+    expect(text).toBe('take me back');
+    expect(api.dequeueQueuedTurn).toHaveBeenCalledWith('s1');
+  });
+
+  it('restores aborted queue text on turn.dequeued events', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    subscription.onEvent?.({ run_id: 'r1', seq: 2, type: 'turn.dequeued', created_at: 3, payload_version: 1, payload: { queue_id: 'q1', track: 'steer', reason: 'aborted', text: 'was steering' } });
+    await vi.waitFor(() => expect(useVivyStore.getState().queueRestoreText).toMatchObject({ text: 'was steering' }));
   });
 
   it('threads the typed continuity submission through the queue and retains a rejected head', async () => {

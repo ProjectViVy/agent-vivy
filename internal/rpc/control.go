@@ -1371,6 +1371,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.clearQueue(ctx, request)
 	case "queue/dequeue":
 		return h.dequeueQueue(ctx, request)
+	case "queue/remove":
+		return h.removeQueueItem(ctx, request)
 	case "queue/mode":
 		return h.setQueueMode(ctx, request)
 	case "run/get":
@@ -3626,6 +3628,27 @@ func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any
 		return map[string]any{"dequeued": false}, nil
 	}
 	return map[string]any{"dequeued": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
+}
+
+// removeQueueItem cancels one pending item by id — the GUI's per-item
+// affordance (pi shows × on every queued entry). Items already armed or
+// admitted report removed:false rather than an error.
+func (h *controlHandler) removeQueueItem(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+		QueueID   string `json:"queue_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.QueueID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and queue_id are required"}
+	}
+	item, ok := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	if !ok {
+		return map[string]any{"removed": false}, nil
+	}
+	return map[string]any{"removed": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
 }
 
 func (h *controlHandler) setQueueMode(ctx context.Context, request Request) (any, *Error) {

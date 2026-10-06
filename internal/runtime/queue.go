@@ -294,6 +294,38 @@ func (s *Service) Dequeue(ctx context.Context, sessionID domain.SessionID) (doma
 	return item, true
 }
 
+// QueueRemove cancels one still-pending item by id (either lane) and
+// journals turn.dequeued{reason:"dequeued"}. GUI's per-item cancel
+// affordance; items already armed/admitted are gone from the lanes and
+// report ok=false.
+func (s *Service) QueueRemove(ctx context.Context, sessionID domain.SessionID, queueID string) (domain.QueuedTurn, bool) {
+	q := s.queueFor(ctx, sessionID)
+	s.mu.Lock()
+	var item domain.QueuedTurn
+	found := false
+	for _, lane := range []*[]domain.QueuedTurn{&q.steer, &q.followUp} {
+		for _, candidate := range *lane {
+			if candidate.ID == queueID {
+				item = candidate
+				*lane = removeQueued(*lane, queueID)
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return domain.QueuedTurn{}, false
+	}
+	s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{
+		QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text,
+	})
+	return item, true
+}
+
 // QueueState returns the session's pending queue without mutating it.
 // afterRun, when non-empty, resolves the run the kernel auto-started for
 // that specific settle (admission races the terminal publish, so callers
@@ -351,11 +383,23 @@ func (s *Service) takeSteerTurn(sessionID domain.SessionID, runID domain.RunID) 
 	}
 	s.mu.Unlock()
 	// Journal the continuity marker outside the service lock — journal
-	// append blocks on storage.
+	// append blocks on storage. The steered text also lands in the message
+	// store (pi: a steered message is a permanent transcript row); the
+	// HistoryModifier injects it into model-visible history but never
+	// touches Messages.
 	for _, item := range out {
 		s.journalQueueMarker(context.Background(), item, domain.EventTurnSteered, payloadTurnSteered{
 			QueueID: item.ID, Text: item.Text,
 		})
+		if s.deps.Messages != nil {
+			_ = s.deps.Messages.AppendMessage(context.Background(), domain.Message{
+				ID:        newMessageID(),
+				SessionID: sessionID,
+				Role:      domain.RoleUser,
+				Content:   item.Text,
+				CreatedAt: time.Now().UnixMilli(),
+			})
+		}
 	}
 	return out
 }
