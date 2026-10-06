@@ -64,6 +64,8 @@ export interface RunRowNotice {
   kind: 'notice';
   id: string;
   runId: string;
+  /** 'compact' renders the i18n compaction label; 'retry' renders text as-is. */
+  tag: 'compact' | 'retry';
   text: string;
   createdAt: number;
 }
@@ -301,7 +303,22 @@ export function foldRunEvents(
       }
       case 'context.compacted': {
         const detail = compactedNotice(payload);
-        rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, text: detail, createdAt: event.created_at });
+        rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, tag: 'compact', text: detail, createdAt: event.created_at });
+        break;
+      }
+      case 'auto_retry.started': {
+        const detail = text(payload.reason);
+        rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, tag: 'retry', text: `auto retry${detail ? ` · ${detail}` : ''}`, createdAt: event.created_at });
+        break;
+      }
+      case 'auto_retry.finished': {
+        const ok = payload.success === true;
+        rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, tag: 'retry', text: ok ? 'auto retry · recovered' : 'auto retry · failed', createdAt: event.created_at });
+        break;
+      }
+      case 'provider.retry': {
+        const detail = text(payload.reason);
+        rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, tag: 'retry', text: `provider retry${detail ? ` · ${detail}` : ''}`, createdAt: event.created_at });
         break;
       }
       default:

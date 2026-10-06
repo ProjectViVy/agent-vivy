@@ -114,7 +114,16 @@ describe('foldRunEvents', () => {
 
   it('emits a compaction notice', () => {
     const rows = foldRunEvents('run-1', [event(1, 'context.compacted', { mode: 'auto', before_tokens: 900, after_tokens: 300 })]);
-    expect(rows[0]).toMatchObject({ kind: 'notice', text: 'auto · 900 → 300 tokens' });
+    expect(rows[0]).toMatchObject({ kind: 'notice', tag: 'compact', text: 'auto · 900 → 300 tokens' });
+  });
+
+  it('emits retry notices for the overflow recovery pair', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'auto_retry.started', { attempt: 1, reason: 'context_overflow: prompt too long' }),
+      event(2, 'auto_retry.finished', { attempt: 1, success: true }),
+    ]);
+    expect(rows[0]).toMatchObject({ kind: 'notice', tag: 'retry', text: 'auto retry · context_overflow: prompt too long' });
+    expect(rows[1]).toMatchObject({ kind: 'notice', tag: 'retry', text: 'auto retry · recovered' });
   });
 });
 

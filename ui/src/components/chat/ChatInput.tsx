@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
-  Paperclip, Send, Shield, ShieldCheck, Sparkles, Square, X,
+  Paperclip, Send, Shield, ShieldCheck, Shrink, Sparkles, Square, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -101,10 +103,14 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
 	const chooseWorkspace = useVivyStore((state) => state.chooseWorkspace);
+  const compactSession = useVivyStore((state) => state.compactSession);
   const draftReferences = useVivyStore((state) => state.draftReferences);
   const addDraftReference = useVivyStore((state) => state.addDraftReference);
   const removeDraftReference = useVivyStore((state) => state.removeDraftReference);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [compactOpen, setCompactOpen] = useState(false);
+  const [compactInstructions, setCompactInstructions] = useState('');
+  const [compacting, setCompacting] = useState(false);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
@@ -219,6 +225,26 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     if (!onDequeue) return;
     const text = await onDequeue();
     if (text) { setValue(text); textareaRef.current?.focus(); }
+  };
+
+  // D3: chat-level compact — popover anchored at the context meter; the
+  // optional instructions steer the summary focus (context/compact RPC).
+  const runCompact = async () => {
+    if (!activeSessionId || compacting) return;
+    setCompacting(true);
+    try {
+      const instructions = compactInstructions.trim();
+      const result = await compactSession(activeSessionId, instructions || undefined);
+      setCompactOpen(false);
+      setCompactInstructions('');
+      showNotice(result.skipped
+        ? t('chatInput.compactSkipped')
+        : t('chatInput.compactDone', { before: result.before_tokens.toLocaleString(dateTimeLocale()), after: result.after_tokens.toLocaleString(dateTimeLocale()) }));
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : t('chatInput.compactFailed'));
+    } finally {
+      setCompacting(false);
+    }
   };
 
   const applyPermission = async (preset: PermissionMode) => {
@@ -386,6 +412,23 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
+      {context?.compaction_enabled ? (
+        <Popover open={compactOpen} onOpenChange={setCompactOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" disabled={disabled || !activeSessionId || compacting} title={running ? t('chatInput.compactBusy') : t('chatInput.compact')} aria-label={t('chatInput.compact')} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50">
+              <Shrink className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" className="w-72 p-3">
+            <p className="text-sm font-medium">{t('chatInput.compact')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('chatInput.compactHint')}</p>
+            <Input value={compactInstructions} onChange={(event) => setCompactInstructions(event.target.value)} placeholder={t('chatInput.compactInstructionsPlaceholder')} className="mt-2 h-8 text-sm" aria-label={t('chatInput.compactInstructionsPlaceholder')} />
+            <Button type="button" size="sm" className="mt-2 w-full" disabled={compacting} onClick={() => void runCompact()}>
+              {compacting ? t('chatInput.compacting') : t('chatInput.compactNow')}
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
     <button type="button" onClick={() => void send('follow_up')} disabled={disabled || !canSend} className="rounded-full border border-border p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40" title={t('chatInput.sendAsFollowUp')} aria-label={t('chatInput.sendAsFollowUp')}><Clock className="h-4 w-4" /></button>

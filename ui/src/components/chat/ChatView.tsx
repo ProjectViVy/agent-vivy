@@ -188,7 +188,9 @@ function RunRowView({ row }: { row: RunRow }) {
   if (row.kind === 'assistant') return null;
   return (
     <div className="my-2 text-center text-[11px] text-muted-foreground">
-      {t('chat.toolCompacted', { detail: row.text === '' ? '' : ` · ${row.text}` })}
+      {row.kind === 'notice' && row.tag === 'retry'
+        ? row.text
+        : t('chat.toolCompacted', { detail: row.text === '' ? '' : ` · ${row.text}` })}
     </div>
   );
 }
