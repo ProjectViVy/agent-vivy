@@ -760,6 +760,36 @@ func Default() Config {
 	}
 }
 
+// BootConfigPath is the conventional working-directory config location a
+// boot entry point probes when VIVY_CONFIG is unset.
+const BootConfigPath = "config.yaml"
+
+// LoadBoot resolves the boot-time config once for every process entry
+// point: $VIVY_CONFIG when set (never falls back), ./config.yaml when it
+// exists, else validated built-in defaults. The source string reports
+// which branch produced the config: "env", "file" or "default".
+func LoadBoot() (Config, string, error) {
+	if path := os.Getenv("VIVY_CONFIG"); path != "" {
+		cfg, err := Load(path)
+		if err != nil {
+			return Config{}, "", err
+		}
+		return cfg, "env", nil
+	}
+	if _, err := os.Stat(BootConfigPath); err == nil {
+		cfg, err := Load(BootConfigPath)
+		if err != nil {
+			return Config{}, "", err
+		}
+		return cfg, "file", nil
+	}
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		return Config{}, "", err
+	}
+	return cfg, "default", nil
+}
+
 // Load reads the YAML document at path, decodes it strictly on top of
 // Default(), and validates the result. Unknown fields are hard errors.
 func Load(path string) (Config, error) {

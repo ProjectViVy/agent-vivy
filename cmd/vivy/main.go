@@ -118,16 +118,12 @@ func main() {
 // present; otherwise it falls back to the built-in defaults. A set
 // VIVY_CONFIG never falls back to the working directory.
 func loadConfig(logger *slog.Logger) (config.Config, error) {
-	if path := os.Getenv("VIVY_CONFIG"); path != "" {
-		return config.Load(path)
-	}
-	if _, err := os.Stat(configPath); err == nil {
-		return config.Load(configPath)
-	}
-	logger.Warn("config.yaml not found; using built-in defaults", "path", configPath)
-	cfg := config.Default()
-	if err := cfg.Validate(); err != nil {
+	cfg, source, err := config.LoadBoot()
+	if err != nil {
 		return config.Config{}, err
+	}
+	if source == "default" {
+		logger.Warn("config.yaml not found; using built-in defaults", "path", configPath)
 	}
 	return cfg, nil
 }
