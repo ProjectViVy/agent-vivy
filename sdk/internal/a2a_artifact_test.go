@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"context"
 	"fmt"
 	"io"
@@ -213,4 +214,156 @@ func freeTCPPort(t *testing.T) int {
 	}
 	defer lis.Close()
 	return lis.Addr().(*net.TCPAddr).Port
+}
+
+// TestA2ASelectedAndOmittedArtifacts proves physical selection and
+// physical omission in one fixture (A2A-06 plan Task .3 Step 1): the
+// a2a recipe's artifact carries the module, port edges, grants and SDK
+// dependency; the default and minimal recipes' artifacts carry none of
+// them — a successful default build alone is not omission evidence.
+func TestA2ASelectedAndOmittedArtifacts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("artifact packing skipped in -short mode")
+	}
+	root := t.TempDir()
+	repoRoot, err := findRepoRoot(".")
+	if err != nil {
+		t.Fatalf("repo root: %v", err)
+	}
+	pack := func(name string) Artifact {
+		t.Helper()
+		artifact, err := Pack(context.Background(), packOptions{
+			Recipe:  filepath.Join(repoRoot, "recipes", name+".vivy.yml"),
+			Output:  filepath.Join(root, name),
+			Sources: []string{filepath.Join(repoRoot, "plugins", "a2a-server")},
+		})
+		if err != nil {
+			t.Fatalf("pack %s: %v", name, err)
+		}
+		return artifact
+	}
+
+	selected := pack("a2a")
+	inspected, err := InspectArtifact(selected.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var module *assemblyv1.ManifestModule
+	for i := range inspected.Manifest.Modules {
+		if inspected.Manifest.Modules[i].ID == "projectvivy/a2a-server" {
+			module = &inspected.Manifest.Modules[i]
+		}
+	}
+	if module == nil {
+		t.Fatalf("selected artifact missing projectvivy/a2a-server: %+v", inspected.Manifest.Modules)
+	}
+	var sawProvides bool
+	for _, p := range module.Provides {
+		if p.Port == "std/channel@v1" && p.ID == "vivy.a2a" {
+			sawProvides = true
+		}
+	}
+	if !sawProvides {
+		t.Fatalf("selected module provides = %+v", module.Provides)
+	}
+	grants := map[string]bool{}
+	for _, g := range module.EffectiveGrants {
+		grants[string(g.Name)] = true
+	}
+	if !grants["channel.a2a"] || !grants["secret.read"] {
+		t.Fatalf("selected module grants = %+v", module.EffectiveGrants)
+	}
+	var sawEdge bool
+	for _, e := range inspected.Manifest.PortEdges {
+		if e.Provider == "projectvivy/a2a-server" && e.Consumer == "vivy/channel-host" && e.Port.ID == "vivy.a2a" {
+			sawEdge = true
+		}
+	}
+	if !sawEdge {
+		t.Fatalf("selected artifact missing a2a provider edge: %+v", inspected.Manifest.PortEdges)
+	}
+
+	// The generated binder and the built binary must carry the module:
+	// selection is physical, not just manifest metadata.
+	binder, err := os.ReadFile(filepath.Join(selected.Directory, "zz_assembly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{"a2aserver", "projectvivy/a2a-server"} {
+		if !strings.Contains(string(binder), needle) {
+			t.Fatalf("selected binder missing %q", needle)
+		}
+	}
+	if !strings.Contains(binaryBuildInfo(t, selected.Binary), "a2a-go") {
+		t.Fatal("selected binary build info lacks the a2a-go dependency")
+	}
+
+	// Physical omission: default and minimal artifacts must carry neither
+	// the module nor the official SDK dependency.
+	for _, name := range []string{"default", "minimal"} {
+		other := pack(name)
+		insp, err := InspectArtifact(other.Directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range insp.Manifest.Modules {
+			if m.ID == "projectvivy/a2a-server" {
+				t.Errorf("%s manifest retained a2a module", name)
+			}
+		}
+		for _, e := range insp.Manifest.PortEdges {
+			if e.Provider == "projectvivy/a2a-server" || e.Consumer == "projectvivy/a2a-server" {
+				t.Errorf("%s manifest retained a2a port edge: %+v", name, e)
+			}
+		}
+		b, err := os.ReadFile(filepath.Join(other.Directory, "zz_assembly.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, needle := range []string{"a2aserver", "projectvivy/a2a-server"} {
+			if strings.Contains(string(b), needle) {
+				t.Errorf("%s binder retained %q", name, needle)
+			}
+		}
+		if strings.Contains(binaryBuildInfo(t, other.Binary), "a2a-go") {
+			t.Errorf("%s binary retained the a2a-go dependency", name)
+		}
+	}
+
+	// The plugin keeps no server ownership and no Core imports: the Host
+	// owns the bind, and isolation stays inside the optional Module.
+	pluginDir := filepath.Join(repoRoot, "plugins", "a2a-server")
+	err = filepath.WalkDir(pluginDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, banned := range []string{"net.Listen", "ListenAndServe", "agent-vivy/internal"} {
+			if strings.Contains(string(body), banned) {
+				t.Errorf("plugin source %s references %q", path, banned)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// binaryBuildInfo returns the module/dependency metadata embedded in a
+// Go binary — the physical proof of what was actually compiled in.
+func binaryBuildInfo(t *testing.T, binary string) string {
+	t.Helper()
+	out, err := exec.Command("go", "version", "-m", binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go version -m %s: %v\n%s", binary, err, out)
+	}
+	return string(out)
 }
