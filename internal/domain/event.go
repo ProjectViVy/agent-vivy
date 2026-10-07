@@ -63,11 +63,15 @@ const (
 	EventSessionClonedFrom EventType = "session.cloned_from"
 	// EventSessionImported marks a session rebuilt from an external
 	// transcript (pi JSONL). It is the child's only provenance record.
-	EventSessionImported          EventType = "session.imported"
-	EventRunCompleted             EventType = "run.completed"
-	EventRunFailed                EventType = "run.failed"
-	EventRunCancelled             EventType = "run.cancelled"
-	EventChannelInbound           EventType = "channel.inbound"
+	EventSessionImported EventType = "session.imported"
+	EventRunCompleted    EventType = "run.completed"
+	EventRunFailed       EventType = "run.failed"
+	EventRunCancelled    EventType = "run.cancelled"
+	EventChannelInbound  EventType = "channel.inbound"
+	// EventChannelTaskAdmitted is the immutable acceptance evidence for one
+	// A2A-scoped admission: journaled in the same transaction as the primary
+	// run it names, immediately after run.started.
+	EventChannelTaskAdmitted      EventType = "channel.task_admitted"
 	EventContextReferenceAttached EventType = "context.reference_attached"
 	EventDeliverablesPresented    EventType = "deliverables.presented"
 	EventToolsExposureChanged     EventType = "tools.exposure_changed"
@@ -152,6 +156,7 @@ var EventTypes = []EventType{
 	EventRunFailed,
 	EventRunCancelled,
 	EventChannelInbound,
+	EventChannelTaskAdmitted,
 }
 
 // Valid reports whether the type is part of the vocabulary.

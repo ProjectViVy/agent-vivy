@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/channel.task_admitted.json",
+  "title": "channel.task_admitted payload (v1)",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Vivy session the external admission committed."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Native primary run opened for the accepted message (taskId)."
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Remote message ID the admission was keyed by."
+    }
+  },
+  "required": ["session_id", "run_id", "message_id"],
+  "additionalProperties": false
+}
