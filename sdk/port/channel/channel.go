@@ -210,5 +210,4 @@ func (e *HealthError) Unwrap() error { return e.Err }
 // while building the inspect surface. A nil error means healthy.
 type HealthChecker interface{ Health(context.Context) error }
 
-type TaskLifecycle interface{}
 type PipeServer interface{}

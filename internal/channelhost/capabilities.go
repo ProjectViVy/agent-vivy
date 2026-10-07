@@ -32,9 +32,10 @@ type Capabilities struct {
 	Stream bool
 	// Health maps plugin.HealthChecker ("可靠": platform health probe).
 	Health bool
-	// TaskLifecycle and PipeServer (A2A / NeuroLink, stage H) stay
-	// zero-method reserved slots in this generation: they are part of the
-	// ABI catalog but assert to nothing here and are not reported.
+	// TaskHost/TaskServiceInfoHost (A2A, design §5) live in the optional
+	// contract file sdk/port/channel/task.go and are asserted per adapter,
+	// not listed in this ABI catalog row; PipeServer (NeuroLink, stage H)
+	// stays a zero-method reserved slot and is not reported.
 }
 
 // capabilityTarget resolves the adapter object behind a bound channel by
