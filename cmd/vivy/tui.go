@@ -132,6 +132,7 @@ func remoteTUIOptions() (view.Options, error) {
 		Theme:           cfg.TUI.Theme,
 		ThemesDir:       filepath.Join(cfg.DataDirectory(), "themes"),
 		KeybindingsFile: filepath.Join(cfg.DataDirectory(), "keybindings.yaml"),
+		Images:          cfg.TUI.Images,
 	}, nil
 }
 

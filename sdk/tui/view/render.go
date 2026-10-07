@@ -911,6 +911,11 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 	}
 	appendChipLines(m.renderAttachmentChips(message.Attachments))
 	appendChipLines(m.renderFileContextChips(message.FileContexts))
+	for _, attachment := range message.Attachments {
+		if lines := m.renderImageAttachment(attachment, contentWidth); lines != nil {
+			bodyLines = append(bodyLines, lines...)
+		}
+	}
 	if len(bodyLines) == 0 {
 		bodyLines = []string{""}
 	}

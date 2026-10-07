@@ -143,6 +143,7 @@ type Model struct {
 	chatAssembly    *chatAssembly
 	mdCache         *messageMarkdownCache
 	keys            *Keymap
+	imageState      *imageCache
 	shortcutsOpen   bool
 	spinFrame       int
 
@@ -182,6 +183,9 @@ type Options struct {
 	// KeybindingsFile overrides action→chord bindings (keybindings.yaml).
 	// Missing or unreadable files fall back to defaults with a warning.
 	KeybindingsFile string
+	// Images controls inline terminal graphics: "auto" (detect), "on", or
+	// "off" (default chip rendering). Anything else is treated as auto.
+	Images string
 }
 
 // New returns a model bound to the given driver.
@@ -222,6 +226,11 @@ func New(driver surface.Driver, options ...Options) Model {
 		chatAssembly:    &chatAssembly{},
 		mdCache:         newMessageMarkdownCache(),
 		keys:            keys,
+		imageState: &imageCache{
+			protocol: resolveImageProtocol(opts.Images, os.Getenv),
+			byPath:   map[string]uint32{},
+			iterm:    map[string]string{},
+		},
 	}
 	startupWarnings := append(themeWarnings, keyWarnings...)
 	if len(startupWarnings) != 0 {
@@ -470,6 +479,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// One-shot kitty uploads piggyback on the command channel so frames emit
+	// only cheap placement sequences.
+	cmds = append(cmds, m.imageTransmitCmds()...)
 	return m, tea.Batch(cmds...)
 }
 

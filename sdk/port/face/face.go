@@ -61,7 +61,9 @@ type Options struct {
 	ThemesDir string
 	// KeybindingsFile is the operator action→chord override file
 	// (<agent home>/keybindings.yaml). Missing file = defaults.
-	KeybindingsFile   string
+	KeybindingsFile string
+	// Images gates inline terminal graphics: "auto" (default), "on", "off".
+	Images            string
 	ListModels        bool
 	ListModelsPattern string
 	Export            string

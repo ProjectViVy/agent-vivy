@@ -114,6 +114,9 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, opts plugin.
 	if opts.KeybindingsFile == "" {
 		opts.KeybindingsFile = filepath.Join(filepath.Dir(prepared.SharedSettingsPath), "keybindings.yaml")
 	}
+	if opts.Images == "" {
+		opts.Images = prepared.Config.TUI.Images
+	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}

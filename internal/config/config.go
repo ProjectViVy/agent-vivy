@@ -180,6 +180,9 @@ type TUI struct {
 	// detect, the default), "dark", "light", or a file name under
 	// <data dir>/themes/<name>.json.
 	Theme string `yaml:"theme"`
+	// Images controls inline terminal graphics: "auto" (protocol detect,
+	// the default), "on" (force kitty), or "off" (attachment chips only).
+	Images string `yaml:"images"`
 }
 
 // Logging configures the kernel's slog output (see internal/logging and
