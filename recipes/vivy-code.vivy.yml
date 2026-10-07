@@ -1,7 +1,10 @@
 apiVersion: vivy.generation/v1
 profile: vivy-code
-modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/protected-tools, vivy/mcp-host, vivy/face-host, vivy/tui]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/protected-tools, vivy/mcp-host, vivy/face-host, vivy/tui, vivy/local-llm]
 exclusive:
   std/face@v1: vivy/tui
 grantApprovals:
   - {module: vivy/tui, name: rpc.client}
+  - module: vivy/local-llm
+    name: net.client
+    constraints: {hosts: ["127.0.0.1", localhost, "::1"], schemes: [http], ports: ["8000", "8080", "11434", "1234"]}

@@ -1,0 +1,11 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/local-llm, version: 0.1.0}
+source: {ref: repo:plugins/coding/local-llm, sha256: 5f2eeb7ac084cab3bc50e6a9a472a4f1850250e28d6540a89c5826bce60a24eb}
+provides:
+  - {port: std/control-action@v1, id: local_llm.manage}
+  - {port: std/status-source@v1, id: vivy.local-llm.status}
+requires:
+  - {port: core/action-host@v1, provider: vivy/action-host}
+  - {port: core/status-host@v1, provider: vivy/status-host}
+requestedGrants: [net.client]
+lifecycle: {scope: generation}

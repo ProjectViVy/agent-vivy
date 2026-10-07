@@ -233,6 +233,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/vivy-masks-ui", importPath: "agent-vivy/plugins/vivy-masks-ui", pkg: "vivymasksui"},
 	{dir: "plugins/vivy-workflow", importPath: "agent-vivy/plugins/vivy-workflow", pkg: "vivyworkflow"},
 	{dir: "plugins/coding/session-tree", importPath: "agent-vivy/plugins/coding/session-tree", pkg: "sessiontree"},
+	{dir: "plugins/coding/local-llm", importPath: "agent-vivy/plugins/coding/local-llm", pkg: "localllm"},
 	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }
