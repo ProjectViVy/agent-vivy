@@ -50,6 +50,11 @@ type Notice struct {
 	Done          bool
 	Failed        bool
 	Message       string
+	// QueueTrack / QueueReason describe kernel turn.* queue events
+	// (turn.queued/turn.dequeued/turn.steered); Message carries the turn's
+	// text for dequeue/abort editor restore.
+	QueueTrack  string
+	QueueReason string
 }
 
 // ModelCompletionMetadata is the metadata-only model.completed v2 payload.
@@ -436,6 +441,14 @@ func Interpret(event Event) Notice {
 		base.Done = true
 		base.Failed = true
 		base.Message = "cancelled"
+		return base
+	case "turn.queued", "turn.dequeued", "turn.steered":
+		// Kernel dual-track queue events (VCP-B2): faces refresh lane counts
+		// and restore dequeued text to the composer.
+		base.Kind = "queue_" + strings.TrimPrefix(event.Type, "turn.")
+		base.QueueTrack = PayloadString(event.Payload, "track")
+		base.QueueReason = PayloadString(event.Payload, "reason")
+		base.Message = PayloadString(event.Payload, "text")
 		return base
 	default:
 		return base

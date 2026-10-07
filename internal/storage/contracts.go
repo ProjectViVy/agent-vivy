@@ -486,6 +486,10 @@ type TruncationStore interface {
 	// another rewind), and fork provenance anchors written later never
 	// resurrect earlier ranges nor do they filter.
 	ListViewTruncations(ctx context.Context, sessionID domain.SessionID) ([]SessionTruncation, error)
+	// ListSessionForkLinks returns every fork/forked-from provenance marker
+	// across ALL sessions in insertion order — the session-tree edge set
+	// (VCP C1). View-controlling markers are excluded.
+	ListSessionForkLinks(ctx context.Context) ([]SessionTruncation, error)
 }
 
 // HistoryMutationStore commits the multi-row history operations as one

@@ -57,7 +57,7 @@ func PublicCatalog() Catalog {
 		public("std/status-source@v1", CardinalityMany, "core/status-host@v1", false, module.GrantRPCClient),
 		public("std/ui-extension@v1", CardinalityMany, "core/presentation-host@v1", true),
 		public("std/ui-root@v1", CardinalityExclusive, "core/presentation-host@v1", false),
-		public("std/control-action@v1", CardinalityMany, "core/action-host@v1", false, module.GrantRPCClient),
+		public("std/control-action@v1", CardinalityMany, "core/action-host@v1", false, module.GrantRPCClient, module.GrantNetClient),
 	}}
 }
 

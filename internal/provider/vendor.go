@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"agent-vivy/internal/domain"
 )
 
 // This file is the single write point for provider configuration data
@@ -42,6 +44,28 @@ type Model struct {
 	OutputPerMTok    float64 `yaml:"output_per_mtok"`
 	SupportsImages   bool    `yaml:"supports_images"`
 	SupportsThinking bool    `yaml:"supports_thinking"`
+	// ThinkingLevels declares the effort levels the model accepts
+	// (minimal..max). Empty keeps the legacy auto/on/off surface.
+	ThinkingLevels []string `yaml:"thinking_levels"`
+	// DefaultThinking is the model's own default level, used when the run
+	// asks for "on"; must name a declared level when present.
+	DefaultThinking string `yaml:"default_thinking"`
+	// ThinkingSampling carries per-level sampling overrides merged into
+	// the request when that level is effective.
+	ThinkingSampling map[string]ModelSampling `yaml:"thinking_sampling"`
+	// SupportsWarming declares the provider accepts explicit prompt-cache
+	// refreshes for this model (Anthropic-family endpoints only).
+	SupportsWarming bool `yaml:"supports_warming"`
+	// CacheLifetimeSeconds is the cache TTL the warming scheduler
+	// refreshes before; required when supports_warming is set.
+	CacheLifetimeSeconds int `yaml:"cache_lifetime_seconds"`
+}
+
+// ModelSampling holds per-thinking-level sampling overrides. Pointers
+// keep an unset field distinct from a real 0 value.
+type ModelSampling struct {
+	Temperature *float64 `yaml:"temperature"`
+	TopP        *float64 `yaml:"top_p"`
 }
 
 // Endpoint is one wire protocol at one address for one vendor. Its identity
@@ -263,6 +287,36 @@ func validateEndpoint(vendor Vendor, endpoint Endpoint, where string, seenEndpoi
 		}
 		if model.ContextWindow < 0 || model.InputPerMTok < 0 || model.OutputPerMTok < 0 {
 			errs = append(errs, fmt.Errorf("%s: metadata must not be negative", modelWhere))
+		}
+		for _, level := range model.ThinkingLevels {
+			if !domain.ThinkingMode(level).IsLevel() {
+				errs = append(errs, fmt.Errorf("%s: thinking_levels entry %q is not a known level", modelWhere, level))
+			}
+		}
+		if model.DefaultThinking != "" && !domain.ThinkingMode(model.DefaultThinking).IsLevel() {
+			errs = append(errs, fmt.Errorf("%s: default_thinking %q is not a known level", modelWhere, model.DefaultThinking))
+		}
+		if model.DefaultThinking != "" && len(model.ThinkingLevels) > 0 {
+			declared := false
+			for _, level := range model.ThinkingLevels {
+				if level == model.DefaultThinking {
+					declared = true
+				}
+			}
+			if !declared {
+				errs = append(errs, fmt.Errorf("%s: default_thinking %q must appear in thinking_levels", modelWhere, model.DefaultThinking))
+			}
+		}
+		if model.SupportsWarming && model.CacheLifetimeSeconds <= 0 {
+			errs = append(errs, fmt.Errorf("%s: supports_warming requires a positive cache_lifetime_seconds", modelWhere))
+		}
+		if model.CacheLifetimeSeconds < 0 {
+			errs = append(errs, fmt.Errorf("%s: cache_lifetime_seconds must not be negative", modelWhere))
+		}
+		for level := range model.ThinkingSampling {
+			if !domain.ThinkingMode(level).IsLevel() {
+				errs = append(errs, fmt.Errorf("%s: thinking_sampling key %q is not a known level", modelWhere, level))
+			}
 		}
 	}
 	if endpoint.DefaultModel != "" && len(endpoint.Models) > 0 {

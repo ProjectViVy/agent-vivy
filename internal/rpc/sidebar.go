@@ -36,6 +36,11 @@ type sidebarResult struct {
 	Skills             []sidebarSkillResult         `json:"skills"`
 	LSPKnown           bool                         `json:"lsp_known"`
 	LSP                []sidebarLSPResult           `json:"lsp"`
+	// ToolsKnown/ToolCount expose the active tool-catalog size for the
+	// startup resource listing (VCP-G3). Unknown stays false rather than
+	// reporting a misleading zero.
+	ToolsKnown bool `json:"tools_known"`
+	ToolCount  int  `json:"tool_count,omitempty"`
 }
 
 type sidebarMCPResult struct {
@@ -243,6 +248,16 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 			result.LSP = append(result.LSP, sidebarLSPResult{Language: language, State: state})
 		}
 		sort.Slice(result.LSP, func(i, j int) bool { return result.LSP[i].Language < result.LSP[j].Language })
+	}
+	// Active tools follow the same overlay resolution as tools/list so the
+	// startup count matches the tool surface exactly. When settings cannot be
+	// read, fall back to the catalog size rather than hiding the fact.
+	if active, _, toolsErr := h.activeToolsFromOverlay(); toolsErr == nil {
+		result.ToolsKnown = true
+		result.ToolCount = len(active)
+	} else if catalog := h.toolCatalog(); len(catalog) > 0 {
+		result.ToolsKnown = true
+		result.ToolCount = len(catalog)
 	}
 	return result, nil
 }

@@ -35,6 +35,11 @@ var (
 	ErrInvalidWorld          = errors.New("invalid tool world binding")
 	ErrInvalidMiddleware     = errors.New("invalid middleware binding")
 	ErrStaleDiscovery        = errors.New("stale tool discovery")
+	// ErrToolNotActive rejects a model-path call to a tool that is not
+	// model-visible: exposure-hidden tools always, deferred tools until
+	// activated (tool_search or tools/activate). It never silently widens
+	// the call surface — internal callers (no ToolCallID) bypass the check.
+	ErrToolNotActive = errors.New("tool not active")
 )
 
 type Trust uint8

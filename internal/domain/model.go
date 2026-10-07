@@ -35,6 +35,31 @@ type ModelInfo struct {
 	// the conservative default: the UI hides the thinking selector and the
 	// run path sends no thinking option for unknown models.
 	SupportsThinking bool
+	// ThinkingLevels declares the effort levels the model accepts, in any
+	// order (minimal..max). Empty means the legacy auto/on/off surface —
+	// the run path honors an explicitly requested level anyway.
+	ThinkingLevels []string
+	// DefaultThinking is the model's own default level; empty means the
+	// provider default stands.
+	DefaultThinking string
+	// ThinkingSampling carries per-level sampling overrides (temperature,
+	// top_p) merged into the request when that level is effective.
+	ThinkingSampling map[string]ThinkingSampling
+	// SupportsWarming reports whether the model's provider accepts explicit
+	// prompt-cache refreshes (Anthropic-family only today). Zero-value
+	// (false) is the conservative default: the scheduler never warms an
+	// unknown model.
+	SupportsWarming bool
+	// CacheLifetimeSeconds is the provider's cache TTL the warming
+	// scheduler must refresh before (Anthropic ephemeral = 300).
+	CacheLifetimeSeconds int
+}
+
+// ThinkingSampling holds the sampling overrides a model declares for one
+// thinking level. Pointers keep "unset" distinct from a real 0 value.
+type ThinkingSampling struct {
+	Temperature *float64
+	TopP        *float64
 }
 
 // Valid reports whether the ModelInfo has been properly initialized with

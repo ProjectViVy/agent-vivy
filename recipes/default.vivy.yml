@@ -37,8 +37,9 @@ modules:
   - vivy/masks
   - vivy/masks-ui
   - vivy/workflow-ui
+  - vivy/session-tree
 order:
-  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook, vivy/masks-ui, vivy/workflow-ui]
+  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook, vivy/masks-ui, vivy/workflow-ui, vivy/session-tree]
 ui:
   sdkVersion: 1.0.0
   extensions:
@@ -48,6 +49,7 @@ ui:
     - {id: vivy.notebook.sidebar, moduleId: vivy/notebook, port: std/ui-extension@v1, entry: ./ui/vivy-notebook/src/index.tsx, export: extension}
     - {id: vivy.masks-ui.sidebar, moduleId: vivy/masks-ui, port: std/ui-extension@v1, entry: ./ui/vivy-masks/src/index.tsx, export: extension}
     - {id: vivy.workflow-ui.sidebar, moduleId: vivy/workflow-ui, port: std/ui-extension@v1, entry: ./ui/vivy-workflow/src/index.tsx, export: extension}
+    - {id: vivy.session-tree.page, moduleId: vivy/session-tree, port: std/ui-extension@v1, entry: ./ui/session-tree/src/index.tsx, export: extension}
 grantApprovals:
   - {module: vivy/dingtalk, name: channel.poll}
   - {module: vivy/dingtalk, name: secret.read}

@@ -138,7 +138,7 @@ func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 
 func TestDefaultGeneratedToolProvidersBindRuntimeImplementations(t *testing.T) {
 	assembly := genassembly.BuildDefault()
-	registry, err := bindGeneratedTools(assembly.Tools, tools.Builtin(nil))
+	registry, err := bindGeneratedTools(assembly.Tools, tools.Builtin(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestValidateRuntimeAssemblyRejectsTypedSourcesWithoutHosts(t *testing.T) {
 }
 
 func TestGeneratedToolInventoryIsAuthoritative(t *testing.T) {
-	registry, err := bindGeneratedTools(nil, tools.Builtin(nil))
+	registry, err := bindGeneratedTools(nil, tools.Builtin(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,9 @@ package command
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
 
 	corei18n "agent-vivy/internal/i18n"
 	tuii18n "agent-vivy/sdk/tui/i18n"
@@ -88,6 +90,50 @@ func FormatResultWithTranslator(translator tuii18n.Translator, name string, raw 
 		return translator.T("vivy.tui.result.files", nil) + "\n" + formatted
 	case "todos":
 		return translator.T("vivy.tui.result.todos", nil) + "\n" + formatted
+	case "export":
+		if path, _ := value["path"].(string); path != "" {
+			return translator.T("vivy.tui.result.exported", map[string]any{"path": path})
+		}
+	case "import":
+		var result struct {
+			SessionID string `json:"session_id"`
+			Imported  int    `json:"imported"`
+			Skipped   int    `json:"skipped"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(raw), &result) == nil && result.SessionID != "" {
+			return translator.T("vivy.tui.result.imported", map[string]any{"imported": result.Imported, "skipped": result.Skipped, "session": result.SessionID})
+		}
+	case "bug":
+		if path, _ := value["path"].(string); path != "" {
+			return translator.T("vivy.tui.result.bugBundle", map[string]any{"path": path})
+		}
+	case "debug":
+		var page struct {
+			Records []struct {
+				At        *int64 `json:"at"`
+				Level     string `json:"level"`
+				Component string `json:"component"`
+				Message   string `json:"message"`
+			} `json:"records"`
+			Gap     bool `json:"gap"`
+			HasMore bool `json:"has_more"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(raw), &page) == nil {
+			var b strings.Builder
+			b.WriteString(translator.T("vivy.tui.result.debugLog", nil))
+			b.WriteByte('\n')
+			for _, record := range page.Records {
+				at := "-"
+				if record.At != nil {
+					at = time.UnixMilli(*record.At).UTC().Format("15:04:05.000")
+				}
+				fmt.Fprintf(&b, "%s %-5s %s %s\n", at, record.Level, record.Component, record.Message)
+			}
+			if page.Gap {
+				b.WriteString("…\n")
+			}
+			return truncate(strings.TrimRight(b.String(), "\n"))
+		}
 	}
 	return formatted
 }

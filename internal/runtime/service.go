@@ -167,6 +167,10 @@ type ServiceDeps struct {
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
 	Truncations storage.TruncationStore
+	// ExportDir is the instance directory session/export writes standalone
+	// HTML transcripts into (VCP C1). Empty leaves session/export
+	// unavailable; the tree, clone, and import paths are unaffected.
+	ExportDir string
 	// Continuity commits task admissions and guarded operations atomically
 	// (SC-D4 §7/§9). Nil keeps ordinary submission working; a continuity
 	// submission then fails unavailable instead of silently degrading to a
@@ -226,6 +230,14 @@ type ServiceDeps struct {
 	// the composition root so settings saves can hot-swap compaction
 	// middleware; nil disables ScheduleEngineReload.
 	RebuildEngine func(ctx context.Context, cfg EngineConfig) (*Engine, error)
+	// CacheWarmingMode selects the prompt-cache warming trigger
+	// (runtime.cache_warming): "off", "streaming", or "idle". Empty keeps
+	// the "streaming" default; "off" makes the scheduler inert.
+	CacheWarmingMode string
+	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
+	// which a warm is skipped; the token-count proxy covers unpriced
+	// models (runtime.cache_warming_min_savings).
+	CacheWarmingMinSavingsUSD float64
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -288,6 +300,18 @@ type Service struct {
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
+	// queues holds per-session dual-track turn queues (VCP-B1).
+	queues map[domain.SessionID]*sessionQueue
+	// toolActivations caches each session's deferred-tool activation set
+	// (VCP-E2), folded once from the session's journals and updated live
+	// by the journal pipeline and the tools/activate control path. Its own
+	// mutex avoids ordering against s.mu/projectionMu.
+	toolActivationMu sync.Mutex
+	toolActivations  map[domain.SessionID]*tools.ToolActivation
+	// steerCancels holds the adk boundary-cancel handle per live run; armed
+	// marks a boundary cancel triggered by a steer (vs a user abort).
+	steerCancels map[domain.RunID]adk.AgentCancelFunc
+	steerArmed   map[domain.RunID]bool
 	// runTools pins the compiler/runtime-selected ToolHost surface for each
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
@@ -314,6 +338,14 @@ type Service struct {
 	// lastCompaction is process-local observability for the UI (the
 	// durable record lives in the journal as context.compacted events).
 	lastCompaction map[domain.SessionID]*LastCompaction
+	// overflowRecovered marks runs that already spent their single
+	// compact-and-retry recovery (VCP-D2); entries die in cleanupRunState.
+	overflowRecovered map[domain.RunID]bool
+	// overflowAwaiting records a dispatched recovery attempt (run → attempt)
+	// whose auto_retry.finished the consume loop still owes the journal:
+	// cleared on the first event after the retried call resolves, or on the
+	// run's terminal error.
+	overflowAwaiting map[domain.RunID]int
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
@@ -461,41 +493,53 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	if deps.PrimaryRuns == nil {
 		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
 	}
-	return &Service{
-		engine:           eng,
-		deps:             deps,
-		provider:         provider,
-		modelID:          modelID,
-		defaultProfile:   deps.PolicyDefaultProfile,
-		approvalSettle:   deps.ApprovalSettleTimeout,
-		active:           make(map[domain.RunID]context.CancelFunc),
-		operationFlights: make(map[string]*toolOperationFlight),
-		goalStarting:     make(map[domain.SessionID]struct{}),
-		goalRuns:         make(map[domain.SessionID]domain.RunID),
-		goalDisarmed:     make(map[domain.SessionID]struct{}),
-		planTransitions:  make(map[domain.SessionID]uint64),
-		planCancelling:   make(map[domain.SessionID]uint64),
-		goalRunSessions:  make(map[domain.RunID]domain.SessionID),
-		goalRunRefs:      make(map[domain.RunID]domain.GoalRef),
-		admissionLocks:   make(map[domain.SessionID]*sync.Mutex),
-		humanIntentLocks: make(map[domain.SessionID]*sync.Mutex),
-		goalWakeRunning:  make(map[domain.SessionID]struct{}),
-		goalWakePending:  make(map[domain.SessionID]struct{}),
-		runSessions:      make(map[domain.RunID]domain.SessionID),
-		deletedSessions:  make(map[domain.SessionID]struct{}),
-		pending:          make(map[domain.RunID]pendingRun),
-		shellPending:     make(map[domain.RunID]shellPendingRun),
-		shellStates:      make(map[string]shellState),
-		ledgers:          make(map[domain.RunID]*BudgetLedger),
-		snapshots:        make(map[domain.RunID]domain.PolicySnapshot),
-		runTools:         make(map[domain.RunID]map[string]struct{}),
-		contextViews:     make(map[domain.RunID]string),
-		lastCompaction:   make(map[domain.SessionID]*LastCompaction),
-		humanPending:     make(map[domain.SessionID]int),
-		workFenced:       make(map[domain.RunID]struct{}),
-		workGates:        make(map[domain.RunID]*sync.Mutex),
-		workBlockedCalls: make(map[domain.RunID]map[string]struct{}),
+	svc := &Service{
+		engine:            eng,
+		deps:              deps,
+		provider:          provider,
+		modelID:           modelID,
+		defaultProfile:    deps.PolicyDefaultProfile,
+		approvalSettle:    deps.ApprovalSettleTimeout,
+		active:            make(map[domain.RunID]context.CancelFunc),
+		operationFlights:  make(map[string]*toolOperationFlight),
+		goalStarting:      make(map[domain.SessionID]struct{}),
+		goalRuns:          make(map[domain.SessionID]domain.RunID),
+		goalDisarmed:      make(map[domain.SessionID]struct{}),
+		planTransitions:   make(map[domain.SessionID]uint64),
+		planCancelling:    make(map[domain.SessionID]uint64),
+		goalRunSessions:   make(map[domain.RunID]domain.SessionID),
+		goalRunRefs:       make(map[domain.RunID]domain.GoalRef),
+		admissionLocks:    make(map[domain.SessionID]*sync.Mutex),
+		humanIntentLocks:  make(map[domain.SessionID]*sync.Mutex),
+		goalWakeRunning:   make(map[domain.SessionID]struct{}),
+		goalWakePending:   make(map[domain.SessionID]struct{}),
+		runSessions:       make(map[domain.RunID]domain.SessionID),
+		deletedSessions:   make(map[domain.SessionID]struct{}),
+		pending:           make(map[domain.RunID]pendingRun),
+		shellPending:      make(map[domain.RunID]shellPendingRun),
+		shellStates:       make(map[string]shellState),
+		ledgers:           make(map[domain.RunID]*BudgetLedger),
+		snapshots:         make(map[domain.RunID]domain.PolicySnapshot),
+		queues:            make(map[domain.SessionID]*sessionQueue),
+		toolActivations:   make(map[domain.SessionID]*tools.ToolActivation),
+		steerCancels:      make(map[domain.RunID]adk.AgentCancelFunc),
+		steerArmed:        make(map[domain.RunID]bool),
+		runTools:          make(map[domain.RunID]map[string]struct{}),
+		contextViews:      make(map[domain.RunID]string),
+		lastCompaction:    make(map[domain.SessionID]*LastCompaction),
+		overflowRecovered: make(map[domain.RunID]bool),
+		overflowAwaiting:  make(map[domain.RunID]int),
+		humanPending:      make(map[domain.SessionID]int),
+		workFenced:        make(map[domain.RunID]struct{}),
+		workGates:         make(map[domain.RunID]*sync.Mutex),
+		workBlockedCalls:  make(map[domain.RunID]map[string]struct{}),
 	}
+	if eng != nil {
+		// VCP-D2: bind the compact-and-retry decider into the agent's
+		// ModelRetryConfig slot; nil-safe, one recovery per run.
+		eng.SetRetryDecider(svc.overflowRetryDecision)
+	}
+	return svc
 }
 
 // sessionAdmission returns the process-local startup gate for one session.
@@ -754,6 +798,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	if s.deps.Deliverables != nil {
 		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
+	s.dropSessionToolActivation(id)
 	return nil
 }
 
@@ -1298,6 +1343,8 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	runCtx = domain.WithThinkingMode(runCtx, thinking)
+	providerLabel, modelLabel := s.CurrentModel()
+	runCtx = domain.WithRunLabels(runCtx, domain.RunLabels{Provider: providerLabel, Model: modelLabel})
 	selectedToolSet := make(map[string]struct{})
 	for _, name := range s.engine.SelectTools().Names() {
 		selectedToolSet[name] = struct{}{}
@@ -2879,6 +2926,10 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		mounts = tools.NewMountedTools()
 	}
 	runCtx = tools.WithMountedTools(runCtx, mounts)
+	// Deferred-tool activation: the session tracker is journal-folded once
+	// and shared by every run of the session; the activation middleware and
+	// the governedTool call-time check read the same object live.
+	runCtx = tools.WithToolActivation(runCtx, s.sessionToolActivation(ctx, sessionID))
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkControl(runCtx, s)
@@ -2892,7 +2943,10 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil)
+	// The cache warmer (VCP F2) binds before the observer so settled
+	// calls feed it; nil when the run's model or config opts out.
+	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, selection.Names())
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
 	// context so in-context seams share exactly this instance.
@@ -2906,7 +2960,14 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 			return
 		}
 	}
-	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	var steerCancel adk.AgentCancelFunc
+	cancelOpt, steerCancel := adk.WithCancel()
+	if steerCancel != nil {
+		s.mu.Lock()
+		s.steerCancels[m.runID] = steerCancel
+		s.mu.Unlock()
+	}
+	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)), cancelOpt)
 	var beforeComplete func() error
 	if execution.child != nil {
 		beforeComplete = func() error { return s.consumeChildMailboxSafePoint(runCtx, execution.child) }
@@ -2927,7 +2988,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 // The factory binds the run's routes: the chat route resolves to
 // "main" or "child" from the execution context; the summary routes are
 // claimed by the wrapped summarizer models in compaction_middleware.go.
-func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool) context.Context {
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
@@ -2940,11 +3001,15 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 				model = m.summaryModel
 			}
 		}
-		return &runModelCallObserver{
+		observer := &runModelCallObserver{
 			svc: s, m: m, sessionID: sessionID, ledger: ledger,
 			source: source, provider: provider, model: model,
 			onDelta: onDelta, calls: map[string]*observedModelCall{},
 		}
+		if source != modelCallSourceSummary {
+			observer.warmer = warmer
+		}
+		return observer
 	})
 }
 
@@ -2964,6 +3029,10 @@ type runModelCallObserver struct {
 	provider  string
 	model     string
 	onDelta   func(string)
+	// warmer is the run's cache-warming scheduler (VCP F2); nil when
+	// config or the model's declared capabilities opt out. Summary-route
+	// observers never carry one.
+	warmer *runCacheWarmer
 
 	mu    sync.Mutex
 	calls map[string]*observedModelCall
@@ -3122,6 +3191,11 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 	}
 	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
 		return errors.New("runtime: model call finish event could not be journaled")
+	}
+	if o.warmer != nil && result.Err == nil && usage != nil {
+		if sample, ok := usage.sample(); ok {
+			o.warmer.settled(sample)
+		}
 	}
 	return nil
 }
@@ -3411,7 +3485,17 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 	for {
 		ev, ok := iter.Next()
 		if !ok {
+			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+				// The iterator closed while a recovery retry was in flight:
+				// the retried call never resolved, so close the pair honestly.
+				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
+			}
 			break
+		}
+		if ev.Err == nil {
+			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, true)
+			}
 		}
 		persistStopped := false
 		err := m.onEventEach(ev, func(events []domain.RunEvent) error {
@@ -3482,6 +3566,18 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			// VCP-B1: a steer-armed boundary cancel surfaces as a checkpoint
+			// interrupt, not a CancelError. Consume it here: resume the
+			// checkpoint with the steered message injected via a
+			// HistoryModifier — same run, turn.steered continuity marker.
+			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+				// The resume leg must NOT run inside the cancelled run's own
+				// consume — Runner.Resume serializes on the checkpoint while
+				// this iterator is still open (same reason approval resumes
+				// drive from the responding goroutine, not the suspended leg).
+				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+				return
+			}
 			if state != nil {
 				state.Abort(errRunInterrupted)
 			}
@@ -3489,6 +3585,16 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if err != nil {
+			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
+			}
+			// VCP-B1: a steer-triggered boundary cancel is not a run failure.
+			// Resume the checkpoint with the steered message injected into
+			// history — same run, single turn.steered continuity marker.
+			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+				return
+			}
 			if state != nil {
 				state.Abort(err)
 			}
@@ -3538,6 +3644,26 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 	if execution.child == nil {
 		s.maybeAutoTitle(ctx, sessionID)
 	}
+}
+
+// takeOverflowAwaiting reports and clears a dispatched overflow recovery
+// attempt (VCP-D2). The decider sets it when granting the retry; the
+// consume loop closes the auto_retry pair on the first outcome.
+func (s *Service) takeOverflowAwaiting(runID domain.RunID) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt, ok := s.overflowAwaiting[runID]
+	if ok {
+		delete(s.overflowAwaiting, runID)
+	}
+	return attempt, ok
+}
+
+// emitAutoRetryFinished journals the outcome of an overflow recovery
+// attempt (VCP-D2): success on the first event after the retried call
+// resumes, failure when the retry itself errors or the stream ends.
+func (s *Service) emitAutoRetryFinished(ctx context.Context, m *eventMapper, sessionID domain.SessionID, attempt int, success bool) {
+	s.persistAndPublish(ctx, sessionID, m.build(domain.EventAutoRetryFinished, payloadAutoRetryFinished{Attempt: attempt, Success: success}))
 }
 
 // reserveMappedBudget charges durable non-terminal events and the logical
@@ -4512,7 +4638,10 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	if execution.child != nil {
 		onDelta = execution.child.appendOutput
 	}
-	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil)
+	// The resume leg binds its own cache warmer (VCP F2): the prior leg's
+	// scheduler died with its context.
+	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, selectedTools)
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
@@ -4526,9 +4655,15 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	ctx = withNudgeState(ctx, state)
 	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	cancelOpt, steerCancel := adk.WithCancel()
+	if steerCancel != nil {
+		s.mu.Lock()
+		s.steerCancels[runID] = steerCancel
+		s.mu.Unlock()
+	}
 	iter, err := eng.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
-	})
+	}, cancelOpt)
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
@@ -4755,6 +4890,11 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		return false
 	}
 	re.Seq = seq
+	// tool_search completions widen the session's deferred-tool activation
+	// synchronously — the next model leg may already call a matched tool.
+	if re.Type == domain.EventToolFinished {
+		s.noteToolSearchMatches(sessionID, re.Payload)
+	}
 	if !sessionMessageProjectionDisabled(ctx) && (re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished) {
 		projectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 		err := s.projectRunMessagesLocked(projectCtx, sessionID, re.RunID)
@@ -4823,6 +4963,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
 	}
+	delete(s.steerCancels, terminal.RunID)
+	delete(s.steerArmed, terminal.RunID)
 	if pending, ok := s.shellPending[terminal.RunID]; ok {
 		delete(s.shellPending, terminal.RunID)
 		shellStateRefToDelete = pending.stateRef
@@ -4848,6 +4990,18 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// A completed human turn, or a failed/cancelled turn that created
 		// the current Goal, releases the session for the next candidate.
 		s.wakeGoal(runSession, false)
+	}
+	// VCP-B1: a settling human turn admits the follow-up lane (steer items
+	// left behind demote into it); a user abort flushes both lanes instead —
+	// pi semantics: queued text returns to the caller via turn.dequeued, not
+	// into a run the user just cancelled. Goal/cron runs are excluded.
+	if runSession != "" && goalSession == "" {
+		switch terminal.Type {
+		case domain.EventRunCompleted, domain.EventRunFailed:
+			s.drainFollowUps(runSession, terminal.RunID)
+		case domain.EventRunCancelled:
+			s.flushQueue(runSession)
+		}
 	}
 }
 
@@ -4875,6 +5029,8 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
+	delete(s.overflowRecovered, runID)
+	delete(s.overflowAwaiting, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }
@@ -4926,6 +5082,10 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 				Mode: event.Mode, BeforeTokens: event.BeforeTokens, AfterTokens: event.AfterTokens,
 				DroppedMessages: event.DroppedMessages, RetentionSuffix: event.RetentionSuffix,
 			}
+		case domain.EventAutoRetryStarted:
+			payload = payloadAutoRetryStarted{Attempt: event.Attempt, Reason: event.Reason}
+		case domain.EventAutoRetryFinished:
+			payload = payloadAutoRetryFinished{Attempt: event.Attempt, Success: event.Success}
 		default:
 			return fmt.Errorf("runtime: unsupported governance event %q", event.Type)
 		}

@@ -7,12 +7,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/theme"
 )
 
 func streamTestEntry(t *testing.T, id string) *streamEntry {
 	t.Helper()
-	t.Cleanup(func() { delete(streamEntries, streamEntryKey{id: id}) })
-	entry, ok := streamEntries[streamEntryKey{id: id}]
+	key := streamEntryKey{id: id, theme: theme.Dark().ID()}
+	t.Cleanup(func() { delete(streamEntries, key) })
+	entry, ok := streamEntries[key]
 	if !ok {
 		t.Fatal("stream entry missing after render")
 	}
@@ -22,7 +24,7 @@ func streamTestEntry(t *testing.T, id string) *streamEntry {
 func TestStreamMarkdownPromotesSafeBoundaryAcrossFlushes(t *testing.T) {
 	id := "stream-promote"
 	first := "# Heading\n\nFirst paragraph"
-	if _, err := streamMarkdownRender(id, first, 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, first, 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	entry := streamTestEntry(t, id)
@@ -32,7 +34,7 @@ func TestStreamMarkdownPromotesSafeBoundaryAcrossFlushes(t *testing.T) {
 
 	// A flush with no new blank line must keep the cache and render only the
 	// trailing delta.
-	if _, err := streamMarkdownRender(id, first+" extended", 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, first+" extended", 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	if entry.stablePrefix != "# Heading\n\n" {
@@ -40,7 +42,7 @@ func TestStreamMarkdownPromotesSafeBoundaryAcrossFlushes(t *testing.T) {
 	}
 
 	second := first + "\n\nSecond paragraph arrives"
-	out, err := streamMarkdownRender(id, second, 40, false)
+	out, err := streamMarkdownRender(id, second, 40, false, theme.Dark())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestStreamMarkdownPromotesSafeBoundaryAcrossFlushes(t *testing.T) {
 func TestStreamMarkdownNeverCutsInsideOpenFence(t *testing.T) {
 	id := "stream-fence"
 	content := "```\ncode line 1\n\ncode line 2\n"
-	if _, err := streamMarkdownRender(id, content, 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, content, 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	entry := streamTestEntry(t, id)
@@ -74,7 +76,7 @@ func TestStreamMarkdownNeverCutsInsideOpenFence(t *testing.T) {
 
 	// A closed fence followed by prose is a safe boundary again.
 	closed := "```go\nfmt.Println()\n```\n\nAfter the fence"
-	if _, err := streamMarkdownRender(id, closed, 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, closed, 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	if entry.stablePrefix != "```go\nfmt.Println()\n```\n\n" {
@@ -84,7 +86,7 @@ func TestStreamMarkdownNeverCutsInsideOpenFence(t *testing.T) {
 
 func TestStreamMarkdownResetsOnWidthChangeAndRewrite(t *testing.T) {
 	id := "stream-reset"
-	if _, err := streamMarkdownRender(id, "one\n\ntwo", 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, "one\n\ntwo", 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	entry := streamTestEntry(t, id)
@@ -93,7 +95,7 @@ func TestStreamMarkdownResetsOnWidthChangeAndRewrite(t *testing.T) {
 	}
 
 	// Rewritten content that does not extend the prefix drops the cache.
-	if _, err := streamMarkdownRender(id, "different document\n\nbody", 40, false); err != nil {
+	if _, err := streamMarkdownRender(id, "different document\n\nbody", 40, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	if entry.stablePrefix != "different document\n\n" {
@@ -101,7 +103,7 @@ func TestStreamMarkdownResetsOnWidthChangeAndRewrite(t *testing.T) {
 	}
 
 	// A width change resets the entry for the new wrap width.
-	if _, err := streamMarkdownRender(id, "different document\n\nbody again", 60, false); err != nil {
+	if _, err := streamMarkdownRender(id, "different document\n\nbody again", 60, false, theme.Dark()); err != nil {
 		t.Fatal(err)
 	}
 	if entry.width != 60 {
@@ -134,7 +136,8 @@ func TestFindSafeMarkdownBoundaryHazards(t *testing.T) {
 
 func TestStreamingMessageRendersThroughCache(t *testing.T) {
 	id := "stream-message"
-	t.Cleanup(func() { delete(streamEntries, streamEntryKey{id: id}) })
+	key := streamEntryKey{id: id, theme: theme.Dark().ID()}
+	t.Cleanup(func() { delete(streamEntries, key) })
 	lines := (Model{}).renderMessage(surface.Message{
 		ID: id, Role: surface.RoleAssistant, Content: "# Live\n\nStreaming body", Streaming: true,
 	}, 80, DefaultPalette())
@@ -142,7 +145,7 @@ func TestStreamingMessageRendersThroughCache(t *testing.T) {
 	if !strings.Contains(stripped, "Live") || !strings.Contains(stripped, "Streaming body") {
 		t.Fatalf("streaming message lost markdown content:\n%s", stripped)
 	}
-	if entry := streamEntries[streamEntryKey{id: id}]; entry == nil {
+	if entry := streamEntries[key]; entry == nil {
 		t.Fatal("streaming message did not use the streaming cache")
 	}
 }

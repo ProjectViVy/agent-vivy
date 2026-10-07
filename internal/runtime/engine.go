@@ -126,16 +126,29 @@ type EngineConfig struct {
 type Engine struct {
 	runner *adk.Runner
 	cfg    EngineConfig
+	// agentName is the root ChatModelAgent's name — its resume-data address
+	// segment ("agent:<name>") when steer resumes inject history modifiers.
+	agentName string
 	// chatModel is the wrapped provider model; the service reuses it for
 	// session-level summary generation (context/compact).
 	chatModel model.ToolCallingChatModel
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
 	toolSpecs []domain.ToolSpec
+	// instruction is the static system prompt every model call starts
+	// with; the cache warmer (VCP F2) needs it to rebuild the warmable
+	// prefix.
+	instruction string
+	// toolInfos mirrors every bound tool's wire schema by name so a warm
+	// request can carry the run's selected surface.
+	toolInfos map[string]*schema.ToolInfo
 	// activeTools is the config-resolved surface bound on every request,
 	// in registry order.
 	activeTools []tools.Tool
 	toolByName  map[string]tools.Tool
+	// setRetryDecider fills the late-bound VCP-D2 decider slot captured by
+	// the agent's ModelRetryConfig.ShouldRetry closure.
+	setRetryDecider func(ModelRetryDecider)
 }
 
 // EngineFactory pins the production LoopDriver to the Eino v0.9.13 APIs used
@@ -217,6 +230,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
 	hiddenInfos := make(map[string]*schema.ToolInfo, len(cfg.HiddenTools))
 	hiddenOrder := make([]string, 0, len(cfg.HiddenTools))
+	// deferred infos feed the activation middleware: a session-activated
+	// deferred tool's schema is rehydrated on every model call (Eino's own
+	// forward selection only covers names matched inside this run's
+	// conversation). suppressedTools stay executable but are never
+	// disclosed to the model.
+	deferredInfos := make(map[string]*schema.ToolInfo)
+	deferredOrder := make([]string, 0)
+	suppressedTools := make(map[string]struct{})
+	allToolInfos := make(map[string]*schema.ToolInfo, len(ts)+len(cfg.HiddenTools))
 	for _, t := range ts {
 		if t == nil {
 			return nil, errors.New("runtime: nil active tool")
@@ -231,10 +253,21 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
 		specs = append(specs, spec)
 		byName[spec.Name] = t
-		if isFixedVisibleTool(spec.Name) {
+		info, err := adapter.Info(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: tool %q info: %w", spec.Name, err)
+		}
+		allToolInfos[spec.Name] = info
+		switch tools.ResolveToolExposure(spec) {
+		case domain.ToolExposureHidden:
+			suppressedTools[spec.Name] = struct{}{}
 			staticTools = append(staticTools, adapter)
-		} else {
+		case domain.ToolExposureDeferred:
+			deferredInfos[spec.Name] = info
+			deferredOrder = append(deferredOrder, spec.Name)
 			dynamicTools = append(dynamicTools, adapter)
+		default:
+			staticTools = append(staticTools, adapter)
 		}
 	}
 	for _, t := range cfg.HiddenTools {
@@ -254,6 +287,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, fmt.Errorf("runtime: hidden tool %q info: %w", spec.Name, err)
 		}
 		staticTools = append(staticTools, adapter)
+		allToolInfos[spec.Name] = info
 		hiddenInfos[spec.Name] = info
 		hiddenOrder = append(hiddenOrder, spec.Name)
 		byName[spec.Name] = t
@@ -315,6 +349,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if searchHandler != nil {
 		handlers = append(handlers, searchHandler)
 	}
+	// Session activation sits next to the dynamic search middleware: the
+	// search exposes tools discovered inside this run, the activation
+	// projection rehydrates tools activated for the whole session.
+	if len(deferredInfos) > 0 {
+		handlers = append(handlers, newActivatedToolVisibilityMiddleware(deferredInfos, deferredOrder))
+	}
+	if len(suppressedTools) > 0 {
+		handlers = append(handlers, newSuppressedToolVisibilityMiddleware(suppressedTools))
+	}
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
@@ -339,6 +382,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		agentName = "task-child"
 		agentDescription = "Bounded task runner."
 	}
+	// VCP-D2: the overflow retry decider is service-bound (it needs Messages,
+	// Compactions, and the run's governance sink), which is not constructed
+	// until after the engine. The slot is filled by Engine.SetRetryDecider;
+	// a nil decider accepts every call as-is (no retry).
+	var retryDecider ModelRetryDecider
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:          agentName,
 		Description:   agentDescription,
@@ -346,6 +394,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		GenModelInput: literalGenModelInput,
 		Model:         observeChatModel(m),
 		Handlers:      handlers,
+		ModelRetryConfig: &adk.ModelRetryConfig{
+			MaxRetries: 1,
+			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+				if retryDecider == nil {
+					return nil
+				}
+				return retryDecider(ctx, rc)
+			},
+		},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
 		},
@@ -368,7 +425,22 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
+	eng := &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, instruction: instruction, toolInfos: allToolInfos, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}
+	eng.setRetryDecider = func(d ModelRetryDecider) { retryDecider = d }
+	return eng, nil
+}
+
+// ModelRetryDecider is the VCP-D2 overflow-recovery hook: the service binds
+// its compact-and-retry decider after the engine exists. The signature uses
+// ADK types because it is invoked verbatim by ModelRetryConfig.ShouldRetry.
+type ModelRetryDecider func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision
+
+// SetRetryDecider binds the overflow recovery decider (nil decider = every
+// model error propagates as before). Called once by the service at wiring.
+func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
+	if e != nil && e.setRetryDecider != nil {
+		e.setRetryDecider(d)
+	}
 }
 
 const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."

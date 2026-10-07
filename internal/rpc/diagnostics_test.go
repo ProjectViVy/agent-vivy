@@ -97,6 +97,62 @@ func TestDiagnosticsRPCInvalidParams(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsBundleRPC(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := logging.NewDiagnostics(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	bundleDir := filepath.Join(t.TempDir(), "exports")
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.Diagnostics = svc
+		deps.DiagnosticsBundleDir = bundleDir
+	})
+
+	date := time.Now().Format("2006-01-02")
+	writeDiagLog(t, dir, logging.FilePrefix, date, `{"level":"INFO","msg":"bundle line"}`)
+
+	result, rpcErr := callControl(t, env.handler, "diagnostics/bundle", map[string]string{"session_id": "sess-x"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	payload := result.(map[string]any)
+	path := payload["path"].(string)
+	if filepath.Dir(path) != bundleDir || !strings.HasPrefix(filepath.Base(path), "bug-sess-x-") {
+		t.Fatalf("path = %q", path)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{"# Vivy bug report", "session_id: sess-x", "bundle line"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("bundle missing %q:\n%s", want, text)
+		}
+	}
+
+	// Capabilities advertise the verb only when the dir is wired.
+	caps, rpcErr := callControl(t, env.handler, "capabilities", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if !strings.Contains(fmt.Sprintf("%v", caps), "diagnostics.bundle") {
+		t.Fatalf("capabilities = %v", caps)
+	}
+
+	// Unwired dir and missing diagnostics both report MethodNotFound.
+	noDir := newControlTestEnv(t, func(deps *ControlDeps) { deps.Diagnostics = svc }).handler
+	if _, rpcErr = callControl(t, noDir, "diagnostics/bundle", map[string]string{}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unwired dir = %+v", rpcErr)
+	}
+	bare := newControlTestEnv(t).handler
+	if _, rpcErr = callControl(t, bare, "diagnostics/bundle", map[string]string{}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unwired diagnostics = %+v", rpcErr)
+	}
+}
+
 func writeDiagLog(t *testing.T, dir, prefix, date, line string) {
 	t.Helper()
 	path := filepath.Join(dir, fmt.Sprintf("%s.%s", prefix, date))

@@ -107,6 +107,11 @@ const defaultMaxToolTurns = 8
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
 
+// defaultCacheWarmingMinSavingsUSD is the avoided re-read cost a warm
+// must beat before the scheduler spends a request on it (pi's ≈$0.05
+// floor, kept as a fixed floor rather than a derived one).
+const defaultCacheWarmingMinSavingsUSD = 0.05
+
 const (
 	maxMCPArgs       = 128
 	maxMCPArgBytes   = 4096
@@ -171,6 +176,13 @@ type Config struct {
 type TUI struct {
 	// Debug shows complete tool results. The default keeps tool cards bounded.
 	Debug bool `yaml:"debug"`
+	// Theme selects the terminal palette: "auto" (terminal background
+	// detect, the default), "dark", "light", or a file name under
+	// <data dir>/themes/<name>.json.
+	Theme string `yaml:"theme"`
+	// Images controls inline terminal graphics: "auto" (protocol detect,
+	// the default), "on" (force kitty), or "off" (attachment chips only).
+	Images string `yaml:"images"`
 }
 
 // Logging configures the kernel's slog output (see internal/logging and
@@ -293,6 +305,24 @@ type Runtime struct {
 	// such as go test or git clone; values above the runtime hard cap are
 	// rejected so a typo cannot silently re-clamp the ceiling.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+	// ShellCommandPrefix (VCP-E1) is prepended to every bash invocation and
+	// wraps commandline argv, e.g. "set -euo pipefail &&" or a nix-shell
+	// enter line. It is trusted operator config, never model-visible input.
+	ShellCommandPrefix string `yaml:"shell_command_prefix"`
+	// ToolOutputSpillBytes bounds each process output stream kept inline;
+	// beyond it the full stream spills to <workspace>/.vivy/tool-output/.
+	// Non-positive keeps the 64 KiB default; larger values are clamped.
+	ToolOutputSpillBytes int `yaml:"tool_output_spill_bytes"`
+	// CacheWarming selects the prompt-cache warming scheduler: "off",
+	// "streaming" (refresh after each settled model call), or "idle"
+	// (refresh before the model's declared cache lifetime expires).
+	// Warming only runs for models declaring supports_warming; it costs
+	// one extra minimal request per refresh.
+	CacheWarming string `yaml:"cache_warming"`
+	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
+	// which a warm is skipped; non-positive keeps the 0.05 default. When
+	// the model is unpriced a token-count proxy applies instead.
+	CacheWarmingMinSavingsUSD float64 `yaml:"cache_warming_min_savings"`
 	// Compaction controls automatic context compression (Eino native
 	// reduction + summarization middlewares).
 	Compaction CompactionConfig `yaml:"compaction"`
@@ -376,6 +406,18 @@ type CompactionConfig struct {
 	// remains the automatic one-shot failover when the summary model
 	// errors.
 	SummaryModel string `yaml:"summary_model"`
+	// PerModel overrides selected fields when the active route's model ID
+	// matches the key. Operator default; the settings overlay merges on top
+	// per key.
+	PerModel map[string]CompactionOverride `yaml:"per_model,omitempty"`
+}
+
+// CompactionOverride overrides selected compaction fields for one model.
+// Zero values inherit the global policy.
+type CompactionOverride struct {
+	MaxTokens      int `yaml:"max_tokens,omitempty"`
+	TriggerPercent int `yaml:"trigger_percent,omitempty"`
+	KeepRecent     int `yaml:"keep_recent,omitempty"`
 }
 
 // DefaultCompactionConfig returns the safe built-in compaction defaults.
@@ -414,6 +456,11 @@ type MCPServer struct {
 	// Enabled defaults to true when omitted. Settings overlays may carry an
 	// explicit false through startup.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// ToolExposure maps glob patterns matched against this server's
+	// discovered tool ids to an exposure level (direct, model-only,
+	// deferred, hidden). First matching pattern wins; unmatched tools keep
+	// the runtime default.
+	ToolExposure map[string]string `yaml:"tool_exposure,omitempty"`
 }
 
 // SandboxConfig controls the file-effect policy boundary (D-021). It
@@ -465,6 +512,16 @@ type Tools struct {
 	// environment-only (D-010) — this field never holds them.
 	NetworkSearch NetworkSearchConfig `yaml:"network_search"`
 	Approval      Approval            `yaml:"approval"`
+	// Exposure pins a tool's model-visibility level by name:
+	// direct (always disclosed), model-only (model-visible, never
+	// human-invokable), deferred (withheld until tool_search or
+	// tools/activate), or hidden (internal callers only). Unlisted tools
+	// keep the runtime default split.
+	Exposure map[string]string `yaml:"exposure,omitempty"`
+	// DeferredTools is sugar for exposure: deferred — candidates are
+	// low-frequency tools such as sequential_thinking or job_output/
+	// job_kill that cost catalog tokens on every call while rarely used.
+	DeferredTools []string `yaml:"deferred_tools,omitempty"`
 }
 
 // NetworkSearchConfig selects the preferred network_search provider.
@@ -614,27 +671,29 @@ func Default() Config {
 			Active: "deepseek",
 		},
 		Runtime: Runtime{
-			StreamBuffer:             256,
-			MaxEventPayloadBytes:     65536,
-			MaxToolTurns:             defaultMaxToolTurns,
-			MaxContextBytes:          defaultMaxContextBytes,
-			MaxHistoryMessages:       defaultMaxHistoryMessages,
-			MaxToolResultBytes:       32 << 10,
-			MaxRunEvents:             defaultMaxRunEvents,
-			MaxModelCalls:            defaultMaxModelCalls,
-			MaxRunToolCalls:          defaultMaxRunToolCalls,
-			MaxRunRetries:            defaultMaxRunRetries,
-			WorkspaceRoot:            filepath.Join(root, "workspace"),
-			World:                    "sandbox",
-			SkillsRoot:               filepath.Join(root, "skills"),
-			SkillsMarketplaceURL:     DefaultSkillsMarketplaceURL,
-			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
-			HTTPMaxResponseBytes:     1 << 20,
-			HTTPTimeoutSeconds:       10,
-			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
-			ExecuteMaxTimeoutSeconds: 30,
-			Compaction:               DefaultCompactionConfig(),
-			Cron:                     CronConfig{Enabled: true},
+			StreamBuffer:              256,
+			MaxEventPayloadBytes:      65536,
+			MaxToolTurns:              defaultMaxToolTurns,
+			MaxContextBytes:           defaultMaxContextBytes,
+			MaxHistoryMessages:        defaultMaxHistoryMessages,
+			MaxToolResultBytes:        32 << 10,
+			MaxRunEvents:              defaultMaxRunEvents,
+			MaxModelCalls:             defaultMaxModelCalls,
+			MaxRunToolCalls:           defaultMaxRunToolCalls,
+			MaxRunRetries:             defaultMaxRunRetries,
+			WorkspaceRoot:             filepath.Join(root, "workspace"),
+			World:                     "sandbox",
+			SkillsRoot:                filepath.Join(root, "skills"),
+			SkillsMarketplaceURL:      DefaultSkillsMarketplaceURL,
+			HTTPAllowedHosts:          []string{"localhost", "127.0.0.1", "::1"},
+			HTTPMaxResponseBytes:      1 << 20,
+			HTTPTimeoutSeconds:        10,
+			ExecuteAllowedCommands:    []string{"go", "git", "rg"},
+			ExecuteMaxTimeoutSeconds:  30,
+			CacheWarming:              "streaming",
+			CacheWarmingMinSavingsUSD: defaultCacheWarmingMinSavingsUSD,
+			Compaction:                DefaultCompactionConfig(),
+			Cron:                      CronConfig{Enabled: true},
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",
@@ -839,6 +898,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.ExecuteMaxTimeoutSeconds <= 0 || c.Runtime.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
 		return fmt.Errorf("runtime.execute_max_timeout_seconds must be between 1 and %d seconds", maxExecuteTimeoutSeconds)
+	}
+	switch c.Runtime.CacheWarming {
+	case "off", "streaming", "idle":
+	default:
+		return fmt.Errorf("runtime.cache_warming %q must be off, streaming, or idle", c.Runtime.CacheWarming)
+	}
+	if c.Runtime.CacheWarmingMinSavingsUSD < 0 {
+		return errors.New("runtime.cache_warming_min_savings must not be negative")
 	}
 	if c.Runtime.Compaction.MaxTokens < 0 {
 		return errors.New("runtime.compaction.max_tokens must not be negative")

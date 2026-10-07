@@ -2265,6 +2265,19 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 			t.Fatalf("%s fold = %d rows, want unfiltered (provenance markers filter nothing)", reason, len(kept))
 		}
 	}
+	// The session-tree edge set: only fork/forked-from markers, every
+	// session, insertion order. Recorded so far: the sess-tw fork anchor.
+	forkLinks, err := b.ListSessionForkLinks(ctx)
+	if err != nil || len(forkLinks) != 1 || forkLinks[0].SessionID != "sess-tw" || forkLinks[0].ForkSessionID != "sess-fk" {
+		t.Fatalf("ListSessionForkLinks = %+v, %v; want the single sess-tw→sess-fk edge", forkLinks, err)
+	}
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: "sess-fk", CutoffMessageID: "msg-4", TailMessageID: "msg-4", Reason: storage.TruncationForkedFrom, ForkSessionID: "sess-tw", CreatedAt: 500}); err != nil {
+		t.Fatalf("RecordSessionTruncation forked-from anchor: %v", err)
+	}
+	forkLinks, err = b.ListSessionForkLinks(ctx)
+	if err != nil || len(forkLinks) != 2 || forkLinks[1].SessionID != "sess-fk" || forkLinks[1].Reason != storage.TruncationForkedFrom {
+		t.Fatalf("ListSessionForkLinks after forked-from = %+v, %v; want edge + back-anchor in insertion order", forkLinks, err)
+	}
 	failOpen := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationRewind, CutoffMessageID: "msg-gone"})
 	if len(failOpen) != len(messages) {
 		t.Fatalf("stale-cutoff fold = %d rows, want unfiltered (fail-open)", len(failOpen))

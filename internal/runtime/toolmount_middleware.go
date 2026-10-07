@@ -9,27 +9,87 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-// fixedVisibleToolNames is the intentionally small, always-disclosed core.
-// The names are product surface, not a search catalog: only tools that are
-// actually enabled are included by NewEngine. Everything else active is
-// supplied to Eino's dynamic tool-search middleware.
-var fixedVisibleToolNames = map[string]struct{}{
-	tools.AskUserName:     {},
-	tools.ListDirName:     {},
-	tools.ReadFileName:    {},
-	tools.SearchFilesName: {},
-	tools.SkillsListName:  {},
-	tools.SkillViewName:   {},
-	tools.WriteFileName:   {},
-	tools.PatchName:       {},
-	tools.MultiEditName:   {},
-	tools.ExecuteName:     {},
-	tools.BashName:        {},
+// suppressedToolVisibilityMiddleware strips ToolInfos for tools that must
+// stay executable inside the agent but never be disclosed to the model —
+// exposure-hidden tools (the deferred/hidden contract). They are absent
+// from the dynamic search catalog too, so a model-side call can only be a
+// hallucinated name; governedTool then rejects it with tool_not_active.
+type suppressedToolVisibilityMiddleware struct {
+	*adk.BaseChatModelAgentMiddleware
+	names map[string]struct{}
 }
 
-func isFixedVisibleTool(name string) bool {
-	_, ok := fixedVisibleToolNames[name]
-	return ok
+func newSuppressedToolVisibilityMiddleware(names map[string]struct{}) adk.ChatModelAgentMiddleware {
+	return &suppressedToolVisibilityMiddleware{
+		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
+		names:                        names,
+	}
+}
+
+func (m *suppressedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+	if state == nil {
+		return ctx, state, nil
+	}
+	kept := state.ToolInfos[:0]
+	for _, info := range state.ToolInfos {
+		if info == nil {
+			continue
+		}
+		if _, hidden := m.names[info.Name]; hidden {
+			continue
+		}
+		kept = append(kept, info)
+	}
+	state.ToolInfos = kept
+	return ctx, state, nil
+}
+
+// activatedToolVisibilityMiddleware projects the session's tool-activation
+// set (tools/activate and earlier tool_search results, journal-folded) onto
+// the model's ToolInfos. Activated deferred tools are rehydrated on every
+// model generation — mirroring the mounted-visibility rehydration pattern,
+// which is required because Eino persists the previous rewrite.
+type activatedToolVisibilityMiddleware struct {
+	*adk.BaseChatModelAgentMiddleware
+	deferred      map[string]*schema.ToolInfo
+	deferredOrder []string
+}
+
+func newActivatedToolVisibilityMiddleware(deferred map[string]*schema.ToolInfo, order []string) adk.ChatModelAgentMiddleware {
+	return &activatedToolVisibilityMiddleware{
+		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
+		deferred:                     deferred,
+		deferredOrder:                append([]string(nil), order...),
+	}
+}
+
+func (m *activatedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+	if state == nil {
+		return ctx, state, nil
+	}
+	activation := tools.ToolActivationFromContext(ctx)
+	if activation == nil {
+		return ctx, state, nil
+	}
+	existing := make(map[string]struct{}, len(state.ToolInfos))
+	for _, info := range state.ToolInfos {
+		if info != nil {
+			existing[info.Name] = struct{}{}
+		}
+	}
+	for _, name := range m.deferredOrder {
+		if !activation.Has(name) {
+			continue
+		}
+		if _, duplicate := existing[name]; duplicate {
+			continue
+		}
+		if info := m.deferred[name]; info != nil {
+			existing[name] = struct{}{}
+			state.ToolInfos = append(state.ToolInfos, info)
+		}
+	}
+	return ctx, state, nil
 }
 
 // mountedToolVisibilityMiddleware projects Vivy's Skill mount state onto the

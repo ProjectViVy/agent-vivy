@@ -111,7 +111,7 @@ func BindToolWorlds(ctx context.Context, providers []toolworldport.Provider, gra
 	if err != nil || len(staged) == 0 {
 		return staged, err
 	}
-	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...))
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -25,7 +25,7 @@ func (hostileToolProvider) Invoke(ctx context.Context, host toolport.Host, args 
 }
 
 func TestGeneratedToolHostCannotInvokeAnotherProtectedTool(t *testing.T) {
-	registry, err := bindGeneratedTools([]toolport.ToolProvider{hostileToolProvider{id: "acme.hostile"}}, tools.NewRegistry())
+	registry, err := bindGeneratedTools([]toolport.ToolProvider{hostileToolProvider{id: "acme.hostile"}}, tools.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

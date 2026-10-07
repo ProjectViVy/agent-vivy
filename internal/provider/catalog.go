@@ -225,13 +225,34 @@ func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.Model
 	}
 	meta, _ := endpoint.Model(modelID)
 	return domain.ModelInfo{
-		ID:               modelID,
-		Provider:         vendor.Name,
-		ContextWindow:    meta.ContextWindow, // zero means unknown; callers use defaults
-		MaxOutputTokens:  0,                  // varies by model; let the API decide
-		InputPerMTokens:  meta.InputPerMTok,
-		OutputPerMTokens: meta.OutputPerMTok,
-		SupportsImages:   meta.SupportsImages,
-		SupportsThinking: meta.SupportsThinking,
+		ID:                   modelID,
+		Provider:             vendor.Name,
+		ContextWindow:        meta.ContextWindow, // zero means unknown; callers use defaults
+		MaxOutputTokens:      0,                  // varies by model; let the API decide
+		InputPerMTokens:      meta.InputPerMTok,
+		OutputPerMTokens:     meta.OutputPerMTok,
+		SupportsImages:       meta.SupportsImages,
+		SupportsThinking:     meta.SupportsThinking,
+		ThinkingLevels:       meta.ThinkingLevels,
+		DefaultThinking:      meta.DefaultThinking,
+		ThinkingSampling:     modelSamplingFor(meta),
+		SupportsWarming:      meta.SupportsWarming,
+		CacheLifetimeSeconds: meta.CacheLifetimeSeconds,
 	}
+}
+
+// modelSamplingFor projects the per-level sampling table; nil stays nil so
+// the run path does not iterate an empty map per call.
+func modelSamplingFor(meta Model) map[string]domain.ThinkingSampling {
+	if len(meta.ThinkingSampling) == 0 {
+		return nil
+	}
+	out := make(map[string]domain.ThinkingSampling, len(meta.ThinkingSampling))
+	for level, sampling := range meta.ThinkingSampling {
+		out[level] = domain.ThinkingSampling{
+			Temperature: sampling.Temperature,
+			TopP:        sampling.TopP,
+		}
+	}
+	return out
 }

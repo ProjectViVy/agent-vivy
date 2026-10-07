@@ -91,6 +91,16 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 	for it.Next() {
 		re := it.Value().Event
 		switch re.Type {
+		case domain.EventRunStarted:
+			// `!!` no-context shell runs journal for the transcript only;
+			// their tool rows must never enter the model feed.
+			var p payloadRunStarted
+			if err := json.Unmarshal(re.Payload, &p); err != nil {
+				return nil, fmt.Errorf("decode run.started seq %d: %w", re.Seq, err)
+			}
+			if p.NoContext {
+				return nil, nil
+			}
 		case domain.EventModelRequest:
 			pending.Reset()
 		case domain.EventModelDelta:
