@@ -45,6 +45,24 @@ The directory is a source boundary, not an execution boundary. One directory
 has one Module identity but may provide several cohesive public Ports. A module
 that mixes unrelated products should be split.
 
+### 2.1 Placement categories
+
+Plugins live under category directories that name *which Recipe boundary*
+drops them, not what team owns them:
+
+| Directory | Boundary | Contents |
+|---|---|---|
+| `plugins/infra/` | local infrastructure mode | local daemon discovery/health/lifecycle (e.g. `infra/llm`; future asr/tts/vad) |
+| `plugins/coding/` | programming-specialized mode | lsp, session-tree, coding tools |
+| `plugins/provider/` | cloud provider adapters | future OAuth/credential flows |
+| `plugins/<name>/` (flat) | species features | channels, UI extensions, governance |
+
+Capability that **every** Generation selects is "universal" and stays in
+`internal/` — it is kernel inventory, not a plugin. The test is selection:
+if no real Recipe would ever drop it, making it a Module buys digest and
+descriptor maintenance for zero variation. Extract only when a concrete
+Recipe boundary is identified.
+
 Public Go code imports only versioned public SDK packages. It MUST NOT import:
 
 - `agent-vivy/internal/*`;
