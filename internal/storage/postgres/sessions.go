@@ -171,8 +171,20 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	if err != nil {
 		return err
 	}
+	now := time.Now().UnixMilli()
 	for i := len(subtree) - 1; i >= 0; i-- {
 		sessionID := subtree[i]
+		// A2A-02.3: tombstone channel-task ownership and receipts before
+		// deleting the linked rows — the dedup key and dead address space
+		// must survive the session.
+		for _, tombstone := range []string{
+			`UPDATE channel_task_contexts SET deleted_at = ? WHERE session_id = ? AND deleted_at IS NULL`,
+			`UPDATE channel_task_receipts SET deleted_at = ? WHERE session_id = ? AND deleted_at IS NULL`,
+		} {
+			if _, err := tx.ExecContext(ctx, tombstone, now, sessionID); err != nil {
+				return fmt.Errorf("storage: tombstone channel task rows %s: %w", sessionID, err)
+			}
+		}
 		for _, stmt := range []struct{ sql string }{
 			{`DELETE FROM session_work_events WHERE session_id = ?`},
 			{`DELETE FROM channel_deliveries WHERE session_id = ?`},
