@@ -58,6 +58,9 @@ func TestA2AModuleComposition(t *testing.T) {
 	if len(d.Requires) != 1 || d.Requires[0].Port != "core/channel-host@v1" {
 		t.Fatalf("requires = %+v", d.Requires)
 	}
+	if len(d.RequestedGrants) != 2 || d.RequestedGrants[0] != module.GrantChannelA2A || d.RequestedGrants[1] != module.GrantSecretRead {
+		t.Fatalf("requested grants = %+v", d.RequestedGrants)
+	}
 
 	provider := NewProvider()
 	if provider == nil || provider.Definition().ID != "vivy.a2a" {

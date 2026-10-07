@@ -82,7 +82,9 @@ func (guardInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext,
 	return ctx, nil, nil
 }
 
-func (guardInterceptor) After(context.Context, *a2asrv.CallContext, *a2asrv.Response) error { return nil }
+func (guardInterceptor) After(context.Context, *a2asrv.CallContext, *a2asrv.Response) error {
+	return nil
+}
 
 // checkSendMessage enforces the caller-message contract before admission:
 // user role, non-empty text-only parts, and no tenant/extension/reference
@@ -328,7 +330,6 @@ func (h *requestHandler) streamUpdates(ctx context.Context, stream channel.TaskS
 				TaskID:    a2a.TaskID(taskID),
 				ContextID: contextID,
 				Status:    mapTaskStatus(*up.Status),
-
 			}
 		case up.Artifact != nil:
 			ev = &a2a.TaskArtifactUpdateEvent{

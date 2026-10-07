@@ -38,7 +38,7 @@ func (vivyModule) Descriptor() module.Descriptor {
 		Requires: []module.Requirement{
 			{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"},
 		},
-		RequestedGrants: []module.Grant{module.GrantChannelPoll},
+		RequestedGrants: []module.Grant{module.GrantChannelA2A, module.GrantSecretRead},
 		Lifecycle:       module.Lifecycle{Scope: module.ScopeGeneration},
 	}
 }

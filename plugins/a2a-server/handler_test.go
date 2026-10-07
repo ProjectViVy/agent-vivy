@@ -2,10 +2,10 @@ package a2aserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"iter"
-	"encoding/json"
 	"net/http/httptest"
 	"sync"
 	"testing"
