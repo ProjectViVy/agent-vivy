@@ -126,6 +126,10 @@ type Sidebar struct {
 	SkillsKnown        bool
 	LSP                []LanguageServer
 	LSPKnown           bool
+	// ToolsKnown/ToolCount report the active tool catalog size for the
+	// startup resource listing (VCP-G3).
+	ToolsKnown bool
+	ToolCount  int
 }
 
 // ToolCard is an inline tool result / pending approval inside the chat.

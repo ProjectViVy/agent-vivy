@@ -146,6 +146,15 @@ type Model struct {
 	shortcutsOpen   bool
 	spinFrame       int
 
+	// Transcript search (G3): a one-line query row; searchMatches indexes the
+	// active message list and searchCursor tracks the current jump target.
+	searchOpen        bool
+	searchQuery       string
+	searchMatches     []int
+	searchCursor      int
+	searchSavedScroll int
+	searchSavedFollow bool
+
 	gateID           string
 	gateScroll       int
 	gateHorizontal   int
@@ -416,6 +425,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = msg.Text + " " + m.input
 			}
 		}
+	case externalEditorResultMsg:
+		if msg.err != nil {
+			m = m.showCommandResult(m.translator.T("vivy.tui.dialog.editor", nil),
+				m.translator.T("vivy.tui.editor.error", map[string]any{"error": msg.err.Error()}))
+		} else {
+			m.input = msg.content
+			m.closeFileCompletion()
+		}
 	}
 	if m.sidebarFocused && !m.sidebarCanScroll() {
 		m.sidebarFocused = false
@@ -634,6 +651,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.shortcutsOpen {
 		m.shortcutsOpen = false
 	}
+	if gate != nil && m.searchOpen {
+		m.searchOpen = false
+	}
 	if gate == nil && m.dynamicCommandPending && msg.Type == tea.KeyEsc {
 		// Abort the RPC first so the editor unlock is immediate instead of
 		// waiting out the server timeout, then invalidate the stale result.
@@ -657,6 +677,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, nil
+	}
+	if gate == nil && m.searchOpen {
+		return m.handleSearchKey(msg)
 	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
@@ -962,6 +985,33 @@ func (m Model) runBoundAction(action string, msg tea.KeyMsg) (Model, tea.Cmd, bo
 			m.clampChatScroll()
 		}
 		return m, nil, true
+	case "search":
+		if gate == nil {
+			return m.openSearch(), nil, true
+		}
+		return m, nil, true
+	case "prompt_prev":
+		if gate == nil && !m.sidebarFocused {
+			return m.jumpToUserMessage(-1), nil, true
+		}
+		return m, nil, true
+	case "prompt_next":
+		if gate == nil && !m.sidebarFocused {
+			return m.jumpToUserMessage(1), nil, true
+		}
+		return m, nil, true
+	case "copy_last":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.copyLastAssistant()
+		return next, cmd, true
+	case "external_editor":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.openExternalEditor()
+		return next, cmd, true
 	}
 	return m, nil, false
 }

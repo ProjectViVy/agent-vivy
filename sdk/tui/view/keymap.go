@@ -50,6 +50,11 @@ var defaultKeyBindings = []struct {
 	{"page_down", []string{"pgdown"}},
 	{"top", []string{"home"}},
 	{"bottom", []string{"end"}},
+	{"search", []string{"ctrl+f"}},
+	{"prompt_prev", []string{"ctrl+up"}},
+	{"prompt_next", []string{"ctrl+down"}},
+	{"copy_last", []string{"alt+c"}},
+	{"external_editor", []string{"ctrl+e"}},
 }
 
 // DefaultKeymap returns the built-in bindings.

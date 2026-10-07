@@ -291,6 +291,8 @@ type sidebarView struct {
 	Skills             []sidebarSkillView `json:"skills"`
 	LSPKnown           bool               `json:"lsp_known"`
 	LSP                []sidebarLSPView   `json:"lsp"`
+	ToolsKnown         bool               `json:"tools_known"`
+	ToolCount          int                `json:"tool_count,omitempty"`
 }
 
 type dynamicCommandView struct {
@@ -511,6 +513,8 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 			snapshot.LSP = append(snapshot.LSP, surface.LanguageServer{Language: server.Language, State: server.State})
 		}
 	}
+	snapshot.ToolsKnown = view.ToolsKnown
+	snapshot.ToolCount = view.ToolCount
 	return snapshot
 }
 

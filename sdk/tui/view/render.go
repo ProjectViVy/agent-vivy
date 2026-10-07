@@ -737,10 +737,17 @@ func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 			segment = m.renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
 			m.mdCache.put(message, width, segment)
 		}
-		if index < len(messages)-1 {
-			segment = append(append([]string(nil), segment...), "")
+		// OSC8 hyperlinks wrap rendered URLs so supporting terminals make
+		// them clickable. Cached segments are pre-link; linkify here so the
+		// markdown cache stores the shared pre-escape form.
+		linked := make([]string, len(segment))
+		for i, line := range segment {
+			linked[i] = linkifyOSC8(line)
 		}
-		segments = append(segments, segment)
+		if index < len(messages)-1 {
+			linked = append(linked, "")
+		}
+		segments = append(segments, linked)
 	}
 	assembly.sessionID = m.driver.Active().ID
 	assembly.width = width
@@ -827,10 +834,33 @@ func (m Model) renderEmptyHero(p Palette, width int) []string {
 	if cwd := strings.TrimSpace(m.driver.Sidebar().CWD); cwd != "" {
 		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.cwd", map[string]any{"path": cwd}), width)))
 	}
+	if counts := m.heroCountsLine(); counts != "" {
+		lines = append(lines, p.Dim.Render(truncate(counts, width)))
+	}
 	return append(lines,
 		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.commands", nil), width)),
 		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.toggles", nil), width)),
 	)
+}
+
+// heroCountsLine is the pi-style startup resource listing under the hero:
+// skills, active tools, MCP servers and sessions. Counts render only for the
+// facts the sidebar projection actually reported; unknown facts are skipped
+// rather than shown as zero.
+func (m Model) heroCountsLine() string {
+	snapshot := m.driver.Sidebar()
+	parts := make([]string, 0, 4)
+	if snapshot.SkillsKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.skills", map[string]any{"count": len(snapshot.Skills)}))
+	}
+	if snapshot.ToolsKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.tools", map[string]any{"count": snapshot.ToolCount}))
+	}
+	if snapshot.MCPKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.mcp", map[string]any{"count": len(snapshot.MCP)}))
+	}
+	parts = append(parts, m.translator.T("vivy.tui.hero.sessions", map[string]any{"count": len(m.driver.Sessions())}))
+	return strings.Join(parts, "  ·  ")
 }
 
 func (m Model) renderMessage(message surface.Message, width int, p Palette) []string {
@@ -936,6 +966,11 @@ func (m Model) renderTool(tool *surface.ToolCard, width int, p Palette) []string
 const compactToolResultLines = 8
 
 func (m Model) renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugToolOutput bool) []string {
+	if renderer := lookupToolRenderer(tool.ToolName); renderer != nil {
+		if lines := renderer(tool, width, p); lines != nil {
+			return lines
+		}
+	}
 	style := p.Tool
 	icon := "●"
 	switch tool.Status {
@@ -1120,6 +1155,17 @@ func (m Model) renderEditor(width int, p Palette) string {
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
+	}
+	if m.searchOpen {
+		// Transcript search replaces the composer with a one-line query row.
+		count := m.translator.T("vivy.tui.search.none", nil)
+		if n := len(m.searchMatches); n > 0 {
+			count = m.translator.T("vivy.tui.search.match", map[string]any{"index": m.searchCursor + 1, "count": n})
+		}
+		row := p.Prompt.Render("/ ") + sanitizeFileCompletionText(m.searchQuery) + p.Dim.Render("█") +
+			"  " + p.Dim.Render(count) + "  " + p.Dim.Render(m.translator.T("vivy.tui.search.hint", nil))
+		boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
+		return m.composerBoxStyle(p).Width(boxWidth).Render(truncate(row, inner))
 	}
 	lines := []string{m.renderComposerChips(inner, p)}
 	if chips := m.renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
