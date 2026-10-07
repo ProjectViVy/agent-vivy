@@ -3629,6 +3629,30 @@ func (h *controlHandler) attachBackground(ctx context.Context, request Request) 
 	return backgroundResult{ID: run.ID, SessionID: run.SessionID, Status: run.Status, CreatedAt: run.CreatedAt, WorkspaceID: workspace.ID}, nil
 }
 
+// projectContextRoot resolves the filesystem root that turn/start
+// context_paths binds to: the session's durable WorkspacePath when set, else
+// the process project root. The session lookup happens before any file is
+// opened so an unknown session cannot probe project paths.
+func (h *controlHandler) projectContextRoot(ctx context.Context, sessionID string) (string, *Error) {
+	if err := ctx.Err(); err != nil {
+		return "", &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	session, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(sessionID))
+	if errors.Is(err, storage.ErrNotFound) {
+		return "", &Error{Code: CodeNotFound, Message: "session not found"}
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", &Error{Code: InvalidParams, Message: err.Error()}
+		}
+		return "", internalError(err)
+	}
+	if root := strings.TrimSpace(session.WorkspacePath); root != "" {
+		return root, nil
+	}
+	return h.deps.ProjectRoot, nil
+}
+
 func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseTurnParams(request)
 	if rpcErr != nil {
@@ -3653,7 +3677,11 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	var fileContexts []domain.FileContext
 	if len(params.ContextPaths) > 0 {
-		resolved, err := resolveProjectContextsWithContext(ctx, h.deps.ProjectRoot, params.ContextPaths)
+		root, rpcErr := h.projectContextRoot(ctx, params.SessionID)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		resolved, err := resolveProjectContextsWithContext(ctx, root, params.ContextPaths)
 		if err != nil {
 			return nil, &Error{Code: InvalidParams, Message: err.Error()}
 		}
