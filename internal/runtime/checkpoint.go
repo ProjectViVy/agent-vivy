@@ -24,6 +24,10 @@ var (
 	// by a different eino build; eino's checkpoint format carries no
 	// compatibility promise, so reads refuse it outright.
 	ErrCheckpointEngineVersionMismatch = errors.New("runtime: checkpoint was written by a different engine version")
+	// ErrCheckpointRuntimeVersionMismatch means the checkpoint predates the
+	// current Vivy-owned Run-state contract. Opaque Eino state cannot be
+	// safely migrated when that contract changes.
+	ErrCheckpointRuntimeVersionMismatch = errors.New("runtime: checkpoint was written by a different runtime version")
 	// ErrCheckpointPromptMismatch means the durable opaque checkpoint is not
 	// bound to the immutable prompt snapshot that the caller supplied for the
 	// run. It is deliberately fail-closed: no new model/tool continuation may
@@ -33,11 +37,18 @@ var (
 
 const einoModulePath = "github.com/cloudwego/eino"
 
+// checkpointRuntimeVersion changes only when Vivy's interpretation of opaque
+// Eino Run state changes. Version 2 retires the parent/child iteration policy;
+// version 1 and unversioned checkpoints can retain an eight- or twenty-turn
+// counter and therefore must not resume under the new contract.
+const checkpointRuntimeVersion = 2
+
 // checkpointEnvelope is the Vivy header wrapped around the opaque eino
 // checkpoint bytes. On-disk layout: 4-byte big-endian header length,
 // header JSON, then the raw payload.
 type checkpointEnvelope struct {
 	EngineVersion  string                    `json:"engine_version"`
+	RuntimeVersion int                       `json:"runtime_version"`
 	ChecksumSHA256 string                    `json:"checksum_sha256"`
 	CreatedAt      int64                     `json:"created_at"`
 	Prompt         *checkpointPromptIdentity `json:"prompt,omitempty"`
@@ -107,6 +118,9 @@ func (s *VersionedCheckpointStore) Get(ctx context.Context, id string) ([]byte, 
 	if env.EngineVersion != s.engineVersion {
 		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointEngineVersionMismatch, env.EngineVersion, s.engineVersion)
 	}
+	if env.RuntimeVersion != checkpointRuntimeVersion {
+		return nil, false, fmt.Errorf("%w: stored %d, current %d", ErrCheckpointRuntimeVersionMismatch, env.RuntimeVersion, checkpointRuntimeVersion)
+	}
 	if err := verifyCheckpointPrompt(ctx, id, env.Prompt); err != nil {
 		return nil, false, err
 	}
@@ -126,6 +140,7 @@ func encodeCheckpointEnvelope(engineVersion string, payload []byte, prompt *chec
 	sum := sha256.Sum256(payload)
 	env := checkpointEnvelope{
 		EngineVersion:  engineVersion,
+		RuntimeVersion: checkpointRuntimeVersion,
 		ChecksumSHA256: hex.EncodeToString(sum[:]),
 		CreatedAt:      time.Now().UnixMilli(),
 		Prompt:         prompt,

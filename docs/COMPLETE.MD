@@ -5,6 +5,11 @@
 > The original section numbers are retained where possible so historical references remain stable.
 > Archived on 2026-09-14.
 
+> MA-4 revision boundary (2026-10-07): its eight-turn configuration and terminal
+> evidence below remain historical. The owner-approved Issue #40 follow-up removes
+> that core parent/child policy and preserves it as deferred EXP source, without
+> removing shared resource budgets. See `logs/2026-10-07-issue-40/` for fresh proof.
+
 ---
 
 ## 0.1 Archived completed rows moved from `TODO.md`

@@ -12,7 +12,7 @@ The requested capability is correction after failed tool calls within the curren
 | --- | --- | --- |
 | N1 | Allowlisted tool failures become unsuccessful model-visible results; the model can choose a corrected permitted action in the same Run. | ND-1, ND-4 |
 | N2 | Unsuccessful identical completed calls receive advisory reminders at counts 3 and 5 within a ten-call window; repetition never stops further model work. | ND-2, ND-3, ND-4 |
-| N3 | Policy, approval, cancellation, Journal durability, tool/iteration/budget limits and uncertain effects remain authoritative. | All Stories |
+| N3 | Policy, approval, cancellation, Journal durability, tool constraints, shared resource budgets and uncertain effects remain authoritative. The owner-approved Issue #40 follow-up removes the separate parent/child turn-count policy. | All Stories |
 | N4 | Journal records unsuccessful calls and reminder scheduling; traces distinguish scheduling from provider handoff. | ND-2, ND-3, ND-4 |
 | N5 | Bounded state, direct/enhanced parity, concurrent calls, compaction and resume have explicit behavior. | ND-0, ND-2, ND-3, ND-4 |
 
@@ -42,7 +42,7 @@ Pinned Eino v0.9.13; EinoExt Claude v0.1.25, OpenAI v0.1.13, MCP v0.0.9. Inspect
 - `BeforeModelRewriteState` persists message edits in ADK state. We deliberately choose WrapModel for a **single-request transient reminder** to avoid replaying synthetic instructions after resume/compaction. Upstream discourages general message rewriting here because it is not persisted; that property is intentional for this bounded trailing reminder. Stable instruction prefix and tool catalog remain untouched.
 - `compose.ToolMiddleware` supports ordinary and enhanced invocation. It is available but not needed for broad error catching: the existing ordinary adapter is the common governed boundary.
 - UnknownToolsHandler is available but is **not enabled by this design**. Hallucinated-tool recovery is adjacent scope and currently stays fatal; naming an available upstream hook is not a requirement to use it.
-- Native interrupts, Runner checkpoints and MaxIterations are retained.
+- Native interrupts and Runner checkpoints are retained. The owner-approved Issue #40 follow-up removes core `runtime.max_tool_turns` and the child eight-turn clamp. Pinned Eino interprets zero/negative `MaxIterations` as twenty, so the thin adapter uses `math.MaxInt`, matching its native graph-step sentinel; it does not impose a separate product turn-count policy. Shared Run/descendant model/tool/event/retry accounting remains authoritative. The former policy is `DEFERRED-INDEFINITE` source under `plugins/exp/turn-limit`, with no executable public Port binding.
 
 Custom policy is needed for Vivy's recoverable failure allowlist and Journal ordering. It lives within runtime, with a first-party MCP error carrier in mcphost. Eino stays quarantined to runtime/provider. Replace the small adapter if upstream offers equivalent scoped semantics later.
 

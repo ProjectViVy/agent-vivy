@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -44,10 +45,6 @@ type EngineConfig struct {
 	StreamBuffer int
 	// MaxEventPayloadBytes caps a single event payload (C4).
 	MaxEventPayloadBytes int
-	// MaxToolTurns caps the model's generation cycles per run (MA-4);
-	// exceeding it fails the run with a classified terminal. Zero keeps
-	// eino's own default.
-	MaxToolTurns int
 	// MaxContextBytes bounds the transient UTF-8 context sent to one run.
 	// Zero leaves the direct runtime test harness unbounded.
 	MaxContextBytes int
@@ -407,12 +404,8 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
 		},
 	}
-	if cfg.MaxToolTurns > 0 {
-		// Loop guardrail (MA-4): eino counts one iteration per model
-		// generation cycle and surfaces ErrExceedMaxIterations past the
-		// cap, which the service classifies into a run.failed terminal.
-		agentCfg.MaxIterations = cfg.MaxToolTurns
-	}
+	// Eino v0.9.13 maps zero/negative to 20; shared Run budgets own admission.
+	agentCfg.MaxIterations = math.MaxInt
 	agent, err := adk.NewChatModelAgent(ctx, agentCfg)
 	if err != nil {
 		return nil, err
@@ -444,8 +437,6 @@ func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
 }
 
 const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."
-
-const maxChildToolTurns = 8
 
 // ChildView builds the same Eino Service runner over a strictly selected
 // read-only tool subset and a clean instruction/context surface.
@@ -504,9 +495,6 @@ func (e *Engine) restrictedView(ctx context.Context, names []string, readOnlyOnl
 	cfg.HiddenTools = nil
 	cfg.OffloadBackend = nil
 	cfg.Compaction = nil
-	if cfg.MaxToolTurns <= 0 || cfg.MaxToolTurns > maxChildToolTurns {
-		cfg.MaxToolTurns = maxChildToolTurns
-	}
 	return NewEngine(ctx, e.chatModel, selected, cfg)
 }
 

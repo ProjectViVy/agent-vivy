@@ -2,6 +2,50 @@
 
 Evidence below is from the final working tree, not historical ND-D1 records.
 
+## Turn-policy follow-up — PASS
+
+The owner-approved follow-up removed the parent and child eight-turn policy
+rather than raising it to 10,000. Fresh parent and `ChildView` regressions each
+completed 24 tool calls, exceeding both the retired eight-turn policy and
+Eino's implicit default of twenty. Separate regressions prove cancellation at
+the twenty-fifth call and shared model-budget termination after 22 completed
+calls, with one durable terminal in both cases.
+
+Pinned Eino exposes no supported resume option for rewriting an old opaque
+checkpoint's iteration counter. The versioned checkpoint envelope now carries
+runtime compatibility version 2; unversioned/older checkpoints fail closed
+before Eino can resume their retained eight- or twenty-turn state. New
+checkpoints still resume normally. This is an explicit new-Run requirement for
+pending pre-follow-up work, not automatic effect replay or counter mutation.
+
+The isolated split-pair product probe used no `runtime.max_tool_turns` setting.
+Two Runs issued 24 model-directed calls each: all successful writes settled in
+the first Run; 24 ordinary missing-file failures settled in the second; both
+completed. The success Run emitted no Nudge and the failure Run emitted exactly
+repeat counts 3 and 5. Authorized synthetic task text remained unchanged in
+requested arguments and the durable final response. Shared production data was
+not read or written.
+
+```json
+{"scenario":"poll","status":"completed","finished":24,"nudges":0,"approvals":24,"faithful_final":true,"core_turn_setting":"absent"}
+{"scenario":"error","status":"completed","finished":24,"nudges":2,"approvals":0,"faithful_final":true,"core_turn_setting":"absent"}
+```
+
+Fresh verification included focused runtime race tests, config/app/runtime,
+standalone EXP vet/tests, SDK conformance, static production-symbol/dependency
+audits and `GIT_CONFIG_GLOBAL=/dev/null just ci`. The canonical gate passed;
+the final compatibility-envelope edit was followed by the same focused and
+canonical gates recorded below.
+
+Final post-envelope evidence:
+
+- `go test ./internal/config ./internal/app ./internal/runtime ./sdk/internal/conformance -count=1 -timeout 15m`: PASS (runtime 58.835s; conformance 54.463s).
+- `go test -race ./internal/runtime -run 'TestServiceWithoutTurnPolicyExceedsFormerLimits|TestServiceLongRunRemainsCancellable|TestServiceModelBudgetStillStopsLongRuns|TestNudgeState|TestVersionedCheckpointStore|TestServiceRecoverResumableApproval' -count=1 -timeout 5m`: PASS (16.706s).
+- `go test ./... -count=1 && go vet ./...` in `plugins/exp/turn-limit`: PASS.
+- `GIT_CONFIG_GLOBAL=/dev/null just ci`: PASS, exit 0, including UI lint/type/build, core vet/tests, headless compile smoke and all nested plugin vet/tests.
+- The split pair and the 24-call probe were restarted/repeated after the final checkpoint-envelope edit; both JSON outcomes above were reproduced, exit 0.
+- Final review closed the checkpoint-compatibility Important on the described fixed-epoch delta. This was logical review, not an independent rerun of the final implementation; the parent-owned gates above supply execution evidence.
+
 ## Environment
 
 Linux amd64; Go 1.26.8, Node 24.9.0, pnpm 11.19.0, just 1.43.1, PowerShell 7.5.4. The VM initially lacked these tools despite its configured blueprint; restored the pinned tools without changing product code.

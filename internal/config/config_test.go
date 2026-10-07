@@ -26,6 +26,19 @@ func TestRuntimeWorldDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestRuntimeHasNoCoreTurnPolicy(t *testing.T) {
+	if _, exists := reflect.TypeOf(Default().Runtime).FieldByName("MaxToolTurns"); exists {
+		t.Fatal("core still exposes the experimental turn-limit policy")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("runtime:\n  max_tool_turns: 8\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "max_tool_turns") {
+		t.Fatalf("retired turn policy should fail strict config decoding: %v", err)
+	}
+}
+
 func TestRuntimeRejectsEventPayloadBudgetTooSmallForCompletionMetadata(t *testing.T) {
 	cfg := Default()
 	cfg.Runtime.MaxEventPayloadBytes = 1023

@@ -103,7 +103,6 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 	engineCfg := runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
-		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
 		MaxContextBytes:      cfg.Runtime.MaxContextBytes,
 		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
 		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,

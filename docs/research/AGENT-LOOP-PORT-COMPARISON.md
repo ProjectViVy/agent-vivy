@@ -16,6 +16,14 @@
 > Related: `v1-minimal-agent-proposal.md`, `VIVY-ASSEMBLY.md`,
 > `SELF-EVOLVING-GATEWAY.md`, `DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md`.
 
+> Revision boundary — Issue #40 owner-approved follow-up (2026-10-07):
+> the `MaxToolTurns` observations and iteration-bound reward-pass decisions below
+> describe the earlier implementation, not the current core contract. Parent and
+> child turn-count policies are now deferred source under `plugins/exp/turn-limit`.
+> The thin Eino adapter avoids its implicit twenty-turn default; shared Run
+> model/tool/event/retry budgets and cancellation remain authoritative. See
+> `../architecture/NUDGE-DESIGN.md` and `../logs/2026-10-07-issue-40/summary.md`.
+
 ---
 
 ## 0. Summary (TL;DR)

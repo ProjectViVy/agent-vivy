@@ -21,11 +21,10 @@ func countToolFinished(events []domain.RunEvent) int {
 	return n
 }
 
-// Repeats that stay inside the window limit complete normally: the
-// guardrail must not disturb legitimate repeated tool use.
+// Successful repetition is ordinary authorized work.
 func TestServiceToolLoopWithinLimit(t *testing.T) {
 	script := append(loopCallScript(5), schema.AssistantMessage("Done repeating.", nil))
-	svc, backend, _ := newLoopGuardService(t, 8, script)
+	svc, backend, _ := newRepeatedCallService(t, script)
 	mustCreateSession(t, backend, "sess-loop-ok")
 
 	runID, err := svc.Run(context.Background(), "sess-loop-ok", "echo five times")

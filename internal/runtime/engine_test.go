@@ -82,7 +82,7 @@ func TestEngineHiddenToolsStayOutOfActiveSurface(t *testing.T) {
 
 func TestChildViewConstrainsToolsAndRemovesParentContextMiddleware(t *testing.T) {
 	parent, err := NewEngine(context.Background(), WrapModel(testsupport.NewEchoModel()), []tools.Tool{tools.NewEchoInfo()}, EngineConfig{
-		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolTurns: 24,
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 		ContextHost:     &contexthost.Host{},
 		HiddenTools:     []tools.Tool{tools.NewListDir(nil)},
 		AgentsMDFiles:   []string{"AGENTS.md"},
@@ -101,8 +101,8 @@ func TestChildViewConstrainsToolsAndRemovesParentContextMiddleware(t *testing.T)
 	if len(child.toolByName) != 1 || child.cfg.HiddenTools != nil || child.cfg.AgentsMDBackend != nil || child.cfg.ContextHost != nil || child.cfg.SkillBackend != nil {
 		t.Fatalf("child engine retained parent context or hidden tools: config=%+v tools=%v", child.cfg, child.toolByName)
 	}
-	if child.cfg.MaxToolTurns != maxChildToolTurns || child.cfg.StaticInstructionOverride == nil || *child.cfg.StaticInstructionOverride != childStaticInstruction {
-		t.Fatalf("child guardrails = turns:%d instruction:%v, want max %d and neutral instruction", child.cfg.MaxToolTurns, child.cfg.StaticInstructionOverride, maxChildToolTurns)
+	if child.cfg.StaticInstructionOverride == nil || *child.cfg.StaticInstructionOverride != childStaticInstruction {
+		t.Fatalf("child instruction = %v, want neutral instruction", child.cfg.StaticInstructionOverride)
 	}
 	if _, err := parent.ChildView(context.Background(), []string{"list_dir"}); err == nil {
 		t.Fatal("ChildView accepted a hidden tool outside the admitted active surface")

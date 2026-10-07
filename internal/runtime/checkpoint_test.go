@@ -3,8 +3,11 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/storage"
@@ -130,6 +133,40 @@ func TestVersionedCheckpointStoreEngineVersionFailClosed(t *testing.T) {
 	_, _, err = upgraded.Get(ctx, "ckpt-run_4")
 	if !errors.Is(err, ErrCheckpointEngineVersionMismatch) {
 		t.Fatalf("want version mismatch error, got %v", err)
+	}
+}
+
+func TestVersionedCheckpointStoreRejectsLegacyRunState(t *testing.T) {
+	store, blobs := newCheckpointFixture(t, "v0.9.13")
+	ctx := context.Background()
+	if err := store.Set(ctx, "ckpt-legacy", []byte("opaque eino state")); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, ok, err := blobs.Get(ctx, "ckpt-legacy")
+	if err != nil || !ok {
+		t.Fatalf("raw get: ok=%v err=%v", ok, err)
+	}
+	headerLen := binary.BigEndian.Uint32(raw[:4])
+	var header map[string]any
+	if err := json.Unmarshal(raw[4:4+headerLen], &header); err != nil {
+		t.Fatal(err)
+	}
+	delete(header, "runtime_version")
+	legacyHeader, err := json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := binary.BigEndian.AppendUint32(nil, uint32(len(legacyHeader)))
+	legacy = append(legacy, legacyHeader...)
+	legacy = append(legacy, raw[4+headerLen:]...)
+	if err := blobs.Put(ctx, "ckpt-legacy", legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = store.Get(ctx, "ckpt-legacy")
+	if err == nil || !strings.Contains(err.Error(), "runtime version") {
+		t.Fatalf("legacy Run state should fail closed: %v", err)
 	}
 }
 

@@ -492,7 +492,7 @@ func TestNudgeJournalFailure(t *testing.T) {
 		schema.AssistantMessage("never reached", nil),
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(script...), ts, EngineConfig{
-		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolTurns: 8,
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

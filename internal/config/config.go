@@ -97,11 +97,6 @@ func mcpCredentialLikeQueryKey(key string) bool {
 	return normalized == "access_token" || normalized == "api_key"
 }
 
-// defaultMaxToolTurns bounds tool-call turns per run when config omits
-// runtime.max_tool_turns (MA-4): well above a healthy turn count, well
-// below eino's 20 default, so a runaway loop fails fast and classified.
-const defaultMaxToolTurns = 8
-
 // maxExecuteTimeoutSeconds mirrors the runtime hard cap
 // (runtime.hardMaxCommandTimeout = 10m): a configured execute ceiling above
 // it would be silently clamped, so Validate rejects it up front.
@@ -254,9 +249,6 @@ type Runtime struct {
 	StreamBuffer int `yaml:"stream_buffer"`
 	// MaxEventPayloadBytes bounds a single event payload (NFR: bounded).
 	MaxEventPayloadBytes int `yaml:"max_event_payload_bytes"`
-	// MaxToolTurns caps tool-call turns per run (MA-4); omitted keeps the
-	// default.
-	MaxToolTurns int `yaml:"max_tool_turns"`
 	// MaxContextBytes bounds transient current-session context.
 	MaxContextBytes int `yaml:"max_context_bytes"`
 	// MaxHistoryMessages bounds retained user/assistant history rows.
@@ -673,7 +665,6 @@ func Default() Config {
 		Runtime: Runtime{
 			StreamBuffer:              256,
 			MaxEventPayloadBytes:      65536,
-			MaxToolTurns:              defaultMaxToolTurns,
 			MaxContextBytes:           defaultMaxContextBytes,
 			MaxHistoryMessages:        defaultMaxHistoryMessages,
 			MaxToolResultBytes:        32 << 10,
@@ -842,9 +833,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxEventPayloadBytes < 1024 {
 		return errors.New("runtime.max_event_payload_bytes must be at least 1024")
-	}
-	if c.Runtime.MaxToolTurns < 0 {
-		return errors.New("runtime.max_tool_turns must not be negative")
 	}
 	if c.Runtime.MaxContextBytes <= 0 {
 		return errors.New("runtime.max_context_bytes must be positive")

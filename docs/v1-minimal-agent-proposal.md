@@ -7,6 +7,13 @@
 > Companion document: `AGENT-VIVY-ARCHITECTURE-V0.md` (ADR baseline,
 > closes SR-1/D-035; ADR-009 records the MA-1 decision).
 
+> Revision boundary — 2026-10-07, Issue #40 owner-approved follow-up:
+> MA-4's eight-turn policy and classified terminal below are historical, not
+> current configuration. Core `runtime.max_tool_turns` and the parent/child cap
+> are removed; the former policy is deferred EXP source. Shared resource budgets
+> remain authoritative. Current contract: `architecture/NUDGE-DESIGN.md`;
+> fresh evidence: `logs/2026-10-07-issue-40/`.
+
 ## 1. Why — the verified gap ("goldfish brain")
 
 Vivy today answers every turn as if it were the first turn.

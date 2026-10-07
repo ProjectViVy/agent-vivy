@@ -85,7 +85,7 @@ func TestFaithfulHistoryRetainsLiteralData(t *testing.T) {
 
 func TestFaithfulSuccessfulPollingCompletes(t *testing.T) {
 	script := append(loopCallScript(8), schema.AssistantMessage("", []schema.ToolCall{{ID: "changed", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{"text":"status changed"}`}}}), schema.AssistantMessage("status changed; complete", nil))
-	svc, backend, _ := newLoopGuardService(t, 20, script)
+	svc, backend, _ := newRepeatedCallService(t, script)
 	mustCreateSession(t, backend, "sess-faithful-poll")
 	id, err := svc.Run(context.Background(), "sess-faithful-poll", "poll eight times")
 	if err != nil {
