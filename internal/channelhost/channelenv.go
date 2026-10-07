@@ -40,16 +40,6 @@ type hostEnv struct {
 
 func (e *hostEnv) ModuleID() string { return "vivy/" + e.seam.Name() }
 
-// envFor builds the ChannelEnv handed to one adapter's Start.
-func (h *Host) envFor(ch plugin.Channel) plugin.ChannelEnv {
-	envelope, ok := h.deps.Config[ch.Name()]
-	tokenEnv := ""
-	if ok {
-		tokenEnv = envelope.TokenEnv
-	}
-	return &hostEnv{host: h, seam: ch, client: h.client, tokenEnv: tokenEnv}
-}
-
 // Secret resolves a configured env_key name to its value. A name is
 // resolvable when the channel envelope declares it: either it is the
 // envelope's token_env (the single-credential pattern, e.g. telegram) or

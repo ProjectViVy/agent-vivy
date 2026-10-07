@@ -797,6 +797,9 @@ type Engine interface {
 	LeaseStore
 	ChannelDeliveryStore
 	ChannelMaintenanceStore
+	ChannelTaskStore
+	QuestionTransitionStore
+	JournalPageReader
 	Snapshot() SnapshotStore
 	Blobs() BlobStore
 	Close() error

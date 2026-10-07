@@ -54,6 +54,7 @@ import (
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
+	"agent-vivy/sdk/port/channel"
 	actionport "agent-vivy/sdk/port/controlaction"
 	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
@@ -697,6 +698,35 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Messages:   backend,
 			Sessions:   backend,
 			Deliveries: backend,
+			Tasks: &channelhost.TaskDeps{
+				Store:    backend,
+				Journal:  backend,
+				Messages: backend,
+				Submit: func(ctx context.Context, in domain.ChannelTaskInput) (domain.ChannelTaskReceipt, error) {
+					if svc == nil {
+						return domain.ChannelTaskReceipt{}, errors.New("app: runtime service is not wired")
+					}
+					return svc.SubmitChannelTask(ctx, in)
+				},
+				Cancel: func(runID domain.RunID) bool {
+					if svc == nil {
+						return false
+					}
+					return svc.Cancel(runID)
+				},
+				Subscribe: bus.Subscribe,
+				// The app-level revalidation is deliberately thin for the
+				// minimum deployment: bindings carry the static revision 1
+				// until host authorization versioning lands (design §10.1).
+				// The env layer separately pins allow_from + instance.
+				Authorize: func(ctx context.Context, p channelhost.TaskPrincipal) bool {
+					return p.PrincipalID != "" && p.AuthorizationRevision == 1
+				},
+				SafePrompts: true,
+				ServiceInfo: channel.TaskServiceInfo{
+					Name: "vivy", Streaming: true, InputContinuation: true,
+				},
+			},
 			RunPrepared: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance, prepare channelhost.PrepareRunFunc) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")

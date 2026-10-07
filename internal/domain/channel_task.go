@@ -41,4 +41,8 @@ type ChannelTaskReceipt struct {
 	AcceptedSeq EventSeq
 	CreatedAt   int64
 	DeletedAt   *int64
+
+	// Replayed is transient (never persisted): true when this Submit call
+	// resolved to an already-committed receipt instead of committing anew.
+	Replayed bool
 }

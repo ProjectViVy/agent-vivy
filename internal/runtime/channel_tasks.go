@@ -110,6 +110,7 @@ func (s *Service) SubmitChannelTask(ctx context.Context, in domain.ChannelTaskIn
 		if receipt.InputHash != hash {
 			return domain.ChannelTaskReceipt{}, storage.ErrConflict
 		}
+		receipt.Replayed = true
 		return receipt, nil
 	}
 
@@ -145,6 +146,7 @@ func (s *Service) SubmitChannelTask(ctx context.Context, in domain.ChannelTaskIn
 		// first: prefer the durable receipt when it now exists.
 		if resolved, found, rerr := s.deps.ChannelTasks.FindChannelTaskReceipt(ctx, in.Scope, in.MessageID); rerr == nil && found {
 			if resolved.InputHash == hash {
+				resolved.Replayed = true
 				return resolved, nil
 			}
 			return domain.ChannelTaskReceipt{}, storage.ErrConflict
@@ -271,6 +273,7 @@ func (s *Service) submitChannelTaskAnswer(ctx context.Context, in domain.Channel
 		if receipt.InputHash != hash {
 			return domain.ChannelTaskReceipt{}, storage.ErrConflict
 		}
+		receipt.Replayed = true
 		return receipt, nil
 	}
 
@@ -320,6 +323,7 @@ func (s *Service) submitChannelTaskAnswer(ctx context.Context, in domain.Channel
 		// retry under the same message id is authoritative.
 		if resolved, found, rerr := s.deps.ChannelTasks.FindChannelTaskReceipt(ctx, in.Scope, in.MessageID); rerr == nil && found {
 			if resolved.InputHash == hash {
+				resolved.Replayed = true
 				return resolved, nil
 			}
 			return domain.ChannelTaskReceipt{}, storage.ErrConflict

@@ -87,4 +87,10 @@ type Deps struct {
 	// Logger receives structured host logs. Inbound content is never
 	// logged; sender ids and chat ids are identifiers, not content.
 	Logger *slog.Logger
+
+	// Tasks is the optional governed task dependency pack (design §7): a
+	// fully populated pack mounts the channel.TaskHost /
+	// channel.TaskServiceInfoHost assertion surface on the task-capable
+	// environment wrapper; nil or partial leaves the capability absent.
+	Tasks *TaskDeps
 }
