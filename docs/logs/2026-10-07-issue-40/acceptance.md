@@ -18,4 +18,4 @@ Status: **implementation evidence complete; owner acceptance pending**.
 
 Owner-controlled gates: live-provider owner UI E2E, Windows-native release testing, merge/release, and issue closure were not performed or claimed. The smoke is bounded synthetic verification, not tenant acceptance.
 
-Delivery is local only: no commit, push, PR, merge, or release. Historical ND-D1 delivery logs remain historical; only this iteration's fresh evidence supports Issue #40.
+Delivery is committed and pushed under the human owner's identity on `feat/issue-40-faithful-data`. Human-authored PR publication is pending after bot-authored PR #41 was closed; merge, issue closure, and release remain unperformed. Historical ND-D1 delivery logs remain historical; only this iteration's fresh evidence supports Issue #40.

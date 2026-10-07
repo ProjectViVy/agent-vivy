@@ -2,7 +2,7 @@
 
 Issue: https://github.com/ProjectViVy/agent-vivy/issues/40
 
-Branch: `devin/1791405630-issue-40-faithful-data`.
+Delivery branch: `feat/issue-40-faithful-data` (same implementation as `devin/1791405630-issue-40-faithful-data`).
 Baseline: `1df9ae5f893a1c2fee3b565f775a034bab0af4e7`.
 
 ## Delivered
@@ -26,4 +26,4 @@ Pinned Eino remains `v0.9.13`. The implementation retains `adk.ChatModelAgentMid
 
 See [verification](verification.md) and [acceptance](acceptance.md). Automated product-entry proof used the split Go/Vite pair and an isolated synthetic provider, not a tenant install or real provider credential. Owner UI E2E and Windows-native release acceptance are separate, unclaimed gates.
 
-Changes remain local and uncommitted. No push, PR, merge, issue closure, or release was performed.
+The implementation was committed and pushed with the human owner's author/committer identity after publication approval. PR #41 was closed because the integration created it with a bot author despite an explicit human author request. Human-authored PR publication is pending; no merge, issue closure, or release was performed.
