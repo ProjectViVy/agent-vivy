@@ -588,6 +588,36 @@ type ChannelEnvelope struct {
 	// it (fail-closed on its own unknown fields). yaml.Node keeps inner
 	// keys out of strict decoding and out of this package.
 	Settings yaml.Node `yaml:"settings"`
+
+	// HTTP is the optional dedicated task-listener envelope (A2A design
+	// §10.1). Present only on channels whose module serves the governed
+	// task surface; strict decoding rejects unknown inner fields.
+	HTTP *ChannelHTTPConfig `yaml:"http"`
+}
+
+// ChannelHTTPConfig is the typed dedicated-task-listener block. Exactly
+// one principal per endpoint; TLS never appears here — remote
+// reachability is a TLS-terminating reverse proxy onto a loopback bind
+// (G0 minimum, 2026-10-07).
+type ChannelHTTPConfig struct {
+	// Listen is the required host:port bind; it must be loopback.
+	Listen string `yaml:"listen"`
+	// PublicBaseURL is the advertised origin: absolute http(s) with no
+	// userinfo, query, fragment or path; the RPC path is always /a2a.
+	PublicBaseURL string `yaml:"public_base_url"`
+	// Principal is the single authenticated caller identity.
+	Principal ChannelHTTPPrincipal `yaml:"principal"`
+}
+
+// ChannelHTTPPrincipal binds the endpoint's one principal ID to a
+// credential reference; the token value never lives in config.
+type ChannelHTTPPrincipal struct {
+	// ID is the stable principal ID listed in allow_from; credential
+	// rotation keeps the ID.
+	ID string `yaml:"id"`
+	// TokenEnv names the env var holding the bearer token for this
+	// endpoint — a reference, never the value (D-010).
+	TokenEnv string `yaml:"token_env"`
 }
 
 // toolsDoc mirrors the tools mapping with expiration kept as a raw
@@ -1073,6 +1103,9 @@ func (c *Config) Validate() error {
 					"list explicit senders (VIVY-CHANNEL-PACK.md §11)", name, i, allow)
 			}
 		}
+		if err := validateChannelHTTP(name, ch); err != nil {
+			return err
+		}
 	}
 
 	// Sandbox configuration validation (D-021).
@@ -1337,4 +1370,66 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// validateChannelHTTP enforces the A2A §10.1 task-listener contract:
+// loopback cleartext bind only (TLS terminates at a reverse proxy), a
+// clean advertised origin, exactly one principal whose ID must be
+// allowlisted, and a credential reference — never a value.
+func validateChannelHTTP(name string, ch ChannelEnvelope) error {
+	h := ch.HTTP
+	if h == nil {
+		return nil
+	}
+	if !ch.Enabled {
+		return fmt.Errorf("channels.%s.http requires the channel to be enabled", name)
+	}
+	addr := strings.TrimSpace(h.Listen)
+	if addr == "" {
+		return fmt.Errorf("channels.%s.http.listen is required", name)
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return fmt.Errorf("channels.%s.http.listen %q must be host:port", name, addr)
+	}
+	// Loopback only: remote reachability rides a TLS-terminating reverse
+	// proxy; cleartext on a public bind would expose bearer-less traffic.
+	switch strings.ToLower(host) {
+	case "localhost":
+	case "":
+		return fmt.Errorf("channels.%s.http.listen must name a loopback host", name)
+	default:
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return fmt.Errorf("channels.%s.http.listen %q must bind a loopback address; "+
+				"remote reachability is a TLS-terminating reverse proxy onto loopback", name, addr)
+		}
+	}
+	if u := strings.TrimSpace(h.PublicBaseURL); u != "" {
+		parsed, err := url.Parse(u)
+		if err != nil || parsed.Host == "" ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+			(parsed.Path != "" && parsed.Path != "/") {
+			return fmt.Errorf("channels.%s.http.public_base_url %q must be an absolute http(s) "+
+				"origin with no userinfo, query, fragment or path", name, u)
+		}
+	}
+	if strings.TrimSpace(h.Principal.ID) == "" {
+		return fmt.Errorf("channels.%s.http.principal.id is required", name)
+	}
+	if !envKeyPattern.MatchString(h.Principal.TokenEnv) {
+		return fmt.Errorf("channels.%s.http.principal.token_env %q is not an environment variable name; "+
+			"secrets must never appear in config (D-010)", name, h.Principal.TokenEnv)
+	}
+	listed := false
+	for _, allow := range ch.AllowFrom {
+		if allow == h.Principal.ID {
+			listed = true
+		}
+	}
+	if !listed {
+		return fmt.Errorf("channels.%s.allow_from must contain the http principal id %q", name, h.Principal.ID)
+	}
+	return nil
 }
