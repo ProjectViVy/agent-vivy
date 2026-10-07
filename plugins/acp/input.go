@@ -64,6 +64,11 @@ func normalizePrompt(root string, req acp.PromptRequest) (text string, contextPa
 	if strings.TrimSpace(text) == "" {
 		return "", nil, rpcError(-32602, "prompt carries no usable content", "INVALID_INPUT")
 	}
+	// The newline separators join into the wire text; bound the joined form
+	// so the per-block accounting cannot undercount the wire payload.
+	if len(text) > maxPromptTextBytes {
+		return "", nil, rpcError(-32602, "prompt exceeds the text bound", "INVALID_INPUT")
+	}
 	return text, contextPaths, nil
 }
 

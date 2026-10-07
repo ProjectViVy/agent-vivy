@@ -2,8 +2,10 @@ package acp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -328,6 +330,88 @@ func TestToolCallOrderingAndSafety(t *testing.T) {
 		var re *acp.RPCError
 		if !errors.As(perr, &re) || re.Code != -32603 {
 			t.Fatalf("error = %v", perr)
+		}
+	})
+}
+
+// model.request and tool.requested reset the model.completed v2 digest
+// window, mirroring the runtime's pending-delta accumulator reset in
+// internal/runtime/message_projector.go. A multi-call tool loop produces
+// several windows per run; each completed verifies only its own deltas.
+func TestDigestWindowResetsAtModelBoundaries(t *testing.T) {
+	newProj := func() *runProjection {
+		return newRunProjection("nonce", promptScope{SessionID: "s", RunID: "r", Generation: 1})
+	}
+	completed := func(content string) committedEvent {
+		sum := sha256.Sum256([]byte(content))
+		raw, _ := json.Marshal(map[string]any{
+			"content_sha256": fmt.Sprintf("%x", sum[:]),
+			"byte_len":       len([]byte(content)),
+		})
+		return committedEvent{Type: "model.completed", PayloadVersion: 2, Payload: raw}
+	}
+	delta := func(d string) committedEvent {
+		raw, _ := json.Marshal(map[string]any{"delta": d})
+		return committedEvent{Type: "model.delta", Payload: raw}
+	}
+	modelReq := committedEvent{Type: "model.request", Payload: json.RawMessage(`{}`)}
+	toolReq := committedEvent{Type: "tool.requested", Payload: json.RawMessage(`{"tool_call_id":"t1","tool_name":"exec"}`)}
+
+	t.Run("second model.request verifies only its own deltas", func(t *testing.T) {
+		r := newProj()
+		if _, err := r.apply(delta("call-one\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(modelReq); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(delta("call-two\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(completed("call-two\n")); err != nil {
+			t.Fatalf("completed rejected its own window: %v", err)
+		}
+	})
+
+	t.Run("deltas from the previous window reject", func(t *testing.T) {
+		r := newProj()
+		_, _ = r.apply(delta("call-one\n"))
+		_, _ = r.apply(modelReq)
+		_, _ = r.apply(delta("call-two\n"))
+		if _, err := r.apply(completed("call-one\ncall-two\n")); !errors.Is(err, errIntegrity) {
+			t.Fatalf("wide digest accepted: %v", err)
+		}
+	})
+
+	t.Run("tool.requested resets the window", func(t *testing.T) {
+		r := newProj()
+		_, _ = r.apply(modelReq)
+		if _, err := r.apply(delta("pre\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(toolReq); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(delta("post\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.apply(completed("post\n")); err != nil {
+			t.Fatalf("post-tool window rejected: %v", err)
+		}
+	})
+
+	t.Run("tool.requested flushes the preamble before the tool_call", func(t *testing.T) {
+		r := newProj()
+		_, _ = r.apply(delta("tail-without-newline"))
+		ups, err := r.apply(toolReq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ups) != 2 || ups[0].AgentMessageChunk == nil || ups[1].ToolCall == nil {
+			t.Fatalf("updates = %+v", ups)
+		}
+		if ups[0].AgentMessageChunk.Content.Text.Text != "tail-without-newline" {
+			t.Fatalf("preamble tail = %q", ups[0].AgentMessageChunk.Content.Text.Text)
 		}
 	})
 }

@@ -185,7 +185,7 @@ The callback must not wait on an approval/elicitation response. Dispatch reverse
 |---|---|
 | model.delta | Accumulate a bounded incomplete line; emit completed lines as agent_message_chunk |
 | model.completed v2 | Verify original delta length/SHA-256 and flush any remaining line; emit no duplicate full response |
-| tool.requested | tool_call with opaque stable ID, bounded title, kind and pending status |
+| tool.requested | Flush any buffered line and reset the digest window, then tool_call with opaque stable ID, bounded title, kind and pending status |
 | tool.started | tool_call_update: in_progress |
 | tool.finished | tool_call_update: completed or failed; bounded safe content only |
 | tool.approval_required | Request permission after the tool call is visible |
@@ -390,7 +390,7 @@ Private Control DTOs must contain only used fields and JSON tags, with schema/so
 
 The proposed TextPresentationHost facet, its per-run sanitizer and the line-buffering machinery were removed by the owner's D2 simplification: the restricted pilot performs no outbound privacy enforcement beyond the SDK-level error sanitization required by §12.8. Output remains a bounded allowlisted projection — complete display units only, never rawInput/rawOutput or copied Journal JSON — but carries no sanitizer contract. If privacy obligations return, reopen this section rather than reviving the draft text.
 
-Model-output integrity is unchanged: hash original model bytes continuously, validate byte_len and content_sha256 at model.completed v2, and on mismatch terminate the prompt with an integrity error rather than reporting end_turn.
+Model-output integrity is unchanged: hash original model bytes continuously, validate byte_len and content_sha256 at model.completed v2, and on mismatch terminate the prompt with an integrity error rather than reporting end_turn. The digest window resets at each model.request and tool.requested boundary, mirroring the runtime's pending-delta accumulator (internal/runtime/message_projector.go): a multi-call tool loop produces one window per model call, so each model.completed commits only the deltas since the most recent boundary — never the whole run.
 
 ### 12.6 Tool and interaction projection
 

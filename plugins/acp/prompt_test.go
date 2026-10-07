@@ -46,7 +46,13 @@ func (h *runHost) call(ctx context.Context, method string, params any) (json.Raw
 		id := "sess_" + itoa(len(h.sessionIDs)+1)
 		h.sessionIDs = append(h.sessionIDs, id)
 		h.mu.Unlock()
-		out, _ := json.Marshal(map[string]any{"id": id})
+		var p struct {
+			WorkspacePath string `json:"workspace_path"`
+		}
+		if b, _ := json.Marshal(params); b != nil {
+			_ = json.Unmarshal(b, &p)
+		}
+		out, _ := json.Marshal(map[string]any{"id": id, "workspace_path": p.WorkspacePath})
 		return json.RawMessage(out), nil
 	case "turn/start":
 		select {
@@ -539,4 +545,46 @@ func TestTerminalCancelLinearization(t *testing.T) {
 			t.Fatal("interaction did not cancel the run")
 		}
 	})
+}
+
+func TestCancelOnActivePromptDoesNotArmLatch(t *testing.T) {
+	// A cancel accepted for an in-flight prompt applies to it alone; the
+	// latch stays unarmed so the next prompt admitted within the TTL is
+	// unaffected (G0 ruling: idle cancel latches, active cancel does not).
+	h := newRunHost()
+	a := newTestAgent(t, h, 1)
+	sess := h.sessionID(0)
+
+	done := make(chan struct{})
+	var resp acp.PromptResponse
+	var perr error
+	go func() {
+		defer close(done)
+		resp, perr = a.Prompt(context.Background(), promptText(sess, "hi"))
+	}()
+	if !h.waitForSubs(1) {
+		t.Fatal("no subscription")
+	}
+	sub, run := h.subID(0), h.runID(0)
+	if err := a.SessionCancel(context.Background(), acp.CancelNotification{SessionID: acp.SessionID(sess)}); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	h.emitRunEvent(sub, run, 1, "run.cancelled", `{"reason":"user_requested"}`)
+	<-done
+	if perr != nil || resp.StopReason != acp.StopReasonCancelled {
+		t.Fatalf("first prompt: %v %q", perr, resp.StopReason)
+	}
+
+	go func() {
+		if h.waitForSubs(2) {
+			h.emitRunEvent(h.subID(1), h.runID(1), 1, "run.completed", `{"summary":"ok"}`)
+		}
+	}()
+	resp2, err := a.Prompt(context.Background(), promptText(sess, "again"))
+	if err != nil {
+		t.Fatalf("second prompt: %v", err)
+	}
+	if resp2.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("active-prompt cancel leaked into the latch: %q", resp2.StopReason)
+	}
 }

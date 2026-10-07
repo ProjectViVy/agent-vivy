@@ -95,12 +95,20 @@ type toolEventPayload struct {
 // returning errIntegrity marks the event malformed.
 func (r *runProjection) apply(ev committedEvent) ([]acp.SessionUpdate, error) {
 	switch ev.Type {
+	case "model.request":
+		// Digest window boundary: the runtime resets its pending delta
+		// accumulator on every model.request (message_projector.go), so
+		// model.completed v2 verifies only the current call's deltas.
+		return r.boundaryReset(), nil
 	case "tool.requested":
 		var p toolEventPayload
 		if err := json.Unmarshal(ev.Payload, &p); err != nil || p.ToolCallID == "" || p.ToolName == "" {
 			return nil, fmt.Errorf("%w: malformed tool.requested", errIntegrity)
 		}
-		return r.ensureToolCall(p.ToolCallID, p.ToolName), nil
+		// Same boundary as message_projector: the preamble tail flushes
+		// first, then the digest window resets, then the tool_call lands.
+		updates := r.boundaryReset()
+		return append(updates, r.ensureToolCall(p.ToolCallID, p.ToolName)...), nil
 	case "tool.started":
 		var p toolEventPayload
 		if err := json.Unmarshal(ev.Payload, &p); err != nil || p.ToolCallID == "" {
@@ -191,12 +199,25 @@ func (r *runProjection) toolID(toolCallID string) string {
 	return opaqueToolID(r.nonce, r.scope, toolCallID)
 }
 
-// boundLabel truncates an event-derived label for the wire.
+// boundLabel truncates an event-derived label for the wire at a rune
+// boundary (never mid-sequence).
 func boundLabel(s string) string {
 	if len(s) <= maxToolTitleBytes {
 		return s
 	}
-	return strings.TrimRight(s[:maxToolTitleBytes], "\uFFFD") + "…"
+	return strings.TrimRight(s[:runeFloor(s, maxToolTitleBytes)], "\uFFFD") + "…"
+}
+
+// boundaryReset ends the current digest window at a model.request /
+// tool.requested boundary: emit the buffered partial line, then reset the
+// hasher and byte total so the next model.completed commits only the
+// deltas of the model call now in flight (mirror of the runtime's pending
+// reset in message_projector.go).
+func (r *runProjection) boundaryReset() []acp.SessionUpdate {
+	out := r.flushLine()
+	r.hasher.Reset()
+	r.totalBytes = 0
+	return out
 }
 
 // appendDelta hashes the original committed bytes continuously, then emits
@@ -284,9 +305,9 @@ func textChunkUpdate(text string) acp.SessionUpdate {
 // splitChunk splits one message-chunk text so each encoded session update
 // frame stays under maxOutboundFrameBytes, breaking only at rune
 // boundaries.
-func splitChunk(text string) []string {
+func splitChunk(sessionID, text string) []string {
 	update := textChunkUpdate(text)
-	if encodedLen(update) <= maxOutboundFrameBytes {
+	if encodedLen(sessionID, update) <= maxOutboundFrameBytes {
 		return []string{text}
 	}
 	var out []string
@@ -301,7 +322,7 @@ func splitChunk(text string) []string {
 			if mid <= 0 {
 				break
 			}
-			if encodedLen(textChunkUpdate(rest[:mid])) <= maxOutboundFrameBytes {
+			if encodedLen(sessionID, textChunkUpdate(rest[:mid])) <= maxOutboundFrameBytes {
 				best = mid
 				lo = mid + 1
 			} else {
@@ -327,8 +348,11 @@ func runeFloor(s string, i int) int {
 	return i
 }
 
-func encodedLen(u acp.SessionUpdate) int {
-	b, err := json.Marshal(acp.SessionNotification{Update: u})
+func encodedLen(sessionID string, u acp.SessionUpdate) int {
+	b, err := json.Marshal(acp.SessionNotification{
+		SessionID: acp.SessionID(sessionID),
+		Update:    u,
+	})
 	if err != nil {
 		return 0
 	}

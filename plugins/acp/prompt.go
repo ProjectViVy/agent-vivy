@@ -139,7 +139,7 @@ func (a *agent) emitUpdates(ctx context.Context, p *promptState, updates []acp.S
 	var expanded []acp.SessionUpdate
 	for _, u := range updates {
 		if u.AgentMessageChunk != nil && u.AgentMessageChunk.Content.Text != nil {
-			for _, piece := range splitChunk(u.AgentMessageChunk.Content.Text.Text) {
+			for _, piece := range splitChunk(p.scope.SessionID, u.AgentMessageChunk.Content.Text.Text) {
 				expanded = append(expanded, textChunkUpdate(piece))
 			}
 			continue
@@ -193,6 +193,10 @@ type turnStartParams struct {
 // pre-registered event route, project committed events, then return exactly
 // one final response.
 func (a *agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResponse, error) {
+	if !a.isInitialized() {
+		return acp.PromptResponse{},
+			rpcError(-32602, "connection is not initialized", "INVALID_INPUT")
+	}
 	s, err := a.lookupSession(string(req.SessionID))
 	if err != nil {
 		return acp.PromptResponse{}, err
@@ -289,8 +293,10 @@ func (a *agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	}
 	var sub struct {
 		SubscriptionID string `json:"subscription_id"`
+		RunID          string `json:"run_id"`
 	}
-	if err := json.Unmarshal(subRaw, &sub); err != nil || sub.SubscriptionID == "" {
+	if err := json.Unmarshal(subRaw, &sub); err != nil || sub.SubscriptionID == "" ||
+		(sub.RunID != "" && sub.RunID != started.RunID) {
 		a.drain()
 		return acp.PromptResponse{}, rpcError(-32603, "malformed subscribe result", "INTERNAL_FAILURE")
 	}
@@ -306,8 +312,9 @@ func (a *agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 		}
 		return out.resp, nil
 	case <-ctx.Done():
-		// Unwritable transport: no fabricated response (spec §9 EOF row).
-		return acp.PromptResponse{}, ctx.Err()
+		// Unwritable transport: the wire answer cannot reach the client;
+		// return the sanitized internal error rather than leaking ctx.Err().
+		return acp.PromptResponse{}, rpcError(-32603, "prompt aborted: transport closed", "INTERNAL_FAILURE")
 	}
 }
 
@@ -435,8 +442,15 @@ func (a *agent) SessionCancel(_ context.Context, req acp.CancelNotification) err
 		return nil
 	}
 	s.mu.Lock()
-	s.lastCancelAt = time.Now()
 	p := s.active
+	if p == nil {
+		// No active prompt: latch the cancel so a prompt admitted within
+		// the TTL window consumes it (the accepted ordering contract).
+		// When a prompt is already active the cancel applies to it
+		// directly — arming the latch on top would wrongly cancel the
+		// NEXT prompt too.
+		s.lastCancelAt = time.Now()
+	}
 	s.mu.Unlock()
 	if p == nil {
 		return nil

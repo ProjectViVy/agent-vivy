@@ -223,9 +223,12 @@ func (a *agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 		return acp.NewSessionResponse{}, safeRPCError(err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		WorkspacePath string `json:"workspace_path"`
 	}
-	if err := json.Unmarshal(raw, &created); err != nil || created.ID == "" {
+	// The returned workspace_path is the canonical root Control stored;
+	// the adapter binds to it rather than trusting its own Cwd spelling.
+	if err := json.Unmarshal(raw, &created); err != nil || created.ID == "" || created.WorkspacePath == "" {
 		a.drain()
 		return acp.NewSessionResponse{},
 			rpcError(-32603, "malformed session result", "INTERNAL_FAILURE")
@@ -234,7 +237,7 @@ func (a *agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	a.mu.Lock()
 	a.reservations--
 	release = false
-	a.sessions[created.ID] = &sessionState{root: filepath.Clean(req.Cwd)}
+	a.sessions[created.ID] = &sessionState{root: filepath.Clean(created.WorkspacePath)}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionID: acp.SessionID(created.ID)}, nil
 }
@@ -258,7 +261,7 @@ func validateNewSession(req acp.NewSessionRequest) error {
 
 func hasControlChar(s string) bool {
 	for _, r := range s {
-		if r == 0 || (r < 0x20) || r == 0x7f {
+		if r == 0 || (r < 0x20) || (r >= 0x7f && r <= 0x9f) {
 			return true
 		}
 	}

@@ -163,7 +163,13 @@ func TestSessionAdmission(t *testing.T) {
 				n++
 				id := n
 				mu.Unlock()
-				out, _ := json.Marshal(map[string]any{"id": "sess_" + itoa(id)})
+				var p struct {
+					WorkspacePath string `json:"workspace_path"`
+				}
+				if b, _ := json.Marshal(params); b != nil {
+					_ = json.Unmarshal(b, &p)
+				}
+				out, _ := json.Marshal(map[string]any{"id": "sess_" + itoa(id), "workspace_path": p.WorkspacePath})
 				return json.RawMessage(out), nil
 			}
 			return nil, errors.New("unexpected call: " + method)
@@ -370,4 +376,54 @@ func contains(hay []byte, needle string) bool {
 			}
 			return false
 		})()
+}
+
+// NewSession binds the canonical workspace_path the durable side returns,
+// not the client's spelling (spec §12.4).
+func TestSessionStoresCanonicalWorkspacePath(t *testing.T) {
+	h := &fakeHost{callFn: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		switch method {
+		case "initialize":
+			return json.RawMessage(`{"protocol_version":1,"capabilities":["session","turn","run","run.subscribe","approval","question","review"],"code_mode_available":true}`), nil
+		case "session/create":
+			return json.RawMessage(`{"id":"sess_c","workspace_path":"/canonical/root"}`), nil
+		}
+		return nil, errors.New("unexpected call: " + method)
+	}}
+	a := newAgent(h)
+	mustInitialize(t, a)
+	resp, err := a.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	a.mu.Lock()
+	s := a.sessions[string(resp.SessionID)]
+	a.mu.Unlock()
+	if s == nil || s.root != filepath.Clean("/canonical/root") {
+		t.Fatalf("root = %q", s.root)
+	}
+}
+
+// A session/create result missing workspace_path is malformed: drain.
+func TestSessionCreateMissingWorkspacePathDrains(t *testing.T) {
+	h := &fakeHost{callFn: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		switch method {
+		case "initialize":
+			return json.RawMessage(`{"protocol_version":1,"capabilities":["session","turn","run","run.subscribe","approval","question","review"],"code_mode_available":true}`), nil
+		case "session/create":
+			return json.RawMessage(`{"id":"sess_x"}`), nil
+		}
+		return nil, errors.New("unexpected call: " + method)
+	}}
+	a := newAgent(h)
+	mustInitialize(t, a)
+	if _, err := a.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp"}); err == nil {
+		t.Fatal("missing workspace_path accepted")
+	}
+	a.mu.Lock()
+	draining := a.draining
+	a.mu.Unlock()
+	if !draining {
+		t.Fatal("malformed create did not drain")
+	}
 }

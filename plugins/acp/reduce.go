@@ -55,6 +55,9 @@ func (a *agent) reduce(p *promptState, ctx context.Context) {
 				p.releaseEvent(ev)
 				continue // duplicate
 			}
+			if old, dup := held[ev.Seq]; dup {
+				p.releaseEvent(old) // overwrite: free the displaced entry
+			}
 			held[ev.Seq] = ev
 			for {
 				cur, ok := held[nextSeq]
@@ -146,6 +149,12 @@ func (a *agent) failStream(p *promptState, reason string) {
 		ctx, cancel := context.WithTimeout(context.Background(), controlCallTimeout)
 		_, _ = a.call(ctx, "run/cancel", map[string]string{"run_id": p.scope.RunID})
 		cancel()
+	}
+	if p.isClientCancelled() {
+		// Terminal precedence (spec §9): an accepted client cancel outranks
+		// a same-window stream failure.
+		p.decide(promptResult{resp: cancelledResponse()})
+		return
 	}
 	p.decide(promptResult{err: rpcError(-32603, reason, "STREAM_INTEGRITY_FAILED")})
 }

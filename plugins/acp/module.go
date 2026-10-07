@@ -7,6 +7,8 @@ package acp
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 
 	"agent-vivy/sdk/module"
 	faceport "agent-vivy/sdk/port/face"
@@ -18,7 +20,7 @@ const (
 	providerID = "projectvivy.acp"
 	faceKind   = "acp"
 	sourceRef  = "repo:plugins/acp"
-	sourceSHA  = "258fc96731ebdbb6bc0ba55cdb31f68b21303341fceaf3e1058a6b8cbe7756c7"
+	sourceSHA  = "9c576deacacca8775b8f7fe32526a8bfb587f98df83935ed08f55f6b459b5eb2"
 )
 
 type vivyModule struct{}
@@ -90,5 +92,11 @@ func (f *boundFace) Run(ctx context.Context, o faceport.Options) (faceport.Resul
 	case <-conn.Done():
 	}
 	_ = conn.Close()
-	return faceport.Result{Status: "completed"}, conn.Err()
+	// A clean client disconnect surfaces as io.EOF (or a closed-pipe peer)
+	// on the transport: that is a normal Face exit, not a failure.
+	err = conn.Err()
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		err = nil
+	}
+	return faceport.Result{Status: "completed"}, err
 }
