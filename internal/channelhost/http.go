@@ -25,13 +25,13 @@ import (
 type taskHTTPState string
 
 const (
-	taskHTTPAbsent    taskHTTPState = "absent"
-	taskHTTPInactive  taskHTTPState = "inactive"
-	taskHTTPStarting  taskHTTPState = "starting"
-	taskHTTPServing   taskHTTPState = "serving"
-	taskHTTPDraining  taskHTTPState = "draining"
-	taskHTTPFailed    taskHTTPState = "failed"
-	taskHTTPStopped   taskHTTPState = "stopped"
+	taskHTTPAbsent   taskHTTPState = "absent"
+	taskHTTPInactive taskHTTPState = "inactive"
+	taskHTTPStarting taskHTTPState = "starting"
+	taskHTTPServing  taskHTTPState = "serving"
+	taskHTTPDraining taskHTTPState = "draining"
+	taskHTTPFailed   taskHTTPState = "failed"
+	taskHTTPStopped  taskHTTPState = "stopped"
 )
 
 // §10 protective bounds (initial settings, not throughput targets).
@@ -50,18 +50,18 @@ const (
 
 // taskHTTPListener is one bound listener's live state.
 type taskHTTPListener struct {
-	srv  *http.Server
-	ln   net.Listener
-	name string
+	srv       *http.Server
+	ln        net.Listener
+	name      string
 	principal string
-	state taskHTTPState
-	err   string // safe diagnostic, never credentials or paths
+	state     taskHTTPState
+	err       string // safe diagnostic, never credentials or paths
 
-	mu       sync.Mutex
-	rpc      *tokenBucket
-	card     *tokenBucket
-	streams  map[string]int // task -> open stream count
-	streamN  int            // total open streams for the principal
+	mu      sync.Mutex
+	rpc     *tokenBucket
+	card    *tokenBucket
+	streams map[string]int // task -> open stream count
+	streamN int            // total open streams for the principal
 }
 
 // tokenBucket is a fixed-cost token bucket: capacity burst, refill rate
@@ -118,9 +118,9 @@ func (h *Host) startTaskHTTP(ctx context.Context, channelName, moduleID string, 
 	}
 	lis := &taskHTTPListener{
 		name: channelName, principal: cfg.Principal.ID,
-		state: taskHTTPStarting,
-		rpc: newTokenBucket(taskHTTPRatePerSec, taskHTTPRateBurst),
-		card: newTokenBucket(taskHTTPRatePerSec, taskHTTPRateBurst),
+		state:   taskHTTPStarting,
+		rpc:     newTokenBucket(taskHTTPRatePerSec, taskHTTPRateBurst),
+		card:    newTokenBucket(taskHTTPRatePerSec, taskHTTPRateBurst),
 		streams: make(map[string]int),
 	}
 	h.taskListeners[channelName] = lis
@@ -406,4 +406,3 @@ func (h *Host) TaskHTTPStates() map[string]string {
 	}
 	return out
 }
-

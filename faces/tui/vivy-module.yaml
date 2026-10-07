@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/tui, version: 0.1.0}
-source: {ref: repo:faces/tui, sha256: daa1a129a770f2fec8dd2ee86ba7a63b4a124ce543f93364144db49b579b9ca6}
+source: {ref: repo:faces/tui, sha256: 9e2726f4576be20a55e65d9afa4aa5a7b93060d81ae91f4472ca455900d13321}
 provides: [{port: std/face@v1, id: vivy.tui}]
 requires: [{port: core/face-host@v1, provider: vivy/face-host}]
 requestedGrants: [rpc.client]

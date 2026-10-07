@@ -286,8 +286,8 @@ func TestA2ANativeServicePath(t *testing.T) {
 			t.Fatalf("card status=%d", resp.StatusCode)
 		}
 		var card struct {
-			Name                 string `json:"name"`
-			SupportedInterfaces  []struct {
+			Name                string `json:"name"`
+			SupportedInterfaces []struct {
 				URL             string `json:"url"`
 				ProtocolBinding string `json:"protocolBinding"`
 			} `json:"supportedInterfaces"`

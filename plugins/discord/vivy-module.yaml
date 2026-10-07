@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/discord, version: 0.1.0}
-source: {ref: repo:plugins/discord, sha256: 53d1c4ac64f4ba746c3851ddbdb24794214855b75342b1ca7aa6a32be0232ee0}
+source: {ref: repo:plugins/discord, sha256: 1a29478e32bcdcf1c4df2d07e33445bfa1be996724dfeca12bdb92b1cc74556d}
 provides: [{port: std/channel@v1, id: vivy.discord}]
 requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
 requestedGrants: [channel.poll, secret.read, net.client]

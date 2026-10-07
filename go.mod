@@ -42,6 +42,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/DotNetAge/govector v0.1.8 // indirect
 	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
+	github.com/a2aproject/a2a-go/v2 v2.6.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -96,7 +97,6 @@ require (
 	github.com/larksuite/oapi-sdk-go/v3 v3.11.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
-	github.com/a2aproject/a2a-go/v2 v2.6.0 // indirect
 	github.com/mymmrac/telego v1.10.0 // indirect
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
@@ -144,14 +144,18 @@ require (
 )
 
 require (
+	agent-vivy/faces/headless v0.0.0
+	agent-vivy/faces/tui v0.0.0
+	agent-vivy/plugins/a2a-server v0.0.0
+	agent-vivy/plugins/coding/lsp v0.0.0
 	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
+	agent-vivy/plugins/governance v0.0.0
 	agent-vivy/plugins/infra/llm v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
-	agent-vivy/plugins/a2a-server v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
