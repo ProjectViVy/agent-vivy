@@ -47,6 +47,17 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
+// RPCErrorCode returns the JSON-RPC error code carried by this Error. It
+// survives errors.As through wrapped values so callers that translate wire
+// failures (e.g. the ACP adapter) can recover the code without depending on
+// the concrete *Error type or parsing Message.
+func (e *Error) RPCErrorCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Code
+}
+
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -209,4 +210,14 @@ func TestPeerRejectsInvalidJSON(t *testing.T) {
 		t.Fatalf("response = %+v, want parse error", response)
 	}
 	_ = server.transport.Close()
+}
+
+func TestRPCErrorCodeSurvivesWrapping(t *testing.T) {
+	var coded interface{ RPCErrorCode() int }
+	if !errors.As(fmt.Errorf("wrapped: %w", &Error{Code: -32004}), &coded) {
+		t.Fatal("wrapped RPC code unavailable")
+	}
+	if coded.RPCErrorCode() != -32004 {
+		t.Fatal("code changed")
+	}
 }
