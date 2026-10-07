@@ -74,6 +74,8 @@ func (f *boundFace) Run(ctx context.Context, o faceport.Options) (faceport.Resul
 			errors.New("acp: requires input, output, and error streams")
 	}
 	a := newAgent(f.host)
+	// The event route must exist before any run subscription (spec §5).
+	f.host.OnEvent(a.onEvent)
 	conn, err := newConnection(a, o.In, o.Out)
 	if err != nil {
 		return faceport.Result{Status: "failed"}, err

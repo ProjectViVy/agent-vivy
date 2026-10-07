@@ -2,9 +2,12 @@ package acp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"sync"
+	"time"
 
 	acp "github.com/eino-contrib/acp"
 	acpconn "github.com/eino-contrib/acp/conn"
@@ -35,11 +38,21 @@ type agent struct {
 	initMu      sync.Mutex
 	initialized bool
 
-	mu           sync.Mutex
-	sessions     map[string]*sessionState
-	reservations int
-	draining     bool
-	conn         *acpconn.AgentConnection
+	mu            sync.Mutex
+	sessions      map[string]*sessionState
+	reservations  int
+	activePrompts int
+	draining      bool
+	conn          *acpconn.AgentConnection
+
+	// Event routing: subscription_id -> prompt once bound, run_id ->
+	// buffered events for a subscription not yet bound (spec §7).
+	routes          map[string]*promptState
+	pending         map[string][]pendingEvent
+	pendingOverflow map[string]bool // run ids whose early buffer overflowed
+
+	// nonce seeds opaque tool IDs for this connection (spec §7).
+	nonce string
 }
 
 // sessionState owns one admitted ACP session: the canonical workspace root
@@ -50,10 +63,27 @@ type sessionState struct {
 	mu sync.Mutex
 	// nextGeneration numbers prompts owned by this session.
 	nextGeneration uint64
+	// active is the session's single in-flight prompt slot.
+	active *promptState
+	// lastCancelAt is the unconditional cancel latch (spec §5/§8): every
+	// cancel on an owned session stamps it; a prompt admitted within the
+	// TTL consumes it, and a stale latch is discarded.
+	lastCancelAt time.Time
 }
 
 func newAgent(host faceport.Host) *agent {
-	return &agent{host: host, sessions: make(map[string]*sessionState)}
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		panic("acp: crypto/rand unavailable")
+	}
+	return &agent{
+		host:            host,
+		sessions:        make(map[string]*sessionState),
+		routes:          make(map[string]*promptState),
+		pending:         make(map[string][]pendingEvent),
+		pendingOverflow: make(map[string]bool),
+		nonce:           hex.EncodeToString(nonce),
+	}
 }
 
 func (a *agent) bindConnection(conn *acpconn.AgentConnection) {
