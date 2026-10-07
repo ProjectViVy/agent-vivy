@@ -3,14 +3,12 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/journalview"
 	"agent-vivy/internal/storage"
 )
 
@@ -87,7 +85,9 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 	}
 	defer it.Close()
 	var out []domain.Message
-	var pending strings.Builder
+	// Assistant text reduction is the shared journalview reducer — the
+	// same semantics the channel task projection uses (design §7.1).
+	reducer := journalview.NewTextReducer(runID)
 	for it.Next() {
 		re := it.Value().Event
 		switch re.Type {
@@ -101,18 +101,16 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			if p.NoContext {
 				return nil, nil
 			}
-		case domain.EventModelRequest:
-			pending.Reset()
-		case domain.EventModelDelta:
-			var p payloadModelDelta
-			if err := json.Unmarshal(re.Payload, &p); err != nil {
-				return nil, fmt.Errorf("decode model.delta seq %d: %w", re.Seq, err)
-			}
-			pending.WriteString(p.Delta)
 		case domain.EventToolRequested:
-			if pending.Len() > 0 {
-				out = append(out, projectedTextMessage(sessionID, runID, re, "0", pending.String()))
-				pending.Reset()
+			segments, err := reducer.Apply(re)
+			if err != nil {
+				return nil, err
+			}
+			for _, segment := range segments {
+				out = append(out, domain.Message{
+					ID: segment.ID, SessionID: sessionID, RunID: runID,
+					Role: domain.RoleAssistant, CreatedAt: re.CreatedAt, Content: segment.Text,
+				})
 			}
 			var p payloadToolRequested
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
@@ -141,13 +139,17 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				Role: domain.RoleTool, CreatedAt: re.CreatedAt, Content: content,
 				ToolCallID: p.ToolCallID, ToolName: p.ToolName,
 			})
-		case domain.EventModelCompleted:
-			content, err := completedProjectionContent(re, pending.String())
+		default:
+			segments, err := reducer.Apply(re)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, projectedTextMessage(sessionID, runID, re, "0", content))
-			pending.Reset()
+			for _, segment := range segments {
+				out = append(out, domain.Message{
+					ID: segment.ID, SessionID: sessionID, RunID: runID,
+					Role: domain.RoleAssistant, CreatedAt: re.CreatedAt, Content: segment.Text,
+				})
+			}
 		}
 	}
 	if err := it.Err(); err != nil {
@@ -160,38 +162,12 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 // the v2 hash-commit shape. Reconcile must not hard-fail a whole session on
 // them: the legacy run is skipped and whatever projection was persisted by
 // the old writer stays readable. Fresh runs are v2-only, so the run
-// completion path still fails closed on this error.
-var errUnsupportedCompletedVersion = errors.New("unsupported model.completed payload version")
+// completion path still fails closed on this error. The rule itself lives
+// in internal/journalview so both projections validate identically.
+var errUnsupportedCompletedVersion = journalview.ErrUnsupportedCompletedVersion
 
 func completedProjectionContent(re domain.RunEvent, deltas string) (string, error) {
-	if re.PayloadVersion != 2 {
-		return "", fmt.Errorf("%w %d at seq %d", errUnsupportedCompletedVersion, re.PayloadVersion, re.Seq)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(re.Payload, &fields); err != nil {
-		return "", fmt.Errorf("decode model.completed seq %d: %w", re.Seq, err)
-	}
-	if _, hasContent := fields["content"]; hasContent {
-		return "", fmt.Errorf("model.completed seq %d v2 must not contain content", re.Seq)
-	}
-	if len(fields) != 2 {
-		return "", fmt.Errorf("model.completed seq %d v2 has unknown or missing fields", re.Seq)
-	}
-	var p payloadModelCompletedV2
-	if err := json.Unmarshal(re.Payload, &p); err != nil {
-		return "", fmt.Errorf("decode model.completed metadata seq %d: %w", re.Seq, err)
-	}
-	if p.ByteLen != len([]byte(deltas)) {
-		return "", fmt.Errorf("model.completed seq %d byte length mismatch", re.Seq)
-	}
-	sum := sha256.Sum256([]byte(deltas))
-	if len(p.ContentSHA256) != sha256.Size*2 || strings.ToLower(p.ContentSHA256) != p.ContentSHA256 {
-		return "", fmt.Errorf("model.completed seq %d invalid content digest", re.Seq)
-	}
-	if _, err := hex.DecodeString(p.ContentSHA256); err != nil || p.ContentSHA256 != hex.EncodeToString(sum[:]) {
-		return "", fmt.Errorf("model.completed seq %d content digest mismatch", re.Seq)
-	}
-	return deltas, nil
+	return journalview.CompletedProjectionContent(re, deltas)
 }
 
 func projectedTextMessage(sessionID domain.SessionID, runID domain.RunID, re domain.RunEvent, slot, content string) domain.Message {
@@ -202,7 +178,7 @@ func projectedTextMessage(sessionID domain.SessionID, runID domain.RunID, re dom
 }
 
 func projectedMessageID(runID domain.RunID, seq domain.EventSeq, slot string) string {
-	return fmt.Sprintf("msgp_%s_%020d_%s", runID, seq, slot)
+	return journalview.TextMessageID(runID, seq, slot)
 }
 
 func sameProjectedMessage(a, b domain.Message) bool {

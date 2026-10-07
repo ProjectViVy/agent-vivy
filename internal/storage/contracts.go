@@ -85,6 +85,52 @@ type Journal interface {
 	Replay(ctx context.Context, runID domain.RunID, after domain.EventSeq) (Iterator[Entry], error)
 }
 
+// JournalPageQuery bounds one committed page read. ThroughSeq is an
+// inclusive ceiling; zero captures the run's committed maximum inside the
+// same read snapshot so the page can never observe appends past it.
+// MaxEvents and MaxBytes are hard caps — never widen them per caller.
+type JournalPageQuery struct {
+	RunID      domain.RunID
+	AfterSeq   domain.EventSeq
+	ThroughSeq domain.EventSeq
+	MaxEvents  int
+	MaxBytes   int64
+}
+
+// JournalPage is one bounded committed slice. ThroughSeq is the fixed
+// watermark this page read against — later pages pass it back unchanged so
+// a page sequence always describes the same committed prefix. HasMore is
+// only true when committed rows remain inside (AfterSeq, ThroughSeq].
+type JournalPage struct {
+	Events     []domain.RunEvent
+	ThroughSeq domain.EventSeq
+	HasMore    bool
+}
+
+// JournalPage limits: callers never raise them; implementations enforce
+// them before materializing anything.
+const (
+	JournalPageMaxEvents = 256
+	JournalPageMaxBytes  = 1 << 20
+)
+
+// ErrJournalPageLimit reports a page query outside the fixed bounds or a
+// single committed event that cannot fit inside MaxBytes.
+var ErrJournalPageLimit = errors.New("storage: journal page limit")
+
+// JournalPageReader serves fixed-ceiling committed pages (design §8.1).
+// It is optional on top of Journal: the channel task projection uses it;
+// plugins never see it.
+type JournalPageReader interface {
+	// ReadJournalPage returns committed events with AfterSeq < seq <=
+	// ThroughSeq in order, bounded by MaxEvents and MaxBytes. The
+	// ThroughSeq captured or supplied for the page is returned fixed, and
+	// HasMore reports rows still inside the window. An empty page is never
+	// returned with HasMore; a query whose first event alone exceeds
+	// MaxBytes fails with ErrJournalPageLimit.
+	ReadJournalPage(ctx context.Context, query JournalPageQuery) (JournalPage, error)
+}
+
 // ToolOperationStore atomically appends each operation transition to the
 // Journal and updates its private invocation row in the same transaction.
 // Journal events contain lifecycle metadata and digests; invocation bytes

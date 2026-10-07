@@ -113,3 +113,82 @@ func (it *replayIter) Next() bool {
 func (it *replayIter) Value() storage.Entry { return it.cur }
 func (it *replayIter) Err() error           { return it.err }
 func (it *replayIter) Close() error         { return it.rows.Close() }
+
+// ReadJournalPage implements storage.JournalPageReader (design §8.1): one
+// read transaction captures the committed watermark H, then returns the
+// in-window rows under fixed event/byte ceilings.
+func (b *Backend) ReadJournalPage(ctx context.Context, q storage.JournalPageQuery) (storage.JournalPage, error) {
+	if q.RunID == "" || q.AfterSeq < 0 || q.ThroughSeq < 0 ||
+		q.MaxEvents <= 0 || q.MaxEvents > storage.JournalPageMaxEvents ||
+		q.MaxBytes <= 0 || q.MaxBytes > storage.JournalPageMaxBytes {
+		return storage.JournalPage{}, storage.ErrJournalPageLimit
+	}
+	tx, err := b.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return storage.JournalPage{}, fmt.Errorf("storage: begin journal page: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var maxSeq sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT MAX(seq) FROM run_events WHERE run_id = ?`, q.RunID).Scan(&maxSeq); err != nil {
+		return storage.JournalPage{}, fmt.Errorf("storage: journal page watermark: %w", err)
+	}
+	ceiling := domain.EventSeq(maxSeq.Int64)
+	if q.ThroughSeq > 0 && q.ThroughSeq < ceiling {
+		ceiling = q.ThroughSeq
+	}
+	page := storage.JournalPage{ThroughSeq: ceiling}
+	if q.AfterSeq >= ceiling {
+		return page, nil
+	}
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT seq, type, created_at, payload_version, payload FROM run_events
+		 WHERE run_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
+		q.RunID, q.AfterSeq, ceiling)
+	if err != nil {
+		return storage.JournalPage{}, fmt.Errorf("storage: journal page read: %w", err)
+	}
+	defer rows.Close()
+
+	var used int64
+	var last domain.EventSeq
+	for rows.Next() {
+		var ev domain.RunEvent
+		if err := rows.Scan(&ev.Seq, &ev.Type, &ev.CreatedAt, &ev.PayloadVersion, &ev.Payload); err != nil {
+			return storage.JournalPage{}, fmt.Errorf("storage: journal page scan: %w", err)
+		}
+		ev.RunID = q.RunID
+		size := int64(len(ev.Payload))
+		if len(page.Events) == 0 && size > q.MaxBytes {
+			return storage.JournalPage{}, fmt.Errorf("storage: journal event seq %d exceeds page bytes: %w", ev.Seq, storage.ErrJournalPageLimit)
+		}
+		if len(page.Events) == q.MaxEvents || used+size > q.MaxBytes {
+			page.HasMore = true
+			break
+		}
+		page.Events = append(page.Events, ev)
+		used += size
+		last = ev.Seq
+	}
+	if err := rows.Err(); err != nil {
+		return storage.JournalPage{}, fmt.Errorf("storage: journal page rows: %w", err)
+	}
+	if !page.HasMore && last > 0 {
+		var more int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM run_events WHERE run_id = ? AND seq > ? AND seq <= ?`,
+			q.RunID, last, ceiling).Scan(&more); err != nil {
+			return storage.JournalPage{}, fmt.Errorf("storage: journal page tail: %w", err)
+		}
+		page.HasMore = more > 0
+	}
+	if len(page.Events) == 0 && page.HasMore {
+		return storage.JournalPage{}, fmt.Errorf("storage: journal page cannot make progress: %w", storage.ErrJournalPageLimit)
+	}
+	if err := tx.Commit(); err != nil {
+		return storage.JournalPage{}, fmt.Errorf("storage: journal page commit: %w", err)
+	}
+	return page, nil
+}
