@@ -94,6 +94,7 @@ type providerChannel struct {
 	instance         channel.Instance
 	maxRunes         int
 	capabilityTarget any
+	stopListener     func(context.Context) error
 }
 
 func (c *providerChannel) Name() string { return c.name }
@@ -126,10 +127,35 @@ func (c *providerChannel) Start(ctx context.Context, host channel.Host) error {
 		_ = instance.Stop(ctx)
 		return err
 	}
+	// A live ListenHandler mounts the dedicated task listener only when the
+	// env carries the task surface AND the channel envelope configures an
+	// http block — otherwise the capability stays inactive (§10.1).
+	if lh, ok := c.instance.(channel.ListenHandler); ok {
+		type taskServerEnv interface {
+			ServeTaskHTTP(context.Context, http.Handler) (func(context.Context) error, error)
+		}
+		if env, ok := host.(taskServerEnv); ok {
+			stop, err := env.ServeTaskHTTP(ctx, lh.ListenHandler())
+			if err != nil {
+				// Recorded as a failed listener in Inspect; the channel
+				// itself still started — no partial route exists.
+				slog.Warn("app: task listener failed", "channel", c.name, "error", err)
+			} else {
+				c.stopListener = stop
+			}
+		}
+	}
 	c.instance = instance
 	return nil
 }
 func (c *providerChannel) Stop(ctx context.Context) error {
+	if c.stopListener != nil {
+		// The listener stops before the instance (reverse ownership order).
+		if err := c.stopListener(ctx); err != nil {
+			slog.Warn("app: task listener drain failed", "channel", c.name, "error", err)
+		}
+		c.stopListener = nil
+	}
 	if c.instance == nil {
 		return nil
 	}

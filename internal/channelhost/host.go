@@ -88,6 +88,9 @@ type Host struct {
 	// refused", "start failed: <err>"); empty means started. Guarded by mu.
 	notes   map[string]string
 	targets map[domain.RunID]outboundTarget
+	// taskListeners maps channel name -> dedicated task HTTP listener
+	// state (A2A-05); guarded by mu.
+	taskListeners map[string]*taskHTTPListener
 	// draining gates delivery-goroutine spawns once StopAll began: a run
 	// completing during shutdown leaves its durable intent pending instead
 	// of racing the wait. Guarded by mu.
@@ -285,6 +288,33 @@ type ChannelStatus struct {
 	// StartAll note answers "why did it not start"; this answers "is the
 	// running ear actually connected" (CH-R-1).
 	Health *ChannelHealth
+	// TaskListener is the dedicated task HTTP listener truth (A2A §10.1):
+	// nil when the channel has no http listener block at all; otherwise the
+	// lifecycle state plus a credential- and path-free diagnostic.
+	TaskListener *TaskListenerStatus
+}
+
+// TaskListenerStatus is the inspect projection of one channel's dedicated
+// task listener. Bind addresses, token refs and values never cross this
+// surface; only lifecycle state, a safe diagnostic, and effective bounds.
+type TaskListenerStatus struct {
+	// State is absent|inactive|starting|serving|draining|failed|stopped.
+	State string
+	// Diagnostic is the safe failure record (bind/auth/config), never a
+	// credential value or filesystem path.
+	Diagnostic string
+	// Limits reports the effective protective bounds (§10).
+	Limits TaskListenerLimits
+}
+
+// TaskListenerLimits mirrors the applied listener bounds for Inspect.
+type TaskListenerLimits struct {
+	RatePerSec          float64
+	Burst               int
+	StreamsPerTask      int
+	StreamsPerPrincipal int
+	BodyLimitBytes      int
+	DrainSeconds        int
 }
 
 // Inspect reports every compiled-in channel in deterministic name order,
@@ -327,6 +357,7 @@ func (h *Host) Inspect() []ChannelStatus {
 		if status.Started {
 			status.Health = h.probeHealth(ch)
 		}
+		status.TaskListener = h.inspectTaskListener(name)
 		statuses = append(statuses, status)
 	}
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
@@ -387,4 +418,41 @@ func (h *Host) Deliver(ctx context.Context, channelName, chatID, content string)
 	h.logger.Info("channelhost: delivery to channel completed",
 		"channel", channelName, "chat_id", chatID, "chunks", len(chunks))
 	return nil
+}
+
+// inspectTaskListener projects the dedicated task listener truth: nil for
+// channels with no http block; otherwise the lifecycle state — inactive
+// when configured but not started (no ListenHandler, stopped, or failed
+// before a record), else the live/failed record.
+func (h *Host) inspectTaskListener(name string) *TaskListenerStatus {
+	envelope, ok := h.deps.Config[name]
+	configured := ok && envelope.HTTP != nil
+	h.mu.Lock()
+	lis := h.taskListeners[name]
+	h.mu.Unlock()
+	if lis == nil {
+		if !configured {
+			return nil
+		}
+		return &TaskListenerStatus{State: string(taskHTTPInactive), Limits: taskListenerLimits()}
+	}
+	lis.mu.Lock()
+	defer lis.mu.Unlock()
+	return &TaskListenerStatus{
+		State:      string(lis.state),
+		Diagnostic: lis.err,
+		Limits:     taskListenerLimits(),
+	}
+}
+
+// taskListenerLimits reports the applied §10 bounds.
+func taskListenerLimits() TaskListenerLimits {
+	return TaskListenerLimits{
+		RatePerSec:          taskHTTPRatePerSec,
+		Burst:               taskHTTPRateBurst,
+		StreamsPerTask:      taskHTTPStreamPerTask,
+		StreamsPerPrincipal: taskHTTPStreamPerPrin,
+		BodyLimitBytes:      taskHTTPBodyLimit,
+		DrainSeconds:        int(taskHTTPDrain.Seconds()),
+	}
 }

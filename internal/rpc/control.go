@@ -6377,6 +6377,25 @@ type channelStatusResult struct {
 	// Note is the human-readable skip/fail reason of the last StartAll;
 	// empty when the channel started.
 	Note string `json:"note"`
+	// TaskListener is the dedicated task HTTP listener truth; absent when
+	// the channel carries no http listener block.
+	TaskListener *taskListenerResult `json:"task_listener,omitempty"`
+}
+
+// taskListenerResult is the safe inspect projection of a dedicated task
+// listener — state, diagnostic and effective bounds; never bind paths or
+// credentials.
+type taskListenerResult struct {
+	State      string `json:"state"`
+	Diagnostic string `json:"diagnostic,omitempty"`
+	Limits     struct {
+		RatePerSec          float64 `json:"rate_per_sec"`
+		Burst               int     `json:"burst"`
+		StreamsPerTask      int     `json:"streams_per_task"`
+		StreamsPerPrincipal int     `json:"streams_per_principal"`
+		BodyLimitBytes      int     `json:"body_limit_bytes"`
+		DrainSeconds        int     `json:"drain_seconds"`
+	} `json:"limits"`
 }
 
 // channelEnvelopeResult is the document truth of one compiled-in channel:
@@ -6407,6 +6426,16 @@ func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
 	if s.Health != nil {
 		health = &channelHealthResult{OK: s.Health.OK, Class: s.Health.Class, Detail: s.Health.Detail}
 	}
+	var listener *taskListenerResult
+	if s.TaskListener != nil {
+		listener = &taskListenerResult{State: s.TaskListener.State, Diagnostic: s.TaskListener.Diagnostic}
+		listener.Limits.RatePerSec = s.TaskListener.Limits.RatePerSec
+		listener.Limits.Burst = s.TaskListener.Limits.Burst
+		listener.Limits.StreamsPerTask = s.TaskListener.Limits.StreamsPerTask
+		listener.Limits.StreamsPerPrincipal = s.TaskListener.Limits.StreamsPerPrincipal
+		listener.Limits.BodyLimitBytes = s.TaskListener.Limits.BodyLimitBytes
+		listener.Limits.DrainSeconds = s.TaskListener.Limits.DrainSeconds
+	}
 	return channelStatusResult{
 		Name:         s.Name,
 		Capabilities: toChannelCapsResult(s.Capabilities),
@@ -6418,6 +6447,7 @@ func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
 		TokenEnv:     s.TokenEnv,
 		TokenEnvSet:  s.TokenEnvSet,
 		Note:         s.Note,
+		TaskListener: listener,
 	}
 }
 

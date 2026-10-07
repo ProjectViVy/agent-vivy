@@ -7,6 +7,7 @@ package channelhost
 
 import (
 	"context"
+	"net/http"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -602,4 +603,12 @@ func (e *taskCapableEnv) SubscribeTask(ctx context.Context, sub channel.TaskSubs
 }
 func (e *taskCapableEnv) TaskServiceInfo(ctx context.Context) (channel.TaskServiceInfo, error) {
 	return e.info.TaskServiceInfo(ctx)
+}
+
+// ServeTaskHTTP mounts this env's dedicated task listener (§10.1) and
+// returns its stop function. Present only on the task-capable env, so the
+// capability is absent without a complete Tasks pack; an unconfigured or
+// failing bind reports the error without a partial route.
+func (e *taskCapableEnv) ServeTaskHTTP(ctx context.Context, handler http.Handler) (func(context.Context) error, error) {
+	return e.host.startTaskHTTP(ctx, e.seam.Name(), e.ModuleID(), handler)
 }
