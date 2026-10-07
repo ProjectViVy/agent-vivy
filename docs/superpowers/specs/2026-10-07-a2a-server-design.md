@@ -22,6 +22,16 @@ steps, dependencies and evidence requirements; preparing it does not approve
 the reconnect change, pass G0 or schedule functional work. The earlier
 plan-after-G0 ordering is superseded only for this planning delivery.
 
+Consolidation revision: 2026-10-07. This design and its linked package on
+`A2A` supersede the planning documents from `docs/issue2-a2a-server-plan`
+at `99f9b7b2f3a7cab3a87b04c1989a7d5824dc9d10`. That branch used native
+baseline `3c4ed668` and SDK v2.5.0; this revision retains the newer baseline
+above. The owner authorized consolidating details before retiring the old
+branch, not choosing a reconnect contract or starting implementation.
+Section 1.1 records every material disposition; section 8.2 preserves the
+old exact-replay proposal with a conditional executable plan. Historical
+Story IDs must not be interpreted as the current IDs.
+
 Review route: section 5 defines the SDK seam; section 6 defines persistence
 and crash behavior; sections 7–11 define the protocol/HTTP boundary; section
 12 maps the changes to evidence. Existing high-level decisions and their
@@ -35,6 +45,32 @@ This draft proposes one change to issue #2's acceptance wording: standard A2A re
 
 Design review may approve this architecture without scheduling implementation. Neither this draft nor the existing `SUPPORTED` status of `std/channel@v1` establishes that TaskHost, an A2A endpoint, or an interoperable plugin exists. No product source, public interface or default Recipe is changed by this delivery.
 
+### 1.1 Consolidated scope and decisions still owned by G0
+
+The two drafts agree on the native-authority architecture. Consolidation
+retains one design and one package, with explicit alternatives where they
+differ. No pending alternative is silently approved by branch retirement.
+
+| Topic | Consolidated disposition | G0 decision or evidence |
+|---|---|---|
+| Standard recovery versus exact replay | Section 8 keeps option A (state convergence) and section 8.2 preserves option B (one optional exact-replay extension). | Select one acceptance contract and prepare the corresponding issue amendment. The existing stronger acceptance remains in force until changed. |
+| Ordinary question answers | Sections 5–7 and A2A-03 retain the newer proposed same-Run remote-answer contract. The earlier local-Face-only mode remains a valid narrower alternative: reject existing-task messages, expose a safe local-input notice, and require local handling or native expiry/failure. | Explicitly include or defer remote answers. If deferred, revise TaskRequest validation, A2A-03, projection/smoke expectations and dependency edges before releasing work; do not claim remote continuation. |
+| Identity and deployment | Section 10 retains the newer proposed multi-principal/Host-TLS envelope. The earlier minimum is one configured principal per endpoint, authenticated loopback binding, and HTTPS reverse proxy for remote access. | Select the needed deployment boundary; if narrowed, remove unused TLS/multi-principal configuration and tests before implementation. Consolidation adds no demand for them. |
+| Approval state | Keep proposed AUTH_REQUIRED with out-of-band local review; the previous WORKING notice is superseded as a design candidate. Neither permits remote approval. | Verify both interrupted states and local review races with the pinned official client. |
+| Admission | Keep current prompt capture, receipt-before-busy ordering, ownership/tombstones and shared SQL locking. The earlier receipt/tombstone requirement is preserved, not newly invented here. | Prove provisional workspace/persona cleanup. The previous eager private Session plus best-effort cleanup is not copied over the newer atomic Session requirement. |
+| HTTP seam | Reuse ListenHandler, private Host routing and the same listener. The old HTTPMounts proposal is superseded; option B adds only its exact declared path. | Validate route isolation and fail-closed lifecycle for the selected option. |
+| Default Generation | Issue #2 requires explicit opt-in and omission from default; repository/plugin guidance requires first-party inclusion in default. | Record an explicit issue-specific resolution before G1; do not edit AGENTS.md or silently choose a default. The consolidation request is not a repository-rule amendment. |
+
+Sections 5–12 describe the base server; section 8.2 adds only the conditional
+B seam, route and acceptance. Its separate replay operation does not change
+standard SubscribeTask semantics. Other G0 scope choices must be propagated
+through these sections before any implementation becomes Ready.
+
+The old SDK/protocol observations remain research inputs, not passing probes
+against v2.6.0. The base Story sequence remains proposed and blocked until G0
+settles these choices. No standalone second plan or dependency on the old
+branch is required to make those decisions.
+
 ## 2. Scope and PENS boundary
 
 The first complete slice supports authenticated inbound text tasks, context reuse, durable message deduplication, get/list/cancel, JSON-RPC with SSE, local human approval, and ordinary remote answers to a pending input question **after the native continuation gate passes**. A2A wire version is `1.0`; the SDK's `/v2` module version is unrelated.
@@ -43,7 +79,7 @@ PENS remains an independent application environment. PEN installation, activatio
 
 Inbound-only is this issue's scope, not a claim that A2A as a protocol is one-way. VIVY calling PENS tools/applications or delegating to another agent requires separately approved outbound integration. Do not add that integration to this server.
 
-Excluded: outbound A2A, NeuroLink, push callbacks/webhooks, gRPC/REST bindings, protocol extensions, signed cards, public registries, tenant administration, remote approval decisions, arbitrary remote files/URLs, and model/tool selection through protocol metadata. Text-only keeps the first contract independent of unfinished attachment delivery. Other part types are rejected, never silently dropped.
+Excluded from option A: outbound A2A, NeuroLink, push callbacks/webhooks, gRPC/REST bindings, protocol extensions, signed cards, public registries, tenant administration, remote approval decisions, arbitrary remote files/URLs, and model/tool selection through protocol metadata. Text-only keeps the first contract independent of unfinished attachment delivery. Other part types are rejected, never silently dropped.
 
 ## 3. Current implementation and required changes
 
@@ -602,7 +638,7 @@ SDK v2.6.0 supports direct `NewJSONRPCHandler(RequestHandler)`, but its SSE writ
 
 **Recommended approval:** replace issue #2's wire-level “no duplicate or lost committed updates after disconnect” criterion with: “current retained task state and artifacts converge after reconnect; updates within an attached stream follow committed order without gaps caused by the Host's replay/live transition.” Preserve strict native replay guarantees internally. Clients reconcile stable artifact IDs and do not concatenate a fresh snapshot onto old output.
 
-**Alternative if exact replay is mandatory:** keep the issue blocked until a separately approved extension specifies request cursor transport, event identity, retention, expired-cursor errors and replay ordering. This expands the currently deferred extension scope and likely needs a different SSE writer/client path; merely setting `Last-Event-ID` cannot make the pinned SDK comply. No extension is introduced by this draft.
+**Option B if exact replay is mandatory:** section 8.2 retains the earlier concrete extension proposal and its conditional plan. G0 must approve the one-extension exception, settle the remaining wire/error details and verify SDK interoperability. Merely setting `Last-Event-ID` cannot make the pinned SDK comply. The extension is not implemented or approved by this consolidation.
 
 Host subscription algorithm: authorize, register a bounded live notification, capture a committed watermark, build a safe snapshot through it, then tail Journal after it. Notifications are wakeups, not history. Deduplicate by the internal sequence/ordinal and resubscribe before catch-up after a dropped notification queue. Re-read on a bounded periodic wakeup as well, covering commit-before-publish crashes. Terminal delivery must drain the committed tail because the existing bus closes rather than sends the terminal frame. Never hold a database transaction or Run admission gate while writing to a slow socket.
 
@@ -639,6 +675,78 @@ Malformed, foreign, too-new or unavailable retained positions return
 cursor_invalid; do not silently fall back and claim exact replay. Cursor
 validation never substitutes for principal authorization. The A2A adapter
 always omits After; SDK-generated SSE IDs have no relationship to this cursor.
+
+### 8.2 Option B: retained exact-event replay proposal
+
+**Conditional design, not an enabled endpoint.** This section absorbs the old
+B enhancement and owns its contract. [A2A-R1](../plans/2026-10-07-a2a-server/A2A-R1.md)
+owns implementation after the base server. Selecting A leaves this Story
+unselected; selecting B makes its acceptance necessary to close G2. There is
+no separate replay service, task store, event table, client product or SDK fork.
+
+| Boundary | Candidate B contract retained for G0 |
+|---|---|
+| HTTP operation | `POST /a2a/extensions/task-event-replay/v1` on the same Host-owned listener; authenticated JSON body `{taskId, contextId?, after?}`. Explicit `after` is authoritative; Last-Event-ID never overrides it. |
+| Discovery | A versioned extension URI with `required: false`, advertised only when the mounted implementation and Host capability are healthy. Proposed URI: `https://github.com/ProjectViVy/agent-vivy/blob/main/docs/architecture/A2A-TASK-EVENT-REPLAY.md#v1`. Publish that wire specification before advertising the URI; until then it is only a candidate, not an existing document. |
+| Native seam | Conditionally add `ReplayTaskEvents(context.Context, TaskReplayQuery) (TaskStream, error)` to TaskHost and its grant wrapper. `TaskReplayQuery` has `TaskID`, `ContextID`, `After` strings; ContextID is an optional ownership-consistency assertion. Reuse TaskUpdate and TaskStream. Standard SubscribeTask behavior is unchanged. |
+| Event framing | SSE `id` is the durable Host cursor; `data` is the corresponding public A2A status/artifact event record. The adapter reuses standard mappings but writes these extension frames itself. Never export raw Journal records or derive replay identity from SDK random IDs. |
+| Cursor | Durable tuple `(projection version, run_id, journal_seq, public_event_ordinal)`, exclusive after-position. Reuse section 8.1 validation and bounds; no process-local signing key/token map. A version change cannot reinterpret existing cursors silently. Authorization is independent of cursor possession. |
+| Start | Empty after starts at the beginning of retained public committed history. A nonempty after resumes strictly after that event. Emit no current-state snapshot before old events. |
+| Stop and interruption | Terminal tasks are replayable: drain through their committed terminal event, then close. INPUT_REQUIRED/AUTH_REQUIRED are replayed as historical statuses and do not cut off later retained records; when caught up at a currently interrupted task, close after its waiting state. A later reconnect continues after the saved cursor. |
+| Retention | Replay uses existing retained Journal history while the Session/Run survives. No new retention setting. Missing required history/cursor positions must fail explicitly; do not treat a retained suffix as complete history. |
+| Client guarantee | Ordered replay of retained public committed events with possible redelivery; no exactly-once network claim. Apply each event and persist its cursor in one durable local client transaction; deduplicate by cursor. |
+
+Replay authorizes before reading history or checking detailed cursor errors.
+Use the current owner/tombstone checks; foreign and unknown tasks remain
+indistinguishable. For an authenticated former owner of a deleted task,
+return the frozen replay-unavailable result without revealing task contents.
+Malformed, oversized, wrong-task, unknown-version, future or unavailable
+positions do not silently fall back to a snapshot. G0 must freeze exact
+pre-header HTTP status/error envelopes and post-header SSE error framing;
+those details were not settled by the earlier draft and remain blocking.
+
+Register a wakeup, capture the committed head and page retained public events
+through it, then continue reading/tailing on that same connection. Reuse
+A2A-04's reader, projection, fallback wakeup and resource limits; a batch bound
+pages work rather than silently dropping events. Advance over private or
+suppressed Journal entries. When one Journal entry emits multiple public
+events, retain ordinal ordering so a resume inside that entry skips neither
+its remaining events nor repeats applied ones. Per-write deadlines, revoked
+credentials, disconnect and explicit iterator Close release subscriptions
+without cancelling the native Run. No SQL transaction spans socket writes.
+
+A compatible client sends work through standard A2A, then opens this stream
+from its saved cursor. Standard clients keep snapshot-based recovery and
+terminal GetTask. An enhanced client must not append a fresh snapshot to its
+old event log. On replay-unavailable it can separately inspect GetTask if
+accessible, but cannot claim its incomplete event log has been recovered.
+A cursor older than the retained floor, or a changed unsupported projection
+version, is unavailable even if current task state still exists.
+
+Required B evidence: disconnect during catch-up; append at the catch-up/tail
+boundary; terminal transition during the gap; server and durable test-client
+restart; resume between multiple public events from one Journal entry;
+filtered private entries; duplicate delivery/wakeups; altered or foreign
+cursor/context/principal; unavailable history; Session deletion; revoked
+credential; slow/oversized output; and unchanged official-client behavior.
+The client fixture proves durable apply-once effect through deduplication,
+not exactly-once transport. A skipped client-persistence check leaves B
+unaccepted. Re-pack selected/omitted artifacts after adding the extension.
+
+The smallest **proposed, unapplied** issue amendment for B is:
+
+1. Keep general custom extensions deferred, with one optional
+   `task-event-replay/v1` exception for retained public committed events.
+2. Split recovery acceptance: standard clients converge through a snapshot
+   and future updates; enhanced clients recover retained ordered events from
+   a durable cursor, including terminal tasks, without double application.
+3. Add the extension URI/wire/error/deletion/client-persistence contract to
+   G0; preserve UNSCHEDULED and the remaining explicit exclusions.
+
+If the owner chooses A instead, amend the reconnect criterion to the wording
+in section 8 and leave B unselected. Until either decision is adopted, do not
+claim the existing issue acceptance has been satisfied. The general extension
+ban and exact replay cannot both be treated as resolved by the current draft.
 
 ## 9. Human approval and cancellation
 
@@ -797,12 +905,12 @@ These gates identify required proof. The [plan package index](../plans/2026-10-0
 
 | Gate | Exit evidence |
 |---|---|
-| G0: contract approval | Owner decision on section 8; freeze TaskHost/type semantics, identity, config, projection and normal-input boundary; reconcile historical CH-C9/Channel Pack statements |
+| G0: contract approval | Owner decisions in sections 1.1 and 8/8.2; freeze TaskHost/type semantics, identity, config, projection and normal-input boundary; reconcile historical CH-C9/Channel Pack statements |
 | G0: SDK probe | A minimal real custom RequestHandler satisfies all 11 methods with v2.6.0; official client validates card/version/methods, snapshot-first SSE, errors and cancellation without NewHandler/TaskStore/AgentExecutor |
 | G1: native authority | Both storage backends prove atomic missing-context admission, receipts, prompt capture, ownership filtering, cancellation and actor-aware question continuation/restart |
 | G1: streaming | Snapshot/watermark races, notification drops, commit-before-publish, slow clients, terminal race and projection corruption behave as sections 7–8 specify |
 | G2: artifact integration | Selected Recipe compiles/verifies/packs; Inspect is truthful; omitted Recipe has no A2A SDK/route/listener/settings surface; existing Channels and Faces regressions pass |
-| G2: complete issue | Real official client drives a tool-using native Run and gets terminal artifacts; approved reconnect criterion and local approval behavior pass; required `just ci`, Module conformance and iteration logs are present |
+| G2: complete issue | Real official client drives a tool-using native Run and gets terminal artifacts; approved reconnect criterion and local approval behavior pass; if B is selected, A2A-R1 enhanced-client replay and refreshed artifact evidence also pass; required `just ci`, Module conformance and iteration logs are present |
 
 Critical fixtures: two principals guessing each other's IDs/page tokens; simultaneous identical sends with no context; same ID/different body; crash after admission commit before reply; native busy session; `/approve` as plain input; ordinary answer duplicate and crash recovery; approval expiry without a Face; cancel-vs-complete; durable terminal with stale Run row; reconnect while artifacts change; oversized/corrupt Journal projection; endpoint omitted/disabled/nonloopback misconfigured. Use isolated temporary databases/workspaces, never production user data.
 
@@ -890,7 +998,7 @@ After owner approval, reconcile `docs/plans/channel-epic/CH-C9.md`, `VIVY-CHANNE
 
 All database changes belong to Core Storage with paired immutable SQLite/Postgres migration IDs. The plugin runs no DDL and owns no database. Rollback disables the instance or deploys a Recipe omitting the Module; it does not delete sessions, Journal, admission receipts or ownership records. A binary rollback across new migrations requires a separately verified schema-compatibility window; “remove the plugin” is not a database down-migration plan.
 
-Owner review should confirm the architecture and the recommended standard reconnect guarantee. If exact event replay remains required, keep G0 open and design the extension before scheduling implementation. Input continuation remains part of the complete target and is blocked on its concrete native gate, not delegated to the A2A SDK.
+Owner review must settle sections 1.1 and 8 before implementation. Option A requires acceptance of the revised standard recovery guarantee; option B requires adoption of section 8.2, its wire/error freeze and the conditional A2A-R1 plan. Ordinary remote continuation and the broader deployment envelope remain explicit proposed choices, with their narrower alternatives retained in section 1.1. The native continuation gate applies if that capability is selected; it is never delegated to the A2A SDK.
 
 ## 14. Evidence and verification limits
 
