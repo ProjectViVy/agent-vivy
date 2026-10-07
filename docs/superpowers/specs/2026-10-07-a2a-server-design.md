@@ -410,22 +410,50 @@ ChannelHost; ChannelHost still imports no runtime package.
 Today both Mask capture and workspace selection require an existing Session.
 Creating it eagerly would defeat atomic missing-context acceptance. Add a
 private native candidate-session preparation mode, usable only with
-ChannelTaskAdmission.NewSession. It supplies the real default Session values
-to sandbox/workspace preparation and creates an empty, revision-zero Mask
-capture without asking ReadMaskCapture for a nonexistent row. At commit, assert
-that this candidate session is still absent and has no selected mask. Existing
-contexts continue to use the ordinary resolver and capture revision checks;
-this mode must not hide a deleted or missing caller-supplied context.
+ChannelTaskAdmission.NewSession. The contract below is pinned to symbols
+verified on this branch; see
+`docs/research/2026-10-07-a2a-native-preparation.md` for the write-attribution
+map and cleanup evidence.
 
-The candidate uses the existing native Session ID generator and is not
-returned before successful admission. Workspace allocation remains
-provisional through EnsureForAdmission. Persona/FrozenCore preparation may
-write in its own native store; core SQL atomicity does not include that store
-or filesystem. Definite losers release only their own provisional resources;
-ambiguous commits preserve them until receipt lookup. Failed candidates never
-become remotely accessible. This release requires a native cleanup/recovery
-fixture for orphan candidate persona/workspace state; no distributed
-transaction or plugin cleanup daemon is introduced.
+Candidate identity and defaults. The candidate Session ID is minted by the
+existing `newPrefixedID("sess_")` discipline (`internal/runtime/service.go`)
+and is never returned before successful admission. The candidate supplies
+default `domain.Session` values: `sessionSandbox` already degrades to product
+defaults on a missing row; the workspace resolver gains a candidate-scoped
+path inside `AdmissionWorkspaceAllocator` that skips the
+`sessions.GetSession` lookup in `selectedWorkspace` and allocates the private
+dir directly. That skip exists only under the candidate marker — an
+existing-context admission whose Session row vanished still fails. Mask
+preparation synthesizes `mask.Capture{Selection{SessionID: candidate,
+Revision: 0}}` without calling `ReadMaskCapture`; at commit the transaction
+asserts the candidate session is still absent.
+
+Provisional writes and their owners. Exactly three stores see candidate
+writes: the run workspace dir (`EnsureForAdmission`, pre-commit), one
+`frozen_core_sessions` row in laputa `garden.db` (`divacognitive.Prepare` →
+`agentapi` Bootstrap → `personactx.Store.Capture`, pre-commit because the
+prompt snapshot needs FrozenCore authority), and the core SQL rows written
+atomically by `CommitChannelTask`. BindHumanSession and PersonaStatus write
+nothing; ingest/evolution write only at run end.
+
+Cleanup contract. A definite loser releases its own provisional resources:
+the workspace dir through the existing `DiscardNewPrivateAdmission` call site
+`discardAdmissionWorkspace` (proven: removes only the empty `runID` dir,
+never local/selected/user dirs — isolation_test.go:215-305), and the frozen
+row through a new `DiscardFrozenSession` seam on the cognitive bundle backed
+by `personactx.Store.DiscardSession` in pinned laputa (add to
+`garden/internal/personactx` + `agentapi`; smallest native extension — no
+delete API exists today). Ambiguous-commit outcomes (`ErrCommitUncertain`)
+preserve both until a channel-task receipt lookup resolves the commit; they
+must not be cleaned. A native startup sweep — runtime-owned, not a plugin
+daemon — reaps stale orphans after the maximum admission grace window:
+workspace dirs that are empty, unlisted in `runs`, and predate the window;
+frozen rows whose session ID has no core `sessions` row (enumeration via a
+laputa `ListFrozenSessions(capturedBefore)` or a host keep-predicate).
+Rejected fallback: host-side raw `DELETE` on `garden.db` couples the host to
+a sealed vendor schema and is used only if the owner declines the laputa pin
+bump. Failed candidates never become remotely accessible; no distributed
+transaction or cleanup daemon is introduced.
 
 Canonical hash input is a fixed-field struct encoded with Go encoding/json,
 containing contract tag `channel-task/v1`, operation, exact optional context
