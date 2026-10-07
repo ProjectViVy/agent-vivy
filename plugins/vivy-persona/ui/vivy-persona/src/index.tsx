@@ -18,7 +18,7 @@ export const extension = defineUIExtension({
         path: ROUTE,
         titleKey: 'plugin.vivy/persona.title',
         subtitleKey: 'plugin.vivy/persona.subtitle',
-        demo: true,
+        demo: false,
         render: () => <PersonaPage />,
       })),
       host.composition.navigation.register('vivy-persona', defineNavigationItem({

@@ -25,14 +25,6 @@
         "zh": "编辑人格文档内容..."
       }
     },
-    "plugin.vivy/persona.emptyHistory": {
-      "description": "Persona page copy: emptyHistory",
-      "placeholders": [],
-      "messages": {
-        "en": "No history yet",
-        "zh": "暂无历史记录"
-      }
-    },
     "plugin.vivy/persona.emptyPending": {
       "description": "Persona page copy: emptyPending",
       "placeholders": [],
@@ -47,14 +39,6 @@
       "messages": {
         "en": "Failed to accept",
         "zh": "接受失败"
-      }
-    },
-    "plugin.vivy/persona.errors.historyLoadFailed": {
-      "description": "Persona page copy: errors.historyLoadFailed",
-      "placeholders": [],
-      "messages": {
-        "en": "Failed to load the history revision",
-        "zh": "加载历史版本失败"
       }
     },
     "plugin.vivy/persona.errors.loadFailed": {
@@ -79,14 +63,6 @@
       "messages": {
         "en": "Failed to save",
         "zh": "保存失败"
-      }
-    },
-    "plugin.vivy/persona.history": {
-      "description": "Persona page copy: history",
-      "placeholders": [],
-      "messages": {
-        "en": "History",
-        "zh": "历史"
       }
     },
     "plugin.vivy/persona.nav": {
@@ -159,8 +135,8 @@
       "description": "Persona page copy: subtitle",
       "placeholders": [],
       "messages": {
-        "en": "Seven persona Markdown documents · current / pending / history",
-        "zh": "七份人格 Markdown 文档 · 当前 / 待审 / 历史"
+        "en": "Live persona authority · current / pending",
+        "zh": "实时人格权威 · 当前 / 待审"
       }
     },
     "plugin.vivy/persona.title": {
@@ -171,14 +147,174 @@
         "zh": "人格"
       }
     },
-    "plugin.vivy/persona.version": {
-      "description": "Persona page copy: version",
+    "plugin.vivy/persona.errors.initializeFailed": {
+      "description": "Persona page copy: errors.initializeFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Initialization error",
+        "zh": "人格初始化失败"
+      }
+    },
+    "plugin.vivy/persona.errors.reviewsLoadFailed": {
+      "description": "Persona page copy: errors.reviewsLoadFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load reviews",
+        "zh": "加载待审变更失败"
+      }
+    },
+    "plugin.vivy/persona.initialize.description": {
+      "description": "Persona page copy: initialize.description",
+      "placeholders": [],
+      "messages": {
+        "en": "Fill the five required documents before starting a new session.",
+        "zh": "开始新会话前，请先填写五份必需的人格文档。"
+      }
+    },
+    "plugin.vivy/persona.initialize.fields.identity": {
+      "description": "Persona page copy: initialize.fields.identity",
+      "placeholders": [],
+      "messages": {
+        "en": "Identity",
+        "zh": "身份"
+      }
+    },
+    "plugin.vivy/persona.initialize.fields.relationship": {
+      "description": "Persona page copy: initialize.fields.relationship",
+      "placeholders": [],
+      "messages": {
+        "en": "Relationship",
+        "zh": "关系"
+      }
+    },
+    "plugin.vivy/persona.initialize.fields.redline": {
+      "description": "Persona page copy: initialize.fields.redline",
+      "placeholders": [],
+      "messages": {
+        "en": "Redline",
+        "zh": "红线"
+      }
+    },
+    "plugin.vivy/persona.initialize.fields.user": {
+      "description": "Persona page copy: initialize.fields.user",
+      "placeholders": [],
+      "messages": {
+        "en": "User",
+        "zh": "用户"
+      }
+    },
+    "plugin.vivy/persona.initialize.fields.world": {
+      "description": "Persona page copy: initialize.fields.world",
+      "placeholders": [],
+      "messages": {
+        "en": "World",
+        "zh": "世界"
+      }
+    },
+    "plugin.vivy/persona.initialize.required": {
+      "description": "Persona page copy: initialize.required",
+      "placeholders": [],
+      "messages": {
+        "en": "All five required documents must contain content.",
+        "zh": "五份必需的人格文档都必须填写内容。"
+      }
+    },
+    "plugin.vivy/persona.initialize.saved": {
+      "description": "Persona page copy: initialize.saved",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona initialized. Start a new session to use the committed persona.",
+        "zh": "人格已初始化。请新建会话以使用已提交的人格。"
+      }
+    },
+    "plugin.vivy/persona.initialize.submit": {
+      "description": "Persona page copy: initialize.submit",
+      "placeholders": [],
+      "messages": {
+        "en": "Initialize persona",
+        "zh": "初始化人格"
+      }
+    },
+    "plugin.vivy/persona.initialize.title": {
+      "description": "Persona page copy: initialize.title",
+      "placeholders": [],
+      "messages": {
+        "en": "Initialize persona authority",
+        "zh": "初始化人格权威"
+      }
+    },
+    "plugin.vivy/persona.noSession": {
+      "description": "Persona page copy: noSession",
+      "placeholders": [],
+      "messages": {
+        "en": "Start a new session to manage its committed persona.",
+        "zh": "请新建会话后管理该会话提交的人格。"
+      }
+    },
+    "plugin.vivy/persona.noSessionCreate": {
+      "description": "Persona page copy: noSessionCreate",
+      "placeholders": [],
+      "messages": {
+        "en": "Create a new session",
+        "zh": "新建会话"
+      }
+    },
+    "plugin.vivy/persona.review.accepted": {
+      "description": "Persona page copy: review.accepted",
+      "placeholders": [],
+      "messages": {
+        "en": "Review accepted. Start a new session to use the committed persona.",
+        "zh": "待审变更已接受。请新建会话以使用已提交的人格。"
+      }
+    },
+    "plugin.vivy/persona.review.noReason": {
+      "description": "Persona page copy: review.noReason",
+      "placeholders": [],
+      "messages": {
+        "en": "No reason provided",
+        "zh": "未提供原因"
+      }
+    },
+    "plugin.vivy/persona.review.reason": {
+      "description": "Persona page copy: review.reason",
       "placeholders": [
-        "revision"
+        "reason"
       ],
       "messages": {
-        "en": "Version r{{revision}}",
-        "zh": "版本 r{{revision}}"
+        "en": "Reason: {{reason}}",
+        "zh": "原因：{{reason}}"
+      }
+    },
+    "plugin.vivy/persona.review.rejected": {
+      "description": "Persona page copy: review.rejected",
+      "placeholders": [],
+      "messages": {
+        "en": "Review rejected.",
+        "zh": "待审变更已拒绝。"
+      }
+    },
+    "plugin.vivy/persona.reviewsLimited": {
+      "description": "Persona page copy: reviewsLimited",
+      "placeholders": [],
+      "messages": {
+        "en": "Showing the first 100 reviews. Refresh after deciding an item to continue from the current page.",
+        "zh": "当前显示前 100 条待审变更。处理条目后刷新以继续查看当前页。"
+      }
+    },
+    "plugin.vivy/persona.saved": {
+      "description": "Persona page copy: saved",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona document saved. Start a new session to use the committed change.",
+        "zh": "人格文档已保存。请新建会话以使用已提交的变更。"
+      }
+    },
+    "plugin.vivy/persona.unavailable": {
+      "description": "Persona page copy: unavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona authority is unavailable.",
+        "zh": "人格权威不可用。"
       }
     }
   }

@@ -24,8 +24,29 @@ dev projection with `go run ./sdk stage-ui --recipe recipes/default.vivy.yml
 `sdk/internal/frontend_v1.go`, so it needs no Recipe `sources:` pin.
 
 The Module reuses the host UI kit through the `@/` alias
-(`@/components/ui/*`, `@/lib/demo-api`) and declares only the packages it
-imports by name; those pins must stay exact and installed in `ui/node_modules`.
+(`@/components/ui/*`) and reaches the live persona authority through
+`@vivy/ui-sdk`'s `module.action.invoke` client. Every action carries the
+authenticated Face session id from the host store. The page has no localStorage
+or demo-data fallback: without an active session it asks the user to start a
+new one, and backend failures remain visible.
+
+The cognitive action owner is `vivy/diva-cognitive`:
+
+- `diva.cognitive.status`
+- `diva.cognitive.persona.initialize`
+- `diva.cognitive.persona.read`
+- `diva.cognitive.persona.save` (revision CAS)
+- `diva.cognitive.persona.reviews.list`
+- `diva.cognitive.persona.review.decide`
+
+The UI exposes the five required initialization documents, all eight readable
+persona kinds (including optional `MISSION.MD`), current content, and review
+decisions. History is intentionally absent because the current cognitive
+action contract does not expose a history read; the page never fabricates it.
+The route is a live page (`demo: false`).
+
+The Module declares only the packages it imports by name; those pins must stay
+exact and installed in `ui/node_modules`.
 
 ## Presentation standard
 

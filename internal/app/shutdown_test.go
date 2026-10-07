@@ -143,6 +143,7 @@ func TestAppShutdownBounded(t *testing.T) {
 			Approval: config.Approval{Expiration: 5 * time.Minute},
 		},
 	}
+	initializeTestPersona(t, cfg)
 	a, err := New(ctx, cfg)
 	if err != nil {
 		t.Fatalf("compose app: %v", err)

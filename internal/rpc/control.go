@@ -26,6 +26,7 @@ import (
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -7215,6 +7216,8 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
+	case errors.Is(err, cognitivecontract.ErrPersonaUninitialized):
+		return &Error{Code: CodeConflict, Message: "persona is not initialized; open Persona and complete initialization before starting a conversation"}
 	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidCollaborationMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):

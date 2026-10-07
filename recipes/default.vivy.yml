@@ -18,6 +18,7 @@ modules:
   - vivy/status-host
   - vivy/presentation-host
   - vivy/action-host
+  - vivy/diva-cognitive
   - vivy/channel-host
   - vivy/face-host
   - vivy/provider-profiles
