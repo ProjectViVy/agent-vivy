@@ -21,8 +21,9 @@ import (
 // these tests observe Run/Main behavior without composing a real App.
 
 type selectedCall struct {
-	cfg  config.Config
-	opts plugin.Options
+	cfg      config.Config
+	opts     plugin.Options
+	deadline *atomic.Pointer[time.Time]
 }
 
 type nopWriteCloser struct{ io.Writer }
@@ -37,9 +38,9 @@ func stubSelectedFace(t *testing.T, body func(ctx context.Context, cfg config.Co
 	count := &atomic.Int32{}
 	calls := &[]selectedCall{}
 	prev := runSelectedFace
-	runSelectedFace = func(ctx context.Context, cfg config.Config, opts plugin.Options, _ ...app.AppOption) (plugin.Result, error) {
+	runSelectedFace = func(ctx context.Context, cfg config.Config, opts plugin.Options, deadline *atomic.Pointer[time.Time], _ ...app.AppOption) (plugin.Result, error) {
 		count.Add(1)
-		*calls = append(*calls, selectedCall{cfg: cfg, opts: opts})
+		*calls = append(*calls, selectedCall{cfg: cfg, opts: opts, deadline: deadline})
 		if body == nil {
 			return plugin.Result{Status: "completed"}, nil
 		}
@@ -248,6 +249,82 @@ func TestFaceCLIProtocolStdout(t *testing.T) {
 	}
 	if got := <-drained; got != frame {
 		t.Fatalf("protocol stdout = %q, want exactly the provider frame %q", got, frame)
+	}
+}
+
+func TestFaceLaunchValidatesStreams(t *testing.T) {
+	// Stream validation happens before any private-runtime allocation so a
+	// rejected invocation leaves no instance dir behind.
+	count, _ := stubSelectedFace(t, nil)
+	cfg := selectedTestConfig(t)
+	dataRoot := filepath.Dir(cfg.Storage.SQLite.Path)
+	_, err := Run(context.Background(), cfg, plugin.Options{Out: io.Discard, Err: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "input") {
+		t.Fatalf("nil In error = %v, want stream contract", err)
+	}
+	if count.Load() != 0 {
+		t.Fatal("rejected invocation reached the provider")
+	}
+	if entries, _ := os.ReadDir(dataRoot); len(entries) != 0 {
+		t.Fatalf("rejected invocation leaked runtime state: %v", entries)
+	}
+}
+
+func TestFaceLaunchSharesTeardownDeadline(t *testing.T) {
+	// The cancel path installs one monotonic deadline both stages honor:
+	// the launcher's own wait and the app's audited close (spec §490).
+	started := make(chan struct{})
+	release := make(chan struct{})
+	_, calls := stubSelectedFace(t, func(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Result, error) {
+		close(started)
+		<-release
+		return plugin.Result{Status: "completed"}, nil
+	})
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inR.Close(); _ = inW.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	type outcome struct {
+		result plugin.Result
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := Run(ctx, selectedTestConfig(t), plugin.Options{In: inR, Out: io.Discard, Err: io.Discard})
+		done <- outcome{result, err}
+	}()
+	<-started
+	before := time.Now()
+	cancel()
+	shared := (*calls)[0].deadline
+	if shared == nil {
+		t.Fatal("launcher did not pass a shared deadline slot to the provider call")
+	}
+	deadline := time.After(5 * time.Second)
+	for shared.Load() == nil {
+		select {
+		case <-deadline:
+			t.Fatal("cancel path did not install the shared teardown deadline")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	if got := *shared.Load(); got.Before(before) || got.After(before.Add(teardownBudget+time.Second)) {
+		t.Fatalf("shared deadline %s not within the launcher budget starting %s", got, before)
+	}
+	close(release)
+	select {
+	case out := <-done:
+		if out.err != nil {
+			t.Fatalf("run after cancel: %v", out.err)
+		}
+		if out.result.Status != "completed" {
+			t.Fatalf("status = %q, want completed", out.result.Status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("teardown did not complete after provider release")
 	}
 }
 

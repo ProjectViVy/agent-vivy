@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"agent-vivy/internal/actionhost"
@@ -77,10 +78,11 @@ func RunFaceProviderWithAppOptions(ctx context.Context, cfg config.Config, provi
 	return RunFaceProvider(ctx, provider, env, opts)
 }
 
-// selectedFaceTeardownBudget bounds the whole process teardown after the
-// selected Face's provider returns — peer close plus the audited App close
-// (ACP-STDIO-FACE §490: one monotonic deadline across all stages; nested
-// calls receive the remaining budget through CloseContext).
+// selectedFaceTeardownBudget is the fallback bound for the process
+// teardown after the selected Face's provider returns. On the cancel path
+// the launcher installs one shared monotonic deadline instead, so stream
+// close and the audited app drain share a single budget
+// (ACP-STDIO-FACE §490).
 const selectedFaceTeardownBudget = 10 * time.Second
 
 // RunSelectedFaceWithAppOptions runs the single Face Provider sealed into
@@ -90,10 +92,12 @@ const selectedFaceTeardownBudget = 10 * time.Second
 // is audited through CloseContext under a distinct teardown context, so a
 // cancelled invocation cannot starve the drain, and a stage that outlives
 // the budget reports which component is still unwinding instead of
-// blocking silently.
-func RunSelectedFaceWithAppOptions(ctx context.Context, cfg config.Config, opts plugin.Options, appOpts ...AppOption) (result plugin.Result, retErr error) {
-	if opts.Out == nil || opts.Err == nil {
-		return plugin.Result{}, errors.New("app: face requires output and error writers")
+// blocking silently. deadline is the launcher's shared shutdown slot: when
+// it holds a deadline the close honors it (remaining-budget semantics),
+// otherwise the close gets a fresh selectedFaceTeardownBudget.
+func RunSelectedFaceWithAppOptions(ctx context.Context, cfg config.Config, opts plugin.Options, deadline *atomic.Pointer[time.Time], appOpts ...AppOption) (result plugin.Result, retErr error) {
+	if opts.In == nil || opts.Out == nil || opts.Err == nil {
+		return plugin.Result{}, errors.New("app: face requires input, output, and error streams")
 	}
 	appOpts = append(appOpts, WithoutEars(), WithoutGateway())
 	a, err := New(ctx, cfg, appOpts...)
@@ -101,11 +105,23 @@ func RunSelectedFaceWithAppOptions(ctx context.Context, cfg config.Config, opts 
 		return plugin.Result{}, err
 	}
 	defer func() {
-		teardown, cancel := context.WithTimeout(context.Background(), selectedFaceTeardownBudget)
+		teardown, cancel := context.WithDeadline(context.Background(), selectedCloseDeadline(deadline))
 		defer cancel()
 		retErr = errors.Join(retErr, a.CloseContext(teardown))
 	}()
 	return runAssemblyFace(ctx, a, opts)
+}
+
+// selectedCloseDeadline resolves the app-close bound: the launcher's shared
+// shutdown deadline when the cancel path installed one, else a fresh
+// fallback budget so a normal provider exit is still bounded.
+func selectedCloseDeadline(slot *atomic.Pointer[time.Time]) time.Time {
+	if slot != nil {
+		if shared := slot.Load(); shared != nil {
+			return *shared
+		}
+	}
+	return time.Now().Add(selectedFaceTeardownBudget)
 }
 
 // runAssemblyFace drives the Face Provider sealed into an already-composed

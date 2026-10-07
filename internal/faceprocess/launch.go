@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -57,6 +58,9 @@ Generation Manifest on stdout without opening the protocol.
 // running when the budget expires is reported — teardown continues in the
 // background without claiming all goroutines finished (spec §486, §490).
 func Run(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Result, error) {
+	if opts.In == nil || opts.Out == nil || opts.Err == nil {
+		return plugin.Result{Status: "failed"}, errors.New("faceprocess: selected face requires input, output, and error streams")
+	}
 	cfg.Runtime.World = "sandbox"
 	prepared, err := PreparePrivate(cfg, NamespaceFaceInstances)
 	if err != nil {
@@ -70,9 +74,6 @@ func Run(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Re
 	prepared.Config.Runtime.Sandbox.WorkspaceRoot = fallback
 	if err := prepared.Config.Validate(); err != nil {
 		return plugin.Result{Status: "failed"}, err
-	}
-	if opts.Out == nil || opts.Err == nil {
-		return plugin.Result{Status: "failed"}, errors.New("faceprocess: selected face requires output and error writers")
 	}
 
 	// Protocol stdout carries frames only, including startup failures: the
@@ -101,9 +102,14 @@ func Run(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Re
 		result plugin.Result
 		err    error
 	}
+	// One monotonic shutdown deadline for the whole teardown (spec §490):
+	// the cancel path installs it once and both the stream-close bound and
+	// the app's audited drain honor what remains of it.
+	var closeDeadline atomic.Pointer[time.Time]
+
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := runSelectedFace(ctx, prepared.Config, opts, appOpts...)
+		result, err := runSelectedFace(ctx, prepared.Config, opts, &closeDeadline, appOpts...)
 		done <- outcome{result, err}
 	}()
 
@@ -121,7 +127,9 @@ func Run(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Re
 	case <-ctx.Done():
 	}
 
-	teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), teardownBudget)
+	deadline := time.Now().Add(teardownBudget)
+	closeDeadline.Store(&deadline)
+	teardown, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
 	defer cancel()
 	closeStream(opts.In)
 	closeStream(opts.Out)

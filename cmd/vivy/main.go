@@ -20,10 +20,6 @@ import (
 	plugin "agent-vivy/sdk/port/face"
 )
 
-// configPath is the conventional location; absent file falls back to the
-// built-in defaults with a warning (FR-10).
-const configPath = "config.yaml"
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--inspect-generation" {
 		raw, err := generation.EmbeddedManifest()
@@ -145,7 +141,7 @@ func loadConfig(logger *slog.Logger) (config.Config, error) {
 		return config.Config{}, err
 	}
 	if source == "default" {
-		logger.Warn("config.yaml not found; using built-in defaults", "path", configPath)
+		logger.Warn("config.yaml not found; using built-in defaults", "path", config.BootConfigPath)
 	}
 	return cfg, nil
 }

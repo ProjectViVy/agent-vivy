@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
@@ -101,5 +103,36 @@ func TestSelectedFaceUsesOneApp(t *testing.T) {
 	t.Cleanup(func() { _ = a2.Close() })
 	if _, err := runAssemblyFace(context.Background(), a2, plugin.Options{Out: io.Discard, Err: io.Discard}); err == nil {
 		t.Fatal("headless generation accepted a selected-face run")
+	}
+}
+
+func TestRunSelectedFaceStreamContract(t *testing.T) {
+	// The selected launch contract pins all three streams before any app
+	// composition, so a rejected call stays side-effect free (spec §294).
+	_, err := RunSelectedFaceWithAppOptions(context.Background(), newDeepSeekTestConfig(t), plugin.Options{
+		Out: io.Discard,
+		Err: io.Discard,
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "input") {
+		t.Fatalf("nil In error = %v, want stream contract", err)
+	}
+}
+
+func TestSelectedCloseDeadline(t *testing.T) {
+	// No slot (or an empty slot) falls back to the local teardown budget;
+	// an installed deadline is honored verbatim so the app's close spends
+	// only what remains of the launcher's one monotonic budget (§490).
+	if got := selectedCloseDeadline(nil); got.Sub(time.Now().Add(selectedFaceTeardownBudget)) > 500*time.Millisecond {
+		t.Fatalf("nil slot deadline %s not near fallback budget", got)
+	}
+	var empty atomic.Pointer[time.Time]
+	if got := selectedCloseDeadline(&empty); got.Sub(time.Now().Add(selectedFaceTeardownBudget)) > 500*time.Millisecond {
+		t.Fatalf("empty slot deadline %s not near fallback budget", got)
+	}
+	var shared atomic.Pointer[time.Time]
+	installed := time.Now().Add(-time.Minute)
+	shared.Store(&installed)
+	if got := selectedCloseDeadline(&shared); !got.Equal(installed) {
+		t.Fatalf("shared deadline %s ignored, got %s", installed, got)
 	}
 }
