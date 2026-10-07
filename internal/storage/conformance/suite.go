@@ -2186,6 +2186,10 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 		{ID: "sess-tw", Title: "rewind", CreatedAt: 1},
 		{ID: "sess-other", Title: "other", CreatedAt: 1},
 		{ID: "sess-un", Title: "union", CreatedAt: 1},
+		// The forked-from back-anchor lands on the fork CHILD, whose
+		// session row exists before its marker in the real fork path; the
+		// PostgreSQL FK on session_truncations.session_id enforces that.
+		{ID: "sess-fk", Title: "fork child", CreatedAt: 1},
 	} {
 		if err := b.CreateSession(ctx, s); err != nil {
 			t.Fatalf("CreateSession %s: %v", s.ID, err)
