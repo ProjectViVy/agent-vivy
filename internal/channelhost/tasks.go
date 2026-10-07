@@ -311,12 +311,6 @@ func (h *taskHost) CancelTask(ctx context.Context, q channel.TaskQuery) (channel
 	return snap, nil
 }
 
-// SubscribeTask is implemented in A2A-04.3 (task_stream.go). The stub
-// fails closed instead of half-enabling the stream.
-func (h *taskHost) SubscribeTask(ctx context.Context, sub channel.TaskSubscription) (channel.TaskStream, error) {
-	return nil, taskErr(channel.TaskErrUnsupported, "task subscriptions are not enabled")
-}
-
 // TaskServiceInfo returns the static safe discovery projection.
 func (h *taskHost) TaskServiceInfo(ctx context.Context) (channel.TaskServiceInfo, error) {
 	if _, err := h.authorize(ctx); err != nil {
