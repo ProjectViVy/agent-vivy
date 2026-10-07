@@ -13,8 +13,11 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/faceprocess"
+	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/logging"
 	"agent-vivy/sdk/generation"
+	plugin "agent-vivy/sdk/port/face"
 )
 
 // configPath is the conventional location; absent file falls back to the
@@ -30,6 +33,14 @@ func main() {
 		}
 		_, _ = os.Stdout.Write(raw)
 		return
+	}
+	// A generation that selected the ACP face family owns the artifact's
+	// whole process surface: no-argument protocol mode plus --help and
+	// --inspect-generation; every other invocation is rejected before any
+	// protocol startup. Headless, TUI-packed, and gateway generations keep
+	// the default command surface (ACP-STDIO-FACE §288, §294).
+	if selectedFaceClaimsProtocol(genassembly.BuildDefault().Face) {
+		os.Exit(faceprocess.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		os.Exit(runInit(os.Args[2:]))
@@ -112,6 +123,17 @@ func main() {
 		logger.Error("run failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// faceKindACP is the stdio-protocol face family: an ACP-kind provider owns
+// the artifact's no-argument invocation. The TUI face keeps `vivy tui`; the
+// headless kernel keeps the gateway.
+const faceKindACP = "acp"
+
+// selectedFaceClaimsProtocol reports whether the compiled generation's
+// selected Face claims the artifact's whole command surface.
+func selectedFaceClaimsProtocol(face plugin.FaceProvider) bool {
+	return face != nil && face.Definition().Kind == faceKindACP
 }
 
 // loadConfig reads VIVY_CONFIG when set, otherwise config.yaml when

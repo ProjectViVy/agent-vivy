@@ -367,20 +367,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	defer os.RemoveAll(overlayDir)
-	replacement := filepath.Join(overlayDir, "zz_default.go")
-	if err := os.WriteFile(replacement, runtimeSource, 0o600); err != nil {
-		return Artifact{}, err
-	}
-	original, err := filepath.Abs(filepath.Join(repoRoot, "internal/generated/assembly/zz_default.go"))
+	overlayFile, err := stagePackOverlay(repoRoot, overlayDir, &recipe, plan, runtimeSource)
 	if err != nil {
-		return Artifact{}, err
-	}
-	overlayRaw, err := json.Marshal(map[string]any{"Replace": map[string]string{original: replacement}})
-	if err != nil {
-		return Artifact{}, err
-	}
-	overlayFile := filepath.Join(overlayDir, "overlay.json")
-	if err := os.WriteFile(overlayFile, overlayRaw, 0o600); err != nil {
 		return Artifact{}, err
 	}
 	modfile, err := prepareBuildModfile(repoRoot, overlayDir, buildSources)
@@ -1498,6 +1486,84 @@ func capabilityStatesForPlan(plan assemblyv1.AssemblyPlan) map[string]assemblyv1
 		}
 	}
 	return states
+}
+
+// selectedACPFaceModule is the restricted pilot Face module (T2) whose
+// exclusive recipe selection switches the packed cmd/vivy into stdio
+// protocol mode: the overlay swaps the TUI command file for a stub so
+// `vivy tui`/`vivy run` never link (ACP-STDIO-FACE §288, Candidate A).
+const selectedACPFaceModule = "projectvivy/acp"
+
+// selectedFaceClaimsProtocolMode reports whether the compiled plan selected
+// the ACP face: the recipe exclusively binds std/face@v1 to the pilot module
+// AND a resolved module provides it (AssemblyPlan has no Face field).
+func selectedFaceClaimsProtocolMode(recipe *assemblyv1.Recipe, plan assemblyv1.AssemblyPlan) bool {
+	if recipe.Exclusive["std/face@v1"] != selectedACPFaceModule {
+		return false
+	}
+	for _, resolved := range plan.Modules {
+		if resolved.Descriptor.Module.ID == selectedACPFaceModule {
+			return true
+		}
+	}
+	return false
+}
+
+// acpSelectedTUIStub is the pack-only replacement for cmd/vivy/tui.go in an
+// ACP-selected artifact: the command exists so the binary answers `vivy tui`
+// with an explicit unavailable error, and no TUI dependency is linked.
+const acpSelectedTUIStub = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+// runTUI is unreachable: an ACP-selected generation routes every invocation
+// through faceprocess.Main, which rejects the default command surface before
+// protocol startup. This stub keeps the build target complete without linking
+// codeface, the internal TUI organ, or the bubbletea dependency closure.
+func runTUI(args []string) int {
+	_ = args
+	fmt.Fprintln(os.Stderr, "vivy tui is unavailable in this generation: the selected face serves the ACP stdio protocol")
+	return 2
+}
+`
+
+// stagePackOverlay writes overlay.json plus its replacement files for one
+// compiled plan: the generated RuntimeAssembly always, and the pack-only TUI
+// stub when the recipe selects the ACP face. Caller owns the directory.
+func stagePackOverlay(repoRoot, overlayDir string, recipe *assemblyv1.Recipe, plan assemblyv1.AssemblyPlan, runtimeSource []byte) (string, error) {
+	replaces := map[string]string{}
+	replacement := filepath.Join(overlayDir, "zz_default.go")
+	if err := os.WriteFile(replacement, runtimeSource, 0o600); err != nil {
+		return "", err
+	}
+	original, err := filepath.Abs(filepath.Join(repoRoot, "internal/generated/assembly/zz_default.go"))
+	if err != nil {
+		return "", err
+	}
+	replaces[original] = replacement
+	if selectedFaceClaimsProtocolMode(recipe, plan) {
+		stub := filepath.Join(overlayDir, "tui.go")
+		if err := os.WriteFile(stub, []byte(acpSelectedTUIStub), 0o600); err != nil {
+			return "", err
+		}
+		tuiOriginal, err := filepath.Abs(filepath.Join(repoRoot, "cmd", "vivy", "tui.go"))
+		if err != nil {
+			return "", err
+		}
+		replaces[tuiOriginal] = stub
+	}
+	overlayRaw, err := json.Marshal(map[string]any{"Replace": replaces})
+	if err != nil {
+		return "", err
+	}
+	overlayFile := filepath.Join(overlayDir, "overlay.json")
+	if err := os.WriteFile(overlayFile, overlayRaw, 0o600); err != nil {
+		return "", err
+	}
+	return overlayFile, nil
 }
 
 func prepareBuildModfile(repoRoot, temporaryRoot string, sources []string) (string, error) {
