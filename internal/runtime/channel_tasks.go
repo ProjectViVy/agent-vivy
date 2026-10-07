@@ -74,8 +74,10 @@ const (
 	channelTaskMaxTextBytes = 64 << 10
 	channelTaskHashContract = "channel-task/v1"
 	channelTaskOpSubmit     = "submit"
+	channelTaskOpAnswer     = "answer"
 	channelTaskChannelName  = "a2a"
 	channelTaskMaxIDBytes   = 256
+	channelTaskActorPrefix  = "channel:a2a:"
 )
 
 // SubmitChannelTask admits one external message through the native primary
@@ -89,6 +91,9 @@ func (s *Service) SubmitChannelTask(ctx context.Context, in domain.ChannelTaskIn
 	}
 	if err := validateChannelTaskInput(in); err != nil {
 		return domain.ChannelTaskReceipt{}, err
+	}
+	if in.QuestionID != "" {
+		return s.submitChannelTaskAnswer(ctx, in)
 	}
 	hash, err := channelTaskInputHash(in)
 	if err != nil {
@@ -159,6 +164,9 @@ func validateChannelTaskInput(in domain.ChannelTaskInput) error {
 		(in.RunID != "" && !validChannelTaskID(string(in.RunID))) {
 		return fmt.Errorf("runtime: channel task id outside native limits")
 	}
+	if in.QuestionID != "" && !validChannelTaskID(in.QuestionID) {
+		return fmt.Errorf("runtime: channel task question id outside native limits")
+	}
 	if len(in.Parts) == 0 || len(in.Parts) > channelTaskMaxParts {
 		return fmt.Errorf("runtime: channel task carries %d parts, want 1-%d", len(in.Parts), channelTaskMaxParts)
 	}
@@ -210,6 +218,122 @@ func channelTaskInputHash(in domain.ChannelTaskInput) ([32]byte, error) {
 		return [32]byte{}, fmt.Errorf("runtime: encode channel task hash input: %w", err)
 	}
 	return sha256.Sum256(raw), nil
+}
+
+// channelTaskAnswerHash fingerprints an answer message on the same
+// channel-task/v1 contract: the selectors that name the captured
+// interaction (context/run/question) hash so a replay can only ever name
+// the original question, never a later one.
+func channelTaskAnswerHash(in domain.ChannelTaskInput) ([32]byte, error) {
+	canonical := struct {
+		Contract   string           `json:"contract"`
+		Op         string           `json:"operation"`
+		Context    domain.SessionID `json:"context"`
+		RunID      domain.RunID     `json:"run_id"`
+		QuestionID string           `json:"question_id"`
+		Parts      []string         `json:"parts"`
+	}{
+		Contract:   channelTaskHashContract,
+		Op:         channelTaskOpAnswer,
+		Context:    in.SessionID,
+		RunID:      in.RunID,
+		QuestionID: in.QuestionID,
+		Parts:      append([]string(nil), in.Parts...),
+	}
+	raw, err := json.Marshal(canonical)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("runtime: encode channel task answer hash input: %w", err)
+	}
+	return sha256.Sum256(raw), nil
+}
+
+// submitChannelTaskAnswer routes a remote ordinary answer through the same
+// atomic question transition the local Review/Face path uses (design §6,
+// A2A-03): one transaction settles the captured pending question, journals
+// the answered envelope (payload version 2 with the channel actor) and
+// commits the scoped answer receipt. Only a newly committed winner
+// schedules the native resume; identical retries return the original
+// receipt without a second resume, and any caller-visible text —
+// "/approve", "/deny", "/pending" or metadata lookalikes — never leaves
+// this path into command parsing or ApprovalStore.
+func (s *Service) submitChannelTaskAnswer(ctx context.Context, in domain.ChannelTaskInput) (domain.ChannelTaskReceipt, error) {
+	answer := strings.TrimSpace(strings.Join(in.Parts, "\n\n"))
+	if answer == "" {
+		return domain.ChannelTaskReceipt{}, ErrQuestionInvalidAnswer
+	}
+	hash, err := channelTaskAnswerHash(in)
+	if err != nil {
+		return domain.ChannelTaskReceipt{}, err
+	}
+	// Cheap receipt resolution before the transaction; identical retries
+	// return the original identity without touching the question CAS.
+	if receipt, found, err := s.deps.ChannelTasks.FindChannelTaskReceipt(ctx, in.Scope, in.MessageID); err == nil && found {
+		if receipt.InputHash != hash {
+			return domain.ChannelTaskReceipt{}, storage.ErrConflict
+		}
+		return receipt, nil
+	}
+
+	question, err := s.deps.Questions.GetQuestion(ctx, in.QuestionID)
+	if err != nil {
+		return domain.ChannelTaskReceipt{}, storage.ErrNotFound
+	}
+	if in.RunID != "" && in.RunID != question.RunID {
+		return domain.ChannelTaskReceipt{}, storage.ErrNotFound
+	}
+	if question.Status != domain.QuestionPending {
+		return domain.ChannelTaskReceipt{}, storage.ErrConflict
+	}
+	if time.Now().UnixMilli() >= question.ExpiresAt {
+		return domain.ChannelTaskReceipt{}, storage.ErrConflict
+	}
+	if _, _, err := s.promptSnapshotContext(ctx, question.RunID); err != nil {
+		// Keep the durable question pending when the immutable prompt cannot
+		// be reconstructed; consuming the answer here would strand it.
+		return domain.ChannelTaskReceipt{}, fmt.Errorf("runtime: channel task answer rejected by prompt snapshot: %w", err)
+	}
+
+	actor := channelTaskActorPrefix + in.Scope.PrincipalID
+	m := newEventMapper(question.RunID, s.engine.cfg.MaxEventPayloadBytes)
+	ev := m.build(domain.EventUserQuestionAnswered, payloadUserQuestionAnswered{
+		QuestionID: question.ID,
+		Answer:     answer,
+		Actor:      actor,
+	})
+	ev.PayloadVersion = 2
+	result, err := s.deps.ChannelTasks.CommitChannelTaskAnswer(ctx, storage.ChannelTaskAnswerCommit{
+		Scope:     in.Scope,
+		MessageID: in.MessageID,
+		InputHash: hash,
+		Transition: storage.QuestionTransitionCommit{
+			RunID:      question.RunID,
+			QuestionID: question.ID,
+			Outcome:    domain.QuestionAnswered,
+			Answer:     answer,
+			Actor:      actor,
+			At:         time.Now().UnixMilli(),
+			Event:      ev,
+		},
+	})
+	if err != nil {
+		// A losing answer can also lose the CAS: an identical committed
+		// retry under the same message id is authoritative.
+		if resolved, found, rerr := s.deps.ChannelTasks.FindChannelTaskReceipt(ctx, in.Scope, in.MessageID); rerr == nil && found {
+			if resolved.InputHash == hash {
+				return resolved, nil
+			}
+			return domain.ChannelTaskReceipt{}, storage.ErrConflict
+		}
+		return domain.ChannelTaskReceipt{}, err
+	}
+	if !result.NewlyCommitted {
+		return result.Receipt, nil
+	}
+	// Schedule the resume only for the newly committed winning answer; a
+	// run whose pending slot is gone keeps the answer evidence but gains
+	// no second execution.
+	s.dispatchQuestionResume(question, answer)
+	return result.Receipt, nil
 }
 
 // frozenSessionDiscarder is the optional loser-cleanup seam a cognitive

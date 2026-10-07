@@ -19,7 +19,11 @@ type ChannelTaskInput struct {
 	MessageID string
 	SessionID SessionID
 	RunID     RunID
-	Parts     []string
+	// QuestionID targets a captured pending ask_user interaction instead
+	// of a fresh admission: the message carries the remote ordinary
+	// answer. Empty means submit; set means answer dispatch.
+	QuestionID string
+	Parts      []string
 }
 
 // ChannelTaskReceipt is the durable result identity for one accepted
