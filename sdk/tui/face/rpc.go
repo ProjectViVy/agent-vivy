@@ -191,7 +191,7 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 	// fallback (run_id in the payload).
 	steerCommand := func(track, message string) {
 		raw, ok := call("turn/"+track, map[string]any{
-			"session_id": sessionID, "text": message,
+			"session_id": sessionID, "text": message, "face": "code",
 		})
 		if !ok {
 			return
