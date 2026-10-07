@@ -27,25 +27,63 @@ const channelTaskAdmissionGraceWindow = 30 * time.Minute
 
 // SweepChannelTaskOrphans is the runtime startup sweep for provisional
 // channel-task resources (design 6.2 cleanup contract): workspace dirs that
-// are empty, unlisted in runs, and older than the grace window are reaped.
-// Frozen-persona orphans need the pinned laputa ListFrozenSessions
-// enumeration, which is an owner-review pin bump; until it lands the sweep
-// only covers workspaces. Call once at boot before accepting submissions.
+// are empty, unlisted in runs, and older than the grace window are reaped,
+// and frozen-core rows older than the window whose session ID has no core
+// sessions row are discarded through the optional laputa enumeration seam.
+// Call once at boot before accepting submissions.
 func (s *Service) SweepChannelTaskOrphans(ctx context.Context) error {
 	alloc, _ := s.deps.Workspaces.(AdmissionWorkspaceAllocator)
-	if alloc == nil || s.deps.Runs == nil {
+	if alloc != nil && s.deps.Runs != nil {
+		if err := alloc.SweepAdmissionOrphans(ctx, func(runID domain.RunID) (bool, error) {
+			_, err := s.deps.Runs.GetRun(ctx, runID)
+			if errors.Is(err, storage.ErrNotFound) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			return true, nil
+		}, time.Now().Add(-channelTaskAdmissionGraceWindow)); err != nil {
+			return err
+		}
+	}
+	return s.sweepChannelTaskFrozenOrphans(ctx, time.Now().Add(-channelTaskAdmissionGraceWindow))
+}
+
+// frozenSessionLister is the optional startup-sweep enumeration seam a
+// cognitive bundle gains with the pinned-laputa ListFrozenSessions extension.
+type frozenSessionLister interface {
+	ListFrozenSessions(ctx context.Context, capturedBefore time.Time) ([]string, error)
+}
+
+// sweepChannelTaskFrozenOrphans discards captured frozen rows older than the
+// cutoff whose session ID never became a core sessions row — the definite
+// marker that their admission lost or was never committed. Rows inside the
+// grace window are in-flight candidates and are always kept.
+func (s *Service) sweepChannelTaskFrozenOrphans(ctx context.Context, capturedBefore time.Time) error {
+	b := s.deps.Cognitive
+	if b == nil || b.Primary == nil || s.deps.Sessions == nil {
 		return nil
 	}
-	return alloc.SweepAdmissionOrphans(ctx, func(runID domain.RunID) (bool, error) {
-		_, err := s.deps.Runs.GetRun(ctx, runID)
-		if errors.Is(err, storage.ErrNotFound) {
-			return false, nil
+	lister, ok := b.Primary.(frozenSessionLister)
+	if !ok {
+		return nil
+	}
+	ids, err := lister.ListFrozenSessions(ctx, capturedBefore)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		_, getErr := s.deps.Sessions.GetSession(ctx, domain.SessionID(id))
+		switch {
+		case getErr == nil:
+			continue
+		case !errors.Is(getErr, storage.ErrNotFound):
+			return getErr
 		}
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	}, time.Now().Add(-channelTaskAdmissionGraceWindow))
+		s.discardFrozenCandidate(ctx, domain.SessionID(id))
+	}
+	return nil
 }
 
 // ChannelTaskAdmission carries the host-validated A2A envelope through

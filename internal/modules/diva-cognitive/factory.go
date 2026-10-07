@@ -179,6 +179,25 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 	}, nil
 }
 
+// DiscardFrozenSession releases a provisional frozen-core row for a channel
+// -task admission loser (design 6.2 cleanup seam; optional capability). It is
+// idempotent — a missing row is a success.
+func (b *bundle) DiscardFrozenSession(ctx context.Context, sessionID string) error {
+	if b.closed {
+		return errors.New("diva-cognitive: bundle closed")
+	}
+	return b.owner.DiscardFrozenSession(ctx, sessionID)
+}
+
+// ListFrozenSessions enumerates captured frozen sessions for the runtime's
+// startup orphan sweep; the host applies its own keep-predicate.
+func (b *bundle) ListFrozenSessions(ctx context.Context, capturedBefore time.Time) ([]string, error) {
+	if b.closed {
+		return nil, errors.New("diva-cognitive: bundle closed")
+	}
+	return b.owner.ListFrozenSessions(ctx, capturedBefore)
+}
+
 // ResolveBinding produces the binding stamped into the admitted run input.
 // MissionRevision is re-read at resolve time; the runtime re-verifies it at
 // admission through CheckMissionRevision.

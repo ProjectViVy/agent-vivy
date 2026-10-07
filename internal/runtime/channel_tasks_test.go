@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -325,5 +326,41 @@ func TestChannelTaskOrphanSweep(t *testing.T) {
 		if _, err := os.Stat(kept); err != nil {
 			t.Fatalf("dir %s reaped: %v", kept, err)
 		}
+	}
+}
+
+type fakeFrozenPrimary struct {
+	ids       []string
+	discarded []string
+}
+
+func (f *fakeFrozenPrimary) Prepare(context.Context, cognitivecontract.PrimaryContextInput) (cognitivecontract.PreparedPrimaryContext, error) {
+	return cognitivecontract.PreparedPrimaryContext{}, nil
+}
+
+func (f *fakeFrozenPrimary) ListFrozenSessions(_ context.Context, _ time.Time) ([]string, error) {
+	return f.ids, nil
+}
+
+func (f *fakeFrozenPrimary) DiscardFrozenSession(_ context.Context, sessionID string) error {
+	f.discarded = append(f.discarded, sessionID)
+	return nil
+}
+
+// TestChannelTaskFrozenOrphanSweep: with the laputa enumeration seam present,
+// the startup sweep discards only frozen rows whose session never became a
+// core sessions row; live sessions and recent captures are kept.
+func TestChannelTaskFrozenOrphanSweep(t *testing.T) {
+	svc, backend, _ := newChannelTaskService(t)
+	ctx := context.Background()
+	primary := &fakeFrozenPrimary{ids: []string{"sess_frozen_orphan", "sess_frozen_live"}}
+	svc.deps.Cognitive = &CognitiveBinding{Primary: primary}
+	mustCreateSession(t, backend, "sess_frozen_live")
+
+	if err := svc.SweepChannelTaskOrphans(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(primary.discarded) != 1 || primary.discarded[0] != "sess_frozen_orphan" {
+		t.Fatalf("discarded = %v", primary.discarded)
 	}
 }
