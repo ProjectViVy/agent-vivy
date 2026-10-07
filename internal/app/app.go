@@ -223,6 +223,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err := validateRuntimeAssembly(runtimeAssembly); err != nil {
 		return nil, err
 	}
+	preToolMiddleware, err := generatedPreToolMiddleware(runtimeAssembly)
+	if err != nil {
+		return nil, err
+	}
 	developerLocale, err := developerPresentationLocale(ao.instructionRoot, presentation.SealedGeneration)
 	if err != nil {
 		return nil, fmt.Errorf("app: resolve developer locale: %w", err)
@@ -528,7 +532,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		} else {
 			mcpCfgs = mcpRuntimeConfigs(cfg.Runtime.MCPServers)
 		}
-		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next, resolveToolExposure(cfg.Tools, mcpCfgs))
+		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next, resolveToolExposure(cfg.Tools, mcpCfgs), preToolMiddleware...)
 		if stageErr != nil {
 			return stageErr
 		}

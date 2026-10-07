@@ -26,7 +26,7 @@ const (
 )
 
 // ReviewItem is the read model for the global Review Center and the inline
-// run inspector. Sensitive request data is represented only by the redacted
+// run inspector. Authorized request data is represented by the bounded
 // Arguments projection; ProposalData remains runtime-owned and is never
 // returned by the review API.
 type ReviewItem struct {

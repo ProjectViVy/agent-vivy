@@ -45,7 +45,7 @@ func (s WorkflowStepStatus) NativeRunStatus() (domain.RunStatus, bool) {
 	return "", false
 }
 
-// WorkflowStepEvent is one redacted Journal event committed by a step. The
+// WorkflowStepEvent is one bounded Journal event committed by a step. The
 // Journal assigns the contiguous sequence inside the commit transaction.
 type WorkflowStepEvent struct {
 	Type           domain.EventType

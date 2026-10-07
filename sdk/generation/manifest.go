@@ -108,6 +108,7 @@ type Manifest struct {
 	SkillSources          []string
 	RunObservers          []string
 	RunObserverPolicies   []RunObserverPolicy
+	PreToolMiddleware     []string
 	Face                  string
 	NetworkStates         map[string]CapabilityState
 }

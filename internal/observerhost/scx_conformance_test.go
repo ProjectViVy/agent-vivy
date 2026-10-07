@@ -189,14 +189,14 @@ func TestSCXObserverRestartRecoversCommittedPendingRunAndCancelledVariant(t *tes
 	t.Fatal("restart recovery did not deliver the committed cancelled run")
 }
 
-func TestSCXObserverStructuralRedactionAlwaysProducesValidJSON(t *testing.T) {
+func TestSCXObserverProjectionPreservesAuthorizedJSON(t *testing.T) {
 	raw := json.RawMessage(`{"summary":"authorization: secret-value","nested":{"token":"sk-test-12345678901234567890","api_key":"plain-secret"}}`)
 	projected, err := projectPayload(raw, []string{"summary", "nested"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !json.Valid(projected) || strings.Contains(string(projected), "secret-value") || strings.Contains(string(projected), "sk-test-") || strings.Contains(string(projected), "plain-secret") {
-		t.Fatalf("structurally redacted payload = %q", projected)
+	if !json.Valid(projected) || !strings.Contains(string(projected), "secret-value") || !strings.Contains(string(projected), "sk-test-") || !strings.Contains(string(projected), "plain-secret") {
+		t.Fatalf("authorized payload = %q", projected)
 	}
 }
 

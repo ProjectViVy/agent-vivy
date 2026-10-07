@@ -3,7 +3,6 @@ package skillhost
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -41,8 +40,8 @@ func TestSkillSourceConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.ID != skill.ID || resolved.ProvenanceID == "" || strings.Contains(resolved.Content, "sk-test-") {
-		t.Fatalf("SkillHost projection lost identity, provenance, or redaction: %#v", resolved)
+	if resolved.ID != skill.ID || resolved.ProvenanceID == "" || resolved.Content != skill.Content {
+		t.Fatalf("SkillHost projection lost identity, provenance, or content: %#v", resolved)
 	}
 	if len(resolved.DeclaredTools) != 1 || resolved.DeclaredTools[0] != "bash" {
 		t.Fatal("declared tool metadata unexpectedly changed")

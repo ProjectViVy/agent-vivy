@@ -52,7 +52,9 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
 - Protected Tool IDs cannot be shadowed, aliased, replaced, or overridden.
 - All Tool sources use ToolHost. Channels, Faces, Context, Skills, MCP,
   Middleware, Observers, Status, and Actions use their named Host.
-- All first-party features remain in the default Generation; unconfigured
+- All established first-party features remain in the default Generation;
+  `plugins/exp/*` are explicit Recipe-only exceptions, never default imports.
+  Unconfigured
   network instances stay inactive.
 - Selected UI Modules have complete UI control by default. Do not add a UI
   Grant or permission prompt. The backend still distrusts every browser claim.

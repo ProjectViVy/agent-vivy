@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"agent-vivy/internal/storage"
 )
 
-func TestReviewProjectionRedactsArgumentsAndKeepsMetadata(t *testing.T) {
+func TestReviewProjectionPreservesArgumentsAndKeepsMetadata(t *testing.T) {
 	ctx := context.Background()
 	b, err := Open(ctx, filepath.Join(t.TempDir(), "reviews.db"))
 	if err != nil {
@@ -33,9 +32,10 @@ func TestReviewProjectionRedactsArgumentsAndKeepsMetadata(t *testing.T) {
 	if err := b.CreateApproval(ctx, approval); err != nil {
 		t.Fatal(err)
 	}
+	argsFixture := map[string]any{"url": "https://api.example.test", "api_key": "super-secret", "body": "alice@example.com password=synthetic [REDACTED]", "token_count": int64(9007199254740993)}
 	payload, _ := json.Marshal(map[string]any{
 		"approval_id": "apr_review", "tool_call_id": "call-review", "tool_name": "http_request",
-		"args": map[string]any{"url": "https://api.example.test", "api_key": "super-secret", "body": "hello"},
+		"args": argsFixture,
 	})
 	if _, err := b.Append(ctx, storage.Commit{RunID: "run-review", Events: []domain.RunEvent{{Type: domain.EventToolApprovalRequired, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: payload}}}); err != nil {
 		t.Fatal(err)
@@ -51,8 +51,9 @@ func TestReviewProjectionRedactsArgumentsAndKeepsMetadata(t *testing.T) {
 		t.Fatalf("review metadata = %+v", items[0])
 	}
 	args := string(items[0].Arguments)
-	if !strings.Contains(args, "[REDACTED]") || strings.Contains(args, "super-secret") {
-		t.Fatalf("review arguments were not redacted: %s", args)
+	expectedArgs, _ := json.Marshal(argsFixture)
+	if args != string(expectedArgs) {
+		t.Fatalf("review arguments changed: %s", args)
 	}
 	decided, err := b.DecideApprovalWithMetadata(ctx, "apr_review", domain.ApprovalDenied, "reviewer", "scope is too broad")
 	if err != nil || !decided {

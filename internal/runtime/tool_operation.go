@@ -214,7 +214,6 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 			invokeErr = nil
 		}
 	}
-	result = tools.RedactSensitive(result)
 	failure := ""
 	if invokeErr != nil {
 		failure = boundToolOperationFailure(invokeErr.Error())
@@ -308,7 +307,7 @@ func waitToolOperationFlight(ctx context.Context, flight *toolOperationFlight) (
 }
 
 func boundToolOperationFailure(failure string) string {
-	failure = tools.RedactSensitive(strings.TrimSpace(failure))
+	failure = strings.TrimSpace(failure)
 	if len(failure) > toolFailureDiagnosticMaxBytes {
 		failure = truncateUTF8(failure, toolFailureDiagnosticMaxBytes)
 	}

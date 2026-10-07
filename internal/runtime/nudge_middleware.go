@@ -11,7 +11,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -101,16 +100,19 @@ func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Message
 	}
 	rendered := renderNudge(*notice)
 	if len(rendered) > nudgeReminderMaxBytes {
-		return nil, fmt.Errorf("%w: nudge reminder requires %d bytes", ErrContextBudgetExceeded, len(rendered))
+		state.skipNotice(notice.CallID)
+		return input, nil
 	}
 	if w.maxContextBytes > 0 && projectedContextBytes(input)+len(rendered) > w.maxContextBytes {
-		return nil, fmt.Errorf("%w: nudge reminder does not fit the remaining context budget", ErrContextBudgetExceeded)
+		state.skipNotice(notice.CallID)
+		return input, nil
 	}
 	// Persist scheduling before the inner model ever sees the reminder;
 	// an append failure stops the call with the original cause.
 	if first {
 		if emit := nudgeEmitterFromContext(ctx); emit != nil {
 			if err := emit(ctx, *notice); err != nil {
+				state.Abort(err)
 				return nil, err
 			}
 		}

@@ -69,7 +69,7 @@ func settleBatch(t *testing.T, s *nudgeState, calls ...completedCall) {
 func TestNudgeStateRepetitionReminders(t *testing.T) {
 	s := newNudgeState()
 	ctx := context.Background()
-	for i := 1; i <= 6; i++ {
+	for i := 1; i <= 8; i++ {
 		id := fmt.Sprintf("call-%d", i)
 		settleBatch(t, s, nudgeFailedCall(id))
 		if s.terminalErr() != nil {
@@ -96,21 +96,16 @@ func TestNudgeStateRepetitionReminders(t *testing.T) {
 			}
 		}
 	}
-	// The sixth identical call is the hard stop, not a reminder.
-	if err := s.terminalErr(); !errors.Is(err, errLoopDetected) {
-		t.Fatalf("terminal = %v, want errLoopDetected", err)
-	}
-	if _, _, err := s.Take(ctx, []string{"call-6"}); !errors.Is(err, errLoopDetected) {
-		t.Fatalf("take after stop = %v, want errLoopDetected", err)
+	if err := s.terminalErr(); err != nil {
+		t.Fatalf("terminal = %v", err)
 	}
 }
 
-// Successful identical calls never produce reminders but still count
-// toward the hard stop at six (NUDGE-DESIGN §6).
-func TestNudgeStateSuccessCountsTowardStopOnly(t *testing.T) {
+// Successful calls advance the advisory window without producing reminders.
+func TestNudgeStateSuccessAdvancesWindowOnly(t *testing.T) {
 	s := newNudgeState()
 	ctx := context.Background()
-	for i := 1; i <= 6; i++ {
+	for i := 1; i <= 8; i++ {
 		settleBatch(t, s, nudgeOkCall(fmt.Sprintf("call-%d", i)))
 		if s.terminalErr() != nil {
 			break
@@ -123,8 +118,8 @@ func TestNudgeStateSuccessCountsTowardStopOnly(t *testing.T) {
 			t.Fatalf("successful batch %d produced notice %+v", i, notice)
 		}
 	}
-	if err := s.terminalErr(); !errors.Is(err, errLoopDetected) {
-		t.Fatalf("terminal = %v, want errLoopDetected", err)
+	if err := s.terminalErr(); err != nil {
+		t.Fatalf("terminal = %v", err)
 	}
 }
 

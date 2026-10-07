@@ -9,6 +9,15 @@
 
 ## 1. Deferred
 
+### Issue #40 experimental core guards
+
+- `plugins/exp/redaction`: opt-in `std/tool@v1` transformation, never a global logging/model filter.
+- `plugins/exp/argument-guard`: opt-in `std/middleware/pre-tool@v1`, never a core argument veto.
+- `plugins/exp/loop-detection`: **DEFERRED-INDEFINITE** independent algorithm source only. The existing `std/observer/run@v1` cannot stop a Run; executable intervention requires a separately designed Port. No current Recipe or Generation selects EXP.
+
+Core Nudge recovery stays supported and advisory-only. True Policy, approval,
+Grant, schema, workspace, operation identity, Journal, and budget limits remain.
+
 Deliberately not scheduled. Each row keeps the reason it waits and the record that would restart it.
 
 | ID | Item | Status | Notes |

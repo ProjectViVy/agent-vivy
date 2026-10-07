@@ -17,7 +17,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tools"
 )
 
 // errRunCancelled is the mapper's sentinel for engine-level cancellation;
@@ -536,7 +535,7 @@ func (m *eventMapper) onTurnEnd() []domain.RunEvent {
 }
 
 func (m *eventMapper) completedEvent(content string) domain.RunEvent {
-	m.lastSummary = clampEscapedText(tools.RedactSensitive(content), 8<<10)
+	m.lastSummary = clampEscapedText(content, 8<<10)
 	sum := sha256.Sum256([]byte(content))
 	re := m.build(domain.EventModelCompleted, payloadModelCompletedV2{
 		ContentSHA256: fmt.Sprintf("%x", sum[:]),
@@ -557,13 +556,15 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 	for _, tc := range msg.ToolCalls {
 		args := map[string]any{}
 		if tc.Function.Arguments != "" {
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+			value, err := decodeJSONWithNumbers(json.RawMessage(tc.Function.Arguments))
+			if err != nil {
 				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Function.Name, "err", err)
+			} else if object, ok := value.(map[string]any); ok {
+				args = object
 			}
 		}
 		// Canonical form: re-marshaling the decoded map sorts keys, so
-		// the same call with reordered JSON keys still counts as a
-		// repeat for the loop detector. Decoded JSON cannot fail here.
+		// reordered keys still count as a repeat for Nudge.
 		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
 			ToolCallID: tc.ID,
@@ -983,17 +984,9 @@ func boundApprovalReviewFields(action, target, hash, preview string, risks []str
 	)
 	if budget <= 0 {
 		boundedRisks := append([]string(nil), risks...)
-		for i := range boundedRisks {
-			boundedRisks[i] = tools.RedactSensitive(boundedRisks[i])
-		}
-		return action, tools.RedactSensitive(target), hash, tools.RedactSensitive(preview), boundedRisks
+		return action, target, hash, preview, boundedRisks
 	}
-	target = tools.RedactSensitive(target)
-	preview = tools.RedactSensitive(preview)
 	risks = append([]string(nil), risks...)
-	for i := range risks {
-		risks[i] = tools.RedactSensitive(risks[i])
-	}
 	action = clampEscapedText(action, 1024)
 	target = clampEscapedText(target, 4096)
 	hash = clampEscapedText(hash, 256)

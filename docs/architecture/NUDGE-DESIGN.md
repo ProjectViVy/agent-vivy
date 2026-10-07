@@ -1,8 +1,8 @@
 # Tool Failure Recovery and Nudge — Detailed Design
 
-Revision **ND-D1**, 2026-09-23. Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
+Revision **ND-D2**, 2026-10-07 (Issue [#40](https://github.com/ProjectViVy/agent-vivy/issues/40) supersedes ND-D1 hard-stop/redaction rules). Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
 Baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (local and fetched main).
-Delivery authority: [plan index](../plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. It is a design deliverable, not shipped behavior.
+Delivery authority: [plan index](../plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. Current behavior is verified separately in the Issue #40 iteration record; historical ND-D1 evidence is unchanged.
 
 ## 1. Intent and requirements
 
@@ -11,7 +11,7 @@ The requested capability is correction after failed tool calls within the curren
 | ID | Contract | Acceptance owner |
 | --- | --- | --- |
 | N1 | Allowlisted tool failures become unsuccessful model-visible results; the model can choose a corrected permitted action in the same Run. | ND-1, ND-4 |
-| N2 | Unsuccessful identical completed calls receive advisory reminders at counts 3 and 5 within a ten-call window; count 6 stops further model work. | ND-2, ND-3, ND-4 |
+| N2 | Unsuccessful identical completed calls receive advisory reminders at counts 3 and 5 within a ten-call window; repetition never stops further model work. | ND-2, ND-3, ND-4 |
 | N3 | Policy, approval, cancellation, Journal durability, tool/iteration/budget limits and uncertain effects remain authoritative. | All Stories |
 | N4 | Journal records unsuccessful calls and reminder scheduling; traces distinguish scheduling from provider handoff. | ND-2, ND-3, ND-4 |
 | N5 | Bounded state, direct/enhanced parity, concurrent calls, compaction and resume have explicit behavior. | ND-0, ND-2, ND-3, ND-4 |
@@ -20,17 +20,17 @@ Exclude human steering/RPC, Goal continuation or verification, automatic tool re
 
 ## 2. Decision and alternatives
 
-Use the existing tool adapter for selective failure adaptation, one run-local observation object shared with the mapper for repetition/audit, and an Eino ADK model wrapper for transient delivery after durable results settle. Reuse the existing loop window, limits, Service lifecycle and Journal. Prompt-only changes cannot recover a propagated tool error; a separate controller/verifier adds lifecycle and model calls. A new ToolWorld result field would change the public SDK: carry the first-party MCP failure through a typed internal error instead. The only new state is bounded in-flight observation and one pending reminder. No independent scheduler, retry engine or storage table is needed.
+Use the existing tool adapter for selective failure adaptation, one run-local observation object shared with the mapper for repetition/audit, and an Eino ADK model wrapper for transient delivery after durable results settle. Keep the advisory ten-entry window, independent limits, Service lifecycle and Journal. Prompt-only changes cannot recover a propagated tool error; a separate controller/verifier adds lifecycle and model calls. A new ToolWorld result field would change the public SDK: carry the first-party MCP failure through a typed internal error instead. The only new state is bounded in-flight observation and one pending reminder. No independent scheduler, retry engine or storage table is needed.
 
 ## 3. Source evidence and Eino check
 
 | Source | Verified fact / consequence |
 | --- | --- |
-| `internal/runtime/tooladapter.go`, `InvokableRun`, `dispatch`, `invoke` | Refusals already return results; ordinary errors propagate; redactedToolError preserves Unwrap. Classify only at the known validation/execution boundary, not arbitrary infrastructure errors. |
+| `internal/runtime/tooladapter.go`, `InvokableRun`, `dispatch`, `invoke` | Refusals return results; ordinary errors retain their cause/text. Classify only at the known validation/execution boundary, not arbitrary infrastructure errors. |
 | `internal/runtime/enhanced_tooladapter.go` | Enhanced invocation delegates to the ordinary adapter, then normalizes result parts. Recovery must occur before normalization and preserve valid media envelopes. |
 | `internal/mcphost/toolworld.go`, `ToolWorld.Invoke` | IsError currently becomes a text prefix, losing typed identity. |
 | `internal/toolhost/host.go` and `internal/app/assembly_tools.go` | Dynamic provider result/error passes to governedTool; an internal typed error can reach the runtime without changing SDK schemas. |
-| `internal/runtime/loopguard.go`, `mapper.go` | Ten entries, same tool/arguments/result/error, count greater than five stops; state resets on resume. Current sixth result batch is discarded. |
+| `internal/runtime/nudge_window.go`, `nudge_state.go` | Ten advisory entries for tool/arguments/result/error; no repetition terminal sentinel; state resets on resume. |
 | `internal/runtime/service.go`, `withLiveModelStreamObserver`; `model_stream_observer.go` | Existing waitForToolsSettled occurs while consuming output chunks, after inner.Stream has been called. It is not a request-before-send barrier. |
 | `schemas/events/payloads/tool.finished.json` | Strict additionalProperties=false: additive payload fields require schema updates, not just Go structs. |
 | `ui/src/lib/run-rows.ts` | Existing error projection consumes tool.finished.error; preserve this field. |
@@ -58,7 +58,7 @@ All new names below are package-private except the MCP error carrier consumed ac
 type toolFailure struct {
     Status string
     Reason string
-    Diagnostic string // redacted, bounded; never raw credentials
+    Diagnostic string // bounded tool-owned diagnostic
     Effects string // "not_executed", "none", "unknown"
 }
 func classifyToolFailure(ctx context.Context, spec domain.ToolSpec, err error) (toolFailure, bool)
@@ -91,11 +91,11 @@ func withNudgeState(ctx context.Context, state *nudgeState) context.Context
 func nudgeStateFromContext(ctx context.Context) *nudgeState
 ```
 
-Register receives one model turn's IDs in request order before dispatch; empty, duplicate or overlapping outstanding IDs are invariant errors. One outstanding batch only. Failure/Complete are mutex-protected and keyed by ID. Complete stores an already redacted, bounded mapped outcome; it does not publish or inject. Seal is called by the consuming Service after all tool.finished events for the batch have successfully persisted. Seal flushes completed outcomes in request order into the shared loop window, prepares the highest-threshold pending notice (tie: earliest request position), then releases the waiting model boundary. On error, Seal/Abort wakes waiters with the original cause. Neither holds a lock during Journal I/O or model calls.
+Register receives one model turn's IDs in request order before dispatch; empty, duplicate or overlapping outstanding IDs are invariant errors. One outstanding batch only. Failure/Complete are mutex-protected and keyed by ID. Complete stores an bounded, faithful mapped outcome; it does not publish or inject. Seal is called by the consuming Service after all tool.finished events for the batch have successfully persisted. Seal flushes completed outcomes in request order into the shared loop window, prepares the highest-threshold pending notice (tie: earliest request position), then releases the waiting model boundary. On error, Seal/Abort wakes waiters with the original cause. Neither holds a lock during Journal I/O or model calls.
 
 Take waits for the batch to seal or context cancellation, consumes at most one notice and returns terminal error if present. A second Take without a new batch gets no notice. Abort is idempotent and prevents any further model handoff. Keep only ten signature/count entries and current in-flight batch metadata; never retain historical raw arguments. Bound the in-flight batch by the existing tool/budget admission constraints; reject invalid oversized batches before allocating state. No unbounded set of historical IDs.
 
-The existing loopWindow becomes the sole detector owned by nudgeState; remove the mapper's independent window. Extend its record API to return the matching count plus the existing errLoopDetected sentinel. Keep canonical argument/result hashing semantics; do not mix generated reminders into signatures. No two synchronized detectors.
+nudgeWindow is the sole advisory counter owned by nudgeState. Its record API returns only the matching count, not an errLoopDetected sentinel. Keep canonical argument/result hashing semantics; do not mix generated reminders into signatures. The former hard-stop algorithm exists only as deferred EXP source.
 
 ## 5. Selective recovery and provenance
 
@@ -115,11 +115,11 @@ Command failures are recognized only for the reserved command-tool implementatio
 
 At the inner invocation seam, retain error provenance. The runtime can convert only allowlisted execution failures; hook/authorization/storage errors passing through dispatch do not become recoverable merely because their messages resemble an argument error. Existing refusal branches should explicitly mark reason/status rather than infer them from refusal text.
 
-On soft conversion: MarkFailure(current call ID), preserve diagnostic as untrusted result text, return nil error to Eino, and later populate tool.finished.error from the side-channel metadata. Do not export Go error text before redaction. Missing call ID during a model-originated conversion is an invariant failure, not a name-based fallback. Non-model shell paths retain their existing error behavior and have no nudge state.
+On soft conversion: MarkFailure(current call ID), preserve diagnostic as untrusted result text, return nil error to Eino, and later populate tool.finished.error from the side-channel metadata. Preserve authorized tool error text within explicit diagnostic/result budgets. Missing call ID during a model-originated conversion is an invariant failure, not a name-based fallback. Non-model shell paths retain their existing error behavior and have no nudge state.
 
 MCP ToolWorld should return its internal typed ToolExecutionError when IsError is true. Transport failures stay unchanged. No `toolworld.Result` or plugin API field is added. Verify that ordinary and enhanced adapters preserve the text/parts payload and the error identity; do not wrap a media envelope into unparsable text.
 
-## 6. Ordering, lifecycle and hard stop
+## 6. Ordering, lifecycle and advisory settlement
 
 ```text
 model tool request -> register batch IDs -> governed tool dispatch
@@ -131,9 +131,9 @@ model tool request -> register batch IDs -> governed tool dispatch
 
 The wrapper must wait **before** both inner.Generate and inner.Stream, not on their returned output. Registration for streaming models occurs before Eino receives the completed tool call; for non-streaming models, ND-0 must pin the equivalent event-before-dispatch order. No busy-wait, new goroutine per reminder or global lock.
 
-On the sixth matching result, persist the actual tool.finished, seal with errLoopDetected, and emit one run.failed through existing Service terminal handling. This explicitly fixes the baseline's missing sixth result event while preserving the hard-stop threshold. Already-dispatched parallel siblings may have run; this feature cannot roll them back. They must be settled/audited by the existing batch consumer before shutdown; no seventh model request is admitted. Cancel the drive context on terminal paths and Abort waiters even when Journal persistence fails, so stopping the consumer cannot strand the producer.
+Every matching result, including sixth and later calls, persists tool.finished and seals normally. Repetition is not a Run-terminal decision. Independent iteration/tool/context budgets, cancellation, durable-operation identity, and Journal failure still stop when appropriate. Already-dispatched parallel siblings settle through the existing consumer. Cancel the drive context on true terminal paths and Abort waiters even when Journal persistence fails, so stopping the consumer cannot strand the producer.
 
-Normal success calls count toward the existing hard guard but never produce failure reminders. Counts 3 and 5 are proposal constants, not measured optimum. Sliding-window counts can fall and reach a threshold again; a new source call may then produce a new notice. Deduplication is by the current batch's source call, not a permanent per-signature blacklist. Successful/different results naturally alter the ten-entry window.
+Normal success calls advance the advisory window but never produce failure reminders. Counts 3 and 5 are proposal constants, not measured optimum. Sliding-window counts can fall and reach a threshold again; a new source call may then produce a new notice. Deduplication is by the current batch's source call, not a permanent per-signature blacklist. Successful/different results naturally alter the ten-entry window.
 
 Create state when drive/resume starts. Share exactly that pointer across Service, mapper and wrapper via context; Engine middleware itself is immutable. Approval/question interruption aborts the current waiting boundary without consuming the interrupt as a failure. Resume creates fresh detector state, consistent with baseline, and does not replay an old pending reminder. Process restart uses existing orphan/checkpoint recovery. No new checkpoint field, cross-Run counter, cross-Goal counter or persisted detector cache.
 
@@ -157,11 +157,11 @@ Template (ordinary failure): “Runtime reminder: this unsuccessful tool call ha
 
 Refusal variant: “Runtime reminder: this refused call has repeated {count} times. Respect the policy or user decision. Do not bypass it through another tool. Continue only within existing authorization, or report the blocker.”
 
-No raw arguments or diagnostic text in the notice. Limit rendered reminder to 1024 UTF-8 bytes and honor a smaller available context budget; failure to fit is a classified context/budget stop, not silent injection beyond budget. No new user configuration. Fixed templates belong alongside current runtime prompt composition, tested as trusted instruction text; do not migrate unrelated prompts.
+No raw arguments or diagnostic text in the notice. Limit rendered reminder to 1024 UTF-8 bytes and honor a smaller available context budget; if the reminder does not fit, discard that pending notice and pass the original valid input to Generate/Stream without error or tool.nudge. A retry remains unchanged even if more space becomes available. Fitting notices emit once and remain identical on provider retry. No new user configuration. Fixed templates belong alongside current runtime prompt composition, tested as trusted instruction text; do not migrate unrelated prompts.
 
 ## 8. Compatibility, cost and rollback
 
-No change to public tool/Port interfaces, RPC or configured provider retry behavior. Only additive Journal vocabulary/fields plus correction of sixth-result audit behavior. Existing UI error rows consume error unchanged; generic Inspect shows tool.nudge. Add a minimal projection only if the existing generic viewer drops the new event; no dedicated feature panel.
+No change to public tool/Port interfaces, RPC or configured provider retry behavior. Legacy Journal fields remain readable; loop_detected may be historical data but is never emitted by current core. Existing UI error rows consume error unchanged; generic Inspect shows tool.nudge. Add a minimal projection only if the existing generic viewer drops the new event; no dedicated feature panel.
 
 Per completed call: existing hash work plus a scan of ten entries; per batch: request-order traversal. Memory is ten signatures plus admitted in-flight outcomes. No added model request solely for nudge and no synchronous remote I/O except existing Journal persistence. These are algorithmic properties, not benchmark claims. Result bytes and reminder tokens remain bounded.
 

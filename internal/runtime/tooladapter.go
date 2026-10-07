@@ -36,25 +36,6 @@ type toolApprovalInterruptInfo struct {
 	Message       string `json:"message"`
 }
 
-type redactedToolError struct {
-	cause   error
-	message string
-}
-
-func (err *redactedToolError) Error() string { return err.message }
-func (err *redactedToolError) Unwrap() error { return err.cause }
-
-func redactToolError(err error) error {
-	if err == nil {
-		return nil
-	}
-	message := tools.RedactSensitive(err.Error())
-	if message == err.Error() {
-		return err
-	}
-	return &redactedToolError{cause: err, message: message}
-}
-
 func encodeToolApprovalInterrupt(toolName string, arguments json.RawMessage, message string) string {
 	hash, err := toolApprovalArgumentsHash(toolName, arguments)
 	if err != nil {
@@ -64,7 +45,7 @@ func encodeToolApprovalInterrupt(toolName string, arguments json.RawMessage, mes
 		ToolName:      strings.TrimSpace(toolName),
 		Arguments:     string(arguments),
 		ArgumentsHash: hash,
-		Message:       tools.RedactSensitive(message),
+		Message:       message,
 	})
 	if err != nil {
 		return message
@@ -113,7 +94,7 @@ func interruptForToolApproval(ctx context.Context, toolName string, arguments js
 	encoded := encodeToolApprovalInterrupt(toolName, arguments, message)
 	// Eino persists state as the execution authority. Info is only the
 	// quarantined runtime-to-mapper transport needed to prepare the review;
-	// Service redacts its argument projection before Journal/UI publication.
+	// Service bounds its argument projection before Journal/UI publication.
 	return einotool.StatefulInterrupt(ctx, encoded, encoded)
 }
 
@@ -146,7 +127,6 @@ func validateResumedToolApproval(ctx context.Context, toolName string, arguments
 }
 
 func staleToolApproval(ctx context.Context, toolName, reason string) error {
-	reason = tools.RedactSensitive(reason)
 	tools.ReportProposalStale(ctx, reason)
 	return fmt.Errorf("runtime: approval for %s is stale: %s", toolName, reason)
 }
@@ -205,7 +185,7 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 // publicRefusalReason keeps a refusal readable in model context: the
 // "runtime: " prefix is ours, not the model's.
 func publicRefusalReason(err error) string {
-	return strings.TrimPrefix(tools.RedactSensitive(err.Error()), "runtime: ")
+	return strings.TrimPrefix(err.Error(), "runtime: ")
 }
 
 // refusalToolResult is the model-visible outcome of a per-call refusal: the
@@ -510,7 +490,7 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		return "", err
 	}
 	spec := a.t.Spec()
-	reason := tools.RedactSensitive(refusal.reason)
+	reason := refusal.reason
 	// Publish the typed refusal before the model-visible result so the
 	// leg's detector sees refused/not_executed on the failure channel.
 	if err := markInvocationFailure(ctx, refusalFailure(refusal.classification, reason)); err != nil {
@@ -587,12 +567,6 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
 		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
 	}
-	// Shape-level hazards (NUL bytes, path traversal, blocked command syntax)
-	// are refused exactly like the deny table: the call does not run, and the
-	// run continues. Script-level hazards are the shell classifier's to judge.
-	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
-	}
 	coordinator := toolOperationCoordinatorFromContext(ctx)
 	var operation *domain.ToolOperation
 	if coordinator != nil && !isModelWorkTool(spec.Name) {
@@ -642,9 +616,6 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		if err := tools.ValidateArgs(spec, args); err != nil {
 			return "", fmt.Errorf("runtime: persisted tool operation has invalid arguments: %w", err)
 		}
-		if err := tools.ValidateArgsSafety(spec, args); err != nil {
-			return "", fmt.Errorf("runtime: persisted tool operation failed safety validation: %w", err)
-		}
 		evaluation, err = a.policy.Evaluate(profile, spec, args)
 		if err != nil {
 			return "", err
@@ -665,9 +636,6 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 		if err := tools.ValidateArgs(spec, args); err != nil {
 			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
-		}
-		if err := tools.ValidateArgsSafety(spec, args); err != nil {
-			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
 		}
 		// A hook rewrite is untrusted input. The policy must see the final
 		// arguments before the tool can observe them.
@@ -849,7 +817,7 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation
 		if err := a.markCommandFailure(ctx, result); err != nil {
 			return "", err
 		}
-		result = untrustedToolResultHeader + tools.RedactSensitive(result)
+		result = untrustedToolResultHeader + result
 		// A multimodal parts envelope must reach normalizeEnhancedResult
 		// intact: byte compaction would corrupt it into unparseable JSON, so
 		// the budget is applied per part there instead. Media parts are sized
@@ -888,11 +856,10 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
-	err = redactToolError(err)
 	if a.hooks != nil {
 		a.hooks.PostToolUse(ctx, ToolHookCall{
 			RunID: contextRunID(ctx), ToolName: a.t.Spec().Name, Arguments: json.RawMessage(argumentsInJSON), Profile: policyProfile(ctx),
-		}, tools.RedactSensitive(result), err)
+		}, result, err)
 	}
 	if err != nil {
 		// §5 soft conversion applies only on a model-driven leg (a nudge

@@ -439,8 +439,8 @@ func TestNudgePrepareBudget(t *testing.T) {
 		return &nudgeWrappedModel{inner: &recordingInner{}, maxContextBytes: budget}, ctx, input
 	}
 	w, ctx, input := build(t, 32)
-	if _, err := w.Generate(ctx, input); !errors.Is(err, ErrContextBudgetExceeded) {
-		t.Fatalf("generate under tight budget = %v, want ErrContextBudgetExceeded", err)
+	if _, err := w.Generate(ctx, input); err != nil {
+		t.Fatalf("generate with non-fitting advisory = %v", err)
 	}
 	w, ctx, input = build(t, 1<<20)
 	if _, err := w.Generate(ctx, input); err != nil {

@@ -274,7 +274,8 @@ work.
   `skill_view` are T1 implementations with reserved IDs. Public Modules cannot
   shadow, alias, replace, or override them.
 - All public Port Hosts and established first-party Providers belong to the
-  default Generation. Missing network configuration/credentials means
+  default Generation, except `plugins/exp/*`, which require explicit Recipe
+  source pins and are absent from every existing Generation. Missing network configuration/credentials means
   unconfigured and inactive, not automatic connection.
 - A selected UI Module has complete UI control by default. There is no UI Grant
   or authorization prompt. Backend inputs remain untrusted and server-side
@@ -425,7 +426,10 @@ parse/validate tests. Secrets stay out of fixtures, logs, and event payloads
 ## Secrets, errors, and logs in code
 
 - Never commit tokens. Config holds `env_key` names only.
-- Redact secrets in logs, errors, snapshots, and test fixtures.
+- Preserve authorized task text in tools, errors, snapshots, and projections.
+  Do not apply generic pattern redaction or argument vetoes in core. Keep
+  credentials at real resolver/Grant boundaries; log only intentional
+  structured fields, never resolved credentials or whole task payloads.
 - Preserve error cause chains; do not discard the source error.
 - Structured logs: include run/session ids when useful; never include
   provider keys, bot tokens, or raw Journal blobs.

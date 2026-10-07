@@ -11,7 +11,7 @@ import (
 )
 
 // enhancedToolAdapter exposes the Eino EnhancedInvokableTool surface while
-// delegating all Vivy validation, policy, HITL, hooks, redaction, and run
+// delegating all Vivy validation, policy, HITL, hooks, budgets, and run
 // identity work to the ordinary adapter.
 type enhancedToolAdapter struct{ inner *toolAdapter }
 

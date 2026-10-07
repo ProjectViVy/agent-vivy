@@ -195,7 +195,7 @@ func TestHostAppliesTokenBudgetAfterRanking(t *testing.T) {
 	}
 }
 
-func TestHostRedactsSecretsAndBuildsStableProvenance(t *testing.T) {
+func TestHostPreservesTextAndBuildsStableProvenance(t *testing.T) {
 	candidate := contextsource.Candidate{
 		SourceID: "docs", ContentID: "secret", Version: "v2", Content: "token sk-test-12345678901234567890", Confidence: 0.5,
 	}
@@ -211,8 +211,8 @@ func TestHostRedactsSecretsAndBuildsStableProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Candidates) != 1 || first.Candidates[0].Content == candidate.Content {
-		t.Fatalf("secret content was not redacted: %#v", first.Candidates)
+	if len(first.Candidates) != 1 || first.Candidates[0].Content != candidate.Content {
+		t.Fatalf("authorized content changed: %#v", first.Candidates)
 	}
 	if first.Candidates[0].ProvenanceID == "" || first.Candidates[0].ProvenanceID != second.Candidates[0].ProvenanceID {
 		t.Fatalf("unstable provenance: %#v vs %#v", first.Candidates[0], second.Candidates[0])
@@ -286,7 +286,7 @@ func TestHostRejectsLiteralWhitespaceIdentifiersAndMetadataKeys(t *testing.T) {
 	}
 }
 
-func TestHostRedactionCannotExpandPastFinalBudget(t *testing.T) {
+func TestHostContentMustFitFinalBudget(t *testing.T) {
 	host, err := New(Config{Sources: []contextsource.Provider{fixtureSource{id: "docs", page: contextsource.NewPage([]contextsource.Candidate{{
 		SourceID: "docs", ContentID: "secret", Content: "token sk-test-12345678901234567890", Confidence: 0.5,
 	}}, "")}}})

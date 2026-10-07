@@ -41,7 +41,7 @@ L0 owns the physical laws of a Vivy species:
 - the single `Service.Run` / `RunWithOptions` entry;
 - Journal authority and durability-before-visibility;
 - Policy, approval, Grant, identity, and RPC authorization;
-- credential redaction authority;
+- credential resolver and scoped Secret authority (not pattern redaction);
 - ChannelHost and FaceHost authority;
 - Eino import quarantine.
 
@@ -321,7 +321,7 @@ support. The Assembly Compiler and conformance evidence are the authority.
 Every Conformance Suite MUST include registration, missing and duplicate
 Provider, incompatible version, dependency cycle, denied Grant, timeout,
 cancellation, startup rollback, unavailable instance, idempotent cleanup,
-Secret redaction, Inspect provenance, default behavior, and at least one
+Secret authority containment, Inspect provenance, default behavior, and at least one
 representative real failure path.
 
 ## 10. Eino decision boundary

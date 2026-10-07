@@ -236,7 +236,7 @@ func (o HistoryQueryOptions) ResolveStream(after HistoryPosition) (HistoryStream
 }
 
 // HistoryCandidate is a bounded storage-internal projection ready for T3's
-// field-aware sanitization, redaction, and literal matching. Event Text may
+// field-aware projection, budgets, and literal matching. Event Text may
 // contain a bounded raw payload but an oversized or malformed payload is
 // represented only by unavailable metadata. Unavailable and Truncated remain
 // independent flags.

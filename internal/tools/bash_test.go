@@ -146,20 +146,14 @@ func TestBashToolWithoutBackendFailsClosed(t *testing.T) {
 	}
 }
 
-func TestValidateArgsSafetyExemptsBashCommandSyntax(t *testing.T) {
+func TestBashOwnsCommandValidation(t *testing.T) {
 	bashSpec := NewBash(nil).Spec()
 	if err := ValidateArgs(bashSpec, []byte(`{"command":"a && b | c"}`)); err != nil {
 		t.Fatalf("bash args rejected by ValidateArgs: %v", err)
 	}
-	if err := ValidateArgsSafety(bashSpec, []byte(`{"command":"a && b | c"}`)); err != nil {
-		t.Fatalf("bash shell syntax rejected by safety guard: %v", err)
-	}
-	if err := ValidateArgsSafety(bashSpec, []byte(`{"command":"a\u0000b"}`)); err == nil {
-		t.Fatal("bash NUL byte accepted by safety guard")
-	}
-	executeSpec := NewExecute(nil).Spec()
-	if err := ValidateArgsSafety(executeSpec, []byte(`{"command":"a && b"}`)); err == nil {
-		t.Fatal("execute shell syntax accepted by safety guard")
+	tool := NewBash(nil)
+	if _, _, err := tool.(InvocationClassifier).ClassifyInvocation([]byte(`{"command":"a\u0000b"}`)); err == nil {
+		t.Fatal("bash NUL byte accepted by consuming tool")
 	}
 }
 

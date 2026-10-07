@@ -104,7 +104,7 @@ lookup
   -> schema + Policy + Grant recheck after every rewrite
   -> final approval
   -> execution
-  -> bounded and redacted result
+  -> bounded, faithful result
   -> Journal projection
 ```
 

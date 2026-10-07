@@ -1,5 +1,7 @@
 # Nudge Delivery Index
 
+> Issue #40 (2026-10-07) supersedes historical ND-D1 hard-stop and redaction clauses. Current contract: [NUDGE-DESIGN](../../architecture/NUDGE-DESIGN.md), advisory-only repetition and skip-on-unfit reminders. Earlier execution evidence remains revision-bound, not proof of current behavior.
+
 Revision ND-D1, 2026-09-23. Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
 Authoritative engineering contract: [NUDGE-DESIGN](../../architecture/NUDGE-DESIGN.md).
 User authorized detailed architecture and an executable plan package. Product implementation has not been authorized in this turn. These documents are complete planning instructions; they do not claim accepted implementation evidence.

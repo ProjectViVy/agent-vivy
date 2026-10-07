@@ -102,7 +102,7 @@ func TestHostedAlwaysSkillsUsesSkillHostResolution(t *testing.T) {
 	}
 }
 
-func TestHostedSkillBackendRedactsSecretLikeSkillContent(t *testing.T) {
+func TestHostedSkillBackendPreservesSyntheticSkillContent(t *testing.T) {
 	base, root, _ := openSkillTestBackend(t)
 	writeSkillFixture(t, root, "secret-skill", "Use sk-test-12345678901234567890 carefully.")
 	hosted, err := NewHostedSkillBackend(base)
@@ -113,8 +113,8 @@ func TestHostedSkillBackendRedactsSecretLikeSkillContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(loaded.Content, "sk-test-") {
-		t.Fatalf("secret-like content leaked from SkillHost: %q", loaded.Content)
+	if !strings.Contains(loaded.Content, "sk-test-12345678901234567890") {
+		t.Fatalf("authorized content changed by SkillHost: %q", loaded.Content)
 	}
 }
 

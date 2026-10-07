@@ -108,7 +108,7 @@ func (b *Backend) listApprovalReviews(ctx context.Context, filter storage.Review
 	}
 	// SQLite is intentionally configured with one connection. Close the
 	// listing cursor before querying each durable approval event for its
-	// redacted argument projection.
+	// bounded argument projection.
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("storage: close approval reviews: %w", err)
 	}
@@ -242,7 +242,7 @@ func classifyReview(item *domain.ReviewItem) {
 }
 
 // reviewArguments recovers the original approval event's args, then applies
-// key/value redaction before returning them to RPC/UI. If the event is absent
+// structural projection before returning them to RPC/UI. If the event is absent
 // (old rows), an empty object is safer than returning ProposalData.
 func (b *Backend) reviewArguments(ctx context.Context, runID domain.RunID, reviewID, toolCallID, toolName string) json.RawMessage {
 	rows, err := b.db.QueryContext(ctx,
@@ -257,53 +257,23 @@ func (b *Backend) reviewArguments(ctx context.Context, runID domain.RunID, revie
 		if rows.Scan(&raw) != nil {
 			continue
 		}
-		var payload map[string]any
+		var payload struct {
+			ApprovalID string          `json:"approval_id"`
+			ToolCallID string          `json:"tool_call_id"`
+			Args       json.RawMessage `json:"args"`
+		}
 		if json.Unmarshal(raw, &payload) != nil {
 			continue
 		}
-		if payload["approval_id"] != reviewID && payload["tool_call_id"] != toolCallID {
+		if payload.ApprovalID != reviewID && payload.ToolCallID != toolCallID {
 			continue
 		}
-		args, ok := payload["args"]
-		if !ok {
+		if len(payload.Args) == 0 {
 			return json.RawMessage(`{}`)
 		}
-		if toolName == "bash" {
-			return json.RawMessage(`{"command":"[REDACTED]"}`)
-		}
-		redacted, err := json.Marshal(redactReviewValue(args, ""))
-		if err == nil {
-			return redacted
-		}
+		return append(json.RawMessage(nil), payload.Args...)
 	}
 	return json.RawMessage(`{}`)
-}
-
-func redactReviewValue(value any, key string) any {
-	if m, ok := value.(map[string]any); ok {
-		out := make(map[string]any, len(m))
-		for k, v := range m {
-			lower := strings.ToLower(k)
-			normalized := strings.NewReplacer("-", "_", " ", "_").Replace(lower)
-			if strings.Contains(normalized, "password") || strings.Contains(normalized, "secret") || strings.Contains(normalized, "token") || strings.Contains(normalized, "api_key") || strings.Contains(normalized, "apikey") || strings.Contains(normalized, "authorization") || strings.Contains(normalized, "credential") || strings.Contains(normalized, "private_key") {
-				out[k] = "[REDACTED]"
-				continue
-			}
-			out[k] = redactReviewValue(v, k)
-		}
-		return out
-	}
-	if values, ok := value.([]any); ok {
-		out := make([]any, len(values))
-		for i, v := range values {
-			out[i] = redactReviewValue(v, key)
-		}
-		return out
-	}
-	if text, ok := value.(string); ok && len(text) > 4096 {
-		return text[:4096] + "…"
-	}
-	return value
 }
 
 func sortReviews(items []domain.ReviewItem) {

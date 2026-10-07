@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tools"
 )
 
 // InvokeActionTool is the runtime-owned ToolHost seam for a Control Action.
@@ -122,8 +121,7 @@ func (s *Service) InvokeActionTool(ctx context.Context, sessionID domain.Session
 		_, _ = s.appendRunEvent(context.WithoutCancel(ctx), mapper.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: name, Error: "tool execution failed; the action did not complete"}), false)
 		return "", ErrPolicyDenied
 	}
-	result = tools.RedactSensitive(result)
-	if len(result) > actionToolMaxResultBytes || strings.Contains(result, "[REDACTED") {
+	if len(result) > actionToolMaxResultBytes {
 		_, _ = s.appendRunEvent(context.WithoutCancel(ctx), mapper.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: name, Error: "tool result rejected by the action boundary"}), false)
 		return "", ErrPolicyDenied
 	}

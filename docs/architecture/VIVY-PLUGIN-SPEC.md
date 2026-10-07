@@ -379,7 +379,8 @@ The following fail before a formal Generation is emitted:
   explicit `DEFERRED-INDEFINITE` result.
 
 Errors MUST name the Module, Port, field or edge, and the violated rule. Error
-cause chains are preserved and Secret values are redacted.
+cause chains and authorized task text are preserved. Resolver-owned Secrets
+remain inside their declared Grant scopes; no generic text masking applies.
 
 ## 11. Prohibited legacy and bypasses
 

@@ -1541,8 +1541,8 @@ func TestBoundedApprovalReviewMatchesStoredAndJournalProjection(t *testing.T) {
 		Action: "write_file", Target: "src/sk-live-abcdefghijkl/main.go", PreconditionHash: strings.Repeat("a", 64),
 		Preview: "token sk-live-abcdefghijkl\n" + strings.Repeat("界", 50000), RiskFindings: []string{"api_key='private value' " + strings.Repeat("risk", 10000)},
 	}, budget)
-	if strings.Contains(proposal.Target+proposal.Preview+strings.Join(proposal.RiskFindings, ""), "sk-live") || strings.Contains(strings.Join(proposal.RiskFindings, ""), "private value") {
-		t.Fatalf("stored approval review retained secret canary: %+v", proposal)
+	if !strings.Contains(proposal.Target+proposal.Preview+strings.Join(proposal.RiskFindings, ""), "sk-live") || !strings.Contains(strings.Join(proposal.RiskFindings, ""), "private value") {
+		t.Fatalf("stored approval review changed synthetic task data: %+v", proposal)
 	}
 	event := newEventMapper("run-review-parity", budget).build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
 		ApprovalID: "approval-1", ToolCallID: "call-1", ToolName: "write_file", Args: map[string]any{"content": strings.Repeat("x", 100000)},

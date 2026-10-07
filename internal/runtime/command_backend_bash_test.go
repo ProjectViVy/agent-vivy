@@ -468,7 +468,7 @@ func TestServiceBashTraversalRefusedWithoutFailingRun(t *testing.T) {
 			refusal = string(ev.Payload)
 		}
 	}
-	if !strings.Contains(refusal, "did not run") || !strings.Contains(refusal, "path traversal") {
+	if !strings.Contains(refusal, "did not run") || !strings.Contains(refusal, "outside the run workspace") {
 		t.Fatalf("traversal refusal payload = %q, want a model-visible refusal", refusal)
 	}
 	if strings.Contains(refusal, "exit_code") {
