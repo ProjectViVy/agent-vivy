@@ -486,3 +486,13 @@ type payloadTurnSteered struct {
 	QueueID string `json:"queue_id"`
 	Text    string `json:"text"`
 }
+
+// payloadChannelTaskAdmitted is the channel.task_admitted event payload
+// (A2A-02): immutable acceptance evidence naming the committed session,
+// run and remote message id. Its shape must match
+// schemas/events/payloads/channel.task_admitted.json exactly.
+type payloadChannelTaskAdmitted struct {
+	SessionID domain.SessionID `json:"session_id"`
+	RunID     domain.RunID     `json:"run_id"`
+	MessageID string           `json:"message_id"`
+}

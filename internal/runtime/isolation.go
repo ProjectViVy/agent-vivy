@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -242,6 +244,12 @@ func (m *WorkspaceManager) selectedWorkspace(ctx context.Context, runID domain.R
 		return Workspace{}, false, fmt.Errorf("runtime: resolve workspace run owner: %w", storage.ErrNotFound)
 	}
 	session, err := m.sessions.GetSession(ctx, sessionID)
+	if errors.Is(err, storage.ErrNotFound) && isChannelTaskCandidate(ctx) {
+		// Candidate-scoped skip (design §6.2): a channel-task NewSession
+		// admission owns no row yet, so it can never resolve a selected
+		// workspace. Without the marker the same missing row must fail.
+		return Workspace{}, false, nil
+	}
 	if err != nil {
 		return Workspace{}, false, fmt.Errorf("runtime: resolve session workspace: %w", err)
 	}
@@ -280,6 +288,11 @@ type AdmissionWorkspaceAllocator interface {
 	// no-op for local and selected workspaces. Callers invoke it only after
 	// a receipt check confirms the admission did not commit.
 	DiscardNewPrivateAdmission(context.Context, domain.RunID) error
+	// SweepAdmissionOrphans reaps stale provisional directories at startup:
+	// every run-ID-named private dir that keep() rejects, that is empty,
+	// and whose mtime predates olderThan. Non-empty, recent, kept, local,
+	// and selected directories are preserved.
+	SweepAdmissionOrphans(ctx context.Context, keep func(domain.RunID) (bool, error), olderThan time.Time) error
 }
 
 var _ AdmissionWorkspaceAllocator = (*WorkspaceManager)(nil)
@@ -379,6 +392,56 @@ func (m *WorkspaceManager) DiscardNewPrivateAdmission(ctx context.Context, runID
 	// preserved rather than destroyed.
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("runtime: discard admission workspace: %w", err)
+	}
+	return nil
+}
+
+// SweepAdmissionOrphans implements AdmissionWorkspaceAllocator. Orphans are
+// empty private dirs named for a run that no longer exists (an admission
+// attempt whose commit outcome resolved — or whose process died before the
+// resolution could run). Removal is deliberately racy-safe: os.Remove only
+// succeeds while the directory is still empty.
+func (m *WorkspaceManager) SweepAdmissionOrphans(ctx context.Context, keep func(domain.RunID) (bool, error), olderThan time.Time) error {
+	if m == nil || m.root == "" || m.local {
+		return nil
+	}
+	entries, err := os.ReadDir(m.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("runtime: list workspaces for sweep: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !validWorkspaceName(entry.Name()) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if !info.ModTime().Before(olderThan) {
+			continue
+		}
+		claimed, err := keep(domain.RunID(entry.Name()))
+		if err != nil {
+			return fmt.Errorf("runtime: sweep keep check %s: %w", entry.Name(), err)
+		}
+		if claimed {
+			continue
+		}
+		path := filepath.Join(m.root, entry.Name())
+		if err := m.ensureUnderRoot(path); err != nil {
+			return err
+		}
+		// os.Remove refuses non-empty dirs — a workspace that received
+		// content after the keep check is preserved, not destroyed.
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return fmt.Errorf("runtime: sweep orphan workspace %s: %w", entry.Name(), err)
+		}
 	}
 	return nil
 }

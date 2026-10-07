@@ -121,3 +121,18 @@ func isDirectShell(ctx context.Context) bool {
 	marked, _ := ctx.Value(directShellContextKey{}).(bool)
 	return marked
 }
+
+// channelTaskCandidateContextKey marks an admission whose session row does
+// not exist yet: the workspace resolver must skip the selected-workspace
+// session lookup for it (design §6.2). It is set only from the ChannelTask
+// admission path — an existing-context admission keeps the lookup.
+type channelTaskCandidateContextKey struct{}
+
+func withChannelTaskCandidate(ctx context.Context) context.Context {
+	return context.WithValue(ctx, channelTaskCandidateContextKey{}, true)
+}
+
+func isChannelTaskCandidate(ctx context.Context) bool {
+	marked, _ := ctx.Value(channelTaskCandidateContextKey{}).(bool)
+	return marked
+}

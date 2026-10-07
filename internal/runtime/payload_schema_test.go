@@ -124,3 +124,25 @@ func payloadSchemaError(t *testing.T, eventType string, payload json.RawMessage)
 	}
 	return compiled.Validate(instance)
 }
+
+// TestChannelTaskAdmittedPayloadSchema pins the A2A-02.1 acceptance event's
+// closed payload: the three identity fields and nothing else.
+func TestChannelTaskAdmittedPayloadSchema(t *testing.T) {
+	validatePayloadSchema(t, "channel.task_admitted", json.RawMessage(
+		`{"session_id":"sess_1","run_id":"run_1","message_id":"remote-1"}`))
+
+	for _, tc := range []struct {
+		name    string
+		payload string
+	}{
+		{"missing message_id", `{"session_id":"s","run_id":"r"}`},
+		{"unknown field", `{"session_id":"s","run_id":"r","message_id":"m","bogus":1}`},
+		{"empty run_id", `{"session_id":"s","run_id":"","message_id":"m"}`},
+	} {
+		t.Run("reject "+tc.name, func(t *testing.T) {
+			if err := payloadSchemaError(t, "channel.task_admitted", json.RawMessage(tc.payload)); err == nil {
+				t.Fatal("invalid payload validated")
+			}
+		})
+	}
+}

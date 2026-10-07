@@ -123,6 +123,9 @@ type ServiceDeps struct {
 	Work           storage.WorkStore
 	GoalRuns       storage.GoalRunStore
 	PrimaryRuns    storage.PrimaryRunStore
+	// ChannelTasks is the scoped receipt/ownership store for A2A admission
+	// (A2A-02). Nil keeps SubmitChannelTask unavailable.
+	ChannelTasks storage.ChannelTaskStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -459,6 +462,11 @@ type RunOptions struct {
 	// any run state is persisted or published. Channel ingress uses it to
 	// durably arm the outbound delivery target before terminal events can race.
 	BeforeStart func(domain.RunID) error
+	// ChannelTask carries the validated A2A admission envelope (design
+	// §6.1–6.2). It is incompatible with Continuity, GoalRound, BeforeStart,
+	// HumanAdmission and arbitrary attachment options; SubmitChannelTask is
+	// the only caller.
+	ChannelTask *ChannelTaskAdmission
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -492,6 +500,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if deps.PrimaryRuns == nil {
 		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
+	}
+	if deps.ChannelTasks == nil {
+		deps.ChannelTasks, _ = deps.Runs.(storage.ChannelTaskStore)
 	}
 	svc := &Service{
 		engine:            eng,
@@ -1017,6 +1028,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if options.GoalRound != nil && options.GoalRound.RunID != "" {
 		runID = options.GoalRound.RunID
 	}
+	if options.ChannelTask != nil && options.ChannelTask.RunID != "" {
+		runID = options.ChannelTask.RunID
+	}
 	if options.BeforeStart != nil {
 		if err := options.BeforeStart(runID); err != nil {
 			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
@@ -1025,9 +1039,15 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	var capture maskcontract.Capture
 	var prompt *storage.RunPromptSnapshot
 	var expectedMask *storage.MaskCaptureCheck
+	channelCandidate := options.ChannelTask != nil && options.ChannelTask.NewSession != nil
 	if s.deps.Admission != nil {
 		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
-		if s.deps.MaskResolver != nil {
+		if channelCandidate {
+			// A candidate session owns no mask yet: synthesize the empty
+			// revision-zero capture instead of a store read that would fail
+			// not-found (design §6.2).
+			capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID, Revision: 0}}
+		} else if s.deps.MaskResolver != nil {
 			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
 			if err != nil {
 				return "", fmt.Errorf("runtime: capture session mask: %w", err)
@@ -1088,8 +1108,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		workspaceReady = false
 	}
 	if s.deps.Workspaces != nil {
-		if options.Continuity != nil {
-			workspace, newly, err := admissionAlloc.EnsureForAdmission(withSessionID(ctx, sessionID), runID)
+		if options.Continuity != nil || options.ChannelTask != nil {
+			workspaceCtx := withSessionID(ctx, sessionID)
+			if channelCandidate {
+				// The candidate's session row does not exist yet; the marker
+				// scopes the "no selected workspace" skip to candidates only.
+				workspaceCtx = withChannelTaskCandidate(workspaceCtx)
+			}
+			workspace, newly, err := admissionAlloc.EnsureForAdmission(workspaceCtx, runID)
 			if err != nil {
 				return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 			}
@@ -1281,6 +1307,70 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		runID = run.ID
 		started = admitted.Started
 		goalAdmissionEvent = &admitted.Work.Event
+	} else if options.ChannelTask != nil {
+		if s.deps.ChannelTasks == nil {
+			releaseWorkspace()
+			return "", ErrChannelTaskUnavailable
+		}
+		ct := options.ChannelTask
+		run.Status = domain.RunActive
+		run.Kind = domain.RunKindPrimary
+		run.RootID = runID
+		admittedEvent := m.build(domain.EventChannelTaskAdmitted, payloadChannelTaskAdmitted{
+			SessionID: sessionID, RunID: runID, MessageID: ct.MessageID,
+		})
+		var committed storage.ChannelTaskCommitResult
+		commitErr := func() error {
+			var err error
+			committed, err = s.deps.ChannelTasks.CommitChannelTask(ctx, storage.ChannelTaskCommit{
+				PrimaryRunCommit: storage.PrimaryRunCommit{
+					Message: message, Run: run, Started: started,
+					Prompt: prompt, ExpectedMask: expectedMask,
+				},
+				Scope: ct.Scope, MessageID: ct.MessageID, InputHash: ct.InputHash,
+				NewSession: ct.NewSession, Admitted: admittedEvent,
+			})
+			return err
+		}()
+		if commitErr != nil {
+			// An uncertain commit preserves every provisional resource: the
+			// rows may be durable and the retry resolves through the receipt.
+			uncertain := errors.Is(commitErr, storage.ErrCommitUncertain)
+			if admissionNewPrivate && !uncertain {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			if !uncertain {
+				s.discardFrozenCandidate(context.WithoutCancel(ctx), sessionID)
+			}
+			if errors.Is(commitErr, storage.ErrWorkRunConflict) || errors.Is(commitErr, storage.ErrConflict) {
+				// A racing identical winner may have committed first: the
+				// receipt is the arbiter, not the error.
+				if resolved, found, rerr := s.deps.ChannelTasks.FindChannelTaskReceipt(ctx, ct.Scope, ct.MessageID); rerr == nil && found && resolved.InputHash == ct.InputHash {
+					if ct.Out != nil {
+						*ct.Out = resolved
+					}
+					return resolved.RunID, nil
+				}
+			}
+			return "", fmt.Errorf("runtime: commit channel task admission: %w", commitErr)
+		}
+		if !committed.NewlyCommitted {
+			// The in-transaction receipt recheck raced a first commit and
+			// lost: the original stands; reap the never-committed resources.
+			if admissionNewPrivate {
+				s.discardAdmissionWorkspace(sessionID, runID, admissionAlloc)
+			}
+			s.discardFrozenCandidate(context.WithoutCancel(ctx), sessionID)
+			if ct.Out != nil {
+				*ct.Out = committed.Receipt
+			}
+			return committed.Receipt.RunID, nil
+		}
+		if ct.Out != nil {
+			*ct.Out = committed.Receipt
+		}
+		startupEvents = append(startupEvents, committed.Events[1:]...)
+		started = committed.Events[0]
 	} else if s.deps.PrimaryRuns != nil {
 		run.Status = domain.RunActive
 		run.Kind = domain.RunKindPrimary

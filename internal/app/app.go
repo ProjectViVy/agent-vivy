@@ -1334,6 +1334,11 @@ func (a *App) StartEmbeddedServices() {
 	if a == nil || a.service == nil {
 		return
 	}
+	// A2A-02: startup sweep reaps provisional channel-task resources left
+	// behind by a crash mid-admission, before any submission is accepted.
+	if err := a.service.SweepChannelTaskOrphans(context.Background()); err != nil {
+		slog.Warn("channel task orphan sweep failed", "error", err)
+	}
 	a.service.StartInteractionSweeper(context.Background(), time.Second)
 	if a.cfg.Runtime.Cron.Enabled {
 		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
@@ -1917,6 +1922,11 @@ func applyLiveApprovalWindow(svc *runtime.Service, path string, cfg config.Confi
 // has no listener: it blocks on ctx alone while faces drive the in-process
 // control plane, then takes the same reverse-order shutdown.
 func (a *App) Run(ctx context.Context) error {
+	// A2A-02: startup sweep reaps provisional channel-task resources left
+	// behind by a crash mid-admission, before any submission is accepted.
+	if err := a.service.SweepChannelTaskOrphans(context.Background()); err != nil {
+		slog.Warn("channel task orphan sweep failed", "error", err)
+	}
 	a.service.StartInteractionSweeper(context.Background(), time.Second)
 	defer a.service.StopInteractionSweeper()
 	// Cron fires agent turns on a schedule; it must not outlive the
