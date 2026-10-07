@@ -389,12 +389,18 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 				return true
 			}
 			args := argsList(item.Args)
-			if denied, reason := matchDenyTable(name, args, script); denied {
+			// Output-only builtins consume data, not path or script operands.
+			// Redirections and nested commands are checked by the AST walk.
+			if (name == "echo" || name == "printf") && args[0] == name {
+				return true
+			}
+			command := script[item.Pos().Offset():item.End().Offset()]
+			if denied, reason := matchDenyTable(name, args, command); denied {
 				class = InvocationDenied
 				findings = append(findings, reason)
 				return false
 			}
-			if pipedShellPattern.MatchString(script) {
+			if pipedShellPattern.MatchString(command) {
 				class = InvocationDenied
 				findings = append(findings, "deny-table: remote script piped into a shell")
 				return false

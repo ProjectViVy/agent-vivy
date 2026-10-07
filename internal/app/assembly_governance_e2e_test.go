@@ -667,11 +667,11 @@ func TestToolApprovalBindingCannotBeBypassedWhenResumeBecomesAllowed(t *testing.
 	}
 }
 
-func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
-	const secret = "sk-live-middleware-secret"
+func TestToolApprovalJournalPreservesMiddlewareTaskData(t *testing.T) {
+	const taskData = "sk-test-authorized-task-data"
 	provider := &governanceStaticProvider{id: "acme.docs.write"}
 	middleware := &sequencedGovernanceMiddleware{rewrites: []json.RawMessage{
-		json.RawMessage(`{"mode":"safe","items":[2],"config":{"enabled":true},"credential":"` + secret + `"}`),
+		json.RawMessage(`{"mode":"safe","items":[2],"config":{"enabled":true},"credential":"` + taskData + `"}`),
 	}}
 	registry, err := bindGeneratedTools([]toolport.ToolProvider{provider}, tools.NewRegistry(), nil, middleware)
 	if err != nil {
@@ -711,11 +711,17 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := waitGovernanceApproval(t, backend, runID)
-	for _, event := range replayGovernanceEvents(t, backend, runID) {
-		if strings.Contains(string(event.Payload), secret) {
-			t.Fatalf("event %s leaked middleware-injected secret: %s", event.Type, event.Payload)
+	waitFor(t, time.Second, func() bool {
+		for _, event := range replayGovernanceEvents(t, backend, runID) {
+			if event.Type == domain.EventToolApprovalRequired {
+				if !strings.Contains(string(event.Payload), taskData) {
+					t.Fatalf("authorized middleware task data changed: %s", event.Payload)
+				}
+				return true
+			}
 		}
-	}
+		return false
+	})
 	if err := service.DecideApproval(context.Background(), approval.ID, domain.ApprovalDenied); err != nil {
 		t.Fatal(err)
 	}

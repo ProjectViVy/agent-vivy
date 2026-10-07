@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -753,6 +754,11 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 		{"headless", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"vivy-code", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"scx", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"lite", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
+		{"diva", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-selected", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-omitted", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-backend-only", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
 	}
 	for _, test := range tests {
 		name := test.name
@@ -768,6 +774,27 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 			}
 			if inspected.Manifest.GenerationID != artifact.Manifest.GenerationID {
 				t.Fatal("embedded and returned Generation identity differ")
+			}
+			for _, selected := range inspected.Manifest.Modules {
+				if strings.Contains(selected.ID, "exp-") || strings.Contains(selected.Source.Ref, "plugins/exp/") {
+					t.Fatalf("%s selected an EXP Module: %+v", name, selected)
+				}
+			}
+			binder, err := os.ReadFile(filepath.Join(output, "zz_assembly.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(binder), "plugins/exp/") {
+				t.Fatal("generated Assembly imported EXP")
+			}
+			symbols, err := exec.Command("go", "tool", "nm", artifact.Binary).CombinedOutput()
+			if err != nil {
+				t.Fatalf("inspect compiled symbols: %v: %s", err, symbols)
+			}
+			for _, forbidden := range []string{"agent-vivy/plugins/exp/", "agent-vivy/internal/logging.Redact", "agent-vivy/internal/tools.ValidateArgsSafety", "agent-vivy/internal/runtime.errLoopDetected", "agent-vivy/internal/runtime.(*loopWindow)"} {
+				if bytes.Contains(symbols, []byte(forbidden)) {
+					t.Fatalf("%s binary retained %s", name, forbidden)
+				}
 			}
 			if got := string(inspected.Manifest.CapabilityStates["channels"]); got != test.channels {
 				t.Fatalf("channels capability = %s, want %s", got, test.channels)

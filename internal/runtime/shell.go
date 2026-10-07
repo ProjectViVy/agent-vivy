@@ -18,8 +18,8 @@ import (
 
 const (
 	// maxShellScriptBytes is the input bound for one !shell invocation. The
-	// exact script is retained only in the protected state seam; public
-	// journal/proposal projections carry a redacted label and a short hash.
+	// authorized script is retained in state and bounded Journal/proposal
+	// projections; approval identity still uses the complete argument hash.
 	maxShellScriptBytes = 64 << 10
 	// maxShellResultBytes is an outer bound on the serialized direct-shell
 	// result. The command backend independently caps each output stream; this
@@ -177,9 +177,6 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if err := tools.ValidateArgs(spec, args); err != nil {
 		return "", err
 	}
-	if err := tools.ValidateArgsSafety(spec, args); err != nil {
-		return "", err
-	}
 	if classifier, ok := tool.(tools.InvocationClassifier); ok {
 		class, findings, err := classifier.ClassifyInvocation(args)
 		if err != nil {
@@ -278,7 +275,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 // shellContext creates the same policy/session/governance context used by
 // model tools, plus the direct marker that keeps command execution strictly
 // foreground. Public message projections are already safe because direct
-// shell events contain only redacted arguments and sanitized results.
+// shell events preserve authorized arguments and bounded results.
 func (s *Service) shellContext(ctx context.Context, p shellPendingRun) context.Context {
 	ctx = withDirectShell(ctx)
 	ctx = withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(ctx, p.face), p.mode), p.profile), p.snapshot), p.mapper.runID), p.sessionID)
@@ -382,9 +379,6 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 	if err := tools.ValidateArgs(spec, input); err != nil {
 		return nil, err
 	}
-	if err := tools.ValidateArgsSafety(spec, input); err != nil {
-		return nil, err
-	}
 	profile := policyProfile(ctx)
 	evaluation, err := adapter.policy.Evaluate(profile, spec, input)
 	if err != nil {
@@ -408,9 +402,6 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 			return nil, err
 		}
 		if err := tools.ValidateArgs(spec, args); err != nil {
-			return nil, err
-		}
-		if err := tools.ValidateArgsSafety(spec, args); err != nil {
 			return nil, err
 		}
 		if err := validateDirectShellArgs(args); err != nil {
@@ -478,9 +469,6 @@ func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapt
 	}
 	spec := adapter.t.Spec()
 	if err := tools.ValidateArgs(spec, args); err != nil {
-		return nil, err
-	}
-	if err := tools.ValidateArgsSafety(spec, args); err != nil {
 		return nil, err
 	}
 	evaluation, err := adapter.policy.Evaluate(policyProfile(ctx), spec, args)
@@ -872,9 +860,6 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 	if err := tools.ValidateArgs(tool.Spec(), state.Args); err != nil {
 		return err
 	}
-	if err := tools.ValidateArgsSafety(tool.Spec(), state.Args); err != nil {
-		return err
-	}
 	classifier, ok := tool.(tools.InvocationClassifier)
 	if !ok {
 		return ErrShellUnavailable
@@ -1065,13 +1050,7 @@ func shellScript(args json.RawMessage) string {
 }
 
 func shellAuditLabel(args json.RawMessage) string {
-	script := shellScript(args)
-	sum := sha256.Sum256([]byte(script))
-	hash := hex.EncodeToString(sum[:])
-	if len(hash) > 16 {
-		hash = hash[:16]
-	}
-	return fmt.Sprintf("bash script [redacted bytes=%d sha256=%s]", len(script), hash)
+	return shellScript(args)
 }
 
 func shellApprovalHash(args json.RawMessage, policyHash string, hooks *ToolHookChain) string {
@@ -1106,7 +1085,6 @@ func boundShellFindings(findings []string) []string {
 	}
 	out := make([]string, 0, len(findings))
 	for _, finding := range findings {
-		finding = tools.RedactSensitive(finding)
 		if len(finding) > 256 {
 			finding = finding[:256] + "..."
 		}
@@ -1119,39 +1097,18 @@ func (s *Service) sanitizeShellResult(raw string) string {
 	budget := s.shellResultBudget()
 	var result tools.CommandResult
 	if err := json.Unmarshal([]byte(raw), &result); err == nil {
-		result.Command = "bash (script redacted)"
-		result.Cwd = "."
-		result.Stdout = tools.RedactSensitive(result.Stdout)
-		result.Stderr = tools.RedactSensitive(result.Stderr)
+
 		encoded, marshalErr := json.Marshal(result)
 		if marshalErr == nil {
 			return compactToolResult(untrustedToolResultHeader+string(encoded), budget)
 		}
 	}
-	return compactToolResult(untrustedToolResultHeader+tools.RedactSensitive(raw), budget)
+	return compactToolResult(untrustedToolResultHeader+raw, budget)
 }
 
 func shellPublicError(err error) string {
 	if err == nil {
 		return ""
 	}
-	if errors.Is(err, context.Canceled) {
-		return "shell invocation cancelled"
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "shell invocation timed out"
-	}
-	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) {
-		return "shell invocation denied by policy"
-	}
-	if errors.Is(err, ErrHookBlocked) {
-		return "shell invocation blocked by hook"
-	}
-	if errors.Is(err, ErrSandboxDenied) {
-		return "shell invocation blocked by sandbox"
-	}
-	if errors.Is(err, ErrShellUnavailable) {
-		return "governed shell is unavailable"
-	}
-	return "shell invocation failed validation or execution"
+	return boundToolOperationFailure(err.Error())
 }

@@ -820,13 +820,12 @@ func sanitizeHistoryText(text string, maximum int) (string, bool, bool) {
 	if !utf8.ValidString(text) {
 		return "", false, true
 	}
-	redacted := tools.RedactSensitive(text)
 	truncated := false
-	if len(redacted) > maximum {
-		redacted = takePrefixUTF8(redacted, maximum)
+	if len(text) > maximum {
+		text = takePrefixUTF8(text, maximum)
 		truncated = true
 	}
-	return redacted, redacted != text, truncated
+	return text, false, truncated
 }
 
 func historyEventAllowed(eventType domain.EventType) bool {

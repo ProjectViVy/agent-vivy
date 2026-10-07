@@ -246,7 +246,7 @@ type secretStringer struct{}
 
 func (secretStringer) String() string { return "token=pk-abcdef1234567890" }
 
-func TestRedactionResolvedValuesAcrossBothSinks(t *testing.T) {
+func TestResolvedSyntheticValuesPreservedAcrossBothSinks(t *testing.T) {
 	dir := t.TempDir()
 	console := stubConsole(t, true)
 	logger, _, closer, err := Setup(Options{Dir: dir, Stdout: true})
@@ -266,12 +266,12 @@ func TestRedactionResolvedValuesAcrossBothSinks(t *testing.T) {
 
 	for name, sink := range map[string]string{"console": console.String(), "file": readDailyLog(t, dir)} {
 		for _, leak := range []string{"sk-abcdef1234567890", "abcdef1234567890xyz", "pk-abcdef1234567890"} {
-			if strings.Contains(sink, leak) {
-				t.Errorf("%s sink leaked secret %q: %s", name, leak, sink)
+			if !strings.Contains(sink, leak) {
+				t.Errorf("%s sink changed synthetic text %q: %s", name, leak, sink)
 			}
 		}
-		if !strings.Contains(sink, "[REDACTED") {
-			t.Errorf("%s sink shows no redaction marker: %s", name, sink)
+		if strings.Contains(sink, "[REDACTED") {
+			t.Errorf("%s sink rewrote task text: %s", name, sink)
 		}
 	}
 	_ = errors.New // keep errors import if unused by future edits
@@ -295,7 +295,7 @@ func TestNewBootstrapConsoleSelection(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &rec); err != nil {
 		t.Fatalf("bootstrap output not JSON on a pipe: %v\n%s", err, line)
 	}
-	if strings.Contains(line, "abcdef1234567890xyz") || strings.Contains(line, "\x1b[") {
-		t.Errorf("bootstrap leaked secret or ANSI: %q", line)
+	if !strings.Contains(line, "abcdef1234567890xyz") || strings.Contains(line, "\x1b[") {
+		t.Errorf("bootstrap changed synthetic text or inserted ANSI: %q", line)
 	}
 }

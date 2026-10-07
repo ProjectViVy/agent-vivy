@@ -113,7 +113,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	hasContextSources, hasSkillSources, hasRunObservers := false, false, false
+	hasContextSources, hasSkillSources, hasRunObservers, hasPreToolMiddleware := false, false, false, false
 	hasMCPHostProvider := false
 	for _, resolved := range modules {
 		for _, provided := range resolved.Descriptor.Provides {
@@ -129,6 +129,12 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 			hasContextSources = hasContextSources || provided.Port == "std/context-source@v1" || resolved.Binding.ContextSourceProvider
 			hasSkillSources = hasSkillSources || provided.Port == "std/skill-source@v1" || resolved.Binding.SkillSourceProvider
 			hasRunObservers = hasRunObservers || provided.Port == "std/observer/run@v1" || resolved.Binding.RunObserverProvider
+			if provided.Port == "std/middleware/pre-tool@v1" {
+				hasPreToolMiddleware = true
+				if resolved.Binding.ProviderConstructor == "" {
+					return nil, fmt.Errorf("missing typed pre-tool Provider constructor for %s", resolved.Descriptor.Module.ID)
+				}
+			}
 			if (provided.Port == "std/context-source@v1" || provided.Port == "std/skill-source@v1") && resolved.Binding.ProviderConstructor == "" {
 				return nil, fmt.Errorf("missing typed Source Provider constructor for %s", resolved.Descriptor.Module.ID)
 			}
@@ -196,6 +202,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	if hasRunObservers {
 		source.WriteString("\t\"agent-vivy/sdk/port/observer\"\n")
 	}
+	if hasPreToolMiddleware {
+		source.WriteString("\t\"agent-vivy/sdk/port/pretool\"\n")
+	}
 	for _, path := range paths {
 		fmt.Fprintf(&source, "\t%s %q\n", imports[path], path)
 	}
@@ -215,6 +224,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	}
 	if hasRunObservers {
 		source.WriteString("\tRunObservers []observer.RunProvider\n")
+	}
+	if hasPreToolMiddleware {
+		source.WriteString("\tPreToolMiddleware []pretool.Provider\n")
 	}
 	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\n")
 	if opts.formIdentity != "" {
@@ -290,6 +302,8 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	var actionExpr []string
 	var worldsExpr, channelsExpr []string
 	var contextSourcesExpr, skillSourcesExpr, runObserversExpr []providerExpression
+	preToolExpressions := map[string]providerExpression{}
+	preToolIDs := map[string][]string{}
 	grantExpr := func(grants []EffectiveGrant) string {
 		var out strings.Builder
 		out.WriteString("[]module.GrantBinding{")
@@ -328,10 +342,16 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 			hasContextSource = hasContextSource || p.Port == "std/context-source@v1" || resolved.Binding.ContextSourceProvider
 			hasSkillSource = hasSkillSource || p.Port == "std/skill-source@v1" || resolved.Binding.SkillSourceProvider
 			hasRunObserver = hasRunObserver || p.Port == "std/observer/run@v1" || resolved.Binding.RunObserverProvider
+			if p.Port == "std/middleware/pre-tool@v1" {
+				preToolIDs[resolved.Descriptor.Module.ID] = append(preToolIDs[resolved.Descriptor.Module.ID], p.ID)
+			}
 		}
 		call := alias + "." + ctor + "()"
 		if value := providerValues[resolved.Descriptor.Module.ID]; value != "" {
 			call = value
+		}
+		if len(preToolIDs[resolved.Descriptor.Module.ID]) > 0 {
+			preToolExpressions[resolved.Descriptor.Module.ID] = providerExpression{call: call, collection: resolved.Binding.ProviderCollection}
 		}
 		if hasTool {
 			toolsExpr = append(toolsExpr, providerExpression{call: call, collection: resolved.Binding.ProviderCollection})
@@ -410,6 +430,24 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	}
 	if hasRunObservers {
 		writeProviders("RunObservers", "observer.RunProvider", runObserversExpr)
+	}
+	var preToolMiddlewareIDs []string
+	if hasPreToolMiddleware {
+		order := plan.OrderedContributions["std/middleware/pre-tool@v1"]
+		if len(order) != len(preToolExpressions) {
+			return nil, fmt.Errorf("pre-tool Provider inventory does not match Recipe order")
+		}
+		var expressions []providerExpression
+		for _, id := range order {
+			expression, ok := preToolExpressions[id]
+			if !ok {
+				return nil, fmt.Errorf("unresolved pre-tool Provider %s in Recipe order", id)
+			}
+			expressions = append(expressions, expression)
+			preToolMiddlewareIDs = append(preToolMiddlewareIDs, preToolIDs[id]...)
+			delete(preToolExpressions, id)
+		}
+		writeProviders("PreToolMiddleware", "pretool.Provider", expressions)
 	}
 	var observerExpr, observerWorldIDs, statusExpr []string
 	for _, resolved := range modules {
@@ -512,6 +550,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	writeStrings("Actions", actionIDs)
 	writeStrings("ToolWorlds", worldIDs)
 	writeStrings("ProviderProfiles", providerProfileIDs)
+	if hasPreToolMiddleware {
+		writeStrings("PreToolMiddleware", preToolMiddlewareIDs)
+	}
 	if hasContextSources {
 		writeStrings("ContextSources", contextSourceIDs)
 		if len(contextSourcePolicies) > 0 {
@@ -562,6 +603,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	}
 	if hasRunObservers {
 		source.WriteString("func (assembly *RuntimeAssembly) RunObserverProviders() any { return assembly.RunObservers }\n")
+	}
+	if hasPreToolMiddleware {
+		source.WriteString("func (assembly *RuntimeAssembly) PreToolProviders() any { return assembly.PreToolMiddleware }\n")
 	}
 	if maskProvider != nil {
 		source.WriteString("\nfunc (assembly *RuntimeAssembly) HasMaskFactory() bool { return assembly.MaskFactory != nil }\n")

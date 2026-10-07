@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,8 +41,6 @@ import (
 	"agent-vivy/sdk/tui/command"
 	tuii18n "agent-vivy/sdk/tui/i18n"
 )
-
-var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
 
 const (
 	CodeNotFound = -32004
@@ -698,9 +695,7 @@ func toMessageResult(message domain.Message, includeAttachmentData bool) message
 			Command string `json:"command"`
 		}
 		if json.Unmarshal(message.ToolArgs, &audit) == nil {
-			if redactedShellPreviewPattern.MatchString(audit.Command) {
-				result.ToolPreview = audit.Command
-			}
+			result.ToolPreview = audit.Command
 		}
 	}
 	for _, attachment := range message.Attachments {
@@ -6814,7 +6809,6 @@ func legacyMCPStatus(state string) string {
 }
 
 func sanitizeMCPReason(value string) string {
-	value = tools.RedactSensitive(value)
 	value = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
 			return -1
@@ -7125,7 +7119,7 @@ func mcpBackendError(err error) *Error {
 			code = InvalidParams
 		}
 	}
-	message := tools.RedactSensitive(err.Error())
+	message := err.Error()
 	message = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1

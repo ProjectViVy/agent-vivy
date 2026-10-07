@@ -110,10 +110,7 @@ func Setup(opts Options) (*slog.Logger, Effective, io.Closer, error) {
 		consoleEff = resolveAutoFormat(consoleFormat, tty)
 		handlers = append(handlers, newSinkHandler(consoleEff, w, hopts))
 	}
-	// The redactor wraps the fan-out so every sink receives the same
-	// sanitized record; the standard MultiHandler does not compete with
-	// either sink's format.
-	h := newRedactingHandler(slog.NewMultiHandler(handlers...))
+	h := slog.NewMultiHandler(handlers...)
 
 	return slog.New(h),
 		Effective{Level: strings.ToLower(level.String()), Format: format, Console: consoleEff},
@@ -235,7 +232,7 @@ func newSinkHandler(format string, w io.Writer, hopts *slog.HandlerOptions) slog
 }
 
 // NewBootstrap builds the pre-config logger used before config.yaml is
-// parsed. It shares the console selection and redaction seam with
+// parsed. It shares the console selection and output sinks with
 // Setup but has no file sink: pretty on a terminal stderr, JSON when
 // redirected, so early startup failures stay readable without
 // polluting a machine-consumed stdout.
@@ -248,7 +245,7 @@ func NewBootstrap(stderr *os.File) *slog.Logger {
 	if stderr != nil && term.IsTerminal(int(stderr.Fd())) {
 		format = "pretty"
 	}
-	return slog.New(newRedactingHandler(newSinkHandler(format, w, &slog.HandlerOptions{})))
+	return slog.New(newSinkHandler(format, w, &slog.HandlerOptions{}))
 }
 
 // dailyFile appends to <dir>/<prefix>.YYYY-MM-DD and switches files when

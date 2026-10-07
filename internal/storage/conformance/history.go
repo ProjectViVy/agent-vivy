@@ -16,7 +16,7 @@ import (
 // RunHistoryQuerySuite exercises the storage-only ordering and budget
 // contract shared by the first-party SQL backends. It deliberately consumes
 // HistoryCandidates rather than a model-facing HistoryPage: projection,
-// authorization and redaction belong to T3.
+// authorization and projection budgets belong to T3.
 func RunHistoryQuerySuite(t *testing.T, b storage.Engine) {
 	t.Helper()
 	q, ok := b.(storage.HistoryQueryStore)

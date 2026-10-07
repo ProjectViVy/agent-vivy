@@ -16,6 +16,31 @@ var _ moduleport.MaskFactory = maskfixture.Factory
 
 const maskFactoryFixtureSelector = "Factory"
 
+func TestGenerateRuntimeAssemblyBindsOrderedPreToolMiddleware(t *testing.T) {
+	var modules []ResolvedModule
+	for _, id := range []string{"a", "b"} {
+		descriptor := testDescriptor("fixture/" + id)
+		descriptor.Provides = []module.PortRef{{Port: "std/middleware/pre-tool@v1", ID: "fixture." + id}}
+		modules = append(modules, ResolvedModule{Descriptor: descriptor, Binding: GoBinding{ImportPath: "example.com/fixture/" + id, Package: id, ProviderConstructor: "NewProvider"}})
+	}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: modules, OrderedContributions: map[string][]string{"std/middleware/pre-tool@v1": {"fixture/b", "fixture/a"}}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.Join(strings.Fields(string(generated)), " ")
+	for _, want := range []string{
+		`"agent-vivy/sdk/port/pretool"`,
+		`PreToolMiddleware []pretool.Provider`,
+		`PreToolMiddleware: append(append([]pretool.Provider{}, b.NewProvider()), a.NewProvider())`,
+		`PreToolMiddleware: []string{"fixture.b", "fixture.a"}`,
+		`func (assembly *RuntimeAssembly) PreToolProviders() any`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("selected middleware has no ordered runtime binding %q", want)
+		}
+	}
+}
+
 func TestGenerateRuntimeAssemblyUsesTypedProviderConstructors(t *testing.T) {
 	channelDescriptor := testDescriptor("fixture/chat")
 	channelDescriptor.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.chat"}}

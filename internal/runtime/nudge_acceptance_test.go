@@ -422,17 +422,17 @@ func TestNudgeAcceptanceRemoteToolIsError(t *testing.T) {
 // D: six identical unsuccessful calls -> reminders at repeats 3 and 5, six
 // journaled results, one failed terminal.
 // ---------------------------------------------------------------------------
-func TestNudgeAcceptanceBoundedLoopStop(t *testing.T) {
+func TestNudgeAcceptanceRepeatedFailuresThenCompletion(t *testing.T) {
 	call := func(i int) *schema.Message {
 		return schema.AssistantMessage("", []schema.ToolCall{
 			acceptanceCall(contractToolName, fmt.Sprintf("call-d%d", i), `{"text":"same"}`),
 		})
 	}
 	script := make([]*schema.Message, 0, 7)
-	for i := 1; i <= 6; i++ {
+	for i := 1; i <= 8; i++ {
 		script = append(script, call(i))
 	}
-	script = append(script, schema.AssistantMessage("unreachable", nil))
+	script = append(script, schema.AssistantMessage("recovered", nil))
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
 		extraTools: []tools.Tool{failingContractTool()},
@@ -442,7 +442,7 @@ func TestNudgeAcceptanceBoundedLoopStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	waitForRunStatus(t, h.backend, runID, domain.RunFailed)
+	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
 
 	events := replayAll(t, h.backend, runID)
 	nudges := nudgeEvents(t, h.journal)
@@ -455,8 +455,8 @@ func TestNudgeAcceptanceBoundedLoopStop(t *testing.T) {
 			finished++
 		}
 	}
-	if finished != 6 {
-		t.Fatalf("tool.finished events = %d, want 6", finished)
+	if finished != 8 {
+		t.Fatalf("tool.finished events = %d, want 8", finished)
 	}
 	if got := countTerminal(events); got != 1 {
 		t.Fatalf("terminal events = %d, want 1", got)

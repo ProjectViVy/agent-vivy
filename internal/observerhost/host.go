@@ -1,7 +1,6 @@
 package observerhost
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,7 +15,6 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
-	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/observer"
 )
 
@@ -431,11 +429,7 @@ func projectPayload(raw []byte, allowed []string) ([]byte, error) {
 	projected := make(map[string]json.RawMessage, len(allowed))
 	for _, field := range allowed {
 		if value, ok := source[field]; ok {
-			redacted, err := redactJSONValue(value)
-			if err != nil {
-				return nil, fmt.Errorf("observerhost: redact payload field %s: %w", field, err)
-			}
-			projected[field] = redacted
+			projected[field] = append(json.RawMessage(nil), value...)
 		}
 	}
 	encoded, err := json.Marshal(projected)
@@ -443,47 +437,6 @@ func projectPayload(raw []byte, allowed []string) ([]byte, error) {
 		return nil, fmt.Errorf("observerhost: encode projection: %w", err)
 	}
 	return encoded, nil
-}
-
-func redactJSONValue(raw json.RawMessage) (json.RawMessage, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	value = redactJSONStrings(value)
-	return json.Marshal(value)
-}
-
-func redactJSONStrings(value any) any {
-	switch typed := value.(type) {
-	case string:
-		return tools.RedactSensitive(typed)
-	case map[string]any:
-		for key, child := range typed {
-			if sensitiveJSONField(key) {
-				typed[key] = "[REDACTED]"
-				continue
-			}
-			typed[key] = redactJSONStrings(child)
-		}
-	case []any:
-		for index, child := range typed {
-			typed[index] = redactJSONStrings(child)
-		}
-	}
-	return value
-}
-
-func sensitiveJSONField(key string) bool {
-	key = strings.ToLower(key)
-	for _, marker := range []string{"token", "secret", "password", "passwd", "api_key", "apikey", "authorization", "credential"} {
-		if strings.Contains(key, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func deliverEvent(ctx context.Context, provider observer.RunProvider, event observer.RunEvent) error {

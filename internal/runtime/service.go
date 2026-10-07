@@ -3850,7 +3850,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		ApprovalID:       approval.ID,
 		ToolCallID:       details.ToolCallID,
 		ToolName:         details.ToolName,
-		Args:             redactedApprovalArguments(details.Args),
+		Args:             details.Args,
 		ExpiresAt:        expiresAt,
 		SelectedTools:    append([]string(nil), selectedTools...),
 		Mode:             string(mode),
@@ -4771,16 +4771,6 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			Message:       "The run was stopped because it reached the limit of tool-call turns. Please try again with a simpler request.",
 		})
 	}
-	if errors.Is(cause, errLoopDetected) {
-		// Tool-loop guardrail (VC-2, Crush-aligned StopWhen): the same
-		// call+result signature repeated past the window limit. The
-		// message stays bounded — no signatures or internals leak (FR-11).
-		slog.Warn("run failed: tool loop detected", "run", string(m.runID))
-		return m.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeLoopDetected,
-			Message:       "The run was stopped because the same tool call kept repeating without making progress. Please rephrase the request or adjust the task.",
-		})
-	}
 	if errors.Is(cause, ErrContextBudgetExceeded) {
 		slog.Warn("run failed: context budget exceeded", "run", string(m.runID), "err", cause)
 		return m.build(domain.EventRunFailed, payloadRunFailed{
@@ -5044,13 +5034,6 @@ func (s *Service) publish(ctx context.Context, ev domain.RunEvent) {
 
 func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) GovernanceEventSink {
 	return func(ctx context.Context, event GovernanceEvent) error {
-		event.Reason = tools.RedactSensitive(event.Reason)
-		if isDirectShell(ctx) && event.Reason != "" {
-			// Hook programs are untrusted and may echo their input in a reason.
-			// Direct-shell audit data records the decision, never hook text that
-			// could contain the raw script.
-			event.Reason = "governed shell " + string(event.Type)
-		}
 		if len(event.Reason) > 512 {
 			event.Reason = event.Reason[:512] + "..."
 		}

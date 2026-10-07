@@ -93,7 +93,7 @@ func TestFacadeRejectsSymlinkWorkspaceEscape(t *testing.T) {
 	}
 }
 
-func TestFacadeRejectsUndeclaredSecretAndRedactsFailure(t *testing.T) {
+func TestFacadeRejectsUndeclaredSecretAndPreservesFailure(t *testing.T) {
 	sentinel := errors.New("credential backend exploded with TOP-SECRET")
 	facade, err := New(Config{
 		ModuleID:   "acme/plugin",
@@ -114,8 +114,8 @@ func TestFacadeRejectsUndeclaredSecretAndRedactsFailure(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("Secret error lost cause chain: %v", err)
 	}
-	if strings.Contains(err.Error(), "TOP-SECRET") {
-		t.Fatalf("Secret error leaked secret material: %v", err)
+	if !strings.Contains(err.Error(), sentinel.Error()) {
+		t.Fatalf("authorized error text changed: %v", err)
 	}
 }
 

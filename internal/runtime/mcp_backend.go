@@ -529,9 +529,8 @@ func (b *MCPBackend) noteToolCount(entry *mcpServer, count int) {
 	entry.status.mu.Unlock()
 }
 
-// SanitizeMCPError is the control-plane error seam. It keeps endpoints,
-// commands, cwd/path material, and resolved environment values out of RPC,
-// browser, and TUI projections while preserving a short diagnostic cause.
+// SanitizeMCPError is the bounded control-plane display seam. It preserves
+// tool-owned diagnostic text, strips control characters, and caps its size.
 func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
 	if err == nil {
 		return ""
@@ -545,47 +544,16 @@ func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
 	return b.sanitizeMCPStatusError(entry, err)
 }
 
-func (b *MCPBackend) sanitizeMCPStatusError(entry *mcpServer, err error) string {
+func (b *MCPBackend) sanitizeMCPStatusError(_ *mcpServer, err error) string {
 	if err == nil {
 		return ""
 	}
-	redactions := []string{
-		entry.config.Endpoint,
-		entry.config.Command,
-		entry.config.Cwd,
-		b.processRoot,
-	}
-	if root := strings.TrimSpace(b.processRoot); root != "" {
-		if absolute, absoluteErr := filepath.Abs(root); absoluteErr == nil {
-			redactions = append(redactions, absolute)
-			if entry.config.Cwd != "" {
-				redactions = append(redactions, filepath.Join(absolute, filepath.Clean(entry.config.Cwd)))
-			}
-		}
-	}
-	if entry.config.AuthEnv != "" {
-		if value, ok := os.LookupEnv(entry.config.AuthEnv); ok {
-			redactions = append(redactions, value)
-		}
-	}
-	for _, host := range entry.config.EnvFrom {
-		if value, ok := os.LookupEnv(strings.TrimSpace(host)); ok {
-			redactions = append(redactions, value)
-		}
-	}
-	return boundedMCPStatusError(err.Error(), redactions...)
+	return boundedMCPStatusError(err.Error())
 }
 
-// boundedMCPStatusError keeps the sidebar secret-free: configured endpoint,
-// command, cwd/path material, and environment values are redacted by the
-// caller; control characters are stripped, and the message is capped at 160
-// runes.
-func boundedMCPStatusError(message string, redactions ...string) string {
-	for _, redaction := range redactions {
-		if redaction != "" {
-			message = strings.ReplaceAll(message, redaction, "")
-		}
-	}
+// boundedMCPStatusError strips display control characters and caps the
+// tool-owned diagnostic at 160 runes without pattern substitution.
+func boundedMCPStatusError(message string) string {
 	message = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || isMCPStatusBidiControl(r) {
 			return -1
