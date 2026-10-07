@@ -1,5 +1,8 @@
 # ACP restricted pilot design publication
 
+> Historical publication record at [b588114](https://github.com/ProjectViVy/agent-vivy/commit/b5881143c04c31068a71018ea4e3168d8172f6a9). Its Story/scenario numbering and review assumptions describe that delivery. The [reconciled index](../../superpowers/plans/issue1-acp-face/index.md) and [consolidation record](../2026-10-07-acp-plan-reconciliation/summary.md) own the current handoff.
+
+
 Date: 2026-10-07 (Asia/Shanghai)
 Related issue: [#1](https://github.com/ProjectViVy/agent-vivy/issues/1)
 Branch: `ACP`

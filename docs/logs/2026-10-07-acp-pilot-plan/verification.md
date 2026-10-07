@@ -1,5 +1,8 @@
 # Planning Verification
 
+> Historical publication record at [45c466c](https://github.com/ProjectViVy/agent-vivy/commit/45c466c6aea1622a4465a835f6a06540870a13ef). Its Story/scenario numbering and review assumptions describe that delivery. The [reconciled index](../../superpowers/plans/issue1-acp-face/index.md) and [consolidation record](../2026-10-07-acp-plan-reconciliation/summary.md) own the current handoff.
+
+
 ## Source grounding
 
 Read the ACP branch, root AGENTS.md, repository plugin/kernel/Eino skills, detailed design, Face Host/Port, codeface launcher, Control context/event contracts, compiler/manifest/packer, nested-module pattern, justfile, source-hash command and conformance reproduction gate. Existing source paths and signatures were checked at b5881143c04c31068a71018ea4e3168d8172f6a9; executable source matches dd78fcf142f384d47ce5cfefb43738fdb9a7346d. Candidate SDK public methods were read at v0.0.4; this is source evidence, not SDK acceptance.

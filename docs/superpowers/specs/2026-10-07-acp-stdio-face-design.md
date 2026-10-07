@@ -8,7 +8,7 @@ Protocol baseline: ACP wire version 1, schema-v1.21.0\
 Candidate SDK: github.com/eino-contrib/acp v0.0.4\
 Review draft: docs/superpowers/specs/2026-10-07-acp-stdio-face-design.md
 Canonical destination after G0 review: docs/architecture/ACP-STDIO-FACE.md
-Conditional implementation package: [ACP pilot plan](../plans/2026-10-07-acp-pilot/README.md)
+Conditional implementation package: [ACP pilot plan](../plans/issue1-acp-face/index.md)
 
 ## 1. Decision and success condition
 
@@ -16,7 +16,25 @@ Build one exclusive T2 Face Provider, projectvivy/acp, translating local ACP req
 
 Success means an IDE can launch a generated ACP artifact, create a session for its chosen project, send a prompt, see ordered committed message/tool updates, answer approvals and questions, and cancel that session's run. The resident gateway's Journal and lease remain separate.
 
-On 2026-10-07 the owner explicitly approved **restricted ACP v1 as the pilot** and requested detailed design. The pilot requires mcpServers=[] and makes no full-baseline conformance claim. This records the approved scope; SDK acceptance, the additional interface decisions below and G1 scheduling remain separate. This document replaces the earlier architecture draft rather than creating a parallel specification.
+On 2026-10-07 the owner explicitly approved **restricted ACP v1 as the pilot** and requested detailed design. The pilot requires mcpServers=[] and makes no full-baseline conformance claim. This records the approved scope; SDK acceptance, the additional interface decisions below and G1 scheduling remain separate. This review draft is now the sole active design, reconciled with the September plan; the older spec path is a redirect. It does not supersede an adopted canonical contract before G0 review.
+
+### Reconciliation and decision provenance — 2026-10-07
+
+The owner requested consolidation on ACP before retiring docs/issue1-acp-face-design. The original [design and five-Story package at abed12f](https://github.com/ProjectViVy/agent-vivy/tree/abed12f7749cf3ec0258ec3dc911639f821fa55b/docs/superpowers) are retained in Git ancestry. ACP keeps the current executable baseline dd78fcf; no September product source is restored. The [single plan index](../plans/issue1-acp-face/index.md) preserves ACP-01 through ACP-05 and maps the superseded eight-Story draft. Acceptance scenarios use AC-01 through AC-12 to avoid Story-ID collisions.
+
+| Item | Reconciled disposition |
+|---|---|
+| Exclusive local Face; single Runtime/Journal/Policy; private launch state | Retained from Issue #1 and the September design |
+| Restricted mcpServers=[] pilot | Explicit owner decision; no full-baseline conformance claim |
+| Session cwd independent of process launch cwd | Correct the September restriction to match pinned ACP v1; tools, context and instructions must all use the accepted session root |
+| Version negotiation and client cancellation result | Keep protocol corrections; wire responses do not overwrite durable Vivy outcomes |
+| SDK probe, event races, pending reviews and cleanup | Keep the more concrete October validation; no executable pass is implied |
+| ResourceLink | Restore bounded URI/name user content without adapter fetch; only safe local file references become context_paths |
+| Output privacy | Retain Issue #1's privacy obligation; the public presentation facet and line-buffering mechanism remain proposed pending G0 review |
+| Packaging | Required: implementation-code omission. Prefer the existing build-overlay route; a public entrypoint field, separate target and asset stripping are alternatives, not approved prerequisites |
+| G0 versus G1 | G0 is evidence and contract acceptance; G1 scheduling is an independent owner decision |
+
+Source corrections are based on [pinned initialization](https://github.com/agentclientprotocol/agent-client-protocol/blob/schema-v1.21.0/docs/protocol/v1/initialization.mdx), [pinned session setup](https://github.com/agentclientprotocol/agent-client-protocol/blob/schema-v1.21.0/docs/protocol/v1/session-setup.mdx) and [pinned cancellation rules](https://github.com/agentclientprotocol/agent-client-protocol/blob/schema-v1.21.0/docs/protocol/v1/prompt-turn.mdx). The previous review wording treated cross-directory sessions as discretionary scope growth; the pinned protocol makes this a correctness correction. It still requires the core seam and integration proof described below.
 
 ## 2. Module and authority boundaries
 
@@ -79,7 +97,7 @@ Add a generic **vivy face** command that dispatches before normal gateway stdout
 
 The existing gateway, vivy run and vivy-code entry behavior remains unchanged. The new command rejects prompt/continue flags: stdin belongs to the selected protocol Face.
 
-Recipe selection alone is not proof of physical omission: cmd/vivy references runTUI, and executable packing currently calls buildWebUI unconditionally. The selected design adds a generic recipe entrypoint=face and a thin cmd/vivy-face launch target, sharing a host launcher with the normal command. Section 12.1 defines packing and omission precisely. This is an executable entry-point choice, not a new Port or transport.
+Recipe selection alone is not proof of physical omission: cmd/vivy references runTUI, and executable packing currently calls buildWebUI unconditionally. Section 12.1 separates the required implementation-code omission from two build candidates. The preferred first evaluation reuses the existing selected-generation overlay; a new Recipe field and separate launch target remain an alternative requiring G0 review. No asset-size or startup-speed improvement has been measured.
 
 Keep the Face Provider/Instance lifecycle unchanged. Add stdin to Options; section 12.5 defines one optional host presentation facet required by ACP, because the inspected raw event interface does not itself enforce the outbound privacy contract:
 
@@ -127,7 +145,7 @@ Advertise:
 - Use elicitation.form only when the client explicitly supplies a non-null form object. Absence, null, or elicitation={} provides no form support.
 - Permission requests are a base method; there is no invented permission-UI capability flag. A method error or unusable response must fail closed.
 
-Supported inputs are text and resource_link. Resource links are not optional under the baseline. Convert an admitted local file URI into a project-relative context path, retaining a deterministic reference label in the prompt. The core resolves the file against the session's canonical workspace. Reject inaccessible/out-of-root/sensitive files, remote URI authorities and unsupported schemes explicitly; do not fetch URLs, read files or delegate filesystem access inside the adapter. A link-only prompt receives a deterministic user-content label so turn/start does not receive empty text.
+Supported inputs are text and resource_link. Resource links are not optional under the baseline. Preserve a bounded valid URI/name as user content without adapter fetch; non-file references produce no context_paths. Convert safe local file URIs into project-relative context paths, resolved by Core against the durable session workspace. Reject malformed references and unsafe file forms explicitly. Section 12.4 owns the exact validation; a link-only prompt still receives a nonempty user-content label.
 
 ## 6. RPC mapping and ownership
 
@@ -265,29 +283,33 @@ The interfaces and file ownership in this section are proposed implementation co
 
 ### 12.1 Build, entrypoint and configuration
 
-Add one optional Generation Recipe field, entrypoint, with default gateway and alternative face, for executable targets. Validate it in the compiler; include its value in canonical Recipe hashing and Inspect's launch projection. A face entrypoint requires exactly one selected std/face Provider and no Web UI root/contributions. Incompatible combinations fail at pack time. Non-executable targets retain their own launch contract.
+G0 must choose one launch/build contract before ACP-02 becomes executable. The required outcome is a sole selected ACP Face, no Web/TUI Face implementation in its dependency closure, and no ACP implementation in an omitted generation. Asset stripping is not an additional pilot acceptance condition.
 
-For entrypoint=face, build ./cmd/vivy-face with the existing vivy_headless embedding exclusion, skip buildWebUI, and seal the existing empty-UI artifact representation. Keep the artifact executable's conventional name, so its invocation is still vivy face. Accept no arguments as an equivalent launch in this artifact; --help and --inspect-generation are separate CLI modes and do not start ACP. Help goes to stderr. Do not place an ACP dependency behind a runtime switch in the universal command.
+**Candidate A — preferred for evaluation: existing executable and selected build overlay.** Reuse cmd/vivy, add generic selected-Face launch before configured console logging, and replace cmd/vivy/tui.go with an unavailable-command stub only for the selected ACP build. Detect selection from the compiled Recipe/Assembly, never a runtime module search. The existing executable Pack may retain ui/dist. Preserve non-ACP gateway, tui and run behavior; selected ACP rejects tui and run before invoking its protocol provider. This is the September plan's smaller build surface, updated to use session-aware workspace composition rather than its fixed process root.
 
-cmd/vivy-face is a thin call into internal/faceprocess. The normal cmd/vivy command may dispatch face to that same helper before logger setup. Neither launcher imports plugins/acp; the generated assembly supplies its Provider. Existing default recipes keep entrypoint=gateway, and existing vivy-code remains on its local-project contract.
+A TUI stub alone is not proof that all required Web/TUI implementation packages disappear. G0 must inspect the current import/build graph and record the exact selected overlays, tags and forbidden implementation packages. If this route cannot satisfy code omission without retaining a second active Face or proliferating special cases, do not accept it by redefining the requirement.
+
+**Candidate B — only after an explicit G0 decision:** a thin cmd/vivy-face using internal/faceprocess plus a public Recipe.Entrypoint field, default gateway and alternative face. This requires compiler validation, canonical-recipe hashing, manifest/Inspect semantics and backward interpretation of absent fields. A face target would require exactly one Face, reject Web UI contributions, build with vivy_headless and reuse the packer's existing empty-UI representation. This option also strips assets, but that benefit alone does not justify its public contract and maintenance cost. Do not implement both candidates.
+
+Shared launch contract: internal/faceprocess owns private allocation and lifecycle; app uses its one generated RuntimeAssembly.Face. Neither imports plugins/acp. The selected artifact accepts no arguments or face for protocol mode, --help on stderr, and --inspect-generation on stdout without opening ACP. Invalid arguments exit 2. Startup/transport/cleanup failure exits 1. G0 resolves the exact selection/overlay entry symbols and removes the unused candidate's implementation steps before releasing ACP-02.
 
 ACP Recipe requirements:
 
 | Field | Required design value |
 |---|---|
-| entrypoint | face |
 | Module source | Explicit plugins/acp source plus generated digest; no placeholder digest in a real build |
 | Face provider ID / kind | projectvivy.acp / acp |
 | Exclusive std/face@v1 module | projectvivy/acp |
 | Required Host | vivy/face-host |
 | Effective module grant | rpc.client |
-| UI selections | None |
+| Active UI selections | None |
 | Core execution modules | Existing coding runtime, model, ToolHost, storage, checkpoint, credential, sandbox and protected tools |
 | Client MCP configuration | Not admitted or persisted |
+| Entrypoint / asset representation | Exact G0-selected build contract; no new Recipe field is assumed |
 
 Recipe contents are validated against the current module dependency graph; the table is not a copy-pastable recipe with guessed module pins. Core configured tools remain governed by the assembled Runtime. The adapter makes no settings mutations.
 
-Omission proof must show absence of plugins/acp from an artifact that omits it, and absence of TUI renderer/controller/Face implementation and Web assets from the ACP artifact. Existing reusable command/i18n helpers under sdk/tui that Control already imports are not another active Face; do not turn their directory name into an unrelated relocation project.
+Prove implementation-code omission using the actual selected Go overlay/dependency graph. Report artifact assets separately, including retained ui/dist under Candidate A; do not claim code omission from a manifest or an inactive runtime flag alone. Existing reusable command/i18n helpers under sdk/tui are not another active Face. Final proof on the real ACP artifact belongs to ACP-05.
 
 The private-runtime helper allocates storage and logging only. The ACP caller selects session-aware workspace composition; the codeface caller explicitly selects its existing fixed local-world composition. This prevents an extraction from silently changing either product.
 
@@ -306,7 +328,7 @@ The private-runtime helper allocates storage and logging only. The ACP caller se
 | internal/app/facehost.go | Implement host text presentation; preserve authenticated Control ownership |
 | internal/faceprocess; internal/codeface | Shared private-instance allocation and face launch lifecycle |
 | internal/rpc | Error-code accessor and session-scoped project-context root selection |
-| sdk/internal compiler/packer | entrypoint validation, isolated build target, UI omission, Inspect evidence |
+| sdk/internal compiler/packer | G0-selected overlay/build contract and omission evidence; public entrypoint/manifest changes only if Candidate B is accepted |
 | recipes/acp.vivy.yml | Explicit pilot generation and source pins |
 
 These are responsibility boundaries, not a file-count target. Keep small cohesive pieces together when splitting adds no clarity. Test files accompany behavior; no new framework, registry, event bus or persistent adapter store.
@@ -356,9 +378,11 @@ ACP session IDs from another connection are unknown even if they resemble a vali
 
 For session/prompt, validate every block before turn/start; reject the whole prompt on an unsupported block. Concatenate text blocks in input order with deterministic separators. Convert resource links to a reference label at their original position and an ordered, deduplicated context_paths list. Names/descriptions are untrusted user content, never system instructions.
 
-Admitted resources are local file: URIs with no credentials, query, fragment or remote authority. Support the target OS's native file URI form, including Windows drive letters, and reject UNC/device forms in the pilot. Decode once, reject encoded separators/traversal tricks, and compute a relative candidate against the stored canonical root. This is only preliminary validation: the core must resolve/open it against the durable session root, reject symlink escape and sensitive paths, and enforce its content limits.
+Accept a syntactically valid bounded absolute resource URI and its name as user text; the adapter never fetches it, invokes an ACP client resource method or treats it as system instructions. Non-file schemes remain references and produce no context_paths. Reject malformed URIs, control characters or embedded credentials before a run; all reference text counts toward the prompt's total bound.
 
-Unknown URI schemes fail explicitly. image, audio and embedded resource content are not accepted. A link-only request becomes a deterministic reference prompt plus context_paths. Empty/whitespace-only text with no usable links is -32602. Oversized input is rejected without starting a run.
+Only local file: URIs become context_paths. For that conversion reject query, fragment, remote authority and UNC/device forms; support the target OS's native drive form. Decode once, reject encoded separators/traversal tricks, and compute a relative candidate against the stored canonical root. Core must resolve/open it against the durable session root, reject symlink escape and sensitive paths, and enforce content limits. An unsafe file URI fails explicitly rather than falling back to a reference that bypasses file validation.
+
+image, audio and embedded resource content are not accepted. A link-only request becomes a deterministic reference prompt, with context_paths only for qualifying local files. Empty/whitespace-only text with no usable links is -32602. Oversized input is rejected without starting a run.
 
 Private Control DTOs must contain only used fields and JSON tags, with schema/source references in their tests. ACP DTOs always come from the selected SDK; never duplicate its generated schema.
 
@@ -496,18 +520,18 @@ Recommended process exits: 0 clean EOF/shutdown, 1 startup/transport/integrity/c
 
 | ID | Scenario | Required observable result |
 |---|---|---|
-| ACP-01 | Packed artifact initialize/new/prompt from real client | Valid NDJSON, real session, final end_turn |
-| ACP-02 | Nonempty mcpServers; image/audio; extra root | Explicit error before session/run side effects |
-| ACP-03 | Process starts in A, session cwd is B | File tools, resource context and project instructions use B |
-| ACP-04 | seq=3 arrives before 2; duplicate 2; immediate terminal replay | One ordered projection; no duplicate display or hang |
-| ACP-05 | Model token/root split across chunks; final partial line | Sanitized display, exact original hash verification |
-| ACP-06 | Two sessions active; cancel one before run ID | Only the targeted prompt is cancelled |
-| ACP-07 | Delayed prompt admission followed immediately by cancel | Cancellation is not lost or applied to a later prompt |
-| ACP-08 | Allow/deny/invalid permission reply; late approval reply | Only valid live allow-once can resume an effect |
-| ACP-09 | Form accept/decline/cancel/unavailable/expiry | Existing question state remains authoritative |
-| ACP-10 | Broken pipe, blocked stdout, EOF, signal, queue flood | No replacement success; bounded termination evidence |
-| ACP-11 | Source/frame/SDK panic errors seeded with paths/secrets | Safe wire errors and no SDK frame logging |
-| ACP-12 | Default and ACP recipes packed separately | Default behavior preserved; real implementation/assets omitted correctly |
+| AC-01 | Packed artifact initialize/new/prompt from real client | Valid NDJSON, real session, final end_turn |
+| AC-02 | Nonempty mcpServers; image/audio; extra root; valid non-file ResourceLink and unsafe file URI | Unsupported/unsafe inputs fail before effects; bounded non-file references become user text with no adapter fetch |
+| AC-03 | Process starts in A, session cwd is B | File tools, resource context and project instructions use B |
+| AC-04 | seq=3 arrives before 2; duplicate 2; immediate terminal replay | One ordered projection; no duplicate display or hang |
+| AC-05 | Model token/root split across chunks; final partial line | Sanitized display, exact original hash verification |
+| AC-06 | Two sessions active; cancel one before run ID | Only the targeted prompt is cancelled |
+| AC-07 | Delayed prompt admission followed immediately by cancel | Cancellation is not lost or applied to a later prompt |
+| AC-08 | Allow/deny/invalid permission reply; late approval reply | Only valid live allow-once can resume an effect |
+| AC-09 | Form accept/decline/cancel/unavailable/expiry | Successful real-client answer plus fail-closed negative cases; unavailable form never substitutes for the positive case |
+| AC-10 | Broken pipe, blocked stdout, EOF, signal, queue flood | No replacement success; bounded termination evidence |
+| AC-11 | Source/frame/SDK panic errors seeded with paths/secrets | Safe wire errors and no SDK frame logging |
+| AC-12 | Default and ACP recipes packed separately | Default behavior preserved; required implementation omission proven; asset contents reported against the G0-selected packaging contract |
 
 G0 produces a compatibility report with exact SDK ref, fixture results, gaps and dependency decision. G1 produces the implementation plus conformance/Inspect evidence and a real-client transcript. An experimental TCK run is useful additional evidence, not full conformance certification; tests outside the restricted scope must be reported as unsupported rather than quietly skipped into a green claim.
 
@@ -532,7 +556,9 @@ G0 closes only after:
 2. Candidate SDK compatibility and resource/shutdown controls have executable evidence; dependency choice is revised if necessary.
 3. The outbound redaction contract is shown implementable without leaking secrets or raw events.
 4. Canonical docs replace stale all-ACP-is-remote/WONT-DO statements: ACP-REMOTE-CONTROL-PROPOSAL.md, VIVY-FACE-PACK.md and docs/TODO.md.
-5. The reviewed contract names supported operations, limits and real-client expectations. Reconcile the conditional implementation package with the accepted evidence and explicitly schedule G1 before releasing its implementation Stories.
+5. The reviewed contract names supported operations, limits, real-client positive paths and one selected packaging contract. Reconcile every affected Story with the accepted evidence and remove unused build alternatives.
+
+G0 completion and G1 scheduling are separate records. ACP-01 may be Done once the accepted compatibility evidence, contract review and required gates exist; ACP-02 remains Blocked until the owner explicitly schedules G1. A completed SDK rejection report is useful evidence but does not complete ACP-01 or close G0. No new execution authorization is inferred from this document-consolidation request.
 
 This revision records approved pilot scope and a detailed proposed contract. The ACP branch publishes this review draft, its conditional implementation package and their iteration records. No G1 schedule, dependency acceptance, executable compatibility result or product test pass is claimed. The source baseline was rechecked before branch publication and main remained at the recorded commit. Canonical contract adoption and implementation remain subject to the G0 closure conditions above.
 

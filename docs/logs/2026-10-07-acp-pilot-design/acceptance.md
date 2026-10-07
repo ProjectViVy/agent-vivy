@@ -1,5 +1,8 @@
 # Acceptance
 
+> Historical publication record at [b588114](https://github.com/ProjectViVy/agent-vivy/commit/b5881143c04c31068a71018ea4e3168d8172f6a9). Its Story/scenario numbering and review assumptions describe that delivery. The [reconciled index](../../superpowers/plans/issue1-acp-face/index.md) and [consolidation record](../2026-10-07-acp-plan-reconciliation/summary.md) own the current handoff.
+
+
 This delivery is accepted as a branch publication when:
 
 1. GitHub exposes branch `ACP` in `ProjectViVy/agent-vivy`, with a focused design commit based on `dd78fcf142f384d47ce5cfefb43738fdb9a7346d`.
