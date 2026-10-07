@@ -58,7 +58,10 @@ type Options struct {
 	// ThemesDir is the operator theme directory (<agent home>/themes). The
 	// TUI face loads <name>.json files from it; embedded themes still win
 	// when no file matches.
-	ThemesDir         string
+	ThemesDir string
+	// KeybindingsFile is the operator action→chord override file
+	// (<agent home>/keybindings.yaml). Missing file = defaults.
+	KeybindingsFile   string
 	ListModels        bool
 	ListModelsPattern string
 	Export            string

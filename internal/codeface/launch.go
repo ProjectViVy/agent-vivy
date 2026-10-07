@@ -111,6 +111,9 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, opts plugin.
 	if opts.ThemesDir == "" {
 		opts.ThemesDir = filepath.Join(filepath.Dir(prepared.SharedSettingsPath), "themes")
 	}
+	if opts.KeybindingsFile == "" {
+		opts.KeybindingsFile = filepath.Join(filepath.Dir(prepared.SharedSettingsPath), "keybindings.yaml")
+	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}

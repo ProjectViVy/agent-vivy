@@ -142,6 +142,7 @@ type Model struct {
 	chatAnchorStamp uint64
 	chatAssembly    *chatAssembly
 	mdCache         *messageMarkdownCache
+	keys            *Keymap
 	shortcutsOpen   bool
 	spinFrame       int
 
@@ -169,6 +170,9 @@ type Options struct {
 	// NoThemes disables the user theme directory entirely; only embedded
 	// themes resolve.
 	NoThemes bool
+	// KeybindingsFile overrides action→chord bindings (keybindings.yaml).
+	// Missing or unreadable files fall back to defaults with a warning.
+	KeybindingsFile string
 }
 
 // New returns a model bound to the given driver.
@@ -188,6 +192,7 @@ func New(driver surface.Driver, options ...Options) Model {
 		themesDir = theme.DefaultDir()
 	}
 	colors, themeWarnings := theme.Resolve(themesDir, opts.Theme)
+	keys, keyWarnings := LoadKeymap(opts.KeybindingsFile)
 	translator := tuii18n.New(opts.Locale)
 	registry := command.DefaultRegistry(translator)
 	if !driver.SupportsCapability("project.init.status") {
@@ -207,9 +212,11 @@ func New(driver surface.Driver, options ...Options) Model {
 		chatAnchorSeg:   -1,
 		chatAssembly:    &chatAssembly{},
 		mdCache:         newMessageMarkdownCache(),
+		keys:            keys,
 	}
-	if len(themeWarnings) != 0 {
-		m = m.showCommandResult(m.translator.T("vivy.tui.dialog.theme", nil), strings.Join(themeWarnings, "\n"))
+	startupWarnings := append(themeWarnings, keyWarnings...)
+	if len(startupWarnings) != 0 {
+		m = m.showCommandResult(m.translator.T("vivy.tui.dialog.theme", nil), strings.Join(startupWarnings, "\n"))
 	}
 	return m
 }
@@ -586,7 +593,6 @@ func (m Model) View() string {
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	gate := m.driver.PendingGate()
-	meta := m.driver.Meta()
 	if gate != nil && m.sessionsOpen {
 		// A gate may arrive asynchronously while the Sessions dialog is open.
 		// Close the secondary surface before routing this key so the gate remains
@@ -707,32 +713,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// through the normal global/editor routing below.
 		m.sidebarFocused = false
 	}
-	if gate == nil && m.sidebarCanScroll() && msg.Type == tea.KeyCtrlRight {
-		m.sidebarFocused = true
-		m.clampSidebarScroll()
-		return m, nil
-	}
-	if gate == nil && !m.sidebarFocused {
-		switch msg.Type {
-		case tea.KeyPgUp:
-			m.scrollChat(-m.chatViewportHeight())
-			return m, nil
-		case tea.KeyPgDown:
-			m.scrollChat(m.chatViewportHeight())
-			return m, nil
-		case tea.KeyHome:
-			m.chatScroll = 0
-			m.chatFollow = m.chatMaxScroll() == 0
-			m.setChatAnchor(0, 0)
-			return m, nil
-		case tea.KeyEnd:
-			m.chatFollow = true
-			m.chatAnchorSeg = -1
-			m.clampChatScroll()
-			return m, nil
+	if gate != nil && gate.Submitting {
+		if m.keys.Action(keyChord(msg)) == "quit" {
+			return m, tea.Quit
 		}
-	}
-	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC {
 		return m, nil
 	}
 	if gate != nil && gate.Kind == "approval" && !gate.Submitting {
@@ -740,125 +724,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return next, nil
 		}
 	}
-	switch msg.Type {
-	case tea.KeyCtrlC:
-		return m, tea.Quit
-	case tea.KeyCtrlS:
-		m.shortcutsOpen = false
-		return m.openSessions()
-	case tea.KeyCtrlX:
-		if gate != nil {
-			return m, nil
+	// Named keybindings dispatch: every global chord lives in m.keys and can
+	// be remapped through keybindings.yaml. Keys no action claims fall
+	// through to the editor handling below.
+	if action := m.keys.Action(keyChord(msg)); action != "" {
+		if next, cmd, handled := m.runBoundAction(action, msg); handled {
+			return next, cmd
 		}
-		m.shortcutsOpen = !m.shortcutsOpen
-		if m.shortcutsOpen {
-			m.closeCommandPalette()
-			m.closeFileCompletion()
-			m.closeModelPicker()
-		}
-		return m, nil
-	case tea.KeyCtrlP:
-		if gate == nil {
-			m.shortcutsOpen = false
-			return m, m.openCommandPalette()
-		}
-		return m, nil
-	}
-	if gate == nil && m.input == "" && m.isHelpKey(msg) {
-		m.shortcutsOpen = false
-		return m, m.openCommandPalette()
 	}
 	switch msg.Type {
-	case tea.KeyCtrlL:
-		if gate == nil {
-			return m.openModelPicker("")
-		}
-		return m, nil
-	case tea.KeyEsc:
-		if gate != nil {
-			if gate.Kind == "approval" && !gate.Submitting {
-				return m, m.driver.DecideApproval(approvalDenied)
-			}
-			return m, nil
-		}
-		if meta.Queued > 0 {
-			m.driver.ClearQueue()
-			return m, nil
-		}
-		if meta.Busy {
-			return m, m.driver.Cancel()
-		}
-		m.input = ""
-		m.closeFileCompletion()
-		return m, nil
-	case tea.KeyCtrlN:
-		if gate == nil && !meta.Busy {
-			m.input = ""
-			return m, m.driver.NewSession("")
-		}
-		return m, nil
-	case tea.KeyCtrlY:
-		if gate != nil && gate.Kind == "approval" && !gate.Submitting {
-			return m, m.driver.DecideApproval(approvalApproved)
-		}
-		if gate == nil && !meta.Busy {
-			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
-		}
-		return m, nil
-	case tea.KeyCtrlT:
-		if gate != nil {
-			return m, nil
-		}
-		return m.setThinking("")
-	case tea.KeyCtrlO:
-		if gate != nil {
-			return m, nil
-		}
-		m.toolExpanded = !m.toolExpanded
-		return m, nil
-	case tea.KeyCtrlR:
-		if gate != nil {
-			return m, nil
-		}
-		m.reasoningCollapsed = !m.reasoningCollapsed
-		return m, nil
-	case tea.KeyShiftTab:
-		if gate == nil && m.input == "" && !meta.Busy {
-			return m.cycleWorkingMode()
-		}
-		return m, nil
-	case tea.KeyUp:
-		if msg.Alt && gate == nil {
-			// pi Alt+Up: withdraw the newest queued turn into the composer.
-			return m, m.driver.Dequeue()
-		}
-		return m, nil
-	case tea.KeyTab, tea.KeyDown:
-		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
+	case tea.KeyUp, tea.KeyTab, tea.KeyDown:
+		// Session navigation belongs to the explicit sessions dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
 		return m, nil
-	case tea.KeyCtrlQ:
-		// Terminals without a working Alt modifier: Ctrl+Q is the follow-up
-		// fallback for Alt+Enter (pi steering key scheme).
-		if gate != nil {
-			return m, nil
-		}
-		return m.submitFollowUp()
 	case tea.KeyEnter:
-		if gate != nil {
-			if gate.Submitting {
-				return m, nil
-			}
-			if gate.Kind == "question" {
-				return m, m.driver.AnswerQuestion(m.input)
-			}
-			return m, m.driver.DecideApproval(approvalApproved)
+		// Reachable only when "send" was remapped off enter: the key then
+		// behaves as a newline outside gates.
+		if gate == nil {
+			m.input += "\n"
 		}
-		if msg.Alt {
-			// pi Alt+Enter: follow-up lane — runs after the turn settles.
-			return m.submitFollowUp()
-		}
-		return m.submitInput()
+		return m, nil
 	case tea.KeyBackspace:
 		if gate != nil && gate.Kind == "approval" {
 			return m, nil
@@ -872,20 +757,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.input += " "
 		m.closeFileCompletion()
 		return m, nil
-	case tea.KeyCtrlJ:
-		if gate != nil && gate.Kind == "approval" {
-			return m, nil
-		}
-		m.input += "\n"
-		return m, nil
 	case tea.KeyRunes:
 		text := string(msg.Runes)
-		if msg.Alt && gate == nil && (text == "p" || text == "P") {
-			// pi scoped-model cycling. Ctrl+P is the command palette in
-			// this face, so the chord lives on the steering modifier
-			// (Alt+Enter / Alt+Up family).
-			return m.cycleScopedModel()
-		}
 		if gate != nil && gate.Kind == "approval" {
 			if gate.Submitting {
 				return m, nil
@@ -897,19 +770,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				return m, m.driver.DecideApproval(approvalDenied)
 			}
 			return m, nil
-		}
-		if text == "q" && m.input == "" && gate == nil && !meta.Busy {
-			return m, tea.Quit
-		}
-		if text == "G" && m.input == "" && gate == nil && !meta.Busy {
-			// Vim jump-to-bottom, same as the `end` key. Guarded like `q` so an
-			// in-progress draft or a running turn keeps `G` as plain input.
-			m.chatFollow = true
-			m.clampChatScroll()
-			return m, nil
-		}
-		if text == "/" && m.input == "" && gate == nil {
-			return m, m.openCommandPalette()
 		}
 		m.input += text
 		return m.refreshFileCompletion()
@@ -923,6 +783,187 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// runBoundAction executes a keybindings.yaml action. handled=false means the
+// action's context guard rejected the key, so it falls through to typing
+// (e.g. "q" bound to fast_quit must still type when the input is non-empty).
+func (m Model) runBoundAction(action string, msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	gate := m.driver.PendingGate()
+	meta := m.driver.Meta()
+	// Printable chords ("/", "q", "G", "H") must not fire while the composer
+	// holds a draft; modifier chords fire regardless of input.
+	runeChord := msg.Type == tea.KeyRunes
+	switch action {
+	case "quit":
+		return m, tea.Quit, true
+	case "palette":
+		if gate != nil {
+			return m, nil, true
+		}
+		if runeChord && m.input != "" {
+			// A printable chord ("H", "/") must keep typing when the
+			// composer already holds a draft.
+			return m, nil, false
+		}
+		m.shortcutsOpen = false
+		return m, m.openCommandPalette(), true
+	case "shortcuts":
+		if gate != nil {
+			return m, nil, true
+		}
+		m.shortcutsOpen = !m.shortcutsOpen
+		if m.shortcutsOpen {
+			m.closeCommandPalette()
+			m.closeFileCompletion()
+			m.closeModelPicker()
+		}
+		return m, nil, true
+	case "sessions":
+		m.shortcutsOpen = false
+		next, cmd := m.openSessions()
+		return next, cmd, true
+	case "new_session":
+		if gate == nil && !meta.Busy {
+			m.input = ""
+			return m, m.driver.NewSession(""), true
+		}
+		return m, nil, true
+	case "model_picker":
+		if gate == nil {
+			next, cmd := m.openModelPicker("")
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "model_cycle":
+		if gate == nil {
+			next, cmd := m.cycleScopedModel()
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "permission_cycle":
+		if gate != nil && gate.Kind == "approval" && !gate.Submitting {
+			return m, m.driver.DecideApproval(approvalApproved), true
+		}
+		if gate == nil && !meta.Busy {
+			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset)), true
+		}
+		return m, nil, true
+	case "thinking_cycle":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.setThinking("")
+		return next, cmd, true
+	case "tools_toggle":
+		if gate == nil {
+			m.toolExpanded = !m.toolExpanded
+		}
+		return m, nil, true
+	case "reasoning_toggle":
+		if gate == nil {
+			m.reasoningCollapsed = !m.reasoningCollapsed
+		}
+		return m, nil, true
+	case "mode_cycle":
+		if gate == nil && m.input == "" && !meta.Busy {
+			next, cmd := m.cycleWorkingMode()
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "sidebar_focus":
+		if gate == nil && m.sidebarCanScroll() {
+			m.sidebarFocused = true
+			m.clampSidebarScroll()
+		}
+		return m, nil, true
+	case "dequeue":
+		if gate == nil {
+			// pi Alt+Up: withdraw the newest queued turn into the composer.
+			return m, m.driver.Dequeue(), true
+		}
+		return m, nil, true
+	case "follow_up":
+		if gate != nil {
+			return m, nil, true
+		}
+		// pi Alt+Enter / Ctrl+Q fallback: follow-up lane — runs after the
+		// turn settles.
+		next, cmd := m.submitFollowUp()
+		return next, cmd, true
+	case "send":
+		if gate != nil {
+			if gate.Submitting {
+				return m, nil, true
+			}
+			if gate.Kind == "question" {
+				return m, m.driver.AnswerQuestion(m.input), true
+			}
+			return m, m.driver.DecideApproval(approvalApproved), true
+		}
+		next, cmd := m.submitInput()
+		return next, cmd, true
+	case "newline":
+		if gate != nil && gate.Kind == "approval" {
+			return m, nil, true
+		}
+		m.input += "\n"
+		return m, nil, true
+	case "cancel":
+		if gate != nil {
+			if gate.Kind == "approval" && !gate.Submitting {
+				return m, m.driver.DecideApproval(approvalDenied), true
+			}
+			return m, nil, true
+		}
+		if meta.Queued > 0 {
+			m.driver.ClearQueue()
+			return m, nil, true
+		}
+		if meta.Busy {
+			return m, m.driver.Cancel(), true
+		}
+		m.input = ""
+		m.closeFileCompletion()
+		return m, nil, true
+	case "fast_quit":
+		if m.input == "" && gate == nil && !meta.Busy {
+			return m, tea.Quit, true
+		}
+		return m, nil, false
+	case "jump_bottom":
+		if m.input == "" && gate == nil && !meta.Busy {
+			m.chatFollow = true
+			m.clampChatScroll()
+			return m, nil, true
+		}
+		return m, nil, false
+	case "page_up":
+		if gate == nil && !m.sidebarFocused {
+			m.scrollChat(-m.chatViewportHeight())
+		}
+		return m, nil, true
+	case "page_down":
+		if gate == nil && !m.sidebarFocused {
+			m.scrollChat(m.chatViewportHeight())
+		}
+		return m, nil, true
+	case "top":
+		if gate == nil && !m.sidebarFocused {
+			m.chatScroll = 0
+			m.chatFollow = m.chatMaxScroll() == 0
+			m.setChatAnchor(0, 0)
+		}
+		return m, nil, true
+	case "bottom":
+		if gate == nil && !m.sidebarFocused {
+			m.chatFollow = true
+			m.chatAnchorSeg = -1
+			m.clampChatScroll()
+		}
+		return m, nil, true
+	}
+	return m, nil, false
 }
 
 func (m *Model) syncGateView() {
@@ -2085,6 +2126,8 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		// scoped_models cycle set. The write is settings-only, so it is
 		// allowed while a run is in flight.
 		return m.scopeCurrentModel()
+	case "hotkeys":
+		return m.showCommandResult(m.translator.T("vivy.tui.dialog.hotkeys", nil), strings.Join(m.keys.Lines(), "\n")), nil
 	case "image":
 		return m.executeImageCommand(args)
 	case "compact":

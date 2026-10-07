@@ -203,7 +203,7 @@ func TestInitCommandAcceptsNoArgumentsAndAppearsInHelp(t *testing.T) {
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry(tuii18n.New(corei18n.English))
-	for _, input := range []string{"/thinking", "/thinking on", "/thinking max", "/thinking xhigh", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools", "/scope-model"} {
+	for _, input := range []string{"/thinking", "/thinking on", "/thinking max", "/thinking xhigh", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools", "/scope-model", "/hotkeys"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -212,7 +212,7 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 			t.Fatalf("Validate(%q): %v", input, err)
 		}
 	}
-	for _, input := range []string{"/thinking brain", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c", "/scope-model extra"} {
+	for _, input := range []string{"/thinking brain", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c", "/scope-model extra", "/hotkeys extra"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -308,6 +308,7 @@ func TestDefaultRegistryMapsAllLocalizedDescriptionKeys(t *testing.T) {
 		{name: "permission", english: "Set permission preset", chinese: "设置权限档"},
 		{name: "thinking", english: "Set thinking mode", chinese: "设置思考档"},
 		{name: "scope-model", english: "Toggle current model in cycle set", chinese: "切换当前模型的循环范围"},
+		{name: "hotkeys", english: "View effective key bindings", chinese: "查看生效键位"},
 		{name: "image", english: "Attach a project image", chinese: "附加项目图片"},
 		{name: "compact", english: "Compact current context", chinese: "压缩当前上下文"},
 		{name: "fork", english: "Fork session at a message", chinese: "在消息处分叉会话"},

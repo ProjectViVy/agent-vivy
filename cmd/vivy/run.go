@@ -104,6 +104,7 @@ func runRun(args []string) int {
 			DebugToolOutput: cfg.TUI.Debug,
 			UseTheme:        cfg.TUI.Theme,
 			ThemesDir:       filepath.Join(cfg.DataDirectory(), "themes"),
+			KeybindingsFile: filepath.Join(cfg.DataDirectory(), "keybindings.yaml"),
 			Out:             os.Stdout,
 			Err:             os.Stderr,
 		}
