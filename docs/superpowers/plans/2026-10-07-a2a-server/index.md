@@ -10,7 +10,7 @@
 
 **Spec:** [Single architecture and detailed design](../../specs/2026-10-07-a2a-server-design.md), detailed baseline `58d11432f559607e6b0ee6e48e3217ade93a642a`; native code baseline `dd78fcf142f384d47ce5cfefb43738fdb9a7346d`.
 
-**Authorization:** On 2026-10-07 the owner explicitly requested this package before G0 closure. That authorizes preparing all Story plans now; it does not approve the proposed reconnect acceptance change, schedule functional work, or mark G0/G1/G2 passed. [Issue #2](https://github.com/ProjectViVy/agent-vivy/issues/2) was re-read and remains open/unscheduled. Its earlier plan-after-G0 ordering is superseded only for plan preparation by this request. Issue text and labels are unchanged.
+**Authorization:** On 2026-10-07 the owner explicitly requested this package before G0 closure, then adopted G0 on the same day: option A snapshot convergence (issue #2 reconnect criterion amended per design section 13), remote ordinary answers included, minimum deployment (loopback + reverse proxy), and opt-in Generation membership. [Issue #2](https://github.com/ProjectViVy/agent-vivy/issues/2) remains open; functional work is unscheduled — G1 and G2 stay owner gates. Issue text and labels are unchanged by this package.
 
 ## Consolidation and source disposition
 
@@ -19,7 +19,7 @@ This package on remote branch `A2A` is the sole maintained successor to
 The source commit is retained in the consolidation history; reading or
 executing this package does not require the old branch. The owner authorized
 absorbing details before deleting it. Contract choices remain in
-[design section 1.1](../../specs/2026-10-07-a2a-server-design.md#11-consolidated-scope-and-decisions-still-owned-by-g0).
+[design section 1.1](../../specs/2026-10-07-a2a-server-design.md#11-consolidated-scope-and-g0-adoption-record).
 
 | Earlier artifact/Story | Current authoritative home |
 |---|---|
@@ -33,9 +33,9 @@ absorbing details before deleting it. Contract choices remain in
 | Old A2A-06: exact replay | Conditional A2A-R1, design section 8.2 |
 | Old A2A-07: integration/omission | A2A-06.3 for standard path; A2A-R1.2 refreshes B acceptance |
 
-Seven base Stories retain 18 tasks. One conditional Story adds two tasks,
-which remain blocked unless G0 selects B. Retiring the source branch does
-not approve remote question answers, a broader deployment envelope or B.
+Seven base Stories retain 18 tasks. The conditional Story A2A-R1 (two tasks)
+is **unselected**: G0 chose option A on 2026-10-07. Remote ordinary answers
+are in scope; the broader deployment envelope and B are out.
 
 ## Global Constraints
 
@@ -47,7 +47,7 @@ not approve remote question answers, a broader deployment envelope or B.
 - PENS remains an independent application environment and optional external client. No PENS, QQ, NeuroLink, image backend, Studio or UI feature is added here.
 - Core owns paired immutable SQLite/PostgreSQL migrations. Receipts/ownership are indexes, not lifecycle/output stores. No plugin database or DDL.
 - Official SDK custom `RequestHandler` plus `NewJSONRPCHandler`; no SDK `NewHandler`, `AgentExecutor` or `TaskStore` construction. First-cut completed text segments, not token streaming.
-- Host owns listener/authentication/limits. Option A has only `POST /a2a` and `GET /.well-known/agent-card.json`; B adds only the exact section 8.2 replay path after adoption. No management `/rpc`, global mux or hard-coded `:8787`.
+- Host owns listener/authentication/limits. The adopted contract (A) has only `POST /a2a` and `GET /.well-known/agent-card.json`; the unselected B would add only the exact section 8.2 replay path if revived. No management `/rpc`, global mux or hard-coded `:8787`.
 - Design sections 5–11 own exact limits, states and errors. Plans specify code/test locations, not alternate values. Protective limits are proposed settings, not measured performance.
 - All functional Stories use `.agents/skills/vivy-plugin` and `vivy-kernel-ci`; future runtime work additionally uses `vivy-eino`. Product acceptance requires `just ci` and real-path evidence. Never count skipped PostgreSQL tests as passes.
 - Only human contribution identity may author/commit work. Never touch tenant `data/vivy.db`, `data/demo/` or `data/workspaces/`.
@@ -73,14 +73,14 @@ E0 establishes evidence and adoption. E1 supplies governed native task operation
 
 | Story | Epic / requirements | Outcome | Immediate predecessors / required accepted output | Plan | Status | Evidence / blocker |
 |---|---|---|---|---|---|---|
-| A2A-00 | E0 / R7 | SDK probe, preparation lifecycle decision, G0 adoption | None | [A2A-00](A2A-00.md) | Planned | Execution not requested; Go/just absent here; sections 1.1/8 choices, default-Generation resolution and native preparation evidence pending |
-| A2A-01 | E1 / R1 | Public TaskHost values and grant-preserving Assembly wiring | A2A-00: frozen contract and recorded G0 approval | [A2A-01](A2A-01.md) | Blocked | G0 not accepted; functional work unscheduled |
+| A2A-00 | E0 / R7 | SDK probe, preparation lifecycle decision, G0 adoption | None | [A2A-00](A2A-00.md) | Done | SDK probe 26/26 green (`docs/research/2026-10-07-a2a-sdk-probe.md`); native preparation contract frozen (`docs/research/2026-10-07-a2a-native-preparation.md`); G0 adopted 2026-10-07 (`docs/logs/2026-10-07-a2a-A2A-00/`) |
+| A2A-01 | E1 / R1 | Public TaskHost values and grant-preserving Assembly wiring | A2A-00: frozen contract and recorded G0 approval | [A2A-01](A2A-01.md) | Blocked | G0 adopted; G1 scheduling is the remaining owner gate |
 | A2A-02 | E1 / R2, R5 | Atomic native admission, scoped receipts and deletion tombstones | A2A-01: SDK values and stable Module/provider/instance identity | [A2A-02](A2A-02.md) | Blocked | Native provisional-resource contract from G0 and predecessor acceptance required |
 | A2A-03 | E1 / R3, R8 | Atomic ordinary answers and honest crash recovery | A2A-02: core receipt/ownership transactions and launch discipline | [A2A-03](A2A-03.md) | Blocked | Native admission acceptance required |
 | A2A-04 | E1 / R4, R5, R8 | Bounded TaskHost reads, cancellation and replay/live projection | A2A-03: complete accepted-message/answer event contract and native transitions | [A2A-04](A2A-04.md) | Blocked | Native task/answer evidence required |
 | A2A-05 | E2 / R5, R6 | Dedicated Host HTTP lifecycle, authentication and discovery view | A2A-04: real TaskHost and private request-binding contract | [A2A-05](A2A-05.md) | Blocked | G1 must be accepted and G2 explicitly scheduled |
 | A2A-06 | E2 / R1, R6–R9 | Official SDK Module, Recipe and end-to-end artifact acceptance | A2A-05: authenticated listener, limits and live discovery projection | [A2A-06](A2A-06.md) | Blocked | Host lifecycle acceptance and G2 authorization required |
-| A2A-R1 | E2 / R10, R5, R9 | Optional exact-event replay and refreshed enhanced-client/artifact acceptance | A2A-06: accepted standard adapter, native Host and artifact driver | [A2A-R1](A2A-R1.md) | Blocked | B not selected; wire/error contract unresolved; G0 adoption, upstream acceptance and G2 scheduling required |
+| A2A-R1 | E2 / R10, R5, R9 | Optional exact-event replay and refreshed enhanced-client/artifact acceptance | A2A-06: accepted standard adapter, native Host and artifact driver | [A2A-R1](A2A-R1.md) | Unselected | A adopted at G0 2026-10-07; reviving B is a fresh owner decision with its own wire/error freeze |
 
 ### Dependency order and shared files
 
@@ -89,7 +89,7 @@ Topological waves: `{A2A-00}`, `{A2A-01}`, `{A2A-02}`, `{A2A-03}`, `{A2A-04}`, `
 
 File conflicts reinforce this sequence: A2A-01/04/05 share app/Host wiring; A2A-02/03 share native admission/storage; A2A-03/04 share Journal/event semantics; A2A-01/06 share Assembly/conformance. Use one write lane. If parallel execution is later useful, first split ownership and use isolated worktrees; logical readiness alone never permits concurrent edits to these files.
 
-If B is selected, append `A2A-06 -> A2A-R1`; its sole direct predecessor supplies all upstream contracts transitively. A2A-06 then accepts the standard-server milestone only; G2/issue acceptance also requires A2A-R1. If A is selected, A2A-R1 is unselected and cannot block standard acceptance. Neither path permits a separate task/event authority.
+G0 selected A on 2026-10-07: A2A-R1 is unselected and cannot block standard acceptance; `A2A-06 -> A2A-R1` would only apply if the owner revives B later. Neither path permits a separate task/event authority.
 
 The original D0–D6 design slices map one-to-one to A2A-00–06. A2A-04 now waits for A2A-03 acceptance instead of integrating an unaccepted answer schema later. This is execution sequencing, not a changed product contract.
 
@@ -138,15 +138,15 @@ All names below are proposed tests, not existing passing evidence. Story-local s
 
 ## Execution and evidence rules
 
-1. Only planning is currently authorized. A2A-00 is the first work package when execution is requested. Its probe/investigation can proceed before the owner's reconnect decision; its adoption task cannot.
+1. A2A-00 executed on 2026-10-07 and G0 was adopted the same day (A / include / minimum / opt-in). Functional Stories remain unscheduled pending G1.
 2. At kickoff check branch/base drift, Go 1.26.4, `just`, repository sibling-module setup from README/CI, and a disposable PostgreSQL server. Resolve missing tooling through supported setup; do not edit replace directives merely to make a probe pass. Do not merge a newer main blindly into this design branch.
 3. Proposed test blocks are assertion sketches, not precompiled code. Use Go's existing testing conventions; no assertion framework or new test runner is required. Red means the named behavioral assertion or missing proposed symbol fails, not unrelated setup failure.
 4. Each task is a reviewable commit. Stage only its listed paths. Each Story's final commit includes `docs/logs/<actual-date>-a2a-<story-number>/{summary,verification,acceptance}.md` and this index's evidence/status update; reuse that directory within the Story. Human review gates remain open until checked.
 5. Run focused tests during each task. At each functional Story boundary run `just ci`; storage changes additionally require actual SQLite and PostgreSQL parity, migration/reopen/failure evidence. Preserve commands, revision, exit code and skips in the Story log.
 6. Before A2A-05, independently confirm G1's combined SDK, admission, answer and projection acceptance. Only the owner schedules G2. After A2A-06, verify the entire selected/omitted product, not just mocked Host or SDK transport tests.
-7. If G0 selects B, adopt section 8.2 and A2A-R1, freeze its wire/error contract and record the one-extension issue exception before making functional Stories Ready. Selecting A leaves that conditional Story unselected. Resolve section 1.1 continuation/deployment/default-Generation choices and propagate any narrowing to the existing Stories before execution; the current package does not implement an unapproved extension. If provisional persona cleanup needs a native API, freeze its exact symbols and failure/recovery tests in the design and A2A-02 before execution of that task.
+7. G0 resolved on 2026-10-07: A adopted (A2A-R1 unselected), remote ordinary answers included, deployment narrowed to minimum (single principal, loopback + reverse proxy — propagated to design 10/10.1 and A2A-05), Generation membership is opt-in per issue #2. The provisional persona cleanup seam was frozen in design 6.2 / A2A-02 by A2A-00.2: `personactx.Store.DiscardSession`/`ListFrozenSessions` + cognitive `DiscardFrozenSession` in pinned laputa (pin bump is an owner-review item).
 8. Rollback disables the endpoint or omits the Module. Keep native history and receipt tombstones. Binary downgrade across migrations needs an explicitly tested compatibility window; do not invent down-migrations.
 
 ## Current delivery evidence
 
-The [consolidation record](../../../logs/2026-10-07-a2a-plan-consolidation/verification.md) records the source-to-successor coverage, including the conditional replay plan. The package itself is documentation only. [Planning iteration](../../../logs/2026-10-07-a2a-plan-package/verification.md) records link/path/DAG/coverage checks and self-review. No Story test, SDK probe, CI run, listener or migration is claimed as implemented. There is no Ready implementation Story at this handoff.
+A2A-00 completed 2026-10-07: [probe report](../../../research/2026-10-07-a2a-sdk-probe.md) (26 checks green on SDK v2.6.0), [native preparation research](../../../research/2026-10-07-a2a-native-preparation.md), and the [Story log](../../../logs/2026-10-07-a2a-A2A-00/). The [consolidation record](../../../logs/2026-10-07-a2a-plan-consolidation/verification.md) records the source-to-successor coverage, including the conditional replay plan. [Planning iteration](../../../logs/2026-10-07-a2a-plan-package/verification.md) records link/path/DAG/coverage checks and self-review. No functional Story, listener, migration or product change is claimed as implemented. There is no Ready implementation Story at this handoff; G1 scheduling is the owner gate.
