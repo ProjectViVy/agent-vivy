@@ -1,6 +1,6 @@
 # A2A Server architecture and detailed design — issue #2
 
-Status: **DETAILED DESIGN FOR G0 REVIEW — implementation unscheduled**
+Status: **DETAILED DESIGN AND PLAN PACKAGE FOR G0 REVIEW — implementation unscheduled**
 
 Date: 2026-10-07 (Asia/Shanghai)
 
@@ -15,8 +15,12 @@ SDK reference: `a2a-go/v2 v2.6.0`, `ebf17c56ef7e63c72883a45454a538bbc0df66b8`
 Detailed revision: 2026-10-07, building on architecture commit `246d5aa`.
 This is the single design authority for this proposal. Concrete types,
 transactions, configuration and acceptance fixtures below are proposed
-contracts, not already shipped APIs. Section 12 gives dependency slices;
-an executable implementation plan follows G0 approval as issue #2 requires.
+contracts, not already shipped APIs. Section 12 gives design slices.
+The owner explicitly requested a [plan package](../plans/2026-10-07-a2a-server/index.md)
+on 2026-10-07 before G0 closure. The package now contains the implementation
+steps, dependencies and evidence requirements; preparing it does not approve
+the reconnect change, pass G0 or schedule functional work. The earlier
+plan-after-G0 ordering is superseded only for this planning delivery.
 
 Review route: section 5 defines the SDK seam; section 6 defines persistence
 and crash behavior; sections 7–11 define the protocol/HTTP boundary; section
@@ -483,6 +487,13 @@ The transaction requires no terminal Journal event and appends the answered
 event and receipt before native resume is scheduled. A losing answer to the
 same question does not attach itself to a later question.
 
+The native shared transition is concretized in plan A2A-03 as an optional
+QuestionTransitionStore for local answer/cancel/expiry, with the external
+receipt operation using the same transaction-local helper. This avoids
+serializing only the remote path while local transitions retain a competing
+write order. Existing local-only store interfaces stay compatible; A2A
+capability activation requires the complete atomic implementation.
+
 A2A has no frozen prompt-revision field in this profile. A newly arriving
 message with a fresh ID answers the question pending when that request is
 resolved; the server cannot infer which old prompt an unsent client draft
@@ -702,7 +713,8 @@ are not exposed in the card or client errors.
 
 The runtime policy is one typed Host value with defaults in section 10.
 Add a token bucket of 10 authenticated RPC requests/second per principal,
-burst 20, and a bounded public-discovery bucket on this listener. These are
+burst 20. Public discovery uses the same settings in one aggregate bucket
+per listener, without allocating unbounded per-source-address entries. These are
 initial protective settings, not measured throughput targets. Keepalive and
 subsequent events are not new requests. Identical accepted-message retries
 bypass the active-task admission cap after authorized receipt resolution but
@@ -725,7 +737,7 @@ ResponseController capabilities needed by the Host's writer policy.
 
 Limits are Host policy with effective values visible in Inspect; reuse existing stricter native caps. Ordinary HTTP body deadlines must not accidentally impose the blocking-send timeout on a live SSE stream. Rate rejection occurs before admission and returns a safe retry signal. A reply limit must never trigger an automatic retry of an already committed execution.
 
-List queries operate on principal-filtered native Run/ownership indexes and Journal-derived task projections. Use deterministic descending committed status-time ordering with Run ID as tie-breaker; opaque tokens bind filters, principal, instance and a query watermark. Do not paginate an SDK in-memory store. Status changes between pages can alter membership; document this consistency limit rather than promising a global snapshot. State caches, if later measured necessary, must be rebuildable and versioned, never another authority. Bound scan work as well as returned page size; exceeding it returns a limit error, not an invented total.
+List queries operate on principal-filtered native Run/ownership indexes and Journal-derived task projections. Use deterministic descending committed status-time ordering with Run ID as tie-breaker; opaque tokens bind filters, principal, instance and the last returned sort tuple. Do not paginate an SDK in-memory store. Status changes between pages can alter membership; document this consistency limit rather than promising a global snapshot. State caches, if later measured necessary, must be rebuildable and versioned, never another authority. Bound scan work as well as returned page size; exceeding it returns a limit error, not an invented total.
 
 For the first implementation, scan at most 1,000 owned submitted Run candidates
 per list request, never a global task scan. Compute current filter membership
@@ -781,7 +793,7 @@ no new monitoring service or global task-status cache is required.
 
 ## 12. Gates and acceptance evidence
 
-These gates identify required proof; they are not an implementation schedule or task-by-task execution plan.
+These gates identify required proof. The [plan package index](../plans/2026-10-07-a2a-server/index.md) owns execution dependencies, Story status and evidence; each linked Story contains task-by-task implementation steps. Functional work remains unscheduled.
 
 | Gate | Exit evidence |
 |---|---|
@@ -807,7 +819,7 @@ completed checkboxes are implied. Tests named below are **proposed fixtures**.
 | D1 SDK and ownership wiring | Create `sdk/port/channel/task.go`, `task_test.go`; modify `channel.go`, `internal/app/channels.go`, `channels_test.go`, `assembly_validate.go`, `sdk/internal/assembly/runtime_generate.go`, `channel_capability_test.go`; follows D0 | Nonempty optional interfaces, correct Module identity and grant-preserving wrappers; existing Channels compile |
 | D2 Core atomic admission | Create `internal/domain/channel_task.go`, `internal/storage/channel_tasks.go`, both backend `channel_tasks.go`/`channel_tasks_test.go`, paired `036_channel_tasks.sql`; modify backend `runs.go`, native `service.go`, `isolation.go`; add `internal/runtime/channel_tasks.go`/`channel_tasks_test.go`; follows D1 | Durable no-context deduplication, native prompt/candidate preparation, receipts, ownership, one primary Run and crash outcomes |
 | D3 Atomic ordinary answer | Modify native `service.go`, `payloads.go`, `recovery_test.go`, both backend `questions.go`/`journal.go`; add `internal/runtime/channel_task_answer_test.go`; version schemas and add event vocabulary/tests; follows D2 | Same-Run answer with external actor, shared native append locking, local/remote/expiry CAS and fail-closed recovery |
-| D4 Projection and subscription | Create `internal/journalview/text.go`/`text_test.go`, `internal/channelhost/tasks.go`, `task_projection.go`, `task_stream.go` and matching tests; modify native `message_projector.go`, storage `contracts.go`, both backend `journal.go`, ChannelHost `deps.go`; follows D2, integrates D3 | One native text reducer, safe Journal-only views, paged reads and replay/live correctness |
+| D4 Projection and subscription | Create `internal/journalview/text.go`/`text_test.go`, `internal/channelhost/tasks.go`, `task_projection.go`, `task_stream.go` and matching tests; modify native `message_projector.go`, storage `contracts.go`, both backend `journal.go`, ChannelHost `deps.go`; waits for D3 acceptance, consuming D2 through it | One native text reducer, safe Journal-only views, paged reads and replay/live correctness |
 | D5 Host HTTP boundary | Create `internal/channelhost/http.go`, `http_test.go`; modify `internal/config/config.go`, config tests, ChannelHost `host.go`, `capabilities.go`, `channelenv.go`, app `app.go`; follows D1/D4 | Authenticated dedicated listener, lifecycle/limits and truthful discovery view |
 | D6 Module and artifact acceptance | Create `plugins/a2a-server/{go.mod,go.sum,vivy-module.yaml,module_v1.go,handler.go,mapping.go,card.go,settings.go}` and focused tests; create `recipes/a2a.vivy.yml`; extend SDK removal/assembly conformance; follows D3–D5 | Official-client vertical slice, selected/omitted artifact evidence and complete issue acceptance |
 
