@@ -234,6 +234,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/vivy-workflow", importPath: "agent-vivy/plugins/vivy-workflow", pkg: "vivyworkflow"},
 	{dir: "plugins/coding/session-tree", importPath: "agent-vivy/plugins/coding/session-tree", pkg: "sessiontree"},
 	{dir: "plugins/infra/llm", importPath: "agent-vivy/plugins/infra/llm", pkg: "localllm"},
+	{dir: "plugins/a2a-server", importPath: "agent-vivy/plugins/a2a-server", pkg: "a2aserver"},
 	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }

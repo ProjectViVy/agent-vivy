@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: projectvivy/a2a-server, version: 0.1.0}
+source: {ref: repo:plugins/a2a-server, sha256: f48f6d93892bed1b2f0888ac0422e68b2770890df57b3d86925da065f5bcd84d}
+provides: [{port: std/channel@v1, id: vivy.a2a}]
+requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
+requestedGrants: [channel.a2a, secret.read]
+lifecycle: {scope: generation}

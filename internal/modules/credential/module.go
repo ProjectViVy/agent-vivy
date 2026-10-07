@@ -89,6 +89,12 @@ func CompileScopes(profiles []providerprofile.Profile, channels config.Channels,
 		if config.ValidEnvKey(envelope.TokenEnv) {
 			scopes[moduleID] = append(scopes[moduleID], envelope.TokenEnv)
 		}
+		// The dedicated task listener's bearer lives behind
+		// http.principal.token_env (A2A design §10.1) — same channel-scope
+		// ownership as the platform token, never in config itself.
+		if envelope.HTTP != nil && config.ValidEnvKey(envelope.HTTP.Principal.TokenEnv) {
+			scopes[moduleID] = append(scopes[moduleID], envelope.HTTP.Principal.TokenEnv)
+		}
 		node := envelope.Settings
 		if node.Kind != yaml.MappingNode {
 			continue

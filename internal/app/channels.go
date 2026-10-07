@@ -98,6 +98,12 @@ type providerChannel struct {
 }
 
 func (c *providerChannel) Name() string { return c.name }
+
+// ModuleID returns the sealed Module identity from the generated
+// ChannelModuleIDs map (vivy/telegram, projectvivy/a2a-server, …); the
+// channel host resolves credentials against it instead of the legacy
+// "vivy/"+name derivation.
+func (c *providerChannel) ModuleID() string { return c.moduleID }
 func (c *providerChannel) Grants() []module.Grant {
 	out := make([]module.Grant, 0, len(c.grants))
 	for _, grant := range c.grants {
@@ -129,8 +135,9 @@ func (c *providerChannel) Start(ctx context.Context, host channel.Host) error {
 	}
 	// A live ListenHandler mounts the dedicated task listener only when the
 	// env carries the task surface AND the channel envelope configures an
-	// http block — otherwise the capability stays inactive (§10.1).
-	if lh, ok := c.instance.(channel.ListenHandler); ok {
+	// http block — otherwise the capability stays inactive (§10.1). The
+	// instance local is used here: c.instance is assigned below.
+	if lh, ok := instance.(channel.ListenHandler); ok {
 		type taskServerEnv interface {
 			ServeTaskHTTP(context.Context, http.Handler) (func(context.Context) error, error)
 		}

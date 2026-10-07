@@ -129,6 +129,10 @@ func (s *Service) SubmitChannelTask(ctx context.Context, in domain.ChannelTaskIn
 		RunID: runID, NewSession: candidate, Out: &receipt,
 	}
 	options := RunOptions{
+		// Remote A2A callers are automation peers, not companion users:
+		// they run on the coding face, which carries the project
+		// instruction contract instead of persona onboarding.
+		Face: domain.FaceCode,
 		Provenance: &domain.Provenance{
 			Source: domain.SourceChannel, Channel: channelTaskChannelName,
 			ChannelMessageID: in.MessageID,

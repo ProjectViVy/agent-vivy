@@ -73,10 +73,15 @@ func (f *taskFixture) taskDeps() *TaskDeps {
 	}
 }
 
-// okHandler is the stand-in ListenHandler: it echoes the bound principal —
-// the only identity visible to the adapter.
+// okHandler is the stand-in ListenHandler: it serves the public card and
+// echoes the bound principal on RPC — the only identity the adapter sees.
 func okHandler(t *testing.T) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"vivy"}`))
+	})
+	mux.HandleFunc("POST /a2a", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := taskPrincipalFromContext(r.Context())
 		if !ok {
 			w.WriteHeader(http.StatusTeapot)
@@ -89,6 +94,7 @@ func okHandler(t *testing.T) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(p.PrincipalID))
 	})
+	return mux
 }
 
 func startTestListener(t *testing.T, h *Host, handler http.Handler) string {

@@ -5,6 +5,8 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/ProjectViVy/inofy v0.0.0-20260930141905-71e2c9bbe47d
+	github.com/ProjectViVy/laputa/garden v0.0.0-20261005120945-ff3936f44ff8
+	github.com/ProjectViVy/laputa/laputa v0.0.0-20261005120945-ff3936f44ff8
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -15,8 +17,6 @@ require (
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
-	github.com/ProjectViVy/laputa/garden v0.0.0-20261005120945-ff3936f44ff8
-	github.com/ProjectViVy/laputa/laputa v0.0.0-20261005120945-ff3936f44ff8
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
@@ -24,17 +24,24 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.43.0
+	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.59.0
 	mvdan.cc/sh/v3 v3.12.0
 )
 
 require (
-	cloud.google.com/go/auth v0.7.2 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.2.3 // indirect
-	cloud.google.com/go/compute/metadata v0.5.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+)
+
+require (
+	cloud.google.com/go/auth v0.18.2 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/DotNetAge/govector v0.1.8 // indirect
+	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -60,7 +67,6 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/hnsw v0.6.1 // indirect
-	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -72,8 +78,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect
 	github.com/gomlx/go-huggingface v0.3.5 // indirect
 	github.com/gomlx/go-xla v0.2.2 // indirect
@@ -81,8 +85,8 @@ require (
 	github.com/gomlx/onnx-gomlx v0.4.2 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/renameio v1.0.1 // indirect
-	github.com/google/s2a-go v0.1.7 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
+	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/grbit/go-json v0.11.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
@@ -92,6 +96,7 @@ require (
 	github.com/larksuite/oapi-sdk-go/v3 v3.11.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
+	github.com/a2aproject/a2a-go/v2 v2.6.0 // indirect
 	github.com/mymmrac/telego v1.10.0 // indirect
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
@@ -120,38 +125,34 @@ require (
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.opencensus.io v0.24.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
-	go.opentelemetry.io/otel v1.24.0 // indirect
-	go.opentelemetry.io/otel/metric v1.24.0 // indirect
-	go.opentelemetry.io/otel/trace v1.24.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/image v0.41.0
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
-	google.golang.org/api v0.189.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240722135656-d784300faade // indirect
-	google.golang.org/grpc v1.64.1 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
+	google.golang.org/api v0.264.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 )
 
 require (
-	agent-vivy/faces/headless v0.0.0
-	agent-vivy/faces/tui v0.0.0
+	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
-	agent-vivy/plugins/governance v0.0.0
-	agent-vivy/plugins/coding/lsp v0.0.0
+	agent-vivy/plugins/infra/llm v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
+	agent-vivy/plugins/a2a-server v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/infra/llm v0.0.0
-	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
@@ -206,14 +207,16 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+replace agent-vivy/plugins/a2a-server => ./plugins/a2a-server
 
 replace agent-vivy/plugins/telegram => ./plugins/telegram
 
@@ -232,7 +235,6 @@ replace agent-vivy/plugins/governance => ./plugins/governance
 replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
 replace agent-vivy/plugins/infra/llm => ./plugins/infra/llm
-
 
 replace agent-vivy/plugins/coding/session-tree => ./plugins/coding/session-tree
 

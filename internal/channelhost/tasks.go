@@ -602,7 +602,19 @@ func (e *taskCapableEnv) SubscribeTask(ctx context.Context, sub channel.TaskSubs
 	return e.tasks.SubscribeTask(ctx, sub)
 }
 func (e *taskCapableEnv) TaskServiceInfo(ctx context.Context) (channel.TaskServiceInfo, error) {
-	return e.info.TaskServiceInfo(ctx)
+	info, err := e.info.TaskServiceInfo(ctx)
+	if err != nil {
+		return channel.TaskServiceInfo{}, err
+	}
+	// The public endpoint is per-listener configuration, not a process
+	// constant: resolve it from this channel's http envelope.
+	if cfg, ok := e.host.deps.Config[e.seam.Name()]; ok && cfg.HTTP != nil {
+		info.PublicEndpoint = cfg.HTTP.PublicBaseURL
+		if info.PublicEndpoint == "" {
+			info.PublicEndpoint = "http://" + cfg.HTTP.Listen
+		}
+	}
+	return info, nil
 }
 
 // ServeTaskHTTP mounts this env's dedicated task listener (§10.1) and
@@ -610,5 +622,8 @@ func (e *taskCapableEnv) TaskServiceInfo(ctx context.Context) (channel.TaskServi
 // capability is absent without a complete Tasks pack; an unconfigured or
 // failing bind reports the error without a partial route.
 func (e *taskCapableEnv) ServeTaskHTTP(ctx context.Context, handler http.Handler) (func(context.Context) error, error) {
+	// Credential scopes are compiled per channel ("vivy/"+name) by
+	// credentialmodule.CompileScopes — the sealed Module id does not own an
+	// env allowlist entry, so resolve under the channel scope identity.
 	return e.host.startTaskHTTP(ctx, e.seam.Name(), e.ModuleID(), handler)
 }

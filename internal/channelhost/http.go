@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"agent-vivy/internal/config"
-	"agent-vivy/sdk/port/channel"
 )
 
 // taskHTTPState is the listener lifecycle vocabulary (§10.1).
@@ -155,13 +154,17 @@ func (h *Host) startTaskHTTP(ctx context.Context, channelName, moduleID string, 
 
 	mux := http.NewServeMux()
 	// The card is the sole unauthenticated route, behind one aggregate
-	// public bucket — no per-source-address allocation.
+	// public bucket — no per-source-address allocation. The plugin owns
+	// card content; the Host only rate-limits the path. Card content is
+	// service-level public metadata, so it is evaluated under the
+	// endpoint's configured principal rather than leaving the request
+	// unbound (discovery data is what the service chooses to publish).
 	mux.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
 		if !lis.card.take() {
 			http.Error(w, "rate limited", http.StatusTooManyRequests)
 			return
 		}
-		h.writeTaskCard(w, channelName)
+		handler.ServeHTTP(w, r.WithContext(WithTaskPrincipal(r.Context(), lis.principalBinding(moduleID))))
 	})
 	// The RPC path is fixed at /a2a; every other path is absent.
 	mux.Handle("POST /a2a", h.taskHTTPMiddleware(lis, moduleID, handler))
@@ -207,31 +210,16 @@ func (h *Host) startTaskHTTP(ctx context.Context, channelName, moduleID string, 
 	return stop, nil
 }
 
-// writeTaskCard serves the safe discovery projection (public fields only).
-func (h *Host) writeTaskCard(w http.ResponseWriter, channelName string) {
-	envelope, ok := h.deps.Config[channelName]
-	if !ok || envelope.HTTP == nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+// principalBinding is the single configured-principal identity bound to
+// every request this endpoint serves (card and RPC alike).
+func (lis *taskHTTPListener) principalBinding(moduleID string) TaskPrincipal {
+	return TaskPrincipal{
+		ModuleID:              moduleID,
+		ProviderID:            lis.name,
+		InstanceID:            lis.name,
+		PrincipalID:           lis.principal,
+		AuthorizationRevision: 1,
 	}
-	info := channel.TaskServiceInfo{}
-	if h.deps.Tasks != nil {
-		info = h.deps.Tasks.ServiceInfo
-	}
-	url := strings.TrimRight(envelope.HTTP.PublicBaseURL, "/")
-	card := map[string]any{
-		"name":        info.Name,
-		"description": info.Description,
-		"version":     info.Version,
-		"url":         url + "/a2a",
-		"capabilities": map[string]any{
-			"streaming":         info.Streaming,
-			"inputContinuation": info.InputContinuation,
-		},
-		"skills": info.Skills,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(card)
 }
 
 // taskHTTPMiddleware is the single ingress wrapper: authenticate, bound
@@ -304,13 +292,7 @@ func (h *Host) taskHTTPMiddleware(lis *taskHTTPListener, moduleID string, next h
 			return
 		}
 
-		ctx := WithTaskPrincipal(r.Context(), TaskPrincipal{
-			ModuleID:    moduleID,
-			ProviderID:  lis.name,
-			InstanceID:  lis.name,
-			PrincipalID: lis.principal,
-			AuthorizationRevision: 1,
-		})
+		ctx := WithTaskPrincipal(r.Context(), lis.principalBinding(moduleID))
 		r = r.WithContext(ctx)
 
 		// Per-write deadlines (including flush) keep SSE alive past a
