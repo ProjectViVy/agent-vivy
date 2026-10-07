@@ -146,11 +146,11 @@ require (
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
 	agent-vivy/plugins/governance v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
+	agent-vivy/plugins/coding/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/coding/local-llm v0.0.0
+	agent-vivy/plugins/infra/llm v0.0.0
 	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
@@ -225,13 +225,13 @@ replace agent-vivy/plugins/feishu => ./plugins/feishu
 
 replace agent-vivy/plugins/qq => ./plugins/qq
 
-replace agent-vivy/plugins/lsp => ./plugins/lsp
+replace agent-vivy/plugins/coding/lsp => ./plugins/coding/lsp
 
 replace agent-vivy/plugins/governance => ./plugins/governance
 
 replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
-replace agent-vivy/plugins/coding/local-llm => ./plugins/coding/local-llm
+replace agent-vivy/plugins/infra/llm => ./plugins/infra/llm
 
 
 replace agent-vivy/plugins/coding/session-tree => ./plugins/coding/session-tree

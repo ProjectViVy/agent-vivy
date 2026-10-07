@@ -1,4 +1,4 @@
-module agent-vivy/plugins/coding/local-llm
+module agent-vivy/plugins/coding/lsp
 
 go 1.26.4
 

@@ -224,7 +224,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/qq", importPath: "agent-vivy/plugins/qq", pkg: "qq"},
 	{dir: "plugins/telegram", importPath: "agent-vivy/plugins/telegram", pkg: "telegram"},
 	{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
-	{dir: "plugins/lsp", importPath: "agent-vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
+	{dir: "plugins/coding/lsp", importPath: "agent-vivy/plugins/coding/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
 	{dir: "plugins/scx-reference", importPath: "agent-vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
 	{dir: "plugins/vivy-persona", importPath: "agent-vivy/plugins/vivy-persona", pkg: "vivypersona"},
 	{dir: "plugins/vivy-evolution", importPath: "agent-vivy/plugins/vivy-evolution", pkg: "vivyevolution"},
@@ -233,7 +233,7 @@ var repoSourceDirs = []repoSourceDir{
 	{dir: "plugins/vivy-masks-ui", importPath: "agent-vivy/plugins/vivy-masks-ui", pkg: "vivymasksui"},
 	{dir: "plugins/vivy-workflow", importPath: "agent-vivy/plugins/vivy-workflow", pkg: "vivyworkflow"},
 	{dir: "plugins/coding/session-tree", importPath: "agent-vivy/plugins/coding/session-tree", pkg: "sessiontree"},
-	{dir: "plugins/coding/local-llm", importPath: "agent-vivy/plugins/coding/local-llm", pkg: "localllm"},
+	{dir: "plugins/infra/llm", importPath: "agent-vivy/plugins/infra/llm", pkg: "localllm"},
 	{dir: "faces/headless", importPath: "agent-vivy/faces/headless", pkg: "headless"},
 	{dir: "faces/tui", importPath: "agent-vivy/faces/tui", pkg: "tui"},
 }

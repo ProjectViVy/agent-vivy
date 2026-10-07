@@ -37,7 +37,7 @@ func TestRepositoryModulePathsUseCanonicalNamespace(t *testing.T) {
 		"../../plugins/discord/go.mod",
 		"../../plugins/feishu/go.mod",
 		"../../plugins/governance/go.mod",
-		"../../plugins/lsp/go.mod",
+		"../../plugins/coding/lsp/go.mod",
 		"../../plugins/qq/go.mod",
 		"../../plugins/scx-reference/go.mod",
 		"../../plugins/telegram/go.mod",
@@ -895,7 +895,7 @@ func TestVerifyEverySelectedPublicModule(t *testing.T) {
 		"../../plugins/feishu",
 		"../../plugins/governance",
 		"../../plugins/hello-fs",
-		"../../plugins/lsp",
+		"../../plugins/coding/lsp",
 		"../../plugins/qq",
 		"../../plugins/scx-reference",
 		"../../plugins/telegram",
@@ -967,7 +967,7 @@ func TestPackSelectedToolWorlds(t *testing.T) {
 		name, recipe string
 	}{
 		{"hello-fs", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/hello-fs]\ngrantApprovals:\n  - {module: vivy/hello-fs, name: fs.read}\n"},
-		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/lsp/plugin_test.go]\n"},
+		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/coding/lsp/plugin_test.go]\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -55,7 +55,7 @@ func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source:     module.Source{Ref: "repo:plugins/coding/local-llm", SHA256: "5f2eeb7ac084cab3bc50e6a9a472a4f1850250e28d6540a89c5826bce60a24eb"},
+		Source:     module.Source{Ref: "repo:plugins/infra/llm", SHA256: "9a8e049ac4d8a1ddc673b28ae492a6401639bd73916d31f74d1bf2688e13a90d"},
 		Provides: []module.PortRef{
 			{Port: "std/control-action@v1", ID: ActionID},
 			{Port: "std/status-source@v1", ID: StatusSourceID},
