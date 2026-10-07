@@ -8,6 +8,7 @@ Protocol baseline: ACP wire version 1, schema-v1.21.0\
 Candidate SDK: github.com/eino-contrib/acp v0.0.4\
 Review draft: docs/superpowers/specs/2026-10-07-acp-stdio-face-design.md
 Canonical destination after G0 review: docs/architecture/ACP-STDIO-FACE.md
+Conditional implementation package: [ACP pilot plan](../plans/2026-10-07-acp-pilot/README.md)
 
 ## 1. Decision and success condition
 
@@ -260,7 +261,7 @@ No SDK replacement, upgrade, vendored schema, hidden raw transport import or dep
 
 ## 12. Detailed implementation contract
 
-The interfaces and file ownership in this section are proposed implementation contracts, not claims that these APIs already exist. This is design decomposition; the sequenced implementation plan follows G0 review.
+The interfaces and file ownership in this section are proposed implementation contracts, not claims that these APIs already exist. This is design decomposition. At the owner's request, the linked package now sequences G0 investigation and conditional G1 work before G0 closure; it does not make unresolved interfaces or dependency choices execution-ready.
 
 ### 12.1 Build, entrypoint and configuration
 
@@ -531,9 +532,9 @@ G0 closes only after:
 2. Candidate SDK compatibility and resource/shutdown controls have executable evidence; dependency choice is revised if necessary.
 3. The outbound redaction contract is shown implementable without leaking secrets or raw events.
 4. Canonical docs replace stale all-ACP-is-remote/WONT-DO statements: ACP-REMOTE-CONTROL-PROPOSAL.md, VIVY-FACE-PACK.md and docs/TODO.md.
-5. The reviewed contract names supported operations, limits and real-client expectations. Only then write the implementation plan and explicitly schedule G1.
+5. The reviewed contract names supported operations, limits and real-client expectations. Reconcile the conditional implementation package with the accepted evidence and explicitly schedule G1 before releasing its implementation Stories.
 
-This revision records approved pilot scope and a detailed proposed contract. The ACP branch publishes this review draft and its iteration record. No G1 schedule, dependency acceptance, executable compatibility result or product test pass is claimed. The source baseline was rechecked before branch publication and main remained at the recorded commit. Canonical contract adoption and implementation remain subject to the G0 closure conditions above.
+This revision records approved pilot scope and a detailed proposed contract. The ACP branch publishes this review draft, its conditional implementation package and their iteration records. No G1 schedule, dependency acceptance, executable compatibility result or product test pass is claimed. The source baseline was rechecked before branch publication and main remained at the recorded commit. Canonical contract adoption and implementation remain subject to the G0 closure conditions above.
 
 ## 14. Source index
 
