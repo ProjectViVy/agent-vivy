@@ -88,6 +88,17 @@ MUST display absence, not claim an inactive capability that was never compiled.
 A protected Tool may be explicitly omitted from a minimal VIVY CODE Recipe.
 Its reserved identity remains unavailable to public Providers.
 
+### Selected-Face overlay (ACP pilot)
+
+Selecting a different `std/face@v1` Provider in the Recipe — e.g.
+`projectvivy/acp` for the ACP stdio pilot (`ACP-STDIO-FACE.md`) — selects the
+one Face compiled into the artifact. The pilot packaging reuses `cmd/vivy`
+with a selected-Face overlay: the compiled Recipe/Assembly (`Face` field) is
+the launch-time selection datum, `tui`/`run` dispatch is stubbed for that
+selected build, and implementation code of non-selected Faces is not linked
+in. Assets a packer copies (e.g. `ui/dist`) are reported separately from the
+code-omission claim; they are not required to disappear under this route.
+
 ## 5. Recipe shape
 
 The target canonical form is:

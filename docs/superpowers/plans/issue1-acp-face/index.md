@@ -1,6 +1,6 @@
 # Issue #1 Restricted ACP v1 Pilot Delivery Plan
 
-**Design:** [Reconciled detailed design](../../specs/2026-10-07-acp-stdio-face-design.md).
+**Design:** [Reconciled detailed design](../../../architecture/ACP-STDIO-FACE.md).
 **Executable baseline:** main at dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
 **Planning authorization:** The owner selected the restricted pilot and requested consolidation on ACP before retiring the old documentation branch. This is not G0 execution, SDK acceptance or G1 scheduling.
 **Authority:** This index alone owns Story status and dependencies. The design owns proposed behavior. Historical specs/indexes redirect here; no parallel delivery board remains.
@@ -23,10 +23,11 @@ The remaining review decisions are concrete, not hidden implementation discretio
 
 | Decision | Current draft / smallest next evidence | Execution boundary |
 |---|---|---|
-| SDK pin and public controls | Evaluate v0.0.4 against pinned schema, cancellation admission, real pipes and safe errors | A rejection report does not accept the dependency; no automatic fork/upgrade |
-| Privacy presentation | Proposed optional TextPresentationHost, whole-line sanitization and original-byte digest checks | Owner reviews API and possible no-newline latency before ACP-02/03 |
-| Packaging | Prefer existing selected build overlay; prove Web/TUI implementation omission and report assets separately | New Recipe.entrypoint, separate target and asset stripping require a distinct G0 choice, not implicit approval |
-| Bounds and real client | Design limits are proposed, not measured; select a client/version supporting positive permission and form-answer paths | Freeze exact values/client with evidence; revise downstream signatures/tests before Ready |
+| SDK pin and public controls | v0.0.4 probed: 6 PASS / 3 FAIL / 1 FINDING ([evidence](../../research/acp-sdk-compatibility.md)); owner route = minimal upstream PR (option aliases + wire-error sanitization), fork+pin fallback | Ruling 2026-10-07; v0.0.4 stays evaluation baseline, not release pin |
+| Cancel admission | TTL-bounded latch at prompt admission (cancel before a prompt applies to it within TTL) | Accepted by owner 2026-10-07; SDK gives no prompt/cancel ordering guarantee |
+| Privacy presentation | **Simplified by owner (2026-10-07):** no TextPresentationHost facet, line-buffer or root suppression; original-byte digest checks retained | Resolved; ACP-02 Task 3 withdrawn |
+| Packaging | Candidate A accepted: cmd/vivy + selected-generation overlay; Candidate B struck | Ruling 2026-10-07; no new Recipe field |
+| Bounds and real client | §10 bounds accepted as contract targets; SDK-side caps pending the upstream route. Real smoke client: scripted @agentclientprotocol/typescript-sdk client covering positive permission + form-answer paths (optional Zed manual pass) | Client selected by default; override possible before ACP-05 |
 
 ## Global Constraints
 
@@ -36,7 +37,7 @@ The remaining review decisions are concrete, not hidden implementation discretio
 - Public plugin imports neither agent-vivy/internal nor cloudwego/eino. Reuse accepted ACP root types, conn and transport/stdio; never copy its codec or import SDK internals.
 - Preserve default gateway, vivy tui, vivy run and codeface local-world behavior. All protocol-mode stdout is ACP NDJSON. Generic face helpers take streams and use the compiled Provider, not runtime discovery.
 - Core owns canonical workspaces, file containment, review decisions and durable cancellation. Non-file ResourceLink URI/name is bounded user content with no adapter fetch. Safe local file references alone become context_paths.
-- Allowlisted output, recognized-secret/private-root protection, ordered committed events and fail-closed cleanup are required. Exact new APIs and proposed bounds remain subject to ACP-01.
+- Allowlisted bounded output, ordered committed events and fail-closed cleanup are required. Recognized-secret/private-root output protection is intentionally absent in the restricted pilot (D2 ruling, 2026-10-07). Exact new APIs are frozen by the accepted contract.
 - Product tests use isolated state; never access data/vivy.db, data/demo or data/workspaces. Generate assembly/source-bound evidence through existing tools; all commits are human-attributed.
 
 ## Review focus and requirement traceability
@@ -44,7 +45,7 @@ The remaining review decisions are concrete, not hidden implementation discretio
 | Risk | Required behavior | Owner |
 |---|---|---|
 | RF-1: URI encodings, native drives and symlinks; process A/session B | No cross-root read; no remote reference fetch; use durable session root | ACP-02, ACP-03 |
-| RF-2: simultaneous session reservations, duplicate initialize, idle cancel | Bounded ownership; no cancellation of a future prompt | ACP-03 |
+| RF-2: simultaneous session reservations, duplicate initialize, idle cancel | Bounded ownership; idle cancel latches only within the accepted TTL window | ACP-03 |
 | RF-3: early subscription replay, terminal/cancel race, final partial line | Ordered output and one final response; verify original bytes | ACP-03 |
 | RF-4: late/unknown review reply or ambiguous decision RPC | No stale authorization/answer; reconcile existing review state | ACP-04 |
 | RF-5: blocked pipe, SDK panic, Control lost during teardown | Bounded shutdown, safe errors and honest incomplete-cleanup result | ACP-01, ACP-02, ACP-04, ACP-05 |
@@ -53,7 +54,7 @@ The remaining review decisions are concrete, not hidden implementation discretio
 |---|---|
 | A1: real client prompt | R1 protocol and R5 lifecycle; ACP-03/05 |
 | A2: real IDs and one Runtime/Journal/HITL | R2 authority/workspace and R4 interactions; ACP-02/03/04 |
-| A3: committed updates and clean stdout | R3 projection/privacy and R5 lifecycle; ACP-02/03/05 |
+| A3: committed updates and clean stdout | R3 projection and R5 lifecycle; ACP-02/03/05 |
 | A4: source/hash/grant and physical omission | R6 assembly; ACP-02/05 |
 | A5: bounded fail-closed behavior | R1-R5; ACP-01/03/04/05 |
 
@@ -63,7 +64,7 @@ Epics remain E0 contract freeze (ACP-01), E1 governed local Face (ACP-02/03/04),
 
 | Story | Deliverable | Immediate predecessor and accepted output | Plan | Status | Current blocker |
 |---|---|---|---|---|---|
-| ACP-01 | Executable SDK verdict and accepted G0 contract | None | [ACP-01](ACP-01.md) | Planned | Execution not started; compatibility, design decisions and owner contract review pending |
+| ACP-01 | Executable SDK verdict and accepted G0 contract | None | [ACP-01](ACP-01.md) | Done | G0 closed 2026-10-07: probe evidence + owner rulings + canonical docs adopted; G1 unscheduled |
 | ACP-02 | Host seams, selected launcher and build isolation | ACP-01: exact SDK/API/limits, privacy and one packaging contract | [ACP-02](ACP-02.md) | Blocked | G0 not accepted; G1 not scheduled |
 | ACP-03 | Owned sessions, prompt/cancel and ordered projection | ACP-02: Host interfaces and private selected-Face path | [ACP-03](ACP-03.md) | Blocked | Predecessor evidence absent |
 | ACP-04 | Permission, questions and all-owned-run cleanup | ACP-03: prompt generations, event reducer and bounded connection | [ACP-04](ACP-04.md) | Blocked | Predecessor evidence absent |
@@ -103,7 +104,7 @@ Scenario IDs use AC; ACP IDs name Stories only.
 | AC-02 rejected input and no-fetch resource references | ACP-03 |
 | AC-03 process A/session B tools, context and instructions | ACP-02/03; final ACP-05 |
 | AC-04 ordered replay and integrity | ACP-03 |
-| AC-05 split text sanitization and original digest | ACP-02/03 |
+| AC-05 bounded line emission and original digest | ACP-03 |
 | AC-06 isolated cancel before run ID | ACP-03 |
 | AC-07 SDK prompt/cancel admission | ACP-01/03 |
 | AC-08 permission approve/deny/invalid/late | ACP-04; final ACP-05 |

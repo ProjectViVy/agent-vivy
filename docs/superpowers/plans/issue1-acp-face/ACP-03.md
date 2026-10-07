@@ -5,7 +5,7 @@
 **Goal:** Construct the ACP module and execute owned prompts with ordered safe output and isolated cancellation.
 **Architecture:** One SDK connection owns session and prompt generations; Control/Runtime remain authoritative. A bounded reducer orders committed events and hands interactions to ACP-04 without blocking.
 **Tech Stack:** Go 1.26.4; ACP wire 1 / schema-v1.21.0; existing FaceHost and Control; SDK pin accepted by ACP-01.
-**Spec:** [Reconciled detailed design](../../specs/2026-10-07-acp-stdio-face-design.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
+**Spec:** [Reconciled detailed design](../../../architecture/ACP-STDIO-FACE.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
 **State / dependencies:** [Single index](index.md#story-status-and-dependencies). Requires accepted ACP-02 interfaces, startup and isolation evidence.
 
 ## Global Constraints

@@ -5,7 +5,7 @@
 **Goal:** Obtain an executable dependency verdict and one reviewed G0 contract without shipping a functional ACP Face.
 **Architecture:** Use an isolated SDK probe, then resolve the existing draft's concrete decisions. Keep the candidate dependency outside the product until accepted.
 **Tech Stack:** Go 1.26.4; ACP wire 1 / schema-v1.21.0; existing FaceHost and Control; candidate github.com/eino-contrib/acp v0.0.4, not yet accepted.
-**Spec:** [Reconciled detailed design](../../specs/2026-10-07-acp-stdio-face-design.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
+**Spec:** [Reconciled detailed design](../../../architecture/ACP-STDIO-FACE.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
 **State / dependencies:** [Single index](index.md#story-status-and-dependencies). No predecessor. G0 execution is not started by this documentation request.
 
 ## Global Constraints
@@ -35,7 +35,7 @@ Produces a report containing exact SDK and schema commits/checksums, toolchain/O
 
 Existing to review/update when this Story executes:
 
-- docs/superpowers/specs/2026-10-07-acp-stdio-face-design.md
+- docs/architecture/ACP-STDIO-FACE.md
 - docs/architecture/ACP-REMOTE-CONTROL-PROPOSAL.md
 - docs/architecture/VIVY-FACE-PACK.md
 - docs/architecture/VIVY-PORT-CATALOG.md

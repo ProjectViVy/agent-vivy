@@ -316,7 +316,14 @@ If phones later need to "remote-control the `vivy.exe` at home," that is the rem
 | Recipe | Exactly one `face:` | `channels:` list | Not in generation.yml |
 | Provenance | `source=web\|tui\|headless` | `channel.inbound` | Control-plane principal, recorded separately |
 | Approvals | Local face may be the HITL principal | Not an approver in the first cut | Remote principal must be explicitly approved |
-| Examples | Browser, TTY, `vivy run` | Telegram, Feishu | Future Android remote control, editor |
+| Examples | Browser, TTY, `vivy run`, `projectvivy/acp` stdio Face | Telegram, Feishu | Future Android remote control, editor |
+
+The "ACP / companion" column is the *remote* control-plane proposal
+(`ACP-REMOTE-CONTROL-PROPOSAL.md`, still deferred). A **local stdio ACP agent
+Face** — `projectvivy/acp` under `ACP-STDIO-FACE.md` — belongs in the *face*
+column instead: it is an exclusive `std/face@v1` Provider selection speaking
+the Agent Client Protocol to the IDE that launched the process, behind the
+same FaceHost authority.
 
 Mixing the three authorities is a bug.
 

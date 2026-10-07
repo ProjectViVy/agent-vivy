@@ -5,7 +5,7 @@
 **Goal:** Produce an inspectable restricted ACP artifact and verify every positive and negative product path.
 **Architecture:** Seal the completed adapter source and use the G0-selected build route. Source-bound conformance, selected/omitted artifacts and a real client prove what ships.
 **Tech Stack:** Go 1.26.4; ACP wire 1 / schema-v1.21.0; existing FaceHost and Control; SDK pin accepted by ACP-01.
-**Spec:** [Reconciled detailed design](../../specs/2026-10-07-acp-stdio-face-design.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
+**Spec:** [Reconciled detailed design](../../../architecture/ACP-STDIO-FACE.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
 **State / dependencies:** [Single index](index.md#story-status-and-dependencies). Requires accepted ACP-04 complete adapter; ACP-02 supplies the frozen launcher/build contract through the serial chain.
 
 ## Global Constraints
@@ -61,15 +61,15 @@ go run ./sdk pack --recipe recipes/default.vivy.yml --output dist/acp-default-co
 go run ./sdk inspect-artifact dist/acp-default-control
 ~~~
 
-- [ ] Complete TestACPArtifactOmission against the actual pack overlay/dependency closure. ACP artifact excludes the G0-identified Web/TUI Face implementation, including faces/tui, sdk/tui/face and TUI renderer/controller; default artifact excludes plugins/acp. Report ui/dist separately: retained assets are allowed under Candidate A, while Candidate B must prove its accepted empty-UI contract. Do not ban reusable sdk/tui command/i18n helpers merely by directory name. Check SDK remote transports specifically; core/provider networking is allowed.
-- [ ] Verify Inspect exposes the accepted launch contract (including entrypoint only if Candidate B was adopted), one selected Face, exact source/ref/grant and executed conformance. Confirm the executable's embedded manifest agrees with the artifact manifest.
+- [ ] Complete TestACPArtifactOmission against the actual pack overlay/dependency closure. ACP artifact excludes the G0-identified Web/TUI Face implementation, including faces/tui, sdk/tui/face and TUI renderer/controller; default artifact excludes plugins/acp. Report ui/dist separately: retained assets are allowed under the accepted Candidate A route. Do not ban reusable sdk/tui command/i18n helpers merely by directory name. Check SDK remote transports specifically; core/provider networking is allowed.
+- [ ] Verify Inspect exposes the accepted launch contract, one selected Face, exact source/ref/grant and executed conformance. Confirm the executable's embedded manifest agrees with the artifact manifest.
 - [ ] Run scripted AC-01..12 process scenarios, including startup directory A/session B, two sessions, reverse permission/form, EOF, broken and blocked pipes, signal and flood. Record exact tested OS/toolchain; do not claim Windows/Linux parity from compilation alone.
 
 ## Task 4: Verify the actual client and hand off the candidate
 
 - [ ] Launch the artifact from the exact real client/version selected in ACP-01, using a test project and a configured test provider. Record initialization, project B file/tool result, a permission allow and deny, a successful form answer and separate form cancellation, isolated prompt cancel and clean exit.
 - [ ] Separately test an unavailable-form client and expiry. Their fail-closed results cannot replace the successful Ask User answer above. If no real client can exercise a required positive path, mark product acceptance Blocked and record the missing capability.
-- [ ] Confirm the client's display remains understandable after redaction and the no-newline latency tradeoff is acceptable. Inspect a sanitized transcript: no private roots, recognized secret canaries, raw tool args, SDK frames or stack traces.
+- [ ] Confirm the client's display is understandable and bounded. Inspect a captured transcript: no raw tool args, no SDK access-log frames, no stack traces or raw internal errors on the wire (wire-error sanitization is the upstream patch's job — verify the pinned revision carries it). Outbound privacy facets are intentionally absent per the D2 ruling; do not assert redaction.
 - [ ] Record each design acceptance ID as PASS / FAIL / BLOCKED with a command, test name or real-client observation. An experimental TCK report is supplemental; unsupported baseline MCP cases remain explicit and do not become a full-conformance badge.
 - [ ] Add final iteration evidence, update the package index and open backlog items from actual findings. Commit explicit changed paths with: feat(acp): package and verify the restricted pilot.
 

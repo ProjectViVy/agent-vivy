@@ -136,7 +136,11 @@ inside the one selected Provider — it is not a second Face and no new Port.
 
 UI contributions modify a selected Face; they do not create a second Face.
 
-## 6. Provider Profile
+The ACP stdio pilot (`projectvivy/acp`, `ACP-STDIO-FACE.md`) is one such Face
+Provider: an exclusive `0..1` selection speaking the Agent Client Protocol on
+stdio, still behind FaceHost authority. The pilot adds one additive optional
+input to Face `Options` — `In io.Reader`, nil for existing Faces and required
+only by the ACP Provider. It introduces no new Port and no facet.
 
 ### `std/provider-profile@v1`
 
@@ -410,7 +414,8 @@ slots even though they consume public Ports.
 
 ## 14. Closed surfaces
 
-The following are not public Ports:
+The following are not public Ports (an ACP Face Provider consumes `std/face@v1`
+through FaceHost like any other Face and adds no entry to this list):
 
 - executable Model Provider;
 - arbitrary RPC or HTTP route;

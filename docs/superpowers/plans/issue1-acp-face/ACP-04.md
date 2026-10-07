@@ -5,7 +5,7 @@
 **Goal:** Route permissions and questions through the existing review authority and close every owned prompt safely on disconnect.
 **Architecture:** Run reverse requests outside the ordered reducer. Correlate replies with connection/session/run/generation/review IDs; use one bounded cleanup path without adapter persistence.
 **Tech Stack:** Go 1.26.4; ACP wire 1 / schema-v1.21.0; existing FaceHost and Control; SDK pin accepted by ACP-01.
-**Spec:** [Reconciled detailed design](../../specs/2026-10-07-acp-stdio-face-design.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
+**Spec:** [Reconciled detailed design](../../../architecture/ACP-STDIO-FACE.md), executable baseline dd78fcf142f384d47ce5cfefb43738fdb9a7346d.
 **State / dependencies:** [Single index](index.md#story-status-and-dependencies). Requires accepted ACP-03 session/prompt/reducer contracts.
 
 ## Global Constraints
