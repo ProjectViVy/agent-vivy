@@ -164,3 +164,36 @@ func TestPreparedInstancesCanHoldLeasesConcurrently(t *testing.T) {
 		t.Fatalf("lease second: %v", err)
 	}
 }
+
+// Preservation guard for the PreparePrivate extraction: codeface keeps
+// project validation, the local world, and the session-aware workspace even
+// though allocation moved to internal/faceprocess.
+func TestCodeFaceLocalWorkspacePreserved(t *testing.T) {
+	shared := t.TempDir()
+	project := t.TempDir()
+	cfg := config.Default()
+	cfg.Storage.DataDir = shared
+	cfg.Storage.SQLite.Path = filepath.Join(shared, "web.db")
+	cfg.Runtime.SkillsRoot = filepath.Join(shared, "skills")
+
+	prepared, err := Prepare(cfg, project)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	projectAbs, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectAbs, _ = filepath.Abs(projectAbs)
+	if prepared.Config.Runtime.World != "local" ||
+		prepared.Config.Runtime.WorkspaceRoot != projectAbs ||
+		prepared.Config.Runtime.Sandbox.WorkspaceRoot != projectAbs {
+		t.Fatalf("local world/workspace = %+v", prepared.Config.Runtime)
+	}
+	if want := filepath.Join(shared, "code-instances"); filepath.Dir(prepared.InstanceRoot) != want {
+		t.Fatalf("instance root parent = %q, want %q", filepath.Dir(prepared.InstanceRoot), want)
+	}
+	if _, err := Prepare(cfg, filepath.Join(project, "missing")); err == nil {
+		t.Fatal("Prepare must still reject a missing project directory")
+	}
+}

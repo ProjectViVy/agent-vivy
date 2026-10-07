@@ -10,11 +10,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"agent-vivy/internal/app"
-	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/faceprocess"
 	"agent-vivy/internal/logging"
 	plugin "agent-vivy/sdk/port/face"
 	tuiface "agent-vivy/sdk/tui/face"
@@ -22,11 +21,7 @@ import (
 
 // Prepared is the split between shared configuration and private runtime
 // state for one code process.
-type Prepared struct {
-	Config             config.Config
-	SharedSettingsPath string
-	InstanceRoot       string
-}
+type Prepared = faceprocess.Prepared
 
 // Prepare allocates a private SQLite-backed runtime for one code process.
 // Provider/model settings remain at the original config data root; sessions,
@@ -57,29 +52,14 @@ func Prepare(cfg config.Config, projectDir string) (Prepared, error) {
 		return Prepared{}, fmt.Errorf("vivy-code: resolve canonical project: %w", err)
 	}
 
-	sharedRoot := cfg.DataDirectory()
-	sharedSettingsPath := settings.Path(sharedRoot)
-	instancesRoot := filepath.Join(sharedRoot, "code-instances")
-	if err := os.MkdirAll(instancesRoot, 0o700); err != nil {
-		return Prepared{}, fmt.Errorf("vivy-code: create instances root: %w", err)
-	}
-	prefix := fmt.Sprintf("%s-%d-", time.Now().Format("20060102-150405"), os.Getpid())
-	instanceRoot, err := os.MkdirTemp(instancesRoot, prefix)
-	if err != nil {
-		return Prepared{}, fmt.Errorf("vivy-code: allocate instance: %w", err)
-	}
-
-	cfg.Storage.Backend = "sqlite"
-	cfg.Storage.DataDir = instanceRoot
-	cfg.Storage.SQLite.Path = filepath.Join(instanceRoot, "vivy.db")
-	cfg.Logging.Dir = filepath.Join(instanceRoot, "logs")
 	cfg.Runtime.World = "local"
 	cfg.Runtime.WorkspaceRoot = projectRoot
 	cfg.Runtime.Sandbox.WorkspaceRoot = projectRoot
-	if err := cfg.Validate(); err != nil {
-		return Prepared{}, fmt.Errorf("vivy-code: validate instance config: %w", err)
+	prepared, err := faceprocess.PreparePrivate(cfg, faceprocess.NamespaceCodeInstances)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("vivy-code: %w", err)
 	}
-	return Prepared{Config: cfg, SharedSettingsPath: sharedSettingsPath, InstanceRoot: instanceRoot}, nil
+	return prepared, nil
 }
 
 // Run starts the real terminal face on the prepared private runtime. Face
