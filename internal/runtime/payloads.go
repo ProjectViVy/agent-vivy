@@ -345,6 +345,10 @@ type payloadHookLifecycle struct {
 type payloadUserQuestionAnswered struct {
 	QuestionID string `json:"question_id"`
 	Answer     string `json:"answer"`
+	// Actor is the settling identity — "local_user" for the Review/Face
+	// path or "channel:a2a:<principal>" for a remote answer. Payload
+	// version 2; absent means version 1 (local answer).
+	Actor string `json:"actor,omitempty"`
 }
 
 type payloadApprovalDecided struct {

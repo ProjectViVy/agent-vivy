@@ -4354,6 +4354,39 @@ func (s *Service) cancelApproval(ctx context.Context, approval domain.Approval, 
 }
 
 func (s *Service) cancelQuestion(ctx context.Context, questionID, reason string) error {
+	if ts, ok := s.deps.Questions.(storage.QuestionTransitionStore); ok {
+		question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+		if err != nil {
+			return err
+		}
+		m := newEventMapper(question.RunID, s.engine.cfg.MaxEventPayloadBytes)
+		ev := m.build(domain.EventUserQuestionCancelled, payloadQuestionCancelled{
+			QuestionID: questionID, Actor: "local_user", Reason: reason,
+		})
+		result, err := ts.CommitQuestionTransition(ctx, storage.QuestionTransitionCommit{
+			RunID:      question.RunID,
+			QuestionID: questionID,
+			Outcome:    domain.QuestionCancelled,
+			Actor:      "local_user",
+			Reason:     reason,
+			At:         time.Now().UnixMilli(),
+			Event:      ev,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, storage.ErrNotFound):
+				return ErrQuestionNotFound
+			case errors.Is(err, storage.ErrConflict), errors.Is(err, storage.ErrRunClosed):
+				return ErrQuestionAlreadyAnswered
+			default:
+				return err
+			}
+		}
+		if !result.Changed {
+			return ErrQuestionAlreadyAnswered
+		}
+		return nil
+	}
 	if lifecycle, ok := s.deps.Questions.(storage.QuestionLifecycleStore); ok {
 		question, err := s.deps.Questions.GetQuestion(ctx, questionID)
 		if err != nil {
@@ -4456,6 +4489,31 @@ func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, 
 }
 
 func (s *Service) expireQuestion(ctx context.Context, question domain.Question, reason string) error {
+	if ts, ok := s.deps.Questions.(storage.QuestionTransitionStore); ok {
+		m := newEventMapper(question.RunID, s.engine.cfg.MaxEventPayloadBytes)
+		ev := m.build(domain.EventUserQuestionExpired, payloadInteractionExpired{
+			ReviewID: question.ID, Kind: string(domain.ReviewKindQuestion), ExpiresAt: question.ExpiresAt, Reason: reason,
+		})
+		result, err := ts.CommitQuestionTransition(ctx, storage.QuestionTransitionCommit{
+			RunID:      question.RunID,
+			QuestionID: question.ID,
+			Outcome:    domain.QuestionExpired,
+			Actor:      "system",
+			Reason:     reason,
+			At:         time.Now().UnixMilli(),
+			Event:      ev,
+		})
+		if err != nil {
+			if errors.Is(err, storage.ErrConflict) || errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrRunClosed) {
+				return nil
+			}
+			return err
+		}
+		if !result.Changed {
+			return nil
+		}
+		return s.settleExpiredQuestion(question, reason)
+	}
 	lifecycle, ok := s.deps.Questions.(storage.QuestionLifecycleStore)
 	if !ok {
 		return nil
@@ -4467,6 +4525,13 @@ func (s *Service) expireQuestion(ctx context.Context, question domain.Question, 
 	s.journalReviewEvent(ctx, question.RunID, domain.EventUserQuestionExpired, payloadInteractionExpired{
 		ReviewID: question.ID, Kind: string(domain.ReviewKindQuestion), ExpiresAt: question.ExpiresAt, Reason: reason,
 	})
+	return s.settleExpiredQuestion(question, reason)
+}
+
+// settleExpiredQuestion is the post-commit tail of question expiry: drop
+// the in-memory pending slot and classify the owning run's terminal
+// failure exactly once.
+func (s *Service) settleExpiredQuestion(question domain.Question, reason string) error {
 	s.mu.Lock()
 	p, pending := s.pending[question.RunID]
 	if pending {
@@ -4474,12 +4539,12 @@ func (s *Service) expireQuestion(ctx context.Context, question domain.Question, 
 	}
 	s.mu.Unlock()
 	if pending {
-		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+		s.emitTerminal(context.Background(), p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeHumanTimeout,
 			Message:       "The run stopped because a user response timed out.",
 		}))
 	} else {
-		s.failHumanTimeout(ctx, question.RunID, reason)
+		s.failHumanTimeout(context.Background(), question.RunID, reason)
 	}
 	return nil
 }
@@ -4521,6 +4586,45 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 		// opportunity while no model/tool call is allowed to proceed.
 		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
 	}
+	// When the store exposes the shared transition contract, the question
+	// CAS and the answered envelope commit in one transaction (A2A-03) —
+	// the same discipline the remote channel-answer path uses.
+	if ts, ok := s.deps.Questions.(storage.QuestionTransitionStore); ok {
+		m := newEventMapper(question.RunID, s.engine.cfg.MaxEventPayloadBytes)
+		ev := m.build(domain.EventUserQuestionAnswered, payloadUserQuestionAnswered{
+			QuestionID: question.ID,
+			Answer:     answer,
+			Actor:      "local_user",
+		})
+		ev.PayloadVersion = 2
+		result, err := ts.CommitQuestionTransition(ctx, storage.QuestionTransitionCommit{
+			RunID:      question.RunID,
+			QuestionID: questionID,
+			Outcome:    domain.QuestionAnswered,
+			Answer:     answer,
+			Actor:      "local_user",
+			At:         time.Now().UnixMilli(),
+			Event:      ev,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, storage.ErrNotFound):
+				return ErrQuestionNotFound
+			case errors.Is(err, storage.ErrConflict):
+				return ErrQuestionAlreadyAnswered
+			case errors.Is(err, storage.ErrRunClosed):
+				return ErrQuestionAlreadyAnswered
+			default:
+				return fmt.Errorf("runtime: answer question: %w", err)
+			}
+		}
+		if !result.Changed {
+			return ErrQuestionAlreadyAnswered
+		}
+		s.dispatchQuestionResume(question, answer)
+		return nil
+	}
+
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
@@ -4541,6 +4645,15 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if err != nil {
 		return fmt.Errorf("runtime: persist question answer: %w", err)
 	}
+	s.dispatchQuestionResume(question, answer)
+	return nil
+}
+
+// dispatchQuestionResume hands a committed winning answer to the pending
+// native run. The question is already settled durably; a missing pending
+// slot (restart, raced settlement) keeps the evidence but launches no
+// execution.
+func (s *Service) dispatchQuestionResume(question domain.Question, answer string) {
 	s.mu.Lock()
 	p, ok := s.pending[question.RunID]
 	if ok {
@@ -4548,8 +4661,8 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	}
 	s.mu.Unlock()
 	if !ok {
-		slog.Warn("question answered without a pending run", "question", questionID, "run", string(question.RunID))
-		return nil
+		slog.Warn("question answered without a pending run", "question", question.ID, "run", string(question.RunID))
+		return
 	}
 	toolName := pendingToolName(p, question.ToolCallID)
 	s.wg.Add(1)
@@ -4558,7 +4671,6 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
 	}()
-	return nil
 }
 
 // CancelQuestion explicitly closes a pending ask_user interaction and the

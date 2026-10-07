@@ -46,11 +46,19 @@ type ChannelTaskRunPage struct {
 }
 
 // ChannelTaskStore is the A2A authorization/idempotency index. It is not a
-// TaskStore: it owns no status, outputs or execution. The answer-side method
-// arrives with A2A-03.
+// TaskStore: it owns no status, outputs or execution.
 type ChannelTaskStore interface {
 	FindChannelTaskReceipt(context.Context, domain.ChannelTaskScope, string) (domain.ChannelTaskReceipt, bool, error)
 	CommitChannelTask(context.Context, ChannelTaskCommit) (ChannelTaskCommitResult, error)
+	// CommitChannelTaskAnswer settles a captured pending question and its
+	// scoped answer receipt atomically (A2A-03): question CAS, answered
+	// envelope and receipt inside one transaction. Identical retries
+	// return the original receipt with NewlyCommitted=false; a losing
+	// message that names an already-settled question gets ErrConflict and
+	// can never reach a later question. Missing/foreign/run-mismatched
+	// identity is ErrNotFound; a run with a committed terminal event is
+	// ErrRunClosed.
+	CommitChannelTaskAnswer(context.Context, ChannelTaskAnswerCommit) (ChannelTaskCommitResult, error)
 	GetChannelTaskOwner(context.Context, domain.ChannelTaskScope, domain.RunID) (domain.SessionID, error)
 	ListChannelTaskRuns(context.Context, ChannelTaskRunQuery) (ChannelTaskRunPage, error)
 }
