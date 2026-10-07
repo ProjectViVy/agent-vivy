@@ -91,7 +91,12 @@ jobs:
           } finally {
             Get-Content .workspace/cold-dev.stdout.log -ErrorAction SilentlyContinue
             Get-Content .workspace/cold-dev.stderr.log -ErrorAction SilentlyContinue
-            if (-not $dev.HasExited) { taskkill.exe /T /F /PID $dev.Id }
+            if (-not $dev.HasExited) {
+              # taskkill exits 1 when a tree member already exited on its own;
+              # that teardown noise must not fail a green smoke.
+              taskkill.exe /T /F /PID $dev.Id
+              $global:LASTEXITCODE = 0
+            }
           }
 
       - name: Run backend CI
