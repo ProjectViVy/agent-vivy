@@ -124,10 +124,20 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 		if _, ok := assembly.ChannelGrants[providerID]; !ok {
 			return fmt.Errorf("app: generated Channel %q has no sealed grant binding", providerID)
 		}
+		moduleID, ok := assembly.ChannelModuleIDs[providerID]
+		if !ok || moduleID == "" {
+			return fmt.Errorf("app: generated Channel %q has no sealed module identity", providerID)
+		}
+		if !compiledModules[moduleID] {
+			return fmt.Errorf("app: generated Channel %q module identity %q is not a sealed Module", providerID, moduleID)
+		}
 		channelIDs = append(channelIDs, strings.TrimPrefix(providerID, "vivy."))
 	}
 	if !slices.Equal(channelIDs, assembly.Manifest.Channels) {
 		return fmt.Errorf("app: generated Channel identities %v do not match sealed manifest %v", channelIDs, assembly.Manifest.Channels)
+	}
+	if len(assembly.ChannelModuleIDs) != len(channelIDs) {
+		return fmt.Errorf("app: generated Channel module identity map does not match sealed providers")
 	}
 
 	profileIDs := make([]string, 0, len(assembly.ProviderProfiles))

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -15,7 +16,11 @@ import (
 	"agent-vivy/sdk/port/channel"
 )
 
-func bindChannels(providers []channel.ChannelProvider, grants map[string][]module.GrantBinding, configured config.Channels) ([]channel.Channel, error) {
+// bindChannelsWithModuleIDs resolves each compiled channel provider's sealed
+// Module identity from the generated ChannelModuleIDs map. When moduleIDs is
+// nil the provider's own display ID stands in (SDK conformance callers);
+// once the map is supplied every provider needs exactly one entry.
+func bindChannelsWithModuleIDs(providers []channel.ChannelProvider, grants map[string][]module.GrantBinding, configured config.Channels, moduleIDs map[string]string) ([]channel.Channel, error) {
 	byName := make(map[string]bool)
 	out := make([]channel.Channel, 0, len(providers))
 	for _, provider := range providers {
@@ -31,11 +36,19 @@ func bindChannels(providers []channel.ChannelProvider, grants map[string][]modul
 			return nil, fmt.Errorf("app: duplicate channel provider name %q", name)
 		}
 		byName[name] = true
+		moduleID := definition.ID
+		if moduleIDs != nil {
+			sealed, ok := moduleIDs[definition.ID]
+			if !ok || sealed == "" {
+				return nil, fmt.Errorf("app: channel provider %q has no sealed module identity", definition.ID)
+			}
+			moduleID = sealed
+		}
 		var capabilityTarget any
 		if source, ok := provider.(channel.CapabilitySource); ok {
 			capabilityTarget = source.CapabilityTarget()
 		}
-		out = append(out, &providerChannel{name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes, capabilityTarget: capabilityTarget})
+		out = append(out, &providerChannel{name: name, provider: provider, moduleID: moduleID, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes, capabilityTarget: capabilityTarget})
 	}
 	for name := range configured {
 		if !byName[name] {
@@ -45,10 +58,21 @@ func bindChannels(providers []channel.ChannelProvider, grants map[string][]modul
 	return out, nil
 }
 
+func bindChannels(providers []channel.ChannelProvider, grants map[string][]module.GrantBinding, configured config.Channels) ([]channel.Channel, error) {
+	return bindChannelsWithModuleIDs(providers, grants, configured, nil)
+}
+
 // BindChannels exposes the internal ChannelHost binding boundary to the SDK
 // conformance suite. Product composition uses the same implementation.
 func BindChannels(providers []channel.ChannelProvider, grants map[string][]module.GrantBinding, configured config.Channels) ([]channel.Channel, error) {
 	return bindChannels(providers, grants, configured)
+}
+
+// BindChannelsWithModuleIDs is the product binding path: the generated
+// Assembly's ChannelModuleIDs map hands each provider its sealed Module
+// identity instead of letting the wrapper borrow the provider display ID.
+func BindChannelsWithModuleIDs(providers []channel.ChannelProvider, grants map[string][]module.GrantBinding, configured config.Channels, moduleIDs map[string]string) ([]channel.Channel, error) {
+	return bindChannelsWithModuleIDs(providers, grants, configured, moduleIDs)
 }
 
 func compiledChannelNames(providers []channel.ChannelProvider) []string {
@@ -65,6 +89,7 @@ func compiledChannelNames(providers []channel.ChannelProvider) []string {
 type providerChannel struct {
 	name             string
 	provider         channel.ChannelProvider
+	moduleID         string
 	grants           []module.GrantBinding
 	instance         channel.Instance
 	maxRunes         int
@@ -80,7 +105,20 @@ func (c *providerChannel) Grants() []module.Grant {
 	return out
 }
 func (c *providerChannel) Start(ctx context.Context, host channel.Host) error {
-	instance, err := c.provider.Construct(ctx, grantedChannelHost{Host: host, moduleID: c.provider.Definition().ID, grants: c.grants})
+	base := grantedChannelHost{Host: host, moduleID: c.moduleID, grants: c.grants}
+	wrapped := channel.Host(base)
+	// The optional task contract is advertised only when the underlying Host
+	// really implements it and the Module carries an effective channel.a2a
+	// grant — the wrapper itself re-checks the grant on every call.
+	if tasks, ok := host.(channel.TaskHost); ok && !nilish(host) {
+		if _, granted := base.binding(module.GrantChannelA2A); granted {
+			wrapped = channel.Host(taskGrantedChannelHost{grantedChannelHost: base, tasks: tasks})
+			if info, ok := host.(channel.TaskServiceInfoHost); ok {
+				wrapped = channel.Host(taskInfoGrantedChannelHost{taskGrantedChannelHost: wrapped.(taskGrantedChannelHost), info: info})
+			}
+		}
+	}
+	instance, err := c.provider.Construct(ctx, wrapped)
 	if err != nil {
 		return err
 	}
@@ -208,6 +246,85 @@ func (host grantedChannelHost) binding(name module.Grant) (module.GrantBinding, 
 		}
 	}
 	return module.GrantBinding{}, false
+}
+
+// taskGrantedChannelHost forwards the optional task contract only behind an
+// effective channel.a2a Module grant. Each call re-checks the grant through
+// the same binding path the base wrapper uses for secrets and network, so a
+// provider never holds a live capability the sealed grant set did not allow.
+type taskGrantedChannelHost struct {
+	grantedChannelHost
+	tasks channel.TaskHost
+}
+
+func (host taskGrantedChannelHost) taskBound() error {
+	if _, ok := host.binding(module.GrantChannelA2A); !ok {
+		return channel.ErrDenied
+	}
+	return nil
+}
+
+func (host taskGrantedChannelHost) SubmitTask(ctx context.Context, request channel.TaskRequest) (channel.TaskRef, error) {
+	if err := host.taskBound(); err != nil {
+		return channel.TaskRef{}, err
+	}
+	return host.tasks.SubmitTask(ctx, request)
+}
+
+func (host taskGrantedChannelHost) GetTask(ctx context.Context, query channel.TaskQuery) (channel.TaskSnapshot, error) {
+	if err := host.taskBound(); err != nil {
+		return channel.TaskSnapshot{}, err
+	}
+	return host.tasks.GetTask(ctx, query)
+}
+
+func (host taskGrantedChannelHost) ListTasks(ctx context.Context, query channel.TaskListQuery) (channel.TaskPage, error) {
+	if err := host.taskBound(); err != nil {
+		return channel.TaskPage{}, err
+	}
+	return host.tasks.ListTasks(ctx, query)
+}
+
+func (host taskGrantedChannelHost) CancelTask(ctx context.Context, query channel.TaskQuery) (channel.TaskSnapshot, error) {
+	if err := host.taskBound(); err != nil {
+		return channel.TaskSnapshot{}, err
+	}
+	return host.tasks.CancelTask(ctx, query)
+}
+
+func (host taskGrantedChannelHost) SubscribeTask(ctx context.Context, subscription channel.TaskSubscription) (channel.TaskStream, error) {
+	if err := host.taskBound(); err != nil {
+		return nil, err
+	}
+	return host.tasks.SubscribeTask(ctx, subscription)
+}
+
+// taskInfoGrantedChannelHost adds the discovery reader only when the
+// underlying Host serves it: the bound Module grant gates the call, and no
+// remote principal is involved in answering.
+type taskInfoGrantedChannelHost struct {
+	taskGrantedChannelHost
+	info channel.TaskServiceInfoHost
+}
+
+func (host taskInfoGrantedChannelHost) TaskServiceInfo(ctx context.Context) (channel.TaskServiceInfo, error) {
+	if err := host.taskBound(); err != nil {
+		return channel.TaskServiceInfo{}, err
+	}
+	return host.info.TaskServiceInfo(ctx)
+}
+
+// nilish reports whether an interface value holds a typed nil (a nil-able
+// kind whose value is nil), so capability assertions on it never reach a
+// dead receiver.
+func nilish(v any) bool {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

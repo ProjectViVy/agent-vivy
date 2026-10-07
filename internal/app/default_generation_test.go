@@ -64,6 +64,7 @@ func TestAppUsesGeneratedRuntimeAssembly(t *testing.T) {
 	assembly := genassembly.BuildDefault()
 	assembly.Channels = nil
 	assembly.ChannelGrants = map[string][]module.GrantBinding{}
+	assembly.ChannelModuleIDs = map[string]string{}
 	assembly.Manifest.Channels = nil
 
 	a, err := NewWithAssembly(context.Background(), newDeepSeekTestConfig(t), assembly)

@@ -216,12 +216,13 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	if hasRunObservers {
 		source.WriteString("\tRunObservers []observer.RunProvider\n")
 	}
-	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\n")
+	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tChannelModuleIDs map[string]string\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\n")
 	if opts.formIdentity != "" {
 		fmt.Fprintf(&source, "// HeadlessGenerationID is the declared identity of this composition's\n// form. It is part of the generated artifact, not invented at runtime: every\n// binary built from this Assembly carries the same form identity, while a\n// packed build replaces this file and derives its sealed identity from the\n// embedded Generation Manifest instead.\nconst HeadlessGenerationID = %q\n\n", opts.formIdentity)
 	}
 	source.WriteString("func BuildDefault() RuntimeAssembly {\n")
 	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs, runObserverIDs []string
+	channelModules := map[string]string{}
 	faceName := "kernel-headless"
 	for _, resolved := range modules {
 		moduleIDs = append(moduleIDs, resolved.Descriptor.Module.ID)
@@ -241,6 +242,10 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 				runObserverIDs = append(runObserverIDs, provided.ID)
 			case "std/channel@v1":
 				channelNames = append(channelNames, strings.TrimPrefix(provided.ID, "vivy."))
+				if owner, taken := channelModules[provided.ID]; taken {
+					return nil, fmt.Errorf("ambiguous channel module identity for %q: %q and %q", provided.ID, owner, resolved.Descriptor.Module.ID)
+				}
+				channelModules[provided.ID] = resolved.Descriptor.Module.ID
 			case "std/face@v1":
 				faceName = provided.ID
 			case "std/provider-profile@v1":
@@ -496,6 +501,15 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 			fmt.Fprintf(&source, "\t\t\t%q: {", p.ID)
 			writeGrants(resolved.EffectiveGrants)
 			source.WriteString("},\n")
+		}
+	}
+	source.WriteString("\t\t},\n\t\tChannelModuleIDs: map[string]string{\n")
+	for _, resolved := range modules {
+		for _, p := range resolved.Descriptor.Provides {
+			if p.Port != "std/channel@v1" {
+				continue
+			}
+			fmt.Fprintf(&source, "\t\t\t%q: %q,\n", p.ID, resolved.Descriptor.Module.ID)
 		}
 	}
 	source.WriteString("\t\t},\n\t\tManifest: generation.Manifest{\n")

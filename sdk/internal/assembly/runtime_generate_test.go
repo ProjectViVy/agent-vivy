@@ -78,7 +78,7 @@ func TestGenerateRuntimeAssemblyBindsTypedActionInventory(t *testing.T) {
 	for _, want := range []string{
 		`"agent-vivy/sdk/port/controlaction"`,
 		"ActionSets                 []controlaction.ProviderSet",
-		"ActionSets:      []controlaction.ProviderSet{controlaction.ProviderSet{",
+		"ActionSets:       []controlaction.ProviderSet{controlaction.ProviderSet{",
 		`controlaction.ProviderSet{ModuleID: "fixture/actions", AllowedIDs: []string{"fixture.action"}, Providers: []controlaction.Provider{actions.NewProvider()}`,
 		`EffectiveGrants: []module.GrantBinding{{Name: module.Grant("secret.read"), Constraints: map[string][]string{"names": {"ACTIONS_TOKEN"}}}}`,
 	} {
@@ -332,5 +332,40 @@ func TestGenerateRuntimeAssemblyFormIdentity(t *testing.T) {
 
 	if _, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity("bad\x01id")); err == nil {
 		t.Fatal("expected invalid form identity to fail")
+	}
+}
+
+func TestGenerateRuntimeAssemblyEmitsChannelModuleIDs(t *testing.T) {
+	channelDescriptor := testDescriptor("projectvivy/a2a-server")
+	channelDescriptor.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "a2a"}}
+	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: channelDescriptor, Binding: GoBinding{ImportPath: "example.com/a2a", Package: "a2a", Constructor: "New", ProviderConstructor: "NewProvider"}, EffectiveGrants: []EffectiveGrant{{Name: module.GrantChannelA2A}}}}}
+
+	generated, err := GenerateRuntimeAssembly(plan, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ChannelModuleIDs",
+		`ChannelModuleIDs: map[string]string{`,
+		`"a2a": "projectvivy/a2a-server"`,
+		`"a2a": {{Name: module.Grant("channel.a2a")`,
+	} {
+		if !strings.Contains(string(generated), want) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, generated)
+		}
+	}
+}
+
+func TestGenerateRuntimeAssemblyRejectsAmbiguousChannelModuleIDs(t *testing.T) {
+	first := testDescriptor("fixture/first")
+	first.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.dup"}}
+	second := testDescriptor("fixture/second")
+	second.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.dup"}}
+	plan := AssemblyPlan{Modules: []ResolvedModule{
+		{Descriptor: first, Binding: GoBinding{ImportPath: "example.com/a", Package: "a", ProviderConstructor: "NewProvider"}},
+		{Descriptor: second, Binding: GoBinding{ImportPath: "example.com/b", Package: "b", ProviderConstructor: "NewProvider"}},
+	}}
+	if _, err := GenerateRuntimeAssembly(plan, "assembly"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("two Modules claiming one channel provider ID must error: %v", err)
 	}
 }

@@ -63,6 +63,7 @@ type RuntimeAssembly struct {
 	LanguageServerStatuses     []toolworld.LanguageServerStatusProvider
 	ToolWorldGrants            map[string][]module.GrantBinding
 	ChannelGrants              map[string][]module.GrantBinding
+	ChannelModuleIDs           map[string]string
 	GenerationID               string
 	Manifest                   generation.Manifest
 	generation                 *module.Generation
@@ -97,6 +98,13 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.feishu":   {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"msg-frontier.feishu.cn", "msg-frontier.larksuite.com", "open.feishu.cn", "open.larksuite.com"}, "ports": {"443"}, "schemes": {"https", "wss"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 			"vivy.qq":       {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.sgroup.qq.com", "bots.qq.com", "sandbox.api.sgroup.qq.com", "wss.api.sgroup.qq.com"}, "ports": {"443"}, "schemes": {"https", "wss"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
+		},
+		ChannelModuleIDs: map[string]string{
+			"vivy.dingtalk": "vivy/dingtalk",
+			"vivy.discord":  "vivy/discord",
+			"vivy.feishu":   "vivy/feishu",
+			"vivy.qq":       "vivy/qq",
+			"vivy.telegram": "vivy/telegram",
 		},
 		Manifest: generation.Manifest{
 			Modules:             []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/diva-cognitive", "vivy/evolution", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/masks", "vivy/masks-ui", "vivy/mcp-host", "vivy/memory", "vivy/memory-bml", "vivy/memory-bml-sync", "vivy/memory-bml-tools", "vivy/model", "vivy/notebook", "vivy/observer-host", "vivy/persona", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/session-tree", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow-ui"},

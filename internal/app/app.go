@@ -687,7 +687,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var svc *runtime.Service
 	var channelHost *channelhost.Host
 	if ao.channels {
-		channelPlugins, err := bindChannels(runtimeAssembly.Channels, runtimeAssembly.ChannelGrants, cfg.Channels)
+		channelPlugins, err := bindChannelsWithModuleIDs(runtimeAssembly.Channels, runtimeAssembly.ChannelGrants, cfg.Channels, runtimeAssembly.ChannelModuleIDs)
 		if err != nil {
 			_ = backend.Close()
 			return nil, err
