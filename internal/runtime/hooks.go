@@ -167,6 +167,9 @@ type GovernanceEvent struct {
 	AfterTokens     int
 	DroppedMessages int
 	RetentionSuffix int
+	// AutoRetry fields for auto_retry.started/finished events (VCP-D2).
+	Attempt int
+	Success bool
 }
 
 type governanceEventSinkKey struct{}

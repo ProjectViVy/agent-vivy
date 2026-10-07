@@ -36,7 +36,11 @@ const defaultProviderStallThreshold = 15 * time.Second
 type interruptDetails struct {
 	// ResumeTarget is the root-cause interrupt id: the key ResumeWithParams
 	// targets (docs/eino-capability-verify.md §2.4).
-	ResumeTarget     string
+	ResumeTarget string
+	// Raw is the engine interrupt info; steer resume walks its context
+	// chain for the agent-level resume target.
+	Raw *adk.InterruptInfo
+
 	ToolCallID       string
 	ToolName         string
 	Args             map[string]any
@@ -158,10 +162,16 @@ func (m *eventMapper) onEventEach(ev *adk.AgentEvent, emit func([]domain.RunEven
 		m.takeObservedStream()
 		var retry *adk.WillRetryError
 		if errors.As(ev.Err, &retry) {
-			return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
+			reason, _ := retry.RejectReason().(string)
+			return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt, Reason: reason})})
 		}
 		var ce *adk.CancelError
 		if errors.As(ev.Err, &ce) {
+			if len(ce.InterruptContexts) > 0 {
+				// Boundary-cancel checkpoints carry their interrupt
+				// contexts; the steer resume needs the real ctx ids.
+				m.interrupt = &interruptDetails{Raw: &adk.InterruptInfo{InterruptContexts: ce.InterruptContexts}}
+			}
 			return errRunCancelled
 		}
 		return fmt.Errorf("engine event error: %w", ev.Err)
@@ -224,7 +234,8 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 		if err != nil {
 			var retry *adk.WillRetryError
 			if errors.As(err, &retry) {
-				return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
+				reason, _ := retry.RejectReason().(string)
+				return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt, Reason: reason})})
 			}
 			var ce *adk.CancelError
 			if errors.As(err, &ce) {
@@ -572,7 +583,7 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 // name. Args resolve against the tracked tool.requested records, falling
 // back to the most recent open call when the address names no id.
 func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetails {
-	d := &interruptDetails{}
+	d := &interruptDetails{Raw: info}
 	for _, c := range info.InterruptContexts {
 		if !c.IsRootCause {
 			continue

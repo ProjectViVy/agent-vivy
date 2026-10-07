@@ -33,7 +33,7 @@ func TestRemoteTUISettingsLocaleReachesView(t *testing.T) {
 		t.Run(locale, func(t *testing.T) {
 			transport := &localeTransport{locale: locale}
 			rendered := false
-			err := runRemoteTUI(context.Background(), transport, live.Options{Host: "remote", Title: "TUI"}, true,
+			err := runRemoteTUI(context.Background(), transport, live.Options{Host: "remote", Title: "TUI"}, view.Options{DebugToolOutput: true},
 				func(driver surface.Driver, options ...view.Options) error {
 					rendered = true
 					if len(options) != 1 || string(options[0].Locale) != locale || !options[0].DebugToolOutput {

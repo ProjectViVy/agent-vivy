@@ -43,7 +43,7 @@ fmt-check:
 # by vet/test). No artifact builds — packing stays the vivy-sdk five-step
 # path.
 plugin-ci:
-    powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Directory | Where-Object { Test-Path (Join-Path $_.FullName ''go.mod'') }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $root + ''/'' + $m.Name); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
+    powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Recurse -Filter go.mod -File | ForEach-Object { $_.Directory }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $m.FullName); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
 
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.

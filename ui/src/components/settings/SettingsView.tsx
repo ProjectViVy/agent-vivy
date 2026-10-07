@@ -17,6 +17,7 @@ import { ChannelsSettings } from './ChannelsSettings';
 import { ApprovalTimeoutCard } from './ApprovalTimeoutCard';
 import { CompactionSettingsCard } from './CompactionSettingsCard';
 import { GenerationParamsCard } from './GenerationParamsCard';
+import { ThinkingSettingsCard } from './ThinkingSettingsCard';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
@@ -124,6 +125,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               <CardContent><Button variant="outline" onClick={() => openWelcome()}>{t('welcome.rerunAction')}</Button></CardContent>
             </Card>
             <GenerationParamsCard />
+            <ThinkingSettingsCard />
             <ApprovalTimeoutCard />
             <CompactionSettingsCard />
             <DivaSettingsPreview section="general" />

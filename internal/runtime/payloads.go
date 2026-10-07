@@ -29,6 +29,9 @@ type payloadRunStarted struct {
 	PromptDigest         string `json:"prompt_digest,omitempty"`
 	CollaborationMode    string `json:"collaboration_mode,omitempty"`
 	CollaborationVersion int    `json:"collaboration_version,omitempty"`
+	// NoContext marks a run whose journal events project to the transcript
+	// but must never enter the model feed (the !! direct-shell variant).
+	NoContext bool `json:"no_context,omitempty"`
 }
 
 // payloadContextReferenceAttached persists the destination-owned sanitized
@@ -95,10 +98,27 @@ type payloadContextCompacted struct {
 	// ReferenceIDs is the explicit manifest of snapshots folded into the
 	// summary; they stay readable by ID against the destination journal.
 	ReferenceIDs []string `json:"reference_ids,omitempty"`
+	// FilesRead / FilesModified count the workspace paths the folded turns
+	// touched (manifest lines live in the durable summary, not the event).
+	FilesRead     int `json:"files_read,omitempty"`
+	FilesModified int `json:"files_modified,omitempty"`
 }
 
 type payloadProviderRetry struct {
-	Attempt int `json:"attempt"`
+	Attempt int    `json:"attempt"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// payloadAutoRetryStarted/Finished are the pi-parity run markers for one
+// overflow compact-and-retry recovery (pi: auto_retry_start/auto_retry_end).
+type payloadAutoRetryStarted struct {
+	Attempt int    `json:"attempt"`
+	Reason  string `json:"reason"`
+}
+
+type payloadAutoRetryFinished struct {
+	Attempt int  `json:"attempt"`
+	Success bool `json:"success"`
 }
 
 type payloadProviderStall struct {
@@ -156,12 +176,30 @@ type payloadModelUsageV2 struct {
 	TotalTokens      int    `json:"total_tokens"`
 	ReasoningTokens  *int   `json:"reasoning_tokens,omitempty"`
 	CachedTokens     *int   `json:"cached_tokens,omitempty"`
+	// CacheWriteTokens counts tokens written to the provider cache on a
+	// cache-warming call (VCP F2); nil keeps the bucket unknown on every
+	// other sample.
+	CacheWriteTokens *int `json:"cache_write_tokens,omitempty"`
 	// NormalizationPartial marks samples that contradicted the pinned
 	// monotonic merge (decreasing counters, non-cumulative convention).
 	NormalizationPartial *bool `json:"normalization_partial,omitempty"`
 	// Settlement marks the single mandatory End sample, which is exempt
 	// from the MaxEvents budget like run terminal events are.
 	Settlement *bool `json:"settlement,omitempty"`
+}
+
+// payloadCacheWarmed is the silent diagnostic of one warm decision
+// (VCP F2): the refresh never enters model context or Journal messages;
+// this event is the only trace.
+type payloadCacheWarmed struct {
+	CallID           string `json:"call_id"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Mode             string `json:"mode"`             // streaming | idle
+	Status           string `json:"status"`           // warmed | skipped | failed
+	Reason           string `json:"reason,omitempty"` // gate reason or error class
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CacheWriteTokens int    `json:"cache_write_tokens,omitempty"`
 }
 
 // payloadModelCallUsage is the normalized usage sample embedded in
@@ -220,6 +258,14 @@ type payloadToolFinished struct {
 	Outcome    string            `json:"outcome,omitempty"`
 	Reason     string            `json:"reason,omitempty"`
 	Effects    string            `json:"effects,omitempty"`
+}
+
+// payloadToolsExposureChanged is journaled when tools/activate or
+// tools/deactivate flips a session's deferred-tool activation set. Folding
+// it on session rebuild reproduces activation across restarts and resumes.
+type payloadToolsExposureChanged struct {
+	Activated   []string `json:"activated,omitempty"`
+	Deactivated []string `json:"deactivated,omitempty"`
 }
 
 // payloadToolNudge is the durable record of one reminder scheduled for
@@ -414,4 +460,29 @@ type payloadChildFailed struct {
 
 type payloadChildCancelled struct {
 	Reason string `json:"reason"`
+}
+
+// turn.* queue markers (VCP-B1): the durable queue lives on the run journal.
+type payloadTurnQueued struct {
+	QueueID string `json:"queue_id"`
+	Track   string `json:"track"`
+	Text    string `json:"text"`
+}
+
+type payloadTurnDequeued struct {
+	QueueID string `json:"queue_id"`
+	Track   string `json:"track"`
+	Reason  string `json:"reason"` // started | cleared | aborted | dequeued
+	// Text repeats the queued turn's text so faces can restore it into the
+	// editor (abort flush / Alt+Up dequeue) without tracking queue ids.
+	Text string `json:"text,omitempty"`
+	// NextRunID announces the run an admitted item started — publish-only
+	// wire hint on the settling run's topic (journal truth lives on the
+	// new run's journal).
+	NextRunID string `json:"next_run_id,omitempty"`
+}
+
+type payloadTurnSteered struct {
+	QueueID string `json:"queue_id"`
+	Text    string `json:"text"`
 }

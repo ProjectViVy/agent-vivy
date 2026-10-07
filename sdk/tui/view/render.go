@@ -17,6 +17,7 @@ import (
 
 	"agent-vivy/sdk/tui/internal/textsafe"
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/theme"
 )
 
 const headerDiag = "╱"
@@ -54,6 +55,9 @@ func (m Model) renderFrame() string {
 	}
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
+	}
+	if m.treeOpen {
+		return placeOverlay(frame, m.renderTreeDialog(l, p), l.width, l.height)
 	}
 	if m.commandConfirmName != "" || m.commandOverlay != "" {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
@@ -132,6 +136,14 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 				provider = safeModelLabel(option.Provider)
 			}
 			line := marker + provider + " · " + safeModelLabel(option.Model)
+			// pi picker badges: ◆ = member of the scoped_models cycle set,
+			// ⌁ = the model declares extended-thinking support (VCP F3).
+			if option.Scoped {
+				line += " ◆"
+			}
+			if option.Thinking {
+				line += " ⌁"
+			}
 			style := p.Idle
 			if i == cursor {
 				line = "▸ " + strings.TrimPrefix(line, "  ")
@@ -725,10 +737,17 @@ func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 			segment = m.renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
 			m.mdCache.put(message, width, segment)
 		}
-		if index < len(messages)-1 {
-			segment = append(append([]string(nil), segment...), "")
+		// OSC8 hyperlinks wrap rendered URLs so supporting terminals make
+		// them clickable. Cached segments are pre-link; linkify here so the
+		// markdown cache stores the shared pre-escape form.
+		linked := make([]string, len(segment))
+		for i, line := range segment {
+			linked[i] = linkifyOSC8(line)
 		}
-		segments = append(segments, segment)
+		if index < len(messages)-1 {
+			linked = append(linked, "")
+		}
+		segments = append(segments, linked)
 	}
 	assembly.sessionID = m.driver.Active().ID
 	assembly.width = width
@@ -815,10 +834,33 @@ func (m Model) renderEmptyHero(p Palette, width int) []string {
 	if cwd := strings.TrimSpace(m.driver.Sidebar().CWD); cwd != "" {
 		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.cwd", map[string]any{"path": cwd}), width)))
 	}
+	if counts := m.heroCountsLine(); counts != "" {
+		lines = append(lines, p.Dim.Render(truncate(counts, width)))
+	}
 	return append(lines,
 		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.commands", nil), width)),
 		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.toggles", nil), width)),
 	)
+}
+
+// heroCountsLine is the pi-style startup resource listing under the hero:
+// skills, active tools, MCP servers and sessions. Counts render only for the
+// facts the sidebar projection actually reported; unknown facts are skipped
+// rather than shown as zero.
+func (m Model) heroCountsLine() string {
+	snapshot := m.driver.Sidebar()
+	parts := make([]string, 0, 4)
+	if snapshot.SkillsKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.skills", map[string]any{"count": len(snapshot.Skills)}))
+	}
+	if snapshot.ToolsKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.tools", map[string]any{"count": snapshot.ToolCount}))
+	}
+	if snapshot.MCPKnown {
+		parts = append(parts, m.translator.T("vivy.tui.hero.mcp", map[string]any{"count": len(snapshot.MCP)}))
+	}
+	parts = append(parts, m.translator.T("vivy.tui.hero.sessions", map[string]any{"count": len(m.driver.Sessions())}))
+	return strings.Join(parts, "  ·  ")
 }
 
 func (m Model) renderMessage(message surface.Message, width int, p Palette) []string {
@@ -846,7 +888,7 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 		contentWidth = max(1, width)
 	}
 
-	bodyLines, painted := renderMessageBody(message, contentWidth)
+	bodyLines, painted := renderMessageBody(message, contentWidth, p.Colors)
 	if message.Reasoning && reasoningCollapsed {
 		if len(bodyLines) > 0 {
 			bodyLines = []string{m.translator.T("vivy.tui.reasoning.lines", map[string]any{"count": len(bodyLines)})}
@@ -869,6 +911,11 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 	}
 	appendChipLines(m.renderAttachmentChips(message.Attachments))
 	appendChipLines(m.renderFileContextChips(message.FileContexts))
+	for _, attachment := range message.Attachments {
+		if lines := m.renderImageAttachment(attachment, contentWidth); lines != nil {
+			bodyLines = append(bodyLines, lines...)
+		}
+	}
 	if len(bodyLines) == 0 {
 		bodyLines = []string{""}
 	}
@@ -886,7 +933,7 @@ func (m Model) renderMessageWithOptions(message surface.Message, width int, p Pa
 	return out
 }
 
-func renderMessageBody(message surface.Message, contentWidth int) ([]string, bool) {
+func renderMessageBody(message surface.Message, contentWidth int, colors theme.Colors) ([]string, bool) {
 	quiet := message.Reasoning
 	source := sanitizeMarkdownSource(message.Content)
 	if source == "" {
@@ -898,9 +945,9 @@ func renderMessageBody(message surface.Message, contentWidth int) ([]string, boo
 	if message.Streaming {
 		// A growing bubble renders through the stable-prefix cache so each
 		// flush re-renders only the trailing segment, not the whole document.
-		rendered, err = streamMarkdownRender(message.ID, source, wrapWidth, quiet)
+		rendered, err = streamMarkdownRender(message.ID, source, wrapWidth, quiet, colors)
 	} else {
-		rendered, err = renderMarkdown(source, wrapWidth, quiet)
+		rendered, err = renderMarkdown(source, wrapWidth, quiet, colors)
 	}
 	if err != nil {
 		return wrapText(source, contentWidth), false
@@ -924,6 +971,11 @@ func (m Model) renderTool(tool *surface.ToolCard, width int, p Palette) []string
 const compactToolResultLines = 8
 
 func (m Model) renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugToolOutput bool) []string {
+	if renderer := lookupToolRenderer(tool.ToolName); renderer != nil {
+		if lines := renderer(tool, width, p); lines != nil {
+			return lines
+		}
+	}
 	style := p.Tool
 	icon := "●"
 	switch tool.Status {
@@ -1055,7 +1107,7 @@ func renderToolBodyLines(body string, contentWidth int, p Palette) []string {
 		source := sanitizeMarkdownSource(content)
 		// The quiet style carries no chroma config; the normal style provides
 		// the palette chroma highlighting for the fenced code block.
-		rendered, err := renderMarkdown("```"+lang+"\n"+source+"\n```", markdownWrapWidth(contentWidth), false)
+		rendered, err := renderMarkdown("```"+lang+"\n"+source+"\n```", markdownWrapWidth(contentWidth), false, p.Colors)
 		if err != nil || rendered == "" {
 			return wrapText(body, contentWidth)
 		}
@@ -1108,6 +1160,17 @@ func (m Model) renderEditor(width int, p Palette) string {
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
+	}
+	if m.searchOpen {
+		// Transcript search replaces the composer with a one-line query row.
+		count := m.translator.T("vivy.tui.search.none", nil)
+		if n := len(m.searchMatches); n > 0 {
+			count = m.translator.T("vivy.tui.search.match", map[string]any{"index": m.searchCursor + 1, "count": n})
+		}
+		row := p.Prompt.Render("/ ") + sanitizeFileCompletionText(m.searchQuery) + p.Dim.Render("█") +
+			"  " + p.Dim.Render(count) + "  " + p.Dim.Render(m.translator.T("vivy.tui.search.hint", nil))
+		boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
+		return m.composerBoxStyle(p).Width(boxWidth).Render(truncate(row, inner))
 	}
 	lines := []string{m.renderComposerChips(inner, p)}
 	if chips := m.renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
@@ -1911,6 +1974,56 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	}
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
+	}
+	inner := strings.Join(lines, "\n")
+	return p.Dialog.Width(w).Render(inner)
+}
+
+// renderTreeDialog draws the /tree navigator (VCP C2): an indented list of
+// the kernel's session tree — arrows move, Enter switches, Esc closes.
+func (m Model) renderTreeDialog(l layout, p Palette) string {
+	w := max(1, min(l.width-8, 72))
+	lines := []string{p.DialogTitle.Render(m.translator.T("vivy.tui.tree.title", nil))}
+	if m.treeLoading {
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.tree.loading", nil)))
+	} else if len(m.treeRows) == 0 {
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.tree.empty", nil)))
+	} else {
+		lines = append(lines, "")
+		windowRows := max(1, (max(4, l.height-12))/2)
+		start := max(0, m.treeCursor-windowRows/2)
+		if start+windowRows > len(m.treeRows) {
+			start = max(0, len(m.treeRows)-windowRows)
+		}
+		end := min(len(m.treeRows), start+windowRows)
+		for i := start; i < end; i++ {
+			row := m.treeRows[i]
+			marker := "  "
+			style := p.Idle
+			if i == m.treeCursor {
+				marker = "▸ "
+				style = p.Active
+			}
+			name := strings.TrimSpace(row.node.Title)
+			if name == "" {
+				name = m.translator.T("vivy.tui.session.untitled", nil)
+			}
+			indent := strings.Repeat("  ", min(row.depth, 8))
+			if row.depth > 0 {
+				indent += "↳ "
+			}
+			active := ""
+			if row.node.SessionID == m.driver.Active().ID {
+				active = " " + m.translator.T("vivy.tui.tree.current", nil)
+			}
+			lines = append(lines, style.Render(truncate(marker+indent+name+active, max(8, l.width-14))))
+			lines = append(lines, p.Dim.Render(truncate("   "+indent+row.node.SessionID, max(8, l.width-14))))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, p.DialogFooter.Render(wrapWords(m.translator.T("vivy.tui.tree.footer", nil), max(1, w-p.Dialog.GetHorizontalPadding()))))
+	if m.treeError != "" {
+		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.treeError, max(8, l.width-14))))
 	}
 	inner := strings.Join(lines, "\n")
 	return p.Dialog.Width(w).Render(inner)

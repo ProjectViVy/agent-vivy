@@ -58,9 +58,10 @@ func (d *dynamicCommandDriver) CancelDynamicCommand(request uint64) {
 
 type contextCommandDriver struct {
 	*testDriver
-	contextText  string
-	contextPaths []string
-	shellScript  string
+	contextText    string
+	contextPaths   []string
+	shellScript    string
+	shellNoContext bool
 }
 
 func (d *commandDriver) ExecuteCommand(name string, args []string) tea.Cmd {
@@ -75,8 +76,9 @@ func (d *contextCommandDriver) SendWithContext(text string, paths []string) tea.
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 
-func (d *contextCommandDriver) ExecuteShell(script string) tea.Cmd {
+func (d *contextCommandDriver) ExecuteShell(script string, noContext bool) tea.Cmd {
 	d.shellScript = script
+	d.shellNoContext = noContext
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 
@@ -595,8 +597,18 @@ func TestThinkingCommandAndShortcutUseTruthfulModelCapability(t *testing.T) {
 	m = updated.(Model)
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 	m = updated.(Model)
-	if cmd != nil || d.thinking != "off" {
-		t.Fatalf("Ctrl+T did not cycle snapshotted preference: %q", d.thinking)
+	if cmd != nil || d.thinking != "minimal" {
+		t.Fatalf("Ctrl+T did not cycle snapshotted preference into the level surface: %q", d.thinking)
+	}
+
+	// An explicit level lands on the draft preference unchanged.
+	levelDriver := &testDriver{sidebar: surface.Sidebar{HasContext: true, Context: surface.Context{ThinkingSupported: true}}}
+	lm := New(levelDriver)
+	lm.input = "/thinking xhigh"
+	updated, cmd = lm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	lm = updated.(Model)
+	if cmd != nil || levelDriver.thinking != "xhigh" {
+		t.Fatalf("/thinking xhigh = mode %q cmd=%v", levelDriver.thinking, cmd != nil)
 	}
 
 	unsupported := &testDriver{sidebar: surface.Sidebar{HasContext: true}}

@@ -633,7 +633,35 @@ export interface FaceAttachmentInput {
   readonly data: string;
 }
 
-export type FaceThinkingMode = "auto" | "on" | "off";
+export type FaceThinkingMode =
+  | "auto"
+  | "on"
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+/** model/thinking report: the persisted preference plus the level the
+ * active model's declared policy resolves it to (VCP F1). */
+export interface FaceThinkingReport {
+  readonly thinking: FaceThinkingMode;
+  readonly effective: string;
+  readonly supported: readonly string[] | null;
+  readonly supports_thinking: boolean;
+  readonly default_thinking: string;
+  readonly read_only: boolean;
+}
+
+/** model/thinking/levels: the active model's declared level surface; a
+ * thinking-capable model with no declared levels reports all seven. */
+export interface FaceThinkingLevelsView {
+  readonly levels: readonly string[];
+  readonly default: string;
+  readonly supports_thinking: boolean;
+}
 
 /** Exact identity and safe projection kind of one source record (SC-D4). */
 export interface FaceSourceRef {
@@ -808,6 +836,54 @@ export interface FaceDeliverySet {
 export interface FaceDeliverySetPage {
   readonly items: FaceDeliverySet[];
   readonly next_cursor?: string;
+}
+
+/** session/tree read model (VCP C1/C3): bounded nodes + fork/clone edges. */
+export interface FaceSessionTreeNode {
+  readonly session_id: string;
+  readonly title: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+  readonly parent_session_id?: string;
+  readonly fork_point_message_id?: string;
+}
+
+export interface FaceSessionTreeEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: string;
+}
+
+export interface FaceSessionTree {
+  readonly nodes: readonly FaceSessionTreeNode[];
+  readonly edges: readonly FaceSessionTreeEdge[];
+}
+
+/** session/clone returns the same shape as session/fork (ForkResult). */
+export type FaceSessionCloneResult = FaceForkResult;
+
+export interface FaceSessionImportResult {
+  readonly session_id: string;
+  readonly imported: number;
+  readonly skipped: number;
+}
+
+/** session/export: the written artifact, its verified-download binding
+ * (name + sha256 for exports/read), and the visible message count. */
+export interface FaceSessionExportResult {
+  readonly path: string;
+  readonly name: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly message_count: number;
+}
+
+/** exports/read: one bounded artifact from the exports directory. */
+export interface FaceExportReadResult {
+  readonly name: string;
+  readonly digest: string;
+  readonly size: number;
+  readonly data_base64: string;
 }
 
 /** deliverables/read request: digest binding is mandatory; a received
@@ -1856,9 +1932,17 @@ export interface FaceClientAPI {
   getPlan(sessionId: string, submissionId: string): Promise<FaceWorkPlan>;
   commitWork(method: FaceWorkMethod, params: Record<string, unknown>): Promise<FaceWorkCommitResult>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
-  compactSession(sessionId: string): Promise<FaceCompactResult>;
+  compactSession(sessionId: string, instructions?: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceRewindResult>;
   forkSession(sessionId: string, messageId: string, title?: string): Promise<FaceForkResult>;
+  /** session/tree + portability verbs (VCP C1 kernel, C3 face). */
+  sessionTree(): Promise<FaceSessionTree>;
+  cloneSession(sessionId: string, title?: string): Promise<FaceSessionCloneResult>;
+  importSession(data: string): Promise<FaceSessionImportResult>;
+  exportSession(sessionId: string): Promise<FaceSessionExportResult>;
+  /** Digest-bound read of one exports-dir artifact; pass the sha256 the
+   * export result reported so a changed file answers an error. */
+  readExport(name: string, expectedDigest?: string): Promise<FaceExportReadResult>;
   editSession(
     sessionId: string,
     messageId: string,
@@ -1871,6 +1955,15 @@ export interface FaceClientAPI {
   listTodos(sessionId: string): Promise<{ readonly todos: readonly FaceTodo[] }>;
   updateTodo(sessionId: string, id: string, status: FaceTodoStatus): Promise<{ readonly todo: FaceTodo }>;
   startTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceRunStartResult>;
+  /** Kernel queue verbs (pi parity): steer injects at the next turn
+   * boundary; follow_up lands after terminal settle; both fall back to a
+   * fresh run on an idle session. */
+  steerTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
+  followUpTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
+  getQueueState(sessionId: string, afterRunId?: string): Promise<FaceQueueState>;
+  clearSessionQueue(sessionId: string): Promise<FaceQueueClearResult>;
+  dequeueQueuedTurn(sessionId: string): Promise<FaceQueueDequeueResult>;
+  removeQueuedTurn(sessionId: string, queueId: string): Promise<FaceQueueRemoveResult>;
   historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
   historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
   previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
@@ -1916,6 +2009,11 @@ export interface FaceClientAPI {
   listTools(): Promise<FaceToolsCatalogView>;
   setActiveTools(tools: string[]): Promise<FaceToolsCatalogView>;
   updateSettings(params: FaceSettingsUpdate): Promise<FaceSettings>;
+  /** model/thinking verbs (VCP F1): set persists the default preference,
+   * a bare get reports the resolved state. */
+  getThinking(): Promise<FaceThinkingReport>;
+  setThinking(level: FaceThinkingMode): Promise<FaceThinkingReport>;
+  thinkingLevels(): Promise<FaceThinkingLevelsView>;
   listProviders(): Promise<FaceProvidersView>;
   upsertProvider(input: FaceProviderEntryInput): Promise<FaceProviderEntry>;
   deleteProvider(id: string): Promise<FaceProviderDeleteResult>;
@@ -1975,6 +2073,63 @@ export interface FaceQueuedMessage extends FaceTurnSubmission {
   readonly id: string;
 }
 
+/** Kernel dual-track queue (pi parity): the "steer" lane injects at the
+ * next turn boundary of the active run; the "follow_up" lane is admitted
+ * after terminal settle. Items are text-only; attachment- or
+ * reference-bearing submissions stay on the face-local FIFO. */
+export type FaceQueueTrack = "steer" | "follow_up";
+
+export interface FaceQueuedTurn {
+  readonly id: string;
+  readonly session_id: string;
+  readonly track: string;
+  readonly text: string;
+  readonly thinking?: string;
+  readonly mode?: string;
+  readonly created_at: number;
+  readonly enqueued_on?: string;
+}
+
+export interface FaceQueueState {
+  readonly steering: readonly FaceQueuedTurn[];
+  readonly follow_up: readonly FaceQueuedTurn[];
+  readonly steer_mode: string;
+  readonly follow_up_mode: string;
+  readonly pending: number;
+  readonly last_admitted_run_id?: string;
+  readonly admitted_run_id?: string;
+}
+
+/** turn/steer and turn/follow_up answer one of two shapes: queued onto the
+ * kernel lanes, or (idle session) a fresh run start — pi's "prompt while
+ * idle" rule. run_id/status carry the fallback shape. */
+export interface FaceQueueTurnResult {
+  readonly queued: boolean;
+  readonly queue_id?: string;
+  readonly track?: string;
+  readonly run_id?: string;
+  readonly status?: string;
+}
+
+export interface FaceQueueDequeueResult {
+  readonly dequeued: boolean;
+  readonly queue_id?: string;
+  readonly track?: string;
+  readonly text?: string;
+}
+
+export interface FaceQueueRemoveResult {
+  readonly removed: boolean;
+  readonly queue_id?: string;
+  readonly track?: string;
+  readonly text?: string;
+}
+
+export interface FaceQueueClearResult {
+  readonly cleared: boolean;
+  readonly texts: readonly string[];
+}
+
 /** Complete current Zustand-backed Face state exposed to UI Modules. */
 export interface FaceStoreState {
   readonly initialized: boolean;
@@ -2014,6 +2169,12 @@ export interface FaceStoreState {
   readonly workError: string | null;
   readonly workBusy: boolean;
   readonly queuedMessages: FaceQueuedMessage[];
+  /** Kernel dual-track queue for the active session (pi parity), refreshed
+   * on session select, queue events and queue verbs. Null until loaded. */
+  readonly kernelQueue: FaceQueueState | null;
+  /** Text handed back to the composer when the kernel flushes the queue
+   * (abort/clear); seq dedupes consecutive restores. */
+  readonly queueRestoreText: { readonly text: string; readonly seq: number } | null;
   /** Session-bound ephemeral draft: attached previews plus the optional
    * broader read scope; never an ACL and never localStorage authority. */
   readonly draftReferences: FaceReferenceDraft[];
@@ -2046,6 +2207,9 @@ export interface FaceStoreState {
   readonly reviewCenterOpen: boolean;
   readonly filesPanelOpen: boolean;
   readonly sessionDrawerOpen: boolean;
+  /** Store action mirrored for UI Modules (VCP C3): selects a session and
+   * loads its transcript — the same path the sidebar's session list uses. */
+  selectSession(id: string): Promise<void>;
   readonly settings: FaceSettings | null;
   readonly settingsPhase: FacePhase;
   readonly settingsError: string | null;
@@ -2080,6 +2244,16 @@ export interface FaceStoreState {
   enqueueMessage(submission: FaceTurnSubmission): void;
   removeQueuedMessage(id: string): void;
   clearQueue(): void;
+  /** Kernel queue verbs (pi parity): text-only submissions route onto the
+   * kernel lanes; attachment- or reference-bearing ones stay on the
+   * face-local FIFO. */
+  steerMessage(submission: FaceTurnSubmission): Promise<void>;
+  followUpMessage(submission: FaceTurnSubmission): Promise<void>;
+  refreshQueue(sessionId?: string): Promise<void>;
+  removeKernelQueued(queueId: string): Promise<void>;
+  /** Pops the newest pending follow-up back into the editor (pi Alt+Up);
+   * resolves to the restored text or null when the lane is empty. */
+  dequeueQueuedTurn(): Promise<string | null>;
   addDraftReference(preview: FaceReferencePreview, selection: FaceReferenceSelection, allowFurtherReading: boolean): void;
   removeDraftReference(id: string): void;
   setDraftScope(scope: FaceHistoryScope | null): void;
@@ -2127,7 +2301,7 @@ export interface FaceStoreState {
   saveSettings(value: FaceSettingsUpdate): Promise<void>;
   saveLocale(locale: FaceLocale): Promise<void>;
   loadSessionContext(sessionId?: string): Promise<void>;
-  compactSession(sessionId: string): Promise<FaceCompactResult>;
+  compactSession(sessionId: string, instructions?: string): Promise<FaceCompactResult>;
   rewindSession(sessionId: string, messageId: string): Promise<FaceMessage[]>;
   forkSession(sessionId: string, messageId: string, title?: string): Promise<string>;
   loadProviders(): Promise<void>;

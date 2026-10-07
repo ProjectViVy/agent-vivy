@@ -1,0 +1,9 @@
+{"type":"session","version":3,"id":"c7f3a2b1","timestamp":"2025-11-02T10:00:00.000Z","cwd":"/home/dev/project"}
+{"type":"message","id":"e1","parentId":null,"timestamp":"2025-11-02T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"hello <world>"}],"timestamp":1762334001000}}
+{"type":"message","id":"e2","parentId":"e1","timestamp":"2025-11-02T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"let me think"},{"type":"text","text":"I'll look."},{"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"a.go"}}],"api":"anthropic-messages","provider":"anthropic","model":"claude","timestamp":1762334002000}}
+{"type":"message","id":"e3","parentId":"e2","timestamp":"2025-11-02T10:00:03.000Z","message":{"role":"toolResult","toolCallId":"call_1","toolName":"read","content":[{"type":"text","text":"package a"}],"isError":false,"timestamp":1762334003000}}
+{"type":"model_change","id":"e4","parentId":"e3","timestamp":"2025-11-02T10:00:04.000Z","provider":"anthropic","modelId":"claude"}
+{"type":"message","id":"e5","parentId":"e4","timestamp":"2025-11-02T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"done & dusted"}],"api":"anthropic-messages","provider":"anthropic","model":"claude","timestamp":1762334005000}}
+{"type":"usage","id":"e6","parentId":"e5","timestamp":"2025-11-02T10:00:06.000Z","tokens":1234}
+{"type":"label","id":"e7","parentId":"e6","timestamp":"2025-11-02T10:00:07.000Z","targetId":"e1","label":"start"}
+not-json-line

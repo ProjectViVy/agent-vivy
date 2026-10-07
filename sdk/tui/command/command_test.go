@@ -43,12 +43,10 @@ func TestParseDoubleSlashEscapesOneSlash(t *testing.T) {
 	}
 }
 
-func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
+func TestParseDoubleAtEscapesOneMarker(t *testing.T) {
 	for _, tc := range []struct {
 		input, want string
 	}{
-		{"!!echo", "!echo"},
-		{"  !!你好 🙂", "  !你好 🙂"},
 		{"@@file.txt", "@file.txt"},
 		{"@@你好", "@你好"},
 	} {
@@ -59,6 +57,23 @@ func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
 		if got.Kind != Plain || got.Text != tc.want || got.IsUnavailable() {
 			t.Fatalf("Parse(%q) = %+v, want plain %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestParseDoubleBangIsNoContextShell(t *testing.T) {
+	got, err := Parse("  !!echo hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsShell() || got.Shell.Script != "echo hi" || !got.Shell.NoContext {
+		t.Fatalf("Parse(!!) = %+v, want no-context shell", got)
+	}
+	plain, err := Parse("!echo hi")
+	if err != nil || !plain.IsShell() || plain.Shell.NoContext {
+		t.Fatalf("Parse(!) = %+v, %v; want context shell", plain, err)
+	}
+	if _, err := Parse("!!"); err == nil {
+		t.Fatal("bare !! must be a syntax error")
 	}
 }
 
@@ -166,7 +181,7 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 	if !errors.As(err, &unknown) || unknown.Name != "does-not-exist" {
 		t.Fatalf("unknown error = %T %v, want UnknownCommandError", err, err)
 	}
-	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off]") || !strings.Contains(r.Help(), "/model [filter]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
+	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off|minimal|low|medium|high|xhigh|max]") || !strings.Contains(r.Help(), "/model [filter]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
 		t.Fatalf("help missing builtins:\n%s", r.Help())
 	}
 }
@@ -188,7 +203,7 @@ func TestInitCommandAcceptsNoArgumentsAndAppearsInHelp(t *testing.T) {
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry(tuii18n.New(corei18n.English))
-	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
+	for _, input := range []string{"/thinking", "/thinking on", "/thinking max", "/thinking xhigh", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/compact focus on auth", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools", "/scope-model", "/hotkeys"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -197,7 +212,7 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 			t.Fatalf("Validate(%q): %v", input, err)
 		}
 	}
-	for _, input := range []string{"/thinking max", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact now", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
+	for _, input := range []string{"/thinking brain", "/thinking on extra", "/image", "/image remove", "/image remove 0", "/image clear now", "/compact \"  \"", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c", "/scope-model extra", "/hotkeys extra"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -292,9 +307,18 @@ func TestDefaultRegistryMapsAllLocalizedDescriptionKeys(t *testing.T) {
 		{name: "queue", english: "Clear queued turns", chinese: "清空排队回合"},
 		{name: "permission", english: "Set permission preset", chinese: "设置权限档"},
 		{name: "thinking", english: "Set thinking mode", chinese: "设置思考档"},
+		{name: "scope-model", english: "Toggle current model in cycle set", chinese: "切换当前模型的循环范围"},
+		{name: "hotkeys", english: "View effective key bindings", chinese: "查看生效键位"},
 		{name: "image", english: "Attach a project image", chinese: "附加项目图片"},
 		{name: "compact", english: "Compact current context", chinese: "压缩当前上下文"},
 		{name: "fork", english: "Fork session at a message", chinese: "在消息处分叉会话"},
+		{name: "clone", english: "Clone this session and switch to it", chinese: "克隆当前会话并切换"},
+		{name: "tree", english: "Browse the session tree", chinese: "浏览会话树"},
+		{name: "import", english: "Import a pi session transcript", chinese: "导入 pi 会话转录"},
+		{name: "export", english: "Export session as HTML", chinese: "导出会话为 HTML"},
+		{name: "copy", english: "Copy the last assistant message", chinese: "复制最后一条助手消息"},
+		{name: "bug", english: "Write a bug report bundle", chinese: "写入问题报告包"},
+		{name: "debug", english: "View runtime log tail", chinese: "查看运行日志尾部"},
 		{name: "rewind", english: "Rewind session view", chinese: "回退会话视图"},
 		{name: "todos", english: "View todos", chinese: "查看待办"},
 		{name: "stats", english: "View usage statistics", chinese: "查看用量统计"},

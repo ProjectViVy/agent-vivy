@@ -53,6 +53,9 @@ type MCPServerConfig struct {
 	// resolves nil to true before writes; the pointer remains useful for
 	// disabled saved entries that must stay visible in status projections.
 	Enabled *bool
+	// ToolExposure maps glob patterns on this server's discovered tool ids
+	// to an exposure level (direct, model-only, deferred, hidden).
+	ToolExposure map[string]string
 }
 
 // MCPServerState is the snapshot vocabulary shared by MCPHost and the RPC/UI

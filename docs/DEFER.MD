@@ -107,6 +107,24 @@ Moved out of the open board to make Issue #39 the sole current priority. These i
 | EINO-TOOLSNODE-ERR-RACE | Upstream eino v0.9.13 `compose/tool_node.go:1253` races on parallel enhanced tool calls | DEFERRED · OWNER PRIORITY RESET 2026-09-26 (prior: OPEN) | Owner-directed deferral on 2026-09-26 to focus the board on Issue #39. Original status: OPEN. Original notes: Found 2026-09-23 by the ND-0 nudge contract suite (`docs/logs/2026-09-23-nudge-contract/`). Inside `(*ToolsNode).Stream`, the enhanced converter closure writes the function-scope `err` (`ret[index].UserInputMultiContent, err = tr.ToMessageInputParts()`); two parallel tool goroutines write that shared variable, so every parallel tool batch is a latent data race — production wraps every tool with `newEnhancedToolAdapter`. Fix is a one-line shadow (`:=`) upstream; options are an upstream patch/upgrade, a module-pin exception with justification, or serializing enhanced conversions. Meanwhile `-race` runs of parallel tool flows cannot stay green. Restart condition: the owner explicitly re-prioritizes this item. |
 
 
+### VCP deferred inventory (2026-10-07)
+
+Deferred items recorded at the close of the vivy-code-parity program (25 stories,
+`feat/vivy-code-parity`). Full audit: `docs/research/2026-10-07-vivy-code-parity-audit.md` §9.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| VCP-SHARE | `/share` public session link | DEFERRED · OWNER | No upload target chosen (gist/own service rejected as undecided). HTML export `/export` + `exports/read` RPC landed instead |
+| VCP-CODEMODE | `codemode` JS-sandbox meta-tool (model writes code that calls tools) | DEFERRED · OWNER | goja pre-approved as the future implementation (pure-Go interpreter, zero external deps). Also the home of classifier/image-model reachability |
+| VCP-OAUTH | `/login` OAuth flows + `auth.json` + `!command` key resolution + credential precedence | DEFERRED · OWNER → `plugins/provider/*` | Approved category exists (SPEC §2.1); provider plugin waits on a concrete provider decision |
+| VCP-SELFUPDATE | `vivy update` self-update + installer script + package manager subcommands beyond `mcp`/`config` | DEFERRED · OWNER | — |
+| VCP-VIRTUAL | Virtual models / per-request routers (`registerVirtualModel` analog) | DEFERRED-LOCKED · OWNER | `modelhost_routing` covers failover only; user-visible virtual models need their own proposal |
+| VCP-CATALOG | Live model-catalog refresh (`pi update --models` analog) | DEFERRED | vendored `vendors.yaml` stays static; plugin-able via control-action + provider-profile later |
+| VCP-MERMAID | Mermaid streaming render; OSC 9;4 progress; IME positioning; mouse drag-select | DEFERRED | TUI polish residuals from G-series |
+| VCP-RETRY | User-facing `retry.*` agent-retry knobs | DEFERRED | failover/titler routing exists; explicit retry settings not exposed |
+| VCP-JSONL-EXPORT | JSONL session export (inbound `/import` pi-JSONL landed; outbound is HTML-only) | DEFERRED | symmetry gap recorded in audit §8 |
+| VCP-BRANCH-SUMMARY | Automatic branch summarization on session-tree navigation | DEFERRED | never scheduled in C-series |
+
 ## 2. Resolved-deferred
 
 Closed by a recorded decision rather than by implementation; the decision is the evidence.
@@ -131,6 +149,10 @@ Declined by an explicit owner decision. Do not reopen without a new decision.
 | ID | Item | Status | Notes |
 |---|---|---|---|
 | ACP-1 | ACP / remote control **implementation** | WONT-DO | 2026-08-31 User decision: ACP will not be implemented (research §8.7) |
+| VCP-RUNTIME-EXT | Pi-style runtime extensions: TS `registerTool/Command/Shortcut/Flag/Provider/McpServer/VirtualModel`, ~40 event hooks, `ctx.ui`, `appendEntry`, packages ecosystem, prompt-template slash commands, hot `/reload` | WONT-DO | 2026-10-06 owner decision: compile-time Module→Port→Recipe→Generation doctrine is deliberate ("编译性插件一切皆插件物种理念很先进"); pi's runtime extensibility is never to be ported |
+| VCP-PROTOCOLS | Native wire protocols beyond Anthropic + OpenAI (OpenAI Responses, Azure Responses, Bedrock Converse, Google GenAI/Vertex, Mistral) | WONT-DO | 2026-10-06 owner decision: "坚决不做除了anthropic和openai" (CN usage); any later addition goes through `plugins/provider/*`, not kernel adapters |
+| VCP-CONTEXT-CHAIN | CLAUDE.md / `*.override.md` / SYSTEM.md / APPEND_SYSTEM.md context-file chain | WONT-DO | 2026-10-06 owner decision: D6 single-file rule holds — AGENTS.md only |
+| VCP-REMOTE-EXEC | Remote execution environment (pi-env / SSH tool backend analog) | WONT-DO | Not scheduled; pi-side feature is experimental |
 
 ---
 

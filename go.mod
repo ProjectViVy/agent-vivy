@@ -128,7 +128,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/image v0.41.0 // indirect
+	golang.org/x/image v0.41.0
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
@@ -146,10 +146,12 @@ require (
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
 	agent-vivy/plugins/governance v0.0.0
-	agent-vivy/plugins/lsp v0.0.0
+	agent-vivy/plugins/coding/lsp v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
+	agent-vivy/plugins/infra/llm v0.0.0
+	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
@@ -223,11 +225,16 @@ replace agent-vivy/plugins/feishu => ./plugins/feishu
 
 replace agent-vivy/plugins/qq => ./plugins/qq
 
-replace agent-vivy/plugins/lsp => ./plugins/lsp
+replace agent-vivy/plugins/coding/lsp => ./plugins/coding/lsp
 
 replace agent-vivy/plugins/governance => ./plugins/governance
 
 replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
+
+replace agent-vivy/plugins/infra/llm => ./plugins/infra/llm
+
+
+replace agent-vivy/plugins/coding/session-tree => ./plugins/coding/session-tree
 
 replace agent-vivy/plugins/vivy-persona => ./plugins/vivy-persona
 

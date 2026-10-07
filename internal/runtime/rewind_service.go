@@ -151,8 +151,7 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	if s.deps.Truncations == nil {
 		return ForkResult{}, ErrRewindNotWired
 	}
-	mutations, ok := s.deps.Truncations.(storage.HistoryMutationStore)
-	if !ok {
+	if _, ok := s.deps.Truncations.(storage.HistoryMutationStore); !ok {
 		return ForkResult{}, ErrRewindNotWired
 	}
 	if err := s.rejectBusySession(ctx, sessionID); err != nil {
@@ -166,10 +165,63 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	if err != nil {
 		return ForkResult{}, err
 	}
+	return s.commitSessionFork(ctx, source, sessionID, stored, effective, cutoffIdx, messageID, title,
+		domain.EventSessionForked, "fork")
+}
+
+// CloneSession copies the session's whole VISIBLE view into a new session —
+// a fork pinned at the effective tail (VCP C1). Provenance rides the same
+// fork/forked-from markers so the session tree shows the edge, while the
+// child event is session.cloned_from so a clone stays distinguishable from
+// a midpoint branch. An empty source still clones: the child is empty and
+// no fork-point marker exists to record.
+func (s *Service) CloneSession(ctx context.Context, sessionID domain.SessionID, title string) (ForkResult, error) {
+	if s.deps.Messages == nil || s.deps.Runs == nil || s.deps.Journal == nil || s.deps.Sessions == nil {
+		return ForkResult{}, errors.New("runtime: service not wired")
+	}
+	if s.deps.Truncations == nil {
+		return ForkResult{}, ErrRewindNotWired
+	}
+	if _, ok := s.deps.Truncations.(storage.HistoryMutationStore); !ok {
+		return ForkResult{}, ErrRewindNotWired
+	}
+	if err := s.rejectBusySession(ctx, sessionID); err != nil {
+		return ForkResult{}, err
+	}
+	source, err := s.deps.Sessions.GetSession(ctx, sessionID)
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("runtime: get source session: %w", err)
+	}
+	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("runtime: list session messages: %w", err)
+	}
+	effective, err := s.effectiveSessionMessages(ctx, sessionID, stored)
+	if err != nil {
+		return ForkResult{}, err
+	}
+	if len(effective) == 0 {
+		// No fork point exists on an empty view: commit a bare child with
+		// the clone provenance event instead of synthetic anchors.
+		return s.commitEmptySessionCopy(ctx, source, title, domain.EventSessionClonedFrom, "clone")
+	}
+	cutoffIdx := len(effective) - 1
+	return s.commitSessionFork(ctx, source, sessionID, stored, effective, cutoffIdx, effective[cutoffIdx].ID, title,
+		domain.EventSessionClonedFrom, "clone")
+}
+
+// commitSessionFork is the shared copy machinery behind ForkSession and
+// CloneSession: it builds the child session, copies effective[:cutoffIdx+1]
+// with fresh message ids, writes the fork/forked-from provenance markers,
+// journals the parent truncation event plus the child provenance event
+// (childEventType), and commits everything atomically. titleSuffix
+// ("fork"/"clone") labels an untitled child.
+func (s *Service) commitSessionFork(ctx context.Context, source domain.Session, sessionID domain.SessionID, stored, effective []domain.Message, cutoffIdx int, messageID, title string, childEventType domain.EventType, titleSuffix string) (ForkResult, error) {
+	mutations := s.deps.Truncations.(storage.HistoryMutationStore)
 	now := time.Now().UnixMilli()
 	newID := domain.SessionID(newPrefixedID("sess_"))
 	if title == "" {
-		title = source.Title + " (fork)"
+		title = source.Title + " (" + titleSuffix + ")"
 	}
 	child := domain.Session{
 		ID:             newID,
@@ -216,7 +268,7 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 	if err != nil {
 		return ForkResult{}, err
 	}
-	childEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), domain.EventSessionForked, payloadSessionForked{
+	childEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), childEventType, payloadSessionForked{
 		SessionID:          string(newID),
 		ParentSessionID:    string(sessionID),
 		ForkPointMessageID: messageID,
@@ -252,6 +304,43 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 		s.publish(ctx, event)
 	}
 	return ForkResult{SessionID: string(newID), ForkPointMessageID: messageID, CopiedCount: len(copied)}, nil
+}
+
+// commitEmptySessionCopy creates a child session with no messages — the
+// clone of an empty (or fully folded) view. There is no fork point, so no
+// truncation markers exist; the child's provenance event alone names the
+// relationship.
+func (s *Service) commitEmptySessionCopy(ctx context.Context, source domain.Session, title string, childEventType domain.EventType, titleSuffix string) (ForkResult, error) {
+	mutations := s.deps.Truncations.(storage.HistoryMutationStore)
+	now := time.Now().UnixMilli()
+	newID := domain.SessionID(newPrefixedID("sess_"))
+	if title == "" {
+		title = source.Title + " (" + titleSuffix + ")"
+	}
+	child := domain.Session{
+		ID:             newID,
+		Title:          title,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		SandboxMode:    source.SandboxMode,
+		ApprovalPolicy: source.ApprovalPolicy,
+		WorkspacePath:  source.WorkspacePath,
+	}
+	childEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), childEventType, payloadSessionForked{
+		SessionID:       string(newID),
+		ParentSessionID: string(source.ID),
+	})
+	if err != nil {
+		return ForkResult{}, err
+	}
+	events, err := mutations.CommitSessionFork(ctx, child, nil, nil, []domain.RunEvent{childEvent})
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("runtime: commit session copy: %w", err)
+	}
+	for _, event := range events {
+		s.publish(ctx, event)
+	}
+	return ForkResult{SessionID: string(newID), CopiedCount: 0}, nil
 }
 
 // rejectBusySession refuses the action while the session still has a

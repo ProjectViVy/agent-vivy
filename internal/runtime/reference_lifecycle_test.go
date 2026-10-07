@@ -48,7 +48,7 @@ func TestReferenceLifecycleCompactionManifestKeepsIDs(t *testing.T) {
 	f := newReferenceFixtureWithConfig(t, WrapModel(testsupport.NewEchoModel()), cfg)
 	runID, reference := admittedReference(t, f, "req-compact")
 	_ = runID
-	result, err := f.svc.CompactSession(context.Background(), "B")
+	result, err := f.svc.CompactSession(context.Background(), "B", CompactOptions{})
 	if err != nil {
 		t.Fatalf("compact: %v", err)
 	}

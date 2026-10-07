@@ -58,6 +58,29 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
   Grant or permission prompt. The backend still distrusts every browser claim.
 - Same-process T2 code is trusted, not sandboxed. Untrusted execution is T3.
 
+## Placement rule: universal stays internal
+
+**"Universal" means every Generation selects it.** A capability that every
+Recipe picks (file/shell/ask_user/skills tools, and universal enhancements
+such as todo, notes, http_request, download, sequential_thinking) is kernel
+inventory, not a plugin: wrapping it in a Module adds digest pinning,
+descriptor, and binding maintenance for zero variation — it would be
+selected in every Generation anyway.
+
+Plugin categories exist for capability that a real Recipe boundary drops:
+
+| Category | Holds | Examples |
+|---|---|---|
+| `internal/` | Universal: selected by every Generation | protected tools, todo, notes |
+| `plugins/infra/` | Local daemon discovery/health/lifecycle | infra/llm (ollama, llama.cpp…), future asr/tts/vad |
+| `plugins/coding/` | Programming-specialized capability | lsp, session-tree, coding tools |
+| `plugins/provider/` | Cloud provider/credential adapters | future OAuth login flows |
+
+If a universal tool later gains a confirmed variation boundary (e.g. an
+offline profile that must drop http_request), extract that one tool then —
+the door is never welded, but do not pre-pay modularity for hypothetical
+flexibility.
+
 ## Example decision
 
 Request: “Publish another `read_file` plugin.”

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -125,12 +126,19 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	return out, nil
 }
 
+// CompactOptions tunes one manual compaction. Instructions steers the
+// summarizer (pi's /compact <instructions>): it is appended to the summary
+// prompt under a Focus: section, verbatim and unredacted.
+type CompactOptions struct {
+	Instructions string
+}
+
 // CompactSession runs one durable, session-level compaction now: it
 // summarizes the assembled history with the provider model, records the
 // summary (with the kept tail) in the compaction store so future feeds fold
 // the covered rows, and journals a context.compacted event. It refuses to
 // run while a run is active: live runs already compress in-run.
-func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID) (CompactionResult, error) {
+func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID, opts CompactOptions) (CompactionResult, error) {
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")
 	}
@@ -177,54 +185,82 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if foldIdx == 0 {
 		return CompactionResult{BeforeTokens: tokens, AfterTokens: tokens, Skipped: true}, nil
 	}
+	outcome, err := s.foldToCompactionRecord(ctx, sessionID, feed, foldIdx, stored, opts.Instructions)
+	if err != nil {
+		return CompactionResult{}, err
+	}
+	result := CompactionResult{BeforeTokens: tokens, AfterTokens: outcome.afterTokens, Folded: foldIdx}
+
+	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, outcome.rec.RunID, domain.EventContextCompacted, payloadContextCompacted{
+		Mode: "session", BeforeTokens: tokens, AfterTokens: outcome.afterTokens,
+		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: outcome.manifest,
+		FilesRead: outcome.filesRead, FilesModified: outcome.filesModified,
+	}); err != nil {
+		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
+	}
+	s.recordLastCompaction(sessionID, &LastCompaction{Mode: "session", BeforeTokens: tokens, AfterTokens: outcome.afterTokens, At: outcome.rec.CreatedAt})
+	return result, nil
+}
+
+// compactionFoldOutcome is the shared product of one durable fold: the
+// stored compaction record plus the event/report fields derived from it.
+type compactionFoldOutcome struct {
+	rec           storage.SessionCompaction
+	beforeTokens  int
+	afterTokens   int
+	manifest      []string
+	filesRead     int
+	filesModified int
+}
+
+// foldToCompactionRecord summarizes feed[:foldIdx], persists the
+// SessionCompaction (TailFrom = the last folded row so every newer stored
+// row — including any pending live turn — stays verbatim), and reports the
+// post-fold token count against the caller's stored list.
+func (s *Service) foldToCompactionRecord(ctx context.Context, sessionID domain.SessionID, feed []domain.Message, foldIdx int, stored []domain.Message, instructions string) (*compactionFoldOutcome, error) {
+	_, beforeTokens := historyBytesTokens(feed)
 	refsByRun, err := s.sessionAttachedReferences(ctx, sessionID)
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: gather session references: %w", err)
+		return nil, fmt.Errorf("runtime: gather session references: %w", err)
 	}
 	manifest := referenceManifest(feed[:foldIdx], refsByRun)
-	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun)
+	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx], refsByRun, instructions)
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
+		return nil, fmt.Errorf("runtime: generate session summary: %w", err)
 	}
 	if len(manifest) > 0 {
 		// The durable record keeps the folded snapshots addressable by ID
 		// even when the model omits the transcript's manifest lines.
 		summary = strings.TrimSpace(summary) + "\n\nFolded references: " + strings.Join(manifest, ", ")
 	}
+	filesRead, filesModified := fileManifest(feed[:foldIdx])
+	if len(filesRead) > 0 {
+		summary += "\nFiles read: " + strings.Join(filesRead, ", ")
+	}
+	if len(filesModified) > 0 {
+		summary += "\nFiles modified: " + strings.Join(filesModified, ", ")
+	}
 	tailFrom := feed[len(feed)-1].CreatedAt
 	if foldIdx > 0 {
 		tailFrom = feed[foldIdx-1].CreatedAt
 	}
-	runID := domain.RunID(newPrefixedID("cmp_"))
 	rec := storage.SessionCompaction{
 		SessionID:    sessionID,
-		RunID:        runID,
+		RunID:        domain.RunID(newPrefixedID("cmp_")),
 		Summary:      summary,
 		TailFrom:     tailFrom,
 		DroppedCount: foldIdx,
 		CreatedAt:    time.Now().UnixMilli(),
 	}
 	if err := s.deps.Compactions.SaveSessionCompaction(ctx, rec); err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: save session compaction: %w", err)
+		return nil, fmt.Errorf("runtime: save session compaction: %w", err)
 	}
-
 	foldedFeed := feedableMessages(foldedFor(rec, stored))
 	_, afterTokens := historyBytesTokens(foldedFeed)
-	result := CompactionResult{BeforeTokens: tokens, AfterTokens: afterTokens, Folded: foldIdx}
-
-	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, runID, domain.EventContextCompacted, payloadContextCompacted{
-		Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens,
-		DroppedMessages: foldIdx, RetentionSuffix: keep, ReferenceIDs: manifest,
-	}); err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: persist compaction event: %w", err)
-	}
-	s.mu.Lock()
-	if s.lastCompaction == nil {
-		s.lastCompaction = make(map[domain.SessionID]*LastCompaction)
-	}
-	s.lastCompaction[sessionID] = &LastCompaction{Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens, At: rec.CreatedAt}
-	s.mu.Unlock()
-	return result, nil
+	return &compactionFoldOutcome{
+		rec: rec, beforeTokens: beforeTokens, afterTokens: afterTokens,
+		manifest: manifest, filesRead: len(filesRead), filesModified: len(filesModified),
+	}, nil
 }
 
 func fileContextSafeFoldIndex(feed []domain.Message, desired int) int {
@@ -303,9 +339,48 @@ func foldedFor(rec storage.SessionCompaction, stored []domain.Message) []domain.
 	return out
 }
 
+// fileManifest collects the workspace paths the folded turns touched, split
+// into read (read_file/search_files/grep/glob/list_dir) and modified
+// (write_file/patch/multiedit) sets. Paths come from each tool call's `path`
+// argument (glob falls back to `pattern`); output is deduped and bounded.
+func fileManifest(folded []domain.Message) (filesRead, filesModified []string) {
+	const maxEntries = 50
+	readTools := map[string]bool{"read_file": true, "search_files": true, "grep": true, "glob": true, "list_dir": true}
+	writeTools := map[string]bool{"write_file": true, "patch": true, "multiedit": true}
+	collect := func(names map[string]bool, out []string) []string {
+		seen := make(map[string]bool)
+		for _, msg := range folded {
+			if !names[msg.ToolName] || len(msg.ToolArgs) == 0 {
+				continue
+			}
+			var args struct {
+				Path    string `json:"path"`
+				Pattern string `json:"pattern"`
+			}
+			if err := json.Unmarshal(msg.ToolArgs, &args); err != nil {
+				continue
+			}
+			path := args.Path
+			if path == "" {
+				path = args.Pattern
+			}
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+			if len(out) >= maxEntries {
+				break
+			}
+		}
+		return out
+	}
+	return collect(readTools, nil), collect(writeTools, nil)
+}
+
 // generateSessionSummary condenses the assembled history with the same
 // provider model the run uses. Returns a plain-text summary.
-func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference) (string, error) {
+func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Message, refsByRun map[domain.RunID][]domain.ContextReference, instructions string) (string, error) {
 	const maxTranscriptBytes = 200 * 1024
 	var transcript strings.Builder
 	transcript.WriteString("需压缩的会话历史（旧→新）：\n\n")
@@ -333,8 +408,12 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 		transcript.WriteString(line)
 		remaining -= len(line)
 	}
+	systemPrompt := sessionSummarySystemPrompt
+	if trimmed := strings.TrimSpace(instructions); trimmed != "" {
+		systemPrompt += "\n\nFocus: " + trimmed
+	}
 	input := []*schema.Message{
-		schema.SystemMessage(sessionSummarySystemPrompt),
+		schema.SystemMessage(systemPrompt),
 		schema.UserMessage(transcript.String()),
 	}
 	resp, err := s.engine.chatModel.Generate(ctx, input)

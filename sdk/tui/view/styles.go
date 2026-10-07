@@ -1,26 +1,17 @@
 package view
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
 
-const (
-	palettePrimary   = "#A78BFA"
-	paletteSecondary = "#2DD4BF"
-	paletteFg        = "#E4E4E7"
-	paletteMuted     = "#71717A"
-	paletteSubtle    = "#52525B"
-	paletteSuccess   = "#4ADE80"
-	paletteWarn      = "#FBBF24"
-	paletteDanger    = "#FB7185"
-	paletteUser      = "#93C5FD"
-	paletteOnPrimary = "#1C1917"
-	paletteCodeBg    = "#27272A"
-	paletteString    = "#FDBA74"
-	paletteLink      = "#A1A1AA"
+	"agent-vivy/sdk/tui/theme"
 )
 
 // Palette is the single visual vocabulary used by the built-in and packed
 // TUI faces. It intentionally contains roles, not page-specific colours.
+// Colors retains the role values the palette was built from so derived
+// renderers (markdown, diff) read the same theme.
 type Palette struct {
+	Colors        theme.Colors
 	Logo          lipgloss.Style
 	LogoWord      lipgloss.Style
 	Diagonals     lipgloss.Style
@@ -71,16 +62,25 @@ type Palette struct {
 // DefaultPalette returns the stable dark palette shared by both first-party
 // faces.
 func DefaultPalette() Palette {
-	primary := lipgloss.Color(palettePrimary)
-	secondary := lipgloss.Color(paletteSecondary)
-	fg := lipgloss.Color(paletteFg)
-	muted := lipgloss.Color(paletteMuted)
-	subtle := lipgloss.Color(paletteSubtle)
-	success := lipgloss.Color(paletteSuccess)
-	warn := lipgloss.Color(paletteWarn)
-	danger := lipgloss.Color(paletteDanger)
-	userC := lipgloss.Color(paletteUser)
+	return PaletteFromColors(theme.Dark())
+}
+
+// PaletteFromColors builds the style vocabulary from a resolved theme's
+// role map (see sdk/tui/theme). It is the only place roles become styles,
+// so a loaded theme recolors every surface at once.
+func PaletteFromColors(colors theme.Colors) Palette {
+	primary := lipgloss.Color(colors.Primary)
+	secondary := lipgloss.Color(colors.Secondary)
+	fg := lipgloss.Color(colors.Fg)
+	muted := lipgloss.Color(colors.Muted)
+	subtle := lipgloss.Color(colors.Subtle)
+	success := lipgloss.Color(colors.Success)
+	warn := lipgloss.Color(colors.Warn)
+	danger := lipgloss.Color(colors.Danger)
+	userC := lipgloss.Color(colors.User)
+	codeBg := lipgloss.Color(colors.CodeBg)
 	return Palette{
+		Colors:        colors,
 		Logo:          lipgloss.NewStyle().Foreground(muted),
 		LogoWord:      lipgloss.NewStyle().Foreground(primary).Bold(true),
 		Diagonals:     lipgloss.NewStyle().Foreground(subtle),
@@ -106,17 +106,17 @@ func DefaultPalette() Palette {
 		Editor:        lipgloss.NewStyle().Foreground(fg),
 		EditorBox:     lipgloss.NewStyle().Foreground(fg).Border(lipgloss.RoundedBorder()).BorderForeground(secondary).Padding(0, 1),
 		Prompt:        lipgloss.NewStyle().Foreground(success),
-		PromptWarn:    lipgloss.NewStyle().Foreground(lipgloss.Color(paletteOnPrimary)).Background(warn).Bold(true),
+		PromptWarn:    lipgloss.NewStyle().Foreground(lipgloss.Color(colors.OnPrimary)).Background(warn).Bold(true),
 		Status:        lipgloss.NewStyle().Foreground(muted),
 		HelpKey:       lipgloss.NewStyle().Foreground(primary),
 		HelpDesc:      lipgloss.NewStyle().Foreground(subtle),
-		Dialog:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primary).Foreground(fg).Background(lipgloss.Color(paletteCodeBg)).Padding(1, 2),
-		DialogTitle:   lipgloss.NewStyle().Foreground(primary).Bold(true).Background(lipgloss.Color(paletteCodeBg)),
-		DialogBody:    lipgloss.NewStyle().Foreground(fg).Background(lipgloss.Color(paletteCodeBg)),
-		DialogFooter:  lipgloss.NewStyle().Foreground(muted).Background(lipgloss.Color(paletteCodeBg)),
+		Dialog:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primary).Foreground(fg).Background(codeBg).Padding(1, 2),
+		DialogTitle:   lipgloss.NewStyle().Foreground(primary).Bold(true).Background(codeBg),
+		DialogBody:    lipgloss.NewStyle().Foreground(fg).Background(codeBg),
+		DialogFooter:  lipgloss.NewStyle().Foreground(muted).Background(codeBg),
 		Dim:           lipgloss.NewStyle().Foreground(subtle),
 		Separator:     lipgloss.NewStyle().Foreground(subtle),
-		Selected:      lipgloss.NewStyle().Foreground(fg).Background(lipgloss.Color(paletteCodeBg)),
+		Selected:      lipgloss.NewStyle().Foreground(fg).Background(codeBg),
 		Match:         lipgloss.NewStyle().Foreground(secondary).Bold(true).Underline(true),
 		IntensityHigh: lipgloss.NewStyle().Foreground(warn).Bold(true),
 		IntensityAuto: lipgloss.NewStyle().Foreground(muted),

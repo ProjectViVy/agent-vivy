@@ -514,8 +514,8 @@ func TestControllerLocaleDirectValidationAndRawErrors(t *testing.T) {
 				{controller.SetThinkingMode("bad"), "thinking must be auto, on, or off", "思考档必须为 auto、on 或 off"},
 				{controller.SetThinkingMode("on"), "extended thinking is unavailable for the active model", "当前模型不支持扩展思考"},
 				{mustMsg[surface.CommandResultMsg](t, controller.SendWithContext("", []string{"原文.md"})).Err, "@file references require a prompt", "@file 引用需要提示文本"},
-				{mustMsg[surface.ErrMsg](t, controller.ExecuteShell("echo 原文")).Err, "governed shell is unavailable", "受治理的 shell 不可用"},
-				{mustMsg[surface.CommandResultMsg](t, controller.sendShell("")).Err, "shell script is required", "需要 shell 脚本"},
+				{mustMsg[surface.ErrMsg](t, controller.ExecuteShell("echo 原文", false)).Err, "governed shell is unavailable", "受治理的 shell 不可用"},
+				{mustMsg[surface.CommandResultMsg](t, controller.sendShell("", false)).Err, "shell script is required", "需要 shell 脚本"},
 			}
 			for _, check := range checks {
 				want := check.en
@@ -921,15 +921,23 @@ func TestPackedFaceQueuedImageSendPreservesLaterDraft(t *testing.T) {
 }
 
 func TestLiveRunModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
-	var got []string
+	var modes, steers []string
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
 	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
 		var params struct {
 			Mode string `json:"mode"`
 		}
 		_ = json.Unmarshal(raw, &params)
-		got = append(got, params.Mode)
-		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(got)), "status": "accepted"}, nil
+		modes = append(modes, params.Mode)
+		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(modes)), "status": "accepted"}, nil
+	}
+	env.script["turn/steer"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Mode string `json:"mode"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		steers = append(steers, params.Mode)
+		return map[string]any{"queued": true, "queue_id": "q1", "track": "steer"}, nil
 	}
 	live := newLive(context.Background(), newClient(env), Options{})
 	defer live.Close()
@@ -940,16 +948,14 @@ func TestLiveRunModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 	if err := live.SetRunMode("plan"); err != nil {
 		t.Fatal(err)
 	}
-	_ = live.Send("queued")
+	// Busy text send routes to the kernel steer lane and snapshots the
+	// enqueue-time run mode onto the wire.
+	_ = mustMsg[liveQueuedTurnMsg](t, live.Send("queued"))
 	if err := live.SetRunMode("normal"); err != nil {
 		t.Fatal(err)
 	}
-	live.mu.Lock()
-	live.busy = false
-	live.mu.Unlock()
-	_ = mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
-	if strings.Join(got, ",") != ",plan" {
-		t.Fatalf("turn modes = %v, want queued snapshot empty,plan", got)
+	if strings.Join(steers, ",") != "plan" {
+		t.Fatalf("steer modes = %v, want enqueue-time snapshot plan", steers)
 	}
 	if live.RunMode() != "normal" {
 		t.Fatalf("draft run mode = %q", live.RunMode())
@@ -957,15 +963,23 @@ func TestLiveRunModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 }
 
 func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
-	var got []string
+	var starts, steers []string
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
 	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
 		var params struct {
 			Thinking string `json:"thinking"`
 		}
 		_ = json.Unmarshal(raw, &params)
-		got = append(got, params.Thinking)
-		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(got)), "status": "accepted"}, nil
+		starts = append(starts, params.Thinking)
+		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(starts)), "status": "accepted"}, nil
+	}
+	env.script["turn/steer"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Thinking string `json:"thinking"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		steers = append(steers, params.Thinking)
+		return map[string]any{"queued": true, "queue_id": "q1", "track": "steer"}, nil
 	}
 	live := newLive(context.Background(), newClient(env), Options{})
 	defer live.Close()
@@ -977,16 +991,12 @@ func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 	if err := live.SetThinkingMode("on"); err != nil {
 		t.Fatal(err)
 	}
-	_ = live.Send("queued")
+	_ = mustMsg[liveQueuedTurnMsg](t, live.Send("queued"))
 	if err := live.SetThinkingMode("off"); err != nil {
 		t.Fatal(err)
 	}
-	live.mu.Lock()
-	live.busy = false
-	live.mu.Unlock()
-	_ = mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
-	if strings.Join(got, ",") != "auto,on" {
-		t.Fatalf("turn thinking modes = %v, want queued snapshot auto,on", got)
+	if strings.Join(append(starts, steers...), ",") != "auto,on" {
+		t.Fatalf("turn thinking modes = %v/%v, want snapshot auto,on", starts, steers)
 	}
 	if live.ThinkingMode() != "off" {
 		t.Fatalf("draft thinking mode = %q", live.ThinkingMode())
@@ -1079,7 +1089,7 @@ func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
-		if len(params) != 2 || params["session_id"] != "sess_1" || params["script"] != " echo safe " {
+		if len(params) != 3 || params["session_id"] != "sess_1" || params["script"] != " echo safe " || params["no_context"] != false {
 			return nil, fmt.Errorf("shell params = %#v", params)
 		}
 		return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
@@ -1094,7 +1104,7 @@ func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
 	live.activeID = "sess_1"
 	live.messages = map[string][]surface.Message{"sess_1": nil}
 	live.mu.Unlock()
-	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(" echo safe "))
+	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(" echo safe ", false))
 	if started.Err != nil || started.RunID != "run_shell" || !started.Shell {
 		t.Fatalf("shell start = %+v", started)
 	}
@@ -2134,5 +2144,205 @@ func TestLiveSessionMutationsFenceOlderSidebarResponse(t *testing.T) {
 	live.applySidebar(liveSidebarMsg{Request: request, SessionID: "sess", Sidebar: surface.Sidebar{Session: surface.Session{ID: "sess", PermissionPreset: "trusted"}}})
 	if live.sidebar.Session.PermissionPreset == "trusted" {
 		t.Fatal("pre-permission sidebar response overwrote mutation")
+	}
+}
+
+func TestLiveFollowUpQueuesOnKernelWhileBusy(t *testing.T) {
+	var tracks []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/follow_up"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		tracks = append(tracks, params.Text)
+		return map[string]any{"queued": true, "queue_id": "q1", "track": "follow_up"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.busy = true
+	live.mu.Unlock()
+	msg := mustMsg[liveQueuedTurnMsg](t, live.SendFollowUp("after settle"))
+	if !msg.Queued {
+		t.Fatalf("follow_up disposition: %+v", msg)
+	}
+	if len(tracks) != 1 || tracks[0] != "after settle" {
+		t.Fatalf("turn/follow_up payload = %v", tracks)
+	}
+}
+
+func TestLiveFollowUpOnIdleStartsRun(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+		return map[string]string{"run_id": "run_1", "status": "accepted"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	msg := mustMsg[liveTurnStartedMsg](t, live.SendFollowUp("idle send"))
+	if msg.RunID != "run_1" {
+		t.Fatalf("idle follow-up = %+v, want started run_1", msg)
+	}
+}
+
+func TestLiveBusySendRoutesToSteerTrack(t *testing.T) {
+	var calls []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/steer"] = func(raw json.RawMessage) (any, error) {
+		calls = append(calls, "steer")
+		return map[string]any{"queued": true, "queue_id": "q1", "track": "steer"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.busy = true
+	live.mu.Unlock()
+	msg := mustMsg[liveQueuedTurnMsg](t, live.Send("steer me"))
+	if !msg.Queued || msg.Track != "steer" {
+		t.Fatalf("busy Enter = %+v, want steer queued", msg)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("turn/steer calls = %d", len(calls))
+	}
+	live.mu.Lock()
+	defer live.mu.Unlock()
+	if len(live.queue) != 0 {
+		t.Fatalf("text turns must not use the local FIFO anymore: %v", live.queue)
+	}
+}
+
+func TestLiveDequeueRestoresNewestQueuedText(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["queue/dequeue"] = func(raw json.RawMessage) (any, error) {
+		return map[string]any{"dequeued": true, "queue_id": "q1", "track": "follow_up", "text": "recall me"}, nil
+	}
+	env.script["queue/state"] = func(raw json.RawMessage) (any, error) {
+		return map[string]any{"steering": []any{}, "follow_up": []any{}, "steer_mode": "all", "follow_up_mode": "all"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	msg := live.Dequeue()()
+	queueMsg, ok := msg.(liveQueueMsg)
+	if !ok || queueMsg.RestoreText != "recall me" {
+		t.Fatalf("dequeue msg = %+v, want restore of 'recall me'", msg)
+	}
+	restore := live.applyQueueMsg(queueMsg)
+	if restore == nil {
+		t.Fatal("no restore cmd")
+	}
+	if got := restore().(surface.RestoreInputMsg).Text; got != "recall me" {
+		t.Fatalf("restored text = %q", got)
+	}
+}
+
+func TestLiveQueueNoticeRefreshesLaneCounts(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["queue/state"] = func(raw json.RawMessage) (any, error) {
+		return map[string]any{
+			"steering":   []map[string]string{{"text": "a"}, {"text": "b"}},
+			"follow_up":  []map[string]string{{"text": "c"}},
+			"steer_mode": "all", "follow_up_mode": "all",
+		}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	live.applyNotice(eventNotice{RunID: "r1", Seq: 1, Kind: "queue_queued", QueueTrack: "steer"})
+	cmd := live.refreshQueueCmd()
+	if cmd == nil {
+		t.Fatal("queue notice did not schedule a refresh")
+	}
+	live.applyQueueMsg(cmd().(liveQueueMsg))
+	meta := live.Meta()
+	if meta.SteerQueued != 2 || meta.FollowUpQueued != 1 || meta.Queued != 3 {
+		t.Fatalf("lane counts = %+v, want steer 2 follow 1 total 3", meta)
+	}
+}
+
+func TestLiveAbortFlushRestoresDraft(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	live.applyNotice(eventNotice{RunID: "r1", Seq: 1, Kind: "queue_dequeued", QueueReason: "aborted", QueueTrack: "follow_up", Message: "lost work"})
+	cmd := live.restoreDraftCmd()
+	if cmd == nil {
+		t.Fatal("aborted dequeue did not stage an editor restore")
+	}
+	if got := cmd().(surface.RestoreInputMsg).Text; got != "lost work" {
+		t.Fatalf("restored = %q", got)
+	}
+}
+
+func TestLiveSettleAdmissionSubscribesNextRun(t *testing.T) {
+	var subs []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["queue/state"] = func(raw json.RawMessage) (any, error) {
+		return map[string]any{"admitted_run_id": "run_2"}, nil
+	}
+	env.script["run/subscribe"] = func(raw json.RawMessage) (any, error) {
+		subs = append(subs, "sub")
+		return map[string]string{"subscription_id": "sub_2"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.settledRunID = "run_1"
+	live.mu.Unlock()
+	cmd := live.admitSettledCmd()
+	if cmd == nil {
+		t.Fatal("no admission lookup after settle")
+	}
+	msg := cmd().(liveAdmittedRunMsg)
+	if msg.RunID != "run_2" {
+		t.Fatalf("admitted = %+v", msg)
+	}
+	sub := live.applyAdmittedRun(msg)
+	if sub == nil {
+		t.Fatal("no subscribe cmd for admitted run")
+	}
+	live.applySubscribed(sub().(liveSubscribedMsg))
+	live.mu.Lock()
+	defer live.mu.Unlock()
+	if !live.busy || live.runID != "run_2" {
+		t.Fatalf("admitted run not active: busy=%v run=%q", live.busy, live.runID)
+	}
+}
+
+// /compact <instructions> forwards the joined args verbatim as the RPC
+// instructions field (pi parity: /compact focuses the summary).
+func TestLiveCompactForwardsInstructions(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["context/compact"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"before_tokens": 20, "after_tokens": 8}, nil
+	}
+	live := bootLive(t, env, Options{})
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+
+	msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("compact", []string{"focus", "on", "auth"}))
+	if msg.Err != nil {
+		t.Fatalf("/compact with args = %+v", msg)
+	}
+	var params map[string]string
+	if err := json.Unmarshal(env.params["context/compact"], &params); err != nil {
+		t.Fatalf("compact params: %v", err)
+	}
+	if params["instructions"] != "focus on auth" || params["session_id"] != "sess_1" {
+		t.Fatalf("compact params = %v, want session_id + joined instructions", params)
 	}
 }

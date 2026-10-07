@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 
+	"agent-vivy/sdk/facerun"
 	faceport "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 	"agent-vivy/sdk/tui/surface"
@@ -31,6 +32,18 @@ type terminalFace struct {
 func (*terminalFace) Kind() string { return Kind }
 
 func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Result, error) {
+	switch f.opts.Mode {
+	case "", "text":
+		// interactive path below
+	case "print":
+		return facerun.Run(ctx, env, f.headlessOptions(), &facerun.TextSink{Out: f.opts.Out, Err: f.opts.Err})
+	case "json":
+		return facerun.Run(ctx, env, f.headlessOptions(), facerun.JSONLSink{Out: f.opts.Out})
+	case "rpc":
+		return f.runRPCMode(ctx, env)
+	default:
+		return faceport.Result{Status: "failed"}, faceport.ModeUnavailableError{Mode: f.opts.Mode}
+	}
 	if !looksTerminal(f.opts.Out) {
 		return faceport.Result{Status: "failed"}, errors.New("tui: an interactive terminal is required")
 	}
@@ -48,12 +61,31 @@ func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Res
 	if runView == nil {
 		runView = view.RunWithOutput
 	}
-	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale()}); err != nil {
+	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale(), Theme: f.opts.UseTheme, ThemesDir: f.opts.ThemesDir, NoThemes: f.opts.NoThemes, KeybindingsFile: f.opts.KeybindingsFile, Images: f.opts.Images}); err != nil {
 		controller.Shutdown()
 		return faceport.Result{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}
 	controller.Shutdown()
 	return faceport.Result{Status: "completed"}, nil
+}
+
+// headlessOptions maps the face launch surface onto the shared non-interactive
+// engine used by print and json modes.
+func (f *terminalFace) headlessOptions() facerun.Options {
+	return facerun.Options{
+		Prompt:         f.opts.Prompt,
+		ContinueNewest: f.opts.ContinueNewest,
+		Resume:         f.opts.Resume,
+		SessionID:      f.opts.SessionID,
+		Session:        f.opts.Session,
+		Fork:           f.opts.Fork,
+		SessionDir:     f.opts.SessionDir,
+		NoSession:      f.opts.NoSession,
+		Export:         f.opts.Export,
+		Face:           "code",
+		Out:            f.opts.Out,
+		Err:            f.opts.Err,
+	}
 }
 
 type faceTransport struct {

@@ -130,6 +130,10 @@ zero Face Providers. An Interactive Generation has exactly one. FaceHost owns
 RPC authentication and event delivery. A Face cannot invoke Runtime internals
 directly.
 
+The `0..1` cardinality holds across launch modes: `Options.Mode` selects the
+face's own dispatch (interactive text vs headless print/json/rpc runners)
+inside the one selected Provider — it is not a second Face and no new Port.
+
 UI contributions modify a selected Face; they do not create a second Face.
 
 ## 6. Provider Profile

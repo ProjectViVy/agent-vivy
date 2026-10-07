@@ -12,12 +12,17 @@ import (
 
 type modelPickerDriver struct {
 	*testDriver
-	available bool
-	catalog   surface.ModelCatalog
-	refresh   uint64
-	selected  surface.ModelOption
-	selectReq uint64
-	selectErr error
+	available    bool
+	catalog      surface.ModelCatalog
+	refresh      uint64
+	selected     surface.ModelOption
+	selectReq    uint64
+	selectErr    error
+	scoped       surface.ModelOption
+	scopeResult  bool
+	scopeErr     error
+	cycleErr     error
+	cycleCatalog *surface.ModelCatalog
 }
 
 func (d *modelPickerDriver) SupportsModelSelection() bool { return d.available }
@@ -29,6 +34,24 @@ func (d *modelPickerDriver) ModelCatalog() surface.ModelCatalog {
 func (d *modelPickerDriver) RefreshModels(request uint64) tea.Cmd {
 	d.refresh = request
 	return func() tea.Msg { return surface.ModelsMsg{Request: request, Catalog: d.ModelCatalog()} }
+}
+func (d *modelPickerDriver) CycleModel(request uint64) tea.Cmd {
+	if d.cycleErr != nil {
+		return func() tea.Msg { return surface.ModelSelectedMsg{Request: request, Err: d.cycleErr} }
+	}
+	if d.cycleCatalog != nil {
+		return func() tea.Msg { return surface.ModelSelectedMsg{Request: request, Catalog: *d.cycleCatalog} }
+	}
+	return func() tea.Msg { return surface.ModelSelectedMsg{Request: request, Catalog: d.ModelCatalog()} }
+}
+func (d *modelPickerDriver) ScopeModel(request uint64, option surface.ModelOption) tea.Cmd {
+	d.scoped = option
+	if d.scopeErr != nil {
+		return func() tea.Msg { return surface.ModelScopedMsg{Request: request, Option: option, Err: d.scopeErr} }
+	}
+	return func() tea.Msg {
+		return surface.ModelScopedMsg{Request: request, Option: option, Scoped: d.scopeResult, Catalog: d.ModelCatalog()}
+	}
 }
 func (d *modelPickerDriver) SelectModel(request uint64, option surface.ModelOption) tea.Cmd {
 	d.selectReq = request

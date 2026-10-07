@@ -794,6 +794,8 @@ func TestApprovalTargetKeepsNestedWorkspaceRelativePath(t *testing.T) {
 }
 
 type testDriver struct {
+	followedUp  string
+	dequeueText string
 	sessions    []surface.Session
 	active      string
 	busy        bool
@@ -810,6 +812,9 @@ type testDriver struct {
 	decision    string
 	messages    map[string][]surface.Message
 	attachments []surface.Attachment
+	treeNodes   []surface.TreeNode
+	treeEdges   []surface.TreeEdge
+	treeErr     error
 }
 
 func (d *testDriver) Sessions() []surface.Session {
@@ -863,6 +868,21 @@ func (d *testDriver) Send(text string) tea.Cmd {
 	d.sent = text
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
+func (d *testDriver) SendFollowUp(text string) tea.Cmd {
+	if d.sendBlocked {
+		return nil
+	}
+	d.followedUp = text
+	return func() tea.Msg { return surface.RefreshMsg{} }
+}
+func (d *testDriver) Dequeue() tea.Cmd {
+	if d.dequeueText == "" {
+		return nil
+	}
+	text := d.dequeueText
+	d.dequeueText = ""
+	return func() tea.Msg { return surface.RestoreInputMsg{Text: text} }
+}
 func (d *testDriver) DecideApproval(decision string) tea.Cmd {
 	d.decision = decision
 	return nil
@@ -889,7 +909,7 @@ func (d *testDriver) ThinkingMode() string {
 	return d.thinking
 }
 func (d *testDriver) SetThinkingMode(mode string) error {
-	if mode == "on" && (!d.sidebar.HasContext || !d.sidebar.Context.ThinkingSupported) {
+	if mode != "auto" && mode != "off" && (!d.sidebar.HasContext || !d.sidebar.Context.ThinkingSupported) {
 		return fmt.Errorf("extended thinking is unavailable for the active model")
 	}
 	d.thinking = mode
@@ -932,6 +952,13 @@ func (d *testDriver) DeleteSession(id string) tea.Cmd {
 	return func() tea.Msg { return surface.SessionsMsg{Action: "delete", ID: id} }
 }
 
+// SessionTree answers the canned tree snapshot; tests may replace it.
+func (d *testDriver) SessionTree() tea.Cmd {
+	return func() tea.Msg {
+		return surface.TreeMsg{Nodes: d.treeNodes, Edges: d.treeEdges, Err: d.treeErr}
+	}
+}
+
 func (d *testDriver) ExecuteCommand(name string, args []string) tea.Cmd {
 	switch name {
 	case "new":
@@ -969,6 +996,8 @@ func (*testDriver) RefreshModels(uint64) tea.Cmd       { return nil }
 func (*testDriver) SelectModel(uint64, surface.ModelOption) tea.Cmd {
 	return nil
 }
+func (*testDriver) CycleModel(uint64) tea.Cmd                      { return nil }
+func (*testDriver) ScopeModel(uint64, surface.ModelOption) tea.Cmd { return nil }
 func (d *testDriver) PendingAttachments() []surface.Attachment {
 	return append([]surface.Attachment(nil), d.attachments...)
 }
@@ -976,8 +1005,8 @@ func (*testDriver) SendWithContext(string, []string) tea.Cmd { return nil }
 func (*testDriver) CompleteProjectFiles(uint64, string) tea.Cmd {
 	return nil
 }
-func (*testDriver) ExecuteShell(string) tea.Cmd    { return nil }
-func (*testDriver) SupportsCapability(string) bool { return false }
+func (*testDriver) ExecuteShell(string, bool) tea.Cmd { return nil }
+func (*testDriver) SupportsCapability(string) bool    { return false }
 
 func TestComputeLayoutUsesBothCrushBreakpoints(t *testing.T) {
 	for _, tc := range []struct {
@@ -1675,5 +1704,65 @@ func TestSessionsDialogCancelIsSafe(t *testing.T) {
 	m = updated.(Model)
 	if m.sessionRenaming || m.sessionRenameInput != "" {
 		t.Fatal("escape did not cancel rename")
+	}
+}
+
+func TestAltEnterSubmitsFollowUp(t *testing.T) {
+	driver := &testDriver{active: "s1", busy: true}
+	m := New(driver)
+	m.input = "queue me"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	m = updated.(Model)
+	if driver.followedUp != "queue me" {
+		t.Fatalf("Alt+Enter follow-up = %q, want %q", driver.followedUp, "queue me")
+	}
+	if cmd == nil {
+		t.Fatal("Alt+Enter returned no command")
+	}
+	if m.input != "" {
+		t.Fatalf("composer not cleared after follow-up submit: %q", m.input)
+	}
+}
+
+func TestCtrlQSubmitsFollowUpAsAltEnterFallback(t *testing.T) {
+	driver := &testDriver{active: "s1", busy: true}
+	m := New(driver)
+	m.input = "queue me too"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	m = updated.(Model)
+	if driver.followedUp != "queue me too" {
+		t.Fatalf("Ctrl+Q follow-up = %q, want %q", driver.followedUp, "queue me too")
+	}
+	if cmd == nil {
+		t.Fatal("Ctrl+Q returned no command")
+	}
+}
+
+func TestAltUpRestoresQueuedText(t *testing.T) {
+	driver := &testDriver{active: "s1", busy: true, dequeueText: "previously queued"}
+	m := New(driver)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Alt+Up returned no dequeue command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if m.input != "previously queued" {
+		t.Fatalf("composer after Alt+Up = %q, want restored text", m.input)
+	}
+}
+
+func TestPlainEnterStillSubmitsNormally(t *testing.T) {
+	driver := &testDriver{active: "s1", busy: true}
+	m := New(driver)
+	m.input = "steer this"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if driver.sent != "steer this" {
+		t.Fatalf("Enter send = %q, want %q", driver.sent, "steer this")
+	}
+	if driver.followedUp != "" {
+		t.Fatalf("Enter must not hit the follow-up lane: %q", driver.followedUp)
 	}
 }

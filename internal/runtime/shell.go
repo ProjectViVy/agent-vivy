@@ -100,11 +100,19 @@ func (s *Service) ShellAvailable() bool {
 	return ok
 }
 
+// ShellRunOptions carries the !! variant flag: NoContext keeps the shell
+// result out of the model feed (run.started records it; the transcript still
+// shows the journaled tool lifecycle).
+type ShellRunOptions struct {
+	NoContext bool
+}
+
 // RunShell starts one direct, runtime-owned shell run. It persists only the
 // run.started boundary synchronously; the tool lifecycle is driven in a
 // detached goroutine and is visible through the ordinary run/subscribe
 // stream. No user message and no model.request are created.
-func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, script string) (domain.RunID, error) {
+func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, script string, options ...ShellRunOptions) (domain.RunID, error) {
+	noContext := len(options) > 0 && options[0].NoContext
 	if s == nil || s.engine == nil {
 		return "", errors.New("runtime: service not wired")
 	}
@@ -230,6 +238,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 		Mode: string(domain.RunModeNormal), Face: string(domain.FaceTui),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		NoContext: noContext,
 	})
 	if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
 		return "", fmt.Errorf("runtime: create shell run: %w", err)
@@ -277,6 +286,8 @@ func (s *Service) shellContext(ctx context.Context, p shellPendingRun) context.C
 	ctx = tools.WithRunID(ctx, p.mapper.runID)
 	ctx = tools.WithSessionID(ctx, p.sessionID)
 	ctx = tools.WithMountedTools(ctx, tools.NewMountedTools())
+	providerLabel, modelLabel := s.CurrentModel()
+	ctx = domain.WithRunLabels(ctx, domain.RunLabels{Provider: providerLabel, Model: modelLabel})
 	return withGovernanceEventSink(ctx, s.governanceSink(p.mapper, p.sessionID, p.ledger))
 }
 

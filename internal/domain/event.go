@@ -57,12 +57,32 @@ const (
 	EventContextCompacted         EventType = "context.compacted"
 	EventSessionTruncated         EventType = "session.truncated"
 	EventSessionForked            EventType = "session.forked"
+	// EventSessionClonedFrom marks a clone child (fork at the source's
+	// visible tail). Distinct from session.forked so the tree can label
+	// full-copy branches.
+	EventSessionClonedFrom EventType = "session.cloned_from"
+	// EventSessionImported marks a session rebuilt from an external
+	// transcript (pi JSONL). It is the child's only provenance record.
+	EventSessionImported          EventType = "session.imported"
 	EventRunCompleted             EventType = "run.completed"
 	EventRunFailed                EventType = "run.failed"
 	EventRunCancelled             EventType = "run.cancelled"
 	EventChannelInbound           EventType = "channel.inbound"
 	EventContextReferenceAttached EventType = "context.reference_attached"
 	EventDeliverablesPresented    EventType = "deliverables.presented"
+	EventToolsExposureChanged     EventType = "tools.exposure_changed"
+	EventTurnQueued               EventType = "turn.queued"
+	EventTurnDequeued             EventType = "turn.dequeued"
+	EventTurnSteered              EventType = "turn.steered"
+	// EventAutoRetryStarted/Finished bound one overflow compact-and-retry
+	// recovery inside a run (VCP-D2; pi auto_retry_start/auto_retry_end).
+	EventAutoRetryStarted  EventType = "auto_retry.started"
+	EventAutoRetryFinished EventType = "auto_retry.finished"
+
+	// EventCacheWarmed is the silent diagnostic of the prompt-cache
+	// warming scheduler (VCP F2): one event per warm decision — warmed,
+	// skipped (gate), or failed — never a run error.
+	EventCacheWarmed EventType = "cache.warmed"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -118,8 +138,16 @@ var EventTypes = []EventType{
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,
+	EventSessionClonedFrom,
+	EventSessionImported,
 	EventContextReferenceAttached,
 	EventDeliverablesPresented,
+	EventTurnQueued,
+	EventTurnDequeued,
+	EventTurnSteered,
+	EventAutoRetryStarted,
+	EventAutoRetryFinished,
+	EventCacheWarmed,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

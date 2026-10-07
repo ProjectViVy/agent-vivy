@@ -3,6 +3,8 @@ package view
 import (
 	"strings"
 	"sync"
+
+	"agent-vivy/sdk/tui/theme"
 )
 
 // streamMarkdownRender renders a growing streaming bubble at the given wrap
@@ -20,7 +22,7 @@ import (
 // Entries are keyed by (message id, quiet) and bounded; a width change or a
 // non-prefix extension resets the entry. Rendering errors are returned so the
 // caller can fall back to its plain-text path.
-func streamMarkdownRender(id, source string, width int, quiet bool) (string, error) {
+func streamMarkdownRender(id, source string, width int, quiet bool, colors theme.Colors) (string, error) {
 	if width < 1 {
 		return "", errMarkdownW
 	}
@@ -29,7 +31,7 @@ func streamMarkdownRender(id, source string, width int, quiet bool) (string, err
 	}
 	streamMu.Lock()
 	defer streamMu.Unlock()
-	key := streamEntryKey{id: id, quiet: quiet}
+	key := streamEntryKey{id: id, quiet: quiet, theme: colors.ID()}
 	entry := streamEntries[key]
 	if entry == nil {
 		if len(streamEntries) >= streamEntryLimit {
@@ -44,28 +46,28 @@ func streamMarkdownRender(id, source string, width int, quiet bool) (string, err
 	defer mdRenderMu.Unlock()
 	if entry.width != width || !strings.HasPrefix(source, entry.stablePrefix) {
 		entry.reset(width)
-		out, err := renderMarkdownLocked(source, width, quiet)
+		out, err := renderMarkdownLocked(source, width, quiet, colors)
 		if err != nil {
 			return "", err
 		}
-		entry.trySeed(source, width, quiet)
+		entry.trySeed(source, width, quiet, colors)
 		return out, nil
 	}
 	boundary, haveBoundary := entry.findBoundaryAfter(source)
 	if !haveBoundary {
 		// No safe boundary anywhere yet; a later flush may find one.
-		return renderMarkdownLocked(source, width, quiet)
+		return renderMarkdownLocked(source, width, quiet, colors)
 	}
 	if boundary <= len(entry.stablePrefix) {
 		// The cached prefix already covers an at-least-as-late boundary.
-		trail, err := entry.renderTrailing(source[len(entry.stablePrefix):], width, quiet)
+		trail, err := entry.renderTrailing(source[len(entry.stablePrefix):], width, quiet, colors)
 		if err != nil {
 			return "", err
 		}
 		return glueRenders(entry.stablePrefixRender, trail), nil
 	}
 	newChunk := source[len(entry.stablePrefix):boundary]
-	chunkRender, err := entry.renderTrailing(newChunk, width, quiet)
+	chunkRender, err := entry.renderTrailing(newChunk, width, quiet, colors)
 	if err != nil {
 		return "", err
 	}
@@ -77,7 +79,7 @@ func streamMarkdownRender(id, source string, width int, quiet bool) (string, err
 	if trail == "" {
 		return entry.stablePrefixRender, nil
 	}
-	trailRender, err := entry.renderTrailing(trail, width, quiet)
+	trailRender, err := entry.renderTrailing(trail, width, quiet, colors)
 	if err != nil {
 		return "", err
 	}
@@ -94,6 +96,7 @@ const streamEntryLimit = 8
 type streamEntryKey struct {
 	id    string
 	quiet bool
+	theme string
 }
 
 // streamEntry caches the render of a stable content prefix plus the
@@ -119,12 +122,12 @@ func (e *streamEntry) reset(width int) {
 
 // trySeed pays one extra prefix render after an unavoidable full render so
 // the next flush can start from a cached boundary.
-func (e *streamEntry) trySeed(source string, width int, quiet bool) {
+func (e *streamEntry) trySeed(source string, width int, quiet bool, colors theme.Colors) {
 	boundary := findSafeMarkdownBoundary(source)
 	if boundary <= 0 {
 		return
 	}
-	out, err := renderMarkdownLocked(source[:boundary], width, quiet)
+	out, err := renderMarkdownLocked(source[:boundary], width, quiet, colors)
 	if err != nil {
 		return
 	}
@@ -197,11 +200,11 @@ func (e *streamEntry) isSafeBoundaryIncremental(content string, p int) bool {
 	return true
 }
 
-func (e *streamEntry) renderTrailing(text string, width int, quiet bool) (string, error) {
+func (e *streamEntry) renderTrailing(text string, width int, quiet bool, colors theme.Colors) (string, error) {
 	if text == "" {
 		return "", nil
 	}
-	out, err := renderMarkdownLocked(text, width, quiet)
+	out, err := renderMarkdownLocked(text, width, quiet, colors)
 	if err != nil {
 		return "", err
 	}

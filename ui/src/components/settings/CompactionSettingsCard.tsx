@@ -45,6 +45,7 @@ export function CompactionSettingsCard() {
   const [keepRecent, setKeepRecent] = useState(base?.keep_recent ?? 12);
   const [saving, setSaving] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [instructions, setInstructions] = useState('');
   const [feedback, setFeedback] = useState<CompactionFeedback | null>(null);
   const locked = settings?.read_only || Boolean(settings?.frozen);
 
@@ -112,7 +113,7 @@ export function CompactionSettingsCard() {
     setCompacting(true);
     setFeedback(null);
     try {
-      const result = await compactSession(activeSessionId);
+      const result = await compactSession(activeSessionId, instructions.trim() || undefined);
       if (result.skipped) {
         setFeedback({ kind: 'not-needed' });
       } else {
@@ -211,6 +212,12 @@ export function CompactionSettingsCard() {
               ))}
             </ul>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="compaction-instructions">{t('settings.compaction.instructionsLabel')}</Label>
+          <Input id="compaction-instructions" value={instructions} disabled={!activeSessionId || busy} onChange={(event) => setInstructions(event.target.value)} placeholder={t('settings.compaction.instructionsPlaceholder')} />
+          <p className="text-xs text-muted-foreground">{t('settings.compaction.instructionsHint')}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

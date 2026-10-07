@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
-  Paperclip, Send, Shield, ShieldCheck, Sparkles, Square, X,
+  Paperclip, Send, Shield, ShieldCheck, Shrink, Sparkles, Square, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -24,6 +26,12 @@ interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
   /** 运行期间发送走排队（对照 Crush）：跳过 UI 预检，服务端门禁仍然生效。 */
   onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  /** pi 双轨：运行中 Enter=steer（turn/steer），Shift+Alt+Enter=follow-up
+   *  （turn/follow_up）；缺省时回退 onQueue 本地 FIFO。 */
+  onSteer?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  onFollowUp?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  /** pi Alt+Up：弹出最新 pending follow-up 文本回编辑框。 */
+  onDequeue?: () => Promise<string | null>;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -55,9 +63,15 @@ const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((
   reader.readAsDataURL(file);
 });
 
-// 思考模式选项（对照 Agent-DIVA ThinkingToggle）
+// 思考模式选项：七级 effort 面 + auto/on/off 别名（VCP F1）；level 项直接显示原值。
 const THINKING_MODES: { value: ThinkingMode; icon: LucideIcon; label: string; filled?: boolean }[] = [
   { value: 'auto', icon: Lightbulb, label: 'chatInput.thinkingModeAuto' },
+  { value: 'minimal', icon: Lightbulb, label: 'minimal' },
+  { value: 'low', icon: Lightbulb, label: 'low' },
+  { value: 'medium', icon: Lightbulb, label: 'medium' },
+  { value: 'high', icon: Lightbulb, label: 'high' },
+  { value: 'xhigh', icon: Lightbulb, label: 'xhigh' },
+  { value: 'max', icon: Lightbulb, label: 'max', filled: true },
   { value: 'on', icon: Lightbulb, label: 'chatInput.thinkingModeOn', filled: true },
   { value: 'off', icon: LightbulbOff, label: 'chatInput.thinkingModeOff' },
 ];
@@ -69,7 +83,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
+export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<AttachmentInput[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -85,7 +99,9 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
   const queuedMessages = useVivyStore((state) => state.queuedMessages);
+  const kernelQueue = useVivyStore((state) => state.kernelQueue);
   const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
+  const removeKernelQueued = useVivyStore((state) => state.removeKernelQueued);
   const clearQueue = useVivyStore((state) => state.clearQueue);
   const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
@@ -93,10 +109,14 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
 	const chooseWorkspace = useVivyStore((state) => state.chooseWorkspace);
+  const compactSession = useVivyStore((state) => state.compactSession);
   const draftReferences = useVivyStore((state) => state.draftReferences);
   const addDraftReference = useVivyStore((state) => state.addDraftReference);
   const removeDraftReference = useVivyStore((state) => state.removeDraftReference);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [compactOpen, setCompactOpen] = useState(false);
+  const [compactInstructions, setCompactInstructions] = useState('');
+  const [compacting, setCompacting] = useState(false);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
@@ -167,7 +187,15 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
     }
   };
 
-  const send = async () => {
+  // 内核双轨队列条目（steer 轨在 enqueue 即 steer，通常瞬态；follow_up
+  //  轨待 settle 准入）+ 本地 FIFO（附件/引用提交）。
+  const kernelItems = [
+    ...(kernelQueue?.steering ?? []).map((item) => ({ item, lane: 'steer' as const })),
+    ...(kernelQueue?.follow_up ?? []).map((item) => ({ item, lane: 'follow_up' as const })),
+  ];
+  const totalQueued = kernelItems.length + queuedMessages.length;
+
+  const send = async (track: 'send' | 'steer' | 'follow_up' = 'send') => {
     if (disabled || sendLock.current || !activeSessionId) return;
     if (commands.menuOpen) { commands.choose(commands.index); textareaRef.current?.focus(); return; }
     const content = value.trim();
@@ -181,8 +209,9 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
       if (prepared) {
         const outgoing = pending.length ? pending : undefined;
         if (running && !prepared.forceSend) {
-          if (!onQueue) return;
-          await onQueue(prepared.text, 'normal', outgoing, thinkingMode);
+          const handler = track === 'follow_up' ? onFollowUp : onSteer;
+          if (!handler && !onQueue) return;
+          await (handler ?? onQueue)!(prepared.text, 'normal', outgoing, thinkingMode);
         } else await onSend(prepared.text, 'normal', outgoing, thinkingMode);
       }
       if (!commands.isCurrent()) return;
@@ -194,6 +223,33 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
     } finally {
       sendLock.current = false;
       if (commands.isCurrent()) setSending(false);
+    }
+  };
+
+  // pi Alt+Up：pop 最新 pending follow-up 回编辑器。
+  const dequeue = async () => {
+    if (!onDequeue) return;
+    const text = await onDequeue();
+    if (text) { setValue(text); textareaRef.current?.focus(); }
+  };
+
+  // D3: chat-level compact — popover anchored at the context meter; the
+  // optional instructions steer the summary focus (context/compact RPC).
+  const runCompact = async () => {
+    if (!activeSessionId || compacting) return;
+    setCompacting(true);
+    try {
+      const instructions = compactInstructions.trim();
+      const result = await compactSession(activeSessionId, instructions || undefined);
+      setCompactOpen(false);
+      setCompactInstructions('');
+      showNotice(result.skipped
+        ? t('chatInput.compactSkipped')
+        : t('chatInput.compactDone', { before: result.before_tokens.toLocaleString(dateTimeLocale()), after: result.after_tokens.toLocaleString(dateTimeLocale()) }));
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : t('chatInput.compactFailed'));
+    } finally {
+      setCompacting(false);
     }
   };
 
@@ -252,7 +308,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
                 {mode.filled
                   ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
                   : <mode.icon className="size-4 shrink-0" />}
-                <span className="flex-1">{t(mode.label)}</span>
+                <span className="flex-1">{mode.label.startsWith('chatInput.') ? t(mode.label) : mode.label}</span>
                 {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
               </DropdownMenuItem>
             ))}
@@ -293,12 +349,20 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
         <button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
       </div>
     </div>
-    {/* 队列 pill（对照 Crush）：运行期间排队中的消息，可逐条移除或整体清空 */}
-    {queuedMessages.length ? (
+    {/* 队列 pill（对照 Crush + pi 双轨）：内核 steer/follow_up 与本地
+        FIFO（附件/引用）混排，可逐条移除或整体清空 */}
+    {totalQueued ? (
       <div className="flex items-center gap-2 border-t border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
         <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="shrink-0 font-medium">{t('chatInput.queuedCount', { count: queuedMessages.length })}</span>
+        <span className="shrink-0 font-medium">{t('chatInput.queuedCount', { count: totalQueued })}</span>
         <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto" aria-live="polite">
+          {kernelItems.map(({ item, lane }) => (
+            <span key={item.id} className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
+              <span className={cn('rounded-full px-1 text-[10px] font-semibold', lane === 'steer' ? 'bg-primary/15 text-primary' : 'bg-accent text-muted-foreground')}>{t(lane === 'steer' ? 'chatInput.queueLaneSteer' : 'chatInput.queueLaneFollowUp')}</span>
+              <span className="max-w-40 truncate">{item.text}</span>
+              <button type="button" onClick={() => void removeKernelQueued(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
+            </span>
+          ))}
           {queuedMessages.map((item) => (
             <span key={item.id} className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
               <span className="max-w-40 truncate">{item.text}</span>
@@ -337,11 +401,15 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
       void addFiles(images);
     }} onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) commands.dismiss(); }} onKeyDown={(event) => {
       if (commands.handleKeyDown(event)) return;
-      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); return; }
+      // pi 键位：运行中 Enter=steer、Shift+Alt+Enter=follow-up（浏览器安全）、
+      // Alt+↑=撤回最新排队项回编辑框；Shift+Enter 仍是换行。
+      if (event.key === 'Enter' && event.shiftKey && event.altKey && running) { event.preventDefault(); void send('follow_up'); return; }
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send('steer'); return; }
+      if (event.key === 'ArrowUp' && event.altKey) { event.preventDefault(); void dequeue(); return; }
       // esc 两段式（对照 Crush）：第一次清空队列，再一次取消运行
       if (event.key === 'Escape' && running) {
         event.preventDefault();
-        if (queuedMessages.length) clearQueue();
+        if (totalQueued) clearQueue();
         else void onCancel?.();
       }
     }} placeholder={placeholder || t(commands.draft?.name === 'goal' ? (commands.draft.goalRef ? 'composerCommands.resumePlaceholder' : 'composerCommands.goalPlaceholder') : commands.draft?.name === 'plan' ? 'composerCommands.planPlaceholder' : 'chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
@@ -350,12 +418,30 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled: inputDisabled, 
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
+      {context?.compaction_enabled ? (
+        <Popover open={compactOpen} onOpenChange={setCompactOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" disabled={disabled || !activeSessionId || compacting} title={running ? t('chatInput.compactBusy') : t('chatInput.compact')} aria-label={t('chatInput.compact')} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50">
+              <Shrink className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" className="w-72 p-3">
+            <p className="text-sm font-medium">{t('chatInput.compact')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('chatInput.compactHint')}</p>
+            <Input value={compactInstructions} onChange={(event) => setCompactInstructions(event.target.value)} placeholder={t('chatInput.compactInstructionsPlaceholder')} className="mt-2 h-8 text-sm" aria-label={t('chatInput.compactInstructionsPlaceholder')} />
+            <Button type="button" size="sm" className="mt-2 w-full" disabled={compacting} onClick={() => void runCompact()}>
+              {compacting ? t('chatInput.compacting') : t('chatInput.compactNow')}
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
-    <button type="button" onClick={() => void send()} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
-    <Button size="icon" variant="destructive" className="rounded-full" onClick={queuedMessages.length ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
+    <button type="button" onClick={() => void send('follow_up')} disabled={disabled || !canSend} className="rounded-full border border-border p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40" title={t('chatInput.sendAsFollowUp')} aria-label={t('chatInput.sendAsFollowUp')}><Clock className="h-4 w-4" /></button>
+    <button type="button" onClick={() => void send('steer')} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.steer')} aria-label={t('chatInput.steer')}><Send className="h-4 w-4" /></button>
+    <Button size="icon" variant="destructive" className="rounded-full" onClick={totalQueued ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
   </>
-) : <button type="button" onClick={() => void send()} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+) : <button type="button" onClick={() => void send('send')} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>

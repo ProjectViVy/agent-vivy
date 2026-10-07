@@ -1,0 +1,100 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/session-tree.title": {
+      "description": "Session tree page copy: title",
+      "placeholders": [],
+      "messages": { "en": "Session tree", "zh": "会话树" }
+    },
+    "plugin.vivy/session-tree.subtitle": {
+      "description": "Session tree page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Fork and clone graph · switch, clone, import, export",
+        "zh": "分叉与克隆图谱 · 切换、克隆、导入、导出"
+      }
+    },
+    "plugin.vivy/session-tree.nav": {
+      "description": "Sidebar VIVY group label for the Session Tree Module",
+      "placeholders": [],
+      "messages": { "en": "Session tree", "zh": "会话树" }
+    },
+    "plugin.vivy/session-tree.empty": {
+      "description": "Session tree page copy: empty state",
+      "placeholders": [],
+      "messages": { "en": "No sessions yet", "zh": "暂无会话" }
+    },
+    "plugin.vivy/session-tree.loading": {
+      "description": "Session tree page copy: loading state",
+      "placeholders": [],
+      "messages": { "en": "Loading session tree…", "zh": "正在加载会话树…" }
+    },
+    "plugin.vivy/session-tree.loadFailed": {
+      "description": "Session tree page copy: load failure",
+      "placeholders": [],
+      "messages": { "en": "Failed to load the session tree", "zh": "加载会话树失败" }
+    },
+    "plugin.vivy/session-tree.current": {
+      "description": "Session tree page copy: active session marker",
+      "placeholders": [],
+      "messages": { "en": "current", "zh": "当前" }
+    },
+    "plugin.vivy/session-tree.refresh": {
+      "description": "Session tree page copy: refresh action",
+      "placeholders": [],
+      "messages": { "en": "Refresh", "zh": "刷新" }
+    },
+    "plugin.vivy/session-tree.clone": {
+      "description": "Session tree page copy: clone action",
+      "placeholders": [],
+      "messages": { "en": "Clone", "zh": "克隆" }
+    },
+    "plugin.vivy/session-tree.import": {
+      "description": "Session tree page copy: import action",
+      "placeholders": [],
+      "messages": { "en": "Import…", "zh": "导入…" }
+    },
+    "plugin.vivy/session-tree.export": {
+      "description": "Session tree page copy: export action",
+      "placeholders": [],
+      "messages": { "en": "Export HTML", "zh": "导出 HTML" }
+    },
+    "plugin.vivy/session-tree.imported": {
+      "description": "Session tree page copy: import result line",
+      "placeholders": ["imported", "skipped"],
+      "messages": {
+        "en": "Imported {{imported}} messages ({{skipped}} skipped)",
+        "zh": "已导入 {{imported}} 条消息（跳过 {{skipped}} 条）"
+      }
+    },
+    "plugin.vivy/session-tree.exported": {
+      "description": "Session tree page copy: export result line",
+      "placeholders": ["name"],
+      "messages": {
+        "en": "Exported {{name}}",
+        "zh": "已导出 {{name}}"
+      }
+    },
+    "plugin.vivy/session-tree.actionFailed": {
+      "description": "Session tree page copy: action failure line",
+      "placeholders": [],
+      "messages": { "en": "Action failed", "zh": "操作失败" }
+    },
+    "plugin.vivy/session-tree.verifyFailed": {
+      "description": "Session tree page copy: digest mismatch on download",
+      "placeholders": [],
+      "messages": {
+        "en": "Downloaded file failed digest verification",
+        "zh": "下载的文件未通过摘要校验"
+      }
+    },
+    "plugin.vivy/session-tree.selectHint": {
+      "description": "Session tree page copy: row hint",
+      "placeholders": [],
+      "messages": {
+        "en": "Select a session to switch to it",
+        "zh": "选择一个会话以切换"
+      }
+    }
+  }
+}
