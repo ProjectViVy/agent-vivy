@@ -30,8 +30,9 @@ const (
 )
 
 var (
-	ErrPeerClosed = errors.New("rpc: peer closed")
-	ErrOverloaded = errors.New("rpc: outgoing queue is full")
+	ErrPeerClosed             = errors.New("rpc: peer closed")
+	ErrOverloaded             = errors.New("rpc: outgoing queue is full")
+	ErrNotificationOverloaded = errors.New("rpc: notification queue is full")
 )
 
 type Error struct {
@@ -73,6 +74,9 @@ type Transport interface {
 type Options struct {
 	MaxFrameBytes  int
 	OutgoingBuffer int
+	// NotificationBuffer bounds callbacks waiting for the ordered worker.
+	// Overflow closes the peer rather than blocking response dispatch.
+	NotificationBuffer int
 	// Caller is the opaque credential bound to an already-authenticated
 	// connection. It is copied into each request context by Peer and is never
 	// read from browser JSON. WebSocketServer supplies it after validating its
@@ -96,6 +100,9 @@ func (o Options) normalized() Options {
 	if o.OutgoingBuffer <= 0 {
 		o.OutgoingBuffer = 64
 	}
+	if o.NotificationBuffer <= 0 {
+		o.NotificationBuffer = 1024
+	}
 	return o
 }
 
@@ -113,10 +120,11 @@ type Peer struct {
 	caller    actionhost.Caller
 	identity  actionhost.Identity
 
-	out       chan []byte
-	done      chan struct{}
-	serveDone chan struct{}
-	stop      sync.Once
+	out           chan []byte
+	notifications chan Request
+	done          chan struct{}
+	serveDone     chan struct{}
+	stop          sync.Once
 
 	sequence atomic.Uint64
 	mu       sync.Mutex
@@ -131,35 +139,41 @@ func NewPeer(transport Transport, handler Handler, options Options) *Peer {
 		caller = options.AuthenticatedCaller
 	}
 	return &Peer{
-		transport: transport,
-		handler:   handler,
-		options:   options,
-		caller:    caller,
-		identity:  options.Identity,
-		out:       make(chan []byte, options.OutgoingBuffer),
-		done:      make(chan struct{}),
-		serveDone: make(chan struct{}),
-		pending:   make(map[string]chan responseFrame),
-		after:     make(map[string][]func()),
+		transport:     transport,
+		handler:       handler,
+		options:       options,
+		caller:        caller,
+		identity:      options.Identity,
+		out:           make(chan []byte, options.OutgoingBuffer),
+		notifications: make(chan Request, options.NotificationBuffer),
+		done:          make(chan struct{}),
+		serveDone:     make(chan struct{}),
+		pending:       make(map[string]chan responseFrame),
+		after:         make(map[string][]func()),
 	}
 }
 
 // ServeDone closes when a started Serve loop has fully unwound (read loop
-// and writer joined). It never closes for a peer that never served; owners
-// that spawn Serve may wait on it to join the pump during teardown.
+// and writer/notification worker joined). It never closes for a peer that never
+// served; owners that spawn Serve may wait on it during teardown.
 func (p *Peer) ServeDone() <-chan struct{} {
 	return p.serveDone
 }
 
-// Serve owns the transport read loop. Requests are handled concurrently;
-// writes are serialized by one bounded writer goroutine.
+// Serve owns the transport read loop. ID-bearing requests run concurrently;
+// notifications run in wire order on a separate worker, so callbacks may Call.
+// Handlers must honor context cancellation to allow the worker to stop.
+// Writes are serialized by one bounded writer goroutine.
 func (p *Peer) Serve(ctx context.Context) error {
 	defer close(p.serveDone)
 	if p.transport == nil {
 		return errors.New("rpc: nil transport")
 	}
+	ctx, cancel := context.WithCancel(ctx)
 	writerDone := make(chan struct{})
 	go p.writeLoop(writerDone)
+	notificationsDone := make(chan struct{})
+	go p.notificationLoop(ctx, notificationsDone)
 	watchDone := make(chan struct{})
 	go func() {
 		select {
@@ -168,11 +182,21 @@ func (p *Peer) Serve(ctx context.Context) error {
 		case <-p.done:
 		case <-watchDone:
 		}
+		cancel()
 	}()
 	defer func() {
 		close(watchDone)
+		cancel()
 		p.stopPeer()
 		<-writerDone
+		<-notificationsDone
+		for {
+			select {
+			case <-p.notifications:
+			default:
+				return
+			}
+		}
 	}()
 
 	for {
@@ -194,7 +218,9 @@ func (p *Peer) Serve(ctx context.Context) error {
 			_ = p.sendError(nil, InvalidRequest, "message exceeds maximum frame size", nil)
 			return fmt.Errorf("rpc: frame exceeds %d bytes", p.options.MaxFrameBytes)
 		}
-		p.dispatch(ctx, frame)
+		if err := p.dispatch(ctx, frame); err != nil {
+			return err
+		}
 	}
 }
 
@@ -213,7 +239,29 @@ func (p *Peer) writeLoop(done chan<- struct{}) {
 	}
 }
 
-func (p *Peer) dispatch(ctx context.Context, frame []byte) {
+func (p *Peer) notificationLoop(ctx context.Context, done chan<- struct{}) {
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.done:
+			return
+		case request := <-p.notifications:
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-p.done:
+				return
+			default:
+			}
+			p.handleRequest(ctx, request)
+		}
+	}
+}
+
+func (p *Peer) dispatch(ctx context.Context, frame []byte) error {
 	var envelope struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
@@ -224,20 +272,31 @@ func (p *Peer) dispatch(ctx context.Context, frame []byte) {
 	}
 	if err := json.Unmarshal(frame, &envelope); err != nil {
 		_ = p.sendError(nil, ParseError, "invalid JSON", nil)
-		return
+		return nil
 	}
 	if envelope.Method == "" && (envelope.Result != nil || envelope.Error != nil) {
 		p.resolve(responseFrame{JSONRPC: envelope.JSONRPC, ID: envelope.ID, Result: envelope.Result, Error: envelope.Error})
-		return
+		return nil
 	}
 	request := Request{JSONRPC: envelope.JSONRPC, ID: envelope.ID, Method: envelope.Method, Params: envelope.Params}
 	if request.JSONRPC != "2.0" || request.Method == "" {
 		if len(request.ID) > 0 {
 			_ = p.sendError(request.ID, InvalidRequest, "invalid JSON-RPC request", nil)
 		}
-		return
+		return nil
+	}
+	if len(request.ID) == 0 {
+		select {
+		case <-p.done:
+			return ErrPeerClosed
+		case p.notifications <- request:
+			return nil
+		default:
+			return ErrNotificationOverloaded
+		}
 	}
 	go p.handleRequest(ctx, request)
+	return nil
 }
 
 func (p *Peer) handleRequest(ctx context.Context, request Request) {
