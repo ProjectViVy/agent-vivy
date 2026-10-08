@@ -70,11 +70,41 @@ only the plan-review resume supplied `resumeBatchIDs`; approval and question
 resumes (and restart-rebuilt pendings) passed `nil`. The mapper's `toolBatch`
 cannot help: it is empty on resume legs (no `tool.requested` events re-emit).
 Fix: `resumeRun` derives `resumeBatchIDs` from the durable journal when the
-caller passes none — the batch is the most recent contiguous run of
-`tool.requested` events containing the suspended call, which survives
-restarts and every sequential suspend. Single-call batches behave exactly as
-before; refusal/failure siblings satisfy the barrier through their journaled
-`tool.finished` (refusals always land a tool result).
+caller passes none — the batch is the tool-call set of the model turn
+containing the suspended call, which survives restarts and every sequential
+suspend. Single-call batches behave exactly as before; refusal/failure
+siblings satisfy the barrier through their journaled `tool.finished`
+(refusals always land a tool result).
+
+## Fourth required change: model-turn grouping + request-order barrier
+
+Review found two order regressions the first cut missed.
+
+**Turn-boundary batch recovery.** The original derivation grouped
+*contiguous* `tool.requested` events — but admission-time events
+(`policy.evaluated`, `tool.operation`, approval lifecycle) interleave between
+a batch's request records under parallel dispatch, so one turn's set split
+into several single-call "batches" and resume restored a barrier that could
+never seal (run stuck `active`). `resumeBatchIDsFromJournal` now bounds by
+the model turn: `model.request` seals a turn; the answer is the
+`tool.requested` set since the most recent `model.request` that contains
+the call. Covers interleaved events, finished/pending mixes, consecutive
+suspends inside one batch, and restart rebuilds uniformly.
+
+**Request-order barrier.** `RWMutex` acquisition order is scheduling order,
+not model-request order: a write tool positioned after `submit_plan` could
+take the read side before the writer queued and execute past the fence
+(`TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch` observed
+`effect.calls == 1`). Fix: per-run `toolBatchOrder` tracks each model turn's
+calls in request order (consume registers them where `state.Register` runs;
+journal order is the authoritative order on resume legs) plus a done signal
+per call. An ordinary call waits for every earlier model-work call in its
+batch before entering the gate — its fence check then observes the committed
+result. A model-work call waits for every earlier sibling, so a later commit
+never precedes an earlier call's effect. Calls before a work call keep
+running in parallel with it; waits always point later→earlier so they cannot
+cycle; `tool.finished`, resume replays, and the dispatch defer all release
+waiters so replayed/rebuilt/suspended siblings never hang a batch.
 
 ## Shared-state audit (dispatch concurrency)
 
@@ -107,12 +137,16 @@ workspace/process state.
 5. Multi-interrupt handling — serialized suspends verified against raw eino
    (minimal two-interrupt repro completes) and end-to-end. `resumeRun` derives
    `resumeBatchIDs` from the journal when the caller passes none
-   (`resumeBatchIDsFromJournal`); `extractInterrupt`/`handleInterrupt`
-   unchanged.
-6. `internal/runtime/nudge_acceptance_test.go` — request-order assertion
+   (`resumeBatchIDsFromJournal`, model-turn bounded); `extractInterrupt`/
+   `handleInterrupt` unchanged.
+6. `internal/runtime/tool_batch_order.go` — per-run request-order tracker;
+   `WorkToolCall` waits for earlier batch siblings per the work-call barrier
+   rules; consume and resume-restore register batches and release settled
+   calls.
+7. `internal/runtime/nudge_acceptance_test.go` — request-order assertion
    narrowed to presence + the nudge naming contract (journal finish order is
    legitimately completion order under parallelism).
-7. `docs/TODO.md`/`docs/COMPLETE.MD` — close `EINO-TOOLSNODE-ERR-RACE`;
+8. `docs/TODO.md`/`docs/COMPLETE.MD` — close `EINO-TOOLSNODE-ERR-RACE`;
    `CODING-TOOL-BATCH-PARALLELISM` was a report id, not a board row.
 
 ## Tests
@@ -125,4 +159,9 @@ workspace/process state.
   refused post-review; `PlanBlockedToolCalls` recorded.
 - two effectful calls in one batch → two sequential approval suspends.
 - durable identity: resume replays stored operation result.
+- journal derivation under interleaved events, mixed settled/pending,
+  turn boundaries, consecutive suspends (unit tests on crafted journals).
+- order tracker: registration wait, done barrier, cancel release (unit).
+- earlier sibling of `submit_plan` still executes exactly once, across the
+  plan-review resume.
 - `go test -race ./internal/...` clean (this also covers the eino fix).

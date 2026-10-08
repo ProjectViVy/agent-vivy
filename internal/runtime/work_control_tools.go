@@ -76,6 +76,36 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 // refused before reaching product code. That preserves the sequential
 // contract (no sibling effect may overlap a terminal Goal report or an
 // unreviewed Plan submission) without serializing the whole batch.
+// noteToolBatch records a model turn's calls in request order for the run's
+// dispatch tracker; nil-safe when the run has no tracker (direct paths).
+func (s *Service) noteToolBatch(runID domain.RunID, calls []orderedToolCall) {
+	if s == nil || len(calls) == 0 {
+		return
+	}
+	s.mu.Lock()
+	order := s.workOrders[runID]
+	s.mu.Unlock()
+	if order != nil {
+		order.noteBatch(calls)
+	}
+}
+
+// signalToolDone releases siblings waiting on a settled call. Tool.finished
+// journal entries, resume replays, and the dispatch defer all land here so a
+// call that never re-dispatches (replayed, rebuilt, or suspended siblings)
+// still unblocks the batch ordered behind it.
+func (s *Service) signalToolDone(runID domain.RunID, callID string) {
+	if s == nil || callID == "" {
+		return
+	}
+	s.mu.Lock()
+	order := s.workOrders[runID]
+	s.mu.Unlock()
+	if order != nil {
+		order.signalDone(callID)
+	}
+}
+
 func (s *Service) WorkToolCall(ctx context.Context, exclusive bool, call func() (string, error)) (string, error) {
 	if s == nil || call == nil {
 		return "", errors.New("runtime: work tool gate is unavailable")
@@ -84,18 +114,52 @@ func (s *Service) WorkToolCall(ctx context.Context, exclusive bool, call func() 
 	if runID == "" {
 		runID = tools.RunIDFromContext(ctx)
 	}
+	callID := compose.GetToolCallID(ctx)
 	s.mu.Lock()
 	gate := s.workGates[runID]
+	order := s.workOrders[runID]
 	s.mu.Unlock()
 	if gate == nil {
 		return call()
 	}
+	// Request-order barrier. Lock acquisition order is scheduling order, not
+	// model-request order, so a sibling positioned after a model-work call
+	// could otherwise reach the read side before the writer queues and slip
+	// an effect past the fence it must observe. Waits always point from a
+	// later call to an earlier one, so they cannot cycle: an ordinary call
+	// waits only for earlier model-work calls (its fence check must see the
+	// committed result), and a work call waits for every earlier sibling
+	// (its commit must follow their effects, as in sequential execution).
+	if order != nil && callID != "" {
+		earlier, err := order.awaitEarlier(ctx, callID)
+		if err != nil {
+			return "", err
+		}
+		for _, sibling := range earlier {
+			if !exclusive && !isModelWorkTool(sibling.name) {
+				continue
+			}
+			if err := order.awaitDone(ctx, sibling.id); err != nil {
+				return "", err
+			}
+		}
+	}
 	if exclusive {
 		gate.Lock()
-		defer gate.Unlock()
+		defer func() {
+			gate.Unlock()
+			if order != nil && callID != "" {
+				order.signalDone(callID)
+			}
+		}()
 	} else {
 		gate.RLock()
-		defer gate.RUnlock()
+		defer func() {
+			gate.RUnlock()
+			if order != nil && callID != "" {
+				order.signalDone(callID)
+			}
+		}()
 	}
 	return call()
 }

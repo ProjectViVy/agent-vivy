@@ -318,6 +318,10 @@ type Service struct {
 	runTools   map[domain.RunID]map[string]struct{}
 	workFenced map[domain.RunID]struct{}
 	workGates  map[domain.RunID]*sync.RWMutex
+	// workOrders records each live run's tool batches in model-request order
+	// so parallel dispatch can wait on earlier siblings at the points where
+	// sequential execution would have ordered them (see toolBatchOrder).
+	workOrders map[domain.RunID]*toolBatchOrder
 	// cognitive is the automatic wake loop for trusted strategy admission;
 	// nil until StartCognitiveLoop starts it.
 	cogMu     sync.Mutex
@@ -532,6 +536,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		humanPending:      make(map[domain.SessionID]int),
 		workFenced:        make(map[domain.RunID]struct{}),
 		workGates:         make(map[domain.RunID]*sync.RWMutex),
+		workOrders:        make(map[domain.RunID]*toolBatchOrder),
 		workBlockedCalls:  make(map[domain.RunID]map[string]struct{}),
 	}
 	if eng != nil {
@@ -1361,6 +1366,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	s.snapshots[runID] = snapshot
 	s.runTools[runID] = selectedToolSet
 	s.workGates[runID] = &sync.RWMutex{}
+	s.workOrders[runID] = newToolBatchOrder()
 	s.mu.Unlock()
 	// The durable admission is already committed. Register its process-local
 	// RunID before notifying subscribers that refresh WorkView on this event.
@@ -2365,6 +2371,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		s.goalRunRefs[run.ID] = goalRef
 	}
 	s.workGates[run.ID] = &sync.RWMutex{}
+	s.workOrders[run.ID] = newToolBatchOrder()
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
@@ -2408,6 +2415,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		s.goalRunRefs[run.ID] = goalRef
 	}
 	s.workGates[run.ID] = &sync.RWMutex{}
+	s.workOrders[run.ID] = newToolBatchOrder()
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
 		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
@@ -3503,6 +3511,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 				return err
 			}
 			var requested []string
+			var batchCalls []orderedToolCall
 			for _, re := range events {
 				if execution.child != nil && re.Type == domain.EventToolRequested {
 					execution.child.resetOutput()
@@ -3511,15 +3520,26 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 					persistStopped = true
 					return context.Canceled
 				}
-				if state == nil {
-					continue
-				}
+				// Request-order tracking is independent of the nudge barrier
+				// state: dispatchers consult it to rebuild the sequential
+				// boundaries the RW gate cannot see on its own.
 				switch re.Type {
 				case domain.EventToolRequested:
 					var p payloadToolRequested
 					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
 						requested = append(requested, p.ToolCallID)
+						batchCalls = append(batchCalls, orderedToolCall{id: p.ToolCallID, name: p.ToolName})
 					}
+				case domain.EventToolFinished:
+					var finished payloadToolFinished
+					if err := json.Unmarshal(re.Payload, &finished); err == nil {
+						s.signalToolDone(m.runID, finished.ToolCallID)
+					}
+				}
+				if state == nil {
+					continue
+				}
+				switch re.Type {
 				case domain.EventToolFinished:
 					var p payloadToolFinished
 					if err := json.Unmarshal(re.Payload, &p); err != nil {
@@ -3546,6 +3566,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 					}
 				}
 			}
+			s.noteToolBatch(m.runID, batchCalls)
 			if state != nil && len(requested) > 0 {
 				if err := state.Register(requested); err != nil {
 					return err
@@ -4712,8 +4733,9 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 	if err := state.Register(batchIDs); err != nil {
 		return err
 	}
-	if len(siblings) == 0 {
-		return nil
+	inBatch := make(map[string]struct{}, len(batchIDs))
+	for _, id := range batchIDs {
+		inBatch[id] = struct{}{}
 	}
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
@@ -4721,66 +4743,96 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 	}
 	defer func() { _ = it.Close() }()
 	settled := make(map[string]struct{}, len(siblings))
+	// The journal's tool.requested order is the authoritative request order
+	// for the batch (a caller-provided slice may not be); re-emit it into
+	// the run's order tracker so resume-leg dispatch sees the same
+	// boundaries the original leg saw.
+	var ordered []orderedToolCall
+	names := make(map[string]string, len(batchIDs))
 	for it.Next() {
 		event := it.Value().Event
-		if event.Type != domain.EventToolFinished {
-			continue
+		switch event.Type {
+		case domain.EventToolRequested:
+			var requested payloadToolRequested
+			if err := json.Unmarshal(event.Payload, &requested); err != nil {
+				return fmt.Errorf("runtime: decode resumed tool request: %w", err)
+			}
+			names[requested.ToolCallID] = requested.ToolName
+			if _, ok := inBatch[requested.ToolCallID]; ok {
+				ordered = append(ordered, orderedToolCall{id: requested.ToolCallID, name: requested.ToolName})
+			}
+		case domain.EventToolFinished:
+			var finished payloadToolFinished
+			if err := json.Unmarshal(event.Payload, &finished); err != nil {
+				return fmt.Errorf("runtime: decode resumed tool result: %w", err)
+			}
+			s.signalToolDone(runID, finished.ToolCallID)
+			if _, ok := siblings[finished.ToolCallID]; !ok {
+				continue
+			}
+			if _, done := settled[finished.ToolCallID]; done {
+				continue
+			}
+			if err := state.SatisfyDurable(finished.ToolCallID); err != nil {
+				return err
+			}
+			settled[finished.ToolCallID] = struct{}{}
 		}
-		var finished payloadToolFinished
-		if err := json.Unmarshal(event.Payload, &finished); err != nil {
-			return fmt.Errorf("runtime: decode resumed tool result: %w", err)
-		}
-		if _, ok := siblings[finished.ToolCallID]; !ok {
-			continue
-		}
-		if _, done := settled[finished.ToolCallID]; done {
-			continue
-		}
-		if err := state.SatisfyDurable(finished.ToolCallID); err != nil {
-			return err
-		}
-		settled[finished.ToolCallID] = struct{}{}
 	}
 	if err := it.Err(); err != nil {
 		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
 	}
+	// Append batch members the journal never named (should not happen)
+	// so registration never silently drops a tracked call.
+	for _, id := range batchIDs {
+		if _, seen := names[id]; !seen {
+			ordered = append(ordered, orderedToolCall{id: id})
+		}
+	}
+	s.noteToolBatch(runID, ordered)
 	return nil
 }
 
 // resumeBatchIDsFromJournal recovers the sibling set of the model-turn
-// tool-call batch containing toolCallID. tool.requested events of one
-// assistant turn land in the journal as a contiguous run; the answer is
-// the most recent such run naming the call, or nil when the run has no
-// recorded request for it.
+// tool-call batch containing toolCallID. One assistant turn's tool.requested
+// events do NOT land contiguously in the journal: admission-time events such
+// as policy.evaluated and tool.operation interleave between them. The turn
+// boundary is the next model.request instead — a model call only follows a
+// fully settled batch — so the answer is the tool.requested set collected
+// after the most recent model.request, provided it names the call.
 func (s *Service) resumeBatchIDsFromJournal(ctx context.Context, runID domain.RunID, toolCallID string) ([]string, error) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		return nil, fmt.Errorf("runtime: replay tool batch requests: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	var group, found []string
-	flush := func() {
-		for _, id := range group {
+	var turn, found []string
+	// seal records the current turn's set when it contains the call; runs
+	// can suspend repeatedly inside one batch (consecutive approvals), so
+	// the most recent matching turn wins.
+	seal := func() {
+		for _, id := range turn {
 			if id == toolCallID {
-				found = append([]string(nil), group...)
+				found = append([]string(nil), turn...)
 				break
 			}
 		}
-		group = group[:0]
 	}
 	for it.Next() {
 		event := it.Value().Event
-		if event.Type != domain.EventToolRequested {
-			flush()
-			continue
+		switch event.Type {
+		case domain.EventModelRequest:
+			seal()
+			turn = turn[:0]
+		case domain.EventToolRequested:
+			var requested payloadToolRequested
+			if err := json.Unmarshal(event.Payload, &requested); err != nil {
+				return nil, fmt.Errorf("runtime: decode tool batch request: %w", err)
+			}
+			turn = append(turn, requested.ToolCallID)
 		}
-		var requested payloadToolRequested
-		if err := json.Unmarshal(event.Payload, &requested); err != nil {
-			return nil, fmt.Errorf("runtime: decode tool batch request: %w", err)
-		}
-		group = append(group, requested.ToolCallID)
 	}
-	flush()
+	seal()
 	if err := it.Err(); err != nil {
 		return nil, fmt.Errorf("runtime: replay tool batch requests: %w", err)
 	}
@@ -5019,6 +5071,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.workFenced, terminal.RunID)
 	delete(s.workBlockedCalls, terminal.RunID)
 	delete(s.workGates, terminal.RunID)
+	delete(s.workOrders, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
@@ -5067,6 +5120,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.workFenced, runID)
 	delete(s.workBlockedCalls, runID)
 	delete(s.workGates, runID)
+	delete(s.workOrders, runID)
 	delete(s.runSessions, runID)
 	if goalSession := s.goalRunSessions[runID]; goalSession != "" && s.goalRuns[goalSession] == runID {
 		delete(s.goalRuns, goalSession)
