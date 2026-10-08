@@ -317,7 +317,7 @@ type Service struct {
 	// the process-wide registry again.
 	runTools   map[domain.RunID]map[string]struct{}
 	workFenced map[domain.RunID]struct{}
-	workGates  map[domain.RunID]*sync.Mutex
+	workGates  map[domain.RunID]*sync.RWMutex
 	// cognitive is the automatic wake loop for trusted strategy admission;
 	// nil until StartCognitiveLoop starts it.
 	cogMu     sync.Mutex
@@ -531,7 +531,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		overflowAwaiting:  make(map[domain.RunID]int),
 		humanPending:      make(map[domain.SessionID]int),
 		workFenced:        make(map[domain.RunID]struct{}),
-		workGates:         make(map[domain.RunID]*sync.Mutex),
+		workGates:         make(map[domain.RunID]*sync.RWMutex),
 		workBlockedCalls:  make(map[domain.RunID]map[string]struct{}),
 	}
 	if eng != nil {
@@ -1360,7 +1360,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.runTools[runID] = selectedToolSet
-	s.workGates[runID] = &sync.Mutex{}
+	s.workGates[runID] = &sync.RWMutex{}
 	s.mu.Unlock()
 	// The durable admission is already committed. Register its process-local
 	// RunID before notifying subscribers that refresh WorkView on this event.
@@ -2364,7 +2364,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		s.goalRunSessions[run.ID] = run.SessionID
 		s.goalRunRefs[run.ID] = goalRef
 	}
-	s.workGates[run.ID] = &sync.Mutex{}
+	s.workGates[run.ID] = &sync.RWMutex{}
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
@@ -2407,7 +2407,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		s.goalRunSessions[run.ID] = run.SessionID
 		s.goalRunRefs[run.ID] = goalRef
 	}
-	s.workGates[run.ID] = &sync.Mutex{}
+	s.workGates[run.ID] = &sync.RWMutex{}
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{
 		runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
@@ -4646,6 +4646,20 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
 	state := newNudgeState()
+	if len(resumeBatchIDs) == 0 {
+		// Approval/question callers do not carry the sibling set (and a
+		// rebuilt pending has none in memory). Derive it from the durable
+		// journal: a composite interrupt suspends sibling calls of one
+		// model-turn batch, and the resumed model boundary waits on the
+		// barrier for the whole batch's results — replayed or fresh.
+		derived, err := s.resumeBatchIDsFromJournal(context.Background(), runID, toolCallID)
+		if err != nil {
+			slog.Warn("resume could not derive tool batch", "run", string(runID), "err", err)
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+		resumeBatchIDs = derived
+	}
 	if err := s.restoreResumeNudgeBatch(context.Background(), state, runID, toolCallID, resumeBatchIDs); err != nil {
 		slog.Warn("resume could not restore tool result barrier", "run", string(runID), "err", err)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
@@ -4731,6 +4745,46 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
 	}
 	return nil
+}
+
+// resumeBatchIDsFromJournal recovers the sibling set of the model-turn
+// tool-call batch containing toolCallID. tool.requested events of one
+// assistant turn land in the journal as a contiguous run; the answer is
+// the most recent such run naming the call, or nil when the run has no
+// recorded request for it.
+func (s *Service) resumeBatchIDsFromJournal(ctx context.Context, runID domain.RunID, toolCallID string) ([]string, error) {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: replay tool batch requests: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	var group, found []string
+	flush := func() {
+		for _, id := range group {
+			if id == toolCallID {
+				found = append([]string(nil), group...)
+				break
+			}
+		}
+		group = group[:0]
+	}
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventToolRequested {
+			flush()
+			continue
+		}
+		var requested payloadToolRequested
+		if err := json.Unmarshal(event.Payload, &requested); err != nil {
+			return nil, fmt.Errorf("runtime: decode tool batch request: %w", err)
+		}
+		group = append(group, requested.ToolCallID)
+	}
+	flush()
+	if err := it.Err(); err != nil {
+		return nil, fmt.Errorf("runtime: replay tool batch requests: %w", err)
+	}
+	return found, nil
 }
 
 // terminalEvent classifies the failure path: context cancellation and

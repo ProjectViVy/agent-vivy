@@ -531,9 +531,12 @@ func workToolCallFenced(ctx context.Context) bool {
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
 	if operations := tools.WorkControlFromContext(ctx); operations != nil {
 		if gate, ok := operations.(interface {
-			WorkToolCall(context.Context, func() (string, error)) (string, error)
+			WorkToolCall(context.Context, bool, func() (string, error)) (string, error)
 		}); ok {
-			return gate.WorkToolCall(ctx, func() (string, error) {
+			// Model-work calls commit the run's terminal/mutation boundaries
+			// and take the gate's exclusive side; every other tool shares the
+			// read side so same-batch siblings dispatch in parallel.
+			return gate.WorkToolCall(ctx, isModelWorkTool(a.t.Spec().Name), func() (string, error) {
 				return a.dispatchUngated(ctx, argumentsInJSON)
 			})
 		}

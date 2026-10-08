@@ -65,11 +65,18 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 	return terminal || batchSibling
 }
 
-// WorkToolCall serializes model tool admission and invocation for one live
-// run. The gate closes the check-to-invoke race around report_goal: if a
-// terminal report commits first, a sibling tool waits and is fenced before
-// reaching product code.
-func (s *Service) WorkToolCall(ctx context.Context, call func() (string, error)) (string, error) {
+// WorkToolCall coordinates model tool admission and invocation for one live
+// run through a per-run read/write gate. Ordinary calls (exclusive=false)
+// take the read side for their whole dispatch, so sibling tools run in
+// parallel while the terminal fence check still cannot race a work commit.
+// Model-work calls (exclusive=true) take the write side, which makes their
+// admission and commit a full barrier: the writer waits for in-flight
+// siblings to settle first, and Go's writer preference then blocks siblings
+// that arrive while the commit is pending — they observe the fence and are
+// refused before reaching product code. That preserves the sequential
+// contract (no sibling effect may overlap a terminal Goal report or an
+// unreviewed Plan submission) without serializing the whole batch.
+func (s *Service) WorkToolCall(ctx context.Context, exclusive bool, call func() (string, error)) (string, error) {
 	if s == nil || call == nil {
 		return "", errors.New("runtime: work tool gate is unavailable")
 	}
@@ -83,8 +90,13 @@ func (s *Service) WorkToolCall(ctx context.Context, call func() (string, error))
 	if gate == nil {
 		return call()
 	}
-	gate.Lock()
-	defer gate.Unlock()
+	if exclusive {
+		gate.Lock()
+		defer gate.Unlock()
+	} else {
+		gate.RLock()
+		defer gate.RUnlock()
+	}
 	return call()
 }
 
