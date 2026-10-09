@@ -1,6 +1,6 @@
 # Issue #32 remediation implementation package
 
-Status: **P1 implementation active.** P0 baseline and traceability are verified;
+Status: **P1 implementation active; P2.1 implementation verified locally.** P0 baseline and traceability are verified;
 H1 code and host-test prerequisites are committed on isolated branches, while
 canonical Linux acceptance and the remaining P1/P2 tasks stay open.
 Design authority: [written design](../../specs/2026-10-09-issue32-remediation-design.md).
@@ -26,7 +26,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | --- | --- | --- | --- | --- |
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
-| P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | DESIGNED |
+| P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IN PROGRESS |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | DESIGNED |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | DESIGNED |
@@ -48,7 +48,7 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | H1 | P1 | P1.1 | IMPLEMENTED; local headless tests pass; canonical Linux host race pending |
 | H2 | P1 | P1.2 | IMPLEMENTED in DIVA `8918b6f2`, with source-tree pin/aggregate-test follow-up in `607fc54f`; 18 local contracts pass; Linux/Windows native CI pending (DIVA logs: `v0.0.2-h2-ci-and-lock-gates`, `v0.0.3-h3-candidate-publication-gates`) |
 | H3 | P1 | P1.3 | IMPLEMENTED in DIVA `607fc54f`; strict v2 checker passes a synthetic two-platform/17-row candidate and rejects incomplete/tampered cases; native builds, real W5 acceptance, archive tags, and approved W6 state pending |
-| C1 | P1 | P2.1 | PLANNED; defect probe reproduced |
+| C1 | P1 | P2.1 | IMPLEMENTED; focused regressions and cognitive race suite pass; aggregate `just ci` unavailable in this environment ([P2.1 verification](../../../logs/2026-10-09-issue32-p2.1-state-cas/verification.md)) |
 | C2 | P1 | P2.2 | PLANNED; call-chain confirmed |
 | H4 | P2 | P4.1a | PLANNED |
 | H5 | P2 | P4.2 | PLANNED |

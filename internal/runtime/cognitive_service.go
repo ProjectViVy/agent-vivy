@@ -94,10 +94,11 @@ func (s *Service) NotifyCognitiveInput(ctx context.Context, seq uint64) error {
 	if b == nil || b.Store == nil {
 		return nil
 	}
-	if err := s.updateCognitiveState(ctx, func(st *cognitiveState) {
+	if err := s.updateCognitiveState(ctx, func(st *cognitiveState) error {
 		if seq > st.SourceHigh {
 			st.SourceHigh = seq
 		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -112,9 +113,10 @@ func (s *Service) UpdateCognitivePolicy(ctx context.Context, policy laputaevolut
 	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
 		return ErrCognitiveUnavailable
 	}
-	return s.updateCognitiveState(ctx, func(st *cognitiveState) {
+	return s.updateCognitiveState(ctx, func(st *cognitiveState) error {
 		st.Policy = policy
 		st.PolicyRevision++
+		return nil
 	})
 }
 
@@ -137,7 +139,9 @@ func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevo
 	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
 		return ErrCognitiveUnavailable
 	}
-	st, _, err := s.loadCognitiveState(ctx)
+	s.cogStateMu.Lock()
+	defer s.cogStateMu.Unlock()
+	st, version, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return err
 	}
@@ -146,7 +150,11 @@ func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevo
 	}
 	st.Policy = policy
 	st.PolicyRevision++
-	return s.saveCognitiveState(ctx, st)
+	if err := s.saveCognitiveState(ctx, st, version); errors.Is(err, storage.ErrVersionConflict) {
+		return ErrPolicyConflict
+	} else {
+		return err
+	}
 }
 
 // ErrPolicyConflict rejects a policy write whose base revision is stale.
@@ -287,6 +295,9 @@ func (s *Service) kickCognitive() {
 // supervisor run. Repeated wakes while a run is active coalesce on the
 // persisted ActiveRunID.
 func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevolution.Eligibility, error) {
+	s.cogAttemptMu.Lock()
+	defer s.cogAttemptMu.Unlock()
+
 	b := s.deps.Cognitive
 	if b == nil || b.Domain == nil {
 		return laputaevolution.Eligibility{}, ErrCognitiveUnavailable
@@ -294,10 +305,11 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	if b.Store == nil {
 		return laputaevolution.Eligibility{}, ErrCognitiveUnavailable
 	}
-	st, _, err := s.loadCognitiveState(ctx)
+	st, stateVersion, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
+	baseState := st
 	if !manual {
 		s.cogMu.Lock()
 		c := s.cognitive
@@ -355,7 +367,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		// Durable fence: automatic wakes stop here. A manual trigger is a
 		// deliberate human retry and clears the recorded reason.
 		st.LastReason = "blocked:" + st.Blocked
-		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveState(ctx, st)
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion)
 	}
 	elig := laputaevolution.Evaluate(laputaevolution.Wake{
 		NowUnixMS:      now,
@@ -368,7 +380,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	})
 	st.LastReason = string(elig.Reason)
 	if !elig.Run {
-		return elig, s.saveCognitiveState(ctx, st)
+		return elig, s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion)
 	}
 	if manual {
 		st.Blocked = ""
@@ -432,7 +444,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 			st.Blocked = cognitiveBlockExhausted
 		}
 	}
-	if err := s.saveCognitiveState(ctx, st); err != nil {
+	if err := s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion); err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
 	return elig, nil
@@ -551,25 +563,75 @@ func (s *Service) loadCognitiveState(ctx context.Context) (cognitiveState, int64
 	return st, version, nil
 }
 
-func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState) error {
+func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState, expectedVersion int64) error {
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return err
 	}
-	_, version, err := s.deps.Cognitive.Store.Get(ctx, cognitiveStateKey)
-	if err != nil {
-		return err
-	}
-	return s.deps.Cognitive.Store.Put(ctx, cognitiveStateKey, raw, version)
+	return s.deps.Cognitive.Store.Put(ctx, cognitiveStateKey, raw, expectedVersion)
 }
 
-func (s *Service) updateCognitiveState(ctx context.Context, mutate func(*cognitiveState)) error {
-	st, _, err := s.loadCognitiveState(ctx)
+// saveCognitiveAttemptState first commits against the snapshot the attempt
+// read. If a pure state update won in the meantime, it rebases only fields
+// this attempt changed onto the newest state. It never repeats the attempt's
+// external reads or effects.
+func (s *Service) saveCognitiveAttemptState(ctx context.Context, base, attempted cognitiveState, expectedVersion int64) error {
+	s.cogStateMu.Lock()
+	defer s.cogStateMu.Unlock()
+	if err := s.saveCognitiveState(ctx, attempted, expectedVersion); err == nil || !errors.Is(err, storage.ErrVersionConflict) {
+		return err
+	}
+
+	latest, latestVersion, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return err
 	}
-	mutate(&st)
-	return s.saveCognitiveState(ctx, st)
+	latest = rebaseCognitiveAttemptState(latest, base, attempted)
+	return s.saveCognitiveState(ctx, latest, latestVersion)
+}
+
+func rebaseCognitiveAttemptState(latest, base, attempted cognitiveState) cognitiveState {
+	if attempted.SupervisorSeq != base.SupervisorSeq {
+		latest.SupervisorSeq = attempted.SupervisorSeq
+	}
+	if attempted.SupervisorRunID != base.SupervisorRunID {
+		latest.SupervisorRunID = attempted.SupervisorRunID
+	}
+	if attempted.ActiveRunID != base.ActiveRunID {
+		latest.ActiveRunID = attempted.ActiveRunID
+	}
+	if attempted.PendingThrough != base.PendingThrough {
+		latest.PendingThrough = attempted.PendingThrough
+	}
+	if attempted.Watermark != base.Watermark {
+		latest.Watermark = attempted.Watermark
+	}
+	if attempted.Attempt != base.Attempt {
+		latest.Attempt = attempted.Attempt
+	}
+	if attempted.LastCompletedUnixMS != base.LastCompletedUnixMS {
+		latest.LastCompletedUnixMS = attempted.LastCompletedUnixMS
+	}
+	if attempted.LastReason != base.LastReason {
+		latest.LastReason = attempted.LastReason
+	}
+	if attempted.Blocked != base.Blocked {
+		latest.Blocked = attempted.Blocked
+	}
+	return latest
+}
+
+func (s *Service) updateCognitiveState(ctx context.Context, mutate func(*cognitiveState) error) error {
+	s.cogStateMu.Lock()
+	defer s.cogStateMu.Unlock()
+	st, version, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return err
+	}
+	if err := mutate(&st); err != nil {
+		return err
+	}
+	return s.saveCognitiveState(ctx, st, version)
 }
 
 // now is the bindable clock; tests inject a fake.

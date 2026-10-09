@@ -320,8 +320,10 @@ type Service struct {
 	workGates  map[domain.RunID]*sync.Mutex
 	// cognitive is the automatic wake loop for trusted strategy admission;
 	// nil until StartCognitiveLoop starts it.
-	cogMu     sync.Mutex
-	cognitive *cognitiveRuntime
+	cogMu        sync.Mutex
+	cogStateMu   sync.Mutex
+	cogAttemptMu sync.Mutex
+	cognitive    *cognitiveRuntime
 	// workBlockedCalls records the sibling tool-call IDs from a model batch
 	// interrupted by submit_plan. Fresh model calls remain eligible after the
 	// human decision, while unreviewed siblings from the original batch stay

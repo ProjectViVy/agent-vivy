@@ -346,9 +346,10 @@ func TestUnknownOutcomeNoNewAttempt(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.updateCognitiveState(ctx, func(st *cognitiveState) {
+	if err := svc.updateCognitiveState(ctx, func(st *cognitiveState) error {
 		st.ActiveRunID = string(wfRun.ID)
 		st.PendingThrough = 5
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}

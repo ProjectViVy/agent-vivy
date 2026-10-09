@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -540,4 +541,171 @@ func TestCognitiveNotifyInputFeedsWindow(t *testing.T) {
 	if d.lastWindow.After != 0 || d.lastWindow.Through != 7 || d.lastWindow.SourceID != "activity" {
 		t.Fatalf("window = %+v", d.lastWindow)
 	}
+}
+
+func TestCognitiveStateStaleVersionRejected(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeCognitiveDomain{}
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(d, nil, backend.Snapshot(), func() int64 { return 50 })
+
+	stale, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.NotifyCognitiveInput(ctx, 9); err != nil {
+		t.Fatal(err)
+	}
+	// This is the stale-attempt save: it must not read the latest version and
+	// overwrite the accepted capture with the older state it originally read.
+	if err := svc.saveCognitiveState(ctx, stale, version); !errors.Is(err, storage.ErrVersionConflict) {
+		t.Fatalf("stale save error = %v, want storage.ErrVersionConflict", err)
+	}
+	got, _, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceHigh != 9 {
+		t.Fatalf("stale save lost accepted capture: SourceHigh=%d, want 9", got.SourceHigh)
+	}
+}
+
+func TestCognitiveConcurrentCapturePolicyAndSettlement(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeCognitiveDomain{}
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(d, nil, backend.Snapshot(), func() int64 { return 50 })
+	base, baseVersion, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlement := base
+	settlement.Watermark = 7
+	settlement.LastCompletedUnixMS = 1234
+	settlement.Blocked = cognitiveBlockExhausted
+
+	start := make(chan struct{})
+	ready := make(chan struct{}, 3)
+	errs := make(chan error, 3)
+	transitions := []func() error{
+		func() error { return svc.NotifyCognitiveInput(ctx, 9) },
+		func() error {
+			return svc.UpdateCognitivePolicy(ctx, laputaevolution.TriggerPolicy{Enabled: false, MinIntervalMS: 700})
+		},
+		func() error {
+			return svc.saveCognitiveAttemptState(ctx, base, settlement, baseVersion)
+		},
+	}
+	for _, transition := range transitions {
+		go func(transition func() error) {
+			ready <- struct{}{}
+			<-start
+			errs <- transition()
+		}(transition)
+	}
+	for range transitions {
+		<-ready
+	}
+	close(start)
+	for range transitions {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, versionBeforeRebase, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versionBeforeRebase <= baseVersion {
+		t.Fatalf("state version before stale settlement = %d, want greater than base %d", versionBeforeRebase, baseVersion)
+	}
+	// Force the conflict path even if the concurrent settlement above acquired
+	// the state lock first: this old version must rebase without dropping the
+	// capture or policy update.
+	if err := svc.saveCognitiveAttemptState(ctx, base, settlement, baseVersion); err != nil {
+		t.Fatal(err)
+	}
+
+	got, versionAfterRebase, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versionAfterRebase != versionBeforeRebase+1 {
+		t.Fatalf("state version after stale settlement = %d, want one rebased write after %d", versionAfterRebase, versionBeforeRebase)
+	}
+	if got.SourceHigh != 9 || got.PolicyRevision != 1 || got.Policy.MinIntervalMS != 700 ||
+		got.Watermark != 7 || got.LastCompletedUnixMS != 1234 || got.Blocked != cognitiveBlockExhausted {
+		t.Fatalf("concurrent state transitions lost data: %+v", got)
+	}
+}
+
+func TestCognitivePolicyCASRejectsStaleRevision(t *testing.T) {
+	ctx := context.Background()
+	store := &barrierCognitiveSnapshots{values: map[string][]byte{}, versions: map[string]int64{}, release: make(chan struct{})}
+	service := func() *Service {
+		return &Service{deps: ServiceDeps{Cognitive: cognitiveBinding(&fakeCognitiveDomain{}, nil, store, nil)}}
+	}
+	services := []*Service{service(), service()}
+	policies := []laputaevolution.TriggerPolicy{
+		{Enabled: true, MinIntervalMS: 100},
+		{Enabled: false, MinIntervalMS: 200},
+	}
+	errs := make(chan error, 2)
+	for i := range services {
+		go func(i int) {
+			errs <- services[i].UpdateCognitivePolicyCAS(ctx, policies[i], 0)
+		}(i)
+	}
+	results := []error{<-errs, <-errs}
+	successes, conflicts := 0, 0
+	for _, err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrPolicyConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected policy CAS error: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("policy CAS outcomes: successes=%d conflicts=%d, want one each (errors: %v)", successes, conflicts, results)
+	}
+}
+
+// barrierCognitiveSnapshots forces two independent Services to load the same
+// base revision before either policy CAS continues.
+type barrierCognitiveSnapshots struct {
+	mu       sync.Mutex
+	values   map[string][]byte
+	versions map[string]int64
+	reads    int
+	release  chan struct{}
+}
+
+func (s *barrierCognitiveSnapshots) Get(_ context.Context, key string) ([]byte, int64, error) {
+	s.mu.Lock()
+	value := append([]byte(nil), s.values[key]...)
+	version := s.versions[key]
+	s.reads++
+	if s.reads == 2 {
+		close(s.release)
+	}
+	wait := s.reads <= 2
+	s.mu.Unlock()
+	if wait {
+		<-s.release
+	}
+	return value, version, nil
+}
+
+func (s *barrierCognitiveSnapshots) Put(_ context.Context, key string, value []byte, expected int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.versions[key] != expected {
+		return storage.ErrVersionConflict
+	}
+	s.values[key] = append([]byte(nil), value...)
+	s.versions[key]++
+	return nil
 }
