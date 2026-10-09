@@ -1,6 +1,6 @@
 # Issue #32 remediation implementation package
 
-Status: **P1 gates and P3–P7 engineering open; P2 implementation tasks complete.** P0 baseline and traceability are verified;
+Status: **P1 acceptance and P3–P7 integration gates open; P2 implementation tasks complete.** P0 baseline and traceability are verified;
 H1 code and host-test prerequisites are committed on isolated branches, while
 canonical Linux acceptance and the remaining P1/P2 tasks stay open.
 Design authority: [written design](../../specs/2026-10-09-issue32-remediation-design.md).
@@ -30,11 +30,12 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1-P3.3 backend committed, P3.4 status projection verified; Module UI/editor work pending required `oil-frontend` skill resolution |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | DESIGNED |
-| P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | DESIGNED |
+| P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
 | P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | DESIGNED |
 
-Current execution lane: P2.4, followed by P3–P6 implementation; P1 native
-acceptance remains an independent gate. The reviewed DIVA frontend lock is
+Current execution lane: P6.1 backend is engineering-verified; P3 Module UI
+remains pending the required `oil-frontend` skill, and P1 native acceptance is
+independent. The reviewed DIVA frontend lock is
 already tracked and matches its canonical hash; P1.2 verifies frozen use
 without a separate lock-restoration task.
 Implementation method is unselected. Recommended: task-level implementation
@@ -68,7 +69,7 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | W6 | P2 | P3.4 | BACKEND NATIVE/ENGINE STATUS PARITY VERIFIED; lifecycle UI and recovery-event presentation pending |
 | W7 | P2 | P3.1 | BACKEND SAME-AUTHOR COLLISION AND OPAQUE ETAGS VERIFIED; browser collision test pending |
 | W8 | P3 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED; malformed cursors map to refreshable invalid input |
-| W9 | P3 | P6.1 | PLANNED |
+| W9 | P3 | P6.1 | IMPLEMENTED AND ENGINEERING-VERIFIED; aggregate `just ci` remains pending P7 |
 | R1 | P2 | P5.1 | PLANNED; defect probe reproduced |
 | R2 | P2 | P0.2 | SUPERSEDED by owner #40 decision and merged PR #42 |
 | R3 | P2 | P5.1 | PLANNED; defect probe reproduced |

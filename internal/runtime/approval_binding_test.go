@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"agent-vivy/internal/domain"
 )
 
 func TestToolApprovalArgumentsHashCanonicalizesJSON(t *testing.T) {
@@ -41,47 +39,6 @@ func TestToolApprovalProposalBindingRoundTrip(t *testing.T) {
 	}
 	if string(gotData) != string(providerData) || gotHash != strings.Repeat("a", 64) {
 		t.Fatalf("unbound proposal = %s, %q", gotData, gotHash)
-	}
-}
-
-func TestNativeOrchestrationApprovalBindsRunNodeAndCheckpointTarget(t *testing.T) {
-	descriptor, revision, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = descriptor
-	input := orchestrationProofInput{
-		A: nativeOrchestrationRequest{RunID: "run-1", RevisionDigest: revision, NodeKey: "a", Task: "alpha", RequiresApproval: true},
-		B: nativeOrchestrationRequest{RunID: "run-1", RevisionDigest: revision, NodeKey: "b", Task: "beta"},
-	}
-	arguments, err := json.Marshal(struct {
-		WorkflowRunID    string `json:"workflow_run_id"`
-		Revision         string `json:"revision_digest"`
-		NodeKey          string `json:"node_key"`
-		Task             string `json:"task"`
-		RequiresApproval bool   `json:"requires_approval,omitempty"`
-	}{string(input.A.RunID), input.A.RevisionDigest, input.A.NodeKey, input.A.Task, input.A.RequiresApproval})
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash, err := toolApprovalArgumentsHash("orchestration.node", arguments)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := bindToolApprovalProposal(nil, hash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approval := domain.Approval{
-		ToolCallID: workflowNodeOperationID(revision, "a"), ToolName: "orchestration.node",
-		ResumeTarget: nativeOrchestrationResumeTarget("runnable:vivy;node:a"), ProposalData: proposal,
-	}
-	if err := validateNativeOrchestrationApprovalBinding(approval, input); err != nil {
-		t.Fatalf("valid native approval binding: %v", err)
-	}
-	approval.ToolCallID = workflowNodeOperationID(revision, "b")
-	if err := validateNativeOrchestrationApprovalBinding(approval, input); err == nil {
-		t.Fatal("approval for a different workflow node was accepted")
 	}
 }
 

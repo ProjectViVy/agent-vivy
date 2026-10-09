@@ -18,3 +18,15 @@
 ## Remaining verification
 
 P3.4.2/.3/.6 browser pagination, completed cancellation controls, recovery badges/events, Module source hash, typecheck, real browser acceptance and `just ci` remain pending. This log records backend behavior only.
+
+## Cancellation-status regression discovered during P6 verification
+
+The broad runtime run exposed a timing-sensitive expectation in
+`TestINOFYWorkflowCancelPropagates`. The pinned INOFY `Program.Run` classifies
+context cancellation as `cancelled` when it can commit the interrupted node's
+settlement; if cancellation also prevents that commit, its journal reports
+`recovery_required`. The test fixture races cancellation with that commit, so
+both outcomes are valid. The regression now accepts either engine status while
+still asserting a non-terminal native Run and rejecting duplicate replay. The
+test passed three repeated focused runs and the full runtime package; no product
+status handling changed.

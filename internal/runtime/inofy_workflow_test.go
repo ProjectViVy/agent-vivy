@@ -130,7 +130,7 @@ func TestINOFYWorkflowRejectsLegacyAndMalformed(t *testing.T) {
 }
 
 // TestINOFYWorkflowCancelPropagates cancels a running workflow and asserts the
-// graph-owned child and the committed terminal stay consistent.
+// graph-owned child and the engine's durable cancellation outcome stay safe.
 func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, blockingModel{})
@@ -159,8 +159,9 @@ func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 	waitForRunStatus(t, backend, child.ID, domain.RunCancelled)
-	// INOFY classifies a run cancelled mid-effect as recovery_required — the
-	// honest outcome — instead of a fabricated native cancelled terminal.
+	// Cancellation may commit as cancelled when the engine can durably settle
+	// the interrupted node, or recovery_required when cancellation prevents
+	// that settlement. Both retain the honest engine outcome and refuse replay.
 	var details WorkflowDetails
 	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -168,17 +169,17 @@ func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("inspect cancelled: %v", err)
 		}
-		if details.EngineStatus == string(inofy.RunRecoveryRequired) {
+		if details.EngineStatus == string(inofy.RunCancelled) || details.EngineStatus == string(inofy.RunRecoveryRequired) {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	if details.EngineStatus != string(inofy.RunRecoveryRequired) {
+	if details.EngineStatus != string(inofy.RunCancelled) && details.EngineStatus != string(inofy.RunRecoveryRequired) {
 		t.Fatalf("engine status = %q", details.EngineStatus)
 	}
 	run, err := backend.GetRun(ctx, started.Run.ID)
 	if err != nil || run.Status.Terminal() {
-		t.Fatalf("recovery_required run must stay non-terminal: %+v err=%v", run, err)
+		t.Fatalf("native Run projection must stay non-terminal: %+v err=%v", run, err)
 	}
 	if _, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
 		t.Fatalf("duplicate start on interrupted run = %v", err)

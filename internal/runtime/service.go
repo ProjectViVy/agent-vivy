@@ -4097,6 +4097,9 @@ func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, deci
 	if approval.Decision != domain.ApprovalPending {
 		return ErrApprovalAlreadyDecided
 	}
+	if isNativeOrchestrationResumeTarget(approval.ResumeTarget) {
+		return ErrLegacyOrchestrationResumeUnsupported
+	}
 	if time.Now().UnixMilli() >= approval.ExpiresAt {
 		return ErrApprovalExpired
 	}
@@ -4138,6 +4141,9 @@ func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	if isNativeOrchestrationResumeTarget(approval.ResumeTarget) {
+		return ErrLegacyOrchestrationResumeUnsupported
+	}
 	s.mu.Lock()
 	_, nativeChildPending := s.pending[approval.RunID]
 	s.mu.Unlock()
@@ -4207,22 +4213,6 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 		slog.Warn("approval decided without a pending run", "approval", approval.ID, "run", string(approval.RunID))
 		return nil
 	}
-	if isNativeOrchestrationResumeTarget(approval.ResumeTarget) {
-		if !decisionPersisted {
-			s.emitTerminal(context.WithoutCancel(ctx), p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
-				CauseCategory: causeInternalError,
-				Message:       "The workflow approval decision could not be recorded; the node did not run.",
-			}))
-			return errors.New("runtime: persist workflow approval decision failed")
-		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.resumeNativeOrchestrationApproval(p, approval, decision)
-		}()
-		return nil
-	}
-
 	// Recover the tool name from the suspended mapper so the resumed
 	// tool result events keep their call identity.
 	toolName := ""
@@ -4262,7 +4252,13 @@ func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Ap
 		}
 		return fmt.Errorf("runtime: get approval for timed settlement: %w", err)
 	}
-	if current.Decision != domain.ApprovalPending || current.ExpiresAt > time.Now().UnixMilli() {
+	if current.Decision != domain.ApprovalPending {
+		return nil
+	}
+	if isNativeOrchestrationResumeTarget(current.ResumeTarget) {
+		return ErrLegacyOrchestrationResumeUnsupported
+	}
+	if current.ExpiresAt > time.Now().UnixMilli() {
 		return nil
 	}
 	if !autoApprovesOnTimeout(current) {
