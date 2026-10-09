@@ -1,6 +1,7 @@
 # Notebook and report integration: detailed design
 
-Status: **Design draft for owner review; not implementation authorization.**
+Status: **Planning baseline: owner requested the implementation package on
+2026-10-09. Product implementation is not yet authorized.**
 
 Date: 2026-10-09, Asia/Shanghai. Baseline: `017ec8cc37970b291e04c619990aed00d5403116`.
 
@@ -474,9 +475,9 @@ never an executable request. Eino types do not cross the domain/Port boundary.
 INOFY already supplies durable orchestration. The Vivy-specific work is the
 small report node effect adapter and trusted admission/provenance binding, which
 Eino cannot own because they are application authority. No custom graph engine
-or new model/provider implementation is justified. Before #5 implementation,
-pin/recheck the Diva report reference listed in its issue; this design does not
-claim a fresh audit of that upstream repository or copy its evolution types.
+or new model/provider implementation is justified. The planning source audit and
+pinned Diva report reference are recorded in section 16; recheck that exact
+revision before porting behavior and do not copy its evolution types.
 
 ### 9.3 Sources, facts, and failures
 
@@ -668,21 +669,21 @@ authorized; its default must not silently override this product requirement.
 
 ## 14. Delivery decomposition and readiness
 
-This section defines architectural delivery seams, not executable Story plans.
-The user requested detailed design. After written-spec review, Supermanagement
-and Superpowers writing-plans should derive one plan per Story in a single index.
-No Story is currently Ready for implementation.
+This section defines architectural delivery seams. The owner subsequently
+requested the implementation package; its authoritative status/dependency index
+is [notebook-reports/index.md](../plans/notebook-reports/index.md). No implementation
+or runtime acceptance follows from the existence of those plans.
 
-| Increment | Outcome | Immediate prerequisites |
-| --- | --- | --- |
-| N0 | Remove legacy automatic injection, retain data | Approved NB-01 boundary |
-| N1 | Scoped notebook persistence, CAS, receipts, legacy import | N0 establishes non-injection contract |
-| N2 | Selectable module, actions, human-edit policy, optional note tools, headless/export | N1 storage contract |
-| N3 | Real notebook editor, sections, comments, revision UX | N2 authenticated operations |
-| R0 | Trusted report Run purpose and constrained root-workflow admission | N2 scope/lifecycle and generated-write boundary |
-| R1 | Manual daily/weekly/monthly workflow and provenance | R0 restricted execution; N1 revision storage |
-| R2 | Report controls, edited-report candidate UX, feedback integration | R1 generation contract; N3 UI |
-| R3 | Typed cron dispatch, recovery and deactivation | R1 shared operation; R0 provenance |
+| Increment | Architectural outcome (execution dependencies live in the index) |
+| --- | --- |
+| N0 | Remove legacy automatic injection, retain data |
+| N1 | Scoped notebook persistence, CAS, receipts, legacy import and offline export |
+| N2 | Selectable module, actions, human-edit policy, optional note tools and headless operations |
+| N3 | Real notebook editor, sections, comments, revision UX |
+| R0 | Trusted report Run purpose and constrained root-workflow admission |
+| R1 | Manual daily/weekly/monthly workflow and provenance |
+| R2 | Report controls, edited-report candidate UX, feedback integration |
+| R3 | Typed cron dispatch, recovery and deactivation |
 
 Notebook release: N0-N3, with no report-runtime dependency. Report release:
 R0-R3; R2 and R3 are logically independent after their prerequisites, but may
@@ -690,12 +691,11 @@ share files and should not be delegated concurrently without explicit ownership.
 Critical cross-cutting reviews are scope/policy (N2), trusted provenance (R0),
 and atomic report publication/recovery (R1/R3).
 
-Before declaring plans Ready, the planner must resolve exact generated-binding
-touch points, trace admission-origin propagation across every bridge, map report
-Run purpose through both cognitive consumers, and specify storage/Journal commit
-reconciliation against the current main revision. For #5, also pin the referenced
-Diva implementation. These are bounded implementation-planning checks with clear
-outputs, not assumed completed integrations or reasons to block notebook design.
+The package resolves generated-binding touch points (N2/R0), admission-origin
+propagation (N2), both cognitive consumers (N2/R0), Storage/Journal reconciliation
+(R1/R3), and the pinned Diva reference (section 16). Ready status still requires
+execution authorization, accepted predecessor evidence and resolved environment
+gates; written plans are not completed integrations.
 
 ## 15. Decision record and economy
 
@@ -716,7 +716,57 @@ Regular chat removes one legacy notes read and digest construction; no latency
 improvement is claimed without measurement. Reporting is on-demand/background
 work and never participates in the ordinary turn's context assembly.
 
-Design review should confirm the chosen scope/authorization behavior, candidate
-revision policy, comment inheritance, deletion/export semantics, and the
-notebook-first release boundary. Approval advances this draft to executable
-planning; it does not certify implementation, tests, or deployment.
+The implementation package preserves the scope/authorization behavior, candidate
+revision policy, comment inheritance, deletion/export semantics, and notebook-first
+release boundary. Plan review does not certify implementation, tests, or deployment.
+
+## 16. Planning elaborations and pinned reference
+
+These elaborations resolve implementation choices within the existing design;
+they do not add user-facing capabilities. Exact produced interfaces belong to
+their owning Story and are linked by consumers rather than duplicated.
+
+- **N1 owns notebook DTOs and transaction contracts.** N2 owns the authenticated
+  module facade and N3 consumes its wire schemas. The current 256 KiB body,
+  16 KiB comment and 100-row limits remain; the SDK/action Host already support
+  a 1 MiB default wire limit. Both raw-content and serialized-wire limits apply.
+- **N2 owns explicit-read provenance.** Extend durable ToolOperation/message
+  metadata and an ingestion-exclusion projection, preserving it through replay,
+  compaction and any history actually reused. Exclude a derived turn from
+  automatic cognitive capture when reliable segment separation is unavailable.
+  Do not infer provenance from user text or alter ordinary chat output.
+- **R0 owns root-report admission.** Use one hidden control Session per notebook
+  scope as the storage/session lock owner, with no synthetic user turn or Agent
+  parent. A report Run remains `kind=workflow`, `purpose=report`, `depth=0`,
+  `parent_id` empty and `root_id` equal to itself. Hidden control Sessions are
+  excluded from conversational lists/source collection but included in recovery.
+  Extend the existing workflow revision schema to admit this precise root case;
+  retain ordinary child lineage checks. No self-parent or fabricated primary Run.
+- **R0 owns report request identity.** Add a workflow admission namespace separate
+  from lineage: ordinary children retain parent-based deduplication; root reports
+  use their scope/control-Session namespace. A stored canonical *request* digest
+  detects same-key payload changes. Dynamic source/feedback snapshots do not
+  change the digest of a retried request: a retry rejoins the admitted Run first.
+- **R1 owns publication.** One Storage transaction writes revision, generation
+  provenance and output receipt, conditionally advances the head, and releases
+  no Run ownership prematurely. A repeated persist node returns that receipt;
+  INOFY owns its subsequent node/terminal commit. Lost acknowledgement therefore
+  requires reconciliation, not a second generated version.
+- **R1 owns settings schema/defaults; R3 owns editing and dispatch.** One existing
+  CronJob per scope/period stores the report
+  configuration, including `enabled=false` for manual-only use. Add row revision
+  and typed report payload fields there; do not maintain a duplicate config file
+  or report-settings database. R1 creates validated manual defaults through the
+  same contract; R3 adds schedule dispatch and editing.
+
+The old #5 main-branch Rust links are stale: DIVA main at
+`518a33ef09858ee1bb190579dd7529aceaa15dd6` is the Go host tree. The source reference
+actually inspected for this package is DIVA `dev` at
+[`c565bb245cc920258d7f8c7fcd9544fbba545af7`](https://github.com/ProjectViVy/agent-diva/tree/c565bb245cc920258d7f8c7fcd9544fbba545af7).
+Inspected paths: `agent-diva-core/src/reports/{generator,fact_bundle,validate,period}.rs`
+and `agent-diva-autodream/src/{rhythm,monthly}.rs`. It demonstrates bounded fact
+bundles, categorized narrative failures, reference validation, daily aggregation
+and missing-date session fallback. Its fact bundle imports evolution evidence
+types, uses file storage, and treats no activity as an error in some paths. Do
+not port those packaging/behavior choices: this design owns independent report
+evidence types, core Storage, explicit empty outcomes and local-time windows.
