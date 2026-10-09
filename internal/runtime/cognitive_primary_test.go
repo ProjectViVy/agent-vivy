@@ -218,7 +218,9 @@ func TestMissionAdmissionFence(t *testing.T) {
 	// refused before any effect.
 	resolved := b.Binding
 	resolved.PolicyRevision = "pol-2"
-	b.Resolve = func(context.Context) (laputaevolution.RunBinding, error) { return resolved, nil }
+	b.Resolve = func(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		return resolved, nil
+	}
 	source := &fakeSource{high: 5}
 	b.Source = source
 	b.SourceID = "activity"
@@ -250,7 +252,9 @@ func TestMissionAdmissionFence(t *testing.T) {
 
 	drifting := resolved
 	drifting.SubjectID = "profile-foreign"
-	b.Resolve = func(context.Context) (laputaevolution.RunBinding, error) { return drifting, nil }
+	b.Resolve = func(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		return drifting, nil
+	}
 	svc.Cancel(runs[0].ID)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

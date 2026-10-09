@@ -58,9 +58,10 @@ type CognitiveBinding struct {
 	// admission without a Frozen Core section.
 	Primary CognitivePrimaryPreparer
 	// Resolve re-reads the bound scope and pins at admission time so each
-	// trusted run persists the current authority revision. Nil reuses the
+	// trusted run persists the current authority revision. The policy argument
+	// is the durable snapshot loaded for this exact admission. Nil reuses the
 	// construction-time Binding.
-	Resolve func(ctx context.Context) (laputaevolution.RunBinding, error)
+	Resolve func(ctx context.Context, policy laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error)
 	// Policy seeds the durable trigger policy on first load.
 	Policy laputaevolution.TriggerPolicy
 	// Now overrides the wall clock (unix ms) for tests.
@@ -185,7 +186,7 @@ func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, t
 		pins.DestinationID != b.Binding.DestinationID || pins.StrategyDigest != b.Binding.StrategyDigest {
 		return nil, errors.New("runtime: trusted run binding does not match the bound composition")
 	}
-	if pins.MissionAssigned() && b.Mission != nil {
+	if b.Mission != nil {
 		current, err := b.Mission.MissionRevision(ctx)
 		if err != nil {
 			return nil, err
@@ -194,7 +195,50 @@ func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, t
 			return nil, err
 		}
 	}
-	return laputainofy.NewExecutor(b.Domain, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
+	strategyDomain := b.Domain
+	if b.Mission != nil {
+		strategyDomain = missionPinnedCognitiveDomain{delegate: b.Domain, mission: b.Mission, binding: pins}
+	}
+	return laputainofy.NewExecutor(strategyDomain, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
+}
+
+// missionPinnedCognitiveDomain rechecks current authority at each point where
+// the strategy reads evidence or applies an effect. The initial workflow guard
+// alone cannot cover Mission edits that race model inference.
+type missionPinnedCognitiveDomain struct {
+	delegate laputaevolution.Domain
+	mission  CognitiveMissionSource
+	binding  laputaevolution.RunBinding
+}
+
+var errCognitiveMissionGateUnavailable = errors.New("runtime: atomic Mission apply gate unavailable")
+
+func (d missionPinnedCognitiveDomain) check(ctx context.Context) error {
+	current, err := d.mission.MissionRevision(ctx)
+	if err != nil {
+		return err
+	}
+	return d.binding.CheckMissionRevision(current)
+}
+
+func (d missionPinnedCognitiveDomain) Collect(ctx context.Context, window laputaevolution.Window) (laputaevolution.EvidenceBatch, error) {
+	if err := d.check(ctx); err != nil {
+		return laputaevolution.EvidenceBatch{}, err
+	}
+	return d.delegate.Collect(ctx, window)
+}
+
+func (d missionPinnedCognitiveDomain) Apply(ctx context.Context, effect laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	if guarded, ok := d.delegate.(interface {
+		ApplyAtMissionRevision(context.Context, uint64, laputaevolution.Effect) (laputaevolution.EffectReceipt, error)
+	}); ok {
+		return guarded.ApplyAtMissionRevision(ctx, d.binding.MissionRevision, effect)
+	}
+	return laputaevolution.EffectReceipt{}, errCognitiveMissionGateUnavailable
+}
+
+func (d missionPinnedCognitiveDomain) Lookup(ctx context.Context, operationID string) (laputaevolution.EffectReceipt, error) {
+	return d.delegate.Lookup(ctx, operationID)
 }
 
 // cognitiveModel adapts the contract Model port onto the governed one-shot

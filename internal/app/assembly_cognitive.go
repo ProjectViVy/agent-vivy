@@ -89,6 +89,19 @@ func (d *lazyDomain) Apply(ctx context.Context, effect laputaevolution.Effect) (
 	return bound.Apply(ctx, effect)
 }
 
+func (d *lazyDomain) ApplyAtMissionRevision(ctx context.Context, revision uint64, effect laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	bound, err := d.bound(ctx)
+	if err != nil {
+		return laputaevolution.EffectReceipt{}, err
+	}
+	if guarded, ok := bound.(interface {
+		ApplyAtMissionRevision(context.Context, uint64, laputaevolution.Effect) (laputaevolution.EffectReceipt, error)
+	}); ok {
+		return guarded.ApplyAtMissionRevision(ctx, revision, effect)
+	}
+	return laputaevolution.EffectReceipt{}, fmt.Errorf("app: atomic Mission apply gate unavailable")
+}
+
 func (d *lazyDomain) Lookup(ctx context.Context, operationID string) (laputaevolution.EffectReceipt, error) {
 	bound, err := d.bound(ctx)
 	if err != nil {

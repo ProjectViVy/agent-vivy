@@ -803,7 +803,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	var cognitiveBinding *runtime.CognitiveBinding
 	if cognitiveBundle != nil {
-		resolvedBinding, err := cognitiveBundle.ResolveBinding(ctx)
+		resolvedBinding, err := cognitiveBundle.ResolveBinding(ctx, cognitiveBundle.Policy())
 		if err != nil {
 			_ = cognitiveBundle.Close()
 			_ = backend.Close()

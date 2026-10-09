@@ -403,7 +403,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	// intent before the workflow admission side effect.
 	binding := b.Binding
 	if b.Resolve != nil {
-		resolved, resolveErr := b.Resolve(ctx)
+		resolved, resolveErr := b.Resolve(ctx, st.Policy)
 		if resolveErr != nil {
 			return laputaevolution.Eligibility{}, resolveErr
 		}
@@ -413,15 +413,14 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		}
 		binding = resolved
 	}
-	if b.Binding.MissionAssigned() && b.Mission != nil {
+	if b.Mission != nil {
 		current, missionErr := b.Mission.MissionRevision(ctx)
 		if missionErr != nil {
 			return laputaevolution.Eligibility{}, missionErr
 		}
-		if err := b.Binding.CheckMissionRevision(current); err != nil {
+		if err := binding.CheckMissionRevision(current); err != nil {
 			return laputaevolution.Eligibility{}, err
 		}
-		binding.MissionRevision = current
 	}
 	parentID, err := s.ensureCognitiveSupervisor(ctx, &st)
 	if err != nil {

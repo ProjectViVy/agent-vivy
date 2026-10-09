@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ProjectViVy/inofy"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
@@ -20,8 +21,9 @@ import (
 // scriptedModel answers cognitive inference children with stage-keyed
 // canned JSON. It is a test fixture, not a product provider.
 type scriptedModel struct {
-	replies map[string]string
-	calls   int
+	replies  map[string]string
+	calls    int
+	onStream func()
 }
 
 func (m *scriptedModel) Stream(ctx context.Context, input []*domain.Message) (domain.Stream[*domain.Message], error) {
@@ -29,6 +31,9 @@ func (m *scriptedModel) Stream(ctx context.Context, input []*domain.Message) (do
 		return nil, err
 	}
 	m.calls++
+	if m.onStream != nil {
+		m.onStream()
+	}
 	lastUser := ""
 	for i := len(input) - 1; i >= 0; i-- {
 		if input[i] != nil && input[i].Role == domain.RoleUser {
@@ -129,6 +134,52 @@ func (d *fakeCognitiveDomain) Lookup(_ context.Context, operationID string) (lap
 		return r, nil
 	}
 	return laputaevolution.EffectReceipt{}, &laputaevolution.ContractError{Code: laputaevolution.ErrEffectNotFound, Message: "not recorded"}
+}
+
+type atomicMissionCognitiveDomain struct {
+	*fakeCognitiveDomain
+	revision uint64
+	err      error
+}
+
+func (d *atomicMissionCognitiveDomain) ApplyAtMissionRevision(_ context.Context, revision uint64, _ laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	d.revision = revision
+	return laputaevolution.EffectReceipt{}, d.err
+}
+
+func TestMissionPinnedDomainUsesAtomicOwnerGate(t *testing.T) {
+	wantErr := errors.New("fixture: owner gate rejected stale Mission")
+	domain := &atomicMissionCognitiveDomain{fakeCognitiveDomain: &fakeCognitiveDomain{}, err: wantErr}
+	pinned := missionPinnedCognitiveDomain{
+		delegate: domain,
+		binding:  laputaevolution.RunBinding{MissionRevision: 7},
+	}
+	_, err := pinned.Apply(context.Background(), laputaevolution.Effect{})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("atomic owner gate error = %v, want %v", err, wantErr)
+	}
+	if domain.revision != 7 {
+		t.Fatalf("owner gate checked Mission revision %d, want per-run pin 7", domain.revision)
+	}
+	if domain.applyCalls != 0 {
+		t.Fatalf("non-atomic Apply called %d times", domain.applyCalls)
+	}
+}
+
+func TestMissionPinnedDomainFailsClosedWithoutAtomicOwnerGate(t *testing.T) {
+	domain := &fakeCognitiveDomain{}
+	pinned := missionPinnedCognitiveDomain{
+		delegate: domain,
+		mission:  &fakeMission{rev: 7},
+		binding:  laputaevolution.RunBinding{MissionRevision: 7},
+	}
+	_, err := pinned.Apply(context.Background(), laputaevolution.Effect{})
+	if !errors.Is(err, errCognitiveMissionGateUnavailable) {
+		t.Fatalf("missing atomic owner gate error = %v", err)
+	}
+	if domain.applyCalls != 0 {
+		t.Fatalf("unguarded Apply called %d times", domain.applyCalls)
+	}
 }
 
 // cognitiveFixtureRunBinding is the scope the trusted fixtures persist; the
@@ -292,6 +343,79 @@ func TestCognitiveWorkflowAppliesBoundEffects(t *testing.T) {
 	}
 	if outcome["status"] != "applied" {
 		t.Fatalf("outcome = %v", outcome)
+	}
+}
+
+func TestCognitiveMissionChangeDuringInferenceBlocksApply(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeCognitiveDomain{batch: laputaevolution.EvidenceBatch{
+		ActivityRevision: 3,
+		Entries: []laputaevolution.Entry{{
+			ID: "e1", Section: "work", Field: "next", SessionID: "s1",
+			EventID: "ev1", OccurredAt: "2026-10-02T00:00:00Z", Body: "follow up",
+		}},
+	}}
+	mission := &fakeMission{rev: 2}
+	model := &scriptedModel{
+		replies: map[string]string{
+			"stage=reconcile": `{"base_revision":3,"changes":[{"kind":"add","entry_id":"","field":"next","body":"ship the fix","sources":[]}]}`,
+			"stage=reflect":   `{"no_change_reason":"reconcile covered it"}`,
+		},
+		onStream: func() { mission.rev = 3 },
+	}
+	service, backend := inofyExecService(t, model)
+	binding := cognitiveFixtureRunBinding()
+	binding.MissionRevision = 2
+	service.deps.Cognitive = &CognitiveBinding{Domain: d, Binding: binding, Mission: mission}
+	sessionID := domain.SessionID("sess-cog-mission-race")
+	parentRunID := domain.RunID("run-cog-mission-race-parent")
+	prepareChildSessionAuthorizer(t, service, backend, sessionID, parentRunID, nil)
+	input, err := json.Marshal(laputaevolution.Input{
+		Binding: binding,
+		Window:  laputaevolution.Window{SourceID: "activity", After: 0, Through: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := service.StartCognitiveWorkflow(ctx, parentRunID, "cog-mission-race", TrustedStrategyDIVA, input)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	var terminal domain.Run
+	for time.Now().Before(deadline) {
+		current, getErr := backend.GetRun(ctx, started.Run.ID)
+		if getErr == nil && current.Status.Terminal() {
+			terminal = current
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if terminal.ID == "" {
+		t.Fatal("cognitive workflow did not settle")
+	}
+	if len(d.applied) != 0 {
+		t.Fatalf("Mission changed during inference (run status %s) but effects applied: %+v", terminal.Status, d.applied)
+	}
+}
+
+func TestCognitiveMissionAssignmentAfterAdmissionFailsBeforeEffect(t *testing.T) {
+	ctx := context.Background()
+	service, _ := inofyExecService(t, cognitiveTestModel())
+	binding := cognitiveFixtureRunBinding()
+	binding.MissionRevision = 0
+	service.deps.Cognitive = &CognitiveBinding{
+		Domain: &fakeCognitiveDomain{}, Binding: binding, Mission: &fakeMission{rev: 1},
+	}
+	input, err := json.Marshal(laputaevolution.Input{
+		Binding: binding,
+		Window:  laputaevolution.Window{SourceID: "activity", After: 0, Through: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.workflowNodes(ctx, "parent", TrustedStrategyDIVA, input); laputaevolution.CodeOf(err) != laputaevolution.ErrMissionRevisionChanged {
+		t.Fatalf("unassigned Mission pin accepted after assignment: %v", err)
 	}
 }
 

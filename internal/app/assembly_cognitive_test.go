@@ -104,7 +104,7 @@ type fakeBundle struct {
 func (b *fakeBundle) Prepare(context.Context, cognitivecontract.PrimaryContextInput) (cognitivecontract.PreparedPrimaryContext, error) {
 	return cognitivecontract.PreparedPrimaryContext{}, nil
 }
-func (b *fakeBundle) ResolveBinding(context.Context) (laputaevolution.RunBinding, error) {
+func (b *fakeBundle) ResolveBinding(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
 	return laputaevolution.RunBinding{SubjectID: "diva", DestinationID: "mentle"}, nil
 }
 func (b *fakeBundle) BoundDomain(context.Context, laputaevolution.RunBinding) (laputaevolution.Domain, error) {

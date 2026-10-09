@@ -14,6 +14,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/sdk/port/observer"
 )
 
@@ -554,6 +555,254 @@ func TestCognitiveStaleMissionBlocks(t *testing.T) {
 	elig, err := svc.cognitiveAttempt(ctx, false)
 	if err != nil || !elig.Run {
 		t.Fatalf("fresh mission pin rejected: %v %+v", err, elig)
+	}
+}
+
+func TestCognitiveCurrentMissionBindingAdmitted(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 1000 })
+	binding.Binding.MissionRevision = 1
+	binding.Mission = &fakeMission{rev: 2}
+	binding.Resolve = func(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		resolved := binding.Binding
+		resolved.MissionRevision = 2
+		return resolved, nil
+	}
+	svc.deps.Cognitive = binding
+	svc.StartCognitiveLoop(ctx, time.Hour)
+	t.Cleanup(svc.StopCognitiveLoop)
+
+	eligibility, err := svc.cognitiveAttempt(ctx, false)
+	if err != nil {
+		t.Fatalf("admit against current Mission: %v", err)
+	}
+	if !eligibility.Run {
+		t.Fatalf("eligibility = %+v, want a run pinned to current Mission revision 2", eligibility)
+	}
+	state, _, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Intent == nil {
+		t.Fatal("admitted run has no durable intent")
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(state.Intent.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Binding.MissionRevision != 2 {
+		t.Fatalf("intent Mission revision = %d, want current revision 2", input.Binding.MissionRevision)
+	}
+}
+
+func TestCognitiveMissionAssignmentRaceFailsBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	service, backend := inofyExecService(t, cognitiveTestModel())
+	mission := &fakeMission{rev: 1}
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 1000 })
+	binding.Binding.MissionRevision = 0
+	binding.Mission = mission
+	binding.Resolve = func(ctx context.Context, _ laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		resolved := binding.Binding
+		resolved.MissionRevision = mission.rev
+		mission.rev = 2 // Authority changes after resolution but before admission.
+		return resolved, nil
+	}
+	service.deps.Cognitive = binding
+	service.StartCognitiveLoop(ctx, time.Hour)
+	t.Cleanup(service.StopCognitiveLoop)
+
+	_, err := service.cognitiveAttempt(ctx, false)
+	if laputaevolution.CodeOf(err) != laputaevolution.ErrMissionRevisionChanged {
+		t.Fatalf("mission assignment race error = %v, want mission_revision_changed", err)
+	}
+	if runs := listWorkflowRuns(t, service, backend); len(runs) != 0 {
+		t.Fatalf("stale Mission pin admitted %d doomed workflows", len(runs))
+	}
+}
+
+func TestCognitiveMissionAssignedAfterUnassignedResolutionFailsBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	service, backend := inofyExecService(t, cognitiveTestModel())
+	mission := &fakeMission{rev: 0}
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 1000 })
+	binding.Binding.MissionRevision = 0
+	binding.Mission = mission
+	binding.Resolve = func(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		resolved := binding.Binding // Resolver observed the unassigned revision 0.
+		mission.rev = 1             // Mission assignment races admission revalidation.
+		return resolved, nil
+	}
+	service.deps.Cognitive = binding
+	service.StartCognitiveLoop(ctx, time.Hour)
+	t.Cleanup(service.StopCognitiveLoop)
+
+	_, err := service.cognitiveAttempt(ctx, false)
+	if laputaevolution.CodeOf(err) != laputaevolution.ErrMissionRevisionChanged {
+		t.Fatalf("unassigned Mission race error = %v, want mission_revision_changed", err)
+	}
+	if runs := listWorkflowRuns(t, service, backend); len(runs) != 0 {
+		t.Fatalf("stale unassigned Mission pin admitted %d workflows", len(runs))
+	}
+}
+
+func TestCognitiveMissionChangesAfterResolutionFailClosed(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 1000 })
+	binding.Binding.MissionRevision = 1
+	binding.Mission = &fakeMission{rev: 3}
+	input, err := json.Marshal(laputaevolution.Input{
+		Binding: func() laputaevolution.RunBinding {
+			resolved := binding.Binding
+			resolved.MissionRevision = 2
+			return resolved
+		}(),
+		Window: laputaevolution.Window{SourceID: binding.SourceID, After: 0, Through: 5},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Cognitive = binding
+	if _, err := svc.workflowNodes(ctx, "parent", TrustedStrategyDIVA, input); err == nil {
+		t.Fatal("effect path accepted Mission revision 2 after authority advanced to revision 3")
+	}
+}
+
+func TestCognitivePolicyPinSurvivesReopen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "cognitive-state.db")
+	stateStore, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if stateStore != nil {
+			_ = stateStore.Close()
+		}
+	})
+
+	policy := laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 91_000}
+	seedService, _ := inofyExecService(t, cognitiveTestModel())
+	seedBinding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 0}, stateStore.Snapshot(), func() int64 { return 1_000 })
+	seedService.deps.Cognitive = seedBinding
+	if err := seedService.UpdateCognitivePolicyCAS(ctx, policy, 0); err != nil {
+		t.Fatalf("persist policy: %v", err)
+	}
+	if err := stateStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stateStore = nil
+
+	stateStore, err = sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen cognitive snapshot: %v", err)
+	}
+	service, runs := inofyExecService(t, cognitiveTestModel())
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, stateStore.Snapshot(), func() int64 { return 100_000 })
+	// A process-local seed deliberately differs from the stored policy. The
+	// re-opened run must resolve its pin from the durable state snapshot.
+	binding.Policy = laputaevolution.TriggerPolicy{}
+	var resolvedPolicy laputaevolution.TriggerPolicy
+	binding.Resolve = func(_ context.Context, durable laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		resolvedPolicy = durable
+		resolved := binding.Binding
+		resolved.PolicyRevision = "resolved-from-durable-policy"
+		return resolved, nil
+	}
+	service.deps.Cognitive = binding
+	service.StartCognitiveLoop(ctx, time.Hour)
+	t.Cleanup(service.StopCognitiveLoop)
+
+	loaded, _, err := service.CognitivePolicyState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != policy {
+		t.Fatalf("reopened policy = %+v, want %+v", loaded, policy)
+	}
+	eligibility, err := service.cognitiveAttempt(ctx, false)
+	if err != nil {
+		t.Fatalf("admission after reopen: %v", err)
+	}
+	if !eligibility.Run {
+		t.Fatalf("reopened policy did not admit new input: %+v", eligibility)
+	}
+	if resolvedPolicy != policy {
+		t.Fatalf("resolver policy = %+v, want the durable policy %+v", resolvedPolicy, policy)
+	}
+	var workflow domain.Run
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if found := listWorkflowRuns(t, service, runs); len(found) > 0 {
+			workflow = found[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if workflow.ID == "" {
+		t.Fatal("admitted workflow was not persisted")
+	}
+	revision, err := runs.GetWorkflowRevision(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(revision.InputJSON, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Binding.PolicyRevision != "resolved-from-durable-policy" {
+		t.Fatalf("persisted policy pin = %q", input.Binding.PolicyRevision)
+	}
+}
+
+func TestCognitiveConcurrentPolicyUpdatePinsAdmissionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	service, backend := inofyExecService(t, cognitiveTestModel())
+	first := laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 30_000}
+	second := laputaevolution.TriggerPolicy{Enabled: false, MinIntervalMS: 120_000}
+	binding := cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 100_000 })
+	binding.Policy = first
+	service.deps.Cognitive = binding
+	if err := service.UpdateCognitivePolicyCAS(ctx, first, 0); err != nil {
+		t.Fatalf("persist initial policy: %v", err)
+	}
+	binding.Resolve = func(_ context.Context, durable laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
+		if durable != first {
+			t.Fatalf("resolver read policy %+v, want admission snapshot %+v", durable, first)
+		}
+		if err := service.UpdateCognitivePolicyCAS(ctx, second, 1); err != nil {
+			t.Fatalf("concurrent policy update: %v", err)
+		}
+		resolved := binding.Binding
+		resolved.PolicyRevision = "pin-from-first-policy"
+		return resolved, nil
+	}
+
+	eligibility, err := service.cognitiveAttempt(ctx, true)
+	if err != nil {
+		t.Fatalf("admission: %v", err)
+	}
+	if !eligibility.Run {
+		t.Fatalf("eligibility = %+v, want admitted run", eligibility)
+	}
+	state, _, err := service.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Policy != second || state.PolicyRevision != 2 {
+		t.Fatalf("concurrent durable policy = %+v revision=%d", state.Policy, state.PolicyRevision)
+	}
+	if state.Intent == nil {
+		t.Fatal("durable admission intent missing")
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(state.Intent.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Binding.PolicyRevision != "pin-from-first-policy" {
+		t.Fatalf("admitted run pin = %q, want the policy snapshot used by its resolver", input.Binding.PolicyRevision)
 	}
 }
 

@@ -117,8 +117,9 @@ type Bundle interface {
 	// Prepare projects durable FrozenCore v2 for one admitted primary run.
 	Prepare(ctx context.Context, in PrimaryContextInput) (PreparedPrimaryContext, error)
 	// ResolveBinding returns the per-admission run binding; source scope and
-	// destination are fixed by the selected composition.
-	ResolveBinding(ctx context.Context) (laputaevolution.RunBinding, error)
+	// destination are fixed by the selected composition. Policy is the durable
+	// snapshot the runtime loaded for this admission.
+	ResolveBinding(ctx context.Context, policy laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error)
 	// BoundDomain returns the persisted-binding Domain guard sharing the
 	// host authority gate with human writes.
 	BoundDomain(ctx context.Context, binding laputaevolution.RunBinding) (laputaevolution.Domain, error)

@@ -182,7 +182,7 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 // ResolveBinding produces the binding stamped into the admitted run input.
 // MissionRevision is re-read at resolve time; the runtime re-verifies it at
 // admission through CheckMissionRevision.
-func (b *bundle) ResolveBinding(ctx context.Context) (laputaevolution.RunBinding, error) {
+func (b *bundle) ResolveBinding(ctx context.Context, policy laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
 	if b.closed {
 		return laputaevolution.RunBinding{}, errors.New("diva-cognitive: bundle closed")
 	}
@@ -190,7 +190,7 @@ func (b *bundle) ResolveBinding(ctx context.Context) (laputaevolution.RunBinding
 	if err != nil {
 		return laputaevolution.RunBinding{}, err
 	}
-	policyJSON, err := json.Marshal(b.policySnapshot())
+	policyJSON, err := json.Marshal(policy)
 	if err != nil {
 		return laputaevolution.RunBinding{}, err
 	}
@@ -228,7 +228,22 @@ func (b *bundle) BoundDomain(ctx context.Context, binding laputaevolution.RunBin
 		}
 		b.ports = &ports
 	}
-	return b.ports.Domain, nil
+	return missionGuardedDomain{
+		Domain: b.ports.Domain,
+		apply:  b.ports.ApplyAtMissionRevision,
+	}, nil
+}
+
+type missionGuardedDomain struct {
+	laputaevolution.Domain
+	apply func(context.Context, uint64, laputaevolution.Effect) (laputaevolution.EffectReceipt, error)
+}
+
+func (d missionGuardedDomain) ApplyAtMissionRevision(ctx context.Context, revision uint64, effect laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	if d.apply == nil {
+		return laputaevolution.EffectReceipt{}, errors.New("diva-cognitive: atomic Mission gate unavailable")
+	}
+	return d.apply(ctx, revision, effect)
 }
 
 func (b *bundle) SourceID() string { return b.sourceID }
@@ -236,19 +251,7 @@ func (b *bundle) SourceID() string { return b.sourceID }
 func (b *bundle) Source() cognitivecontract.Source         { return b.source }
 func (b *bundle) Sink() cognitivecontract.CaptureSink      { return b.sink }
 func (b *bundle) Mission() cognitivecontract.MissionSource { return b.mission }
-func (b *bundle) Policy() laputaevolution.TriggerPolicy    { return b.policySnapshot() }
-
-func (b *bundle) policySnapshot() laputaevolution.TriggerPolicy {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.policy
-}
-
-func (b *bundle) setPolicy(policy laputaevolution.TriggerPolicy) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.policy = policy
-}
+func (b *bundle) Policy() laputaevolution.TriggerPolicy    { return b.policy }
 
 // AttachRuntime stores the single armed control cell used by the generated
 // action providers. It is single-use: a second attach or an attach after

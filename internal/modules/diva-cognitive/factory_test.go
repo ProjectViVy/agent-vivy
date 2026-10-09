@@ -2,6 +2,8 @@ package divacognitive
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -73,7 +75,7 @@ func TestOpenArmsSourceSinkMissionWithoutBackend(t *testing.T) {
 	if _, err := bundle.Mission().MissionRevision(ctx); err != nil {
 		t.Fatalf("mission revision: %v", err)
 	}
-	binding, err := bundle.ResolveBinding(ctx)
+	binding, err := bundle.ResolveBinding(ctx, laputaevolution.TriggerPolicy{})
 	if err != nil {
 		t.Fatalf("ResolveBinding: %v", err)
 	}
@@ -82,6 +84,27 @@ func TestOpenArmsSourceSinkMissionWithoutBackend(t *testing.T) {
 	}
 	if binding.StrategyDigest == "" {
 		t.Fatal("binding does not pin the trusted strategy digest")
+	}
+}
+
+func TestResolveBindingPinsSuppliedPolicy(t *testing.T) {
+	ctx, bundle := openBundle(t)
+	policy := laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 91_000}
+	binding, err := bundle.ResolveBinding(ctx, policy)
+	if err != nil {
+		t.Fatalf("ResolveBinding: %v", err)
+	}
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	want := hex.EncodeToString(sum[:])
+	if binding.PolicyRevision != want {
+		t.Fatalf("policy pin = %q, want digest of supplied durable policy %q", binding.PolicyRevision, want)
+	}
+	if got := bundle.Policy(); got == policy {
+		t.Fatal("immutable first-load policy seed changed when resolving an admission policy")
 	}
 }
 
@@ -114,7 +137,7 @@ func TestCaptureIsDurableAndDeduped(t *testing.T) {
 
 func TestBoundDomainRejectsForeignBinding(t *testing.T) {
 	ctx, bundle := openBundle(t)
-	binding, err := bundle.ResolveBinding(ctx)
+	binding, err := bundle.ResolveBinding(ctx, laputaevolution.TriggerPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
