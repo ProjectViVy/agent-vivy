@@ -686,24 +686,34 @@ func (p *CognitiveCaptureProvider) ObserveRunWithReceipt(ctx context.Context, ev
 	if payload.SessionID != "" && payload.SessionID != string(run.SessionID) {
 		return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: terminal session differs from admitted run")
 	}
-	messages, ok := p.runs.(captureMessageReader)
-	if !ok {
-		return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: durable message reader unavailable")
+	cap := CognitiveCapture{
+		SubjectID: payload.TenantID, WorkspaceID: payload.WorkspaceID,
+		SessionID: string(run.SessionID), RunID: run.ID, EventID: event.ID.String(),
+		Phase: phase, OccurredAt: event.CreatedAt,
 	}
-	content, err := cognitiveConversationSource(ctx, messages, run, payload.Summary)
-	if err != nil {
-		return observer.DeliveryReceipt{}, err
+	// Recovery joins a committed acceptance before constructing a new payload.
+	// The run/session checks above still apply, including supervisor exclusion.
+	var receipt CognitiveCaptureReceipt
+	var found bool
+	if lookup, ok := p.sink.(interface {
+		LookupCapture(context.Context, CognitiveCapture) (CognitiveCaptureReceipt, bool, error)
+	}); ok {
+		receipt, found, err = lookup.LookupCapture(ctx, cap)
+		if err != nil {
+			return observer.DeliveryReceipt{}, err
+		}
 	}
-	receipt, err := p.sink.Capture(ctx, CognitiveCapture{
-		SubjectID:   payload.TenantID,
-		WorkspaceID: payload.WorkspaceID,
-		SessionID:   string(run.SessionID),
-		RunID:       run.ID,
-		EventID:     event.ID.String(),
-		Phase:       phase,
-		Content:     content,
-		OccurredAt:  event.CreatedAt,
-	})
+	if !found {
+		messages, ok := p.runs.(captureMessageReader)
+		if !ok {
+			return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: durable message reader unavailable")
+		}
+		cap.Content, err = cognitiveConversationSource(ctx, messages, run, payload.Summary)
+		if err != nil {
+			return observer.DeliveryReceipt{}, err
+		}
+		receipt, err = p.sink.Capture(ctx, cap)
+	}
 	if err != nil {
 		return observer.DeliveryReceipt{}, err
 	}

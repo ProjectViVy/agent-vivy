@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -96,5 +97,50 @@ func TestMemoryLoopCaptureRefusesMissingOrForeignSource(t *testing.T) {
 		if err == nil || len(sink.captures) != 0 {
 			t.Fatalf("missing/foreign durable user source was accepted: %v", err)
 		}
+	}
+}
+
+// The old payload may have been accepted before the observer cursor failed.
+// Rejoin that receipt without changing its idempotency key or rewriting it.
+type legacyAcceptedCaptureSink struct {
+	receipt CognitiveCaptureReceipt
+	writes  int
+}
+
+func (s *legacyAcceptedCaptureSink) Capture(context.Context, CognitiveCapture) (CognitiveCaptureReceipt, error) {
+	s.writes++
+	return CognitiveCaptureReceipt{}, fmt.Errorf("event_conflict: original assistant-only payload already accepted")
+}
+func (s *legacyAcceptedCaptureSink) LookupCapture(context.Context, CognitiveCapture) (CognitiveCaptureReceipt, bool, error) {
+	return s.receipt, true, nil
+}
+func TestMemoryLoopCaptureRejoinsLegacyAcceptedReceipt(t *testing.T) {
+	ctx := context.Background()
+	_, store, _ := newTestService(t, cognitiveTestModel())
+	mustCreateSession(t, store, "legacy-session")
+	run := domain.Run{ID: "legacy-run", SessionID: "legacy-session", Kind: domain.RunKindPrimary, Status: domain.RunCompleted}
+	if err := store.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendMessage(ctx, domain.Message{ID: "legacy-user", SessionID: run.SessionID, RunID: run.ID, Role: domain.RoleUser, Content: "retained journal fact", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	sink := &legacyAcceptedCaptureSink{receipt: CognitiveCaptureReceipt{IngestionID: "original-receipt", Seq: 5, Status: "accepted"}}
+	var notified int
+	provider := NewCognitiveCaptureProvider(store, sink, func(r CognitiveCaptureReceipt) {
+		if r.IngestionID != sink.receipt.IngestionID {
+			t.Errorf("wrong receipt %+v", r)
+		}
+		notified++
+	})
+	event := observer.NewRunEvent(observer.NewEventID(string(run.ID), 7), "run.completed", 10, json.RawMessage(`{"summary":"收到","session_id":"legacy-session"}`))
+	for i := 0; i < 2; i++ {
+		r, err := provider.ObserveRunWithReceipt(ctx, event)
+		if err != nil || r.ReceiptID != "original-receipt" {
+			t.Fatalf("legacy receipt lost: %+v %v", r, err)
+		}
+	}
+	if sink.writes != 0 || notified != 2 {
+		t.Fatalf("rewrote accepted event or missed durable notification: writes=%d notified=%d", sink.writes, notified)
 	}
 }

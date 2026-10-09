@@ -41,6 +41,7 @@ type memoryLoopSnapshot struct {
 	RecordID         string
 	Revision         uint64
 	CanonicalCount   int
+	CanonicalBody    string
 	SourceBody       string
 	SourceRole       string
 	SourceHash       string
@@ -226,13 +227,14 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 	// Read role from the actual persisted host envelope, never infer it
 	// from the test's expected answer or fill a missing role by default.
 	var source struct {
-		Schema   string `json:"schema"`
-		RunID    string `json:"run_id"`
-		Messages []struct {
+		Schema    string `json:"schema"`
+		RunID     string `json:"run_id"`
+		SessionID string `json:"session_id"`
+		Messages  []struct {
 			Role string `json:"role"`
 		} `json:"messages"`
 	}
-	if json.Unmarshal([]byte(snap.SourceBody), &source) == nil && source.Schema == "vivy.conversation-source/v1" && source.RunID == runID {
+	if json.Unmarshal([]byte(snap.SourceBody), &source) == nil && source.Schema == "vivy.conversation-source/v1" && source.RunID == runID && source.SessionID == string(run.SessionID) {
 		for _, message := range source.Messages {
 			if message.Role == "user" {
 				snap.SourceRole = message.Role
@@ -255,8 +257,11 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 		return snap, false, err
 	}
 	defer canonical.Close()
-	if err := canonical.QueryRowContext(ctx, `SELECT version FROM memories WHERE id=?`, snap.RecordID).Scan(&snap.Revision); err != nil {
+	if err := canonical.QueryRowContext(ctx, `SELECT version,content FROM memories WHERE id=?`, snap.RecordID).Scan(&snap.Revision, &snap.CanonicalBody); err != nil {
 		return snap, false, err
+	}
+	if snap.CanonicalBody != snap.SourceBody {
+		return snap, false, fmt.Errorf("canonical source differs from accepted ingestion")
 	}
 	if err := canonical.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&snap.CanonicalCount); err != nil {
 		return snap, false, err
@@ -333,7 +338,7 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 	if len(requests) == 0 || !strings.Contains(string(requests[0]), fact) {
 		t.Fatal("real provider request not recorded")
 	}
-	if !strings.Contains(canonical.SourceBody, fact) || canonical.SourceRole != "user" {
+	if !strings.Contains(canonical.CanonicalBody, fact) || !strings.Contains(canonical.SourceBody, fact) || canonical.SourceRole != "user" {
 		t.Fatal("user-only fact or its persisted role lost at real capture boundary")
 	}
 	t.Logf("real composition run=%s event=%d ingestion=%s capture=%d record=%s revision=%d source=%q", run.ID, terminal.EventSeq, accepted.IngestionID, accepted.CaptureSeq, canonical.RecordID, canonical.Revision, canonical.SourceBody)

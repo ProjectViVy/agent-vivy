@@ -108,7 +108,7 @@ func TestMemoryLoopProcessHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(snap.SourceBody, receipt.Fact) || snap.SourceRole != "user" || snap.CanonicalCount != 1 {
+	if !strings.Contains(snap.CanonicalBody, receipt.Fact) || !strings.Contains(snap.SourceBody, receipt.Fact) || snap.SourceRole != "user" || snap.CanonicalCount != 1 {
 		t.Fatalf("durable source: %+v", snap)
 	}
 	if phase == "reopen" && (snap.RecordID != receipt.Snapshot.RecordID || snap.IngestionID != receipt.Snapshot.IngestionID || snap.Revision != receipt.Snapshot.Revision) {

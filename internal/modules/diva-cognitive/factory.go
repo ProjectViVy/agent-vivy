@@ -378,3 +378,17 @@ type boundMission struct {
 func (m boundMission) MissionRevision(ctx context.Context) (uint64, error) {
 	return m.revision(ctx)
 }
+
+// LookupCapture rejoins an accepted event before source-format upgrades can
+// conflict with its original hash. It does not rewrite legacy source content.
+func (s boundSink) LookupCapture(ctx context.Context, cap cognitivecontract.Capture) (cognitivecontract.CaptureReceipt, bool, error) {
+	bound, err := s.client.BindSession(cap.SessionID)
+	if err != nil {
+		return cognitivecontract.CaptureReceipt{}, false, err
+	}
+	receipt, found, err := bound.LookupCapture(ctx, provenanceOf(cap))
+	if err != nil {
+		return cognitivecontract.CaptureReceipt{}, false, err
+	}
+	return cognitivecontract.CaptureReceipt{IngestionID: receipt.IngestionID, Seq: receipt.Seq, Status: receipt.Status}, found, nil
+}
