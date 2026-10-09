@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	providerconformance "agent-vivy/sdk/conformance"
@@ -317,6 +318,32 @@ func gitTrackedFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// gitIndexModes reports the git index mode (e.g. 0o100644) of every staged
+// entry: the only file-mode source stable across platforms.
+func gitIndexModes(dir string) (map[string]int64, error) {
+	cmd := exec.Command("git", "ls-files", "-s", "-z")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files -s in %s: %w: %s", dir, err, strings.TrimSpace(string(out)))
+	}
+	modes := map[string]int64{}
+	for _, entry := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		meta, path, ok := strings.Cut(entry, "\t")
+		if !ok || path == "" {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) == 0 {
+			continue
+		}
+		if mode, err := strconv.ParseInt(fields[0], 8, 64); err == nil {
+			modes[path] = mode
+		}
+	}
+	return modes, nil
+}
+
 func findGitRoot(dir string) (string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -335,11 +362,20 @@ func findGitRoot(dir string) (string, error) {
 }
 
 // hashSourceTree computes the canonical worktree-source digest: each source
-// file contributes "<relpath>\x00<size>\x00<bytes>" to one sha256 stream.
+// file contributes "<relpath>\x00<mode>\x00<payload>" to one sha256 stream.
 // Worktree bytes are hashed so development snapshots still seal the exact
 // content that was built; git's file list keeps .git and ignored outputs out.
+// File modes are canonicalized to git index values (regulars: index perm &
+// 0o777, dirs/gitlinks: 0o755, links: 0o777) because os.Lstat reports
+// platform-dependent perms (0o666/0o777 on Windows vs index-derived
+// 0o644/0o755 on Linux) that would make the digest unreproducible
+// cross-platform.
 func hashSourceTree(dir string) (string, error) {
 	files, err := gitTrackedFiles(dir)
+	if err != nil {
+		return "", err
+	}
+	indexModes, err := gitIndexModes(dir)
 	if err != nil {
 		return "", err
 	}
@@ -350,15 +386,38 @@ func hashSourceTree(dir string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("hash source file %s: %w", rel, err)
 		}
-		fmt.Fprintf(hash, "%s\x00%o\x00", rel, info.Mode().Perm())
+		indexMode, tracked := indexModes[rel]
+		isLink := info.Mode()&os.ModeSymlink != 0 || indexMode&0o170000 == 0o120000
+		isDir := info.IsDir() || indexMode&0o170000 == 0o160000
+		perm := int64(info.Mode().Perm())
 		switch {
-		case info.Mode()&os.ModeSymlink != 0:
+		case isLink:
+			perm = 0o777
+		case isDir:
+			perm = 0o755
+		case tracked:
+			perm = indexMode & 0o777
+		case runtime.GOOS == "windows":
+			// Untracked regulars have no index mode; on Windows lstat perms
+			// carry no exec-bit information, so canonicalize to 0o644.
+			perm = 0o644
+		}
+		fmt.Fprintf(hash, "%s\x00%o\x00", rel, perm)
+		switch {
+		case isLink:
 			link, linkErr := os.Readlink(full)
 			if linkErr != nil {
-				return "", linkErr
+				// A checkout without symlink support materializes the
+				// link as a text file containing the target — which is
+				// also the git blob payload, so it hashes identically.
+				body, readErr := os.ReadFile(full)
+				if readErr != nil {
+					return "", linkErr
+				}
+				link = string(body)
 			}
 			fmt.Fprintf(hash, "link\x00%s\x00", link)
-		case info.IsDir():
+		case isDir:
 			// gitlink (submodule): seal the commit it points at.
 			sub, subErr := gitHead(full)
 			if subErr != nil {
