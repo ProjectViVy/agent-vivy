@@ -67,6 +67,29 @@ func TestDiagnosticsRPCRoundtrip(t *testing.T) {
 	if ack.(logging.GuiLogAck).Accepted != 1 {
 		t.Fatalf("ack = %+v", ack)
 	}
+	guiPageResult, rpcErr := callControl(t, handler, "diagnostics/logs",
+		map[string]string{"source": "gui", "date": date})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	guiPage := guiPageResult.(logging.DiagnosticPage)
+	if len(guiPage.Records) != 1 || guiPage.Records[0].Message != "ui ping" || guiPage.NextCursor == "" {
+		t.Fatalf("GUI read page = %+v", guiPage)
+	}
+	ack, rpcErr = callControl(t, handler, "diagnostics/gui/append",
+		map[string]any{"records": []map[string]string{{"level": "INFO", "message": "ui ping continued"}}})
+	if rpcErr != nil || ack.(logging.GuiLogAck).Accepted != 1 {
+		t.Fatalf("continued append ack=%+v rpcErr=%v", ack, rpcErr)
+	}
+	continuedResult, rpcErr := callControl(t, handler, "diagnostics/logs",
+		map[string]string{"source": "gui", "date": date, "after": guiPage.NextCursor})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	continued := continuedResult.(logging.DiagnosticPage)
+	if continued.Gap || len(continued.Records) != 1 || continued.Records[0].Message != "ui ping continued" {
+		t.Fatalf("GUI continuation = %+v", continued)
+	}
 
 	// Capability advertisement.
 	caps, rpcErr := callControl(t, handler, "capabilities", nil)

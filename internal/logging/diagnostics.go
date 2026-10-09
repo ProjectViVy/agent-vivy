@@ -8,7 +8,11 @@ package logging
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // GUIFilePrefix names the rotating GUI family <prefix>.YYYY-MM-DD,
@@ -148,9 +153,8 @@ func NewDiagnostics(dir string) (*Diagnostics, error) {
 	return &Diagnostics{dir: dir, now: time.Now, gui: newDailyFile(dir, GUIFilePrefix, time.Now)}, nil
 }
 
-// diagFileStat is the cursor-verifiable file identity: platform file ID
-// (inode / Windows file index) plus size and mtime, so
-// rotation/rename/truncation cannot pass as the same file.
+// diagFileStat retains the v1 cursor fields so old cursors can be validated
+// before their one-time reset. V2 uses stable file ID, size and an anchor.
 type diagFileStat struct {
 	ino   uint64
 	size  int64
@@ -161,25 +165,107 @@ func statIdentity(info os.FileInfo) diagFileStat {
 	return diagFileStat{ino: fileIdentity(info), size: info.Size(), modNs: info.ModTime().UnixNano()}
 }
 
-// diagCursor is the server-issued opaque token `<date>.<ino>.<modns>.<size>.<offset>`.
-func diagCursorEncode(date string, st diagFileStat, off int64) string {
-	return fmt.Sprintf("%s.%d.%d.%d.%d", date, st.ino, st.modNs, st.size, off)
+// diagCursorV2 is a continuation contract over one physical file snapshot.
+// Anchor detects same-inode truncate/regrow when mtime and size are preserved.
+type diagCursorV2 struct {
+	Date        string `json:"date"`
+	FileID      uint64 `json:"file_id"`
+	Size        int64  `json:"size"`
+	Offset      int64  `json:"offset"`
+	Anchor      string `json:"anchor"`
+	DiscardLine bool   `json:"discard_line"`
 }
 
-func diagCursorDecode(cursor string) (date string, st diagFileStat, off int64, err error) {
-	parts := strings.Split(cursor, ".")
+func diagCursorV2Encode(c diagCursorV2) string {
+	payload, _ := json.Marshal(c)
+	return "v2." + base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func diagCursorV2Decode(raw string) (diagCursorV2, error) {
+	var c diagCursorV2
+	if len(raw) == 0 || len(raw) > 2048 || !strings.HasPrefix(raw, "v2.") {
+		return c, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "v2."))
+	if err != nil || len(payload) > 2048 {
+		return c, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil || len(fields) != 6 {
+		return c, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	for _, name := range []string{"date", "file_id", "size", "offset", "anchor", "discard_line"} {
+		value, ok := fields[name]
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return c, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+		}
+	}
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return diagCursorV2{}, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return diagCursorV2{}, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	if validateDiagnosticDate(c.Date) != nil || c.Size < 0 || c.Offset < 0 || c.Offset > c.Size {
+		return diagCursorV2{}, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	if (c.Offset == 0 && c.Anchor != "") || (c.Offset > 0 && len(c.Anchor) != sha256.Size*2) {
+		return diagCursorV2{}, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+	}
+	if c.Anchor != "" {
+		if _, err := hex.DecodeString(c.Anchor); err != nil || strings.ToLower(c.Anchor) != c.Anchor {
+			return diagCursorV2{}, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
+		}
+	}
+	return c, nil
+}
+
+// diagLegacyCursorDecode recognizes the retired five-part cursor solely so
+// callers can receive one explicit gap/reset into the v2 contract.
+func diagLegacyCursorDecode(raw string) (string, diagFileStat, int64, error) {
+	parts := strings.Split(raw, ".")
 	if len(parts) != 5 {
 		return "", diagFileStat{}, 0, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
 	}
-	date = parts[0]
+	if err := validateDiagnosticDate(parts[0]); err != nil {
+		return "", diagFileStat{}, 0, err
+	}
 	ino, e1 := strconv.ParseUint(parts[1], 10, 64)
 	modNs, e2 := strconv.ParseInt(parts[2], 10, 64)
 	size, e3 := strconv.ParseInt(parts[3], 10, 64)
 	offset, e4 := strconv.ParseInt(parts[4], 10, 64)
-	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || offset < 0 {
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || size < 0 || offset < 0 || offset > size {
 		return "", diagFileStat{}, 0, fmt.Errorf("%w: malformed cursor", ErrDiagnosticQuery)
 	}
-	return date, diagFileStat{ino: ino, size: size, modNs: modNs}, offset, nil
+	return parts[0], diagFileStat{ino: ino, size: size, modNs: modNs}, offset, nil
+}
+
+// diagAnchor hashes at most the 64 bytes immediately preceding offset. Its
+// read is charged to the caller's physical-read budget.
+func diagAnchor(f *os.File, offset int64, budget *int64) (string, error) {
+	if offset == 0 {
+		return "", nil
+	}
+	if offset < 0 || budget == nil {
+		return "", fmt.Errorf("%w: invalid cursor anchor", ErrDiagnosticQuery)
+	}
+	count := min(int64(64), offset)
+	if *budget < count {
+		return "", fmt.Errorf("%w: diagnostic read budget exhausted", ErrDiagnosticQuery)
+	}
+	buf := make([]byte, count)
+	n, err := f.ReadAt(buf, offset-count)
+	*budget -= int64(n)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	if int64(n) != count {
+		return "", io.ErrUnexpectedEOF
+	}
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func validateDiagnosticDate(date string) error {
@@ -303,27 +389,74 @@ func parseDiagLine(id string, raw []byte) DiagnosticRecord {
 	return record
 }
 
-// clipDiagRecord enforces the serialized 8KiB record bound; on overflow
-// fields drop first, then the message is clipped and Truncated is set.
+// clipDiagRecord enforces the serialized 8KiB record bound, including JSON
+// escaping and the complete envelope. Structured fields drop before text.
 func clipDiagRecord(record DiagnosticRecord) DiagnosticRecord {
-	encoded, err := json.Marshal(record)
-	if err != nil || len(encoded) <= DiagMaxRecordBytes {
+	record.ID = strings.ToValidUTF8(record.ID, "\uFFFD")
+	record.Level = strings.ToValidUTF8(record.Level, "\uFFFD")
+	record.Component = strings.ToValidUTF8(record.Component, "\uFFFD")
+	record.Message = strings.ToValidUTF8(record.Message, "\uFFFD")
+	if encoded, err := json.Marshal(record); err == nil && len(encoded) <= DiagMaxRecordBytes {
 		return record
 	}
-	record.Fields = nil
-	if encoded, err = json.Marshal(record); err == nil && len(encoded) <= DiagMaxRecordBytes {
-		record.Truncated = true
-		return record
-	}
-	// Reserve room for the envelope; clip on bytes, never mid-escape.
-	overhead := len(encoded) - len(record.Message)
-	budget := DiagMaxRecordBytes - overhead
-	if budget < 0 {
-		budget = 0
-	}
-	record.Message = record.Message[:budget]
 	record.Truncated = true
+	record.Fields = nil
+	// Cap envelope strings first. Besides bounding output, this leaves room
+	// for the message even when every byte needs a six-byte JSON escape.
+	record.ID = diagUTF8Prefix(record.ID, 128)
+	record.Level = diagUTF8Prefix(record.Level, 64)
+	record.Component = diagUTF8Prefix(record.Component, 128)
+	if _, err := json.Marshal(record); err == nil {
+		low, high := 0, len(record.Message)
+		for low < high {
+			mid := (low + high + 1) / 2
+			candidate := record
+			candidate.Message = diagUTF8Prefix(record.Message, mid)
+			encoded, marshalErr := json.Marshal(candidate)
+			if marshalErr == nil && len(encoded) <= DiagMaxRecordBytes {
+				low = mid
+			} else {
+				high = mid - 1
+			}
+		}
+		record.Message = diagUTF8Prefix(record.Message, low)
+	}
 	return record
+}
+
+func diagUTF8Prefix(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+	value = value[:maxBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+// diagBudgetReader bounds and counts bytes physically returned by the file
+// reader. bufio read-ahead therefore consumes the same per-call budget.
+type diagBudgetReader struct {
+	r         io.Reader
+	remaining int64
+	read      int64
+}
+
+func (r *diagBudgetReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	r.read += int64(n)
+	return n, err
 }
 
 // Read serves diagnostics/logs over the owned runtime/GUI families.
@@ -361,14 +494,19 @@ func (d *Diagnostics) Read(ctx context.Context, q DiagnosticQuery) (DiagnosticPa
 	queryFilter := strings.ToLower(q.Query)
 	// A malformed cursor is InvalidParams regardless of whether the
 	// referenced file still exists, so decode before resolution.
-	var cDate string
-	var cStat diagFileStat
-	var cOff int64
+	var cursor diagCursorV2
+	legacyCursor := false
 	if q.After != "" {
-		var err error
-		cDate, cStat, cOff, err = diagCursorDecode(q.After)
-		if err != nil {
+		if strings.HasPrefix(q.After, "v2.") {
+			var err error
+			cursor, err = diagCursorV2Decode(q.After)
+			if err != nil {
+				return page, err
+			}
+		} else if _, _, _, err := diagLegacyCursorDecode(q.After); err != nil {
 			return page, err
+		} else {
+			legacyCursor = true
 		}
 	}
 
@@ -379,64 +517,165 @@ func (d *Diagnostics) Read(ctx context.Context, q DiagnosticQuery) (DiagnosticPa
 	if info == nil {
 		return page, nil // empty page for a date/family that does not exist
 	}
-	st := statIdentity(info)
-	var offset int64
-	if q.After != "" {
-		if cDate != date || cStat.ino != st.ino || cStat.modNs != st.modNs || cOff > st.size {
-			page.Gap = true
-		} else {
-			offset = cOff
-		}
-	}
-
 	f, err := os.Open(path)
 	if err != nil {
 		return page, err
 	}
 	defer func() { _ = f.Close() }()
-	if offset > 0 {
-		if _, err := f.Seek(offset, io.SeekStart); err != nil {
-			return page, err
+	fInfo, err := f.Stat()
+	if err != nil {
+		return page, err
+	}
+	if !fInfo.Mode().IsRegular() || !os.SameFile(info, fInfo) {
+		return page, fmt.Errorf("%w: opened log file changed during resolution", ErrDiagnosticQuery)
+	}
+	st := statIdentity(fInfo)
+	var offset int64
+	discardLine := false
+	budget := int64(DiagMaxScanBytes)
+	if q.After != "" {
+		if legacyCursor {
+			page.Gap = true
+		} else if cursor.Date != date || cursor.FileID != st.ino || cursor.Size > st.size {
+			page.Gap = true
+		} else {
+			anchor, anchorErr := diagAnchor(f, cursor.Offset, &budget)
+			if anchorErr != nil {
+				return page, anchorErr
+			}
+			if anchor != cursor.Anchor {
+				page.Gap = true
+			} else {
+				offset = cursor.Offset
+				discardLine = cursor.DiscardLine
+			}
 		}
 	}
-	reader := bufio.NewReaderSize(f, 64*1024)
-	scanned := 0
+
+	scanStart := offset
+	// Reserve up to 64 bytes for the next cursor's anchor. The incoming
+	// cursor anchor, scan and outgoing anchor share one physical-read budget.
+	scanBudget := budget - min(int64(64), budget)
+	limited := &diagBudgetReader{
+		r:         io.NewSectionReader(f, scanStart, max(int64(0), st.size-scanStart)),
+		remaining: scanBudget,
+	}
+	reader := bufio.NewReaderSize(limited, 64*1024)
+	logicalOffset := func() int64 {
+		return scanStart + limited.read - int64(reader.Buffered())
+	}
 	page.Records = []DiagnosticRecord{}
+	incompleteLine := false
+	appendRecord := func(record DiagnosticRecord) {
+		if (levelFilter == "" || record.Level == levelFilter) &&
+			(queryFilter == "" || strings.Contains(strings.ToLower(record.Message), queryFilter)) {
+			page.Records = append(page.Records, clipDiagRecord(record))
+		}
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return page, err
 		}
-		lineStart := offset
-		line, err := reader.ReadBytes('\n')
-		lineBytes := len(line)
-		offset += int64(lineBytes)
-		scanned += lineBytes
-		if len(strings.TrimSpace(string(line))) > 0 {
-			record := parseDiagLine(fmt.Sprintf("%s:%d", date, lineStart), line)
-			if (levelFilter == "" || record.Level == levelFilter) &&
-				(queryFilter == "" || strings.Contains(strings.ToLower(record.Message), queryFilter)) {
-				page.Records = append(page.Records, clipDiagRecord(record))
-			}
-		}
-		if len(page.Records) >= limit || scanned >= DiagMaxScanBytes {
-			page.HasMore = lineBytes > 0 && err == nil
-			if page.HasMore {
-				// Bound hit mid-file: peek whether anything remains.
-				if _, err := reader.Peek(1); err != nil {
-					page.HasMore = false
+		lineStart := logicalOffset()
+		if discardLine {
+			lineComplete := false
+			for {
+				fragment, readErr := reader.ReadSlice('\n')
+				if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+					lineComplete = true
+					break
+				}
+				if errors.Is(readErr, bufio.ErrBufferFull) {
+					continue
+				}
+				if readErr != nil {
+					break
 				}
 			}
-			page.NextCursor = diagCursorEncode(date, st, offset)
-			return page, nil
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				page.NextCursor = diagCursorEncode(date, st, offset)
-				return page, nil
+			offset = logicalOffset()
+			if !lineComplete {
+				break
 			}
-			return page, err
+			discardLine = false
+			continue
 		}
+
+		prefix := make([]byte, 0, DiagMaxRecordBytes)
+		lineBytes := int64(0)
+		lineComplete := false
+		var lineErr error
+		for {
+			fragment, readErr := reader.ReadSlice('\n')
+			terminated := len(fragment) > 0 && fragment[len(fragment)-1] == '\n'
+			lineBytes += int64(len(fragment))
+			if room := DiagMaxRecordBytes - len(prefix); room > 0 {
+				if len(fragment) > room {
+					fragment = fragment[:room]
+				}
+				prefix = append(prefix, fragment...)
+			}
+			if terminated {
+				lineComplete = true
+				break
+			}
+			if errors.Is(readErr, bufio.ErrBufferFull) {
+				continue
+			}
+			if readErr != nil {
+				lineErr = readErr
+				break
+			}
+		}
+		consumedOffset := logicalOffset()
+		if lineComplete {
+			offset = consumedOffset
+			if len(strings.TrimSpace(string(prefix))) > 0 {
+				record := parseDiagLine(fmt.Sprintf("%s:%d", date, lineStart), prefix)
+				record.Truncated = record.Truncated || lineBytes > int64(len(prefix))
+				appendRecord(record)
+			}
+			if len(page.Records) >= limit {
+				break
+			}
+			continue
+		}
+		if lineErr != nil && !errors.Is(lineErr, io.EOF) {
+			return page, lineErr
+		}
+		if limited.remaining == 0 && consumedOffset < st.size {
+			// The scan budget stopped inside this physical line. Emit only its
+			// bounded prefix and persist discard state so no tail fragment can
+			// be mistaken for another record on the next page.
+			if lineBytes > 0 {
+				if len(strings.TrimSpace(string(prefix))) > 0 {
+					record := parseDiagLine(fmt.Sprintf("%s:%d", date, lineStart), prefix)
+					record.Truncated = true
+					appendRecord(record)
+				}
+				discardLine = true
+				offset = consumedOffset
+			} else {
+				offset = lineStart
+			}
+			break
+		}
+		// The snapshot ends in an incomplete line. Leave the cursor at that
+		// line's start; a later append rereads the now complete physical line.
+		offset = lineStart
+		incompleteLine = lineBytes > 0
+		break
 	}
+	page.HasMore = discardLine || incompleteLine || offset < st.size
+	remainingForAnchor := budget - limited.read
+	anchor, err := diagAnchor(f, offset, &remainingForAnchor)
+	if err != nil {
+		return page, err
+	}
+	page.NextCursor = diagCursorV2Encode(diagCursorV2{
+		Date: date, FileID: st.ino, Size: st.size, Offset: offset,
+		Anchor: anchor, DiscardLine: discardLine,
+	})
+	return page, nil
 }
 
 // AppendGUI validates, sanitizes and persists one bounded GUI batch to the
