@@ -751,6 +751,8 @@ type Engine interface {
 	LeaseStore
 	ChannelDeliveryStore
 	ChannelMaintenanceStore
+	// Notebook exposes the scoped, revisioned content store (N1).
+	Notebook() NotebookStore
 	Snapshot() SnapshotStore
 	Blobs() BlobStore
 	Close() error

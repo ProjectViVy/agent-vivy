@@ -40,6 +40,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "tui" {
 		os.Exit(runTUI(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "notebook" {
+		os.Exit(runNotebook(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	logger := logging.NewBootstrap(os.Stderr)
 	slog.SetDefault(logger)
