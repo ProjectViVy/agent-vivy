@@ -544,10 +544,20 @@ func TestWorkflowProductCancelRun(t *testing.T) {
 		page.Runs[0].Status != string(view.Details.Run.Status) || page.Runs[0].EngineStatus != view.Details.EngineStatus {
 		t.Fatalf("recovery list/detail lifecycle disagree: page=%+v detail=%+v err=%v", page, view.Details, err)
 	}
-	if _, err := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
+	retry, retryErr := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
 		ParentRunID: parentRunID, OperationKey: "prod-cancel-op", WorkflowID: "wf-cancel", Revision: rev.Revision,
-	}); !errors.Is(err, ErrWorkflowRecoveryRequired) {
-		t.Fatalf("duplicate start on interrupted product run = %v", err)
+	})
+	switch view.Details.EngineStatus {
+	case string(inofy.RunCancelled):
+		if retryErr != nil || retry.Run.ID != started.Run.ID || retry.Created {
+			t.Fatalf("settled duplicate start must return the existing Run without replay: result=%+v err=%v", retry, retryErr)
+		}
+	case string(inofy.RunRecoveryRequired):
+		if !errors.Is(retryErr, ErrWorkflowRecoveryRequired) {
+			t.Fatalf("duplicate start on interrupted product run = %v", retryErr)
+		}
+	default:
+		t.Fatalf("engine status after product cancellation = %q", view.Details.EngineStatus)
 	}
 }
 

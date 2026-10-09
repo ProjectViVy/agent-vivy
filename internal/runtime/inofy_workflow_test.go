@@ -178,11 +178,27 @@ func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 		t.Fatalf("engine status = %q", details.EngineStatus)
 	}
 	run, err := backend.GetRun(ctx, started.Run.ID)
-	if err != nil || run.Status.Terminal() {
-		t.Fatalf("native Run projection must stay non-terminal: %+v err=%v", run, err)
+	if err != nil {
+		t.Fatalf("read cancelled Run: %v", err)
 	}
-	if _, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
-		t.Fatalf("duplicate start on interrupted run = %v", err)
+	retry, retryErr := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition))
+	switch details.EngineStatus {
+	case string(inofy.RunCancelled):
+		if run.Status != domain.RunCancelled {
+			t.Fatalf("settled cancellation has native Run status %q, want cancelled", run.Status)
+		}
+		if retryErr != nil || retry.Run.ID != started.Run.ID || retry.Created {
+			t.Fatalf("settled duplicate start must return the existing Run without replay: result=%+v err=%v", retry, retryErr)
+		}
+	case string(inofy.RunRecoveryRequired):
+		if run.Status != domain.RunActive {
+			t.Fatalf("unsettled cancellation has native Run status %q, want active", run.Status)
+		}
+		if !errors.Is(retryErr, ErrWorkflowRecoveryRequired) {
+			t.Fatalf("duplicate start on interrupted run = %v", retryErr)
+		}
+	default:
+		t.Fatalf("engine status after cancellation = %q", details.EngineStatus)
 	}
 }
 
