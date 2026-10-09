@@ -3201,8 +3201,8 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 		if sample, ok := usage.sample(); ok && sample.key() != usage.lastEmit {
 			usage.lastEmit = sample.key()
 			event := o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, true))
-			if !o.svc.persistAndPublish(persistCtx, o.sessionID, event) {
-				return errors.New("runtime: usage settlement event could not be journaled")
+			if err := o.svc.persistAndPublishErr(persistCtx, o.sessionID, event); err != nil {
+				return &modelSettlementError{Err: err}
 			}
 		}
 	}
@@ -3235,8 +3235,8 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 			}
 		}
 	}
-	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
-		return errors.New("runtime: model call finish event could not be journaled")
+	if err := o.svc.persistAndPublishErr(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)); err != nil {
+		return &modelSettlementError{Err: err}
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {
 		if sample, ok := usage.sample(); ok {
@@ -4786,7 +4786,10 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			return m.build(domain.EventChildCancelled, map[string]any{"reason": reasonUserRequested})
 		}
 		message := "The child task could not be completed. Please retry."
-		if providerMessage, ok := keyMissingMessage(cause); ok {
+		if isModelSettlementFailure(cause) {
+			// Journal closure failures are internal evidence gaps, even when
+			// the provider cause joined into the chain looks retryable.
+		} else if providerMessage, ok := keyMissingMessage(cause); ok {
 			message = providerMessage
 		} else if isProviderTransportError(cause) {
 			message = providerUnavailableMessage
@@ -4833,7 +4836,7 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 	slog.Warn("run failed", "run", string(m.runID), "err", cause)
 	category := causeCategoryOf(cause)
 	message := "The model run could not be completed. Please try again."
-	if category == causeProviderError {
+	if category == causeProviderError && !isModelSettlementFailure(cause) {
 		message = providerUnavailableMessage
 	}
 	return m.build(domain.EventRunFailed, payloadRunFailed{
@@ -4847,6 +4850,8 @@ func causeCategoryOf(err error) string {
 	// unreachable" from "model/key problem" instead of a generic retry
 	// message (FR-11: the message stays structured and never leaks values).
 	switch {
+	case isModelSettlementFailure(err):
+		return causeInternalError
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return causeCancelled
 	case isProviderFailure(err):
@@ -4854,6 +4859,11 @@ func causeCategoryOf(err error) string {
 	default:
 		return causeInternalError
 	}
+}
+
+func isModelSettlementFailure(err error) bool {
+	var settlementErr *modelSettlementError
+	return errors.As(err, &settlementErr)
 }
 
 func isProviderFailure(err error) bool {
@@ -4900,18 +4910,25 @@ func isProviderTransportError(err error) bool {
 	return false
 }
 
-// persistAndPublish appends the single event as its own commit and, only
-// on success, writes back the assigned seq and hands the event to the
-// sink. A journal failure closes the run via the classified terminal: a
+// persistAndPublish is the compatibility boolean around the same append,
+// projection and publication path that returns the storage cause.
+func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) bool {
+	return s.persistAndPublishErr(ctx, sessionID, re) == nil
+}
+
+// persistAndPublishErr appends the single event as its own commit and, only
+// on success, writes back the assigned seq and hands the event to the sink.
+// A journal failure closes the run via the classified terminal: a
 // cancellation racing the append must land as run.cancelled, not
 // run.failed (AS-5); any other failure is run.failed so the run still
-// closes exactly once.
-func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) bool {
+// closes exactly once. The original append/deletion cause is returned to
+// mandatory model settlement callers.
+func (s *Service) persistAndPublishErr(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) error {
 	s.projectionMu.Lock()
 	if s.sessionDeleted(sessionID) {
 		s.cleanupRunState(re.RunID)
 		s.projectionMu.Unlock()
-		return false
+		return storage.ErrNotFound
 	}
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: re.RunID, Events: []domain.RunEvent{re}})
 	if err != nil {
@@ -4919,7 +4936,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		slog.Error("journal append failed", "run", string(re.RunID), "type", string(re.Type), "err", err)
 		m := newEventMapper(re.RunID, 0)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
-		return false
+		return err
 	}
 	re.Seq = seq
 	// tool_search completions widen the session's deferred-tool activation
@@ -4937,7 +4954,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 	}
 	s.publish(ctx, re)
 	s.projectionMu.Unlock()
-	return true
+	return nil
 }
 
 // emitTerminal persists the terminal event best-effort, flips the run row

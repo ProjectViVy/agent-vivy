@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -43,6 +44,27 @@ type modelCallResult struct {
 	Err              error
 	Usage            *schema.TokenUsage
 	ResponseComplete bool
+}
+
+// modelSettlementError marks a failed mandatory Journal closure. It retains
+// the storage cause and lets the retry seam distinguish settlement failure
+// from a provider error joined by the Generate/Stream wrapper.
+type modelSettlementError struct {
+	Err error
+}
+
+func (e *modelSettlementError) Error() string {
+	if e == nil || e.Err == nil {
+		return "runtime: model call settlement failed"
+	}
+	return "runtime: model call settlement failed: " + e.Err.Error()
+}
+
+func (e *modelSettlementError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 // modelCallRoute names which model boundary a wrapper serves. Source ""
@@ -170,15 +192,17 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 	}
 	msg, callErr := inner.Generate(ctx, input, opts...)
 	if callErr != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: callErr})
-		return nil, callErr
+		endErr := obs.End(ctx, meta, modelCallResult{Err: callErr})
+		return nil, errors.Join(callErr, endErr)
 	}
 	obs.StreamOpened(meta)
 	if err := obs.Chunk(ctx, meta, msg); err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err, Usage: usageOfMessage(msg)})
+		endErr := obs.End(ctx, meta, modelCallResult{Err: err, Usage: usageOfMessage(msg)})
+		return nil, errors.Join(err, endErr)
+	}
+	if err := obs.End(ctx, meta, modelCallResult{Usage: usageOfMessage(msg), ResponseComplete: true}); err != nil {
 		return nil, err
 	}
-	_ = obs.End(ctx, meta, modelCallResult{Usage: usageOfMessage(msg), ResponseComplete: true})
 	return msg, nil
 }
 
@@ -206,8 +230,8 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	}
 	upstream, err := inner.Stream(ctx, input, opts...)
 	if err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err})
-		return nil, err
+		endErr := obs.End(ctx, meta, modelCallResult{Err: err})
+		return nil, errors.Join(err, endErr)
 	}
 	// Mark the call before exposing the tee to Eino. Starting the marker
 	// in the pump goroutine races Eino's eager stream forwarding: the
@@ -223,7 +247,9 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// run terminal can never overtake the call's finish record.
 		finish := func() {
 			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
+			if endErr := obs.End(ctx, meta, result); endErr != nil {
+				writer.Send(nil, endErr)
+			}
 			writer.Close()
 		}
 		// fail journals the finish record BEFORE the error enters the
@@ -231,8 +257,8 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// budget breaker) must never overtake the mandatory closure.
 		fail := func(err error) {
 			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
-			writer.Send(nil, err)
+			endErr := obs.End(ctx, meta, result)
+			writer.Send(nil, errors.Join(err, endErr))
 			writer.Close()
 		}
 		for {

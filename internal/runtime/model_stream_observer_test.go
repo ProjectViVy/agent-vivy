@@ -185,6 +185,191 @@ func TestObserverRecordsStreamSetupFailure(t *testing.T) {
 	}
 }
 
+func TestObservedGenerateSettlementFailure(t *testing.T) {
+	settlementErr := errors.New("usage settlement unavailable")
+	obs := &recordingObserver{endErr: settlementErr}
+	msg := schema.AssistantMessage("must not be reported as success", nil)
+	got, err := observeChatModel(&fakeChatModel{generateMsg: msg}).Generate(observedCtx(obs), nil)
+	if got != nil || !errors.Is(err, settlementErr) {
+		t.Fatalf("Generate = (%v, %v), want nil and settlement error", got, err)
+	}
+	if begins, opened, chunks, ends := obs.counts(); begins != 1 || opened != 1 || chunks != 1 || ends != 1 {
+		t.Fatalf("lifecycle = %d/%d/%d/%d, want 1/1/1/1", begins, opened, chunks, ends)
+	}
+}
+
+func TestObservedStreamSettlementFailure(t *testing.T) {
+	settlementErr := errors.New("finish append unavailable")
+	obs := &recordingObserver{endErr: settlementErr}
+	upstream, writer := schema.Pipe[*schema.Message](1)
+	writer.Send(schema.AssistantMessage("partial", nil), nil)
+	writer.Close()
+	out, err := observeChatModel(&fakeChatModel{streamReader: upstream}).Stream(observedCtx(obs), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunk, recvErr := out.Recv(); recvErr != nil || chunk.Content != "partial" {
+		t.Fatalf("first Recv=(%v,%v), want partial chunk", chunk, recvErr)
+	}
+	if _, recvErr := out.Recv(); !errors.Is(recvErr, settlementErr) || errors.Is(recvErr, io.EOF) {
+		t.Fatalf("terminal Recv error=%v, want settlement error before EOF", recvErr)
+	}
+	if begins, _, _, ends := obs.counts(); begins != 1 || ends != 1 {
+		t.Fatalf("lifecycle = %d begins / %d ends, want 1/1", begins, ends)
+	}
+}
+
+func TestObservedErrorsJoinSettlement(t *testing.T) {
+	settlementErr := errors.New("journal settlement failed")
+	providerErr := errors.New("provider failed")
+	chunkErr := errors.New("chunk persistence failed")
+	t.Run("generate provider", func(t *testing.T) {
+		obs := &recordingObserver{endErr: settlementErr}
+		_, err := observeChatModel(&fakeChatModel{generateErr: providerErr}).Generate(observedCtx(obs), nil)
+		if !errors.Is(err, providerErr) || !errors.Is(err, settlementErr) {
+			t.Fatalf("Generate error=%v, want provider and settlement causes", err)
+		}
+		if _, _, _, ends := obs.counts(); ends != 1 {
+			t.Fatalf("End calls=%d, want 1", ends)
+		}
+	})
+	t.Run("generate chunk", func(t *testing.T) {
+		obs := &recordingObserver{chunkErr: chunkErr, endErr: settlementErr}
+		_, err := observeChatModel(&fakeChatModel{generateMsg: schema.AssistantMessage("generated", nil)}).Generate(observedCtx(obs), nil)
+		if !errors.Is(err, chunkErr) || !errors.Is(err, settlementErr) {
+			t.Fatalf("Generate chunk error=%v, want chunk and settlement causes", err)
+		}
+		if _, _, _, ends := obs.counts(); ends != 1 {
+			t.Fatalf("End calls=%d, want 1", ends)
+		}
+	})
+	t.Run("stream setup", func(t *testing.T) {
+		obs := &recordingObserver{endErr: settlementErr}
+		_, err := observeChatModel(&fakeChatModel{streamErr: providerErr}).Stream(observedCtx(obs), nil)
+		if !errors.Is(err, providerErr) || !errors.Is(err, settlementErr) {
+			t.Fatalf("Stream setup error=%v, want provider and settlement causes", err)
+		}
+		if _, _, _, ends := obs.counts(); ends != 1 {
+			t.Fatalf("End calls=%d, want 1", ends)
+		}
+	})
+	t.Run("stream read", func(t *testing.T) {
+		obs := &recordingObserver{endErr: settlementErr}
+		upstream, writer := schema.Pipe[*schema.Message](1)
+		writer.Send(nil, providerErr)
+		out, err := observeChatModel(&fakeChatModel{streamReader: upstream}).Stream(observedCtx(obs), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := out.Recv(); !errors.Is(err, providerErr) || !errors.Is(err, settlementErr) {
+			t.Fatalf("stream Recv error=%v, want provider and settlement causes", err)
+		}
+		if _, _, _, ends := obs.counts(); ends != 1 {
+			t.Fatalf("End calls=%d, want 1", ends)
+		}
+	})
+	t.Run("chunk", func(t *testing.T) {
+		obs := &recordingObserver{chunkErr: chunkErr, endErr: settlementErr}
+		upstream, writer := schema.Pipe[*schema.Message](1)
+		writer.Send(schema.AssistantMessage("chunk", nil), nil)
+		writer.Close()
+		out, err := observeChatModel(&fakeChatModel{streamReader: upstream}).Stream(observedCtx(obs), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := out.Recv(); !errors.Is(err, chunkErr) || !errors.Is(err, settlementErr) {
+			t.Fatalf("stream Recv error=%v, want chunk and settlement causes", err)
+		}
+		if _, _, _, ends := obs.counts(); ends != 1 {
+			t.Fatalf("End calls=%d, want 1", ends)
+		}
+	})
+}
+
+func TestObservedCloseDuringSettlementDoesNotBlock(t *testing.T) {
+	providerErr := errors.New("upstream stopped")
+	settlementErr := errors.New("settlement failed")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	endReturned := make(chan struct{})
+	obs := &blockingEndObserver{
+		entered: entered, release: release, returned: endReturned,
+		endErr: settlementErr,
+	}
+	upstream, upstreamWriter := schema.Pipe[*schema.Message](0)
+	sentProviderError := make(chan struct{})
+	go func() {
+		upstreamWriter.Send(schema.AssistantMessage("partial", nil), nil)
+		upstreamWriter.Send(nil, providerErr)
+		close(sentProviderError)
+	}()
+	out, err := observeChatModel(&fakeChatModel{streamReader: upstream}).Stream(observedCtx(obs), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := out.Recv(); err != nil {
+		t.Fatalf("first Recv: %v", err)
+	}
+	waitObserverSignal(t, entered, "End entered")
+	waitObserverSignal(t, sentProviderError, "provider error delivered")
+	out.Close()
+	probeResult := make(chan bool, 1)
+	go func() { probeResult <- upstreamWriter.Send(schema.AssistantMessage("probe", nil), nil) }()
+	close(release)
+	waitObserverSignal(t, endReturned, "End returned")
+	select {
+	case closed := <-probeResult:
+		if !closed {
+			t.Fatal("upstream send succeeded after pump exit; reader was not closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("upstream producer remained blocked after downstream close and settlement")
+	}
+	if got := obs.endCalls(); got != 1 {
+		t.Fatalf("End calls=%d, want 1", got)
+	}
+}
+
+func waitObserverSignal(t *testing.T, signal <-chan struct{}, label string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}
+
+type blockingEndObserver struct {
+	entered  chan struct{}
+	release  chan struct{}
+	returned chan struct{}
+	endErr   error
+	mu       sync.Mutex
+	ends     int
+}
+
+func (o *blockingEndObserver) Begin(context.Context, modelCallInput) (modelCallMeta, error) {
+	return modelCallMeta{CallID: "blocking"}, nil
+}
+func (o *blockingEndObserver) StreamOpened(modelCallMeta) {}
+func (o *blockingEndObserver) Chunk(context.Context, modelCallMeta, *schema.Message) error {
+	return nil
+}
+func (o *blockingEndObserver) End(context.Context, modelCallMeta, modelCallResult) error {
+	o.mu.Lock()
+	o.ends++
+	o.mu.Unlock()
+	close(o.entered)
+	<-o.release
+	close(o.returned)
+	return o.endErr
+}
+func (o *blockingEndObserver) endCalls() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.ends
+}
+
 // TestObserverBoundToolsPreservesCallScope: WithTools flows into the
 // Begin input while each invocation still gets its own meta scope.
 func TestObserverBoundToolsPreservesCallScope(t *testing.T) {

@@ -433,8 +433,9 @@ func TestWorkflowProductHonestCapabilities(t *testing.T) {
 	}
 }
 
-// TestWorkflowProductCancelRun cancels an in-flight product run; the engine
-// self-classifies recovery_required instead of a fabricated terminal.
+// TestWorkflowProductCancelRun cancels an in-flight product run and preserves
+// the engine's durable classification: cancelled if it settles, otherwise
+// recovery_required without a fabricated native terminal.
 func TestWorkflowProductCancelRun(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, blockingModel{})
@@ -455,13 +456,18 @@ func TestWorkflowProductCancelRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var child domain.Run
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		children, _ := backend.ListChildRuns(ctx, started.Run.ID)
 		if len(children) > 0 {
+			child = children[0]
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if child.ID == "" {
+		t.Fatal("no product workflow child was admitted")
 	}
 	run, err := svc.INOFYCancelRun(ctx, author, started.Run.ID)
 	if err != nil {
@@ -474,18 +480,37 @@ func TestWorkflowProductCancelRun(t *testing.T) {
 	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		view, err = svc.INOFYGetRun(ctx, author, started.Run.ID)
-		if err == nil && view.Details.EngineStatus == string(inofy.RunRecoveryRequired) {
+		if err == nil && (view.Details.EngineStatus == string(inofy.RunRecoveryRequired) ||
+			view.Details.EngineStatus == string(inofy.RunCancelled)) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err != nil || view.Details.Run.Status != domain.RunActive || view.Details.EngineStatus != string(inofy.RunRecoveryRequired) {
+	if err != nil {
 		t.Fatalf("cancelled workflow lifecycle detail = %+v err=%v", view.Details, err)
+	}
+	waitForRunStatus(t, backend, child.ID, domain.RunCancelled)
+	switch view.Details.EngineStatus {
+	case string(inofy.RunCancelled):
+		if view.Details.Run.Status != domain.RunCancelled {
+			t.Fatalf("settled cancellation has native Run status %q, want cancelled", view.Details.Run.Status)
+		}
+	case string(inofy.RunRecoveryRequired):
+		if view.Details.Run.Status != domain.RunActive {
+			t.Fatalf("unsettled cancellation has native Run status %q, want active", view.Details.Run.Status)
+		}
+	default:
+		t.Fatalf("engine status after cancellation = %q", view.Details.EngineStatus)
 	}
 	page, err := svc.INOFYListRuns(ctx, author, "", 10)
 	if err != nil || len(page.Runs) != 1 || page.Runs[0].RunID != string(started.Run.ID) ||
-		page.Runs[0].Status != string(domain.RunActive) || page.Runs[0].EngineStatus != string(inofy.RunRecoveryRequired) {
+		page.Runs[0].Status != string(view.Details.Run.Status) || page.Runs[0].EngineStatus != view.Details.EngineStatus {
 		t.Fatalf("recovery list/detail lifecycle disagree: page=%+v detail=%+v err=%v", page, view.Details, err)
+	}
+	if _, err := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
+		ParentRunID: parentRunID, OperationKey: "prod-cancel-op", WorkflowID: "wf-cancel", Revision: rev.Revision,
+	}); !errors.Is(err, ErrWorkflowRecoveryRequired) {
+		t.Fatalf("duplicate start on interrupted product run = %v", err)
 	}
 }
 
