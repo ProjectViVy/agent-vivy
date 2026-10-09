@@ -513,7 +513,9 @@ func TestCognitiveFailedRunRetriesWithNewKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !elig.Run {
-		t.Fatalf("retry after failure blocked: %+v", elig)
+		afterRetry, _, _ := svc.loadCognitiveState(ctx)
+		workflows := listWorkflowRuns(t, svc, backend)
+		t.Fatalf("retry after failure blocked: %+v state=%+v workflows=%+v", elig, afterRetry, workflows)
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

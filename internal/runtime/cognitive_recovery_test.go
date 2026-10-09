@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -179,7 +180,7 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 	parentRunID := domain.RunID("run-cog-running-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, nil)
 
-	wfRun, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentRunID, "cog-op-running", nil)
+	wfRun, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentRunID, "cognitive:activity:0-9:a0", nil)
 	store := newINOFYRunStore(backend)
 	ref := inofy.ExecutionRef{
 		RunID: string(wfRun.ID), Epoch: 1,
@@ -249,8 +250,36 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 	if current.Status.Terminal() {
 		t.Fatalf("recovery_required must not fabricate a native terminal: %v", current.Status)
 	}
-	if _, err := svc.StartCognitiveWorkflow(ctx, parentRunID, "cog-op-running", TrustedStrategyDIVA, cognitiveInput(t)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
+	if _, err := svc.StartCognitiveWorkflow(ctx, parentRunID, "cognitive:activity:0-9:a0", TrustedStrategyDIVA, cognitiveInput(t)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
 		t.Fatalf("duplicate start on interrupted run = %v", err)
+	}
+
+	// The native Run remains active while the durable workflow projection is
+	// recovery_required. Cognitive reconciliation must persist an unknown fence.
+	svc.deps.Cognitive = cognitiveBinding(d, nil, backend.Snapshot(), func() int64 { return 50 })
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Intent = &cognitiveIntent{ParentRunID: parentRunID, OperationKey: revision.OperationKey,
+		StrategyID: TrustedStrategyDIVA, Input: append(json.RawMessage(nil), revision.InputJSON...), Attempt: 0}
+	state.StateSchema = cognitiveStateSchema
+	state.ActiveRunID = string(wfRun.ID)
+	state.PendingThrough = 9
+	state.Phase = "running"
+	if err := svc.saveCognitiveState(ctx, state, version); err != nil {
+		t.Fatal(err)
+	}
+	state, version, err = svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, err = svc.reconcileCognitiveIntent(ctx, state, version)
+	if err != nil {
+		t.Fatalf("reconcile recovery_required workflow: %v", err)
+	}
+	if state.Blocked != cognitiveBlockUnknown || state.ActiveRunID != "" || state.Phase != "blocked" {
+		t.Fatalf("recovery_required workflow was not fenced: blocked=%q active=%q phase=%q", state.Blocked, state.ActiveRunID, state.Phase)
 	}
 }
 
@@ -416,6 +445,39 @@ func TestCognitiveIntentCrashBeforeAdmissionReusesIdentity(t *testing.T) {
 	}
 }
 
+func TestCognitiveOrphanSupervisorIsAdoptedBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+
+	// Model the cut after the supervisor row commits but before its sequence,
+	// ID, and admission intent reach the cognitive snapshot.
+	st, _, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanID, err := svc.ensureCognitiveSupervisor(ctx, &st)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	elig, err := svc.cognitiveAttempt(ctx, true)
+	if err != nil || !elig.Run {
+		t.Fatalf("admission after supervisor-only crash cut = %+v, %v", elig, err)
+	}
+	state, _, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SupervisorRunID != string(orphanID) || state.SupervisorSeq != 1 {
+		t.Fatalf("orphan supervisor was not adopted: id=%q seq=%d, want %q/1", state.SupervisorRunID, state.SupervisorSeq, orphanID)
+	}
+	runs := listWorkflowRuns(t, svc, backend)
+	if len(runs) != 1 || runs[0].ParentID != orphanID {
+		t.Fatalf("admitted workflows=%+v, want one child of orphan supervisor %q", runs, orphanID)
+	}
+}
+
 func TestCognitiveLegacyActiveRunReconstructsIntent(t *testing.T) {
 	ctx := context.Background()
 	gate := make(chan struct{})
@@ -461,6 +523,46 @@ func TestCognitiveLegacyActiveRunReconstructsIntent(t *testing.T) {
 	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
 }
 
+func TestCognitiveLegacyFailedRunPreservesRetryBudget(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	safeRun := makeFailedCognitiveEvidenceFixtureAttempt(t, svc, backend,
+		cognitiveSupervisorSessionID, "run-cog-legacy-a2-parent", "legacy-a2", true, false, 2)
+	revision, err := backend.GetWorkflowRevision(ctx, safeRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := json.Marshal(cognitiveState{
+		SupervisorRunID: string(revision.ParentRunID), ActiveRunID: string(safeRun.ID),
+		PendingThrough: 9, Attempt: 2, Policy: laputaevolution.TriggerPolicy{Enabled: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.deps.Cognitive.Store.Put(ctx, cognitiveStateKey, legacy, 0); err != nil {
+		t.Fatal(err)
+	}
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, version, err = svc.upgradeCognitiveState(ctx, state, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Intent == nil || state.Intent.Attempt != 2 {
+		t.Fatalf("legacy attempt not reconstructed from immutable operation key: %+v", state.Intent)
+	}
+	state, _, err = svc.reconcileCognitiveIntent(ctx, state, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Attempt != 3 || state.Blocked != cognitiveBlockExhausted || state.Intent != nil {
+		t.Fatalf("legacy retry budget was reset: attempt=%d blocked=%q intent=%+v", state.Attempt, state.Blocked, state.Intent)
+	}
+}
+
 func TestCognitiveCancelledIntentRetainsFence(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, cognitiveTestModel())
@@ -468,7 +570,7 @@ func TestCognitiveCancelledIntentRetainsFence(t *testing.T) {
 	sessionID := cognitiveSupervisorSessionID
 	parentID := domain.RunID("run-cog-cancel-parent")
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentID, nil)
-	workflow, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentID, "cog-cancel-op", cognitiveInput(t))
+	workflow, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentID, "cognitive:activity:0-9:a0", cognitiveInput(t))
 	if err := backend.SetRunStatus(ctx, workflow.ID, domain.RunCancelled); err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +649,8 @@ func TestCognitiveRetrySafetyRequiresSettlementEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	state.StateSchema = cognitiveStateSchema
-	state.Phase = "running"
+	state.Phase = "blocked"
+	state.Blocked = cognitiveBlockUnknown
 	state.SupervisorRunID = string(parentID)
 	state.SupervisorSeq = 1
 	state.ActiveRunID = string(safeRun.ID)
@@ -577,12 +680,77 @@ func TestCognitiveRetrySafetyRequiresSettlementEvidence(t *testing.T) {
 	}
 }
 
+func TestCognitiveFailedRunWaitsForDurableProjection(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	sessionID := domain.SessionID(cognitiveSupervisorSessionID)
+	parentID := domain.RunID("run-cog-pending-projection-parent")
+	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentID, nil)
+	workflow, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentID,
+		"cognitive:activity:0-9:a0", cognitiveInput(t))
+	store := newINOFYRunStore(backend)
+	ref := inofy.ExecutionRef{RunID: string(workflow.ID), Epoch: 1,
+		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID}
+	admitData, err := json.Marshal(map[string]any{
+		"input_digest": revision.InputDigest,
+		"limits":       json.RawMessage(revision.EffectiveLimits),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, commit := range []inofy.RunCommit{
+		{CommitID: "pending-projection-admit", Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}},
+			Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted}},
+		{CommitID: "pending-projection-start", Events: []inofy.Event{{Kind: inofy.EventRunStarted}},
+			Transition: inofy.StateTransition{Expected: inofy.RunAdmitted, Target: inofy.RunRunning}},
+	} {
+		if _, err := store.Commit(ctx, ref, commit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := backend.SetRunStatus(ctx, workflow.ID, domain.RunFailed); err != nil {
+		t.Fatal(err)
+	}
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.StateSchema = cognitiveStateSchema
+	state.Phase = "running"
+	state.ActiveRunID = string(workflow.ID)
+	state.PendingThrough = 9
+	state.Intent = &cognitiveIntent{ParentRunID: parentID, OperationKey: revision.OperationKey,
+		StrategyID: TrustedStrategyDIVA, Input: append(json.RawMessage(nil), revision.InputJSON...), Attempt: 0}
+	if err := svc.saveCognitiveState(ctx, state, version); err != nil {
+		t.Fatal(err)
+	}
+	state, version, err = svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, version, err = svc.reconcileCognitiveIntent(ctx, state, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Blocked != "" || state.Intent == nil || state.ActiveRunID != string(workflow.ID) {
+		t.Fatalf("native failure without terminal projection was permanently fenced: %+v", state)
+	}
+
+}
+
 func makeFailedCognitiveEvidenceFixture(t *testing.T, svc *Service, backend *sqlite.Backend,
 	sessionID domain.SessionID, parentID domain.RunID, callID string, settled, startEffects bool) domain.Run {
+	return makeFailedCognitiveEvidenceFixtureAttempt(t, svc, backend, sessionID, parentID, callID, settled, startEffects, 0)
+}
+
+func makeFailedCognitiveEvidenceFixtureAttempt(t *testing.T, svc *Service, backend *sqlite.Backend,
+	sessionID domain.SessionID, parentID domain.RunID, callID string, settled, startEffects bool, attempt int) domain.Run {
 	t.Helper()
 	ctx := context.Background()
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentID, nil)
-	workflow, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentID, "op-"+callID, cognitiveInput(t))
+	operationKey := fmt.Sprintf("cognitive:activity:0-9:a%d", attempt)
+	workflow, revision := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentID, operationKey, cognitiveInput(t))
 	markCognitiveWorkflowFailed(t, backend, workflow, revision, startEffects)
 	childID := domain.RunID("run-cog-infer-" + callID)
 	child := domain.Run{ID: childID, SessionID: sessionID, Status: domain.RunFailed,

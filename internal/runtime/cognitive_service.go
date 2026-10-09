@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -518,18 +519,40 @@ func (s *Service) ensureCognitiveSupervisor(ctx context.Context, st *cognitiveSt
 			return "", err
 		}
 	}
-	st.SupervisorSeq++
-	runID := domain.RunID(fmt.Sprintf("run_cognitive_supervisor_%d", st.SupervisorSeq))
-	run := domain.Run{
-		ID: runID, SessionID: sessionID, Status: domain.RunActive,
-		Kind: domain.RunKindPrimary, CreatedAt: s.deps.Cognitive.now(), RootID: runID,
+	for {
+		st.SupervisorSeq++
+		runID := domain.RunID(fmt.Sprintf("run_cognitive_supervisor_%d", st.SupervisorSeq))
+		if existing, err := s.deps.Runs.GetRun(ctx, runID); err == nil {
+			if existing.Kind != domain.RunKindPrimary || existing.SessionID != sessionID {
+				return "", fmt.Errorf("runtime: deterministic cognitive supervisor ID %q belongs to another run", runID)
+			}
+			if existing.Status == domain.RunActive {
+				s.adoptCognitiveSupervisor(existing)
+				st.SupervisorRunID = string(runID)
+				return runID, nil
+			}
+			if existing.Status.Terminal() {
+				// A prior process may have created the primary before persisting
+				// its ID. With no saved intent, no workflow was admitted under it;
+				// skip this spent deterministic ID and try the next sequence.
+				continue
+			}
+			return "", fmt.Errorf("runtime: cognitive supervisor %q has unexpected status %q", runID, existing.Status)
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			return "", err
+		}
+
+		run := domain.Run{
+			ID: runID, SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: s.deps.Cognitive.now(), RootID: runID,
+		}
+		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			return "", err
+		}
+		s.adoptCognitiveSupervisor(run)
+		st.SupervisorRunID = string(runID)
+		return runID, nil
 	}
-	if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
-		return "", err
-	}
-	s.adoptCognitiveSupervisor(run)
-	st.SupervisorRunID = string(runID)
-	return runID, nil
 }
 
 // adoptCognitiveSupervisor repopulates the in-memory authorizer maps the
@@ -603,6 +626,9 @@ func (s *Service) upgradeCognitiveState(ctx context.Context, st cognitiveState, 
 		run, runErr := s.deps.Runs.GetRun(ctx, runID)
 		revision, revisionErr := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, runID)
 		intent, through, intentErr := cognitiveIntentFromRevision(revision)
+		if intentErr == nil && intent.Attempt != next.Attempt {
+			intentErr = errors.New("runtime: legacy cognitive attempt differs from the immutable operation key")
+		}
 		if intentErr == nil && !cognitiveRevisionMatchesCatalog(ctx, revision) {
 			intentErr = errors.New("runtime: legacy cognitive revision differs from the trusted catalog")
 		}
@@ -657,10 +683,27 @@ func cognitiveIntentFromRevision(revision domain.WorkflowRevision) (cognitiveInt
 	if err := json.Unmarshal(revision.InputJSON, &input); err != nil || input.Window.SourceID == "" || input.Window.Through < input.Window.After {
 		return cognitiveIntent{}, 0, errors.New("runtime: cognitive revision window is invalid")
 	}
+	attempt, err := cognitiveAttemptFromOperationKey(revision.OperationKey, input.Window)
+	if err != nil {
+		return cognitiveIntent{}, 0, err
+	}
 	return cognitiveIntent{
 		ParentRunID: revision.ParentRunID, OperationKey: revision.OperationKey,
-		StrategyID: authority.TrustedStrategy, Input: append(json.RawMessage(nil), revision.InputJSON...),
+		StrategyID: authority.TrustedStrategy, Input: append(json.RawMessage(nil), revision.InputJSON...), Attempt: attempt,
 	}, input.Window.Through, nil
+}
+
+func cognitiveAttemptFromOperationKey(operationKey string, window laputaevolution.Window) (int, error) {
+	prefix := fmt.Sprintf("cognitive:%s:%d-%d:a", window.SourceID, window.After, window.Through)
+	if !strings.HasPrefix(operationKey, prefix) {
+		return 0, errors.New("runtime: cognitive operation key does not match its immutable input window")
+	}
+	encoded := strings.TrimPrefix(operationKey, prefix)
+	attempt, err := strconv.Atoi(encoded)
+	if err != nil || attempt < 0 || strconv.Itoa(attempt) != encoded {
+		return 0, errors.New("runtime: cognitive operation key has an invalid attempt")
+	}
+	return attempt, nil
 }
 
 func cognitiveRevisionMatchesCatalog(ctx context.Context, revision domain.WorkflowRevision) bool {
@@ -763,6 +806,22 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 		next.Blocked = cognitiveBlockCancelled
 		next.Phase = "cancelled"
 	case domain.RunFailed:
+		details, inspectErr := s.GetWorkflow(ctx, run.ID)
+		if inspectErr != nil || cognitiveWorkflowHasUnknownOutcome(details) {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+		switch inofy.RunStatus(details.EngineStatus) {
+		case inofy.RunAdmitted, inofy.RunRunning, inofy.RunWaiting:
+			// The native Run can become terminal before its workflow projection
+			// commits the same outcome. Retain the intent and retry settlement on
+			// the next wake instead of turning this short gap into a sticky fence.
+			next.ActiveRunID = string(run.ID)
+			next.Phase = "running"
+			return s.commitCognitiveAttempt(ctx, base, next, version)
+		case inofy.RunFailed:
+		default:
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
 		safe, safeErr := s.cognitiveRunRetrySafe(ctx, run.ID)
 		if safeErr != nil || !safe {
 			next.ActiveRunID = ""
@@ -772,6 +831,13 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 			next.ActiveRunID = ""
 			next.Intent = nil
 			next.Attempt = intent.Attempt + 1
+			// A previous wake may have fenced this same failed Run while its
+			// workflow/model settlement projection was still arriving. Clear that
+			// provisional unknown fence only after the current durable evidence
+			// proves this exact attempt effect-free.
+			if next.Blocked == cognitiveBlockUnknown {
+				next.Blocked = ""
+			}
 			next.Phase = "failed"
 			if next.Attempt >= cognitiveMaxAttempts {
 				next.Blocked = cognitiveBlockExhausted
@@ -799,6 +865,20 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 		next.ActiveRunID = string(run.ID)
 		next.Phase = "running"
 	case domain.RunActive:
+		details, inspectErr := s.GetWorkflow(ctx, run.ID)
+		if inspectErr != nil {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+		switch inofy.RunStatus(details.EngineStatus) {
+		case inofy.RunAdmitted, inofy.RunRunning, inofy.RunWaiting:
+		default:
+			// A native active row can outlive a recovery_required engine
+			// projection. Treat that projection mismatch as unknown and fence it.
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+		if cognitiveWorkflowHasUnknownOutcome(details) {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
 		next.ActiveRunID = string(run.ID)
 		next.Phase = "running"
 	default:
@@ -807,8 +887,18 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 	return s.commitCognitiveAttempt(ctx, base, next, version)
 }
 
+func cognitiveWorkflowHasUnknownOutcome(details WorkflowDetails) bool {
+	for _, node := range details.Nodes {
+		if node.ErrorCategory == string(inofy.ErrOutcomeUnknown) || strings.Contains(node.Message, "outcome is unknown") {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) fenceCognitiveIntent(ctx context.Context, base cognitiveState, version int64) (cognitiveState, int64, error) {
 	next := base
+	next.ActiveRunID = ""
 	next.Blocked = cognitiveBlockUnknown
 	next.Phase = "blocked"
 	next.LastReason = "blocked:" + cognitiveBlockUnknown
