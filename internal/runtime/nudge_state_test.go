@@ -499,7 +499,7 @@ func TestNudgeJournalFailure(t *testing.T) {
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: journal, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
+		Journal: journal, Runs: backend, Messages: backend, Sink: sink,
 	})
 
 	runID, err := svc.Run(ctx, "sess-nudge-jfail", "echo twice")

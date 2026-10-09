@@ -129,7 +129,7 @@ func newOverflowService(t *testing.T, m *overflowScriptedModel) (*Service, *sqli
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 		Compactions: backend,
 	})

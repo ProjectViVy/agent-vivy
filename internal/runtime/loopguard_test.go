@@ -52,7 +52,7 @@ func newLoopGuardService(t *testing.T, maxToolTurns int, script []*schema.Messag
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
+		Journal: backend, Runs: backend, Messages: backend, Sink: sink,
 	})
 	return svc, backend, sink
 }

@@ -639,7 +639,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Compactions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: sink, Compactions: backend,
 	})
 	sessionID := domain.SessionID("sess-compact-1")
 	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "compact", CreatedAt: 1}); err != nil {
@@ -987,7 +987,7 @@ func TestCompactSessionInstructionsAndManifest(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: newTestSink(), Compactions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink(), Compactions: backend,
 	})
 	sessionID := domain.SessionID("sess-compact-focus")
 	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "focus", CreatedAt: 1}); err != nil {

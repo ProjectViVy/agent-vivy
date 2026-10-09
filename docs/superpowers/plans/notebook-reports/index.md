@@ -29,7 +29,7 @@ are allocated at execution to avoid collisions with intervening work.
 
 | Story | Epic | Requirements | Immediate predecessors | Status | Plan | Evidence / gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| N0 | NOTEBOOK | NB-01, NB-07 | — | Planned | [N0.md](N0.md) | Concrete root plan; awaits package review/execution authorization |
+| N0 | NOTEBOOK | NB-01, NB-07 | — | Done 2026-10-09 | [N0.md](N0.md) | Log `docs/logs/2026-10-09-notebook-n0/`; `just ci` green |
 | N1 | NOTEBOOK | NB-02, NB-03, NB-04, NB-06, NB-07 | N0 | Planned | [N1.md](N1.md) | Needs accepted no-injection behavior; produces content/store contracts |
 | N2 | NOTEBOOK | NB-01, NB-02, NB-05, NB-06, NB-07, RP-04 | N1 | Planned | [N2.md](N2.md) | Needs durable scoped content/CAS; produces real actions and optional assembly |
 | N3 | NOTEBOOK | NB-02, NB-03, NB-04, NB-05, NB-06 | N2 | Planned | [N3.md](N3.md) | Needs authenticated schemas/actions; completes notebook UI release |

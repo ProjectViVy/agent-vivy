@@ -830,7 +830,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Messages:              backend,
 		GoalRuns:              goalRunStore,
 		PrimaryRuns:           primaryRunStore,
-		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
 		ApprovalExpiration:    cfg.Tools.Approval.Expiration,

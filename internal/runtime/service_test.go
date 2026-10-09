@@ -46,7 +46,7 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Truncations: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: sink, Truncations: backend,
 	})
 	return svc, backend, sink
 }
@@ -1063,7 +1063,7 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(engine, "test", "test-model", ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: newTestSink()})
+	svc := NewService(engine, "test", "test-model", ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink()})
 	svc.deps.Workspaces = fixedWorkspaceAllocator{}
 	const parentSessionID domain.SessionID = "session-parent-reply-run"
 	const parentRunID domain.RunID = "run-parent-reply-authorizer"
@@ -1845,38 +1845,88 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	}
 }
 
-// Saved notes surface in the preamble as a bounded digest (MA-3): the
-// model sees recent note ids and first lines without asking.
-func TestServicePreambleCarriesNotesDigest(t *testing.T) {
-	cm := &capturingModel{}
-	svc, backend, _ := newTestService(t, cm)
-	mustCreateSession(t, backend, "sess-n")
+// assertNoNotebookMarker checks every message handed to the model across
+// all recorded calls: no seeded notebook text may reach the model input.
+// Service no longer accepts a notebook dependency at all, so there is no
+// automatic read path left to count — marker absence is the behavioral
+// evidence an ordinary turn never enumerates or injects notebook content.
+func assertNoNotebookMarker(t *testing.T, calls [][]domain.Message, marker string) {
+	t.Helper()
+	var input strings.Builder
+	for _, call := range calls {
+		for i := range call {
+			input.WriteString(call[i].Content)
+			input.WriteByte('\n')
+		}
+	}
+	if strings.Contains(input.String(), marker) {
+		t.Fatalf("notebook content reached model input: %q", input.String())
+	}
+}
 
-	if err := backend.AppendNote(context.Background(), domain.Note{
-		ID: "note_digest", Content: "code word is bluebird\nsecond line", CreatedAt: time.Now().UnixMilli(),
+func TestServiceDoesNotInjectNotebook(t *testing.T) {
+	ctx := context.Background()
+	cm := &capturingModel{}
+
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, WrapModel(cm), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink(), Truncations: backend,
+	})
+	mustCreateSession(t, backend, "sess-nb")
+
+	const marker = "bluebird-notebook-marker-7f3a"
+	if err := backend.AppendNote(ctx, domain.Note{
+		ID: "note_n0_marker", Content: marker + "\nsecond line", CreatedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatalf("seed note: %v", err)
 	}
 
-	runID, err := svc.Run(context.Background(), "sess-n", "hello")
+	// Ordinary turn: no automatic notebook enumeration or injection.
+	runID, err := svc.Run(ctx, "sess-nb", "hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	assertNoNotebookMarker(t, cm.calls(), marker)
 
-	calls := cm.calls()
-	if len(calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(calls))
+	// Continuation turn in the same session rebuilds history; the notebook
+	// must stay outside it as well.
+	runID, err = svc.Run(ctx, "sess-nb", "and again")
+	if err != nil {
+		t.Fatalf("continuation run: %v", err)
 	}
-	preamble := calls[0][1].Content
-	for _, marker := range []string{"Recent notes from the user's notebook:", "note_digest", "code word is bluebird"} {
-		if !strings.Contains(preamble, marker) {
-			t.Fatalf("preamble missing %q: %q", marker, preamble)
-		}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	assertNoNotebookMarker(t, cm.calls(), marker)
+
+	// A reopened service on the same data (session resume after restart)
+	// must not resume the read either.
+	cm2 := &capturingModel{}
+	eng2, err := NewEngine(ctx, WrapModel(cm2), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
 	}
-	if strings.Contains(preamble, "second line") {
-		t.Fatalf("digest must collapse each note to its first line: %q", preamble)
+	svc2 := NewService(eng2, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink(), Truncations: backend,
+	})
+	runID, err = svc2.Run(ctx, "sess-nb", "after restart")
+	if err != nil {
+		t.Fatalf("resumed-session run: %v", err)
 	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	assertNoNotebookMarker(t, cm2.calls(), marker)
 }
 
 // payload decode helpers keep the tests readable.
@@ -1992,7 +2042,7 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: newTestSink(),
+		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(),
 	})
 	mustCreateSession(t, backend, "sess-tools")
 

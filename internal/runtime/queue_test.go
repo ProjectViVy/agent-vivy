@@ -109,7 +109,7 @@ func newQueueTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlit
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	return svc, backend
@@ -272,7 +272,7 @@ func newScriptedService(t *testing.T, m model.ToolCallingChatModel) (*Service, *
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	return svc, backend
@@ -467,7 +467,7 @@ func TestQueueRebuildsFromNewestRunJournal(t *testing.T) {
 	// the check — instead assert the queued marker is on run 1's journal and
 	// replay recovers it in a FRESH service over the same backend.
 	svc2 := NewService(svc.engine, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	state := svc2.QueueState(ctx, "sess-rebuild", "")

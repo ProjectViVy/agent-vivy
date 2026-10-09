@@ -536,7 +536,7 @@ func TestPendingGoalApprovalKeepsSessionBusy(t *testing.T) {
 	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
 	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
-		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Notes: backend, Approvals: backend,
+		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 	t.Cleanup(func() { svc.CancelAll(); waitLifecycleIdle(t, svc) })
