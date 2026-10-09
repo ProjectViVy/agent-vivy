@@ -13,6 +13,9 @@
 P4.1a evidence: [summary](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/summary.md),
 [verification](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/verification.md),
 [acceptance](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/acceptance.md).
+P4.1b evidence: [summary](../../../logs/2026-10-09-issue32-p4.1b-cognitive-cleanup/summary.md),
+[verification](../../../logs/2026-10-09-issue32-p4.1b-cognitive-cleanup/verification.md),
+[acceptance](../../../logs/2026-10-09-issue32-p4.1b-cognitive-cleanup/acceptance.md).
 
 ## Global Constraints
 
@@ -61,11 +64,11 @@ P4.1a evidence: [summary](../../../logs/2026-10-09-issue32-p4.1a-logger-ownershi
 - Consume existing `cognitivecontract.Bundle.Close() error` and the single App construction path.
 - Preserve New/NewWithAssembly signatures. A local deferred cleanup owns the opened bundle until successful transfer to `App.cognitive`; no new owner API or generic cleanup framework is added.
 
-- [ ] **Step 1: Write the fault matrix.** `TestCognitiveBundleClosedOnEveryCompositionFailure` uses the existing factory injection seam and faults later primary-admission, binding resolution, Service/control attachment and assembly validation stages. Each failure closes the bundle exactly once, preserves original error, and permits a fresh owner on retry. `TestCognitiveBundleFailurePreservesCleanupError` requires errors.Is for initialization and Close sentinels. `TestCognitiveBundleOwnershipTransfersOnce` succeeds, asserts no construction close, then App.Close closes once.
-- [ ] **Step 2: Verify red.** Run `go test ./internal/app -run '^TestCognitiveBundle(ClosedOnEveryCompositionFailure|FailurePreservesCleanupError|OwnershipTransfersOnce)$' -count=1`. Expected: at least one current later return leaks or drops cleanup error. Use fresh temporary Garden/storage owners; never disturb tenant paths.
-- [ ] **Step 3: Implement immediate deferred cleanup.** Register bundle failure cleanup as soon as cognitiveBundleForAssembly succeeds. Make every later return use that guard, removing selected branch-specific duplicate closes. Join cleanup failure with the initialization error. Disable the guard only after the final successful App owns the bundle; retain reverse teardown ownership ordering. Keep the change local to composition rather than adding a resource registry.
-- [ ] **Step 4: Verify green and reopen.** Run the focused command and `go test ./internal/app -count=1`; on each injected failure retry construction in the same isolated test root and assert no leaked handle/owner. Record any independent existing first-store initialization failure separately; do not hide it by changing this scope.
-- [ ] **Step 5: Commit.** Commit `fix(app): release cognitive ownership on failed composition` with exact exercised failure stages.
+- [x] **Step 1: Write the fault matrix.** `TestCognitiveBundleClosedOnEveryCompositionFailure` injects later observer-host construction, primary-admission, binding-resolution, Service/control-attachment, and action-dispatcher validation failures. Each path runs twice against the same isolated test root with a fresh bundle, requiring one Close per attempt. The primary-admission fixture proves the bundle closes before its snapshot backend. `TestCognitiveBundleFailurePreservesCleanupError` requires errors.Is for initialization and Close sentinels. `TestCognitiveBundleOwnershipTransfersOnce` succeeds, asserts no construction close, then App.Close closes once.
+- [x] **Step 2: Verify red.** The focused regressions exposed leaked owners after primary-admission and action-dispatcher validation, and showed that the existing ResolveBinding failure dropped the Close sentinel. Tests use only temporary SQLite/Garden paths.
+- [x] **Step 3: Implement immediate deferred cleanup.** Register a backend failure guard before opening the cognitive bundle, then register the cognitive guard immediately after a successful factory return. Every later error uses that ownership path; duplicate branch-local bundle closes were removed. Cleanup errors join the original return error. The bundle guard is disabled only after App ownership is established; failure teardown closes observer admission, bundle, then backend before the earlier Assembly owner.
+- [x] **Step 4: Verify green and reopen.** The focused fault matrix and `go test ./internal/app -count=1` passed. Every injected failure is retried in the same test root with a new bundle, and storage owner release/reacquisition succeeds. No independent first-store initialization failure was observed.
+- [x] **Step 5: Commit.** Source and regressions committed as `9f6595bf` (`fix(app): release cognitive ownership on failed composition`) with the exercised failure stages. Phase evidence follows in a separate documentation commit.
 
 ### Task P4.2: Coordinate bounded teardown and early singleton handoff (H5/H7)
 

@@ -28,16 +28,17 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IMPLEMENTATION COMPLETE; aggregate `just ci` and SDK/Port conformance pending P7 |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1-P3.3 backend committed, P3.4 status projection verified; Module UI/editor work pending required `oil-frontend` skill resolution |
-| P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | IN PROGRESS; P4.1a H4 engineering-verified, P4.1b next |
+| P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | IN PROGRESS; P4.1a/b engineering-verified, P4.2 next |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; aggregate `just ci`, SDK conformance, and native Windows execution pending P7 |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
 | P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | DESIGNED |
 
-Current execution lane: P4.1a H4 logger ownership is engineering-verified
-locally; P4.1b C7 bundle cleanup is next. P5.1 bounded diagnostics and P5.2
-mandatory model settlement are engineering-verified locally. P3 Module UI
-remains pending required `oil-frontend` skill resolution, and P1 native
-acceptance is independent. P6.1 backend is also engineering-verified.
+Current execution lane: P4.1a H4 logger ownership and P4.1b C7 bundle cleanup
+are engineering-verified locally; P4.2 shared desktop teardown and singleton
+handoff is next. P5.1 bounded diagnostics and P5.2 mandatory model settlement
+are engineering-verified locally. P3 Module UI remains pending required
+`oil-frontend` skill resolution, and P1 native acceptance is independent.
+P6.1 backend is also engineering-verified.
 The reviewed DIVA frontend lock is already tracked and matches its canonical
 hash; P1.2 verifies frozen use without a separate lock-restoration task.
 Implementation method is unselected. Recommended: task-level implementation
@@ -61,7 +62,7 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | C4 | P2 | P2.3 | IMPLEMENTED; resolver hashes the durable admission policy snapshot; commit `35e559f6` |
 | C5 | P2 | P2.4 | IMPLEMENTED; coherent control fields derive from one snapshot ([P2.4 verification](../../../logs/2026-10-09-issue32-p2.4-control-cancel/verification.md)) |
 | C6 | P2 | P2.4 | IMPLEMENTED; current strategy cancellation rechecks under the terminal commit gate and rejects stale/foreign IDs ([P2.4 verification](../../../logs/2026-10-09-issue32-p2.4-control-cancel/verification.md)) |
-| C7 | P2 | P4.1b | PLANNED |
+| C7 | P2 | P4.1b | IMPLEMENTED AND ENGINEERING-VERIFIED locally; aggregate `just ci` pending P7 ([P4.1b verification](../../../logs/2026-10-09-issue32-p4.1b-cognitive-cleanup/verification.md)) |
 | C8 | P2 | P4.4 | PLANNED |
 | W1 | P2 | P3.2 | BACKEND ADMISSION AND SESSION GUARDS VERIFIED; retained UI start intent pending |
 | W2 | P2 | P3.2 | SERVER-SIDE OPERATION DEDUP PRE-EXISTING; prepared-request bridge and retry UI pending |
