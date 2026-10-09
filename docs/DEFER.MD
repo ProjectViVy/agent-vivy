@@ -148,6 +148,7 @@ Replaced by a later breakdown. Kept as no-claim markers: do not claim these rows
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| ISSUE-32-R2 | Recursive automatic log redaction requested by Issue #32 | SUPERSEDED · OWNER DECISION #40 / MERGED PR #42 | Automatic redaction was removed intentionally; this is a contract change, not a repair proving the original finding fixed. Preserve faithful diagnostics under existing access controls. [Issue #32 disposition](superpowers/plans/issue32-remediation/index.md). Reactivation requires an explicit owner decision changing #40; do not restore a redactor as part of R1/R3/R4. |
 | CH-A | ChannelHost + telegram + dingtalk (coarse-grained) | SUPERSEDED | Split into CH-C1..C6 on 2026-08-30; see `docs/COMPLETE.MD` §0.2. Do not claim this row again |
 | CH-B | feishu / qq / discord (coarse-grained) | SUPERSEDED | Split into CH-C7a/b/c on 2026-08-30; see `docs/COMPLETE.MD` §0.2. Do not claim this row again |
 
