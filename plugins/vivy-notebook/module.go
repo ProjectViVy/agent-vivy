@@ -37,7 +37,7 @@ func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source:     module.Source{Ref: "repo:plugins/vivy-notebook", SHA256: "f1bc5559546982c28687dff714678aff0e03a422d604e9e96b464bbcc146a34c"},
+		Source:     module.Source{Ref: "repo:plugins/vivy-notebook", SHA256: "3b811b644f6a25f364376eb792fa18926d5ad4140c5b902ae2ddac1472364bf9"},
 		Provides:   []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
 		I18N:       &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
 		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},

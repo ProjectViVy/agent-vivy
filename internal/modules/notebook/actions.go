@@ -268,7 +268,7 @@ var (
 	entriesListSchema   = json.RawMessage(`{"type":"object","properties":{"section_id":` + strID + `,"cursor":` + cursorProp + `,"limit":` + limitProp + `,"include_deleted":{"type":"boolean"}},"additionalProperties":false}`)
 	entryGetSchema      = json.RawMessage(`{"type":"object","properties":{"id":` + strID + `,"revision_id":` + strID + `},"required":["id"],"additionalProperties":false}`)
 	revisionsListSchema = json.RawMessage(`{"type":"object","properties":{"entry_id":` + strID + `,"cursor":` + cursorProp + `,"limit":` + limitProp + `},"required":["entry_id"],"additionalProperties":false}`)
-	commentsListSchema  = json.RawMessage(`{"type":"object","properties":{"entry_id":` + strID + `,"cursor":` + cursorProp + `,"limit":` + limitProp + `,"status":{"type":"string","enum":["open","resolved"]}},"required":["entry_id"],"additionalProperties":false}`)
+	commentsListSchema  = json.RawMessage(`{"type":"object","properties":{"entry_id":` + strID + `,"cursor":` + cursorProp + `,"limit":` + limitProp + `,"status":{"type":"string","enum":["active","resolved","deleted"]}},"required":["entry_id"],"additionalProperties":false}`)
 	exportSchema        = json.RawMessage(`{"type":"object","properties":{"entry_id":` + strID + `,"revision_id":` + strID + `},"required":["entry_id","revision_id"],"additionalProperties":false}`)
 
 	createSectionSchema  = keyedSchema(`{"type":"object","properties":{"title":` + strNonEmpty + `},"required":["title"],"additionalProperties":false}`)
@@ -284,7 +284,7 @@ var (
 	adoptRevisionSchema = keyedSchema(`{"type":"object","properties":{"entry_id":` + strID + `,"revision_id":` + strID + `,"expected_version":` + versionProp + `},"required":["entry_id","revision_id","expected_version"],"additionalProperties":false}`)
 
 	createCommentSchema = keyedSchema(`{"type":"object","properties":{"entry_id":` + strID + `,"anchor_revision_id":` + strID + `,"body":` + strNonEmpty + `},"required":["entry_id","body"],"additionalProperties":false}`)
-	updateCommentSchema = keyedSchema(`{"type":"object","properties":{"comment_id":` + strID + `,"expected_version":` + versionProp + `,"body":{"type":"string"},"status":{"type":"string","enum":["open","resolved"]}},"required":["comment_id","expected_version"],"additionalProperties":false}`)
+	updateCommentSchema = keyedSchema(`{"type":"object","properties":{"comment_id":` + strID + `,"expected_version":` + versionProp + `,"body":{"type":"string"},"status":{"type":"string","enum":["active","resolved","deleted"]}},"required":["comment_id","expected_version"],"additionalProperties":false}`)
 
 	outcomeSchema = json.RawMessage(`{"type":"object","required":["status"]}`)
 )

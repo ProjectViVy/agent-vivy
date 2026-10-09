@@ -1,0 +1,163 @@
+/**
+ * Document-level comments: create (optionally anchored to the viewed
+ * revision), edit, resolve, delete and restore — all version-CAS mutations
+ * through the sealed actions. Failures keep the entered body in place.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { MessageSquare } from 'lucide-react';
+import { usePluginTranslation } from '@vivy/ui-sdk';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { newOperationKey, type NotebookClient } from './api';
+import { NOTEBOOK_MAX_COMMENT_BYTES, NOTEBOOK_MAX_PAGE_ROWS, type Comment, type CommentStatus } from './types';
+import { dateTimeLocale } from '@/i18n';
+import { cn } from '@/lib/utils';
+
+export interface NotebookCommentsProps {
+  readonly client: NotebookClient;
+  readonly entryId: string;
+  readonly anchorRevisionId?: string;
+  readonly refreshKey?: number;
+  readonly onChanged?: () => void;
+}
+
+const utf8Length = (value: string) => new TextEncoder().encode(value).byteLength;
+
+export function NotebookComments({ client, entryId, anchorRevisionId, refreshKey = 0, onChanged }: NotebookCommentsProps) {
+  const { t } = usePluginTranslation();
+  const [status, setStatus] = useState<CommentStatus>('active');
+  const [comments, setComments] = useState<readonly Comment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [body, setBody] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingBody, setEditingBody] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const epoch = useRef(0);
+
+  const load = async (nextStatus: CommentStatus) => {
+    const my = ++epoch.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await client.listComments({ entry_id: entryId, status: nextStatus, limit: NOTEBOOK_MAX_PAGE_ROWS });
+      if (my === epoch.current) setComments(page.comments);
+    } catch (cause) {
+      if (my === epoch.current) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (my === epoch.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(status); }, [client, entryId, status, refreshKey]);
+
+  const create = async () => {
+    const trimmed = body.trim();
+    if (!trimmed || utf8Length(trimmed) > NOTEBOOK_MAX_COMMENT_BYTES) return;
+    setActionError(null);
+    try {
+      await client.createComment({
+        operationKey: newOperationKey(), entry_id: entryId,
+        ...(anchorRevisionId ? { anchor_revision_id: anchorRevisionId } : {}), body: trimmed,
+      });
+      setBody('');
+      onChanged?.();
+      void load(status);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const update = async (comment: Comment, patch: { readonly body?: string; readonly status?: CommentStatus }) => {
+    setBusyId(comment.id);
+    setActionError(null);
+    try {
+      await client.updateComment({
+        operationKey: newOperationKey(), comment_id: comment.id,
+        expected_version: comment.version, ...patch,
+      });
+      setEditingId(null);
+      onChanged?.();
+      void load(status);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const bodyBytes = utf8Length(body);
+  const overLimit = bodyBytes > NOTEBOOK_MAX_COMMENT_BYTES;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="notebook-comments">
+      <div className="border-b p-2">
+        <Tabs value={status} onValueChange={(value) => setStatus(value as CommentStatus)}>
+          <TabsList className="w-full">
+            <TabsTrigger value="active" className="flex-1 text-xs">{t('plugin.vivy/notebook.commentStatus.active')}</TabsTrigger>
+            <TabsTrigger value="resolved" className="flex-1 text-xs">{t('plugin.vivy/notebook.commentStatus.resolved')}</TabsTrigger>
+            <TabsTrigger value="deleted" className="flex-1 text-xs">{t('plugin.vivy/notebook.commentStatus.deleted')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      {actionError ? <p className="m-3 rounded-lg border border-destructive/40 p-2 text-xs text-destructive" data-testid="notebook-comments-error">{actionError}</p> : null}
+      {loading ? (
+        <div className="space-y-2 p-3"><div className="h-14 animate-pulse rounded-lg bg-muted" /></div>
+      ) : error ? (
+        <div className="p-3 text-sm text-destructive">
+          <p>{error}</p>
+          <Button className="mt-2" size="sm" variant="outline" onClick={() => void load(status)}>{t('common.retry')}</Button>
+        </div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          {comments.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">{t(`plugin.vivy/notebook.noComments.${status}`)}</p>
+          ) : comments.map((comment) => (
+            <div key={comment.id} className="mx-2 mb-2 rounded-lg border bg-card p-3" data-testid="notebook-comment">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{comment.author}</span>
+                <Badge variant="outline">{t(`plugin.vivy/notebook.commentStatus.${comment.status}`)}</Badge>
+                {comment.anchor_revision_id ? <Badge variant="secondary">#{comment.anchor_revision_id}</Badge> : null}
+                <span className="ml-auto">{new Date(comment.created_at * 1000).toLocaleString(dateTimeLocale())}</span>
+              </div>
+              {editingId === comment.id ? (
+                <div className="mt-2">
+                  <Textarea value={editingBody} onChange={(event) => setEditingBody(event.target.value)} className="min-h-16 text-sm" data-testid="notebook-comment-edit" />
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" disabled={busyId === comment.id} onClick={() => void update(comment, { body: editingBody })}>{t('plugin.vivy/notebook.saveComment')}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>{t('common.cancel')}</Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm">{comment.body}</p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1">
+                {comment.status === 'active' ? (
+                  <>
+                    <Button size="sm" variant="ghost" disabled={busyId === comment.id} onClick={() => { setEditingId(comment.id); setEditingBody(comment.body); }}>{t('common.edit')}</Button>
+                    <Button size="sm" variant="ghost" disabled={busyId === comment.id} onClick={() => void update(comment, { status: 'resolved' })} data-testid="notebook-comment-resolve">{t('plugin.vivy/notebook.resolve')}</Button>
+                    <Button size="sm" variant="ghost" disabled={busyId === comment.id} onClick={() => void update(comment, { status: 'deleted' })}>{t('common.delete')}</Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="ghost" disabled={busyId === comment.id} onClick={() => void update(comment, { status: 'active' })}>{t('plugin.vivy/notebook.restore')}</Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </ScrollArea>
+      )}
+      <div className="border-t p-2">
+        <Textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('plugin.vivy/notebook.commentPlaceholder')} className="min-h-16 text-sm" data-testid="notebook-comment-input" />
+        <div className="mt-2 flex items-center gap-2">
+          <span className={cn('text-xs', overLimit ? 'text-destructive' : 'text-muted-foreground')}>{bodyBytes}/{NOTEBOOK_MAX_COMMENT_BYTES}</span>
+          <Button size="sm" className="ml-auto" disabled={!body.trim() || overLimit} onClick={() => void create()} data-testid="notebook-comment-submit">{t('plugin.vivy/notebook.addComment')}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
