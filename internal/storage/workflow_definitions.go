@@ -2,10 +2,10 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -89,7 +89,7 @@ type WorkflowDefinitionStore interface {
 	GetWorkflowDraft(ctx context.Context, sessionID, workflowID string) (WorkflowDraft, error)
 	// UpdateWorkflowDraftCAS atomically stores the draft when expectedETag
 	// matches the stored ETag (expectedETag == WorkflowDefinitionETagAbsent
-	// creates only); an empty expected ETag means "any current draft".
+	// creates only); an empty expected ETag is invalid.
 	// Rows owned by another author report ErrWorkflowDefinitionAuthor on
 	// update and ErrWorkflowDefinitionNotFound on read paths.
 	UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, in WorkflowDraftUpdate) (WorkflowDraft, error)
@@ -127,7 +127,7 @@ type WorkflowDraftUpdate struct {
 // ValidateWorkflowDraftUpdate enforces the storage invariants of one draft
 // write: bounded ids, valid JSON artifact, matching digests.
 func ValidateWorkflowDraftUpdate(in WorkflowDraftUpdate) error {
-	if in.WorkflowID == "" || len(in.WorkflowID) > 256 || len(in.ExpectedETag) > 256 {
+	if in.WorkflowID == "" || len(in.WorkflowID) > 256 || in.ExpectedETag == "" || len(in.ExpectedETag) > 256 {
 		return errors.New("storage: workflow definition identity is incomplete")
 	}
 	if len(in.ArtifactJSON) == 0 || len(in.ArtifactJSON) > 1<<20 || !json.Valid(in.ArtifactJSON) {
@@ -185,24 +185,8 @@ func validINOFYNamedDigest(value string) bool {
 	return len(value) > len(prefix) && value[:len(prefix)] == prefix && validSHA256Hex(value[len(prefix):])
 }
 
-// WorkflowDefinitionETag derives a deterministic next draft ETag. Host
-// adapters keep one monotone counter per row in updated_at space; callers
-// never hand-pick ETags.
-func WorkflowDefinitionETag(workflowID string, seq int64) string {
-	sum := sha256.Sum256([]byte("wfdef-etag:" + workflowID))
-	return workflowID + ":" + hex.EncodeToString(sum[:8]) + ":" + itoaBase10(seq)
-}
-
-func itoaBase10(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
+// NewWorkflowDefinitionETag returns a fresh opaque token for every accepted
+// draft write. It is independent of workflow identifiers and wall clocks.
+func NewWorkflowDefinitionETag() string {
+	return uuid.NewString()
 }

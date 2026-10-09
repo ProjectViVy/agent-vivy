@@ -61,7 +61,7 @@ The existing Module is `vivy/workflow-ui`, T2, source `repo:plugins/vivy-workflo
 - RPC `inofy.saveDraft`: `{workflow, artifact, create?: boolean, etag?: string | null, session_id?}`; exactly one valid create/edit mode.
 - Keep `WorkflowClient.saveDraft(id: string, artifact: Artifact, etag: string | null): Promise<DraftView>`; `null` serializes as `{create: true}`, a nonempty string as `{etag}`.
 
-- [ ] **P3.1.1 Write the token regression cases in shared conformance.**
+- [x] **P3.1.1 Write the token regression cases in shared conformance.**
 
 Add `ETagRotatesWithRepeatedAndBackwardsTime` under `AssertWorkflowDefinitionContract`. For a new unique workflow, create at `1000`, then save three different artifacts at `1000`, `1000`, and `999`; use the immediately preceding ETag each time. Assert every ETag is nonempty and distinct, `CreatedAt == 1000`, and final `UpdatedAt == 999`. Reusing any prior token must satisfy `errors.Is(err, storage.ErrWorkflowDefinitionConflict)` and must leave the final artifact unchanged.
 
@@ -73,21 +73,25 @@ if d3.CreatedAt != 1000 || d3.UpdatedAt != 999 { t.Fatalf("timestamps changed: %
 if !errors.Is(staleErr, storage.ErrWorkflowDefinitionConflict) { t.Fatalf("stale write: %v", staleErr) }
 ```
 
-- [ ] **P3.1.2 Write legacy-token and PostgreSQL insert-race tests.**
+- [x] **P3.1.2 Write legacy-token and PostgreSQL insert-race tests.**
 
 Add `TestWorkflowDraftLegacyETagRotates` in each driver's existing definitions test file. Seed one valid draft with `etag = "wf-legacy:0123456789abcdef:1001"`, `created_at = 1000`, `updated_at = 1000`; edit with that token at `1000`, reopen, and assert the new token differs and the legacy token conflicts without changing bytes. Use existing test-only database access; add no production test hook.
 
 Add PostgreSQL `TestWorkflowDraftConcurrentAbsentInsertConflict`: create the author, hold `LOCK TABLE workflow_definition_drafts IN SHARE MODE` in a blocking test transaction, start two absent-token saves, wait with a bounded test deadline until both INSERT transactions have ungranted `RowExclusiveLock` requests for that table in `pg_locks`, then release the lock. Assert exactly one success, one `ErrWorkflowDefinitionConflict`, and one persisted winning artifact. If the barrier deadline expires, fail the test and roll back the blocker.
 
-- [ ] **P3.1.3 Write product/RPC create-intent regressions.**
+- [x] **P3.1.3 Write product/RPC create-intent regressions.**
 
 Add `TestWorkflowProductSaveRequiresExplicitCAS`: empty expected token fails; absent creates; duplicate absent conflicts; current token edits; foreign author cannot overwrite. Add `TestINOFYSaveDraftExplicitCreateOrETag`: omitted/null/empty edit ETags and `create: true` with a nonempty ETag return `InvalidParams`; `{create: true}` creates once and the same author's second create returns `CodeConflict` with `data.code == "revision_conflict"`. Keep existing foreign-author assertions. Update `TestINOFYProductRPCSurface` to create explicitly.
 
 - [ ] **P3.1.4 Write browser tests and select authoritative Module tests.**
 
+UI portion pending: the repository's `vivy-plugin` skill requires `oil-frontend`,
+which is unavailable in this checkout; the user was asked whether to provide it
+or authorize `testing-vivy-ui` as the substitute. Do not edit generated staging.
+
 In `ui/vitest.config.ts`, include both workflow source test globs and exclude `src/generated/ui/vivy-workflow/src/**/*.test.*`. Add `saveDraft sends explicit create intent for a null etag` and `saveDraft rejects an empty edit etag` in `face-bridge.test.ts`; inspect the actual RPC request. Add `two missing-draft editors do not overwrite the first creator` to `workflow-page.test.tsx`: both load misses, first create succeeds, second conflicts, server artifact remains first creator's value. Add `opening a revision loads the current draft etag before editing`: revision content remains the edit source, next save uses the loaded draft token. A missing own draft uses explicit creation; a foreign existing draft conflicts.
 
-- [ ] **P3.1.5 Run the new tests and confirm behavioral failures.**
+- [ ] **P3.1.5 Run the new tests and confirm behavioral failures.** Backend regressions were run red; browser tests remain pending with P3.1.4.
 
 ```bash
 go test ./internal/storage/sqlite -run 'TestWorkflow(DraftLegacyETagRotates|DefinitionContract/ETagRotatesWithRepeatedAndBackwardsTime)' -count=1
@@ -99,13 +103,19 @@ go test ./internal/storage/postgres -run 'TestWorkflowDraft(LegacyETagRotates|Co
 
 Expected: token-repeat, unconditional same-author overwrite, revision editor token, and primary-key race assertions fail. PostgreSQL requires an existing disposable `VIVY_POSTGRES_TEST_DSN`; `SKIP` does not count as red or green evidence. These are future execution commands, not checks run during this design turn.
 
-- [ ] **P3.1.6 Implement fresh ETags in both existing storage writes.**
+- [x] **P3.1.6 Implement fresh ETags in both existing storage writes.**
 
 Have both `UpdateWorkflowDraftCAS` implementations call `storage.NewWorkflowDefinitionETag()` only after validating the CAS mode. Preserve existing `CreatedAt`, assign `UpdatedAt = in.Now`, and use the old stored ETag in the UPDATE predicate. Tighten `ValidateWorkflowDraftUpdate(in WorkflowDraftUpdate) error` to reject empty expected tokens. Translate the PostgreSQL INSERT's typed `*pgconn.PgError` code `23505` for the draft primary key to `ErrWorkflowDefinitionConflict`; preserve all other errors and their cause chains.
 
-- [ ] **P3.1.7 Implement explicit create/edit mode across runtime, RPC, and editor.**
+- [x] **P3.1.7a Implement explicit create/edit mode across runtime and RPC.**
 
-Remove the empty-token preread branch from `inofyDefinitionRepository.UpdateDraftCAS(ctx context.Context, workflowID, expectedETag string, a inofy.Artifact) (definitions.Draft, error)`. Reject empty tokens with `inofy.ErrInvalidDefinition` in `INOFYSaveDraft`; map only the explicit absent sentinel. Decode RPC `Create bool` plus `ETag *string`, reject ambiguous modes before saving, and pass `definitions.ETagAbsent` for creation. `WorkflowClient.saveDraft` rejects `""` locally. In `openRevision(id: string, revision: number)` load revision and own draft; use its current ETag or `null` only for the existing missing-draft error. Preserve revision content and dirty state. Keep the existing `editor.forkNote` catalog key but set English to `Editing published revision {revision}; save updates your current draft.` and Chinese to `正在编辑已发布版本 {revision}；保存将更新当前草稿。`.
+Runtime rejects an empty expected ETag; the storage adapter accepts only the
+absent sentinel or a concrete edit token. RPC decoding maps `{create:true}` to
+create-only, requires a nonempty ETag for edit, and rejects conflicting modes.
+
+- [ ] **P3.1.7b Implement current-token revision editing and explicit browser create intent.**
+
+`WorkflowClient.saveDraft` serializes `null` as explicit creation and accepts only nonempty edit ETags; it rejects `""` locally. In `openRevision(id: string, revision: number)`, load the immutable revision for edit content and the current own draft for its ETag; use `null` only when the own-draft lookup returns the existing missing-draft error. Preserve revision content and dirty state. Keep `editor.forkNote` and set English to `Editing published revision {revision}; save updates your current draft.` and Chinese to `正在编辑已发布版本 {revision}；保存将更新当前草稿。`.
 
 - [ ] **P3.1.8 Verify, rehash the Module, and commit the deliverable.**
 
@@ -114,6 +124,11 @@ Run P3.1.5 again, then `go test ./internal/storage/sqlite ./internal/storage/pos
 ```bash
 git commit -m "fix: require explicit workflow draft CAS and rotate opaque etags"
 ```
+
+**Execution ruling:** Backend steps P3.1.6 and P3.1.7a proceeded before the
+browser tests because they are independently verifiable and the required
+`oil-frontend` skill is unavailable. The risk if this sequencing is wrong is a
+later editor contract adjustment; no UI source changes were made.
 
 ---
 
@@ -136,7 +151,7 @@ git commit -m "fix: require explicit workflow draft CAS and rotate opaque etags"
 - Add `WorkflowClient.prepareStartRun(intent: WorkflowRunIntent): WorkflowStartRequest`; change `startRun(request: WorkflowStartRequest): Promise<{run_id: string}>` and the matching `StudioTransport` signature.
 - Existing server `INOFYStartRun(ctx context.Context, sessionID domain.SessionID, params INOFYStartRunParams) (WorkflowStartResult, error)` and its durable operation dedup remain unchanged.
 
-- [ ] **P3.2.1 Write admission and publication regressions.**
+- [x] **P3.2.1 Write admission and publication regressions.**
 
 Add `TestINOFYAdmissionRejectsDuplicateToolNames`: `taskDefinition()` with `tool_names = ["read_file", "read_file"]` fails `validateINOFYDefinition`; repeat with `["read_file", " read_file "]` and with `[""]`. Extend `TestINOFYToolSchemaExposesOnlyHostChildTasks` so literal duplicates fail JSON Schema validation. Add `TestWorkflowProductPublishRejectsDuplicateTools`: save a syntactically valid draft, validate returns a host-admission diagnostic, publish fails, and no revision is allocated. Add `TestWorkflowProductHistoricalDuplicateToolsRejectStart`: seed one immutable malformed publication using existing storage APIs; getRevision remains readable; starting it returns `ErrINOFYInvalidDefinition` and persists no workflow admission or child effects.
 
@@ -177,11 +192,15 @@ pnpm -C ui exec vitest run ../plugins/vivy-workflow/ui/vivy-workflow/src/face-br
 
 Expected: duplicate authoring, fresh per-call operation keys, delayed save confirmation, and retry/resave assertions fail. The stale-source runtime case may already pass; retain it as a compatibility guard.
 
-- [ ] **P3.2.6 Implement host tool-name parity.**
+- [x] **P3.2.6 Implement host tool-name parity.**
 
 Add `uniqueItems: true` to `childConfigSchema.tool_names`. In `validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTools []string) (inofyAdmission, error)`, call `domain.CanonicalToolNames(config.ToolNames)` and reject errors with the node ID and preserved cause. Validate the existing membership ceiling without rewriting the definition, list, or digest. Existing validation, publication, proposal, and start paths already share this function; do not add a second validator.
 
 - [ ] **P3.2.7 Implement prepared start requests at the existing bridge seam.**
+
+Server-side captured-session validation is implemented and covered by
+`TestINOFYStartRunRejectsMismatchedCapturedSession`; bridge preparation and
+verbatim forwarding remain pending the UI implementation gate.
 
 `FaceBridge.prepareStartRun` validates a live session and parent, copies the complete intent including a snapshot of input, and creates one UUID. `FaceBridge.call` forwards `inofy.startRun` prepared bodies verbatim after validating nonempty session, parent, operation ID of at most `128` bytes, and one source selector; it never overrides fields from current store state. Keep session injection for other calls. In `inofyStartRun`, require the captured `session_id` to match the server-resolved session; use the existing `InvalidParams` envelope for mismatch. Update the existing HostBridge test doubles and client/transport types together.
 
@@ -196,6 +215,14 @@ Run P3.2.5 again; run `go test ./internal/runtime ./internal/rpc -count=1`. Reha
 ```bash
 git commit -m "fix: align workflow admission and preserve start retry intent"
 ```
+
+**Execution ruling:** `INOFYValidateDraft` reports duplicate tool names as
+`schema_mismatch` after `uniqueItems` is added to the trusted node config
+schema, before the host-specific canonical-name check runs. The regression
+asserts that the diagnostic identifies `tool_names` and the duplicate items;
+the error still fails closed at validation and publication. Requiring a
+`host_admission` code here would contradict the earlier schema gate. Cost if
+wrong: clients may depend on a different validation diagnostic code.
 
 ---
 
@@ -215,7 +242,7 @@ git commit -m "fix: align workflow admission and preserve start retry intent"
 - Keep existing `ListWorkflowDefinitionRuns` and `ListWorkflowDefinitions` signatures and page shapes; they consume these shared helpers.
 - Add test-only `admitDefinitionRunFixture(t *testing.T, slot Slot, sessionID domain.SessionID, parentID, runID domain.RunID, createdAt int64) storage.WorkflowStepStore` in conformance. Use `WorkflowStepFixture` as the existing schema-2 admission model; bind source `"wf-pages"`, revision `1`, and preserve matching Run/revision/event timestamps.
 
-- [ ] **P3.3.1 Write cursor codec tests with exact accepted/rejected forms.**
+- [x] **P3.3.1 Write cursor codec tests with exact accepted/rejected forms.**
 
 Add `TestWorkflowRunCursorRoundTrip`: encode `(1000, "run:b")`, decode it, and assert exactly those values. Add `TestWorkflowRunCursorRejectsInvalid`: reject legacy `"1000"`, wrong version `"v2.e30"`, invalid base64, invalid JSON, missing/empty ID, nonpositive timestamp, unknown JSON fields, and tokens over `2048` bytes; all errors match `ErrWorkflowCursorInvalid`. Define the format as `"v1." + base64.RawURLEncoding(JSON {"created_at":1000,"run_id":"run:b"})`.
 
@@ -227,45 +254,57 @@ if workflowID != "team:flow" || revision != 2 { t.Fatalf("definition cursor: %q 
 if !errors.Is(invalidErr, storage.ErrWorkflowCursorInvalid) { t.Fatalf("invalid cursor: %v", invalidErr) }
 ```
 
-- [ ] **P3.3.2 Write shared storage continuation and session-isolation tests.**
+- [x] **P3.3.2 Write shared storage continuation and session-isolation tests.**
 
 Add independent cases `RunPagingWithTimestampTies` and `RunPagingFromMissingBoundary` to conformance. Admit `run-a`, `run-b`, and `run-c` for one session at `1000`, plus `run-d` at `999`; page size `1` must enumerate `[run-a, run-b, run-c, run-d]` exactly once, finish with `NextCursor == ""`, and exclude another session's equal-time Run. For the missing-boundary case, use an independent session containing only `run-b`, `run-c`, and `run-d`, and start from encoded cursor `(1000, "run-a")`: continuation still returns `run-b` even though no boundary row exists. Add `DefinitionPagingWithColonIDs`: publish `team:flow` revisions `1` and `2`; size `1` resumes from `team:flow:1` and returns revision `2`. Keep bounded default `50`, maximum `200`.
 
 ```go
 if !reflect.DeepEqual(ids, []string{"run-a", "run-b", "run-c", "run-d"}) { t.Fatalf("paged ids: %v", ids) }
-if terminalPage.NextCursor != "" { t.Fatalf("terminal cursor: %q", terminalPage.NextCursor) }
+if cursor != "" { t.Fatalf("terminal cursor: %q", cursor) }
 if second.Revisions[0].WorkflowID != "team:flow" || second.Revisions[0].Revision != 2 { t.Fatalf("colon page: %+v", second) }
 ```
 
-- [ ] **P3.3.3 Write RPC invalid-cursor classification tests.**
+- [x] **P3.3.3 Write RPC invalid-cursor classification tests.**
 
 Add `TestINOFYListRejectsMalformedCursor`: `inofy.listRuns` with cursor `"1000"` and `inofy.listWorkflows` with `"team:flow:bad"` return `InvalidParams`, `data.code == "invalid_input"`, and a message containing `refresh`. Neither case returns an internal storage error or a successful empty page.
 
-- [ ] **P3.3.4 Run the new regressions and confirm red evidence.**
+- [x] **P3.3.4 Run the new regressions and confirm red evidence.**
 
 ```bash
 go test ./internal/storage -run 'TestWorkflow(RunCursor|DefinitionCursor)' -count=1
-go test ./internal/storage/sqlite -run 'TestWorkflowDefinitionContract/(RunPaging|DefinitionPagingWithColonIDs)' -count=1
-go test ./internal/storage/postgres -run 'TestWorkflowDefinitionContractPostgres/(RunPaging|DefinitionPagingWithColonIDs)' -count=1 -v
+go test ./internal/storage/sqlite -run 'TestWorkflowDefinitionContract/(RunPagingWithTimestampTies|RunPagingFromMissingBoundary|DefinitionPagingWithColonIDs)' -count=1
+go test ./internal/storage/postgres -run 'TestWorkflowDefinitionContractPostgres/(RunPagingWithTimestampTies|RunPagingFromMissingBoundary|DefinitionPagingWithColonIDs)' -count=1 -v
 go test ./internal/rpc -run TestINOFYListRejectsMalformedCursor -count=1
 ```
 
 Expected: missing codecs initially fail to compile; after their declarations exist, baseline queries skip timestamp ties and reject valid colon IDs. PostgreSQL execution requires the configured disposable DSN.
 
-- [ ] **P3.3.5 Implement shared codecs and strict driver queries.**
+- [x] **P3.3.5 Implement shared codecs and strict driver queries.**
 
 Implement the declared helpers in `workflow_cursors.go`: bounded versioned JSON/base64 Run tokens and final-colon definition splitting with positive decimal revision. Initial Run cursor is only `""`; all nonempty legacy numeric cursors fail. Both drivers use this continuation predicate after decoding: `created_at < cursor.created_at OR (created_at = cursor.created_at AND workflow_run_id > cursor.run_id)`. Keep `ORDER BY created_at DESC, workflow_run_id ASC` and `limit + 1`; build the next token from the last emitted row. Definition queries keep their existing `(workflow_id ASC, revision ASC)` ordering and emit their existing colon representation.
 
-- [ ] **P3.3.6 Preserve the typed invalid-cursor cause through runtime and RPC.**
+- [x] **P3.3.6 Preserve the typed invalid-cursor cause through runtime and RPC.**
 
 `inofyDefinitionRepository.List(ctx context.Context, cursor string, limit int) (definitions.Page, error)` must return/wrap `ErrWorkflowCursorInvalid` without converting it into `inofy.ErrStorageFailed`. `INOFYListRuns` already preserves storage errors. Add an `errors.Is(err, storage.ErrWorkflowCursorInvalid)` case to `inofyRPCError(err error) *Error`, returning `InvalidParams` with `inofyErrorData("invalid_input")` and the refresh message. Preserve all other mappings.
 
 - [ ] **P3.3.7 Verify driver parity and commit.**
 
-Run P3.3.4 again, then `go test ./internal/storage ./internal/storage/sqlite ./internal/storage/postgres ./internal/rpc -count=1`. Expected: no missed/repeated equal-timestamp rows, colon IDs continue correctly, and malformed/legacy tokens fail explicitly. Stage only P3.3 files.
+**Execution ruling:** The repository requires the unavailable `oil-frontend`
+sub-skill before UI Module edits. At the user's direction to continue through
+all work items, the independent backend portions of P3.2 and P3.3 proceeded;
+UI work remains gated and no Module source changed. The cost if this sequencing
+is wrong is a browser-discovered contract adjustment after the backend work.
+
+**Commit ruling:** P3.1, P3.2 and P3.3 backend changes share the storage/runtime/RPC
+files, and their combined affected-package verification has already passed.
+Land these backend slices in one atomic commit and keep their separate iteration
+logs; Module UI changes will remain separate. The cost if wrong is coarser
+task-level git attribution and less focused cherry-picks.
+
+Run P3.3.4 again, then `go test ./internal/storage ./internal/storage/sqlite ./internal/storage/postgres ./internal/rpc -count=1`. Expected: no missed/repeated equal-timestamp rows, colon IDs continue correctly, and malformed/legacy tokens fail explicitly. Stage the verified P3.1-P3.3 backend slices together; do not stage Module UI files.
 
 ```bash
-git commit -m "fix: make workflow cursors complete and dialect consistent"
+git commit -m "fix: harden workflow backend draft and paging contracts"
 ```
 
 ---

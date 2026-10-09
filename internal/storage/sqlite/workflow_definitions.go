@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"agent-vivy/internal/storage"
 )
@@ -66,17 +65,10 @@ func (b *Backend) UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, 
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionNotFound
 	case found && existing.AuthorSessionID != sessionID:
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionAuthor
-	case found && in.ExpectedETag != "" && existing.ETag != in.ExpectedETag:
+	case found && existing.ETag != in.ExpectedETag:
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionConflict
 	}
-	seq := int64(1)
-	if found {
-		seq = existing.UpdatedAt + 1
-		if existing.CreatedAt >= in.Now {
-			seq = existing.CreatedAt + 1
-		}
-	}
-	etag := storage.WorkflowDefinitionETag(in.WorkflowID, seq)
+	etag := storage.NewWorkflowDefinitionETag()
 	if found {
 		res, err := tx.ExecContext(ctx, `UPDATE workflow_definition_drafts
 			SET etag=?, artifact=?, definition_digest=?, artifact_digest=?, updated_at=?
@@ -221,15 +213,11 @@ func (b *Backend) ListWorkflowDefinitions(ctx context.Context, cursor string, li
 	var curWf string
 	var curRev int64
 	if cursor != "" {
-		parts := strings.SplitN(cursor, ":", 2)
-		if len(parts) != 2 {
-			return storage.WorkflowDefinitionPage{}, fmt.Errorf("sqlite: invalid workflow definition cursor")
-		}
-		v, err := strconv.ParseInt(parts[1], 10, 64)
+		parsedWorkflowID, parsedRevision, err := storage.ParseWorkflowDefinitionCursor(cursor)
 		if err != nil {
-			return storage.WorkflowDefinitionPage{}, fmt.Errorf("sqlite: invalid workflow definition cursor")
+			return storage.WorkflowDefinitionPage{}, err
 		}
-		curWf, curRev = parts[0], v
+		curWf, curRev = parsedWorkflowID, int64(parsedRevision)
 	}
 	rows, err := b.db.QueryContext(ctx, `SELECT workflow_id,revision,artifact,definition_digest,artifact_digest,used_catalog_digest,used_implementations,author_session_id,published_at
 		FROM workflow_definition_revisions
@@ -266,18 +254,19 @@ func (b *Backend) ListWorkflowDefinitionRuns(ctx context.Context, sessionID, cur
 	if limit > 200 {
 		limit = 200
 	}
-	var after int64
+	var after storage.WorkflowRunCursor
 	if cursor != "" {
-		v, err := strconv.ParseInt(cursor, 10, 64)
+		v, err := storage.DecodeWorkflowRunCursor(cursor)
 		if err != nil {
-			return storage.WorkflowRunPage{}, fmt.Errorf("sqlite: invalid workflow run cursor")
+			return storage.WorkflowRunPage{}, err
 		}
 		after = v
 	}
 	rows, err := b.db.QueryContext(ctx, `SELECT r.workflow_run_id, r.parent_session_id, r.definition_id, r.definition_revision, r.created_at, ru.status
 		FROM workflow_revisions r JOIN runs ru ON ru.id = r.workflow_run_id
-		WHERE r.definition_id IS NOT NULL AND r.parent_session_id = ? AND (? = 0 OR r.created_at < ?)
-		ORDER BY r.created_at DESC, r.workflow_run_id LIMIT ?`, sessionID, after, after, limit+1)
+		WHERE r.definition_id IS NOT NULL AND r.parent_session_id = ?
+		AND (? = 0 OR r.created_at < ? OR (r.created_at = ? AND r.workflow_run_id > ?))
+		ORDER BY r.created_at DESC, r.workflow_run_id LIMIT ?`, sessionID, after.CreatedAt, after.CreatedAt, after.CreatedAt, after.RunID, limit+1)
 	if err != nil {
 		return storage.WorkflowRunPage{}, fmt.Errorf("sqlite: list workflow definition runs: %w", err)
 	}
@@ -297,7 +286,8 @@ func (b *Backend) ListWorkflowDefinitionRuns(ctx context.Context, sessionID, cur
 	}
 	if len(page.Runs) > limit {
 		page.Runs = page.Runs[:limit]
-		page.NextCursor = strconv.FormatInt(page.Runs[len(page.Runs)-1].CreatedAt, 10)
+		last := page.Runs[len(page.Runs)-1]
+		page.NextCursor = storage.EncodeWorkflowRunCursor(last.CreatedAt, last.RunID)
 	}
 	return page, nil
 }

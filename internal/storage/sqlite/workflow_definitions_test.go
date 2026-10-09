@@ -2,11 +2,15 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/conformance"
 	"agent-vivy/internal/storage/migrations"
@@ -36,6 +40,64 @@ func workflowDefinitionSlot(t *testing.T) conformance.Slot {
 
 func TestWorkflowDefinitionContract(t *testing.T) {
 	conformance.AssertWorkflowDefinitionContract(t, workflowDefinitionSlot(t))
+}
+
+func TestWorkflowDraftLegacyETagRotates(t *testing.T) {
+	ctx := context.Background()
+	slot := workflowDefinitionSlot(t)
+	b := slot.Engine.(*Backend)
+	const sessionID = "sess-legacy-etag"
+	const workflowID = "wf-legacy"
+	const legacyETag = "wf-legacy:0123456789abcdef:1001"
+	if err := b.CreateSession(ctx, domain.Session{ID: domain.SessionID(sessionID), CreatedAt: 1}); err != nil {
+		t.Fatalf("create author session: %v", err)
+	}
+	original := []byte(`{"legacy":"before"}`)
+	legacyDigest := workflowTestDigest(original)
+	if _, err := b.db.ExecContext(ctx, `INSERT INTO workflow_definition_drafts
+		(workflow_id,etag,artifact,definition_digest,artifact_digest,archived,author_session_id,created_at,updated_at)
+		VALUES (?,?,?,?,?,0,?,?,?)`, workflowID, legacyETag, original, legacyDigest, legacyDigest, sessionID, 1000, 1000); err != nil {
+		t.Fatalf("seed legacy draft: %v", err)
+	}
+	updatedArtifact := []byte(`{"legacy":"after"}`)
+	updatedDigest := workflowTestDigest(updatedArtifact)
+	updated, err := b.UpdateWorkflowDraftCAS(ctx, sessionID, storage.WorkflowDraftUpdate{
+		WorkflowID: workflowID, ExpectedETag: legacyETag, ArtifactJSON: updatedArtifact,
+		DefinitionDigest: updatedDigest, ArtifactDigest: updatedDigest, Now: 1000,
+	})
+	if err != nil {
+		t.Fatalf("edit legacy draft: %v", err)
+	}
+	if updated.ETag == legacyETag {
+		t.Fatalf("legacy token remained valid after edit: %q", updated.ETag)
+	}
+	reopenedEngine, err := slot.Reopen()
+	if err != nil {
+		t.Fatalf("reopen backend: %v", err)
+	}
+	reopened := reopenedEngine.(*Backend)
+	d, err := reopened.GetWorkflowDraft(ctx, sessionID, workflowID)
+	if err != nil {
+		t.Fatalf("read reopened draft: %v", err)
+	}
+	if d.ETag != updated.ETag || string(d.ArtifactJSON) != string(updatedArtifact) || d.CreatedAt != 1000 || d.UpdatedAt != 1000 {
+		t.Fatalf("reopened draft changed: %+v", d)
+	}
+	if _, err := reopened.UpdateWorkflowDraftCAS(ctx, sessionID, storage.WorkflowDraftUpdate{
+		WorkflowID: workflowID, ExpectedETag: legacyETag, ArtifactJSON: original,
+		DefinitionDigest: legacyDigest, ArtifactDigest: legacyDigest, Now: 1001,
+	}); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
+		t.Fatalf("legacy token should conflict after reopen, got %v", err)
+	}
+	final, err := reopened.GetWorkflowDraft(ctx, sessionID, workflowID)
+	if err != nil || string(final.ArtifactJSON) != string(updatedArtifact) {
+		t.Fatalf("legacy token changed reopened artifact: draft=%+v err=%v", final, err)
+	}
+}
+
+func workflowTestDigest(value []byte) string {
+	sum := sha256.Sum256(value)
+	return "inofy-normal-v1:sha256:" + hex.EncodeToString(sum[:])
 }
 
 // TestWorkflowDefinitionUpgradeFrom034 seeds a database at migration head

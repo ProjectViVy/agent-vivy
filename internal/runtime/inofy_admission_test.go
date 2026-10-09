@@ -53,6 +53,38 @@ func TestINOFYToolSchemaExposesOnlyHostChildTasks(t *testing.T) {
 	if err := schema.Validate(value); err == nil {
 		t.Fatal("tool advertised an unsupported node type")
 	}
+	value["graph"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["type"] = workflowChildType
+	value["graph"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["config"].(map[string]any)["tool_names"] = []any{"read_file", "read_file"}
+	if err := schema.Validate(value); err == nil || !strings.Contains(err.Error(), "tool_names") {
+		t.Fatalf("tool schema did not reject duplicate tool names at tool_names: %v", err)
+	}
+}
+
+func TestINOFYAdmissionRejectsDuplicateToolNames(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		names []string
+		cause string
+	}{
+		{name: "literal duplicate", names: []string{"read_file", "read_file"}, cause: "duplicate child tool name"},
+		{name: "duplicate after trimming", names: []string{"read_file", " read_file "}, cause: "duplicate child tool name"},
+		{name: "empty name", names: []string{""}, cause: "child tool name is empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			definition := taskDefinition()
+			node := definition["graph"].(map[string]any)["nodes"].([]any)[0].(map[string]any)
+			node["config"].(map[string]any)["tool_names"] = tc.names
+			raw, err := json.Marshal(definition)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := validateINOFYDefinition(t.Context(), raw, []string{"read_file"}); err == nil {
+				t.Fatal("invalid tool-name list was admitted")
+			} else if !strings.Contains(err.Error(), "research") || !strings.Contains(err.Error(), tc.cause) {
+				t.Fatalf("rejection lacks node/cause %q: %v", tc.cause, err)
+			}
+		})
+	}
 }
 
 func TestINOFYAdmissionRejectsUnsupportedOrWidenedDefinitions(t *testing.T) {

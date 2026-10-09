@@ -117,6 +117,52 @@ func TestWorkflowProductDraftLifecycle(t *testing.T) {
 	}
 }
 
+func TestWorkflowProductSaveRequiresExplicitCAS(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	author := domain.SessionID("sess-prod-explicit-cas")
+	other := domain.SessionID("sess-prod-explicit-cas-other")
+	prepareProductSession(t, svc, backend, author)
+	prepareProductSession(t, svc, backend, other)
+	artifact := inofyProductArtifact(inofyProductDefinition)
+	if _, err := svc.INOFYSaveDraft(ctx, author, "wf-explicit-cas", "", artifact); err == nil {
+		t.Fatal("empty expected ETag accepted as implicit create or overwrite")
+	} else {
+		var inofyErr *inofy.Error
+		if !errors.As(err, &inofyErr) || inofyErr.Code != inofy.ErrInvalidDefinition {
+			t.Fatalf("empty expected ETag error = %v", err)
+		}
+	}
+	draft, err := svc.INOFYSaveDraft(ctx, author, "wf-explicit-cas", definitions.ETagAbsent, artifact)
+	if err != nil {
+		t.Fatalf("explicit create: %v", err)
+	}
+	if _, err := svc.INOFYSaveDraft(ctx, author, "wf-explicit-cas", definitions.ETagAbsent, artifact); err == nil {
+		t.Fatal("duplicate explicit create succeeded")
+	} else {
+		var inofyErr *inofy.Error
+		if !errors.As(err, &inofyErr) || inofyErr.Code != inofy.ErrRevisionConflict {
+			t.Fatalf("duplicate create error = %v", err)
+		}
+	}
+	updated, err := svc.INOFYSaveDraft(ctx, author, "wf-explicit-cas", draft.ETag, inofyProductArtifact(inofyProductDefinitionV2))
+	if err != nil || updated.ETag == draft.ETag {
+		t.Fatalf("explicit edit: draft=%+v err=%v", updated, err)
+	}
+	if _, err := svc.INOFYSaveDraft(ctx, other, "wf-explicit-cas", updated.ETag, artifact); err == nil {
+		t.Fatal("foreign author overwrote a draft with a current ETag")
+	} else {
+		var inofyErr *inofy.Error
+		if !errors.As(err, &inofyErr) || inofyErr.Code != inofy.ErrAuthorityDenied {
+			t.Fatalf("foreign author error = %v", err)
+		}
+	}
+	final, err := svc.INOFYLoadDraft(ctx, author, "wf-explicit-cas")
+	if err != nil || final.ETag != updated.ETag || final.ArtifactDigest != updated.ArtifactDigest {
+		t.Fatalf("draft after rejected writes: draft=%+v err=%v", final, err)
+	}
+}
+
 // TestWorkflowProductRootPointerOutput proves an authored root JSON Pointer
 // ("pointer":"") survives the typed decode -> marshal -> re-validate cycle
 // every save performs: the studio editor writes this form for whole-result
@@ -167,6 +213,66 @@ func TestWorkflowProductPublishRejectsUnknownNode(t *testing.T) {
 	}
 	if _, err := svc.INOFYPublishDraft(ctx, author, "wf-bad", draft.ETag); err == nil {
 		t.Fatal("unknown node type published")
+	}
+}
+
+func TestWorkflowProductPublishRejectsDuplicateTools(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	author := domain.SessionID("sess-prod-duplicate-tools")
+	prepareProductSession(t, svc, backend, author)
+	bad := strings.Replace(inofyProductDefinition, `"tool_names":["echo_info"]`, `"tool_names":["echo_info","echo_info"]`, 1)
+	draft, err := svc.INOFYSaveDraft(ctx, author, "wf-duplicate-tools", definitions.ETagAbsent, inofyProductArtifact(bad))
+	if err != nil {
+		t.Fatalf("save syntactically valid draft: %v", err)
+	}
+	diagnostics, err := svc.INOFYValidateDraft(ctx, author, "wf-duplicate-tools", draft.ETag)
+	if err != nil || len(diagnostics) == 0 || !strings.Contains(diagnostics[0].Message, "tool_names") || !strings.Contains(diagnostics[0].Message, "equal") {
+		t.Fatalf("duplicate tool diagnostics = %+v, %v", diagnostics, err)
+	}
+	if _, err := svc.INOFYPublishDraft(ctx, author, "wf-duplicate-tools", draft.ETag); err == nil {
+		t.Fatal("duplicate tool names published")
+	}
+	page, err := svc.INOFYListWorkflows(ctx, author, "", 10)
+	if err != nil || len(page.Revisions) != 0 {
+		t.Fatalf("duplicate tool publication allocated a revision: page=%+v err=%v", page, err)
+	}
+}
+
+func TestWorkflowProductHistoricalDuplicateToolsRejectStart(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	author := domain.SessionID("sess-prod-historical-duplicate-tools")
+	parentRunID := prepareProductSession(t, svc, backend, author)
+	workflowID := "wf-historical-duplicate-tools"
+	bad := strings.Replace(inofyProductDefinition, `"tool_names":["echo_info"]`, `"tool_names":["echo_info","echo_info"]`, 1)
+	artifact := inofyProductArtifact(bad)
+	digest := "inofy-normal-v1:sha256:" + strings.Repeat("a", 64)
+	draft, err := backend.UpdateWorkflowDraftCAS(ctx, string(author), storage.WorkflowDraftUpdate{
+		WorkflowID: workflowID, ExpectedETag: storage.WorkflowDefinitionETagAbsent,
+		ArtifactJSON: artifact, DefinitionDigest: digest, ArtifactDigest: digest, Now: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("seed historical draft: %v", err)
+	}
+	if _, err := backend.PublishWorkflowRevisionCAS(ctx, string(author), workflowID, draft.ETag, storage.WorkflowPublishedRevision{
+		WorkflowID: workflowID, ArtifactJSON: artifact, DefinitionDigest: digest, ArtifactDigest: digest,
+		UsedCatalogDigest: "sha256:" + strings.Repeat("b", 64), UsedImplementationsJSON: []byte(`{}`),
+		AuthorSessionID: string(author), PublishedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("seed immutable historical publication: %v", err)
+	}
+	if revision, err := svc.INOFYGetRevision(ctx, author, workflowID, 1); err != nil || revision.Revision != 1 {
+		t.Fatalf("historical revision should remain readable: revision=%+v err=%v", revision, err)
+	}
+	if _, err := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
+		ParentRunID: parentRunID, OperationKey: "historical-duplicate-tools-op", WorkflowID: workflowID, Revision: 1,
+	}); !errors.Is(err, ErrINOFYInvalidDefinition) {
+		t.Fatalf("historical duplicate-tool start = %v", err)
+	}
+	admissions, err := backend.ListWorkflowRevisions(ctx, parentRunID)
+	if err != nil || len(admissions) != 0 {
+		t.Fatalf("rejected historical start persisted admission: rows=%+v err=%v", admissions, err)
 	}
 }
 

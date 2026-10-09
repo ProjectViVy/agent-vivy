@@ -118,13 +118,15 @@ func (s *Service) INOFYLoadDraft(ctx context.Context, sessionID domain.SessionID
 	return repo.GetDraft(ctx, workflowID)
 }
 
-// INOFYSaveDraft stores one artifact under CAS. expectedETag empty means
-// "create or overwrite unconditionally"; use definitions.ETagAbsent to require
-// create-only semantics.
+// INOFYSaveDraft stores one artifact under CAS. Creation must use the explicit
+// definitions.ETagAbsent sentinel; edits must supply the current ETag.
 func (s *Service) INOFYSaveDraft(ctx context.Context, sessionID domain.SessionID, workflowID, expectedETag string, artifactJSON json.RawMessage) (definitions.Draft, error) {
 	svc, err := s.workflowDefinitionService(sessionID)
 	if err != nil {
 		return definitions.Draft{}, err
+	}
+	if expectedETag == "" {
+		return definitions.Draft{}, &inofy.Error{Code: inofy.ErrInvalidDefinition, Path: workflowID, Message: "an explicit create intent or current draft ETag is required"}
 	}
 	a, err := decodeArtifactValue(artifactJSON)
 	if err != nil {

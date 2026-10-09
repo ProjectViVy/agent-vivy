@@ -66,6 +66,9 @@ func (r *inofyDefinitionRepository) GetDraft(ctx context.Context, workflowID str
 }
 
 func (r *inofyDefinitionRepository) UpdateDraftCAS(ctx context.Context, workflowID, expectedETag string, a inofy.Artifact) (definitions.Draft, error) {
+	if expectedETag == "" {
+		return definitions.Draft{}, &inofy.Error{Code: inofy.ErrInvalidDefinition, Path: workflowID, Message: "an explicit create intent or current draft ETag is required"}
+	}
 	artifactJSON, err := json.Marshal(a)
 	if err != nil {
 		return definitions.Draft{}, &inofy.Error{Code: inofy.ErrInvalidDefinition, Path: workflowID, Message: err.Error()}
@@ -79,16 +82,8 @@ func (r *inofyDefinitionRepository) UpdateDraftCAS(ctx context.Context, workflow
 		return definitions.Draft{}, err
 	}
 	expected := expectedETag
-	switch expectedETag {
-	case definitions.ETagAbsent:
+	if expectedETag == definitions.ETagAbsent {
 		expected = storage.WorkflowDefinitionETagAbsent
-	case "":
-		// The host contract treats an empty expected ETag as
-		// create-or-overwrite-unconditional; storage's "" means
-		// "any current draft", so create intent needs the sentinel.
-		if _, err := r.store.GetWorkflowDraft(ctx, string(r.session), workflowID); errors.Is(err, storage.ErrWorkflowDefinitionNotFound) {
-			expected = storage.WorkflowDefinitionETagAbsent
-		}
 	}
 	rec, err := r.store.UpdateWorkflowDraftCAS(ctx, string(r.session), storage.WorkflowDraftUpdate{
 		WorkflowID: workflowID, ExpectedETag: expected, ArtifactJSON: artifactJSON,
@@ -153,6 +148,9 @@ func (r *inofyDefinitionRepository) GetRevision(ctx context.Context, workflowID 
 func (r *inofyDefinitionRepository) List(ctx context.Context, cursor string, limit int) (definitions.Page, error) {
 	page, err := r.store.ListWorkflowDefinitions(ctx, cursor, limit)
 	if err != nil {
+		if errors.Is(err, storage.ErrWorkflowCursorInvalid) {
+			return definitions.Page{}, err
+		}
 		return definitions.Page{}, &inofy.Error{Code: inofy.ErrStorageFailed, Message: err.Error()}
 	}
 	out := definitions.Page{NextCursor: page.NextCursor}

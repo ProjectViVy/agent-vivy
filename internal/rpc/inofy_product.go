@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ProjectViVy/inofy"
+	"github.com/ProjectViVy/inofy/definitions"
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/domain"
@@ -54,6 +55,8 @@ func inofyRPCError(err error) *Error {
 		return &Error{Code: CodeConflict, Message: "workflow definition etag or publication conflicts", Data: inofyErrorData("revision_conflict")}
 	case errors.Is(err, storage.ErrWorkflowDefinitionAuthor):
 		return &Error{Code: CodeConflict, Message: "workflow definition belongs to another author", Data: inofyErrorData(string(inofy.ErrAuthorityDenied))}
+	case errors.Is(err, storage.ErrWorkflowCursorInvalid):
+		return &Error{Code: InvalidParams, Message: err.Error(), Data: inofyErrorData("invalid_input")}
 	case errors.Is(err, runtime.ErrWorkflowProductUnavailable):
 		return &Error{Code: CodeConflict, Message: "workflow product is not available on this deployment", Data: inofyErrorData("unavailable")}
 	case errors.Is(err, runtime.ErrINOFYInvalidDefinition):
@@ -168,15 +171,28 @@ func (h *controlHandler) inofySaveDraft(ctx context.Context, peer *Peer, request
 		inofySessionParams
 		Workflow string          `json:"workflow"`
 		Artifact json.RawMessage `json:"artifact"`
-		ETag     string          `json:"etag"`
+		Create   bool            `json:"create"`
+		ETag     *string         `json:"etag"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
+	expectedETag := ""
+	if params.Create {
+		if params.ETag != nil && *params.ETag != "" {
+			return nil, &Error{Code: InvalidParams, Message: "create cannot include an edit ETag"}
+		}
+		expectedETag = definitions.ETagAbsent
+	} else {
+		if params.ETag == nil || *params.ETag == "" {
+			return nil, &Error{Code: InvalidParams, Message: "a nonempty ETag is required when editing a draft"}
+		}
+		expectedETag = *params.ETag
+	}
 	if len(params.Artifact) == 0 {
 		return nil, &Error{Code: InvalidParams, Message: "artifact is required"}
 	}
-	draft, err := svc.INOFYSaveDraft(ctx, sessionID, strings.TrimSpace(params.Workflow), params.ETag, params.Artifact)
+	draft, err := svc.INOFYSaveDraft(ctx, sessionID, strings.TrimSpace(params.Workflow), expectedETag, params.Artifact)
 	if err != nil {
 		return nil, inofyRPCError(err)
 	}
@@ -285,6 +301,9 @@ func (h *controlHandler) inofyStartRun(ctx context.Context, peer *Peer, request 
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(params.SessionID) == "" || strings.TrimSpace(params.SessionID) != string(sessionID) {
+		return nil, &Error{Code: InvalidParams, Message: "captured session_id must match the bound session"}
 	}
 	params.ParentRunID, params.OperationKey = strings.TrimSpace(params.ParentRunID), strings.TrimSpace(params.OperationKey)
 	if params.ParentRunID == "" || params.OperationKey == "" || len(params.OperationKey) > 128 {

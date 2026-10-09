@@ -17,7 +17,7 @@ import (
 const workflowChildType = "vivy.child-task@1"
 const rejectedWorkflowSchema = `{"not":{}}`
 
-const childConfigSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"task":{"type":"string","minLength":1,"maxLength":4096},"tool_names":{"type":"array","maxItems":32,"items":{"type":"string"}}}}`
+const childConfigSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"task":{"type":"string","minLength":1,"maxLength":4096},"tool_names":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"type":"string"}}}}`
 
 type inofyAdmission struct {
 	Definition    inofy.Definition
@@ -102,6 +102,9 @@ func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTo
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&config); err != nil {
 			return inofyAdmission{}, fmt.Errorf("runtime: node %q config: %w", node.ID, err)
+		}
+		if _, err := domain.CanonicalToolNames(config.ToolNames); err != nil {
+			return inofyAdmission{}, fmt.Errorf("runtime: node %q tool_names: %w", node.ID, err)
 		}
 		if strings.TrimSpace(config.Task) == "" || len(config.Task) > orchestration.MaxTaskBytes {
 			return inofyAdmission{}, fmt.Errorf("runtime: node %q task exceeds host limit or is empty", node.ID)

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +73,36 @@ func createDefSession(t *testing.T, slot Slot, id string) {
 	}
 }
 
+func admitDefinitionRunFixture(t *testing.T, slot Slot, sessionID domain.SessionID, parentID, runID domain.RunID, createdAt int64) storage.WorkflowStepStore {
+	t.Helper()
+	descriptorJSON := []byte(`{"definition":"wf-pages"}`)
+	authorityJSON := []byte(`{"authority":"test"}`)
+	revision := domain.WorkflowRevision{
+		RunID: runID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
+		OperationKey: "op-" + string(runID), DescriptorDigest: digestHex(descriptorJSON),
+		AuthorityDigest: digestHex(authorityJSON), DescriptorJSON: descriptorJSON,
+		AuthorityJSON: authorityJSON, SchemaVersion: 2, CreatedAt: createdAt,
+		ProgramDigest: StepDigest("program-" + string(runID)), CatalogDigest: StepDigest("catalog-" + string(runID)),
+		CompilerVersion: "inofy@test", EinoBuild: "v0.9.13", InputDigest: StepDigest("input-" + string(runID)),
+		InputJSON: []byte(`{}`), EffectiveLimits: []byte(`{"max_nodes":12}`),
+		HostBindingID: StepDigest("binding-" + string(runID)), DefinitionID: "wf-pages", DefinitionRevision: 1,
+	}
+	run := domain.Run{
+		ID: runID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: createdAt,
+		Kind: domain.RunKindWorkflow, ParentID: parentID, RootID: parentID, Depth: 1,
+	}
+	started := domain.RunEvent{
+		RunID: runID, Type: domain.EventRunStarted, CreatedAt: createdAt,
+		PayloadVersion: 1, Payload: []byte(`{"provider":"test"}`),
+	}
+	if _, err := slot.Engine.CommitWorkflowAdmission(context.Background(), storage.WorkflowAdmission{
+		Revision: revision, Run: run, Started: started,
+	}); err != nil {
+		t.Fatalf("admit definition run %s: %v", runID, err)
+	}
+	return stepStore(t, slot.Engine)
+}
+
 // AssertWorkflowDefinitionContract runs every S11-F case against one slot.
 func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 	t.Helper()
@@ -93,6 +125,46 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		// Second create with the absent sentinel must conflict.
 		if _, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(wf, storage.WorkflowDefinitionETagAbsent, "a2", 2)); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
 			t.Fatalf("expected conflict on duplicate create, got %v", err)
+		}
+	})
+
+	t.Run("ETagRotatesWithRepeatedAndBackwardsTime", func(t *testing.T) {
+		etagWorkflowID := "wfdef-etag-" + t.Name()
+		d0, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(etagWorkflowID, storage.WorkflowDefinitionETagAbsent, "etag-0", 1000))
+		if err != nil {
+			t.Fatalf("create draft: %v", err)
+		}
+		d1, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(etagWorkflowID, d0.ETag, "etag-1", 1000))
+		if err != nil {
+			t.Fatalf("first edit: %v", err)
+		}
+		d2, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(etagWorkflowID, d1.ETag, "etag-2", 1000))
+		if err != nil {
+			t.Fatalf("second edit at repeated time: %v", err)
+		}
+		d3, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(etagWorkflowID, d2.ETag, "etag-3", 999))
+		if err != nil {
+			t.Fatalf("edit after clock moved backwards: %v", err)
+		}
+		if d0.ETag == "" || d1.ETag == "" || d2.ETag == "" || d3.ETag == "" ||
+			d0.ETag == d1.ETag || d1.ETag == d2.ETag || d2.ETag == d3.ETag ||
+			d0.ETag == d2.ETag || d0.ETag == d3.ETag || d1.ETag == d3.ETag {
+			t.Fatalf("ETags must be nonempty and distinct across repeated/backwards times: %q %q %q %q", d0.ETag, d1.ETag, d2.ETag, d3.ETag)
+		}
+		if d3.CreatedAt != 1000 || d3.UpdatedAt != 999 {
+			t.Fatalf("timestamps changed: %+v", d3)
+		}
+		for _, stale := range []string{d0.ETag, d1.ETag, d2.ETag} {
+			if _, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(etagWorkflowID, stale, "stale", 1001)); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
+				t.Fatalf("reusing prior etag %q: %v", stale, err)
+			}
+			final, err := s.GetWorkflowDraft(ctx, authorA, etagWorkflowID)
+			if err != nil {
+				t.Fatalf("read final draft: %v", err)
+			}
+			if string(final.ArtifactJSON) != string(draftArtifact("etag-3")) {
+				t.Fatalf("stale write changed final artifact: %s", final.ArtifactJSON)
+			}
 		}
 	})
 
@@ -131,6 +203,24 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 	t.Run("UpdateMissingDraftNotFound", func(t *testing.T) {
 		if _, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate("wfdef-missing", "etag", "x", 6)); !errors.Is(err, storage.ErrWorkflowDefinitionNotFound) {
 			t.Fatalf("expected not-found on update of missing draft, got %v", err)
+		}
+	})
+
+	t.Run("EmptyExpectedETagRejected", func(t *testing.T) {
+		emptyWorkflowID := "wfdef-empty-etag-" + t.Name()
+		initial, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(emptyWorkflowID, storage.WorkflowDefinitionETagAbsent, "initial", 5))
+		if err != nil {
+			t.Fatalf("create draft: %v", err)
+		}
+		if _, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(emptyWorkflowID, "", "empty-etag", 6)); err == nil {
+			t.Fatal("empty expected ETag authorized a draft overwrite")
+		}
+		current, err := s.GetWorkflowDraft(ctx, authorA, emptyWorkflowID)
+		if err != nil {
+			t.Fatalf("read current draft: %v", err)
+		}
+		if current.ETag != initial.ETag || string(current.ArtifactJSON) != string(draftArtifact("initial")) {
+			t.Fatalf("empty expected ETag changed draft: %s", current.ArtifactJSON)
 		}
 	})
 
@@ -199,6 +289,108 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		}
 		if len(page2.Revisions) != 1 || page2.Revisions[0].Revision != 2 || page2.NextCursor != "" {
 			t.Fatalf("unexpected second page: %+v", page2.Revisions)
+		}
+	})
+
+	t.Run("RunPagingWithTimestampTies", func(t *testing.T) {
+		prefix := strings.ReplaceAll(t.Name(), "/", "-")
+		sessionID := domain.SessionID("sess-" + prefix)
+		parentID := domain.RunID("parent-" + prefix)
+		createDefSession(t, slot, string(sessionID))
+		if err := slot.Engine.CreateRun(ctx, domain.Run{
+			ID: parentID, SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("create parent run: %v", err)
+		}
+		otherSession := domain.SessionID("other-" + prefix)
+		otherParent := domain.RunID("other-parent-" + prefix)
+		createDefSession(t, slot, string(otherSession))
+		if err := slot.Engine.CreateRun(ctx, domain.Run{
+			ID: otherParent, SessionID: otherSession, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("create other parent run: %v", err)
+		}
+		wanted := []string{"run-a-" + prefix, "run-b-" + prefix, "run-c-" + prefix, "run-d-" + prefix}
+		for i, id := range wanted {
+			createdAt := int64(1000)
+			if i == 3 {
+				createdAt = 999
+			}
+			admitDefinitionRunFixture(t, slot, sessionID, parentID, domain.RunID(id), createdAt)
+		}
+		admitDefinitionRunFixture(t, slot, otherSession, otherParent, domain.RunID("run-other-"+prefix), 1000)
+
+		var ids []string
+		cursor := ""
+		for len(ids) < len(wanted) {
+			page, err := s.ListWorkflowDefinitionRuns(ctx, string(sessionID), cursor, 1)
+			if err != nil {
+				t.Fatalf("list runs after %q: %v", cursor, err)
+			}
+			if len(page.Runs) != 1 {
+				t.Fatalf("page after %q has %d rows: %+v", cursor, len(page.Runs), page)
+			}
+			ids = append(ids, page.Runs[0].RunID)
+			cursor = page.NextCursor
+			if cursor == "" {
+				break
+			}
+		}
+		if !reflect.DeepEqual(ids, wanted) {
+			t.Fatalf("paged ids: %v, want %v", ids, wanted)
+		}
+		if cursor != "" {
+			t.Fatalf("terminal page cursor is not empty: %q", cursor)
+		}
+	})
+
+	t.Run("RunPagingFromMissingBoundary", func(t *testing.T) {
+		prefix := strings.ReplaceAll(t.Name(), "/", "-")
+		sessionID := domain.SessionID("sess-" + prefix)
+		parentID := domain.RunID("parent-" + prefix)
+		createDefSession(t, slot, string(sessionID))
+		if err := slot.Engine.CreateRun(ctx, domain.Run{
+			ID: parentID, SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("create parent run: %v", err)
+		}
+		admitDefinitionRunFixture(t, slot, sessionID, parentID, domain.RunID("run-b-"+prefix), 1000)
+		admitDefinitionRunFixture(t, slot, sessionID, parentID, domain.RunID("run-c-"+prefix), 1000)
+		admitDefinitionRunFixture(t, slot, sessionID, parentID, domain.RunID("run-d-"+prefix), 999)
+		page, err := s.ListWorkflowDefinitionRuns(ctx, string(sessionID), storage.EncodeWorkflowRunCursor(1000, "run-a-"+prefix), 1)
+		if err != nil || len(page.Runs) != 1 || page.Runs[0].RunID != "run-b-"+prefix {
+			t.Fatalf("missing-boundary continuation: page=%+v err=%v", page, err)
+		}
+	})
+
+	t.Run("DefinitionPagingWithColonIDs", func(t *testing.T) {
+		const colonWorkflowID = "team:flow"
+		draft, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(colonWorkflowID, storage.WorkflowDefinitionETagAbsent, "colon-1", 20))
+		if err != nil {
+			t.Fatalf("create colon-id draft: %v", err)
+		}
+		rev1, err := s.PublishWorkflowRevisionCAS(ctx, authorA, colonWorkflowID, draft.ETag, defRevision(colonWorkflowID, "colon-1"))
+		if err != nil || rev1.Revision != 1 {
+			t.Fatalf("publish colon-id revision 1: revision=%+v err=%v", rev1, err)
+		}
+		draft, err = s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(colonWorkflowID, draft.ETag, "colon-2", 21))
+		if err != nil {
+			t.Fatalf("edit colon-id draft: %v", err)
+		}
+		rev2, err := s.PublishWorkflowRevisionCAS(ctx, authorA, colonWorkflowID, draft.ETag, defRevision(colonWorkflowID, "colon-2"))
+		if err != nil || rev2.Revision != 2 {
+			t.Fatalf("publish colon-id revision 2: revision=%+v err=%v", rev2, err)
+		}
+		first, err := s.ListWorkflowDefinitions(ctx, "", 1)
+		if err != nil || len(first.Revisions) != 1 || first.Revisions[0].WorkflowID != colonWorkflowID || first.Revisions[0].Revision != 1 {
+			t.Fatalf("first colon-id page: page=%+v err=%v", first, err)
+		}
+		second, err := s.ListWorkflowDefinitions(ctx, colonWorkflowID+":1", 1)
+		if err != nil || len(second.Revisions) != 1 || second.Revisions[0].WorkflowID != colonWorkflowID || second.Revisions[0].Revision != 2 {
+			t.Fatalf("second colon-id page: page=%+v err=%v", second, err)
 		}
 	})
 

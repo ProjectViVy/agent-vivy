@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/actionhost"
@@ -85,7 +86,7 @@ func TestINOFYProductRPCSurface(t *testing.T) {
 	}
 
 	saved, rpcErr := callINOFY(t, env.handler, peer, "inofy.saveDraft", map[string]any{
-		"session_id": sessionID, "workflow": "wf-rpc", "artifact": inofyRPCArtifact(), "etag": "",
+		"session_id": sessionID, "workflow": "wf-rpc", "artifact": inofyRPCArtifact(), "create": true,
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -179,7 +180,7 @@ func TestINOFYProductRPCSurface(t *testing.T) {
 		t.Fatalf("startRun without parent = %v", rpcErr)
 	}
 	if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.startRun", map[string]any{
-		"workflow": "wf-rpc", "revision": 1, "parent_run_id": "run-missing", "operation_id": "op-1",
+		"session_id": sessionID, "workflow": "wf-rpc", "revision": 1, "parent_run_id": "run-missing", "operation_id": "op-1",
 	}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("startRun missing parent = %v", rpcErr)
 	}
@@ -200,5 +201,115 @@ func TestINOFYProductRPCSurface(t *testing.T) {
 	connectionsJSON, _ := json.Marshal(connections)
 	if string(connectionsJSON) != "[]" {
 		t.Fatalf("listConnections = %s", connectionsJSON)
+	}
+}
+
+func TestINOFYSaveDraftExplicitCreateOrETag(t *testing.T) {
+	env := newControlTestEnv(t)
+	sessionID := createINOFYSession(t, env.handler)
+	peer := newINOFYPeer(t, env.handler)
+	base := map[string]any{
+		"session_id": sessionID, "workflow": "wf-explicit-rpc", "artifact": inofyRPCArtifact(),
+	}
+	invalid := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "omitted etag"},
+		{name: "null etag", mutate: func(p map[string]any) { p["etag"] = nil }},
+		{name: "empty edit etag", mutate: func(p map[string]any) { p["etag"] = "" }},
+		{name: "create with etag", mutate: func(p map[string]any) { p["create"], p["etag"] = true, "etag-current" }},
+		{name: "false create without etag", mutate: func(p map[string]any) { p["create"] = false }},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			params := make(map[string]any, len(base)+2)
+			for key, value := range base {
+				params[key] = value
+			}
+			if tc.mutate != nil {
+				tc.mutate(params)
+			}
+			if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.saveDraft", params); rpcErr == nil || rpcErr.Code != InvalidParams {
+				t.Fatalf("invalid create/edit mode error = %v", rpcErr)
+			}
+		})
+	}
+	created, rpcErr := callINOFY(t, env.handler, peer, "inofy.saveDraft", map[string]any{
+		"session_id": sessionID, "workflow": "wf-explicit-rpc", "artifact": inofyRPCArtifact(), "create": true,
+	})
+	if rpcErr != nil {
+		t.Fatalf("explicit create: %v", rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var draft struct {
+		ETag string `json:"etag"`
+	}
+	if err := json.Unmarshal(createdJSON, &draft); err != nil || draft.ETag == "" {
+		t.Fatalf("explicit create reply = %s err=%v", createdJSON, err)
+	}
+	if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.saveDraft", map[string]any{
+		"session_id": sessionID, "workflow": "wf-explicit-rpc", "artifact": inofyRPCArtifact(), "create": true,
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("duplicate create error = %v", rpcErr)
+	} else {
+		var data map[string]string
+		if err := json.Unmarshal(rpcErr.Data, &data); err != nil || data["code"] != "revision_conflict" {
+			t.Fatalf("duplicate create error data = %s err=%v", rpcErr.Data, err)
+		}
+	}
+	if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.saveDraft", map[string]any{
+		"session_id": sessionID, "workflow": "wf-explicit-rpc", "artifact": inofyRPCArtifact(), "create": false, "etag": draft.ETag,
+	}); rpcErr != nil {
+		t.Fatalf("explicit ETag edit: %v", rpcErr)
+	}
+}
+
+func TestINOFYStartRunRejectsMismatchedCapturedSession(t *testing.T) {
+	env := newControlTestEnv(t)
+	boundSession := createINOFYSession(t, env.handler)
+	capturedSession := createINOFYSession(t, env.handler)
+	peer := newINOFYPeer(t, env.handler)
+	if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.loadDraft", map[string]any{
+		"session_id": boundSession, "workflow": "missing-workflow",
+	}); rpcErr == nil {
+		t.Fatal("missing workflow draft unexpectedly loaded")
+	}
+	identity, ok := actionhost.IdentityFromContext(peer.authenticatedContext(context.Background()))
+	if !ok || identity.SessionID != boundSession {
+		t.Fatalf("peer was not bound to session %q: identity=%+v ok=%v", boundSession, identity, ok)
+	}
+	if _, rpcErr := callINOFY(t, env.handler, peer, "inofy.startRun", map[string]any{
+		"session_id": capturedSession, "workflow": "missing-workflow", "revision": 1,
+		"parent_run_id": "run-missing", "operation_id": "captured-session-mismatch",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("mismatched captured session start = %v", rpcErr)
+	}
+}
+
+func TestINOFYListRejectsMalformedCursor(t *testing.T) {
+	env := newControlTestEnv(t)
+	sessionID := createINOFYSession(t, env.handler)
+	peer := newINOFYPeer(t, env.handler)
+	cases := []struct {
+		method string
+		cursor string
+	}{
+		{method: "inofy.listRuns", cursor: "1000"},
+		{method: "inofy.listWorkflows", cursor: "team:flow:bad"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method, func(t *testing.T) {
+			_, rpcErr := callINOFY(t, env.handler, peer, tc.method, map[string]any{
+				"session_id": sessionID, "cursor": tc.cursor,
+			})
+			if rpcErr == nil || rpcErr.Code != InvalidParams || !strings.Contains(strings.ToLower(rpcErr.Message), "refresh") {
+				t.Fatalf("malformed cursor response = %v", rpcErr)
+			}
+			var data map[string]string
+			if err := json.Unmarshal(rpcErr.Data, &data); err != nil || data["code"] != "invalid_input" {
+				t.Fatalf("malformed cursor error data = %s err=%v", rpcErr.Data, err)
+			}
+		})
 	}
 }

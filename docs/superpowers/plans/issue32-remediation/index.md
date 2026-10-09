@@ -27,7 +27,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IMPLEMENTATION COMPLETE; aggregate `just ci` and SDK/Port conformance pending P7 |
-| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | DESIGNED |
+| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1 backend verified, P3.2 admission/session backend verified, P3.3 cursor backend verified; Module UI work pending required `oil-frontend` skill resolution |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | DESIGNED |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | DESIGNED |
@@ -60,14 +60,14 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | C6 | P2 | P2.4 | IMPLEMENTED; current strategy cancellation rechecks under the terminal commit gate and rejects stale/foreign IDs ([P2.4 verification](../../../logs/2026-10-09-issue32-p2.4-control-cancel/verification.md)) |
 | C7 | P2 | P4.1b | PLANNED |
 | C8 | P2 | P4.4 | PLANNED |
-| W1 | P2 | P3.2 | PLANNED |
-| W2 | P2 | P3.2 | PLANNED |
-| W3 | P2 | P3.1 | PLANNED |
-| W4 | P2 | P3.3 | PLANNED |
+| W1 | P2 | P3.2 | BACKEND ADMISSION AND SESSION GUARDS VERIFIED; retained UI start intent pending |
+| W2 | P2 | P3.2 | SERVER-SIDE OPERATION DEDUP PRE-EXISTING; prepared-request bridge and retry UI pending |
+| W3 | P2 | P3.1 | BACKEND DRAFT CAS VERIFIED; Module editor explicit create/edit UI pending |
+| W4 | P2 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED in SQLite/PostgreSQL |
 | W5 | P2 | P3.4 | PLANNED |
 | W6 | P2 | P3.4 | PLANNED |
-| W7 | P2 | P3.1 | PLANNED; narrowed to remaining same-author collision |
-| W8 | P3 | P3.3 | PLANNED |
+| W7 | P2 | P3.1 | BACKEND SAME-AUTHOR COLLISION AND OPAQUE ETAGS VERIFIED; browser collision test pending |
+| W8 | P3 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED; malformed cursors map to refreshable invalid input |
 | W9 | P3 | P6.1 | PLANNED |
 | R1 | P2 | P5.1 | PLANNED; defect probe reproduced |
 | R2 | P2 | P0.2 | SUPERSEDED by owner #40 decision and merged PR #42 |
