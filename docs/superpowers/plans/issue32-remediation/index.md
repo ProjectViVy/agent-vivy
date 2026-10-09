@@ -1,8 +1,6 @@
 # Issue #32 remediation implementation package
 
-Status: **P1 acceptance and P3–P7 integration gates open; P2 implementation tasks complete.** P0 baseline and traceability are verified;
-H1 code and host-test prerequisites are committed on isolated branches, while
-canonical Linux acceptance and the remaining P1/P2 tasks stay open.
+Status: **P1 native acceptance and P7 native/product gates remain open; P2 implementation and P3–P6 engineering tasks are complete.** P0 baseline and traceability are verified. P7.0 producer integration is committed; DIVA source repin, consumer and platform acceptance continue under P7.1–P7.3.
 Design authority: [written design](../../specs/2026-10-09-issue32-remediation-design.md).
 Issue authority: [VIVY #32](https://github.com/ProjectViVy/agent-vivy/issues/32).
 This index is the sole phase/finding status board; plans own steps and interfaces.
@@ -31,7 +29,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | IMPLEMENTATION ENGINEERING-VERIFIED LOCALLY; P4.2 native lifecycle and P4.4 candidate observations remain P7 gates |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; aggregate `just ci`, SDK conformance, and native Windows execution pending P7 |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
-| P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | VIVY P7.0 ENGINEERING GATES COMPLETE; DIVA final pin/consumer gate in progress; native/product owner gates remain separate |
+| P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | VIVY P7.0 producer integration committed; DIVA final source pin and consumer engineering gate in progress; native/product owner gates remain separate |
 
 Current execution lane: P3.1-P3.4, P4.1a/b, P4.2, P4.3 and P4.4, P5.1/P5.2,
 and P6.1 implementation work is engineering-verified locally. P7.0 producer
