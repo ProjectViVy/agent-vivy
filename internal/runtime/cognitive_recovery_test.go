@@ -513,6 +513,42 @@ func TestCognitiveIntentKeyAttemptMismatchFencesBeforeAdmission(t *testing.T) {
 	}
 }
 
+func TestCognitiveIntentWindowStartMustMatchWatermark(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentID, err := svc.ensureCognitiveSupervisor(ctx, &state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _, err := normalizeINOFYInput(cognitiveInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.StateSchema = cognitiveStateSchema
+	state.SupervisorRunID = string(parentID)
+	state.Watermark = 4
+	state.PendingThrough = 9
+	state.Phase = "admitting"
+	state.Intent = &cognitiveIntent{ParentRunID: parentID, OperationKey: "cognitive:activity:0-9:a0",
+		StrategyID: TrustedStrategyDIVA, Input: input, Attempt: 0}
+	if err := svc.saveCognitiveState(ctx, state, version); err != nil {
+		t.Fatal(err)
+	}
+
+	elig, err := svc.cognitiveAttempt(ctx, true)
+	if err != nil || elig.Reason != laputaevolution.EligibilityReason("blocked:"+cognitiveBlockUnknown) {
+		t.Fatalf("intent replayed a settled window prefix: eligibility=%+v err=%v", elig, err)
+	}
+	if workflows := listWorkflowRuns(t, svc, backend); len(workflows) != 0 {
+		t.Fatalf("stale window start admitted workflows: %+v", workflows)
+	}
+}
+
 func TestCognitiveLegacyActiveRunReconstructsIntent(t *testing.T) {
 	ctx := context.Background()
 	gate := make(chan struct{})

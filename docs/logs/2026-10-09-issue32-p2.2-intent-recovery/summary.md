@@ -14,6 +14,7 @@ Implemented C2 on the isolated branch `feat/issue32-remediation`. The runtime no
 - Regressions cover true SQLite close/reopen before admission, after completion and after settlement, same-Service-store active adoption, safe and unsafe retries, cancellation, later accepted input, legacy upgrade, unknown future schema, and replacement supervisor fencing.
 - Independent review follow-up closed three recovery gaps: adoption of a deterministic supervisor created before snapshot persistence, fencing of an active native Run with a recovery-required projection, and recovery of the legacy attempt from the operation key. It also covers the native-failed/projection-pending interval so it does not create a permanent false-positive fence.
 - A second review found an inconsistent schema-2 intent could use `Attempt=0` with an `a2` key. Reconciliation now validates key/window/attempt before admission and checks the parsed revision attempt again; regressions prove it does not admit or retry the inconsistent identity.
+- The final review found a stale `Window.After` could replay activity below an already advanced Watermark. Reconciliation now validates the source and both window bounds against persisted state before lookup or admission.
 
 ## Evidence
 

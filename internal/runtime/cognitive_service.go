@@ -738,10 +738,11 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
 	var requested laputaevolution.Input
-	if err := json.Unmarshal(intent.Input, &requested); err != nil || requested.Window.SourceID == "" || requested.Window.Through < requested.Window.After {
+	if err := json.Unmarshal(intent.Input, &requested); err != nil || requested.Window.SourceID == "" ||
+		requested.Window.Through < requested.Window.After || requested.Window.SourceID != s.deps.Cognitive.SourceID {
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
-	if st.PendingThrough != requested.Window.Through {
+	if requested.Window.After != st.Watermark || st.PendingThrough != requested.Window.Through {
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
 	keyAttempt, err := cognitiveAttemptFromOperationKey(intent.OperationKey, requested.Window)
