@@ -258,6 +258,62 @@ func TestParsePackGoHostHappyPath(t *testing.T) {
 	}
 }
 
+func TestPrepareConsumerModfileMapsHostLaputaReplaceToSnapshot(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := filepath.Join(root, "vivy")
+	laputaRoot := filepath.Join(root, "laputa")
+	hostRoot := filepath.Join(root, "host-source")
+	stageRoot := filepath.Join(root, "stage")
+	for _, dir := range []string{repoRoot, laputaRoot, hostRoot, filepath.Join(hostRoot, "deps", "laputa", "garden")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repoRoot, "go.mod"), "module agent-vivy\n\ngo 1.26.4\n")
+	write(filepath.Join(laputaRoot, "go.mod"), "module github.com/ProjectViVy/laputa\n\ngo 1.26.4\n")
+	hostMod := "module example.com/host\n\ngo 1.26.4\n\nreplace github.com/dashimaki/garden => ./deps/laputa/garden\n"
+	write(filepath.Join(hostRoot, "go.mod"), hostMod)
+
+	staged := &goHostStaged{
+		Root: stageRoot,
+		Vivy: filepath.Join(stageRoot, "vivy"),
+		Host: filepath.Join(stageRoot, "host"),
+		Deps: filepath.Join(stageRoot, "deps"),
+	}
+	for _, dir := range []string{
+		staged.Vivy,
+		staged.Host,
+		filepath.Join(staged.Deps, "laputa", "garden"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(staged.Host, "go.mod"), hostMod)
+	if err := prepareConsumerModfile(staged, repoRoot, laputaRoot, goHostInputs{Dir: hostRoot}); err != nil {
+		t.Fatalf("prepare consumer modfile: %v", err)
+	}
+	replaces, err := localModfileReplaces(staged.Modfile)
+	if err != nil {
+		t.Fatalf("read consumer replacements: %v", err)
+	}
+	for _, replace := range replaces {
+		if replace.Old == "github.com/dashimaki/garden" {
+			if replace.New != "../deps/laputa/garden" {
+				t.Fatalf("host Laputa replace = %q, want locked staged snapshot path", replace.New)
+			}
+			return
+		}
+	}
+	t.Fatal("consumer modfile dropped the host's declared Laputa replacement")
+}
+
 // goHostUniverse builds the minimal sealed universe the go-host pack target
 // consumes: a git-committed host fixture, and a lock computed from the live
 // agent-vivy and laputa worktrees (release is off, so local dirt is sealed,

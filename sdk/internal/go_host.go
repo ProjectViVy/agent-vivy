@@ -676,7 +676,22 @@ func prepareConsumerModfile(staged *goHostStaged, repoRoot, laputaRoot string, i
 		return err
 	}
 	var edits []string
-	edits = append(edits, "-require=agent-vivy@v0.0.0", "-replace=agent-vivy="+vivyRel)
+	edits = append(edits, "-require=agent-vivy@v0.0.0")
+	replacements := map[string]string{"agent-vivy": vivyRel}
+	addReplacement := func(modulePath, target string) error {
+		targetRel, err := stagedRel(target)
+		if err != nil {
+			return err
+		}
+		if previous, ok := replacements[modulePath]; ok {
+			if filepath.Clean(filepath.FromSlash(previous)) != filepath.Clean(filepath.FromSlash(targetRel)) {
+				return fmt.Errorf("sdk: conflicting staged replacements for %s: %s and %s", modulePath, previous, targetRel)
+			}
+			return nil
+		}
+		replacements[modulePath] = targetRel
+		return nil
+	}
 	vivyReplaces, err := localModfileReplaces(filepath.Join(repoRoot, "go.mod"))
 	if err != nil {
 		return err
@@ -715,30 +730,68 @@ func prepareConsumerModfile(staged *goHostStaged, repoRoot, laputaRoot string, i
 			}
 			stagedTarget = filepath.Join(laputaStaged, rel)
 		}
-		stagedTargetRel, relErr := stagedRel(stagedTarget)
-		if relErr != nil {
-			return relErr
+		if err := addReplacement(replace.Old, stagedTarget); err != nil {
+			return err
 		}
-		edits = append(edits, "-replace="+replace.Old+"="+stagedTargetRel)
 	}
-	// The host's own local replaces may only point inside the host tree; they
-	// are rewritten onto the staged snapshot so no path escapes the closure.
+	// Host-local replaces normally stay in the staged host. DIVA also carries
+	// local aliases for VIVY and Laputa; map those aliases onto the exact source
+	// snapshots above instead of retaining ignored workspace symlinks.
 	hostReplaces, err := localModfileReplaces(modfile)
 	if err != nil {
 		return err
 	}
+	hostLaputaRoot := filepath.Join(inputs.Dir, "deps", "laputa")
+	hostVivyRoot := filepath.Join(inputs.Dir, "deps", "agent-vivy")
 	for _, replace := range hostReplaces {
 		target := replace.New
 		if !filepath.IsAbs(target) {
-			target = filepath.Join(staged.Host, target)
+			target = filepath.Join(inputs.Dir, target)
 		}
 		abs, err := filepath.Abs(target)
 		if err != nil {
 			return err
 		}
-		if abs != staged.Host && !strings.HasPrefix(abs, staged.Host+string(filepath.Separator)) {
-			return fmt.Errorf("sdk: host replacement %s => %s escapes the staged host tree", replace.Old, replace.New)
+		var stagedTarget string
+		switch {
+		case abs == hostLaputaRoot || strings.HasPrefix(abs, hostLaputaRoot+string(filepath.Separator)):
+			rel, relErr := filepath.Rel(hostLaputaRoot, abs)
+			if relErr != nil {
+				return relErr
+			}
+			stagedTarget = filepath.Join(laputaStaged, rel)
+		case abs == hostVivyRoot || strings.HasPrefix(abs, hostVivyRoot+string(filepath.Separator)):
+			rel, relErr := filepath.Rel(hostVivyRoot, abs)
+			if relErr != nil {
+				return relErr
+			}
+			stagedTarget = filepath.Join(staged.Vivy, rel)
+		case abs == laputaRoot || strings.HasPrefix(abs, laputaRoot+string(filepath.Separator)):
+			rel, relErr := filepath.Rel(laputaRoot, abs)
+			if relErr != nil {
+				return relErr
+			}
+			stagedTarget = filepath.Join(laputaStaged, rel)
+		case abs == inputs.Dir || strings.HasPrefix(abs, inputs.Dir+string(filepath.Separator)):
+			rel, relErr := filepath.Rel(inputs.Dir, abs)
+			if relErr != nil {
+				return relErr
+			}
+			stagedTarget = filepath.Join(staged.Host, rel)
+		default:
+			return fmt.Errorf("sdk: host replacement %s => %s escapes the staged host/VIVY/Laputa source closure", replace.Old, replace.New)
 		}
+		if err := addReplacement(replace.Old, stagedTarget); err != nil {
+			return err
+		}
+	}
+	modules := make([]string, 0, len(replacements))
+	for modulePath := range replacements {
+		modules = append(modules, modulePath)
+	}
+	sort.Strings(modules)
+	for _, modulePath := range modules {
+		edits = append(edits, "-replace="+modulePath+"="+replacements[modulePath])
 	}
 	if err := goModEdit(staged.Host, modfile, edits...); err != nil {
 		return err
