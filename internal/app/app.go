@@ -66,6 +66,8 @@ import (
 // HTTP shutdown and the storage close must all fit inside (E4).
 const shutdownGrace = 5 * time.Second
 
+var openStorageBackend = storagemodule.Open
+
 // App is the composed process.
 type App struct {
 	cfg    config.Config
@@ -208,7 +210,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 // syntax and policy errors are rejected by config.Load / config.Validate;
 // generation-specific capability mismatches are rejected here before any
 // runtime construction begins.
-func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error) {
+func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (result *App, retErr error) {
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
@@ -280,7 +282,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: create data dir: %w", err)
 	}
 
-	backend, err := storagemodule.Open(ctx, cfg)
+	backend, err := openStorageBackend(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -765,11 +767,25 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// DN-LC: the one cognitive owner binds through the same sealed accessor
 	// pattern as the mask factory. A selected-but-unarmed binding fails the
 	// composition; an omitted module changes nothing.
+	backendOwned := true
+	defer func() {
+		if backendOwned {
+			_ = backend.Close()
+		}
+	}()
 	cognitiveBundle, err := cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
+	cognitiveBundleOwned := cognitiveBundle != nil
+	defer func() {
+		if !cognitiveBundleOwned || cognitiveBundle == nil {
+			return
+		}
+		if closeErr := cognitiveBundle.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("app: close cognitive bundle after failed composition: %w", closeErr))
+		}
+	}()
 	var cognitiveSubs []observerhost.RunSubscription
 	if cognitiveBundle != nil {
 		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
@@ -781,10 +797,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
 	if err != nil {
-		if cognitiveBundle != nil {
-			_ = cognitiveBundle.Close()
-		}
-		_ = backend.Close()
 		return nil, err
 	}
 	observerHostOwned := runObserverHost != nil
@@ -806,12 +818,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	sealed := presentation.SealedGeneration || generationID != ""
 	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID, sealed)
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	admission, err := primaryAdmissionForComposition(backend, generationID, sealed)
 	if err != nil {
-		_ = backend.Close()
 		return nil, err
 	}
 	maskFrame, maskFrameDigest := "", ""
@@ -822,8 +832,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if cognitiveBundle != nil {
 		resolvedBinding, err := cognitiveBundle.ResolveBinding(ctx, cognitiveBundle.Policy())
 		if err != nil {
-			_ = cognitiveBundle.Close()
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: resolve cognitive binding: %w", err)
 		}
 		cognitiveBinding = &runtime.CognitiveBinding{
@@ -893,8 +901,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	})
 	if cognitiveBundle != nil {
 		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc}); err != nil {
-			_ = cognitiveBundle.Close()
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
 	}
@@ -944,7 +950,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if cognitiveBundle != nil {
 			provider, ok := cognitiveBundle.(cognitivecontract.DispatcherProvider)
 			if !ok {
-				_ = backend.Close()
 				return nil, fmt.Errorf("app: cognitive bundle does not expose the action dispatcher")
 			}
 			cognitiveProvider = provider
@@ -994,7 +999,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			},
 		})
 		if err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: build action host: %w", err)
 		}
 		actionHostOwned = true
@@ -1009,7 +1013,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 
 	liveSnap, err := policy.Snapshot(liveProfile)
 	if err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
 	}
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
@@ -1042,7 +1045,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// caller. Close ordering sits with the other owned services in Close.
 	diagnostics, diagErr := logging.NewDiagnostics(cfg.LogDirectory())
 	if diagErr != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: diagnostics: %w", diagErr)
 	}
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
@@ -1242,7 +1244,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		},
 	})
 	if err != nil {
-		_ = backend.Close()
 		_ = diagnostics.Close()
 		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
@@ -1251,7 +1252,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// closes with a definitive run.failed. A listing failure means the
 	// storage truth is unreachable; startup aborts.
 	if err := svc.Recover(ctx); err != nil {
-		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
 	// Channel inbound retention (CH-C3-N1): chanin_* provenance events are
@@ -1270,7 +1270,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// face has no ears.
 	if channelHost != nil {
 		if err := channelHost.StartAll(ctx); err != nil {
-			_ = backend.Close()
 			return nil, fmt.Errorf("app: start channels: %w", err)
 		}
 	}
@@ -1306,6 +1305,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	observerHostOwned = false
 	assemblyOwned = false
 	memoryOwned = false
+	cognitiveBundleOwned = false
+	backendOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
