@@ -31,9 +31,10 @@
 | PowerShell / Rust | not found on the command PATH; the current DIVA task uses the Go host |
 | Isolated worktree | VIVY feature branch `feat/issue32-remediation`, based on the design commit and merged latest VIVY main; `.worktrees` is already git-ignored |
 
-The DIVA `LOCK.md` baseline said RELEASED. VIVY source path and interfaces in
-P1/P2 were read; the current `main` addition after VIVY's planning base touched
-RPC/docs/conformance only, not `internal/desktop/runtime_service.go`.
+The DIVA `LOCK.md` baseline said RELEASED. Path audit confirmed DIVA tracks
+`internal/desktop/runtime_service.go` and its tests; VIVY does not have an
+`internal/desktop` package. P1.1 is explicitly marked DIVA in its plan and the
+DIVA held scope covers it. The VIVY main merge adds RPC/docs/conformance only.
 
 ## Coverage and checks
 

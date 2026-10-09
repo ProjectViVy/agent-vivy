@@ -18,6 +18,7 @@
 - Pin full Git commits and SHA-256 digests; never accept a substring/prefix or dirty release source.
 - Preserve Tauri/C ABI until approved W6 prerequisites; preserve historical v1 acceptance evidence.
 - No real voice/Windows pass is inferred from scripted, headless, or source-level checks.
+- All P1 implementation files below belong to the DIVA repository unless explicitly marked as a VIVY or read-only SDK dependency. In particular, H1's `internal/desktop/**` is DIVA code.
 
 ## Review Focus
 
@@ -31,7 +32,7 @@
 
 ### Task P1.1: Share native main-window authorization across all bound methods (H1)
 
-**Files:** Modify `internal/desktop/runtime_service.go` (`VivyCall`, `DesktopDispatch`, `MediaToken`); test `internal/desktop/runtime_service_test.go`. Reuse `internal/desktop/media.go` (`tokenFor`, `revoke`) without adding a second capability owner.
+**Files:** DIVA — modify `internal/desktop/runtime_service.go` (`VivyCall`, `DesktopDispatch`, `MediaToken`); test `internal/desktop/runtime_service_test.go`. Reuse DIVA `internal/desktop/media.go` (`tokenFor`, `revoke`) without adding a second capability owner.
 
 **Interfaces:** Consumes `(*mediaCapability).tokenFor(windowID uint) (string, bool)` and `application.WindowKey`. Produces proposed `(*RuntimeService).authorizeMainWindow(ctx context.Context) (string, *hostv1.Error)`. Preserve existing public signatures `VivyCall(context.Context, CallRequest) CallReply`, `DesktopDispatch(context.Context, DispatchRequest) CallReply`, and `MediaToken(context.Context) (string, error)`.
 
@@ -49,7 +50,7 @@ if token != "" || err == nil { t.Fatal("revoked identity received a token") }
 
 ### Task P1.2: Gate active Go host changes and sealed packaging (H2)
 
-**Files:** Modify `.github/workflows/ci.yml`, `justfile`, `scripts/build-desktop.py`, and sole canonical `build/vivy-sources.lock.json` for target declarations; create `scripts/ci/check_desktop_boundary.py` and `scripts/ci/test_desktop_ci_contract.py`. Retain `scripts/ci/check_vivy_backend_boundary.py` for the transition. Test new `scripts/ci/test_desktop_boundary.py`; add negative fixtures under existing `scripts/ci/fixtures/legacy-calls/` only where the current guard lacks coverage.
+**Files:** DIVA — modify `.github/workflows/ci.yml`, `justfile`, `scripts/build-desktop.py`, and sole canonical `build/vivy-sources.lock.json` for target declarations; create `scripts/ci/check_desktop_boundary.py` and `scripts/ci/test_desktop_ci_contract.py`. Retain `scripts/ci/check_vivy_backend_boundary.py` for the transition. Test new `scripts/ci/test_desktop_boundary.py`; add negative fixtures under existing `scripts/ci/fixtures/legacy-calls/` only where the current guard lacks coverage.
 
 **Interfaces:** Existing CLI `python scripts/build-desktop.py --mode {test,build,repin} --host-dir PATH --vivy-dir PATH --laputa-dir PATH --output PATH`. Proposed `--platform {linux-amd64,windows-amd64}` must equal the native build target. Add `derive_target_lock(source_lock: dict, platform: str) -> dict` and `canonical_lock_bytes(lock: dict) -> bytes`; serialization is sorted-key compact JSON plus one newline. `tools.platforms` declares Linux `{goos:linux,goarch:amd64,cgo:true,buildTags:[gtk3]}` and Windows `{goos:windows,goarch:amd64,cgo:true,buildTags:[]}`; common Go/Wails/Node/pnpm pins and all source pins stay canonical. Derivation replaces target fields only, records `tools.sourceLockSHA256` of canonical source-lock bytes, and adds mandatory `vivy_headless` only to the actual Go build invocation. Proposed `--mode check-lock --platform PLATFORM [--derived-lock PATH]` checks actual target/tool/source inputs and byte-compares any retained generated lock to this derivation. Proposed `mode_test` flags `--test-run REGEX` and `--test-packages PACKAGE [PACKAGE ...]` execute selected tests with SDK-produced `consumer.mod`; defaults remain `./...` and all tests. Preserve `inofy_pin(vivy_root: Path) -> dict`, resolving pinned module full `Origin.Hash` via `go mod download -json github.com/ProjectViVy/inofy@VERSION` and checking pseudo-version suffix agreement. Proposed boundary `check_desktop_boundary(root: Path, artifact: Path | None = None) -> list[str]`; CLI `python scripts/ci/check_desktop_boundary.py [--artifact DIR] --selftest` exits `1` on violations, `0` after all negative fixtures reject and clean tree passes. Preserve existing legacy guard CLI.
 
@@ -69,7 +70,7 @@ self.assertEqual(set(native_platforms), {"linux-amd64", "windows-amd64"})
 
 ### Task P1.3: Bind complete acceptance to immutable candidates before publication (H3)
 
-**Files:** Modify `scripts/ci/check_wails_candidate.py`, `.github/workflows/desktop-release.yml`; create `scripts/ci/test_wails_candidate.py`, `scripts/ci/test_desktop_release_contract.py`, and `docs/plans/diva-next/fixtures/wails-candidate-acceptance-v2.example.json`. Preserve historical `docs/plans/diva-next/fixtures/wails-candidate-acceptance.json`. Use existing W5/archival contracts in `docs/plans/diva-next/wails/{W5,W6,archive}.md`.
+**Files:** DIVA — modify `scripts/ci/check_wails_candidate.py`, `.github/workflows/desktop-release.yml`; create `scripts/ci/test_wails_candidate.py`, `scripts/ci/test_desktop_release_contract.py`, and `docs/plans/diva-next/fixtures/wails-candidate-acceptance-v2.example.json`. Preserve historical `docs/plans/diva-next/fixtures/wails-candidate-acceptance.json`. Use existing W5/archival contracts in `docs/plans/diva-next/wails/{W5,W6,archive}.md`.
 
 **Interfaces:** Proposed `validate_candidate(doc: dict, artifacts: dict[str, Path], release_source_sha: str | None, require_all_passed: bool) -> list[str]`; `validate_platform(platform: str, candidate: dict, artifact_dir: Path) -> list[str]`; `validate_rows(rows: list[dict], require_all_passed: bool) -> list[str]`. Proposed strict CLI `python scripts/ci/check_wails_candidate.py REPORT --artifact-root DIR --release-source-sha FULL_SHA --require-all-passed`; platform subdirs are `linux-amd64` and `windows-amd64`. Preserve v1 optional-report CLI for historical validation, but reject v1 under strict promotion.
 
