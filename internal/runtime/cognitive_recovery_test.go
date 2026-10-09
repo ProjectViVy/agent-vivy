@@ -478,6 +478,41 @@ func TestCognitiveOrphanSupervisorIsAdoptedBeforeAdmission(t *testing.T) {
 	}
 }
 
+func TestCognitiveIntentKeyAttemptMismatchFencesBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentID, err := svc.ensureCognitiveSupervisor(ctx, &state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _, err := normalizeINOFYInput(cognitiveInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.StateSchema = cognitiveStateSchema
+	state.SupervisorRunID = string(parentID)
+	state.PendingThrough = 9
+	state.Phase = "admitting"
+	state.Intent = &cognitiveIntent{ParentRunID: parentID, OperationKey: "cognitive:activity:0-9:a2",
+		StrategyID: TrustedStrategyDIVA, Input: input, Attempt: 0}
+	if err := svc.saveCognitiveState(ctx, state, version); err != nil {
+		t.Fatal(err)
+	}
+
+	elig, err := svc.cognitiveAttempt(ctx, true)
+	if err != nil || elig.Reason != laputaevolution.EligibilityReason("blocked:"+cognitiveBlockUnknown) {
+		t.Fatalf("inconsistent intent was admitted: eligibility=%+v err=%v", elig, err)
+	}
+	if workflows := listWorkflowRuns(t, svc, backend); len(workflows) != 0 {
+		t.Fatalf("inconsistent intent admitted workflows: %+v", workflows)
+	}
+}
+
 func TestCognitiveLegacyActiveRunReconstructsIntent(t *testing.T) {
 	ctx := context.Background()
 	gate := make(chan struct{})
@@ -560,6 +595,41 @@ func TestCognitiveLegacyFailedRunPreservesRetryBudget(t *testing.T) {
 	}
 	if state.Attempt != 3 || state.Blocked != cognitiveBlockExhausted || state.Intent != nil {
 		t.Fatalf("legacy retry budget was reset: attempt=%d blocked=%q intent=%+v", state.Attempt, state.Blocked, state.Intent)
+	}
+}
+
+func TestCognitivePersistedAttemptMismatchDoesNotRetry(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	safeRun := makeFailedCognitiveEvidenceFixtureAttempt(t, svc, backend,
+		cognitiveSupervisorSessionID, "run-cog-schema2-a2-parent", "schema2-a2", true, false, 2)
+	revision, err := backend.GetWorkflowRevision(ctx, safeRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.StateSchema = cognitiveStateSchema
+	state.ActiveRunID = string(safeRun.ID)
+	state.PendingThrough = 9
+	state.Intent = &cognitiveIntent{ParentRunID: revision.ParentRunID, OperationKey: revision.OperationKey,
+		StrategyID: TrustedStrategyDIVA, Input: append(json.RawMessage(nil), revision.InputJSON...), Attempt: 0}
+	if err := svc.saveCognitiveState(ctx, state, version); err != nil {
+		t.Fatal(err)
+	}
+	state, version, err = svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, err = svc.reconcileCognitiveIntent(ctx, state, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Blocked != cognitiveBlockUnknown || state.Attempt != 0 || state.Intent == nil {
+		t.Fatalf("mismatched a2 intent reopened the retry budget: %+v", state)
 	}
 }
 

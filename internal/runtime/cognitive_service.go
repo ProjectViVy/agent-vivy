@@ -744,6 +744,10 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 	if st.PendingThrough != requested.Window.Through {
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
+	keyAttempt, err := cognitiveAttemptFromOperationKey(intent.OperationKey, requested.Window)
+	if err != nil || keyAttempt != intent.Attempt || st.Attempt != intent.Attempt {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
 
 	revision, lookupErr := s.deps.WorkflowRevisions.GetWorkflowRevisionByOperation(ctx, intent.ParentRunID, intent.OperationKey)
 	var run domain.Run
@@ -777,7 +781,7 @@ func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveStat
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
 	revisionIntent, through, err := cognitiveIntentFromRevision(revision)
-	if err != nil || revisionIntent.StrategyID != intent.StrategyID || through != requested.Window.Through {
+	if err != nil || revisionIntent.StrategyID != intent.StrategyID || revisionIntent.Attempt != intent.Attempt || through != requested.Window.Through {
 		return s.fenceCognitiveIntent(ctx, base, version)
 	}
 	if !cognitiveRevisionMatchesCatalog(ctx, revision) {

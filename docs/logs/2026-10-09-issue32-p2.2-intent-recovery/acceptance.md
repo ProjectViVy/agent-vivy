@@ -12,6 +12,7 @@ C2's local recovery contract is implemented and verified:
 - A completed Run settles only its persisted Through. Later input remains above the watermark after completion and another store reopen.
 - Only a fully evidenced failure can retry the same Through under the next bounded attempt. Missing workflow projection, effect-stage start, missing model-call finish, lookup error, cancellation, or an ambiguous legacy window remains fenced. A native failed Run whose projection is still settling retains its intent and is rechecked; durable proof for that exact Run can clear a provisional unknown fence.
 - Legacy ActiveRunID and attempt are reconstructed from and checked against immutable revision/operation-key data; exhausted retries remain exhausted. Unsupported future schema values reject admission.
+- Before any recovery admission, the stored operation key must encode the same source/window/attempt as both the intent and cognitive snapshot; the admitted revision's parsed attempt is checked again before adoption.
 
 ## Ruling
 

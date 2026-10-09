@@ -25,6 +25,8 @@ The first independent review found three additional recovery gaps. Each was repr
 
 An initial complete runtime run also caught the transient-projection timing case in `TestCognitiveFailedRunRetriesWithNewKey`; after the correction, the complete package passed.
 
+A second independent review found that a schema-2 snapshot could pair an `a2` key with `Intent.Attempt=0`. Before the fix, `TestCognitiveIntentKeyAttemptMismatchFencesBeforeAdmission` returned `ReasonActive` after admitting a workflow, and `TestCognitivePersistedAttemptMismatchDoesNotRetry` reset the persisted attempt to 1. Both failed as intended; pre-admission identity validation and revision-attempt cross-checks made both pass.
+
 ## Green verification
 
 ```text
@@ -35,7 +37,7 @@ go test ./internal/runtime -run '^TestCognitive' -count=1
 ok   agent-vivy/internal/runtime  1.295s
 
 go test -race ./internal/runtime -run '^TestCognitive' -count=1
-ok   agent-vivy/internal/runtime  24.995s
+ok   agent-vivy/internal/runtime  28.067s
 
 go test ./internal/storage/sqlite ./internal/storage/postgres -run 'TestBackendConformance/CN-03|TestSnapshotVersions' -count=1 -v
 SQLite CN-03 expected-version conflict: PASS
@@ -53,7 +55,7 @@ The complete affected package was run with the corrected child-process PATH:
 
 ```text
 PATH=/tmp/issue32-go/go/bin:$PATH /tmp/issue32-go/go/bin/go test ./internal/runtime -count=1
-ok   agent-vivy/internal/runtime  38.161s
+ok   agent-vivy/internal/runtime  38.695s
 ```
 
 The same full-package command was first run without the PATH correction. It failed only in `TestCommandBackendRunsInsideWorkspaceAndBuildsProposal`, which invoked the unrelated `/usr/bin/go` and received `Go: Unknown option: version`; rerunning with the verified toolchain first on PATH passed.
