@@ -116,7 +116,7 @@
     "plugin.vivy/workflow-ui.editor.forkNote": {
       "description": "Opened published revision as draft buffer",
       "placeholders": ["revision"],
-      "messages": {"en": "Editing a copy of published r{{revision}} — save to create a new draft.", "zh": "正在编辑已发布 r{{revision}} 的副本——保存生成新草稿。"}
+      "messages": {"en": "Editing published revision {{revision}}; save updates your current draft.", "zh": "正在编辑已发布版本 {{revision}}；保存将更新当前草稿。"}
     },
     "plugin.vivy/workflow-ui.editor.empty": {
       "description": "Empty editor state",

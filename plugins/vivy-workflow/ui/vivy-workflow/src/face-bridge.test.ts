@@ -107,6 +107,39 @@ describe('WorkflowClient error surface', () => {
       expect((e as TransportError).code).toBe('revision_conflict');
     }
   });
+
+  it('sends explicit create intent when saving a missing draft', async () => {
+    const host = makeHost({}, async () => ({ workflow: 'wf-new', etag: 'etag-1', artifact: {} }));
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+    const artifact = { definition: { schema_version: 'inofy.workflow/v1', graph: { nodes: [], edges: [], exits: [] } } };
+
+    await client.saveDraft('wf-new', artifact, null);
+
+    expect(host.rpc.call).toHaveBeenCalledWith('inofy.saveDraft', {
+      workflow: 'wf-new', artifact, create: true, session_id: 'sess-1',
+    });
+  });
+
+  it('sends a concrete current etag when editing a draft', async () => {
+    const host = makeHost({}, async () => ({ workflow: 'wf', etag: 'etag-2', artifact: {} }));
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+    const artifact = { definition: { schema_version: 'inofy.workflow/v1', graph: { nodes: [], edges: [], exits: [] } } };
+
+    await client.saveDraft('wf', artifact, 'etag-1');
+
+    expect(host.rpc.call).toHaveBeenCalledWith('inofy.saveDraft', {
+      workflow: 'wf', artifact, etag: 'etag-1', session_id: 'sess-1',
+    });
+  });
+
+  it('rejects an empty edit etag before making an rpc call', async () => {
+    const host = makeHost();
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+    const artifact = { definition: { schema_version: 'inofy.workflow/v1', graph: { nodes: [], edges: [], exits: [] } } };
+
+    await expect(client.saveDraft('wf', artifact, '')).rejects.toThrow(/etag/i);
+    expect(host.rpc.call).not.toHaveBeenCalled();
+  });
 });
 
 describe('normalizeJournalEvent', () => {

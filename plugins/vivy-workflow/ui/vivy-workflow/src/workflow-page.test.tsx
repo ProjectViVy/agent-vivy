@@ -11,6 +11,9 @@ import {
 } from '@vivy/ui-sdk';
 import { WorkflowPage } from './WorkflowPage';
 import { extension } from './index';
+import { blankArtifact } from './seed';
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function makeHost(action: (method: string, params?: unknown) => Promise<unknown>): FullUIHost {
   const state = {
@@ -141,5 +144,99 @@ describe('WorkflowPage', () => {
     expect(openBtn).toBeTruthy();
     await click(openBtn!);
     await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.newDraftNote'));
+  });
+
+  it('does not let two editors overwrite the first missing-draft creator', async () => {
+    const stored = new Map<string, { etag: string; artifact: ReturnType<typeof blankArtifact> }>();
+    const createHost = () => makeHost(async (method: string, params?: unknown) => {
+      const body = params as { workflow?: string; create?: boolean; artifact?: ReturnType<typeof blankArtifact> } | undefined;
+      if (method === 'inofy.loadDraft') {
+        const existing = stored.get(String(body?.workflow));
+        if (existing) return { workflow: body?.workflow, ...existing };
+        const err = new Error('draft not found') as Error & { data?: { code?: string; message?: string } };
+        err.data = { code: 'not_found', message: 'draft not found' };
+        throw err;
+      }
+      if (method === 'inofy.saveDraft') {
+        if (body?.create !== true) throw new Error('missing explicit create intent');
+        const workflow = String(body.workflow);
+        if (stored.has(workflow)) {
+          const err = new Error('draft already exists') as Error & { data?: { code?: string; message?: string } };
+          err.data = { code: 'revision_conflict', message: 'draft already exists' };
+          throw err;
+        }
+        const result = { etag: 'etag-created', artifact: body.artifact! };
+        stored.set(workflow, result);
+        return { workflow, ...result };
+      }
+      return stubAction(method);
+    });
+
+    const secondContainer = document.createElement('div');
+    document.body.append(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+    const firstHost = createHost();
+    const secondHost = createHost();
+    try {
+      await act(async () => {
+        root.render(<PluginHostProvider host={firstHost}><WorkflowPage /></PluginHostProvider>);
+        secondRoot.render(<PluginHostProvider host={secondHost}><WorkflowPage /></PluginHostProvider>);
+      });
+
+      const openMissingDraft = async (target: HTMLElement) => {
+        const input = target.querySelector<HTMLInputElement>('input[placeholder="plugin.vivy/workflow-ui.editor.idPlaceholder"]')!;
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+          setter.call(input, 'wf-race');
+          input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        });
+        await click([...target.querySelectorAll('button')].find((b) => b.textContent === 'common.open')!);
+      };
+      await openMissingDraft(container);
+      await openMissingDraft(secondContainer);
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.newDraftNote');
+        expect(secondContainer.textContent).toContain('plugin.vivy/workflow-ui.editor.newDraftNote');
+      });
+
+      await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.editor.save')!);
+      await vi.waitFor(() => expect(stored.has('wf-race')).toBe(true));
+      const winningArtifact = stored.get('wf-race')!.artifact;
+
+      await click([...secondContainer.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.editor.save')!);
+      await vi.waitFor(() => expect(secondContainer.querySelector('[role="alert"]')?.textContent).toContain('revision_conflict'));
+
+      expect(stored.get('wf-race')!.artifact).toBe(winningArtifact);
+      expect(stored.get('wf-race')!.artifact.definition.graph.nodes[0]?.config).toEqual({ task: 'wf-race' });
+    } finally {
+      await act(async () => secondRoot.unmount());
+      secondContainer.remove();
+    }
+  });
+
+  it('edits published revision content using the current draft etag', async () => {
+    const revisionArtifact = blankArtifact('published revision task');
+    const currentDraft = blankArtifact('newer current draft');
+    const host = makeHost(async (method: string) => {
+      if (method === 'inofy.listWorkflows') return { items: [{ workflow_id: 'wf-alpha', revision: 2 }], next_cursor: null };
+      if (method === 'inofy.getRevision') return { workflow: 'wf-alpha', revision: 2, artifact: revisionArtifact };
+      if (method === 'inofy.loadDraft') return { workflow: 'wf-alpha', etag: 'etag-current', artifact: currentDraft };
+      if (method === 'inofy.saveDraft') return { workflow: 'wf-alpha', etag: 'etag-next', artifact: revisionArtifact };
+      return stubAction(method);
+    });
+    await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
+    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.tab.workflows')!);
+    await vi.waitFor(() => expect(container.textContent).toContain('wf-alpha'));
+    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.workflows.openDraft')!);
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.forkNote'));
+    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.editor.save')!);
+
+    await vi.waitFor(() => expect((host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.some(([method]) => method === 'inofy.saveDraft')).toBe(true));
+    const saveParams = (host.rpc.call as ReturnType<typeof vi.fn>).mock.calls.find(([method]) => method === 'inofy.saveDraft')?.[1] as {
+      etag?: string;
+      artifact?: ReturnType<typeof blankArtifact>;
+    };
+    expect(saveParams.etag).toBe('etag-current');
+    expect(saveParams.artifact?.definition.graph.nodes[0]?.config).toEqual({ task: 'published revision task' });
   });
 });

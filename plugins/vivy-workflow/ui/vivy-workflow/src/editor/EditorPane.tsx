@@ -136,8 +136,16 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       setError(null);
       setNote(null);
       try {
-        const r = await client.getRevision(id, revision);
-        applyArtifact(id, null, r.artifact, true);
+        const [r, currentETag] = await Promise.all([
+          client.getRevision(id, revision),
+          client.loadDraft(id)
+            .then((draft) => draft.etag)
+            .catch((e: unknown) => {
+              if (e instanceof TransportError && e.status === 412) return null;
+              throw e;
+            }),
+        ]);
+        applyArtifact(id, currentETag, r.artifact, true);
         setNote(t('plugin.vivy/workflow-ui.editor.forkNote', { revision }));
       } catch (e) {
         setError(e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) }));

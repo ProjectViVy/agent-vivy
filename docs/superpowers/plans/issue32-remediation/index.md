@@ -27,7 +27,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IMPLEMENTATION COMPLETE; aggregate `just ci` and SDK/Port conformance pending P7 |
-| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; backend slices verified; Module editor and list/status UI underway under the recorded unavailable-skill ruling; candidate browser acceptance remains P7 |
+| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1 draft/editor and P3.3 cursors complete; P3.2 start-intent and P3.4 list/status UI in progress under the recorded unavailable-skill ruling; candidate browser acceptance remains P7 |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | IMPLEMENTATION ENGINEERING-VERIFIED LOCALLY; P4.2 native lifecycle and P4.4 candidate observations remain P7 gates |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; aggregate `just ci`, SDK conformance, and native Windows execution pending P7 |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
@@ -35,8 +35,8 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 
 Current execution lane: P4.1a/b, P4.2, P4.3 and P4.4 implementation work is
 engineering-verified locally; native lifecycle and provider candidate checks
-remain for P7. P5.1/P5.2 and P6.1 are also engineering-verified locally. P3
-Module editor/browser implementation is continuing under the documented
+remain for P7. P5.1/P5.2 and P6.1 are also engineering-verified locally. P3.2/P3.4
+Module browser implementation is continuing under the documented
 `oil-frontend` availability ruling, with P7 browser acceptance still required.
 P1 native acceptance remains independent.
 The reviewed DIVA frontend lock is already tracked and matches its canonical
@@ -66,11 +66,11 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | C8 | P2 | P4.4 | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; real-candidate provider observation pending P7 |
 | W1 | P2 | P3.2 | BACKEND ADMISSION AND SESSION GUARDS VERIFIED; retained UI start intent pending |
 | W2 | P2 | P3.2 | SERVER-SIDE OPERATION DEDUP PRE-EXISTING; prepared-request bridge and retry UI pending |
-| W3 | P2 | P3.1 | BACKEND DRAFT CAS VERIFIED; Module editor explicit create/edit UI pending |
+| W3 | P2 | P3.1 | ENGINEERING-VERIFIED: backend CAS and Module explicit create/edit/current-token revision editing; candidate browser acceptance pending P7 |
 | W4 | P2 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED in SQLite/PostgreSQL |
 | W5 | P2 | P3.4 | BACKEND RUN STATUS PROJECTION VERIFIED; UI pagination pending |
 | W6 | P2 | P3.4 | BACKEND NATIVE/ENGINE STATUS PARITY VERIFIED; lifecycle UI and recovery-event presentation pending |
-| W7 | P2 | P3.1 | BACKEND SAME-AUTHOR COLLISION AND OPAQUE ETAGS VERIFIED; browser collision test pending |
+| W7 | P2 | P3.1 | ENGINEERING-VERIFIED: same-author create collision and opaque ETags covered through backend and Module source tests; candidate browser acceptance pending P7 |
 | W8 | P3 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED; malformed cursors map to refreshable invalid input |
 | W9 | P3 | P6.1 | IMPLEMENTED AND ENGINEERING-VERIFIED; aggregate `just ci` remains pending P7 |
 | R1 | P2 | P5.1 | IMPLEMENTED AND ENGINEERING-VERIFIED locally; aggregate `just ci` and native Windows run pending |

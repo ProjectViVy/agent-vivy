@@ -83,7 +83,7 @@ Add PostgreSQL `TestWorkflowDraftConcurrentAbsentInsertConflict`: create the aut
 
 Add `TestWorkflowProductSaveRequiresExplicitCAS`: empty expected token fails; absent creates; duplicate absent conflicts; current token edits; foreign author cannot overwrite. Add `TestINOFYSaveDraftExplicitCreateOrETag`: omitted/null/empty edit ETags and `create: true` with a nonempty ETag return `InvalidParams`; `{create: true}` creates once and the same author's second create returns `CodeConflict` with `data.code == "revision_conflict"`. Keep existing foreign-author assertions. Update `TestINOFYProductRPCSurface` to create explicitly.
 
-- [ ] **P3.1.4 Write browser tests and select authoritative Module tests.**
+- [x] **P3.1.4 Write browser tests and select authoritative Module tests.**
 
 `oil-frontend` is absent from this checkout and the available skill catalog.
 Per the execution ruling below, implement only the specified behavioral
@@ -93,7 +93,7 @@ staging.
 
 In `ui/vitest.config.ts`, include both workflow source test globs and exclude `src/generated/ui/vivy-workflow/src/**/*.test.*`. Add `saveDraft sends explicit create intent for a null etag` and `saveDraft rejects an empty edit etag` in `face-bridge.test.ts`; inspect the actual RPC request. Add `two missing-draft editors do not overwrite the first creator` to `workflow-page.test.tsx`: both load misses, first create succeeds, second conflicts, server artifact remains first creator's value. Add `opening a revision loads the current draft etag before editing`: revision content remains the edit source, next save uses the loaded draft token. A missing own draft uses explicit creation; a foreign existing draft conflicts.
 
-- [ ] **P3.1.5 Run the new tests and confirm behavioral failures.** Backend regressions were run red; browser tests remain pending with P3.1.4.
+- [x] **P3.1.5 Run the new tests and confirm behavioral failures.** The backend regressions and the four new browser assertions were observed red before implementation; the focused browser suite now passes 21/21.
 
 ```bash
 go test ./internal/storage/sqlite -run 'TestWorkflow(DraftLegacyETagRotates|DefinitionContract/ETagRotatesWithRepeatedAndBackwardsTime)' -count=1
@@ -115,11 +115,11 @@ Runtime rejects an empty expected ETag; the storage adapter accepts only the
 absent sentinel or a concrete edit token. RPC decoding maps `{create:true}` to
 create-only, requires a nonempty ETag for edit, and rejects conflicting modes.
 
-- [ ] **P3.1.7b Implement current-token revision editing and explicit browser create intent.**
+- [x] **P3.1.7b Implement current-token revision editing and explicit browser create intent.**
 
 `WorkflowClient.saveDraft` serializes `null` as explicit creation and accepts only nonempty edit ETags; it rejects `""` locally. In `openRevision(id: string, revision: number)`, load the immutable revision for edit content and the current own draft for its ETag; use `null` only when the own-draft lookup returns the existing missing-draft error. Preserve revision content and dirty state. Keep `editor.forkNote` and set English to `Editing published revision {revision}; save updates your current draft.` and Chinese to `正在编辑已发布版本 {revision}；保存将更新当前草稿。`.
 
-- [ ] **P3.1.8 Verify, rehash the Module, and commit the deliverable.**
+- [x] **P3.1.8 Verify, rehash the Module, and commit the deliverable.** Browser source tests passed 21/21; the earlier complete P3.1 storage/runtime/RPC package run passed with PostgreSQL actually connected; staged assembly typecheck passed; source hash reproduced as `2247d763d31ebd397ea322df97494a7b2a006fcb28802c38e263dd592a1d3656`. UI slice commit recorded in the phase log.
 
 Run P3.1.5 again, then `go test ./internal/storage/sqlite ./internal/storage/postgres ./internal/runtime ./internal/rpc -count=1`. Rehash the Module as specified above **before** `pnpm -C ui typecheck` invokes automatic staging. Expected: all targeted regressions pass, PostgreSQL tests actually execute, and typecheck passes. Stage only P3.1 files.
 

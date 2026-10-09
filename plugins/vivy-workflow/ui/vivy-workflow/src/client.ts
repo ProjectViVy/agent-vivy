@@ -86,8 +86,12 @@ export class WorkflowClient {
   loadDraft(id: string) {
     return this.call<DraftView>('loadDraft', { workflow: id });
   }
-  saveDraft(id: string, artifact: Artifact, etag: string | null) {
-    return this.call<DraftView>('saveDraft', { workflow: id, artifact, etag });
+  async saveDraft(id: string, artifact: Artifact, etag: string | null) {
+    if (etag === '') throw new TypeError('workflow draft etag must not be empty');
+    const params = etag === null
+      ? { workflow: id, artifact, create: true }
+      : { workflow: id, artifact, etag };
+    return this.call<DraftView>('saveDraft', params);
   }
   validate(id: string, etag: string) {
     return this.call<{ valid?: boolean; diagnostics?: ApiError['diagnostics'] }>('validate', { workflow: id, etag });
