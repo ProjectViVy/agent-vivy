@@ -16,7 +16,7 @@
 
 ## Remaining verification
 
-P3.1 browser tests, editor behavior, Module source rehash, UI typecheck and final P3.1 package suites remain pending. `just ci` and the real Vite path will be attempted after UI work; no UI acceptance is claimed yet.
+Backend package coverage now passes in commit `64a3196c` as part of the P3.1-P3.3 backend group. P3.1 browser tests, editor behavior, Module source rehash, UI typecheck, `just ci` and the real Vite path remain pending; no UI acceptance is claimed yet.
 
 ## Ruling
 

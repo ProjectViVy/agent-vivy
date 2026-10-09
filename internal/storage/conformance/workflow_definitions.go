@@ -84,7 +84,7 @@ func admitDefinitionRunFixture(t *testing.T, slot Slot, sessionID domain.Session
 		AuthorityJSON: authorityJSON, SchemaVersion: 2, CreatedAt: createdAt,
 		ProgramDigest: StepDigest("program-" + string(runID)), CatalogDigest: StepDigest("catalog-" + string(runID)),
 		CompilerVersion: "inofy@test", EinoBuild: "v0.9.13", InputDigest: StepDigest("input-" + string(runID)),
-		InputJSON: []byte(`{}`), EffectiveLimits: []byte(`{"max_nodes":12}`),
+		InputJSON: []byte(`{}`), EffectiveLimits: []byte(`{"max_nodes":12,"max_attempts":1}`),
 		HostBindingID: StepDigest("binding-" + string(runID)), DefinitionID: "wf-pages", DefinitionRevision: 1,
 	}
 	run := domain.Run{
@@ -391,6 +391,76 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		second, err := s.ListWorkflowDefinitions(ctx, colonWorkflowID+":1", 1)
 		if err != nil || len(second.Revisions) != 1 || second.Revisions[0].WorkflowID != colonWorkflowID || second.Revisions[0].Revision != 2 {
 			t.Fatalf("second colon-id page: page=%+v err=%v", second, err)
+		}
+	})
+
+	t.Run("RunSummaryEngineProjection", func(t *testing.T) {
+		prefix := strings.ReplaceAll(t.Name(), "/", "-")
+		sessionID := domain.SessionID("sess-" + prefix)
+		parentID := domain.RunID("parent-" + prefix)
+		createDefSession(t, slot, string(sessionID))
+		if err := slot.Engine.CreateRun(ctx, domain.Run{
+			ID: parentID, SessionID: sessionID, Status: domain.RunActive,
+			Kind: domain.RunKindPrimary, CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("create parent run: %v", err)
+		}
+
+		admittedID := domain.RunID("run-admitted-" + prefix)
+		succeededID := domain.RunID("run-succeeded-" + prefix)
+		recoveryID := domain.RunID("run-recovery-" + prefix)
+		terminalID := domain.RunID("run-terminal-" + prefix)
+		admitDefinitionRunFixture(t, slot, sessionID, parentID, admittedID, 1000)
+		succeededStore := admitDefinitionRunFixture(t, slot, sessionID, parentID, succeededID, 999)
+		recoveryStore := admitDefinitionRunFixture(t, slot, sessionID, parentID, recoveryID, 998)
+		admitDefinitionRunFixture(t, slot, sessionID, parentID, terminalID, 997)
+		if err := slot.Engine.SetRunStatus(ctx, terminalID, domain.RunCancelled); err != nil {
+			t.Fatalf("set unprojected terminal run: %v", err)
+		}
+
+		commitProgression := func(runID domain.RunID, store storage.WorkflowStepStore, tag string, target storage.WorkflowStepStatus, terminalEvent domain.EventType) {
+			t.Helper()
+			admitted := NewStepCommit(runID, "admit-"+tag, 1, "", storage.WorkflowStepAdmitted, tag)
+			admitted.Events = []storage.WorkflowStepEvent{StepAdmitEvent(tag)}
+			if _, err := store.CommitWorkflowStep(ctx, admitted); err != nil {
+				t.Fatalf("commit admitted projection: %v", err)
+			}
+			running := NewStepCommit(runID, "running-"+tag, 1, storage.WorkflowStepAdmitted, storage.WorkflowStepRunning, tag)
+			running.Events = []storage.WorkflowStepEvent{startedEvent()}
+			if _, err := store.CommitWorkflowStep(ctx, running); err != nil {
+				t.Fatalf("commit running projection: %v", err)
+			}
+			last := NewStepCommit(runID, "terminal-"+tag, 1, storage.WorkflowStepRunning, target, tag)
+			if terminalEvent != "" {
+				last.Events = []storage.WorkflowStepEvent{StepEvent(terminalEvent, `{"summary":"done"}`)}
+			} else {
+				last.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowRecoveryRequired, `{"reason":"interrupted"}`)}
+			}
+			if _, err := store.CommitWorkflowStep(ctx, last); err != nil {
+				t.Fatalf("commit %s projection: %v", target, err)
+			}
+		}
+		commitProgression(succeededID, succeededStore, string(succeededID), storage.WorkflowStepSucceeded, domain.EventRunCompleted)
+		commitProgression(recoveryID, recoveryStore, string(recoveryID), storage.WorkflowStepRecoveryRequired, "")
+
+		page, err := s.ListWorkflowDefinitionRuns(ctx, string(sessionID), "", 10)
+		if err != nil {
+			t.Fatalf("list projected runs: %v", err)
+		}
+		byID := make(map[string]storage.WorkflowRunSummary, len(page.Runs))
+		for _, summary := range page.Runs {
+			byID[summary.RunID] = summary
+		}
+		for id, want := range map[domain.RunID]struct{ native, engine string }{
+			admittedID:  {native: string(domain.RunActive), engine: string(storage.WorkflowStepAdmitted)},
+			succeededID: {native: string(domain.RunCompleted), engine: string(storage.WorkflowStepSucceeded)},
+			recoveryID:  {native: string(domain.RunActive), engine: string(storage.WorkflowStepRecoveryRequired)},
+			terminalID:  {native: string(domain.RunCancelled), engine: string(domain.RunCancelled)},
+		} {
+			got, ok := byID[string(id)]
+			if !ok || got.Status != want.native || got.EngineStatus != want.engine {
+				t.Fatalf("run summary %s = %+v (found=%v), want native=%q engine=%q", id, got, ok, want.native, want.engine)
+			}
 		}
 	})
 

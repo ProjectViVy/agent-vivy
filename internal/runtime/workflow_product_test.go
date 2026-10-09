@@ -373,6 +373,9 @@ func TestWorkflowProductRunBindsRevision(t *testing.T) {
 	if err != nil || len(page.Runs) != 1 || page.Runs[0].RunID != string(started.Run.ID) || page.Runs[0].Revision != rev.Revision {
 		t.Fatalf("list runs: %v %+v", err, page)
 	}
+	if page.Runs[0].Status != string(domain.RunCompleted) || page.Runs[0].EngineStatus != string(inofy.RunSucceeded) {
+		t.Fatalf("list/detail lifecycle disagree: summary=%+v detail=%+v", page.Runs[0], view.Details)
+	}
 }
 
 // TestWorkflowProductDraftStartRun covers starting from a live draft etag.
@@ -466,6 +469,23 @@ func TestWorkflowProductCancelRun(t *testing.T) {
 	}
 	if run.Status.Terminal() && run.Status != domain.RunCancelled {
 		t.Fatalf("cancelled run = %+v", run)
+	}
+	var view INOFYRunView
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		view, err = svc.INOFYGetRun(ctx, author, started.Run.ID)
+		if err == nil && view.Details.EngineStatus == string(inofy.RunRecoveryRequired) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil || view.Details.Run.Status != domain.RunActive || view.Details.EngineStatus != string(inofy.RunRecoveryRequired) {
+		t.Fatalf("cancelled workflow lifecycle detail = %+v err=%v", view.Details, err)
+	}
+	page, err := svc.INOFYListRuns(ctx, author, "", 10)
+	if err != nil || len(page.Runs) != 1 || page.Runs[0].RunID != string(started.Run.ID) ||
+		page.Runs[0].Status != string(domain.RunActive) || page.Runs[0].EngineStatus != string(inofy.RunRecoveryRequired) {
+		t.Fatalf("recovery list/detail lifecycle disagree: page=%+v detail=%+v err=%v", page, view.Details, err)
 	}
 }
 

@@ -262,8 +262,10 @@ func (b *Backend) ListWorkflowDefinitionRuns(ctx context.Context, sessionID, cur
 		}
 		after = v
 	}
-	rows, err := b.db.QueryContext(ctx, `SELECT r.workflow_run_id, r.parent_session_id, r.definition_id, r.definition_revision, r.created_at, ru.status
+	rows, err := b.db.QueryContext(ctx, `SELECT r.workflow_run_id, r.parent_session_id, r.definition_id, r.definition_revision, r.created_at, ru.status,
+		COALESCE(e.status, CASE WHEN ru.status IN ('completed','failed','cancelled') THEN ru.status ELSE 'admitted' END)
 		FROM workflow_revisions r JOIN runs ru ON ru.id = r.workflow_run_id
+		LEFT JOIN workflow_executions e ON e.workflow_run_id = r.workflow_run_id
 		WHERE r.definition_id IS NOT NULL AND r.parent_session_id = ?
 		AND (? = 0 OR r.created_at < ? OR (r.created_at = ? AND r.workflow_run_id > ?))
 		ORDER BY r.created_at DESC, r.workflow_run_id LIMIT ?`, sessionID, after.CreatedAt, after.CreatedAt, after.CreatedAt, after.RunID, limit+1)
@@ -275,7 +277,7 @@ func (b *Backend) ListWorkflowDefinitionRuns(ctx context.Context, sessionID, cur
 	for rows.Next() {
 		var row storage.WorkflowRunSummary
 		var rev sql.NullInt64
-		if err := rows.Scan(&row.RunID, &row.SessionID, &row.DefinitionID, &rev, &row.CreatedAt, &row.Status); err != nil {
+		if err := rows.Scan(&row.RunID, &row.SessionID, &row.DefinitionID, &rev, &row.CreatedAt, &row.Status, &row.EngineStatus); err != nil {
 			return page, fmt.Errorf("sqlite: scan workflow run: %w", err)
 		}
 		row.Revision = uint64(rev.Int64)

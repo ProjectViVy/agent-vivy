@@ -2,11 +2,15 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"agent-vivy/internal/actionhost"
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 const inofyRPCDefinition = `{"schema_version":"inofy.workflow/v1","graph":{"nodes":[
@@ -311,5 +315,100 @@ func TestINOFYListRejectsMalformedCursor(t *testing.T) {
 				t.Fatalf("malformed cursor error data = %s err=%v", rpcErr.Data, err)
 			}
 		})
+	}
+}
+
+func TestINOFYListRunsSeparatesNativeAndEngineStatus(t *testing.T) {
+	ctx := context.Background()
+	env := newControlTestEnv(t)
+	sessionID := domain.SessionID(createINOFYSession(t, env.handler))
+	parentID := domain.RunID("run-list-status-parent")
+	createdAt := int64(1000)
+	if err := env.backend.CreateRun(ctx, domain.Run{
+		ID: parentID, SessionID: sessionID, Status: domain.RunActive,
+		Kind: domain.RunKindPrimary, CreatedAt: createdAt, RootID: parentID,
+	}); err != nil {
+		t.Fatalf("create parent run: %v", err)
+	}
+	workflowRunID := domain.RunID("run-list-status")
+	descriptorJSON, authorityJSON := []byte(inofyRPCDefinition), []byte(`{"authority":"test"}`)
+	digest := func(value []byte) string {
+		sum := sha256.Sum256(value)
+		return hex.EncodeToString(sum[:])
+	}
+	inputDigest := digest([]byte(`{}`))
+	programDigest, hostBindingID := digest([]byte("program")), digest([]byte("host"))
+	if _, err := env.backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
+		Revision: domain.WorkflowRevision{
+			RunID: workflowRunID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
+			OperationKey: "op-list-status", DescriptorDigest: digest(descriptorJSON),
+			AuthorityDigest: digest(authorityJSON), DescriptorJSON: descriptorJSON, AuthorityJSON: authorityJSON,
+			SchemaVersion: 2, CreatedAt: createdAt, ProgramDigest: programDigest, CatalogDigest: digest([]byte("catalog")),
+			CompilerVersion: "inofy@test", EinoBuild: "v0.9.13", InputDigest: inputDigest,
+			InputJSON: []byte(`{}`), EffectiveLimits: []byte(`{"max_nodes":12}`), HostBindingID: hostBindingID,
+			DefinitionID: "wf-rpc-status", DefinitionRevision: 1,
+		},
+		Run: domain.Run{
+			ID: workflowRunID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: createdAt,
+			Kind: domain.RunKindWorkflow, ParentID: parentID, RootID: parentID, Depth: 1,
+		},
+		Started: domain.RunEvent{
+			RunID: workflowRunID, Type: domain.EventRunStarted, CreatedAt: createdAt,
+			PayloadVersion: 1, Payload: []byte(`{"provider":"test"}`),
+		},
+	}); err != nil {
+		t.Fatalf("admit workflow run: %v", err)
+	}
+	stepStore, ok := any(env.backend).(storage.WorkflowStepStore)
+	if !ok {
+		t.Fatal("SQLite backend lacks WorkflowStepStore")
+	}
+	step := func(id string, expected, target storage.WorkflowStepStatus, eventType domain.EventType, payload []byte) storage.WorkflowStepCommit {
+		return storage.WorkflowStepCommit{
+			RunID: workflowRunID, CommitID: id, Digest: digest([]byte("commit-" + id)), Epoch: 1,
+			ProgramDigest: programDigest, HostBindingID: hostBindingID, Expected: expected, Target: target,
+			Events: []storage.WorkflowStepEvent{{Type: eventType, CreatedAt: createdAt, PayloadVersion: 1, Payload: payload}},
+		}
+	}
+	admittedPayload, _ := json.Marshal(map[string]any{"input_digest": inputDigest, "limits": map[string]any{"max_nodes": 12}})
+	steps := []storage.WorkflowStepCommit{
+		step("admit", "", storage.WorkflowStepAdmitted, domain.EventWorkflowAdmitted, admittedPayload),
+		step("running", storage.WorkflowStepAdmitted, storage.WorkflowStepRunning, domain.EventWorkflowStarted, []byte(`{"node_count":1}`)),
+		step("complete", storage.WorkflowStepRunning, storage.WorkflowStepSucceeded, domain.EventRunCompleted, []byte(`{"summary":"done"}`)),
+	}
+	for _, commit := range steps {
+		if _, err := stepStore.CommitWorkflowStep(ctx, commit); err != nil {
+			t.Fatalf("commit workflow status %s: %v", commit.Target, err)
+		}
+	}
+	peer := newINOFYPeer(t, env.handler)
+	listed, rpcErr := callINOFY(t, env.handler, peer, "inofy.listRuns", map[string]any{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listed)
+	var page struct {
+		Items []struct {
+			RunID        string `json:"run_id"`
+			Status       string `json:"status"`
+			EngineStatus string `json:"engine_status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(listedJSON, &page); err != nil || len(page.Items) != 1 {
+		t.Fatalf("listRuns = %s err=%v", listedJSON, err)
+	}
+	if page.Items[0].RunID != string(workflowRunID) || page.Items[0].Status != string(domain.RunCompleted) || page.Items[0].EngineStatus != string(storage.WorkflowStepSucceeded) {
+		t.Fatalf("native/engine status fields = %+v", page.Items[0])
+	}
+	caps, rpcErr := callINOFY(t, env.handler, peer, "inofy.capabilities", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	capsJSON, _ := json.Marshal(caps)
+	var capabilities struct {
+		SupportsResume bool `json:"supports_resume"`
+	}
+	if err := json.Unmarshal(capsJSON, &capabilities); err != nil || capabilities.SupportsResume {
+		t.Fatalf("capabilities = %s err=%v", capsJSON, err)
 	}
 }

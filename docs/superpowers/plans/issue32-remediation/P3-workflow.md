@@ -287,7 +287,7 @@ Implement the declared helpers in `workflow_cursors.go`: bounded versioned JSON/
 
 `inofyDefinitionRepository.List(ctx context.Context, cursor string, limit int) (definitions.Page, error)` must return/wrap `ErrWorkflowCursorInvalid` without converting it into `inofy.ErrStorageFailed`. `INOFYListRuns` already preserves storage errors. Add an `errors.Is(err, storage.ErrWorkflowCursorInvalid)` case to `inofyRPCError(err error) *Error`, returning `InvalidParams` with `inofyErrorData("invalid_input")` and the refresh message. Preserve all other mappings.
 
-- [ ] **P3.3.7 Verify driver parity and commit.**
+- [x] **P3.3.7 Verify driver parity and commit (`64a3196c`).**
 
 **Execution ruling:** The repository requires the unavailable `oil-frontend`
 sub-skill before UI Module edits. At the user's direction to continue through
@@ -324,7 +324,7 @@ git commit -m "fix: harden workflow backend draft and paging contracts"
 - Add local `isTerminalStatus(status: string | undefined): boolean` behavior for native `completed`, `failed`, `cancelled`; `engine_status == "recovery_required"` is an explicit recovery presentation, not a native terminal.
 - Keep list method response `{items, next_cursor: string | null}`; normalize terminal wire `""` to `null` in `WorkflowClient`.
 
-- [ ] **P3.4.1 Write joined status projection and RPC assertions.**
+- [x] **P3.4.1 Write joined status projection and RPC assertions.**
 
 Add conformance `RunSummaryEngineProjection` using P3.3 fixtures and existing `NewStepCommit`, `StepAdmitEvent`, and `CommitWorkflowStep`. Test unexecuted admitted fallback `"admitted"`, success `(status="completed", EngineStatus="succeeded")`, and interrupted `(status="active", EngineStatus="recovery_required")`. A fixture with no projection and a native terminal Run falls back to that native terminal value, matching `GetWorkflow`. Extend `TestWorkflowProductRunBindsRevision` and `TestWorkflowProductCancelRun` to assert list and detail agree on the same two fields. Add `TestINOFYListRunsSeparatesNativeAndEngineStatus`; inspect both JSON properties and retain `supports_resume == false`.
 
@@ -362,9 +362,13 @@ pnpm -C ui exec vitest run ../plugins/vivy-workflow/ui/vivy-workflow/src/face-br
 
 Expected: missing summary engine status, no Load more control, retained empty cursor, and enabled completed-Run cancellation produce failures.
 
-- [ ] **P3.4.5 Implement efficient summary status projection.**
+- [x] **P3.4.5 Implement efficient summary status projection.**
 
 Extend each existing `ListWorkflowDefinitionRuns` query with one `LEFT JOIN workflow_executions e ON e.workflow_run_id = r.workflow_run_id`. Scan `COALESCE(e.status, CASE WHEN ru.status IN ('completed','failed','cancelled') THEN ru.status ELSE 'admitted' END)` into `EngineStatus`. Preserve native `ru.status`, session filtering, ordering, and P3.3 predicates. Include `engine_status` in `inofyListRuns`; do not call `GetWorkflow`, load checkpoints, or inspect per-row Journal history.
+
+Backend projection, Runtime list/detail parity and RPC serialization regressions
+pass in both drivers. P3.4.2/.3/.6 UI pagination and lifecycle presentation remain
+pending the required UI implementation skill.
 
 - [ ] **P3.4.6 Implement bounded list navigation and lifecycle display.**
 

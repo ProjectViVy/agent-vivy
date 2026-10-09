@@ -68,6 +68,7 @@ type WorkflowRunSummary struct {
 	RunID        string
 	SessionID    string
 	Status       string
+	EngineStatus string
 	DefinitionID string
 	Revision     uint64
 	CreatedAt    int64

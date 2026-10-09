@@ -347,7 +347,7 @@ func (h *controlHandler) inofyListRuns(ctx context.Context, peer *Peer, request 
 	items := make([]map[string]any, 0, len(page.Runs))
 	for _, run := range page.Runs {
 		items = append(items, map[string]any{
-			"run_id": run.RunID, "status": run.Status,
+			"run_id": run.RunID, "status": run.Status, "engine_status": run.EngineStatus,
 			"workflow_id": run.DefinitionID, "revision": run.Revision,
 			"created_at": run.CreatedAt,
 		})
