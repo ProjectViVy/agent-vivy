@@ -6,9 +6,11 @@ package host_test
 // surface, and only a sealed Generation may open.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -263,6 +265,97 @@ func TestFailedOpenReleasesOwnership(t *testing.T) {
 		t.Fatalf("Open after failed startup: %v", err)
 	}
 	defer func() { _ = h.Close(context.Background()) }()
+}
+
+func TestHostLoggerProfileReopen(t *testing.T) {
+	var previousOutput bytes.Buffer
+	previous := slog.New(slog.NewTextHandler(&previousOutput, nil))
+	oldDefault := slog.Default()
+	slog.SetDefault(previous)
+	t.Cleanup(func() { slog.SetDefault(oldDefault) })
+
+	hA, dirA := openSealed(t)
+	loggerA := slog.Default()
+	loggerA.Info("profile A marker")
+	if err := hA.Close(context.Background()); err != nil {
+		t.Fatalf("close profile A: %v", err)
+	}
+	if slog.Default() != previous {
+		t.Fatal("closing profile A did not restore its previous default logger")
+	}
+	logA := readHostLog(t, dirA)
+	sizeA, err := os.Stat(logA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hB, dirB := openSealed(t)
+	loggerB := slog.Default()
+	if loggerB == loggerA {
+		t.Fatal("profile B reused profile A logger")
+	}
+	loggerB.Info("profile B marker")
+	loggerA.Info("late profile A marker")
+	if got := slog.Default(); got != loggerB {
+		t.Fatal("profile B logger is not the process default while open")
+	}
+	sizeAAfter, err := os.Stat(logA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sizeAAfter.Size() != sizeA.Size() {
+		t.Fatalf("late profile A write changed its closed file size: %d -> %d", sizeA.Size(), sizeAAfter.Size())
+	}
+	logB := readHostLog(t, dirB)
+	blobB, err := os.ReadFile(logB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(blobB, []byte("profile B marker")) || bytes.Contains(blobB, []byte("late profile A marker")) {
+		t.Fatalf("profile B log contains wrong profile events: %s", blobB)
+	}
+
+	newer := slog.New(slog.NewTextHandler(&previousOutput, nil))
+	slog.SetDefault(newer)
+	if err := hB.Close(context.Background()); err != nil {
+		t.Fatalf("close profile B: %v", err)
+	}
+	if slog.Default() != newer {
+		t.Fatal("closing profile B overwrote a newer process logger")
+	}
+}
+
+func TestHostFailedOpenRestoresOwnedLogger(t *testing.T) {
+	sealedFixtureGeneration(t)
+	providerEnv(t)
+	previous := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	oldDefault := slog.Default()
+	slog.SetDefault(previous)
+	t.Cleanup(func() { slog.SetDefault(oldDefault) })
+
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := host.Open(ctx, host.Options{ConfigPath: writeConfig(t, dir), WithoutEars: true}); err == nil {
+		t.Fatal("Open with canceled composition context succeeded")
+	}
+	if slog.Default() != previous {
+		t.Fatal("failed Open did not restore the previous default logger")
+	}
+	// The failed startup must release the host slot as well as its logger.
+	good, _ := openSealed(t)
+	if err := good.Close(context.Background()); err != nil {
+		t.Fatalf("Close after failed Open: %v", err)
+	}
+}
+
+func readHostLog(t *testing.T, dir string) string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(dir, "logs", "vivy.log.*"))
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("log files under %s = %v, err=%v; want one", dir, paths, err)
+	}
+	return paths[0]
 }
 
 func TestSecondLiveOwnerRejected(t *testing.T) {

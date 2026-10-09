@@ -108,7 +108,9 @@ func (e *Error) Error() string {
 // concurrent use: Call may run from many goroutines, Next admits exactly
 // one reader at a time, and Close is idempotent.
 type Host struct {
-	inner *embedded.Host
+	inner          *embedded.Host
+	previousLogger *slog.Logger
+	ownedLogger    *slog.Logger
 
 	reader      atomic.Bool
 	releaseOnce sync.Once
@@ -117,12 +119,19 @@ type Host struct {
 }
 
 var (
-	ownerMu   sync.Mutex
-	ownerHeld bool
+	ownerMu             sync.Mutex
+	ownerHeld           bool
+	openEmbeddedRuntime = embedded.Open
 )
 
 func hostError(kind string, code int, format string, args ...any) *Error {
 	return &Error{Kind: kind, Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+func restoreDefaultLogger(owned, previous *slog.Logger) {
+	if owned != nil && slog.Default() == owned {
+		slog.SetDefault(previous)
+	}
 }
 
 // Open claims the single runtime owner slot, reads and validates the
@@ -175,22 +184,27 @@ func Open(ctx context.Context, options Options) (*Host, error) {
 		release()
 		return nil, hostError(KindInternal, CodeInternal, "init logging: %v", err)
 	}
+	previousLogger := slog.Default()
+	slog.SetDefault(logger)
 
-	var appOptions []app.AppOption
+	appOptions := []app.AppOption{app.WithLogger(logger)}
 	if options.WithoutEars {
 		appOptions = append(appOptions, app.WithoutEars())
 	}
-	inner, err := embedded.Open(ctx, cfg, embedded.Options{AppOptions: appOptions})
+	inner, err := openEmbeddedRuntime(ctx, cfg, embedded.Options{AppOptions: appOptions})
 	if err != nil {
 		_ = logCloser.Close()
+		restoreDefaultLogger(logger, previousLogger)
 		release()
 		return nil, mapError(fmt.Errorf("open runtime: %w", err))
 	}
-	slog.SetDefault(logger)
-	slog.Info("vivy host logging initialized",
+	logger.Info("vivy host logging initialized",
 		"level", effective.Level, "format", effective.Format, "console", effective.Console)
-	slog.Info("vivy host opened", "generation", generationID)
-	return &Host{inner: inner, release: release, logCloser: logCloser}, nil
+	logger.Info("vivy host opened", "generation", generationID)
+	return &Host{
+		inner: inner, release: release, logCloser: logCloser,
+		previousLogger: previousLogger, ownedLogger: logger,
+	}, nil
 }
 
 // Call issues one control-plane request and returns the raw result.
@@ -251,13 +265,14 @@ func (h *Host) Close(ctx context.Context) error {
 	err := h.inner.CloseContext(ctx)
 	if err == nil {
 		h.releaseOnce.Do(func() {
-			h.release()
+			restoreDefaultLogger(h.ownedLogger, h.previousLogger)
 			// The sinks belong to this host's lifetime: closing them on
 			// Windows releases the rotated log file so profile dirs can be
 			// removed; a later Open builds fresh sinks.
 			if h.logCloser != nil {
 				_ = h.logCloser.Close()
 			}
+			h.release()
 		})
 		return nil
 	}

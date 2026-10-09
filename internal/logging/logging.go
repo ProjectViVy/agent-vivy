@@ -256,8 +256,9 @@ type dailyFile struct {
 	prefix string
 	now    func() time.Time
 
-	f   *os.File
-	day string
+	f      *os.File
+	day    string
+	closed bool
 }
 
 func newDailyFile(dir, prefix string, now func() time.Time) *dailyFile {
@@ -267,6 +268,9 @@ func newDailyFile(dir, prefix string, now func() time.Time) *dailyFile {
 func (d *dailyFile) Write(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return 0, io.ErrClosedPipe
+	}
 	day := d.now().Format("2006-01-02")
 	if d.f == nil || day != d.day {
 		if err := d.open(day); err != nil {
@@ -293,6 +297,10 @@ func (d *dailyFile) open(day string) error {
 func (d *dailyFile) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return nil
+	}
+	d.closed = true
 	if d.f == nil {
 		return nil
 	}

@@ -104,6 +104,8 @@ type AppOption func(*appOptions)
 type appOptions struct {
 	channels     bool
 	gateway      bool
+	logger       *slog.Logger
+	loggerSet    bool
 	sink         runtime.EventSink
 	settingsPath string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
@@ -128,6 +130,15 @@ func WithoutEars() AppOption { return func(o *appOptions) { o.channels = false }
 // same JSON-RPC methods as the web face. WithEventSink is the streaming
 // path for such faces.
 func WithoutGateway() AppOption { return func(o *appOptions) { o.gateway = false } }
+
+// WithLogger supplies the logger owned by the caller that composes this App.
+// When omitted, NewWithAssembly uses the current process default.
+func WithLogger(logger *slog.Logger) AppOption {
+	return func(o *appOptions) {
+		o.logger = logger
+		o.loggerSet = true
+	}
+}
 
 // WithEventSink adds a second event sink next to the gateway bus. The
 // headless face renders the run stream for stdout/stderr through it.
@@ -198,10 +209,16 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 // generation-specific capability mismatches are rejected here before any
 // runtime construction begins.
 func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error) {
-	logger := slog.Default()
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
+	}
+	logger := ao.logger
+	if !ao.loggerSet {
+		logger = slog.Default()
+	}
+	if logger == nil {
+		return nil, errors.New("app: logger option is nil")
 	}
 	if err := validateRuntimeAssemblyConfig(runtimeAssembly, cfg); err != nil {
 		return nil, err

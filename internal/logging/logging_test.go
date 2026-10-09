@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -149,6 +151,36 @@ func TestDailyFileRollover(t *testing.T) {
 	d2, err := os.ReadFile(filepath.Join(dir, FilePrefix+".2026-08-30"))
 	if err != nil || string(d2) != "day two\n" {
 		t.Errorf("day two file = %q, %v", d2, err)
+	}
+}
+
+func TestDailyFileCloseIsPermanent(t *testing.T) {
+	dir := t.TempDir()
+	clock := time.Date(2026, 10, 9, 12, 0, 0, 0, time.Local)
+	f := newDailyFile(dir, FilePrefix, func() time.Time { return clock })
+	if n, err := f.Write([]byte("before close\n")); err != nil || n == 0 {
+		t.Fatalf("initial Write = %d, %v", n, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	before, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(24 * time.Hour)
+	if n, err := f.Write([]byte("after close\n")); n != 0 || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("Write after Close = %d, %v, want io.ErrClosedPipe", n, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	after, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) || after[0].Name() != before[0].Name() {
+		t.Fatalf("directory changed after late Write: before=%v after=%v", before, after)
 	}
 }
 
