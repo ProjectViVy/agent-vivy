@@ -285,45 +285,8 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 	if !probe.HasCognitiveFactory() {
 		t.Skip("default generation omits DIVA cognition; run the generated integration overlay")
 	}
-	root := t.TempDir()
-	cfg := config.Default()
-	cfg.Storage.Backend = "sqlite"
-	cfg.Storage.DataDir = root
-	cfg.Storage.SQLite.Path = filepath.Join(root, "vivy-test.db")
-	cfg.Runtime.WorkspaceRoot = filepath.Join(root, "workspace")
-	cfg.Server.Addr = "127.0.0.1:0"
-	if err := os.MkdirAll(cfg.Runtime.WorkspaceRoot, 0700); err != nil {
-		t.Fatal(err)
-	}
-	models, err := filepath.Abs(filepath.Join("..", "..", "..", "laputa", "mentle", "models"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(models, "onnx", "model.onnx")); err != nil {
-		t.Fatal(err)
-	}
-	gardenRoot := filepath.Join(root, "garden")
-	if err := os.MkdirAll(gardenRoot, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(models, filepath.Join(gardenRoot, "models")); err != nil {
-		t.Fatal(err)
-	}
-	authority, err := persona.Open(filepath.Join(gardenRoot, "persona"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := authority.Initialize(persona.Initialization{Identity: "synthetic test agent", Relationship: "test relation", Redline: "test limits", User: "synthetic user", World: "private test world"}, "user", persona.SourceInit, "fixture-init"); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(root, "config.yaml")
-	raw, err := yaml.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configPath, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
+	configPath := memoryLoopConfig(t)
+	root := filepath.Dir(configPath)
 	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: configPath, ModelMode: "ack"})
 	session, err := f.Call(context.Background(), "session/create", json.RawMessage(`{"title":"memory loop fixture"}`))
 	if err != nil {
@@ -412,4 +375,48 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 	if len(reopened.ModelRequests()) != 0 {
 		t.Fatal("request recorder leaked across host instances")
 	}
+}
+
+func memoryLoopConfig(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Storage.Backend = "sqlite"
+	cfg.Storage.DataDir = root
+	cfg.Storage.SQLite.Path = filepath.Join(root, "vivy-test.db")
+	cfg.Runtime.WorkspaceRoot = filepath.Join(root, "workspace")
+	cfg.Server.Addr = "127.0.0.1:0"
+	if err := os.MkdirAll(cfg.Runtime.WorkspaceRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	models, err := filepath.Abs(filepath.Join("..", "..", "..", "laputa", "mentle", "models"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(models, "onnx", "model.onnx")); err != nil {
+		t.Fatal(err)
+	}
+	gardenRoot := filepath.Join(root, "garden")
+	if err := os.MkdirAll(gardenRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(models, filepath.Join(gardenRoot, "models")); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := persona.Open(filepath.Join(gardenRoot, "persona"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Initialize(persona.Initialization{Identity: "synthetic test agent", Relationship: "test relation", Redline: "test limits", User: "synthetic user", World: "private test world"}, "user", persona.SourceInit, "fixture-init"); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.yaml")
+	raw, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
 }
