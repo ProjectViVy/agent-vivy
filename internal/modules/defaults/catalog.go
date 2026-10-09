@@ -10,6 +10,7 @@ import (
 	cognitivemodule "agent-vivy/internal/modules/diva-cognitive"
 	maskmodule "agent-vivy/internal/modules/masks"
 	memorymodule "agent-vivy/internal/modules/memory"
+	notebookmodule "agent-vivy/internal/modules/notebook"
 	"agent-vivy/internal/modules/optional"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/sourcehash"
@@ -22,6 +23,7 @@ type Binding struct {
 	ProviderCollection                                    bool
 	MaskFactory                                           string
 	CognitiveFactory                                      string
+	NotebookFactory                                       string
 	ContextSourceProvider                                 bool
 	SkillSourceProvider                                   bool
 	MCPHostProvider                                       bool
@@ -83,6 +85,14 @@ func Catalog(repoRoot string) ([]Record, error) {
 	for _, actionID := range cognitivemodule.ActionIDs {
 		cognitiveProvides = append(cognitiveProvides, port("std/control-action@v1", actionID))
 	}
+	notebookProvides := []module.PortRef{port("core/notebook-service@v1", notebookmodule.ProviderID)}
+	for _, actionID := range notebookmodule.ActionIDs {
+		notebookProvides = append(notebookProvides, port("std/control-action@v1", actionID))
+	}
+	notebookToolProvides := make([]module.PortRef, 0, len(notebookmodule.ToolIDs))
+	for _, toolID := range notebookmodule.ToolIDs {
+		notebookToolProvides = append(notebookToolProvides, port("std/tool@v1", toolID))
+	}
 	records := []Record{
 		boundRecord("vivy/loop", "agent-vivy/internal/modules/loop", "loop", "NewModule", source, port("core/loop-driver@v1", "vivy.loop-driver")),
 		boundRecord("vivy/model", "agent-vivy/internal/modules/model", "model", "NewModule", source, port("core/chat-model-host@v1", "vivy.chat-model-host")),
@@ -95,6 +105,8 @@ func Catalog(repoRoot string) ([]Record, error) {
 		boundRecord("vivy/memory-bml-sync", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, port("std/context-source@v1", memorymodule.ProviderID), port("std/observer/run@v1", memorymodule.ProviderID)),
 		boundRecord("vivy/memory-bml-tools", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryToolProvides...),
 		boundRecord("vivy/diva-cognitive", "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewModule", source, cognitiveProvides...),
+		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
+		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -141,6 +153,13 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.CognitiveFactory = "Open"
 			records[i].Binding.ProviderConstructor = "ActionProviders"
 			records[i].Binding.ProviderCollection = true
+		case "vivy/notebook-core":
+			records[i].Binding.NotebookFactory = "Open"
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
+		case "vivy/notebook-tools":
+			records[i].Binding.ProviderConstructor = "ToolProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
@@ -163,6 +182,13 @@ func Catalog(repoRoot string) ([]Record, error) {
 				{PortRef: module.PortRef{Port: "core/observer-host@v1"}, Provider: "vivy/observer-host"},
 				{PortRef: module.PortRef{Port: "core/action-host@v1"}, Provider: "vivy/action-host"},
 			}
+		case "vivy/notebook-core":
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/action-host@v1"}, Provider: "vivy/action-host"},
+				{PortRef: module.PortRef{Port: "core/storage-engine@v1"}, Provider: "vivy/storage"},
+			}
+		case "vivy/notebook-tools":
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 		}
 		if records[i].Descriptor.Module.ID == "vivy/provider-profiles" {
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/chat-model-host@v1"}, Provider: "vivy/model"}}

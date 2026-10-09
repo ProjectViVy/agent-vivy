@@ -44,6 +44,10 @@ type PolicyEvaluation struct {
 	Snapshot domain.PolicySnapshot
 	Decision domain.PolicyDecision
 	Reason   string
+	// Matched reports whether an explicit rule produced the decision. Trusted
+	// narrow-origin exemptions may only relax the profile default, never an
+	// operator-written rule.
+	Matched bool
 }
 
 func NewPolicyEngine(definitions map[domain.PolicyProfile]PolicyDefinition) (*PolicyEngine, error) {
@@ -132,8 +136,9 @@ func (e *PolicyEngine) Evaluate(profile domain.PolicyProfile, spec domain.ToolSp
 	if decision == "" {
 		decision = defaultDecision(profile, definition.Default, spec)
 		reason = defaultReason(decision, spec)
+		return PolicyEvaluation{Snapshot: snapshot, Decision: decision, Reason: reason}, nil
 	}
-	return PolicyEvaluation{Snapshot: snapshot, Decision: decision, Reason: reason}, nil
+	return PolicyEvaluation{Snapshot: snapshot, Decision: decision, Reason: reason, Matched: true}, nil
 }
 
 func defaultDecision(profile domain.PolicyProfile, configured domain.PolicyDecision, spec domain.ToolSpec) domain.PolicyDecision {

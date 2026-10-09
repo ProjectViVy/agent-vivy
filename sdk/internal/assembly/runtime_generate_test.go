@@ -359,3 +359,98 @@ func TestGenerateRuntimeAssemblyFormIdentity(t *testing.T) {
 		t.Fatal("expected invalid form identity to fail")
 	}
 }
+
+// N2: the sealed notebook factory seam is emitted only for a selected
+// core/notebook-service@v1 Provider and physically absent otherwise.
+func TestGenerateRuntimeAssemblyBindsSelectedNotebookFactory(t *testing.T) {
+	descriptor := testDescriptor("vivy/notebook-core")
+	descriptor.Source.Ref = "file:internal"
+	descriptor.Provides = []module.PortRef{{Port: "core/notebook-service@v1", ID: "vivy.notebook-service"}}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding: GoBinding{
+			ImportPath:      "agent-vivy/sdk/internal/assembly/testdata/nbfixture",
+			Package:         "nbfixture",
+			Constructor:     "NewModule",
+			NotebookFactory: "Open",
+		},
+	}}, LifecycleOrder: []string{"vivy/notebook-core"}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	for _, want := range []string{
+		`nbfixture "agent-vivy/sdk/internal/assembly/testdata/nbfixture"`,
+		`"agent-vivy/internal/notebookcontract"`,
+		"NotebookFactory ",
+		"NotebookFactory: nbfixture.Open",
+		"func (assembly *RuntimeAssembly) HasNotebookFactory() bool",
+		"func (assembly *RuntimeAssembly) NotebookFactoryValue() any",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("selected notebook Assembly missing %q:\n%s", want, source)
+		}
+	}
+}
+
+func TestGenerateRuntimeAssemblyNotebookOmittedHasNoSeam(t *testing.T) {
+	minimal := testDescriptor("fixture/minimal")
+	minimal.Provides = []module.PortRef{{Port: "core/tool-host@v1", ID: "fixture.tool-host"}}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: minimal,
+		Binding:    GoBinding{ImportPath: "example.com/fixture/minimal", Package: "minimal"},
+	}}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	for _, omitted := range []string{"internal/modules/notebook", "NotebookFactory: nbfixture", "NotebookFactory notebookcontract.Factory"} {
+		if strings.Contains(source, omitted) {
+			t.Fatalf("notebook seam leaked into omitted Assembly: %q", omitted)
+		}
+	}
+	if !strings.Contains(source, "func (assembly *RuntimeAssembly) HasNotebookFactory() bool { return false }") {
+		t.Fatal("omitted Assembly lost the closed accessor")
+	}
+}
+
+func TestGenerateRuntimeAssemblyNotebookFactoryRequiresPort(t *testing.T) {
+	descriptor := testDescriptor("fixture/notnotebook")
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding:    GoBinding{ImportPath: "example.com/x", Package: "x", NotebookFactory: "Open"},
+	}}}, "assembly")
+	if err == nil || !strings.Contains(err.Error(), "does not provide core/notebook-service@v1") {
+		t.Fatalf("binding without port error = %v", err)
+	}
+	_ = generated
+}
+
+func TestGenerateRuntimeAssemblyNotebookProviderRequiresFactory(t *testing.T) {
+	descriptor := testDescriptor("vivy/notebook-core")
+	descriptor.Source.Ref = "file:internal"
+	descriptor.Provides = []module.PortRef{{Port: "core/notebook-service@v1", ID: "vivy.notebook-service"}}
+	_, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding:    GoBinding{ImportPath: "agent-vivy/internal/modules/notebook", Package: "notebook"},
+	}}}, "assembly")
+	if err == nil || !strings.Contains(err.Error(), "missing typed NotebookFactory binding") {
+		t.Fatalf("missing binding error = %v", err)
+	}
+}
+
+func TestGenerateRuntimeAssemblyNotebookProviderRejectsDuplicate(t *testing.T) {
+	one := testDescriptor("vivy/notebook-core")
+	one.Source.Ref = "file:internal"
+	one.Provides = []module.PortRef{{Port: "core/notebook-service@v1", ID: "vivy.notebook-service"}}
+	two := testDescriptor("vivy/notebook-alt")
+	two.Source.Ref = "file:internal"
+	two.Provides = []module.PortRef{{Port: "core/notebook-service@v1", ID: "vivy.notebook-service-alt"}}
+	_, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{
+		{Descriptor: one, Binding: GoBinding{ImportPath: "a", Package: "a", NotebookFactory: "Open"}},
+		{Descriptor: two, Binding: GoBinding{ImportPath: "b", Package: "b", NotebookFactory: "Open"}},
+	}}, "assembly")
+	if err == nil || !strings.Contains(err.Error(), "duplicate core/notebook-service@v1") {
+		t.Fatalf("duplicate provider error = %v", err)
+	}
+}

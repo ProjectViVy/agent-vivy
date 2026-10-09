@@ -7,6 +7,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/generation"
@@ -75,6 +76,11 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 	subscriptions, err := buildRunSubscriptions(&assembly, assembly.Manifest)
 	if err != nil {
 		return nil, err
+	}
+	for i := range subscriptions {
+		if subscriptions[i].Provider.ID() == memorymodule.ProviderID {
+			subscriptions[i].ExcludeRun = backend.HasExcludedToolOperations
+		}
 	}
 	// Construction-owned subscriptions (e.g. the cognitive capture seam)
 	// append after the sealed inventory; nothing may subscribe after Start.

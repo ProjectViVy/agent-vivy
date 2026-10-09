@@ -132,6 +132,10 @@ type Message struct {
 	Channel          string
 	ChatID           string
 	ChannelMessageID string
+	// ContentOrigin/ExcludeAutomaticIngest carry the tool-operation
+	// provenance onto projected tool-result rows and their derivatives.
+	ContentOrigin          string
+	ExcludeAutomaticIngest bool
 }
 
 // EffectiveSource returns the provenance of this message; an empty Source

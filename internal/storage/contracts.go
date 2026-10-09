@@ -95,6 +95,10 @@ type ToolOperationStore interface {
 	GetToolOperation(context.Context, domain.RunID, string) (domain.ToolOperation, error)
 	ClaimToolOperation(context.Context, domain.RunID, string, string) (domain.ToolOperation, bool, domain.RunEvent, error)
 	CompleteToolOperation(context.Context, domain.RunID, string, string, string, string) (domain.ToolOperation, domain.RunEvent, error)
+	// HasExcludedToolOperations reports whether a run admitted any
+	// operation flagged exclude_automatic_ingest. Automatic-ingest
+	// subscriptions use it to skip the run while still advancing cursors.
+	HasExcludedToolOperations(context.Context, domain.RunID) (bool, error)
 }
 
 // SnapshotStore holds the latest consistent domain state per key. Version

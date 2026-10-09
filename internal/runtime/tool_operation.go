@@ -58,6 +58,16 @@ func (s *Service) newToolOperationCoordinator(runID domain.RunID, sessionID doma
 // mutation. Those tools already deduplicate retried calls inside CommitWork
 // by their caller-stable request identity, so a durable tool operation would
 // only shadow the bookkeeping the work stream provides.
+// isNotebookTool marks the notebook-owned note tools whose results carry
+// notebook provenance and the automatic-ingest exclusion.
+func isNotebookTool(name string) bool {
+	switch name {
+	case tools.ListNotesName, tools.ReadNoteName, tools.WriteNoteName:
+		return true
+	}
+	return false
+}
+
 func isModelWorkTool(name string) bool {
 	switch name {
 	case tools.EnterPlanModeName, tools.SubmitPlanName, tools.GetGoalName,
@@ -108,6 +118,12 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 		RequestDigest: operationDigest(request), MiddlewareInputArguments: append([]byte(nil), middlewareInput...),
 		ArgumentsDigest: operationDigest(effective), EffectiveArguments: append([]byte(nil), effective...),
 		CreatedAt: now, UpdatedAt: now,
+	}
+	if isNotebookTool(toolName) {
+		// N2: notebook-owned tool results are excluded from automatic
+		// BML/cognitive ingestion and compaction summaries.
+		op.ContentOrigin = domain.ContentOriginNotebook
+		op.ExcludeAutomaticIngest = true
 	}
 	if err := storage.ValidateToolOperationAdmission(domain.ToolOperation{
 		RunID: op.RunID, OperationID: op.OperationID, ToolName: op.ToolName,

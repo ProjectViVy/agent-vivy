@@ -31,7 +31,7 @@ are allocated at execution to avoid collisions with intervening work.
 | --- | --- | --- | --- | --- | --- | --- |
 | N0 | NOTEBOOK | NB-01, NB-07 | — | Done 2026-10-09 | [N0.md](N0.md) | Log `docs/logs/2026-10-09-notebook-n0/`; `just ci` green |
 | N1 | NOTEBOOK | NB-01, NB-02, NB-05 | N0 | Done 2026-10-09 | [N1.md](N1.md) | Log `docs/logs/2026-10-09-notebook-n1/`; `just ci` green |
-| N2 | NOTEBOOK | NB-01, NB-02, NB-05, NB-06, NB-07, RP-04 | N1 | Planned | [N2.md](N2.md) | Needs revisioned storage and trusted scope/actor wiring |
+| N2 | NOTEBOOK | NB-01, NB-02, NB-05, NB-06, NB-07, RP-04 | N1 | Done 2026-10-09 | [N2.md](N2.md) | Log `docs/logs/2026-10-09-notebook-n2/`; `just ci` green |
 | N3 | NOTEBOOK | NB-02, NB-03, NB-04, NB-05, NB-06 | N2 | Planned | [N3.md](N3.md) | Needs authenticated schemas/actions; completes notebook UI release |
 | R0 | REPORTS | RP-01, RP-03, RP-04, NB-05 | N2 | Planned | [R0.md](R0.md) | Needs trusted scope/actor and notebook exclusion; produces root admission and report binding |
 | R1 | REPORTS | RP-01, RP-02, RP-03, RP-04, NB-03, NB-04 | R0 | Planned | [R1.md](R1.md) | Needs restricted workflow identity; produces manual reports and output receipts |

@@ -136,11 +136,16 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			if p.Error != "" {
 				content = p.Error
 			}
-			out = append(out, domain.Message{
+			msg := domain.Message{
 				ID: projectedMessageID(runID, re.Seq, "0"), SessionID: sessionID, RunID: runID,
 				Role: domain.RoleTool, CreatedAt: re.CreatedAt, Content: content,
 				ToolCallID: p.ToolCallID, ToolName: p.ToolName,
-			})
+			}
+			if isNotebookTool(p.ToolName) {
+				msg.ContentOrigin = domain.ContentOriginNotebook
+				msg.ExcludeAutomaticIngest = true
+			}
+			out = append(out, msg)
 		case domain.EventModelCompleted:
 			content, err := completedProjectionContent(re, pending.String())
 			if err != nil {

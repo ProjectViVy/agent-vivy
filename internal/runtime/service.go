@@ -3416,12 +3416,25 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		return stored, false
 	}
 	kept := stored[idx:]
+	excluded := false
+	for _, m := range stored[:idx] {
+		if m.ExcludeAutomaticIngest {
+			excluded = true
+			break
+		}
+	}
 	summary := domain.Message{
 		ID:        newMessageID(),
 		SessionID: latest.SessionID,
 		Role:      domain.RoleUser,
 		CreatedAt: latest.TailFrom,
 		Content:   compactionSummaryPrefix + latest.Summary,
+	}
+	if excluded {
+		// A folded range containing excluded rows taints the derived summary:
+		// mixed summaries are conservatively excluded from automatic ingest.
+		summary.ExcludeAutomaticIngest = true
+		summary.ContentOrigin = domain.ContentOriginNotebook
 	}
 	out := make([]domain.Message, 0, len(kept)+1)
 	out = append(out, summary)

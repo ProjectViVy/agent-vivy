@@ -40,7 +40,10 @@ type GoBinding struct {
 	// mirrors MaskFactory: emitted only when the owner module is selected,
 	// always exposed through CognitiveFactoryValue() as any (nil when
 	// unselected).
-	CognitiveFactory             string
+	CognitiveFactory string
+	// NotebookFactory names the typed core/notebook-service@v1 binding;
+	// emitted only when the owner module is selected.
+	NotebookFactory              string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool

@@ -638,11 +638,12 @@ func (p *CognitiveCaptureProvider) ID() string { return CognitiveCaptureProvider
 // for the bound capture sink: terminal run events, projected to the fields
 // the provider reads, delivered through the durable-cursor path.
 func CognitiveCaptureSubscription(runs storage.RunStore, sink CognitiveCaptureSink,
-	notify func(CognitiveCaptureReceipt)) observerhost.RunSubscription {
+	notify func(CognitiveCaptureReceipt), excludeRun func(context.Context, domain.RunID) (bool, error)) observerhost.RunSubscription {
 	return observerhost.RunSubscription{
 		Provider:             NewCognitiveCaptureProvider(runs, sink, notify),
 		EventTypes:           append([]string(nil), CognitiveCaptureEventTypes...),
 		AllowedPayloadFields: append([]string(nil), CognitiveCapturePayloadFields...),
+		ExcludeRun:           excludeRun,
 	}
 }
 

@@ -34,6 +34,8 @@ modules:
   - vivy/memory-bml-sync
   - vivy/memory-bml-tools
   - vivy/notebook
+  - vivy/notebook-core
+  - vivy/notebook-tools
   - vivy/masks
   - vivy/masks-ui
   - vivy/workflow-ui

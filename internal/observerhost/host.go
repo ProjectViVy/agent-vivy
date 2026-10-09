@@ -41,6 +41,10 @@ type RunSubscription struct {
 	Provider             observer.RunProvider
 	EventTypes           []string
 	AllowedPayloadFields []string
+	// ExcludeRun skips provider delivery for a run while still advancing
+	// the durable cursor (N2 automatic-ingest eligibility). Nil means every
+	// matching event delivers.
+	ExcludeRun func(context.Context, domain.RunID) (bool, error)
 }
 
 type Config struct {
@@ -336,8 +340,16 @@ func (h *Host) deliverProvider(ctx context.Context, subscription RunSubscription
 	if err := iterator.Close(); err != nil {
 		return err
 	}
+	excluded := false
+	if subscription.ExcludeRun != nil {
+		skip, exclErr := subscription.ExcludeRun(ctx, runID)
+		if exclErr != nil {
+			return exclErr
+		}
+		excluded = skip
+	}
 	for _, entry := range entries {
-		if subscriptionAllows(subscription, string(entry.Type)) {
+		if !excluded && subscriptionAllows(subscription, string(entry.Type)) {
 			payload, projectErr := projectPayload(entry.Payload, subscription.AllowedPayloadFields)
 			if projectErr != nil {
 				return projectErr
@@ -369,7 +381,7 @@ func normalizeSubscription(input RunSubscription) (RunSubscription, error) {
 	if input.Provider == nil || len(input.EventTypes) == 0 {
 		return RunSubscription{}, ErrInvalidSubscription
 	}
-	out := RunSubscription{Provider: input.Provider}
+	out := RunSubscription{Provider: input.Provider, ExcludeRun: input.ExcludeRun}
 	seenTypes := map[string]struct{}{}
 	for _, value := range input.EventTypes {
 		value = strings.TrimSpace(value)
