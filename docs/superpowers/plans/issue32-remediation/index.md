@@ -23,8 +23,8 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 
 | Phase | Independently reviewable tasks | Prerequisite | Plan | State |
 | --- | --- | --- | --- | --- |
-| P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | DESIGNED |
-| P1 | frozen frontend input; H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | DESIGNED |
+| P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
+| P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | DESIGNED |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | DESIGNED |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | DESIGNED |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
@@ -32,7 +32,9 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | DESIGNED |
 | P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | DESIGNED |
 
-First blocking tranche: P1.0-P1.3 and P2.1-P2.2 (five P1 findings plus the frontend-input prerequisite). Remaining tasks may be prepared
+First blocking tranche: P1.1-P1.3 and P2.1-P2.2 (H1-H3 plus C1-C2). The
+reviewed DIVA frontend lock is already tracked and matches its canonical hash;
+P1.2 verifies frozen use without a separate lock-restoration task. Remaining tasks may be prepared
 in isolated lanes, but do not delay those five P1 repairs with unrelated work.
 Implementation method is unselected. Recommended: task-level implementation
 and independent review; state/Service/App changes stay sequential in each lane.
