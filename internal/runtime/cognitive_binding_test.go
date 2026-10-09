@@ -73,6 +73,7 @@ type fakeCognitiveDomain struct {
 	// gate, when non-nil, blocks Collect until closed so a test can hold a
 	// workflow run mid-flight.
 	gate       chan struct{}
+	entered    chan struct{}
 	lastWindow laputaevolution.Window
 }
 
@@ -83,6 +84,12 @@ func (d *fakeCognitiveDomain) Collect(ctx context.Context, w laputaevolution.Win
 		return laputaevolution.EvidenceBatch{}, d.collectErr
 	}
 	if d.gate != nil {
+		if d.entered != nil {
+			select {
+			case d.entered <- struct{}{}:
+			default:
+			}
+		}
 		select {
 		case <-d.gate:
 		case <-ctx.Done():

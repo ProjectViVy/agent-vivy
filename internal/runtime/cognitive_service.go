@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 )
 
 const cognitiveStateKey = "cognitive/state"
+const cognitiveStateSchema = 2
 
 // CognitiveSource reports the committed-activity watermark of the bound
 // input source. The evolution window's Through is read here so a crash
@@ -35,6 +37,9 @@ type CognitiveMissionSource = cognitivecontract.MissionSource
 // host-owned snapshot store. Every admission decision reads it; every settle
 // writes it before the next wake.
 type cognitiveState struct {
+	StateSchema         int                           `json:"state_schema,omitempty"`
+	Phase               string                        `json:"phase,omitempty"`
+	Intent              *cognitiveIntent              `json:"intent,omitempty"`
 	SupervisorSeq       int                           `json:"supervisor_seq"`
 	SupervisorRunID     string                        `json:"supervisor_run_id,omitempty"`
 	ActiveRunID         string                        `json:"active_run_id,omitempty"`
@@ -47,10 +52,22 @@ type cognitiveState struct {
 	PolicyRevision      uint64                        `json:"policy_revision"`
 	LastReason          string                        `json:"last_reason,omitempty"`
 	// Blocked is the durable admission fence: a non-empty reason stops
-	// automatic retries until a deliberate manual trigger clears it.
+	// automatic retries; only known cancellation/exhaustion may be cleared
+	// by the manual retry path.
 	// Unknown outcomes, human cancellation and exhausted retries record
 	// their cause here; disabling/enabling the loop never clears it.
 	Blocked string `json:"blocked,omitempty"`
+}
+
+// cognitiveIntent is the immutable admission identity persisted before the
+// workflow admission transaction. Its original parent and exact canonical
+// input are the recovery lookup key after a process restart.
+type cognitiveIntent struct {
+	ParentRunID  domain.RunID    `json:"parent_run_id"`
+	OperationKey string          `json:"operation_key"`
+	StrategyID   string          `json:"strategy_id"`
+	Input        json.RawMessage `json:"input"`
+	Attempt      int             `json:"attempt"`
 }
 
 // cognitiveSupervisorSessionID is the host-owned supervisor's session.
@@ -254,20 +271,8 @@ func (s *Service) CognitiveLoopActive() bool {
 // unknown node outcomes, recovery-required engine state and missing
 // bindings are durable fences, not transient failures.
 func (s *Service) cognitiveRunBlocked(ctx context.Context, runID domain.RunID) bool {
-	details, err := s.GetWorkflow(ctx, runID)
-	if err != nil {
-		return false
-	}
-	if details.EngineStatus == string(inofy.RunRecoveryRequired) {
-		return true
-	}
-	for _, node := range details.Nodes {
-		if node.ErrorCategory == string(inofy.ErrOutcomeUnknown) ||
-			strings.Contains(node.Message, "outcome is unknown") {
-			return true
-		}
-	}
-	return false
+	safe, err := s.cognitiveRunRetrySafe(ctx, runID)
+	return err != nil || !safe
 }
 
 func (s *Service) kickCognitive() {
@@ -289,27 +294,18 @@ func (s *Service) kickCognitive() {
 	}
 }
 
-// cognitiveAttempt runs one admission decision for the bound strategy.
-// Order per wake: settle the recorded active run, read the source high
-// watermark, Evaluate, then start the workflow under the host-owned
-// supervisor run. Repeated wakes while a run is active coalesce on the
-// persisted ActiveRunID.
+// cognitiveAttempt reconciles any persisted admission identity first, then
+// reads the source watermark, evaluates eligibility and persists the next
+// immutable intent before workflow admission. Repeated wakes coalesce on the
+// exact ActiveRunID recovered from that intent.
 func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevolution.Eligibility, error) {
 	s.cogAttemptMu.Lock()
 	defer s.cogAttemptMu.Unlock()
 
 	b := s.deps.Cognitive
-	if b == nil || b.Domain == nil {
+	if b == nil || b.Domain == nil || b.Store == nil {
 		return laputaevolution.Eligibility{}, ErrCognitiveUnavailable
 	}
-	if b.Store == nil {
-		return laputaevolution.Eligibility{}, ErrCognitiveUnavailable
-	}
-	st, stateVersion, err := s.loadCognitiveState(ctx)
-	if err != nil {
-		return laputaevolution.Eligibility{}, err
-	}
-	baseState := st
 	if !manual {
 		s.cogMu.Lock()
 		c := s.cognitive
@@ -324,50 +320,66 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 			return laputaevolution.Eligibility{Reason: laputaevolution.ReasonDisabled}, nil
 		}
 	}
-	now := b.now()
-	if st.ActiveRunID != "" {
-		run, getErr := s.deps.Runs.GetRun(ctx, domain.RunID(st.ActiveRunID))
-		switch {
-		case getErr != nil && errors.Is(getErr, storage.ErrNotFound):
-			st.ActiveRunID = ""
-		case getErr != nil:
-			return laputaevolution.Eligibility{}, getErr
-		case run.Status.Terminal():
-			switch {
-			case run.Status == domain.RunCompleted:
-				st.Watermark = st.PendingThrough
-				st.LastCompletedUnixMS = now
-				st.Attempt = 0
-			case run.Status == domain.RunCancelled:
-				// Human cancellation pauses; automatic admission never
-				// retries it.
-				st.Blocked = cognitiveBlockCancelled
-			case s.cognitiveRunBlocked(ctx, run.ID):
-				// Unknown outcome, missing binding or authority change:
-				// effects may already be applied, so retrying could
-				// duplicate them.
-				st.Blocked = cognitiveBlockUnknown
-			default:
-				// A transiently failed run never advances the watermark; the
-				// next wake retries the window under a new attempt suffix,
-				// bounded at cognitiveMaxAttempts.
-				st.Attempt++
-				if st.Attempt >= cognitiveMaxAttempts {
-					st.Blocked = cognitiveBlockExhausted
-				}
-			}
-			st.ActiveRunID = ""
+	st, version, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return laputaevolution.Eligibility{}, err
+	}
+	if st.StateSchema != cognitiveStateSchema {
+		st, version, err = s.upgradeCognitiveState(ctx, st, version)
+		if err != nil {
+			return laputaevolution.Eligibility{}, err
 		}
 	}
+	if st.Intent == nil && st.ActiveRunID != "" {
+		base := st
+		st.Blocked, st.Phase = cognitiveBlockUnknown, "blocked"
+		st.LastReason = "blocked:" + cognitiveBlockUnknown
+		if err := s.saveCognitiveAttemptState(ctx, base, st, version); err != nil {
+			return laputaevolution.Eligibility{}, err
+		}
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason(st.LastReason)}, nil
+	}
+	if st.Intent != nil {
+		st, version, err = s.reconcileCognitiveIntent(ctx, st, version)
+		if err != nil {
+			return laputaevolution.Eligibility{}, err
+		}
+	}
+	baseState := st
+	if st.ActiveRunID != "" {
+		return laputaevolution.Eligibility{Reason: laputaevolution.ReasonActive}, nil
+	}
+	if st.Blocked == cognitiveBlockUnknown {
+		st.LastReason = "blocked:" + st.Blocked
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason(st.LastReason)}, nil
+	}
+	if st.Blocked != "" && !manual {
+		st.LastReason = "blocked:" + st.Blocked
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason(st.LastReason)}, nil
+	}
+	if st.Blocked != "" && manual {
+		// A manual wake may clear a known cancellation or exhausted-attempt
+		// fence. Unknown outcomes remain fenced because a new key could
+		// duplicate an effect whose receipt is unavailable.
+		if st.Blocked != cognitiveBlockCancelled && st.Blocked != cognitiveBlockExhausted {
+			return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, nil
+		}
+		st.Blocked = ""
+		st.Intent = nil
+		st.ActiveRunID = ""
+		st.Attempt++
+		st.Phase = "idle"
+	}
+
+	now := b.now()
 	high, err := s.cognitiveHighWatermark(ctx, st)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
-	if st.Blocked != "" && !manual {
-		// Durable fence: automatic wakes stop here. A manual trigger is a
-		// deliberate human retry and clears the recorded reason.
-		st.LastReason = "blocked:" + st.Blocked
-		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion)
+	if st.Attempt > 0 && st.PendingThrough > st.Watermark {
+		// A retry keeps the exact previously admitted input window, even if
+		// new activity has arrived while that window was running.
+		high = st.PendingThrough
 	}
 	elig := laputaevolution.Evaluate(laputaevolution.Wake{
 		NowUnixMS:      now,
@@ -380,14 +392,14 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	})
 	st.LastReason = string(elig.Reason)
 	if !elig.Run {
-		return elig, s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion)
+		if err := s.saveCognitiveAttemptState(ctx, baseState, st, version); err != nil {
+			return laputaevolution.Eligibility{}, err
+		}
+		return elig, nil
 	}
-	if manual {
-		st.Blocked = ""
-	}
-	// Per-admission binding resolution: each run pins the current
-	// authority revision (Mission/policy) in its workflow input. A
-	// resolved scope that drifts from the bound composition is refused.
+
+	// Resolve the current binding once and freeze the canonical input in the
+	// intent before the workflow admission side effect.
 	binding := b.Binding
 	if b.Resolve != nil {
 		resolved, resolveErr := b.Resolve(ctx)
@@ -401,9 +413,9 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		binding = resolved
 	}
 	if b.Binding.MissionAssigned() && b.Mission != nil {
-		current, err := b.Mission.MissionRevision(ctx)
-		if err != nil {
-			return laputaevolution.Eligibility{}, err
+		current, missionErr := b.Mission.MissionRevision(ctx)
+		if missionErr != nil {
+			return laputaevolution.Eligibility{}, missionErr
 		}
 		if err := b.Binding.CheckMissionRevision(current); err != nil {
 			return laputaevolution.Eligibility{}, err
@@ -421,30 +433,29 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
-	// The operation key carries the window and attempt so a failed run does
-	// not permanently block the same input (terminal dedupe returns
-	// Created:false instead of retrying).
-	opKey := fmt.Sprintf("cognitive:%s:%d-%d:a%d", b.SourceID, st.Watermark, high, st.Attempt)
-	started, err := s.StartCognitiveWorkflow(ctx, parentID, opKey, TrustedStrategyDIVA, input)
+	input, _, err = normalizeINOFYInput(input)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
-	if started.Created {
-		st.ActiveRunID = string(started.Run.ID)
-		st.PendingThrough = high
-	} else if !started.Run.Status.Terminal() {
-		// Crash between workflow creation and state save: reconcile the
-		// persisted operation identity by adopting the live run instead
-		// of minting a new attempt.
-		st.ActiveRunID = string(started.Run.ID)
-		st.PendingThrough = high
-	} else {
-		st.Attempt++
-		if st.Attempt >= cognitiveMaxAttempts {
-			st.Blocked = cognitiveBlockExhausted
-		}
+	opKey := fmt.Sprintf("cognitive:%s:%d-%d:a%d", b.SourceID, st.Watermark, high, st.Attempt)
+	st.Intent = &cognitiveIntent{ParentRunID: parentID, OperationKey: opKey,
+		StrategyID: TrustedStrategyDIVA, Input: append(json.RawMessage(nil), input...), Attempt: st.Attempt}
+	st.PendingThrough = high
+	st.ActiveRunID = ""
+	st.StateSchema = cognitiveStateSchema
+	st.Phase = "admitting"
+	st.LastReason = string(elig.Reason)
+	if err := s.saveCognitiveAttemptState(ctx, baseState, st, version); err != nil {
+		return laputaevolution.Eligibility{}, err
 	}
-	if err := s.saveCognitiveAttemptState(ctx, baseState, st, stateVersion); err != nil {
+	st, version, err = s.loadCognitiveState(ctx)
+	if err != nil {
+		return laputaevolution.Eligibility{}, err
+	}
+	if st.Intent == nil {
+		return laputaevolution.Eligibility{}, errors.New("runtime: cognitive admission intent disappeared before reconciliation")
+	}
+	if _, _, err := s.reconcileCognitiveIntent(ctx, st, version); err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
 	return elig, nil
@@ -549,16 +560,19 @@ func (s *Service) adoptCognitiveSupervisor(run domain.Run) {
 
 func (s *Service) loadCognitiveState(ctx context.Context) (cognitiveState, int64, error) {
 	b := s.deps.Cognitive
-	st := cognitiveState{Policy: b.Policy}
 	raw, version, err := b.Store.Get(ctx, cognitiveStateKey)
 	if err != nil {
 		return cognitiveState{}, 0, err
 	}
 	if len(raw) == 0 {
-		return st, version, nil
+		return cognitiveState{Policy: b.Policy, StateSchema: cognitiveStateSchema, Phase: "idle"}, version, nil
 	}
+	var st cognitiveState
 	if err := json.Unmarshal(raw, &st); err != nil {
 		return cognitiveState{}, 0, fmt.Errorf("runtime: decode cognitive state: %w", err)
+	}
+	if st.StateSchema != 0 && st.StateSchema != cognitiveStateSchema {
+		return cognitiveState{}, 0, fmt.Errorf("runtime: unsupported cognitive state schema %d", st.StateSchema)
 	}
 	return st, version, nil
 }
@@ -569,6 +583,406 @@ func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState, exp
 		return err
 	}
 	return s.deps.Cognitive.Store.Put(ctx, cognitiveStateKey, raw, expectedVersion)
+}
+
+func (s *Service) commitCognitiveAttempt(ctx context.Context, base, next cognitiveState, version int64) (cognitiveState, int64, error) {
+	if err := s.saveCognitiveAttemptState(ctx, base, next, version); err != nil {
+		return cognitiveState{}, 0, err
+	}
+	return s.loadCognitiveState(ctx)
+}
+
+func (s *Service) upgradeCognitiveState(ctx context.Context, st cognitiveState, version int64) (cognitiveState, int64, error) {
+	if st.StateSchema == cognitiveStateSchema {
+		return st, version, nil
+	}
+	base, next := st, st
+	next.StateSchema = cognitiveStateSchema
+	if next.ActiveRunID != "" {
+		runID := domain.RunID(next.ActiveRunID)
+		run, runErr := s.deps.Runs.GetRun(ctx, runID)
+		revision, revisionErr := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, runID)
+		intent, through, intentErr := cognitiveIntentFromRevision(revision)
+		if intentErr == nil && !cognitiveRevisionMatchesCatalog(ctx, revision) {
+			intentErr = errors.New("runtime: legacy cognitive revision differs from the trusted catalog")
+		}
+		switch {
+		case runErr != nil, revisionErr != nil, intentErr != nil,
+			run.ID != runID, run.Kind != domain.RunKindWorkflow, intent.ParentRunID != run.ParentID,
+			(next.PendingThrough != 0 && next.PendingThrough != through):
+			next.Blocked = cognitiveBlockUnknown
+			next.Phase = "blocked"
+			next.LastReason = "blocked:" + cognitiveBlockUnknown
+		default:
+			next.Intent = &intent
+			next.PendingThrough = through
+			if run.Status.Terminal() {
+				next.Phase = "admitting"
+			} else {
+				next.Phase = "running"
+			}
+		}
+	} else {
+		high, highErr := s.cognitiveHighWatermark(ctx, next)
+		if highErr != nil || next.PendingThrough > next.Watermark || next.SourceHigh > next.Watermark ||
+			next.Attempt != 0 || high > next.Watermark {
+			// The legacy shape cannot tell whether its old code crashed before
+			// admission or after an unrecorded side effect. Never invent a key.
+			next.Blocked = cognitiveBlockUnknown
+			next.Phase = "blocked"
+			next.LastReason = "blocked:" + cognitiveBlockUnknown
+		} else if next.Blocked != "" {
+			next.Phase = "blocked"
+		} else {
+			next.Phase = "idle"
+		}
+	}
+	return s.commitCognitiveAttempt(ctx, base, next, version)
+}
+
+func cognitiveIntentFromRevision(revision domain.WorkflowRevision) (cognitiveIntent, uint64, error) {
+	if revision.SchemaVersion != 2 || revision.ParentRunID == "" || revision.OperationKey == "" ||
+		len(revision.InputJSON) == 0 {
+		return cognitiveIntent{}, 0, errors.New("runtime: cognitive revision is incomplete")
+	}
+	authority, err := decodeWorkflowAuthority(revision)
+	if err != nil || authority.TrustedStrategy != TrustedStrategyDIVA {
+		return cognitiveIntent{}, 0, errors.New("runtime: cognitive revision strategy is unknown")
+	}
+	canonical, digest, err := normalizeINOFYInput(revision.InputJSON)
+	if err != nil || !bytes.Equal(canonical, revision.InputJSON) || digest != revision.InputDigest {
+		return cognitiveIntent{}, 0, errors.New("runtime: cognitive revision input is not canonical")
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(revision.InputJSON, &input); err != nil || input.Window.SourceID == "" || input.Window.Through < input.Window.After {
+		return cognitiveIntent{}, 0, errors.New("runtime: cognitive revision window is invalid")
+	}
+	return cognitiveIntent{
+		ParentRunID: revision.ParentRunID, OperationKey: revision.OperationKey,
+		StrategyID: authority.TrustedStrategy, Input: append(json.RawMessage(nil), revision.InputJSON...),
+	}, input.Window.Through, nil
+}
+
+func cognitiveRevisionMatchesCatalog(ctx context.Context, revision domain.WorkflowRevision) bool {
+	if revision.SchemaVersion != 2 {
+		return false
+	}
+	admitted, err := trustedStrategyAdmission(ctx, TrustedStrategyDIVA)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(revision.DescriptorJSON, admitted.CanonicalJSON) &&
+		revision.DescriptorDigest == sha256Hex(admitted.CanonicalJSON) &&
+		revision.ProgramDigest == admitted.Meta.ProgramDigest &&
+		revision.CatalogDigest == admitted.Meta.CatalogDigest &&
+		revision.CompilerVersion == admitted.Meta.CompilerVersion &&
+		revision.EinoBuild == admitted.Meta.EinoBuild
+}
+
+func (s *Service) reconcileCognitiveIntent(ctx context.Context, st cognitiveState, version int64) (cognitiveState, int64, error) {
+	if st.Intent == nil {
+		return st, version, nil
+	}
+	base := st
+	intent := *st.Intent
+	intent.Input = append(json.RawMessage(nil), st.Intent.Input...)
+	if intent.ParentRunID == "" || intent.OperationKey == "" || intent.StrategyID != TrustedStrategyDIVA ||
+		len(intent.Input) == 0 || intent.Attempt < 0 {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	canonical, _, err := normalizeINOFYInput(intent.Input)
+	if err != nil || !bytes.Equal(canonical, intent.Input) {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	var requested laputaevolution.Input
+	if err := json.Unmarshal(intent.Input, &requested); err != nil || requested.Window.SourceID == "" || requested.Window.Through < requested.Window.After {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	if st.PendingThrough != requested.Window.Through {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+
+	revision, lookupErr := s.deps.WorkflowRevisions.GetWorkflowRevisionByOperation(ctx, intent.ParentRunID, intent.OperationKey)
+	var run domain.Run
+	if errors.Is(lookupErr, storage.ErrNotFound) {
+		parent, parentErr := s.deps.Runs.GetRun(ctx, intent.ParentRunID)
+		if parentErr != nil || parent.Status != domain.RunActive || parent.Kind != domain.RunKindPrimary || parent.SessionID != cognitiveSupervisorSessionID {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+		s.adoptCognitiveSupervisor(parent)
+		started, startErr := s.StartCognitiveWorkflow(ctx, intent.ParentRunID, intent.OperationKey, intent.StrategyID, intent.Input)
+		if startErr != nil {
+			// An admission error can race the transaction's acknowledgement;
+			// query the exact durable identity again before deciding whether it
+			// was committed. A proven absence leaves this intent retryable.
+			revision, lookupErr = s.deps.WorkflowRevisions.GetWorkflowRevisionByOperation(ctx, intent.ParentRunID, intent.OperationKey)
+			if errors.Is(lookupErr, storage.ErrNotFound) {
+				return st, version, startErr
+			}
+			if lookupErr != nil {
+				return s.fenceCognitiveIntent(ctx, base, version)
+			}
+		} else {
+			revision, run = started.Revision, started.Run
+			lookupErr = nil
+		}
+	} else if lookupErr != nil {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	if revision.RunID == "" || revision.ParentRunID != intent.ParentRunID ||
+		revision.OperationKey != intent.OperationKey || !bytes.Equal(revision.InputJSON, intent.Input) {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	revisionIntent, through, err := cognitiveIntentFromRevision(revision)
+	if err != nil || revisionIntent.StrategyID != intent.StrategyID || through != requested.Window.Through {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	if !cognitiveRevisionMatchesCatalog(ctx, revision) {
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	if run.ID == "" {
+		run, err = s.deps.Runs.GetRun(ctx, revision.RunID)
+		if err != nil || run.Kind != domain.RunKindWorkflow || run.ParentID != intent.ParentRunID {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+	}
+	next := st
+	next.ActiveRunID = string(run.ID)
+	next.PendingThrough = through
+	switch run.Status {
+	case domain.RunCompleted:
+		next.Watermark = through
+		next.LastCompletedUnixMS = s.deps.Cognitive.now()
+		next.Attempt = 0
+		next.ActiveRunID = ""
+		next.Intent = nil
+		next.Blocked = ""
+		next.Phase = "completed"
+	case domain.RunCancelled:
+		next.ActiveRunID = ""
+		next.Blocked = cognitiveBlockCancelled
+		next.Phase = "cancelled"
+	case domain.RunFailed:
+		safe, safeErr := s.cognitiveRunRetrySafe(ctx, run.ID)
+		if safeErr != nil || !safe {
+			next.ActiveRunID = ""
+			next.Blocked = cognitiveBlockUnknown
+			next.Phase = "blocked"
+		} else {
+			next.ActiveRunID = ""
+			next.Intent = nil
+			next.Attempt = intent.Attempt + 1
+			next.Phase = "failed"
+			if next.Attempt >= cognitiveMaxAttempts {
+				next.Blocked = cognitiveBlockExhausted
+				next.Phase = "blocked"
+			}
+		}
+	case domain.RunAccepted, domain.RunQueued:
+		parent, parentErr := s.deps.Runs.GetRun(ctx, intent.ParentRunID)
+		if parentErr != nil || parent.Status != domain.RunActive || parent.Kind != domain.RunKindPrimary || parent.SessionID != cognitiveSupervisorSessionID {
+			return s.fenceCognitiveIntent(ctx, base, version)
+		}
+		s.adoptCognitiveSupervisor(parent)
+		started, startErr := s.StartCognitiveWorkflow(ctx, intent.ParentRunID, intent.OperationKey, intent.StrategyID, intent.Input)
+		if startErr != nil {
+			current, getErr := s.deps.Runs.GetRun(ctx, run.ID)
+			if getErr != nil || current.Status != domain.RunActive {
+				return s.fenceCognitiveIntent(ctx, base, version)
+			}
+		} else {
+			run = started.Run
+		}
+		if run.Status.Terminal() {
+			return s.reconcileCognitiveIntent(ctx, st, version)
+		}
+		next.ActiveRunID = string(run.ID)
+		next.Phase = "running"
+	case domain.RunActive:
+		next.ActiveRunID = string(run.ID)
+		next.Phase = "running"
+	default:
+		return s.fenceCognitiveIntent(ctx, base, version)
+	}
+	return s.commitCognitiveAttempt(ctx, base, next, version)
+}
+
+func (s *Service) fenceCognitiveIntent(ctx context.Context, base cognitiveState, version int64) (cognitiveState, int64, error) {
+	next := base
+	next.Blocked = cognitiveBlockUnknown
+	next.Phase = "blocked"
+	next.LastReason = "blocked:" + cognitiveBlockUnknown
+	return s.commitCognitiveAttempt(ctx, base, next, version)
+}
+
+func (s *Service) cognitiveRunRetrySafe(ctx context.Context, runID domain.RunID) (bool, error) {
+	details, err := s.GetWorkflow(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	if details.Run.Status != domain.RunFailed || details.EngineStatus != string(inofy.RunFailed) {
+		return false, nil
+	}
+	engine, err := s.inofyEngine()
+	if err != nil {
+		return false, err
+	}
+	step, err := engine.LoadWorkflowStep(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	if step.Projection == nil || string(step.Projection.Status) != string(inofy.RunFailed) {
+		// GetWorkflow falls back to the native Run status when the durable
+		// workflow projection is absent; that alone is not settlement proof.
+		return false, nil
+	}
+	revision, err := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	intent, _, err := cognitiveIntentFromRevision(revision)
+	if err != nil || intent.StrategyID != TrustedStrategyDIVA {
+		return false, nil
+	}
+	if !cognitiveRevisionMatchesCatalog(ctx, revision) {
+		return false, nil
+	}
+	var definition inofy.Definition
+	if err := json.Unmarshal(details.Definition, &definition); err != nil {
+		return false, err
+	}
+	expected := map[string]bool{"collect": true, "prepare": true, "reconcile": true, "reflect": true, "effects": true, "finish": true}
+	seen := make(map[string]WorkflowNodeProjection, len(details.Nodes))
+	for _, node := range details.Nodes {
+		if !expected[node.Key] || seen[node.Key].Key != "" {
+			return false, nil
+		}
+		seen[node.Key] = node
+	}
+	if len(seen) != len(expected) || len(definition.Graph.Nodes) != len(expected) {
+		return false, nil
+	}
+	for key := range expected {
+		node, ok := seen[key]
+		if !ok || node.ErrorCategory == string(inofy.ErrOutcomeUnknown) || strings.Contains(node.Message, "outcome is unknown") {
+			return false, nil
+		}
+		switch node.Status {
+		case "waiting", "blocked", "completed", "failed", "cancelled", "running":
+		default:
+			return false, nil
+		}
+		if node.Status == "running" || node.Status == "cancelled" {
+			return false, nil
+		}
+		if (key == "reconcile" || key == "effects") && node.Status != "waiting" && node.Status != "blocked" {
+			// Both stages may write through Domain.Apply; even a failed stage
+			// has an ambiguous external effect unless it never started.
+			return false, nil
+		}
+	}
+	return s.cognitiveInferenceEvidenceSafe(ctx, runID)
+}
+
+func (s *Service) cognitiveInferenceEvidenceSafe(ctx context.Context, workflowID domain.RunID) (bool, error) {
+	children, err := s.deps.Runs.ListChildRuns(ctx, workflowID)
+	if err != nil {
+		return false, err
+	}
+	for _, child := range children {
+		if child.Kind != domain.RunKindChild || !child.Status.Terminal() || child.Status == domain.RunCancelled {
+			return false, nil
+		}
+		it, err := s.deps.Journal.Replay(ctx, child.ID, 0)
+		if err != nil {
+			return false, err
+		}
+		requests := map[string]bool{}
+		finished := map[string]bool{}
+		started, terminal := false, domain.EventType("")
+		for it.Next() {
+			event := it.Value().Event
+			switch event.Type {
+			case domain.EventRunStarted:
+				if started {
+					_ = it.Close()
+					return false, nil
+				}
+				started = true
+			case domain.EventRunCompleted, domain.EventRunFailed:
+				if terminal != "" {
+					_ = it.Close()
+					return false, nil
+				}
+				terminal = event.Type
+			case domain.EventRunCancelled:
+				_ = it.Close()
+				return false, nil
+			case domain.EventProviderRetry, domain.EventProviderStall,
+				domain.EventModelDelta, domain.EventModelReasoningDelta, domain.EventModelCompleted:
+			case domain.EventModelRequest:
+				var request payloadModelRequestV3
+				if err := json.Unmarshal(event.Payload, &request); err != nil || request.CallID == "" || requests[request.CallID] {
+					_ = it.Close()
+					return false, nil
+				}
+				requests[request.CallID] = true
+			case domain.EventModelUsage:
+				var usage payloadModelUsageV2
+				if err := json.Unmarshal(event.Payload, &usage); err != nil || usage.CallID == "" ||
+					!requests[usage.CallID] || finished[usage.CallID] {
+					_ = it.Close()
+					return false, nil
+				}
+			case domain.EventModelCallFinished:
+				var finish payloadModelCallFinished
+				if err := json.Unmarshal(event.Payload, &finish); err != nil || finish.CallID == "" || !requests[finish.CallID] || finished[finish.CallID] {
+					_ = it.Close()
+					return false, nil
+				}
+				switch finish.Status {
+				case "completed":
+					if !finish.ResponseComplete || finish.Error != nil {
+						_ = it.Close()
+						return false, nil
+					}
+				case "failed":
+					if finish.ResponseComplete || finish.Error == nil || finish.Error.Name == "" || finish.Error.Message == "" {
+						_ = it.Close()
+						return false, nil
+					}
+				default:
+					_ = it.Close()
+					return false, nil
+				}
+				finished[finish.CallID] = true
+			default:
+				// These children are the strategy's inference-only lane. An
+				// unknown event could represent an effect without a receipt.
+				_ = it.Close()
+				return false, nil
+			}
+		}
+		iterErr := it.Err()
+		closeErr := it.Close()
+		if closeErr != nil {
+			return false, closeErr
+		}
+		if iterErr != nil {
+			return false, iterErr
+		}
+		if len(requests) != len(finished) {
+			return false, nil
+		}
+		wantTerminal := domain.EventRunCompleted
+		if child.Status == domain.RunFailed {
+			wantTerminal = domain.EventRunFailed
+		}
+		if !started || terminal != wantTerminal {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // saveCognitiveAttemptState first commits against the snapshot the attempt
@@ -591,6 +1005,21 @@ func (s *Service) saveCognitiveAttemptState(ctx context.Context, base, attempted
 }
 
 func rebaseCognitiveAttemptState(latest, base, attempted cognitiveState) cognitiveState {
+	if attempted.StateSchema != base.StateSchema {
+		latest.StateSchema = attempted.StateSchema
+	}
+	if attempted.Phase != base.Phase {
+		latest.Phase = attempted.Phase
+	}
+	if attempted.Intent != base.Intent {
+		if attempted.Intent == nil {
+			latest.Intent = nil
+		} else {
+			intent := *attempted.Intent
+			intent.Input = append(json.RawMessage(nil), attempted.Intent.Input...)
+			latest.Intent = &intent
+		}
+	}
 	if attempted.SupervisorSeq != base.SupervisorSeq {
 		latest.SupervisorSeq = attempted.SupervisorSeq
 	}

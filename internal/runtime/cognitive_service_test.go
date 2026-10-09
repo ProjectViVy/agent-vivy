@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +138,272 @@ func TestCognitiveWakeCoalescesToOneActiveRun(t *testing.T) {
 	}
 	if watermark != 5 || st.ActiveRunID != "" || st.LastCompletedUnixMS != 1000 {
 		t.Fatalf("state after settle: %+v watermark=%d", st, watermark)
+	}
+}
+
+func TestCognitiveIntentCrashMatrix(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "cognitive-crash-cuts.db")
+	gate := make(chan struct{})
+	var gateOnce sync.Once
+	closeGate := func() { gateOnce.Do(func() { close(gate) }) }
+	entered := make(chan struct{}, 1)
+	d := &fakeCognitiveDomain{gate: gate, entered: entered}
+	svc, backend := newCognitivePersistentService(t, dbPath, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(d, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	originalStoreClosed := false
+	var restarted *Service
+	t.Cleanup(func() {
+		if originalStoreClosed {
+			return
+		}
+		closeGate()
+		if restarted != nil {
+			restarted.CancelAll()
+			restarted.WaitIdle(context.Background())
+		}
+		svc.CancelAll()
+		svc.WaitIdle(context.Background())
+		_ = backend.Close()
+	})
+
+	elig, err := svc.TriggerCognitive(ctx)
+	if err != nil || !elig.Run {
+		t.Fatalf("first admission = %+v, %v", elig, err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("strategy did not reach its held Collect call")
+	}
+
+	raw, _, err := svc.deps.Cognitive.Store.Get(ctx, cognitiveStateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var stateSchema int
+	_ = json.Unmarshal(snapshot["state_schema"], &stateSchema)
+	if stateSchema != 2 {
+		t.Fatalf("state_schema = %d, want 2; snapshot=%s", stateSchema, raw)
+	}
+	if phase := jsonStringField(t, snapshot["phase"]); phase != "running" {
+		t.Fatalf("phase = %q, want running after admission", phase)
+	}
+	var intent struct {
+		ParentRunID  string          `json:"parent_run_id"`
+		OperationKey string          `json:"operation_key"`
+		StrategyID   string          `json:"strategy_id"`
+		Input        json.RawMessage `json:"input"`
+		Attempt      int             `json:"attempt"`
+	}
+	if err := json.Unmarshal(snapshot["intent"], &intent); err != nil {
+		t.Fatalf("decode persisted intent: %v (snapshot=%s)", err, raw)
+	}
+	if intent.ParentRunID == "" || intent.OperationKey == "" || intent.StrategyID != TrustedStrategyDIVA || len(intent.Input) == 0 {
+		t.Fatalf("incomplete admission intent: %+v", intent)
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(intent.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Window.After != 0 || input.Window.Through != 9 || input.Window.SourceID != "activity" {
+		t.Fatalf("intent window = %+v, want activity (0,9]", input.Window)
+	}
+
+	// A fresh Service instance shares only the durable stores. Reconciliation
+	// must find and adopt this same workflow under its original identity.
+	restarted = NewService(svc.engine, svc.provider, svc.modelID, svc.deps)
+	restarted.engine.SetRetryDecider(svc.overflowRetryDecision)
+	recovered, err := restarted.TriggerCognitive(ctx)
+	if err != nil || recovered.Reason != laputaevolution.ReasonActive {
+		t.Fatalf("restart adoption = %+v, %v", recovered, err)
+	}
+	if got := listWorkflowRuns(t, restarted, backend); len(got) != 1 || string(got[0].ID) != jsonStringField(t, snapshot["active_run_id"]) {
+		t.Fatalf("restart created or changed workflow identity: %+v", got)
+	}
+
+	if err := svc.NotifyCognitiveInput(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	closeGate()
+	workflows := listWorkflowRuns(t, svc, backend)
+	if len(workflows) != 1 {
+		t.Fatalf("admitted workflows = %d, want one", len(workflows))
+	}
+	waitForRunStatus(t, backend, workflows[0].ID, domain.RunCompleted)
+	svc.WaitIdle(ctx)
+	restarted.WaitIdle(ctx)
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	originalStoreClosed = true
+
+	// The run completed, but its cognitive snapshot still carries the
+	// original intent: reopen SQLite before settling that persisted window.
+	reopened, reopenedBackend := newCognitivePersistentService(t, dbPath, cognitiveTestModel())
+	reopened.deps.Cognitive = cognitiveBinding(d, &fakeSource{high: 9}, reopenedBackend.Snapshot(), func() int64 { return 50 })
+	reopenedClosed := false
+	t.Cleanup(func() {
+		if reopenedClosed {
+			return
+		}
+		reopened.StopCognitiveLoop()
+		reopened.CancelAll()
+		reopened.WaitIdle(context.Background())
+		_ = reopenedBackend.Close()
+	})
+	if err := reopened.UpdateCognitivePolicy(ctx, laputaevolution.TriggerPolicy{Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	reopened.StartCognitiveLoop(ctx, time.Hour)
+	if _, err := reopened.cognitiveAttempt(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	reopened.StopCognitiveLoop()
+	reopened.WaitIdle(ctx)
+	settled, _, err := reopened.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.Watermark != 9 || settled.SourceHigh != 10 {
+		t.Fatalf("settlement consumed later input: watermark=%d source_high=%d", settled.Watermark, settled.SourceHigh)
+	}
+	if settled.Phase != "completed" || settled.Intent != nil {
+		t.Fatalf("completed window did not clear its intent: phase=%q intent=%+v", settled.Phase, settled.Intent)
+	}
+	if len(listWorkflowRuns(t, reopened, reopenedBackend)) != 1 {
+		t.Fatal("later input was admitted despite the disabled wake policy")
+	}
+	if err := reopenedBackend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopenedClosed = true
+
+	verified, verifiedBackend := newCognitivePersistentService(t, dbPath, cognitiveTestModel())
+	verified.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, &fakeSource{high: 9}, verifiedBackend.Snapshot(), func() int64 { return 50 })
+	t.Cleanup(func() { verified.CancelAll(); verified.WaitIdle(context.Background()); _ = verifiedBackend.Close() })
+	settledAfterReopen, _, err := verified.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settledAfterReopen.Watermark != 9 || settledAfterReopen.SourceHigh != 10 || settledAfterReopen.Intent != nil {
+		t.Fatalf("settled snapshot did not survive a second reopen: %+v", settledAfterReopen)
+	}
+	if len(listWorkflowRuns(t, verified, verifiedBackend)) != 1 {
+		t.Fatal("reopening a settled snapshot created another workflow")
+	}
+}
+
+func TestCognitiveIntentPreservesLaterInput(t *testing.T) {
+	ctx := context.Background()
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	d := &fakeCognitiveDomain{gate: gate, entered: entered}
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(d, &fakeSource{high: 9}, backend.Snapshot(), func() int64 { return 50 })
+	if _, err := svc.TriggerCognitive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("strategy did not reach its held Collect call")
+	}
+	if err := svc.NotifyCognitiveInput(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	close(gate)
+	runs := listWorkflowRuns(t, svc, backend)
+	if len(runs) != 1 {
+		t.Fatalf("admitted workflows = %d, want one", len(runs))
+	}
+	waitForRunStatus(t, backend, runs[0].ID, domain.RunCompleted)
+	state, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, err = svc.reconcileCognitiveIntent(ctx, state, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Watermark != 9 || state.SourceHigh != 10 {
+		t.Fatalf("completed window consumed later input: watermark=%d source_high=%d", state.Watermark, state.SourceHigh)
+	}
+}
+
+func jsonStringField(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestCognitiveLegacyCrashGapFencesUnknown(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, nil, backend.Snapshot(), func() int64 { return 50 })
+	legacy, err := json.Marshal(cognitiveState{
+		SourceHigh: 9,
+		Policy:     laputaevolution.TriggerPolicy{Enabled: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.deps.Cognitive.Store.Put(ctx, cognitiveStateKey, legacy, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.TriggerCognitive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Blocked != cognitiveBlockUnknown || state.Watermark != 0 {
+		t.Fatalf("legacy ambiguous window was not fenced: blocked=%q watermark=%d", state.Blocked, state.Watermark)
+	}
+	if len(listWorkflowRuns(t, svc, backend)) != 0 {
+		t.Fatal("legacy crash gap was replayed as a new workflow")
+	}
+}
+
+func TestCognitiveUnknownStateSchemaRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(&fakeCognitiveDomain{}, nil, backend.Snapshot(), func() int64 { return 50 })
+	if err := svc.deps.Cognitive.Store.Put(ctx, cognitiveStateKey,
+		[]byte(`{"state_schema":99,"policy":{"enabled":true},"source_high":9}`), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TriggerCognitive(ctx); err == nil {
+		t.Fatal("unknown future cognitive state schema was accepted")
+	}
+	if len(listWorkflowRuns(t, svc, backend)) != 0 {
+		t.Fatal("unknown future state schema admitted a workflow")
+	}
+}
+
+func TestCognitiveRetrySafetyLookupFailureFences(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	sessionID := domain.SessionID("sess-cog-retry-evidence")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "evidence", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: "run-cog-no-revision", SessionID: sessionID,
+		Status: domain.RunFailed, Kind: domain.RunKindWorkflow, ParentID: "run-cog-parent", RootID: "run-cog-parent"}); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.cognitiveRunBlocked(ctx, "run-cog-no-revision") {
+		t.Fatal("failed workflow inspection without revision evidence was classified retry-safe")
 	}
 }
 

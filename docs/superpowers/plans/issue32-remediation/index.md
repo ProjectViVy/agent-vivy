@@ -49,7 +49,7 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | H2 | P1 | P1.2 | IMPLEMENTED in DIVA `8918b6f2`, with source-tree pin/aggregate-test follow-up in `607fc54f`; 18 local contracts pass; Linux/Windows native CI pending (DIVA logs: `v0.0.2-h2-ci-and-lock-gates`, `v0.0.3-h3-candidate-publication-gates`) |
 | H3 | P1 | P1.3 | IMPLEMENTED in DIVA `607fc54f`; strict v2 checker passes a synthetic two-platform/17-row candidate and rejects incomplete/tampered cases; native builds, real W5 acceptance, archive tags, and approved W6 state pending |
 | C1 | P1 | P2.1 | IMPLEMENTED; focused regressions and cognitive race suite pass; aggregate `just ci` unavailable in this environment ([P2.1 verification](../../../logs/2026-10-09-issue32-p2.1-state-cas/verification.md)) |
-| C2 | P1 | P2.2 | PLANNED; call-chain confirmed |
+| C2 | P1 | P2.2 | IMPLEMENTED; fault matrix, cognitive race tests, full runtime package and SQLite version conformance pass; PostgreSQL DSN and aggregate `just ci` pending |
 | H4 | P2 | P4.1a | PLANNED |
 | H5 | P2 | P4.2 | PLANNED |
 | H6 | P2 | P4.3 | PLANNED |
