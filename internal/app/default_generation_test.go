@@ -1,3 +1,7 @@
+//go:build !vivy_diva_integration
+
+// The inventory below is for the default recipe. DIVA integration tests use
+// a generated overlay with a different inventory and run separately.
 package app
 
 import (
