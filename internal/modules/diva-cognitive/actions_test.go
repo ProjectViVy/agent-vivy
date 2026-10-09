@@ -118,9 +118,10 @@ func TestUnknownActionIsInvalidInput(t *testing.T) {
 
 // --- typed handler fixtures ------------------------------------------------
 
-func TestStatusAssemblesCapabilityStatus(t *testing.T) {
+func TestCognitiveControlProjectionVerbatim(t *testing.T) {
 	_, bundle := armedBundle(t, &fakeControl{state: cognitivecontract.ControlState{
-		Enabled: true, MinIntervalMS: 500, PolicyRevision: 3, SourceID: "src-1", Phase: "idle",
+		Enabled: true, MinIntervalMS: 500, PolicyRevision: 3, SourceID: "src-1", Phase: "running",
+		ActiveRunID: "run-5", Watermark: 4, PendingThrough: 9, BlockReason: "cancelled",
 	}})
 	out := invokeAction(t, bundle, ActionStatus, `{"session_id":"s"}`)
 	if out.Status != "ok" {
@@ -149,7 +150,11 @@ func TestStatusAssemblesCapabilityStatus(t *testing.T) {
 			PolicyRevision uint64 `json:"policy_revision"`
 			MinIntervalMS  int64  `json:"min_interval_ms"`
 			SourceID       string `json:"source_id"`
+			ActiveRunID    string `json:"active_run_id"`
+			Watermark      uint64 `json:"watermark"`
+			PendingThrough uint64 `json:"pending_through"`
 			Phase          string `json:"phase"`
+			BlockReason    string `json:"block_reason"`
 		} `json:"cognition"`
 	}
 	if err := json.Unmarshal(out.Value, &status); err != nil {
@@ -169,6 +174,11 @@ func TestStatusAssemblesCapabilityStatus(t *testing.T) {
 	}
 	if !status.Cognition.Enabled || status.Cognition.PolicyRevision != 3 || status.Cognition.SourceID != "src-1" {
 		t.Fatalf("cognition block = %s", out.Value)
+	}
+	if status.Cognition.ActiveRunID != "run-5" || status.Cognition.Watermark != 4 ||
+		status.Cognition.PendingThrough != 9 || status.Cognition.Phase != "running" ||
+		status.Cognition.BlockReason != "cancelled" {
+		t.Fatalf("cognitive recovery fields were not projected verbatim: %s", out.Value)
 	}
 }
 

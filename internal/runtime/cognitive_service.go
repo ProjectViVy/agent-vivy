@@ -193,6 +193,145 @@ func (s *Service) CognitiveStatus(ctx context.Context) (laputaevolution.TriggerS
 	}, st.Watermark, nil
 }
 
+// CognitiveControlState projects all durable cognitive control fields from
+// one snapshot version. Legacy rows with no phase are interpreted from their
+// immutable intent and fence without writing during a read.
+func (s *Service) CognitiveControlState(ctx context.Context) (cognitivecontract.ControlState, error) {
+	b := s.deps.Cognitive
+	if b == nil || b.Store == nil {
+		return cognitivecontract.ControlState{}, ErrCognitiveUnavailable
+	}
+	st, _, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return cognitivecontract.ControlState{}, err
+	}
+	phase, blockReason := st.Phase, st.Blocked
+	if phase == "" {
+		switch {
+		case st.ActiveRunID != "" && st.Intent == nil:
+			phase, blockReason = "blocked", cognitiveBlockUnknown
+		case st.Intent != nil && st.ActiveRunID == "":
+			phase = "admitting"
+		case st.ActiveRunID != "":
+			phase = "running"
+		case blockReason != "":
+			phase = "blocked"
+		default:
+			phase = "idle"
+		}
+	}
+	return cognitivecontract.ControlState{
+		Enabled: st.Policy.Enabled, MinIntervalMS: st.Policy.MinIntervalMS,
+		PolicyRevision: st.PolicyRevision, ActiveRunID: st.ActiveRunID,
+		SourceID: b.SourceID, Watermark: st.Watermark, PendingThrough: st.PendingThrough,
+		Phase: phase, BlockReason: blockReason,
+	}, nil
+}
+
+// ErrCognitiveRunMismatch rejects cancellation unless the caller names the
+// exact current DIVA strategy workflow admitted by this Service.
+var ErrCognitiveRunMismatch = errors.New("runtime: cognitive run does not match the active strategy")
+
+// CancelCognitiveRun verifies the durable intent and immutable workflow
+// revision under attempt serialization before forwarding cancellation. The
+// final status check and cancellation signal share emitTerminal's commit gate.
+func (s *Service) CancelCognitiveRun(ctx context.Context, runID domain.RunID) (bool, error) {
+	if s == nil || s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
+		return false, ErrCognitiveUnavailable
+	}
+	if runID == "" {
+		return false, ErrCognitiveRunMismatch
+	}
+	if s.deps.Runs == nil || s.deps.WorkflowRevisions == nil {
+		return false, ErrCognitiveUnavailable
+	}
+	s.cogAttemptMu.Lock()
+	defer s.cogAttemptMu.Unlock()
+
+	st, _, err := s.loadCognitiveState(ctx)
+	if err != nil {
+		return false, err
+	}
+	if st.ActiveRunID != string(runID) || st.Intent == nil || st.Intent.StrategyID != TrustedStrategyDIVA {
+		return false, ErrCognitiveRunMismatch
+	}
+	expectedIntent := *st.Intent
+	expectedIntent.Input = append(json.RawMessage(nil), st.Intent.Input...)
+	revision, err := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, runID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, ErrCognitiveRunMismatch
+	}
+	if err != nil {
+		return false, err
+	}
+	actualIntent, through, err := cognitiveIntentFromRevision(revision)
+	if err != nil {
+		return false, ErrCognitiveRunMismatch
+	}
+	if revision.RunID != runID || revision.ParentRunID != expectedIntent.ParentRunID ||
+		revision.ParentSessionID != cognitiveSupervisorSessionID ||
+		!sameCognitiveIntent(expectedIntent, actualIntent) || through != st.PendingThrough ||
+		!cognitiveRevisionMatchesCatalog(ctx, revision) {
+		return false, ErrCognitiveRunMismatch
+	}
+	var input laputaevolution.Input
+	if err := json.Unmarshal(revision.InputJSON, &input); err != nil {
+		return false, ErrCognitiveRunMismatch
+	}
+	b := s.deps.Cognitive
+	if input.Binding.SubjectID != b.Binding.SubjectID || input.Binding.WorkspaceID != b.Binding.WorkspaceID ||
+		input.Binding.DestinationID != b.Binding.DestinationID || input.Binding.StrategyDigest != b.Binding.StrategyDigest ||
+		input.Window.SourceID != b.SourceID || input.Window.After != st.Watermark || input.Window.Through != st.PendingThrough {
+		return false, ErrCognitiveRunMismatch
+	}
+	parent, err := s.deps.Runs.GetRun(ctx, expectedIntent.ParentRunID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, ErrCognitiveRunMismatch
+	}
+	if err != nil {
+		return false, err
+	}
+	if parent.Kind != domain.RunKindPrimary || parent.SessionID != cognitiveSupervisorSessionID || parent.Status != domain.RunActive {
+		return false, ErrCognitiveRunMismatch
+	}
+	run, err := s.deps.Runs.GetRun(ctx, runID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, ErrCognitiveRunMismatch
+	}
+	if err != nil {
+		return false, err
+	}
+	if run.ID != runID || run.Kind != domain.RunKindWorkflow || run.ParentID != parent.ID ||
+		run.SessionID != parent.SessionID || run.RootID != parent.RootID || revision.RootRunID != parent.RootID {
+		return false, ErrCognitiveRunMismatch
+	}
+	if run.Status.Terminal() {
+		return false, nil
+	}
+	if run.Status != domain.RunActive && run.Status != domain.RunAccepted {
+		return false, ErrCognitiveRunMismatch
+	}
+	cancelled, err := s.cancelRunBeforeTerminal(ctx, runID)
+	if err != nil || !cancelled {
+		return cancelled, err
+	}
+	if err := s.updateCognitiveState(ctx, func(current *cognitiveState) error {
+		if current.ActiveRunID == string(runID) && current.Intent != nil && sameCognitiveIntent(expectedIntent, *current.Intent) {
+			current.Blocked = cognitiveBlockCancelled
+			current.LastReason = "blocked:" + cognitiveBlockCancelled
+		}
+		return nil
+	}); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func sameCognitiveIntent(a, b cognitiveIntent) bool {
+	return a.ParentRunID == b.ParentRunID && a.OperationKey == b.OperationKey &&
+		a.StrategyID == b.StrategyID && a.Attempt == b.Attempt && bytes.Equal(a.Input, b.Input)
+}
+
 // StartCognitiveLoop begins the automatic wake loop: one self-contained
 // timer delivering wake signals on tick plus immediate wakes from accepted
 // captures. It is idempotent and a no-op without a durable trigger store.

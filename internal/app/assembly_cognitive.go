@@ -114,30 +114,14 @@ func (d *lazyDomain) Lookup(ctx context.Context, operationID string) (laputaevol
 // runtime service callbacks. It is constructed once per composition and
 // attached to the bundle after Service construction (single-use).
 type cognitiveControlPort struct {
-	svc    *runtime.Service
-	bundle cognitivecontract.Bundle
+	svc *runtime.Service
 }
 
 func (c *cognitiveControlPort) GetState(ctx context.Context) (cognitivecontract.ControlState, error) {
 	if c.svc == nil {
 		return cognitivecontract.ControlState{}, runtime.ErrCognitiveUnavailable
 	}
-	state, watermark, err := c.svc.CognitiveStatus(ctx)
-	if err != nil {
-		return cognitivecontract.ControlState{}, err
-	}
-	policy, revision, err := c.svc.CognitivePolicyState(ctx)
-	if err != nil {
-		return cognitivecontract.ControlState{}, err
-	}
-	return cognitivecontract.ControlState{
-		Enabled:        policy.Enabled,
-		MinIntervalMS:  policy.MinIntervalMS,
-		PolicyRevision: revision,
-		ActiveRunID:    state.ActiveRunID,
-		SourceID:       c.bundle.SourceID(),
-		Watermark:      watermark,
-	}, nil
+	return c.svc.CognitiveControlState(ctx)
 }
 
 func (c *cognitiveControlPort) SetPolicyCAS(ctx context.Context, policy laputaevolution.TriggerPolicy, baseRevision uint64) (cognitivecontract.ControlState, error) {
@@ -170,7 +154,7 @@ func (c *cognitiveControlPort) Cancel(ctx context.Context, runID domain.RunID) (
 	if c.svc == nil {
 		return cognitivecontract.ControlState{}, runtime.ErrCognitiveUnavailable
 	}
-	cancelled, err := c.svc.CancelRun(ctx, runID)
+	cancelled, err := c.svc.CancelCognitiveRun(ctx, runID)
 	if err != nil {
 		return cognitivecontract.ControlState{}, err
 	}

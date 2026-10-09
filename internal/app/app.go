@@ -875,7 +875,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		CacheWarmingMinSavingsUSD: cfg.Runtime.CacheWarmingMinSavingsUSD,
 	})
 	if cognitiveBundle != nil {
-		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {
+		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc}); err != nil {
 			_ = cognitiveBundle.Close()
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -922,6 +923,170 @@ func (s *cogSnapshots) Put(_ context.Context, key string, value []byte, expected
 	s.values[key] = append([]byte(nil), value...)
 	s.versions[key]++
 	return nil
+}
+
+type singleReadSnapshotStore struct {
+	storage.SnapshotStore
+	reads int
+}
+
+type overrideRunGetter struct {
+	storage.RunStore
+	ID  domain.RunID
+	Run domain.Run
+}
+
+type terminalOnSecondRunRead struct {
+	storage.RunStore
+	ID    domain.RunID
+	reads atomic.Int32
+}
+
+func (s overrideRunGetter) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
+	if id == s.ID {
+		return s.Run, nil
+	}
+	return s.RunStore.GetRun(ctx, id)
+}
+
+func (s *terminalOnSecondRunRead) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
+	run, err := s.RunStore.GetRun(ctx, id)
+	if err != nil || id != s.ID {
+		return run, err
+	}
+	if s.reads.Add(1) == 2 {
+		run.Status = domain.RunCompleted
+	}
+	return run, nil
+}
+
+func (s *singleReadSnapshotStore) Get(ctx context.Context, key string) ([]byte, int64, error) {
+	s.reads++
+	if s.reads > 1 {
+		return nil, 0, errors.New("fixture: control projection performed a second snapshot read")
+	}
+	return s.SnapshotStore.Get(ctx, key)
+}
+
+func TestCognitiveControlStateOneSnapshot(t *testing.T) {
+	ctx := context.Background()
+	base := &cogSnapshots{}
+	seed := cognitiveState{
+		StateSchema: cognitiveStateSchema,
+		Phase:       "running",
+		Intent:      &cognitiveIntent{StrategyID: TrustedStrategyDIVA},
+		ActiveRunID: "cog-run-9", PendingThrough: 11, Watermark: 7,
+		Policy:         laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 30000},
+		PolicyRevision: 8, Blocked: cognitiveBlockCancelled,
+	}
+	raw, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Put(ctx, cognitiveStateKey, raw, 0); err != nil {
+		t.Fatal(err)
+	}
+	store := &singleReadSnapshotStore{SnapshotStore: base}
+	svc, _ := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = &CognitiveBinding{Store: store, SourceID: "activity/source"}
+	state, err := svc.CognitiveControlState(ctx)
+	if err != nil {
+		t.Fatalf("control state: %v", err)
+	}
+	if store.reads != 1 {
+		t.Fatalf("control state read %d snapshots, want exactly one", store.reads)
+	}
+	if !state.Enabled || state.MinIntervalMS != 30000 || state.PolicyRevision != 8 ||
+		state.ActiveRunID != "cog-run-9" || state.PendingThrough != 11 || state.Watermark != 7 ||
+		state.Phase != "running" || state.BlockReason != cognitiveBlockCancelled || state.SourceID != "activity/source" {
+		t.Fatalf("control state is not a coherent persisted projection: %+v", state)
+	}
+}
+
+func TestCognitiveCancelScopeMatrix(t *testing.T) {
+	ctx := context.Background()
+	gate := make(chan struct{})
+	domainPort := &fakeCognitiveDomain{gate: gate, batch: laputaevolution.EvidenceBatch{ActivityRevision: 3}}
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = cognitiveBinding(domainPort, &fakeSource{high: 5}, backend.Snapshot(), func() int64 { return 1000 })
+	svc.StartCognitiveLoop(ctx, time.Hour)
+	t.Cleanup(svc.StopCognitiveLoop)
+	eligibility, err := svc.cognitiveAttempt(ctx, false)
+	if err != nil || !eligibility.Run {
+		t.Fatalf("admit cognitive run: eligibility=%+v err=%v", eligibility, err)
+	}
+	waitFor := func() domain.Run {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			runs := listWorkflowRuns(t, svc, backend)
+			if len(runs) == 1 {
+				return runs[0]
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("cognitive workflow did not become active")
+		return domain.Run{}
+	}
+	run := waitFor()
+	for _, foreignID := range []domain.RunID{"foreground-run", "foreign-supervisor-run", "stale-cognitive-run"} {
+		if _, err := svc.CancelCognitiveRun(ctx, foreignID); !errors.Is(err, ErrCognitiveRunMismatch) {
+			t.Fatalf("cancel foreign/stale run %q error = %v", foreignID, err)
+		}
+		current, getErr := backend.GetRun(ctx, run.ID)
+		if getErr != nil || current.Status.Terminal() {
+			t.Fatalf("foreign cancel affected active cognitive run: run=%+v err=%v", current, getErr)
+		}
+	}
+	state, _, err := svc.loadCognitiveState(ctx)
+	if err != nil || state.Intent == nil {
+		t.Fatalf("load active intent: state=%+v err=%v", state, err)
+	}
+	parent, err := backend.GetRun(ctx, state.Intent.ParentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignParent := parent
+	foreignParent.SessionID = "foreign-supervisor-session"
+	svc.deps.Runs = overrideRunGetter{RunStore: backend, ID: parent.ID, Run: foreignParent}
+	if _, err := svc.CancelCognitiveRun(ctx, run.ID); !errors.Is(err, ErrCognitiveRunMismatch) {
+		t.Fatalf("foreign supervisor cancellation = %v", err)
+	}
+	svc.deps.Runs = backend
+	if _, err := backend.GetRun(ctx, run.ID); err != nil {
+		t.Fatalf("foreign supervisor cancellation reached current run: %v", err)
+	}
+	bound := svc.deps.Cognitive.Binding
+	svc.deps.Cognitive.Binding.SubjectID = "foreign-subject"
+	if _, err := svc.CancelCognitiveRun(ctx, run.ID); !errors.Is(err, ErrCognitiveRunMismatch) {
+		t.Fatalf("foreign scope cancellation = %v", err)
+	}
+	svc.deps.Cognitive.Binding = bound
+	tracedRuns := &terminalOnSecondRunRead{RunStore: backend, ID: run.ID}
+	svc.deps.Runs = tracedRuns
+	cancelled, err := svc.CancelCognitiveRun(ctx, run.ID)
+	svc.deps.Runs = backend
+	if err != nil || cancelled {
+		t.Fatalf("cancel after terminal wins status recheck: cancelled=%v err=%v", cancelled, err)
+	}
+	if reads := tracedRuns.reads.Load(); reads != 2 {
+		t.Fatalf("terminal race used %d run reads, want validation plus atomic recheck", reads)
+	}
+	if current, getErr := backend.GetRun(ctx, run.ID); getErr != nil || current.Status.Terminal() {
+		t.Fatalf("terminal-race fixture reached generic cancellation: run=%+v err=%v", current, getErr)
+	}
+	cancelled, err = svc.CancelCognitiveRun(ctx, run.ID)
+	if err != nil || !cancelled {
+		t.Fatalf("cancel exact cognitive run: cancelled=%v err=%v", cancelled, err)
+	}
+	close(gate)
+	waitForRunStatus(t, backend, run.ID, domain.RunCancelled)
+	// A terminal transition can win between the caller's status view and this
+	// cancellation request. It is reported as no longer active, with no second
+	// cancellation against a different run.
+	cancelled, err = svc.CancelCognitiveRun(ctx, run.ID)
+	if err != nil || cancelled {
+		t.Fatalf("cancel after settlement: cancelled=%v err=%v", cancelled, err)
+	}
 }
 
 type cogRuns struct{ runs map[domain.RunID]domain.Run }

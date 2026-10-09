@@ -1527,6 +1527,50 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	return true
 }
 
+// cancelRunBeforeTerminal serializes the scoped cancellation signal with
+// emitTerminal's durable status commit, which also holds projectionMu.
+func (s *Service) cancelRunBeforeTerminal(ctx context.Context, runID domain.RunID) (bool, error) {
+	if s == nil || s.deps.Runs == nil {
+		return false, nil
+	}
+	s.projectionMu.Lock()
+	run, err := s.deps.Runs.GetRun(ctx, runID)
+	if err != nil {
+		s.projectionMu.Unlock()
+		return false, err
+	}
+	if run.Status.Terminal() {
+		s.projectionMu.Unlock()
+		return false, nil
+	}
+	if run.Status != domain.RunActive && run.Status != domain.RunAccepted {
+		s.projectionMu.Unlock()
+		return false, nil
+	}
+
+	s.mu.Lock()
+	cancel := s.active[runID]
+	suspended := s.pending[runID].mapper != nil || s.shellPending[runID].mapper != nil
+	s.mu.Unlock()
+	if suspended {
+		// The generic path settles approvals/questions synchronously and can
+		// emit a terminal event. It must not run while projectionMu is held.
+		s.projectionMu.Unlock()
+		return false, ErrWorkflowRecoveryRequired
+	}
+	if cancel == nil {
+		s.projectionMu.Unlock()
+		return false, nil
+	}
+	cancel()
+	s.projectionMu.Unlock()
+
+	// Child cancellation can emit terminal events, so it runs after releasing
+	// the parent's terminal-commit boundary.
+	s.cancelWorkflowChildren(runID)
+	return true, nil
+}
+
 // hasDurableSuspension reports whether the run holds a pending approval or
 // question row — the signal that the suspend path is between the durable
 // write and the in-memory pending registration.

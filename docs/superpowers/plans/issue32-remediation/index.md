@@ -1,6 +1,6 @@
 # Issue #32 remediation implementation package
 
-Status: **P1 implementation active; P2.1 implementation verified locally.** P0 baseline and traceability are verified;
+Status: **P1/P2 implementation active; P2.1–P2.3 code verified locally.** P0 baseline and traceability are verified;
 H1 code and host-test prerequisites are committed on isolated branches, while
 canonical Linux acceptance and the remaining P1/P2 tasks stay open.
 Design authority: [written design](../../specs/2026-10-09-issue32-remediation-design.md).
@@ -26,17 +26,17 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | --- | --- | --- | --- | --- |
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
-| P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IN PROGRESS |
+| P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IN PROGRESS; C1–C4 committed, C5/C6 verified pending review/commit |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | DESIGNED |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | DESIGNED |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | DESIGNED |
 | P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | DESIGNED |
 
-First blocking tranche: P1.1-P1.3 and P2.1-P2.2 (H1-H3 plus C1-C2). The
-reviewed DIVA frontend lock is already tracked and matches its canonical hash;
-P1.2 verifies frozen use without a separate lock-restoration task. Remaining tasks may be prepared
-in isolated lanes, but do not delay those five P1 repairs with unrelated work.
+Current execution lane: P2.4, followed by P3–P6 implementation; P1 native
+acceptance remains an independent gate. The reviewed DIVA frontend lock is
+already tracked and matches its canonical hash; P1.2 verifies frozen use
+without a separate lock-restoration task.
 Implementation method is unselected. Recommended: task-level implementation
 and independent review; state/Service/App changes stay sequential in each lane.
 This recommendation is not an instruction to spawn concurrent product editors.
@@ -54,10 +54,10 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | H5 | P2 | P4.2 | PLANNED |
 | H6 | P2 | P4.3 | PLANNED |
 | H7 | P2 | P4.2 | PLANNED |
-| C3 | P2 | P2.3 | PLANNED |
-| C4 | P2 | P2.3 | PLANNED |
-| C5 | P2 | P2.4 | PLANNED |
-| C6 | P2 | P2.4 | PLANNED |
+| C3 | P2 | P2.3 | IMPLEMENTED; current Mission pin checked at admission, collection and atomic effect application ([P2.3 verification](../../../logs/2026-10-09-issue32-p2.3-current-policy-pin/verification.md)) |
+| C4 | P2 | P2.3 | IMPLEMENTED; resolver hashes the durable admission policy snapshot; commit `35e559f6` |
+| C5 | P2 | P2.4 | IMPLEMENTED; coherent control fields derive from one snapshot; P2.4 verification pending review/commit |
+| C6 | P2 | P2.4 | IMPLEMENTED; cancellation validates current DIVA strategy run and rejects stale/foreign IDs; P2.4 verification pending review/commit |
 | C7 | P2 | P4.1b | PLANNED |
 | C8 | P2 | P4.4 | PLANNED |
 | W1 | P2 | P3.2 | PLANNED |

@@ -2,19 +2,18 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
-	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/observerhost"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
-
-	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func genassemblyForCognitive(modules []string) *genassembly.RuntimeAssembly {
@@ -85,8 +84,7 @@ func ownedSubscription() observerhost.RunSubscription {
 // against the runtime service seam. The fake service-side dependency is the
 // durable snapshot store — the real callbacks live on runtime.Service.
 func TestControlPortMapsRuntimeSeams(t *testing.T) {
-	bundle := &fakeBundle{policy: laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 60_000}}
-	port := &cognitiveControlPort{svc: nil, bundle: bundle}
+	port := &cognitiveControlPort{svc: nil}
 	if _, err := port.GetState(context.Background()); err == nil {
 		t.Fatal("control port reported state without a service")
 	}
@@ -95,27 +93,33 @@ func TestControlPortMapsRuntimeSeams(t *testing.T) {
 	}
 }
 
-// fakeBundle satisfies the bundle seam for the control-port mapping test;
-// the real bundle is exercised end-to-end in the module's factory tests.
-type fakeBundle struct {
-	policy laputaevolution.TriggerPolicy
+func TestControlPortUsesCoherentSnapshotAndScopedCancel(t *testing.T) {
+	backend, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ctx := context.Background()
+	snapshots := backend.Snapshot()
+	if err := snapshots.Put(ctx, "cognitive/state", []byte(`{"state_schema":2,"phase":"running","active_run_id":"run-7","pending_through":12,"watermark":8,"policy":{"enabled":true,"min_interval_ms":900},"policy_revision":4,"blocked":"cancelled"}`), 0); err != nil {
+		t.Fatal(err)
+	}
+	svc := runtime.NewService(nil, "", "", runtime.ServiceDeps{
+		Cognitive:         &runtime.CognitiveBinding{Store: snapshots, SourceID: "app-source"},
+		Runs:              backend,
+		WorkflowRevisions: backend,
+	})
+	port := &cognitiveControlPort{svc: svc}
+	state, err := port.GetState(ctx)
+	if err != nil {
+		t.Fatalf("control state: %v", err)
+	}
+	if !state.Enabled || state.MinIntervalMS != 900 || state.PolicyRevision != 4 || state.SourceID != "app-source" ||
+		state.ActiveRunID != "run-7" || state.Watermark != 8 || state.PendingThrough != 12 ||
+		state.Phase != "running" || state.BlockReason != "cancelled" {
+		t.Fatalf("control projection = %+v", state)
+	}
+	if _, err := port.Cancel(ctx, domain.RunID("foreground-run")); !errors.Is(err, runtime.ErrCognitiveRunMismatch) {
+		t.Fatalf("unrelated cancellation = %v", err)
+	}
 }
-
-func (b *fakeBundle) Prepare(context.Context, cognitivecontract.PrimaryContextInput) (cognitivecontract.PreparedPrimaryContext, error) {
-	return cognitivecontract.PreparedPrimaryContext{}, nil
-}
-func (b *fakeBundle) ResolveBinding(context.Context, laputaevolution.TriggerPolicy) (laputaevolution.RunBinding, error) {
-	return laputaevolution.RunBinding{SubjectID: "diva", DestinationID: "mentle"}, nil
-}
-func (b *fakeBundle) BoundDomain(context.Context, laputaevolution.RunBinding) (laputaevolution.Domain, error) {
-	return nil, nil
-}
-func (b *fakeBundle) SourceID() string                         { return "diva/personal/mentle" }
-func (b *fakeBundle) Source() cognitivecontract.Source         { return nil }
-func (b *fakeBundle) Sink() cognitivecontract.CaptureSink      { return nil }
-func (b *fakeBundle) Mission() cognitivecontract.MissionSource { return nil }
-func (b *fakeBundle) Policy() laputaevolution.TriggerPolicy    { return b.policy }
-func (b *fakeBundle) AttachRuntime(cognitivecontract.ControlPort) error {
-	return nil
-}
-func (b *fakeBundle) Close() error { return nil }
