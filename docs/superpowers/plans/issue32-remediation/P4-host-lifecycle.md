@@ -10,6 +10,10 @@
 
 **Spec:** [Issue #32 remediation design](../../specs/2026-10-09-issue32-remediation-design.md#p4-host-lifecycle-and-provider-capabilities).
 
+P4.1a evidence: [summary](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/summary.md),
+[verification](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/verification.md),
+[acceptance](../../../logs/2026-10-09-issue32-p4.1a-logger-ownership/acceptance.md).
+
 ## Global Constraints
 
 - H5/H7 share `app.go`, `runtime_service.go`, and `lifecycle.go`: one write/review lane; no overlapping worktrees edit those files.
@@ -41,11 +45,11 @@
 - Preserve `app.NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error)` and public host Open/Close signatures.
 - Add permanent `dailyFile.closed bool`; Write after Close returns `io.ErrClosedPipe` and never reopens.
 
-- [ ] **Step 1: Write failing logger regressions.** `TestAppUsesInjectedLoggerAtComposition` installs a previous default capture logger, passes a distinct WithLogger, and observes initialization/component logs only through the owned logger. `TestHostLoggerProfileReopen` opens A, closes it, opens B, then uses a retained A logger: no B event reaches A's files, and late A writes do not reopen a log file. `TestDailyFileCloseIsPermanent` checks errors.Is(io.ErrClosedPipe) and unchanged directory contents. `TestHostFailedOpenRestoresOwnedLogger` injects post-logging startup failure: sink is closed, host slot released, previous default restored only if it still equals the failed host's logger.
-- [ ] **Step 2: Verify red.** Run `go test ./internal/app ./internal/logging ./sdk/host/v1 -run 'Test(AppUsesInjectedLoggerAtComposition|HostLoggerProfileReopen|DailyFileCloseIsPermanent|HostFailedOpenRestoresOwnedLogger)' -count=1`. Use existing actual sealed-host fixtures and built embedded UI. Expected: previous global capture or a reopened daily sink violates assertions.
-- [ ] **Step 3: Implement explicit logger injection and ownership.** Process AppOptions before selecting its logger. Host passes WithLogger before embedded.Open; any necessary global compatibility setup occurs before runtime composition. Remember previous/owned logger under the host owner, restore only if slog.Default still equals the owned pointer, and finish sink cleanup before releasing the slot. A newer/non-host default must not be overwritten. Close dailyFile permanently and idempotently; return the closed-pipe error on late writes instead of opening another day's file.
-- [ ] **Step 4: Verify green.** Re-run the focused command, then `go test -race ./internal/logging ./sdk/host/v1 -count=1` and relevant App composition tests. Check actual profile directories from open -> close -> reopen, not only logger pointer identity. Record shutdown-timeout ownership separately from a fully closed host.
-- [ ] **Step 5: Commit.** Stage only the listed logger source/tests and the phase log. Commit `fix(host): inject the owned logger before composition`.
+- [x] **Step 1: Write failing logger regressions.** `TestAppUsesInjectedLoggerAtComposition` installs a previous default capture logger, passes a distinct WithLogger, and observes composition logs only through the owned logger. `TestHostLoggerProfileReopen` opens A, closes it, opens B, then writes through retained A: no B event reaches A's files and late A writes do not change its closed file. `TestDailyFileCloseIsPermanent` checks errors.Is(io.ErrClosedPipe) and unchanged directory contents. `TestHostFailedOpenRestoresOwnedLogger` verifies failure restoration and slot reuse; an internal injected post-logging failure also checks sink closure and preservation of a newer default.
+- [x] **Step 2: Verify red.** The initial focused run showed `WithLogger` missing, `dailyFile.Write` reopening after Close, profile A's logger remaining the process default, and failed composition not exercising the host-owned sink. Actual sealed-host fixtures are used for profile transitions; `ui/dist` was absent and front-end dependencies were not installed, so a temporary embed marker was used only to compile the gateway-less Go tests.
+- [x] **Step 3: Implement explicit logger injection and ownership.** AppOptions are processed before selecting the logger. Host passes WithLogger and installs its logger before embedded.Open, remembers the previous/owned pointers, restores only if slog.Default still equals the owned pointer, and closes the sink before releasing the host slot. A newer default is preserved. `dailyFile.Close` is permanent and idempotent; late writes return `io.ErrClosedPipe` without opening another day's file.
+- [x] **Step 4: Verify green.** The focused logger/host/App regressions passed. `go test ./internal/app -count=1` and `go test -race ./internal/logging ./sdk/host/v1 -count=1` passed. Actual sealed-host profile A -> close -> profile B log files were inspected; an injected post-logging startup failure confirmed sink closure, conditional default restoration, and owner release. Frontend build was unavailable because the local `ui/node_modules` has no installed dependencies and the configured registry could not be reached.
+- [x] **Step 5: Commit.** Source and regressions committed as `a0c2bbff` (`fix(host): inject the owned logger before composition`). The following documentation commit records this phase's iteration evidence.
 
 ### Task P4.1b: Cognitive bundle cleanup on every failed composition (C7)
 
