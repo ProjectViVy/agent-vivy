@@ -46,7 +46,7 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | Finding | Severity | Owning task | Current disposition |
 | --- | --- | --- | --- |
 | H1 | P1 | P1.1 | IMPLEMENTED; local headless tests pass; canonical Linux host race pending |
-| H2 | P1 | P1.2 | IN PROGRESS; SDK source-closure and test-mode prerequisites committed |
+| H2 | P1 | P1.2 | IMPLEMENTED in DIVA `8918b6f2`; local contracts pass; Linux/Windows native CI pending (DIVA log: `docs/logs/2026-10-09-issue32-p1/v0.0.2-h2-ci-and-lock-gates/`) |
 | H3 | P1 | P1.3 | PLANNED |
 | C1 | P1 | P2.1 | PLANNED; defect probe reproduced |
 | C2 | P1 | P2.2 | PLANNED; call-chain confirmed |
