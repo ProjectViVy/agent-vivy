@@ -29,6 +29,8 @@ A second independent review found that a schema-2 snapshot could pair an `a2` ke
 
 The final independent review found the intent window's `After` was not compared with the durable Watermark. Before the fix, `TestCognitiveIntentWindowStartMustMatchWatermark` returned `ReasonActive` after admitting a window starting at 0 while Watermark was 4. The reconciler now fences before revision lookup/admission when source or either persisted window bound differs.
 
+A fresh independent review of the final code from `5f7deed3` through `2de1aa18` found no Critical, Important, or Minor findings. It confirmed the source, `After`/Watermark, `Through`/PendingThrough, and key/attempt checks happen before workflow lookup/admission, and valid retry and legacy recovery paths remain compatible.
+
 ## Green verification
 
 ```text
