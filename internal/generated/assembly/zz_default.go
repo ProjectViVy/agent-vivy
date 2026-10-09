@@ -135,6 +135,10 @@ func (assembly *RuntimeAssembly) HasNotebookFactory() bool { return assembly.Not
 
 func (assembly *RuntimeAssembly) NotebookFactoryValue() any { return assembly.NotebookFactory }
 
+func (assembly *RuntimeAssembly) HasReportFactory() bool { return false }
+
+func (assembly *RuntimeAssembly) ReportFactoryValue() any { return nil }
+
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")

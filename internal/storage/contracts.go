@@ -142,7 +142,11 @@ type LeaseStore interface {
 type SessionStore interface {
 	CreateSession(ctx context.Context, s domain.Session) error
 	// ListSessions returns all sessions by durable activity, newest first.
+	// Hidden trusted-purpose sessions are excluded.
 	ListSessions(ctx context.Context) ([]domain.Session, error)
+	// ListSessionsForRecovery adds hidden trusted-purpose sessions (e.g.
+	// report control) so recovery/administration sees every workflow root.
+	ListSessionsForRecovery(ctx context.Context) ([]domain.Session, error)
 	GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error)
 	RenameSession(ctx context.Context, id domain.SessionID, title string) error
 	UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, mode domain.SandboxMode, policy domain.ApprovalPolicy) error

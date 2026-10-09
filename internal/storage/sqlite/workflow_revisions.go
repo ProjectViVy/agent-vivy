@@ -25,12 +25,17 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 	if err := sqliteLockAdmissionSession(ctx, tx, in.Revision.ParentSessionID); err != nil {
 		return result, err
 	}
-	if existing, found, err := sqliteReadWorkflowRevisionByOperation(ctx, tx, in.Revision.ParentRunID, in.Revision.OperationKey); err != nil {
+	namespace := in.Revision.AdmissionNamespace
+	if namespace == "" {
+		namespace = string(in.Revision.ParentRunID)
+	}
+	if existing, found, err := sqliteReadWorkflowRevisionByOperation(ctx, tx, namespace, in.Revision.OperationKey); err != nil {
 		return result, err
 	} else if found {
 		if existing.DescriptorDigest != in.Revision.DescriptorDigest || existing.AuthorityDigest != in.Revision.AuthorityDigest ||
 			existing.ParentSessionID != in.Revision.ParentSessionID || string(existing.DescriptorJSON) != string(in.Revision.DescriptorJSON) ||
-			string(existing.AuthorityJSON) != string(in.Revision.AuthorityJSON) {
+			string(existing.AuthorityJSON) != string(in.Revision.AuthorityJSON) || existing.RootPurpose != in.Revision.RootPurpose ||
+			existing.RequestDigest != in.Revision.RequestDigest || existing.TargetKey != in.Revision.TargetKey {
 			return result, storage.WorkflowAdmissionConflict()
 		}
 		stored, err := sqliteReadWorkflowAdmissionRun(ctx, tx, existing.RunID)
@@ -42,12 +47,34 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 		}
 		return storage.WorkflowAdmissionResult{Revision: existing, Run: stored.run, Started: stored.started, Created: false}, nil
 	}
-	parent, err := sqliteValidateWorkflowParent(ctx, tx, in.Revision, in.Run)
-	if err != nil {
-		return result, err
-	}
-	if err := sqliteCheckChildConcurrency(ctx, tx, parent.ID); err != nil {
-		return result, err
+	if in.Revision.RootPurpose == "" {
+		parent, err := sqliteValidateWorkflowParent(ctx, tx, in.Revision, in.Run)
+		if err != nil {
+			return result, err
+		}
+		if err := sqliteCheckChildConcurrency(ctx, tx, parent.ID); err != nil {
+			return result, err
+		}
+	} else {
+		if err := sqliteValidateWorkflowRoot(ctx, tx, in.Revision, in.Run); err != nil {
+			return result, err
+		}
+		if busy, err := sqliteWorkflowBusyTarget(ctx, tx, namespace, in.Revision.TargetKey); err != nil {
+			return result, err
+		} else if busy != "" {
+			existing, err := sqliteReadWorkflowRevision(ctx, tx, busy)
+			if err != nil {
+				return result, err
+			}
+			stored, err := sqliteReadWorkflowAdmissionRun(ctx, tx, busy)
+			if err != nil {
+				return result, err
+			}
+			if err := tx.Commit(); err != nil {
+				return result, storage.AdmissionUnavailable("commit busy workflow admission", err)
+			}
+			return storage.WorkflowAdmissionResult{Revision: existing, Run: stored.run, Started: stored.started, Created: false, Busy: true}, nil
+		}
 	}
 	if existing, err := sqliteRunExists(ctx, tx, in.Run.ID); err != nil {
 		return result, err
@@ -63,8 +90,9 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 	}
 	r := in.Revision
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_revisions
-		(workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.RunID, r.ParentRunID, r.ParentSessionID, r.RootRunID, r.OperationKey,
+		(workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,root_purpose,admission_namespace,request_digest,target_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.RunID, r.ParentRunID, r.ParentSessionID, r.RootRunID, r.OperationKey,
+		r.RootPurpose, namespace, r.RequestDigest, r.TargetKey,
 		r.DescriptorDigest, r.AuthorityDigest, r.DescriptorJSON, r.AuthorityJSON, r.SchemaVersion, r.CreatedAt,
 		nullString(r.ProgramDigest), nullString(r.CatalogDigest), nullString(r.CompilerVersion),
 		nullString(r.EinoBuild), nullString(r.InputDigest), nullBytes(r.EffectiveLimits), nullString(r.HostBindingID),
@@ -84,7 +112,11 @@ func (b *Backend) GetWorkflowRevision(ctx context.Context, runID domain.RunID) (
 }
 
 func (b *Backend) GetWorkflowRevisionByOperation(ctx context.Context, parentRunID domain.RunID, operationKey string) (domain.WorkflowRevision, error) {
-	r, found, err := sqliteReadWorkflowRevisionByOperation(ctx, b.db, parentRunID, operationKey)
+	return b.GetWorkflowRevisionByOperationInNamespace(ctx, string(parentRunID), operationKey)
+}
+
+func (b *Backend) GetWorkflowRevisionByOperationInNamespace(ctx context.Context, namespace, operationKey string) (domain.WorkflowRevision, error) {
+	r, found, err := sqliteReadWorkflowRevisionByOperation(ctx, b.db, namespace, operationKey)
 	if err != nil {
 		return domain.WorkflowRevision{}, err
 	}
@@ -133,8 +165,9 @@ func sqliteReadWorkflowRevision(ctx context.Context, q sqliteWorkflowQueryer, ru
 	var programDigest, catalogDigest, compilerVersion, einoBuild, inputDigest, hostBindingID, definitionID sql.NullString
 	var effectiveLimits []byte
 	var definitionRevision sql.NullInt64
-	err := q.QueryRowContext(ctx, `SELECT workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json
+	err := q.QueryRowContext(ctx, `SELECT workflow_run_id,parent_run_id,parent_session_id,root_run_id,operation_key,root_purpose,admission_namespace,request_digest,target_key,descriptor_digest,authority_digest,descriptor_json,authority_json,schema_version,created_at,program_digest,catalog_digest,compiler_version,eino_build,input_digest,effective_limits,host_binding_id,definition_id,definition_revision,input_json
 		FROM workflow_revisions WHERE workflow_run_id = ?`, runID).Scan(&workflowRun, &parentRun, &parentSession, &rootRun, &r.OperationKey,
+		&r.RootPurpose, &r.AdmissionNamespace, &r.RequestDigest, &r.TargetKey,
 		&r.DescriptorDigest, &r.AuthorityDigest, &r.DescriptorJSON, &r.AuthorityJSON, &r.SchemaVersion, &r.CreatedAt,
 		&programDigest, &catalogDigest, &compilerVersion, &einoBuild, &inputDigest, &effectiveLimits, &hostBindingID,
 		&definitionID, &definitionRevision, &r.InputJSON)
@@ -181,9 +214,9 @@ func nullBytes(b []byte) any {
 	return b
 }
 
-func sqliteReadWorkflowRevisionByOperation(ctx context.Context, q sqliteWorkflowQueryer, parentRunID domain.RunID, operationKey string) (domain.WorkflowRevision, bool, error) {
+func sqliteReadWorkflowRevisionByOperation(ctx context.Context, q sqliteWorkflowQueryer, namespace, operationKey string) (domain.WorkflowRevision, bool, error) {
 	var runID string
-	err := q.QueryRowContext(ctx, `SELECT workflow_run_id FROM workflow_revisions WHERE parent_run_id = ? AND operation_key = ?`, parentRunID, operationKey).Scan(&runID)
+	err := q.QueryRowContext(ctx, `SELECT workflow_run_id FROM workflow_revisions WHERE admission_namespace = ? AND operation_key = ?`, namespace, operationKey).Scan(&runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.WorkflowRevision{}, false, nil
 	}
@@ -201,15 +234,16 @@ type sqliteWorkflowAdmissionRun struct {
 
 func sqliteReadWorkflowAdmissionRun(ctx context.Context, q sqliteWorkflowQueryer, runID domain.RunID) (sqliteWorkflowAdmissionRun, error) {
 	var result sqliteWorkflowAdmissionRun
-	var id, sessionID, status, kind, childMode, parentID, rootID string
-	if err := q.QueryRowContext(ctx, `SELECT id,session_id,status,created_at,kind,child_mode,parent_run_id,root_run_id,depth FROM runs WHERE id = ?`, runID).
-		Scan(&id, &sessionID, &status, &result.run.CreatedAt, &kind, &childMode, &parentID, &rootID, &result.run.Depth); errors.Is(err, sql.ErrNoRows) {
+	var id, sessionID, status, kind, childMode, parentID, rootID, purpose string
+	if err := q.QueryRowContext(ctx, `SELECT id,session_id,status,created_at,kind,child_mode,parent_run_id,root_run_id,depth,purpose FROM runs WHERE id = ?`, runID).
+		Scan(&id, &sessionID, &status, &result.run.CreatedAt, &kind, &childMode, &parentID, &rootID, &result.run.Depth, &purpose); errors.Is(err, sql.ErrNoRows) {
 		return result, storage.ErrNotFound
 	} else if err != nil {
 		return result, storage.AdmissionUnavailable("read workflow Run", err)
 	}
 	result.run.ID, result.run.SessionID, result.run.Status = domain.RunID(id), domain.SessionID(sessionID), domain.RunStatus(status)
 	result.run.Kind, result.run.ChildMode, result.run.ParentID, result.run.RootID = domain.RunKind(kind), domain.ChildMode(childMode), domain.RunID(parentID), domain.RunID(rootID)
+	result.run.Purpose = domain.RunPurpose(purpose)
 	var seq int64
 	var eventType string
 	if err := q.QueryRowContext(ctx, `SELECT seq,type,created_at,payload_version,payload FROM run_events WHERE run_id = ? AND type = ? ORDER BY seq LIMIT 1`, runID, domain.EventRunStarted).
@@ -245,6 +279,44 @@ func sqliteValidateWorkflowParent(ctx context.Context, tx *sql.Tx, revision doma
 		return parent, err
 	}
 	return parent, nil
+}
+
+// sqliteValidateWorkflowRoot enforces the trusted-root invariants inside the
+// admission tx: the namespace session exists with the report-control purpose,
+// and the Run presents itself as a self-rooted depth-0 workflow.
+func sqliteValidateWorkflowRoot(ctx context.Context, tx *sql.Tx, revision domain.WorkflowRevision, workflowRun domain.Run) error {
+	var purpose string
+	if err := tx.QueryRowContext(ctx, `SELECT purpose FROM sessions WHERE id = ?`, revision.ParentSessionID).
+		Scan(&purpose); errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return storage.AdmissionUnavailable("read admission session", err)
+	}
+	if domain.SessionPurpose(purpose) != domain.SessionPurposeReportControl {
+		return storage.ErrWorkflowRevisionConflict
+	}
+	if workflowRun.RootID != workflowRun.ID || workflowRun.Depth != 0 {
+		return storage.ErrWorkflowRevisionConflict
+	}
+	return nil
+}
+
+// sqliteWorkflowBusyTarget returns the non-terminal Run owning targetKey
+// inside namespace, or "" when the target is free. Called under the
+// admission lock so the check is serialized against other admissions.
+func sqliteWorkflowBusyTarget(ctx context.Context, tx *sql.Tx, namespace, targetKey string) (domain.RunID, error) {
+	var runID string
+	err := tx.QueryRowContext(ctx, `SELECT r.workflow_run_id FROM workflow_revisions r
+		JOIN runs ru ON ru.id = r.workflow_run_id
+		WHERE r.admission_namespace = ? AND r.target_key = ? AND ru.status NOT IN ('completed','failed','cancelled')
+		ORDER BY r.created_at LIMIT 1`, namespace, targetKey).Scan(&runID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", storage.AdmissionUnavailable("check workflow target", err)
+	}
+	return domain.RunID(runID), nil
 }
 
 func sqliteRunExists(ctx context.Context, q sqliteWorkflowQueryer, runID domain.RunID) (bool, error) {

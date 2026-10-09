@@ -764,6 +764,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if notebookBundle != nil {
 		notebookmodule.SetActive(notebookBundle)
 	}
+	// R0: the optional reports owner binds through the same sealed accessor
+	// pattern; its admission bridge is attached once the Service exists.
+	reportsBundle, err := reportsBundleForAssembly(ctx, &runtimeAssembly, generationID, notebookScopeResolver{engine: backend})
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	var cognitiveSubs []observerhost.RunSubscription
 	if cognitiveBundle != nil {
 		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
@@ -771,7 +778,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if svc != nil && receipt.Seq != 0 {
 					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
 				}
-			}, backend.HasExcludedToolOperations))
+			}, ingestExclusionPredicate(backend)))
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
 	if err != nil {
@@ -890,6 +897,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
+	}
+	if reportsBundle != nil {
+		reportsBundle.AttachAdmission(svc)
 	}
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend)

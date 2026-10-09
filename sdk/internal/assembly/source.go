@@ -43,7 +43,10 @@ type GoBinding struct {
 	CognitiveFactory string
 	// NotebookFactory names the typed core/notebook-service@v1 binding;
 	// emitted only when the owner module is selected.
-	NotebookFactory              string
+	NotebookFactory string
+	// ReportFactory names the typed core/report-service@v1 binding; emitted
+	// only when the owner module is selected.
+	ReportFactory                string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool

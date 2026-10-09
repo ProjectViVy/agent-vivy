@@ -220,9 +220,9 @@ func postgresInsertAdmissionRun(ctx context.Context, tx *Tx, r domain.Run) error
 	}
 	childMode := r.EffectiveChildMode()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth,child_mode)
-		VALUES (?,?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
-		string(kind), r.ParentID, rootID, r.Depth, string(childMode)); err != nil {
+		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth,child_mode,purpose)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
+		string(kind), r.ParentID, rootID, r.Depth, string(childMode), string(r.Purpose)); err != nil {
 		return storage.AdmissionUnavailable("insert admission run", err)
 	}
 	return nil

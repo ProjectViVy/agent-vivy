@@ -43,9 +43,9 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 		}
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth, child_mode)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth, string(childMode)); err != nil {
+		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth, child_mode, purpose)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth, string(childMode), string(r.Purpose)); err != nil {
 		return fmt.Errorf("storage: create run %s: %w", r.ID, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -171,10 +171,10 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 // GetRun loads one run; absent ids yield storage.ErrNotFound.
 func (b *Backend) GetRun(ctx context.Context, id domain.RunID) (domain.Run, error) {
 	var r domain.Run
-	var rid, sid, status, kind, childMode, parentID, rootID string
+	var rid, sid, status, kind, childMode, parentID, rootID, purpose string
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth FROM runs WHERE id = ?`, id).
-		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth)
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth, purpose FROM runs WHERE id = ?`, id).
+		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth, &purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Run{}, storage.ErrNotFound
 	}
@@ -188,6 +188,7 @@ func (b *Backend) GetRun(ctx context.Context, id domain.RunID) (domain.Run, erro
 	r.ChildMode = domain.ChildMode(childMode)
 	r.ParentID = domain.RunID(parentID)
 	r.RootID = domain.RunID(rootID)
+	r.Purpose = domain.RunPurpose(purpose)
 	return r, nil
 }
 
@@ -207,7 +208,7 @@ func (b *Backend) SetRunStatus(ctx context.Context, id domain.RunID, status doma
 // recovery input, E2).
 func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth FROM runs
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth, purpose FROM runs
 		 WHERE status IN `+activeStatuses+` ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list active runs: %w", err)
@@ -217,8 +218,8 @@ func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 	out := []domain.Run{}
 	for rows.Next() {
 		var r domain.Run
-		var rid, sid, status, kind, childMode, parentID, rootID string
-		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth); err != nil {
+		var rid, sid, status, kind, childMode, parentID, rootID, purpose string
+		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth, &purpose); err != nil {
 			return nil, fmt.Errorf("storage: scan run: %w", err)
 		}
 		r.ID = domain.RunID(rid)
@@ -228,6 +229,7 @@ func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 		r.ChildMode = domain.ChildMode(childMode)
 		r.ParentID = domain.RunID(parentID)
 		r.RootID = domain.RunID(rootID)
+		r.Purpose = domain.RunPurpose(purpose)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -253,12 +255,12 @@ func (b *Backend) ListRunsBySession(ctx context.Context, sessionID domain.Sessio
 // never replace the primary conversation workspace in session/sidebar.
 func (b *Backend) LatestPrimaryRunBySession(ctx context.Context, sessionID domain.SessionID) (domain.Run, error) {
 	var r domain.Run
-	var rid, sid, status, kind, childMode, parentID, rootID string
+	var rid, sid, status, kind, childMode, parentID, rootID, purpose string
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth, purpose
 		 FROM runs WHERE session_id = ? AND kind = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
 		sessionID, string(domain.RunKindPrimary)).
-		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth)
+		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth, &purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Run{}, storage.ErrNotFound
 	}
@@ -267,12 +269,13 @@ func (b *Backend) LatestPrimaryRunBySession(ctx context.Context, sessionID domai
 	}
 	r.ID, r.SessionID, r.Status = domain.RunID(rid), domain.SessionID(sid), domain.RunStatus(status)
 	r.Kind, r.ChildMode, r.ParentID, r.RootID = domain.RunKind(kind), domain.ChildMode(childMode), domain.RunID(parentID), domain.RunID(rootID)
+	r.Purpose = domain.RunPurpose(purpose)
 	return r, nil
 }
 
 func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...any) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth
+		`SELECT id, session_id, status, created_at, kind, child_mode, parent_run_id, root_run_id, depth, purpose
 		 FROM runs WHERE `+predicate+` ORDER BY created_at, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list run tree: %w", err)
@@ -281,12 +284,13 @@ func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...a
 	var out []domain.Run
 	for rows.Next() {
 		var r domain.Run
-		var rid, sid, status, kind, childMode, parentID, rootID string
-		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth); err != nil {
+		var rid, sid, status, kind, childMode, parentID, rootID, purpose string
+		if err := rows.Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &childMode, &parentID, &rootID, &r.Depth, &purpose); err != nil {
 			return nil, fmt.Errorf("storage: scan tree run: %w", err)
 		}
 		r.ID, r.SessionID, r.Status = domain.RunID(rid), domain.SessionID(sid), domain.RunStatus(status)
 		r.Kind, r.ChildMode, r.ParentID, r.RootID = domain.RunKind(kind), domain.ChildMode(childMode), domain.RunID(parentID), domain.RunID(rootID)
+		r.Purpose = domain.RunPurpose(purpose)
 		out = append(out, r)
 	}
 	return out, rows.Err()

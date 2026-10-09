@@ -60,6 +60,7 @@ func Catalog() Registry {
 		closed("core/mask-service@v1", "vivy/masks", CardinalityAtMostOne, RequirementConditional),
 		closed("core/cognitive-factory@v1", "vivy/diva-cognitive", CardinalityAtMostOne, RequirementConditional),
 		closed("core/notebook-service@v1", "vivy/notebook-core", CardinalityAtMostOne, RequirementConditional),
+		closed("core/report-service@v1", "vivy/reports", CardinalityAtMostOne, RequirementConditional),
 		closed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		closed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),
 		closed("core/sandbox-backend@v1", "vivy/sandbox", CardinalityExactlyOne, RequirementAgent),

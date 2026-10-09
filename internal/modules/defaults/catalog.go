@@ -12,6 +12,7 @@ import (
 	memorymodule "agent-vivy/internal/modules/memory"
 	notebookmodule "agent-vivy/internal/modules/notebook"
 	"agent-vivy/internal/modules/optional"
+	reportsmodule "agent-vivy/internal/modules/reports"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
@@ -24,6 +25,7 @@ type Binding struct {
 	MaskFactory                                           string
 	CognitiveFactory                                      string
 	NotebookFactory                                       string
+	ReportFactory                                         string
 	ContextSourceProvider                                 bool
 	SkillSourceProvider                                   bool
 	MCPHostProvider                                       bool
@@ -107,6 +109,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		boundRecord("vivy/diva-cognitive", "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewModule", source, cognitiveProvides...),
 		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
 		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
+		boundRecord("vivy/reports", "agent-vivy/internal/modules/reports", "reports", "NewModule", source, port("core/report-service@v1", reportsmodule.ProviderID)),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -160,6 +163,8 @@ func Catalog(repoRoot string) ([]Record, error) {
 		case "vivy/notebook-tools":
 			records[i].Binding.ProviderConstructor = "ToolProviders"
 			records[i].Binding.ProviderCollection = true
+		case "vivy/reports":
+			records[i].Binding.ReportFactory = "Open"
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
@@ -189,6 +194,11 @@ func Catalog(repoRoot string) ([]Record, error) {
 			}
 		case "vivy/notebook-tools":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+		case "vivy/reports":
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/action-host@v1"}, Provider: "vivy/action-host"},
+				{PortRef: module.PortRef{Port: "core/notebook-service@v1"}, Provider: "vivy/notebook-core"},
+			}
 		}
 		if records[i].Descriptor.Module.ID == "vivy/provider-profiles" {
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/chat-model-host@v1"}, Provider: "vivy/model"}}
