@@ -85,9 +85,11 @@ Add `TestWorkflowProductSaveRequiresExplicitCAS`: empty expected token fails; ab
 
 - [ ] **P3.1.4 Write browser tests and select authoritative Module tests.**
 
-UI portion pending: the repository's `vivy-plugin` skill requires `oil-frontend`,
-which is unavailable in this checkout; the user was asked whether to provide it
-or authorize `testing-vivy-ui` as the substitute. Do not edit generated staging.
+`oil-frontend` is absent from this checkout and the available skill catalog.
+Per the execution ruling below, implement only the specified behavioral
+contracts using existing Module patterns and verify through the available
+`testing-vivy-ui` workflow. Do not make a visual redesign or edit generated
+staging.
 
 In `ui/vitest.config.ts`, include both workflow source test globs and exclude `src/generated/ui/vivy-workflow/src/**/*.test.*`. Add `saveDraft sends explicit create intent for a null etag` and `saveDraft rejects an empty edit etag` in `face-bridge.test.ts`; inspect the actual RPC request. Add `two missing-draft editors do not overwrite the first creator` to `workflow-page.test.tsx`: both load misses, first create succeeds, second conflicts, server artifact remains first creator's value. Add `opening a revision loads the current draft etag before editing`: revision content remains the edit source, next save uses the loaded draft token. A missing own draft uses explicit creation; a foreign existing draft conflicts.
 
@@ -125,10 +127,15 @@ Run P3.1.5 again, then `go test ./internal/storage/sqlite ./internal/storage/pos
 git commit -m "fix: require explicit workflow draft CAS and rotate opaque etags"
 ```
 
-**Execution ruling:** Backend steps P3.1.6 and P3.1.7a proceeded before the
-browser tests because they are independently verifiable and the required
-`oil-frontend` skill is unavailable. The risk if this sequencing is wrong is a
-later editor contract adjustment; no UI source changes were made.
+**Execution ruling:** The `vivy-plugin` route requires `oil-frontend` for Web UI
+Module implementation, but `.agents/skills/oil-frontend` is empty and the skill
+is absent from the available catalog. The user explicitly directed continuing
+until all work items are complete. Proceed with the planned interaction and
+data behavior using existing Module conventions, `testing-vivy-ui` for browser
+verification, and available React best-practices guidance; do not invent a new
+visual treatment. Cost if wrong: a later Oil-specific accessibility/visual
+review may require small UI adjustments. This supersedes the earlier pause that
+left browser tests and editor changes pending.
 
 ---
 
@@ -295,6 +302,11 @@ all work items, the independent backend portions of P3.2 and P3.3 proceeded;
 UI work remains gated and no Module source changed. The cost if this sequencing
 is wrong is a browser-discovered contract adjustment after the backend work.
 
+**UI continuation ruling:** The user has directed completion of all work items,
+so proceed under the P3.1 ruling: preserve existing Module patterns and limit
+UI work to the specified browser behavior. The cost if wrong is a later
+Oil-specific accessibility or visual review and small UI adjustments.
+
 **Commit ruling:** P3.1, P3.2 and P3.3 backend changes share the storage/runtime/RPC
 files, and their combined affected-package verification has already passed.
 Land these backend slices in one atomic commit and keep their separate iteration
@@ -367,8 +379,8 @@ Expected: missing summary engine status, no Load more control, retained empty cu
 Extend each existing `ListWorkflowDefinitionRuns` query with one `LEFT JOIN workflow_executions e ON e.workflow_run_id = r.workflow_run_id`. Scan `COALESCE(e.status, CASE WHEN ru.status IN ('completed','failed','cancelled') THEN ru.status ELSE 'admitted' END)` into `EngineStatus`. Preserve native `ru.status`, session filtering, ordering, and P3.3 predicates. Include `engine_status` in `inofyListRuns`; do not call `GetWorkflow`, load checkpoints, or inspect per-row Journal history.
 
 Backend projection, Runtime list/detail parity and RPC serialization regressions
-pass in both drivers. P3.4.2/.3/.6 UI pagination and lifecycle presentation remain
-pending the required UI implementation skill.
+pass in both drivers. P3.4.2/.3/.6 UI pagination and lifecycle presentation
+remain open and will follow the UI continuation ruling above.
 
 - [ ] **P3.4.6 Implement bounded list navigation and lifecycle display.**
 
