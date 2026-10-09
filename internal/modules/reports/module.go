@@ -89,3 +89,42 @@ func (s *service) StartReport(ctx context.Context, ac reportcontract.AdmissionCo
 	}
 	return admission.StartReport(ctx, ac, req)
 }
+
+func (s *service) GetReport(ctx context.Context, ac reportcontract.AdmissionContext, runID string) (reportcontract.ReportResult, error) {
+	s.bundle.mu.RLock()
+	admission := s.bundle.admission
+	s.bundle.mu.RUnlock()
+	if admission == nil {
+		return reportcontract.ReportResult{}, &reportcontract.Error{
+			Code:    reportcontract.CodeCapabilityUnavailable,
+			Message: "report admission is not bound",
+		}
+	}
+	return admission.GetReport(ctx, ac, runID)
+}
+
+func (s *service) CancelReport(ctx context.Context, ac reportcontract.AdmissionContext, runID string) error {
+	s.bundle.mu.RLock()
+	admission := s.bundle.admission
+	s.bundle.mu.RUnlock()
+	if admission == nil {
+		return &reportcontract.Error{
+			Code:    reportcontract.CodeCapabilityUnavailable,
+			Message: "report admission is not bound",
+		}
+	}
+	return admission.CancelReport(ctx, ac, runID)
+}
+
+func (s *service) ReadReportSettings(ctx context.Context, ac reportcontract.AdmissionContext, period reportcontract.Period) (reportcontract.ReportSettings, error) {
+	s.bundle.mu.RLock()
+	admission := s.bundle.admission
+	s.bundle.mu.RUnlock()
+	if admission == nil {
+		return reportcontract.ReportSettings{}, &reportcontract.Error{
+			Code:    reportcontract.CodeCapabilityUnavailable,
+			Message: "report admission is not bound",
+		}
+	}
+	return admission.ReadReportSettings(ctx, ac, period)
+}

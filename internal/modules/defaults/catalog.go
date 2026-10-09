@@ -91,6 +91,10 @@ func Catalog(repoRoot string) ([]Record, error) {
 	for _, actionID := range notebookmodule.ActionIDs {
 		notebookProvides = append(notebookProvides, port("std/control-action@v1", actionID))
 	}
+	reportProvides := []module.PortRef{port("core/report-service@v1", reportsmodule.ProviderID)}
+	for _, actionID := range reportsmodule.ActionIDs {
+		reportProvides = append(reportProvides, port("std/control-action@v1", actionID))
+	}
 	notebookToolProvides := make([]module.PortRef, 0, len(notebookmodule.ToolIDs))
 	for _, toolID := range notebookmodule.ToolIDs {
 		notebookToolProvides = append(notebookToolProvides, port("std/tool@v1", toolID))
@@ -109,7 +113,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		boundRecord("vivy/diva-cognitive", "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewModule", source, cognitiveProvides...),
 		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
 		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
-		boundRecord("vivy/reports", "agent-vivy/internal/modules/reports", "reports", "NewModule", source, port("core/report-service@v1", reportsmodule.ProviderID)),
+		boundRecord("vivy/reports", "agent-vivy/internal/modules/reports", "reports", "NewModule", source, reportProvides...),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -165,6 +169,8 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.ProviderCollection = true
 		case "vivy/reports":
 			records[i].Binding.ReportFactory = "Open"
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true

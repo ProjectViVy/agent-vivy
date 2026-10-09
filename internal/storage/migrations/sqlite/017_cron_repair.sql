@@ -12,6 +12,7 @@
 		last_error TEXT NOT NULL DEFAULT '',
 		delete_after_run INTEGER NOT NULL DEFAULT 0,
 		created_at_ms INTEGER NOT NULL,
-		updated_at_ms INTEGER NOT NULL
+		updated_at_ms INTEGER NOT NULL,
+	revision INTEGER NOT NULL DEFAULT 1
 	);
 	CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);

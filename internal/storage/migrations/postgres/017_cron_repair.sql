@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 	last_error TEXT NOT NULL DEFAULT '',
 	delete_after_run BOOLEAN NOT NULL DEFAULT FALSE,
 	created_at_ms BIGINT NOT NULL,
-	updated_at_ms BIGINT NOT NULL
+	updated_at_ms BIGINT NOT NULL,
+	revision BIGINT NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);

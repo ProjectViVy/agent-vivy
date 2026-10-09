@@ -204,6 +204,10 @@ type ServiceDeps struct {
 	// product surface (drafts, publishing, product runs) stays unavailable
 	// while the core task-graph path keeps working.
 	WorkflowDefinitions storage.WorkflowDefinitionStore
+	// Report is the bounded report authority (settings, generations, source
+	// reads). NewService discovers it from Sessions; nil keeps the reports
+	// capability closed — admission and effect dispatch fail unavailable.
+	Report storage.ReportStore
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
@@ -475,6 +479,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if deps.WorkflowDefinitions == nil {
 		deps.WorkflowDefinitions, _ = deps.Sessions.(storage.WorkflowDefinitionStore)
+	}
+	if deps.Report == nil {
+		deps.Report, _ = deps.Sessions.(storage.ReportStore)
 	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"

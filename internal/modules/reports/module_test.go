@@ -62,6 +62,18 @@ func (f *fakeAdmission) StartReport(context.Context, reportcontract.AdmissionCon
 	return reportcontract.ReportAdmission{RunID: "wfr-1", Created: true}, nil
 }
 
+func (f *fakeAdmission) GetReport(context.Context, reportcontract.AdmissionContext, string) (reportcontract.ReportResult, error) {
+	return reportcontract.ReportResult{Status: "active"}, nil
+}
+
+func (f *fakeAdmission) CancelReport(context.Context, reportcontract.AdmissionContext, string) error {
+	return nil
+}
+
+func (f *fakeAdmission) ReadReportSettings(context.Context, reportcontract.AdmissionContext, reportcontract.Period) (reportcontract.ReportSettings, error) {
+	return reportcontract.ReportSettings{Revision: 1}, nil
+}
+
 func TestAttachAdmissionDelegates(t *testing.T) {
 	bundle, err := Open(context.Background(), reportcontract.FactoryInput{
 		Scopes: testScopes{}, GenerationID: "gen-test"})

@@ -36,6 +36,7 @@ modules:
   - vivy/notebook
   - vivy/notebook-core
   - vivy/notebook-tools
+  - vivy/reports
   - vivy/masks
   - vivy/masks-ui
   - vivy/workflow-ui

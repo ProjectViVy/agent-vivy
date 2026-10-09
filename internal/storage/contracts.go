@@ -14,6 +14,10 @@ var (
 	// ErrVersionConflict is returned by SnapshotStore.Put when the stored
 	// version differs from expectVersion (optimistic concurrency).
 	ErrVersionConflict = errors.New("storage: snapshot version conflict")
+	// ErrRevisionConflict is returned by CAS writes (cron settings, report
+	// settings) when the stored revision moved past the caller's expected
+	// value; the caller rereads and retries.
+	ErrRevisionConflict = errors.New("storage: revision conflict")
 	// ErrRunClosed is returned by Journal.Append once the run has a
 	// terminal event (D-008 exactly-one-terminal).
 	ErrRunClosed = errors.New("storage: run already has a terminal event")
@@ -417,6 +421,10 @@ type CronStore interface {
 	ListCronJobs(ctx context.Context) ([]domain.CronJob, error)
 	UpdateCronJob(ctx context.Context, job domain.CronJob) error
 	DeleteCronJob(ctx context.Context, id string) error
+	// UpdateCronJobCAS rewrites the job only when its stored revision still
+	// equals expected; the store increments revision on success. A stale
+	// expected value returns ErrRevisionConflict.
+	UpdateCronJobCAS(ctx context.Context, job domain.CronJob, expected int64) (domain.CronJob, error)
 }
 
 // SessionCompaction is one durable session-level context-compression record.

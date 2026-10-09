@@ -60,9 +60,19 @@ func (e *reportNodeExecutor) Execute(ctx context.Context, call inofy.NodeCall) (
 		return inofy.NodeReply{}, &inofy.Error{Code: inofy.ErrAuthorityDenied, Path: call.Path,
 			Message: "report run binding does not match its admitted revision"}
 	}
-	// R0: report effects are not yet bound to this Generation. A verified
-	// call reports an unavailable capability — the Run fails honestly and
-	// never surfaces a successful generation through placeholder output.
+	// Verified report call → dispatch to the bounded sealed effect. Only the
+	// four report node types reach here; every other type already failed
+	// closed above.
+	switch call.TypeID {
+	case reportNodeCollect:
+		return e.effectCollect(ctx, call)
+	case reportNodeNarrate:
+		return e.effectNarrate(ctx, call)
+	case reportNodeValidateRender:
+		return e.effectValidateRender(ctx, call)
+	case reportNodePersist:
+		return e.effectPersist(ctx, call)
+	}
 	return inofy.NodeReply{}, &inofy.Error{Code: inofy.ErrAuthorityDenied, Path: call.Path,
 		Message: "report effect capability is not configured"}
 }

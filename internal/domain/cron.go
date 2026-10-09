@@ -14,7 +14,10 @@ type CronJob struct {
 	// SessionID is the job's dedicated conversation (Vivy extension over
 	// diva): fired turns run here so history stays inspectable. Empty
 	// means the session is created lazily on first fire.
-	SessionID      SessionID
+	SessionID SessionID
+	// Revision is the durable CAS counter: every settings write supplies
+	// the expected revision and the store bumps it on success.
+	Revision       int64
 	State          CronJobState
 	DeleteAfterRun bool
 	CreatedAt      int64
@@ -50,16 +53,32 @@ type CronPayload struct {
 	// Kind is reserved for forward compatibility; the only behavior the
 	// scheduler implements today is the agent turn below (diva's
 	// agent_turn). Other values are stored but never fire.
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
-	Deliver bool   `json:"deliver"`
-	Channel string `json:"channel,omitempty"`
-	To      string `json:"to,omitempty"`
+	Kind    string             `json:"kind"`
+	Report  *CronReportPayload `json:"report,omitempty"`
+	Message string             `json:"message"`
+	Deliver bool               `json:"deliver"`
+	Channel string             `json:"channel,omitempty"`
+	To      string             `json:"to,omitempty"`
 }
 
 // CronPayloadKindAgentTurn is the one payload behavior the scheduler
 // implements: the message drives one run in the job's session.
 const CronPayloadKindAgentTurn = "agent_turn"
+
+// CronPayloadKindReport is the typed report-settings payload: one CronJob
+// per (scope, period) is the persistent ReportSettings authority, including
+// disabled manual-only rows (R1 read/default; R3 owns writes + schedule).
+const CronPayloadKindReport = "report"
+
+// CronReportPayload is the typed payload of a report-settings job.
+type CronReportPayload struct {
+	Scope     string `json:"scope"`
+	Period    string `json:"period"`
+	Timezone  string `json:"timezone"`
+	SectionID string `json:"section_id"`
+	Provider  string `json:"provider,omitempty"`
+	ModelID   string `json:"model_id,omitempty"`
+}
 
 type CronJobState struct {
 	NextRunAtMs int64

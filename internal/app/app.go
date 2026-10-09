@@ -959,6 +959,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Cognitive:      cognitiveProvider,
 			Notebook:       notebookBundle,
 			NotebookScopes: notebookScopeResolver{engine: backend},
+			Reports:        reportsBundle,
+			ReportScopes:   reportScopeResolver{engine: backend},
 			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
 				_, err := backend.GetSession(ctx, sessionID)
 				return err

@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	nb "agent-vivy/internal/notebookcontract"
 	rc "agent-vivy/internal/reportcontract"
+	"agent-vivy/internal/storage"
 )
 
 // generatedReportFactoryBinding is the opaque accessor emitted by the
@@ -35,4 +38,24 @@ func reportsBundleForAssembly(ctx context.Context, assembly *genassembly.Runtime
 		return nil, fmt.Errorf("app: report factory: %w", err)
 	}
 	return bundle, nil
+}
+
+// reportScopeResolver maps the authenticated session identity onto the
+// canonical workspace scope (agent-origin runs) and Home (human-origin
+// actions) — mirroring the notebook resolver on the same backend authority.
+type reportScopeResolver struct {
+	engine storage.Engine
+}
+
+func (r reportScopeResolver) Home() nb.ScopeID { return nb.HomeScopeID }
+
+func (r reportScopeResolver) ForSession(ctx context.Context, sessionID string) (nb.ScopeID, error) {
+	id := domain.SessionID(sessionID)
+	if id == "" {
+		return "", &rc.Error{Code: rc.CodeNotFound, Message: "report scope requires a session"}
+	}
+	if _, err := r.engine.GetSession(ctx, id); err != nil {
+		return "", &rc.Error{Code: rc.CodeNotFound, Message: "report scope requires a known session"}
+	}
+	return nb.WorkspaceScope(string(id)), nil
 }

@@ -226,15 +226,16 @@ func TestReportExecutorRejectsEscalation(t *testing.T) {
 		ImplementationID: reportImplementationID, OperationKey: "n4"}); err == nil {
 		t.Fatal("sealed call on a non-report run must be denied")
 	}
-	// A verified sealed call fails closed: R0 binds no effects, so the
-	// report cannot advertise a successful generation.
+	// A verified sealed call dispatches to the bounded effect; an empty
+	// bound input fails honestly with an INOFY-typed error, never a
+	// fabricated success.
 	if _, err := exec.Execute(ctx, inofy.NodeCall{Ref: ref, TypeID: reportNodeCollect,
 		ImplementationID: reportImplementationID, OperationKey: "collect-1"}); err == nil {
-		t.Fatal("unbound report effect must fail closed")
+		t.Fatal("report effect with empty input must fail honestly")
 	} else {
 		var inofyErr *inofy.Error
-		if !errors.As(err, &inofyErr) || inofyErr.Code != inofy.ErrAuthorityDenied {
-			t.Fatalf("expected authority-denied capability error, got %v", err)
+		if !errors.As(err, &inofyErr) {
+			t.Fatalf("expected inofy-typed error, got %v", err)
 		}
 	}
 }

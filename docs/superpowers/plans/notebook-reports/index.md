@@ -34,7 +34,7 @@ are allocated at execution to avoid collisions with intervening work.
 | N2 | NOTEBOOK | NB-01, NB-02, NB-05, NB-06, NB-07, RP-04 | N1 | Done 2026-10-09 | [N2.md](N2.md) | Log `docs/logs/2026-10-09-notebook-n2/`; `just ci` green |
 | N3 | NOTEBOOK | NB-02, NB-03, NB-04, NB-05, NB-06 | N2 | Done | [N3.md](N3.md) | Needs authenticated schemas/actions; completes notebook UI release |
 | R0 | REPORTS | RP-01, RP-03, RP-04, NB-05 | N2 | Done 2026-10-09 | [R0.md](R0.md) | Log `docs/logs/2026-10-09-notebook-r0/`; `just ci` green |
-| R1 | REPORTS | RP-01, RP-02, RP-03, RP-04, NB-03, NB-04 | R0 | Planned | [R1.md](R1.md) | Needs restricted workflow identity; produces manual reports and output receipts |
+| R1 | REPORTS | RP-01, RP-02, RP-03, RP-04, NB-03, NB-04 | R0 | Done | [R1.md](R1.md) · [log](../../logs/2026-10-09-notebook-r1/) | Needs restricted workflow identity; produces manual reports and output receipts |
 | R2 | REPORTS | NB-03, NB-04, NB-05, RP-02, RP-03 | N3, R1 | Planned | [R2.md](R2.md) | Needs editor/conflict UX and real report contracts |
 | R3 | REPORTS | RP-03, RP-04, RP-05, NB-05 | R1 | Planned | [R3.md](R3.md) | Needs shared report operation/settings; produces scheduled/recovery closure |
 

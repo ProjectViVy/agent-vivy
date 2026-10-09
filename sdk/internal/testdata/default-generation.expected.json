@@ -30,6 +30,7 @@
     "vivy/protected-tools",
     "vivy/provider-profiles",
     "vivy/qq",
+    "vivy/reports",
     "vivy/sandbox",
     "vivy/session-tree",
     "vivy/skill-host",
@@ -123,7 +124,11 @@
     "vivy.notebook.comments.list",
     "vivy.notebook.comments.create",
     "vivy.notebook.comments.update",
-    "vivy.notebook.export"
+    "vivy.notebook.export",
+    "vivy.reports.generate",
+    "vivy.reports.get",
+    "vivy.reports.cancel",
+    "vivy.reports.settings.read"
   ],
   "toolWorldProviders": [
     "mcp"

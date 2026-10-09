@@ -135,15 +135,35 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		s.projectionMu.Unlock()
 		return rc.ReportAdmission{}, err
 	}
-	runInput, err := json.Marshal(struct {
-		Scope         string            `json:"scope"`
-		Period        rc.Period         `json:"period"`
-		Window        rc.WindowSelector `json:"window"`
-		Target        *rc.TargetRef     `json:"target,omitempty"`
-		OperationKey  string            `json:"operation_key"`
-		RequestDigest string            `json:"request_digest"`
-	}{Scope: string(ac.Scope), Period: req.Period, Window: req.Window, Target: req.Target,
-		OperationKey: operationKey, RequestDigest: requestDigest})
+	settings, settingsErr := s.reportSettings(ctx, string(ac.Scope), req.Period)
+	if settingsErr != nil {
+		s.projectionMu.Unlock()
+		return rc.ReportAdmission{}, settingsErr
+	}
+	window, windowErr := ResolveReportWindow(req.Period, req.Window, settings.Timezone, time.Now().UnixMilli())
+	if windowErr != nil {
+		s.projectionMu.Unlock()
+		return rc.ReportAdmission{}, &rc.Error{Code: rc.CodeInvalidRequest, Message: "cannot resolve report window: " + windowErr.Error()}
+	}
+	runInput, err := json.Marshal(reportRunInput{
+		Scope:          string(ac.Scope),
+		Period:         req.Period,
+		Window:         req.Window,
+		Target:         req.Target,
+		OperationKey:   operationKey,
+		RequestDigest:  requestDigest,
+		SeriesID:       reportSeriesID(req.Period),
+		WindowID:       window.ID,
+		WindowStartMs:  window.StartMs,
+		WindowEndMs:    window.EndMs,
+		AsOfMs:         window.AsOfMs,
+		Completed:      window.Completed,
+		Timezone:       settings.Timezone,
+		SectionID:      settings.SectionID,
+		ConfigRevision: settings.Revision,
+		Provider:       settings.Provider,
+		ModelID:        settings.ModelID,
+	})
 	if err != nil {
 		s.projectionMu.Unlock()
 		return rc.ReportAdmission{}, err
@@ -177,7 +197,7 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		if existing.SchemaVersion != 2 || existing.DescriptorDigest != descriptorDigest ||
 			existing.AuthorityDigest != authorityDigest || existing.ParentSessionID != control.ID ||
 			existing.ProgramDigest != admitted.Meta.ProgramDigest || existing.HostBindingID != hostBinding ||
-			existing.InputDigest != inputDigest || existing.RequestDigest != requestDigest ||
+			existing.RequestDigest != requestDigest ||
 			existing.TargetKey != targetKey || existing.RootPurpose != TrustedStrategyReport ||
 			!bytes.Equal(existing.DescriptorJSON, admitted.CanonicalJSON) {
 			s.projectionMu.Unlock()
@@ -361,4 +381,86 @@ func (s *Service) activateReportLocked(ctx context.Context, control domain.Sessi
 	s.mu.Unlock()
 	_ = workspace
 	return WorkflowStartResult{Run: run, Revision: revision, Created: true}, nil
+}
+
+// reportSettings resolves the durable (scope,period) settings row through
+// the storage authority, materializing the disabled manual defaults on
+// first access. A missing report store fails closed.
+func (s *Service) reportSettings(ctx context.Context, scope string, period rc.Period) (rc.ReportSettings, error) {
+	if s.deps.Report == nil {
+		return rc.ReportSettings{}, &rc.Error{Code: rc.CodeCapabilityUnavailable,
+			Message: "report settings capability is not configured"}
+	}
+	sectionID := "section-" + string(period)
+	return s.deps.Report.EnsureReportSettings(ctx, scope, period, rc.ReportSettings{
+		Scope: scope, Period: period, Timezone: "UTC", SectionID: sectionID})
+}
+
+// reportControlScope verifies the caller's scope still matches the run's
+// admission scope — a get/cancel never crosses scope boundaries.
+func (s *Service) reportRunForScope(ctx context.Context, scope, runID string) (domain.Run, error) {
+	run, err := s.deps.Runs.GetRun(ctx, domain.RunID(runID))
+	if err != nil {
+		return domain.Run{}, &rc.Error{Code: rc.CodeNotFound, Message: "report run not found"}
+	}
+	if run.Kind != domain.RunKindWorkflow || run.Purpose != domain.RunPurposeReport {
+		return domain.Run{}, &rc.Error{Code: rc.CodeNotFound, Message: "report run not found"}
+	}
+	rev, revErr := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, domain.RunID(runID))
+	if revErr != nil {
+		return domain.Run{}, &rc.Error{Code: rc.CodeNotFound, Message: "report run not found"}
+	}
+	var input reportRunInput
+	if err := json.Unmarshal(rev.InputJSON, &input); err != nil || input.Scope != scope {
+		return domain.Run{}, &rc.Error{Code: rc.CodeNotFound, Message: "report run not found"}
+	}
+	return run, nil
+}
+
+// GetReport projects an admitted report run for the caller's scope.
+func (s *Service) GetReport(ctx context.Context, ac rc.AdmissionContext, runID string) (rc.ReportResult, error) {
+	run, err := s.reportRunForScope(ctx, string(ac.Scope), runID)
+	if err != nil {
+		return rc.ReportResult{}, err
+	}
+	res := rc.ReportResult{RunID: runID, Status: string(run.Status)}
+	if s.deps.Report != nil {
+		if g, gerr := s.deps.Report.GetReportGenerationByRun(ctx, string(ac.Scope), runID); gerr == nil {
+			res.Generation = &rc.GenerationProvenance{
+				RunID: g.RunID, Scope: g.Scope, SeriesID: g.SeriesID, WindowID: g.WindowID,
+				ConfigRevision: g.ConfigRevision, Timezone: g.Timezone,
+				StartMs: g.WindowStartMs, EndMs: g.WindowEndMs, AsOfMs: g.AsOfMs,
+				InputDigest: g.InputDigest, FactsDigest: g.FactsDigest,
+				Provider: g.Provider, ModelID: g.ModelID,
+				OutcomeMode: g.OutcomeMode, OutcomeReason: g.OutcomeReason,
+				EntryID: g.EntryID, RevisionID: g.RevisionID,
+			}
+		}
+	}
+	return res, nil
+}
+
+// CancelReport requests cancellation of an active report run through the
+// normal run-cancel path; a committed publication is never rolled back.
+func (s *Service) CancelReport(ctx context.Context, ac rc.AdmissionContext, runID string) error {
+	run, err := s.reportRunForScope(ctx, string(ac.Scope), runID)
+	if err != nil {
+		return err
+	}
+	if run.Status.Terminal() {
+		return nil
+	}
+	if _, err := s.CancelRun(ctx, domain.RunID(runID)); err != nil {
+		return &rc.Error{Code: rc.CodeUnavailable, Message: err.Error()}
+	}
+	return nil
+}
+
+// ReadReportSettings returns the durable per-scope settings row,
+// materializing the disabled manual defaults on first access.
+func (s *Service) ReadReportSettings(ctx context.Context, ac rc.AdmissionContext, period rc.Period) (rc.ReportSettings, error) {
+	if !period.Valid() {
+		return rc.ReportSettings{}, &rc.Error{Code: rc.CodeInvalidRequest, Message: "invalid period"}
+	}
+	return s.reportSettings(ctx, string(ac.Scope), period)
 }

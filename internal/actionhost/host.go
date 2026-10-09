@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 	nb "agent-vivy/internal/notebookcontract"
+	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/module"
 	action "agent-vivy/sdk/port/controlaction"
@@ -405,7 +406,12 @@ type Deps struct {
 	// Notebook is the sealed owner bundle resolved only for actions owned by
 	// vivy/notebook-core. NotebookScopes resolves Home and authenticated
 	// session workspace scopes at the trusted boundary.
-	Notebook       nb.Bundle
+	Notebook nb.Bundle
+	// Reports is the sealed owner bundle resolved only for actions owned
+	// by vivy/reports; ReportScopes resolves canonical scope from the
+	// authenticated session identity.
+	Reports        rc.Bundle
+	ReportScopes   rc.ScopeResolver
 	NotebookScopes nb.ScopeResolver
 
 	// GenerationAvailable is the sealed Generation readiness attestation. A
@@ -1086,6 +1092,9 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	}
 	if definition.Owner == notebookModuleOwner {
 		providerInvocationHost = newNotebookActionHost(invocationHost, host.deps.Notebook, host.deps.NotebookScopes)
+	}
+	if definition.Owner == reportModuleOwner {
+		providerInvocationHost = newReportActionHost(invocationHost, host.deps.Reports, host.deps.ReportScopes)
 	}
 	token, accepted := host.trackInvocation(cancel)
 	if !accepted {
