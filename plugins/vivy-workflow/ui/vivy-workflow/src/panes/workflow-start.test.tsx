@@ -66,6 +66,7 @@ async function mount(client: WorkflowClient) {
   await act(async () => root.render(
     <WorkflowsPane
       client={client}
+      sessionId="sess-a"
       t={t}
       canRun
       onOpenDraft={vi.fn()}

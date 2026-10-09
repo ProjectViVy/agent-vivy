@@ -172,6 +172,7 @@ export interface WaitRequest {
 export interface RunSummary {
   run_id: string;
   status: string;
+  engine_status?: string;
   workflow_id?: string;
   revision?: number;
   epoch?: number;

@@ -346,11 +346,11 @@ if recovery.Status != "active" || recovery.EngineStatus != "recovery_required" {
 if caps["supports_resume"] != false { t.Fatalf("resume overpromised: %+v", caps) }
 ```
 
-- [ ] **P3.4.2 Write terminal-cursor and list paging UI tests.**
+- [x] **P3.4.2 Write terminal-cursor and list paging UI tests.**
 
 Add `list clients normalize empty terminal cursors to null` to `face-bridge.test.ts`. In `pagination-status.test.tsx`, add `WorkflowsPane and RunsPane append all pages`: first page returns one row and opaque cursor, Load more sends that exact cursor, second page appends a distinct row, and terminal `""` removes/disables further loading. Add `load more failure preserves rows and retries the same cursor`: first attempt errors, rows remain, retry uses identical cursor. Add `refresh resets the list and cursor`: replacement first page does not append old rows. Assert busy loading disables repeated Load more. Add `late page response cannot replace a refreshed query`: defer the old continuation, refresh or change the selected session, resolve the fresh first page, then resolve the old continuation; only the fresh rows/cursor remain. Give workflows row keys workflow/revision and Run keys Run ID.
 
-- [ ] **P3.4.3 Write lifecycle and recovery presentation tests.**
+- [x] **P3.4.3 Write lifecycle and recovery presentation tests.**
 
 Add `completed native runs disable cancel`: getRun returns native `"completed"` and engine `"succeeded"`; both values are displayed and Cancel is disabled. Add `recovery required is distinct in list and detail`: native `"active"` plus engine `"recovery_required"` gets a visible recovery label and guidance, not an ordinary-running badge; capabilities remain resume-false and no Resume action is rendered. Deliver `run_recovery_required` through the subscription and assert getRun refreshes and the recovery state becomes visible without waiting for a terminal event.
 
@@ -362,7 +362,7 @@ expect(container.textContent).toContain('recovery_required');
 expect(resumeButton).toBeUndefined();
 ```
 
-- [ ] **P3.4.4 Run new regressions and establish red evidence.**
+- [x] **P3.4.4 Run new regressions and establish red evidence.**
 
 ```bash
 go test ./internal/storage/sqlite -run 'TestWorkflowDefinitionContract/RunSummaryEngineProjection' -count=1
@@ -374,23 +374,32 @@ pnpm -C ui exec vitest run ../plugins/vivy-workflow/ui/vivy-workflow/src/face-br
 
 Expected: missing summary engine status, no Load more control, retained empty cursor, and enabled completed-Run cancellation produce failures.
 
+Red evidence was captured for missing status serialization and absent UI behavior;
+the added pagination/status component tests passed after implementation.
+
 - [x] **P3.4.5 Implement efficient summary status projection.**
 
 Extend each existing `ListWorkflowDefinitionRuns` query with one `LEFT JOIN workflow_executions e ON e.workflow_run_id = r.workflow_run_id`. Scan `COALESCE(e.status, CASE WHEN ru.status IN ('completed','failed','cancelled') THEN ru.status ELSE 'admitted' END)` into `EngineStatus`. Preserve native `ru.status`, session filtering, ordering, and P3.3 predicates. Include `engine_status` in `inofyListRuns`; do not call `GetWorkflow`, load checkpoints, or inspect per-row Journal history.
 
 Backend projection, Runtime list/detail parity and RPC serialization regressions
-pass in both drivers. P3.4.2/.3/.6 UI pagination and lifecycle presentation
-remain open and will follow the UI continuation ruling above.
+pass in both drivers. UI continuation follows the documented unavailable-skill
+ruling above, with no visual redesign.
 
-- [ ] **P3.4.6 Implement bounded list navigation and lifecycle display.**
+- [x] **P3.4.6 Implement bounded list navigation and lifecycle display.**
 
 Normalize list terminal cursors in `WorkflowClient.listWorkflows` / `listRuns`. In each pane retain `nextCursor: string | null` and loading state; first page replaces rows, Load more appends while keeping existing rows on failure, Refresh discards the previous cursor and replaces from the first page. Deduplicate by existing row identities; use a per-query request epoch so late responses from an older refresh/session cannot update rows, cursor or loading state. In `RunsPane`, include native `completed` in terminal/cancel handling, show `engine_status` separately, prioritize a recovery badge/guidance when engine status requires it, and refresh detail on `run_recovery_required` as well as terminal events. Preserve cancellation as the existing governed action and add no Resume action. Add Module keys `workflows.loadMore` and `runs.loadMore` (`Load more` / `加载更多`), `runs.engineStatus` (`Engine: {status}` / `引擎：{status}`), and `runs.recoveryRequired` (`Recovery required; automatic resume is unavailable.` / `需要恢复；自动续运行当前不可用。`), each under `plugin.vivy/workflow-ui.`.
 
-- [ ] **P3.4.7 Verify focused tests, rehash, and run required product acceptance.**
+- [x] **P3.4.7 Verify implementation, rehash, and engineering gates.**
 
-Run P3.4.4 again; rehash the Module before `pnpm -C ui typecheck`. Then execute the program's final source-evidence update and required `just ci`, real-DSN PostgreSQL suites, SDK verification/Recipe packing/Inspect, and split-browser smoke at `http://127.0.0.1:3015`. In the smoke create/edit/publish/start, simulate one lost start reply and retry, load tied-time Runs across pages, inspect a completed Run and recovery-required Run, and verify refresh after legacy cursor rejection. Record commands/outcomes in `docs/logs/YYYY-MM-DD-issue32-remediation/{summary,verification,acceptance}.md`. A skipped PostgreSQL suite or unexercised browser flow is an explicit acceptance gap.
+The Module source hash is stable at
+`e98c354a4d2522cd3b99290553303d89badd1731d1fc2217a1a51c1922e6c7d2`;
+focused Module tests (38), the full UI suite (80 files / 620 tests), TypeScript
+typecheck/staging, and affected SQLite/PostgreSQL/runtime/RPC Go packages pass.
+The full `just ci`, SDK/Port conformance and split-browser product smoke are
+owned by P7, where final integrated source identities can be bound once.
+Native/candidate acceptance remains open.
 
-- [ ] **P3.4.8 Commit the independently reviewable deliverable.**
+- [x] **P3.4.8 Commit the independently reviewable deliverable.**
 
 Stage only P3.4 files and its verification record after passing focused checks. Leave the program's cross-package final evidence/release commit to its owning task.
 

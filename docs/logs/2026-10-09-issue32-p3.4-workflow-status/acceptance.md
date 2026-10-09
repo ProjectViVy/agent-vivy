@@ -1,3 +1,3 @@
 # Acceptance
 
-Backend run-summary projection and RPC status separation pass in SQLite and PostgreSQL, with runtime list/detail parity. The overall P3.4 task remains open until workflow list navigation and native/engine lifecycle presentation are implemented and verified in the source UI Module.
+P3.4 implementation is engineering-verified locally: backend run-summary projection and RPC status separation pass in SQLite and PostgreSQL, with runtime list/detail parity; Module pagination and lifecycle behaviors pass focused and full UI tests, typecheck, and source identity verification. Real-browser product acceptance, final `just ci` and SDK/Port conformance are deferred to P7. Native/candidate acceptance and owner acceptance are not claimed here.

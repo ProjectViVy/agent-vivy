@@ -234,6 +234,22 @@ describe('WorkflowClient.events', () => {
   });
 });
 
+describe('WorkflowClient list cursors', () => {
+  it('normalizes empty terminal cursors to null for both list surfaces', async () => {
+    const host = makeHost({}, async (method) => {
+      if (method === 'inofy.listWorkflows') return { items: [], next_cursor: '' };
+      if (method === 'inofy.listRuns') return { items: [], next_cursor: '' };
+      return {};
+    });
+    const client = new WorkflowClient(new FaceBridge(host.rpc, host.store));
+
+    await expect(client.listWorkflows('workflow-cursor')).resolves.toEqual({ items: [], next_cursor: null });
+    await expect(client.listRuns('run-cursor')).resolves.toEqual({ items: [], next_cursor: null });
+    expect(host.rpc.call).toHaveBeenCalledWith('inofy.listWorkflows', { cursor: 'workflow-cursor', session_id: 'sess-1' });
+    expect(host.rpc.call).toHaveBeenCalledWith('inofy.listRuns', { cursor: 'run-cursor', session_id: 'sess-1' });
+  });
+});
+
 describe('FaceBridge.subscribe (inofy.events over run/subscribe)', () => {
   function subscribedRpc() {
     const notifications = new Map<string, (params: unknown) => void>();

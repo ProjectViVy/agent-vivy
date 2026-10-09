@@ -17,12 +17,13 @@ import { TransportError } from '../studio/transport';
 
 interface RunsPaneProps {
   client: WorkflowClient;
+  sessionId: string;
   t: UITranslator;
   focusRunId: string | null;
   onFocusHandled: () => void;
 }
 
-const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
+const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 function isTerminalStatus(status: string | undefined): boolean {
   return status != null && TERMINAL.has(status);
@@ -31,6 +32,7 @@ function isTerminalStatus(status: string | undefined): boolean {
 function statusVariant(status: string | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
     case 'succeeded':
+    case 'completed':
       return 'secondary';
     case 'failed':
     case 'recovery_required':
@@ -74,7 +76,7 @@ function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' | 'o
   return 'default';
 }
 
-function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClient; t: UITranslator; runId: string; refreshKey: number }) {
+function RunDetailView({ client, sessionId, t, runId, refreshKey }: { client: WorkflowClient; sessionId: string; t: UITranslator; runId: string; refreshKey: number }) {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +86,7 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
 
   useEffect(() => {
     let alive = true;
+    setDetail(null);
     setEvents([]);
     setOutput(null);
     setError(null);
@@ -109,10 +112,11 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
           runId,
           cursor,
           (data) => {
+            if (!alive) return;
             const e = data as RunEvent;
             if (typeof e.seq !== 'number') return;
             setEvents((prev) => (prev.some((x) => x.seq === e.seq) ? prev : [...prev, e]));
-            if (e.kind === 'run_succeeded' || e.kind === 'run_failed' || e.kind === 'run_cancelled') {
+            if (e.kind === 'run_succeeded' || e.kind === 'run_failed' || e.kind === 'run_cancelled' || e.kind === 'run_recovery_required') {
               void client.getRun(runId).then((d2) => alive && setDetail(d2)).catch(() => undefined);
             }
           },
@@ -129,7 +133,7 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
       subRef.current?.close();
       subRef.current = null;
     };
-  }, [client, runId, refreshKey]);
+  }, [client, runId, refreshKey, sessionId]);
 
   const showOutput = useCallback(
     async (nodePath: string) => {
@@ -166,6 +170,11 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
         {detail ? (
           <>
             <Badge variant={statusVariant(detail.status)} className="text-[10px]">{detail.status}</Badge>
+            {detail.engine_status ? (
+              <Badge variant={statusVariant(detail.engine_status)} className="text-[10px]">
+                {t('plugin.vivy/workflow-ui.runs.engineStatus', { status: detail.engine_status })}
+              </Badge>
+            ) : null}
             {detail.workflow_id ? (
               <span className="truncate text-[11px] text-muted-foreground">
                 {detail.workflow_id}{detail.revision != null ? `@r${detail.revision}` : ''}
@@ -186,6 +195,11 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
         </div>
       </div>
       {error ? <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">{error}</div> : null}
+      {detail?.engine_status === 'recovery_required' ? (
+        <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="status">
+          {t('plugin.vivy/workflow-ui.runs.recoveryRequired')}
+        </div>
+      ) : null}
       {detail?.waits && detail.waits.length > 0 ? (
         <div className="border-b bg-amber-500/10 px-3 py-1.5">
           <p className="text-[11px] font-medium">{t('plugin.vivy/workflow-ui.runs.waits', { count: detail.waits.length })}</p>
@@ -258,45 +272,102 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
   );
 }
 
-export function RunsPane({ client, t, focusRunId, onFocusHandled }: RunsPaneProps) {
+function uniqueRuns(rows: RunSummary[]): RunSummary[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.run_id)) return false;
+    seen.add(row.run_id);
+    return true;
+  });
+}
+
+export function RunsPane({ client, sessionId, t, focusRunId, onFocusHandled }: RunsPaneProps) {
   const [items, setItems] = useState<RunSummary[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const listEpoch = useRef(0);
+  const cursorRef = useRef<string | null>(null);
+  const loadingMoreRef = useRef(false);
 
   const reload = useCallback(async () => {
+    const epoch = ++listEpoch.current;
+    cursorRef.current = null;
+    loadingMoreRef.current = false;
+    setNextCursor(null);
+    setLoadingMore(false);
+    setLoading(true);
     setError(null);
     try {
       const page = await client.listRuns();
-      setItems(page.items);
+      if (epoch !== listEpoch.current) return;
+      cursorRef.current = page.next_cursor;
+      setNextCursor(page.next_cursor);
+      setItems(uniqueRuns(page.items));
     } catch (e) {
-      setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
-      setItems([]);
+      if (epoch === listEpoch.current) {
+        setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
+        setItems((current) => current ?? []);
+      }
+    } finally {
+      if (epoch === listEpoch.current) setLoading(false);
     }
-  }, [client]);
+  }, [client, sessionId]);
+
+  const loadMore = useCallback(async () => {
+    const cursor = cursorRef.current;
+    if (cursor == null || loadingMoreRef.current || loading) return;
+    const epoch = listEpoch.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await client.listRuns(cursor);
+      if (epoch !== listEpoch.current) return;
+      cursorRef.current = page.next_cursor;
+      setNextCursor(page.next_cursor);
+      setItems((current) => uniqueRuns([...(current ?? []), ...page.items]));
+    } catch (e) {
+      if (epoch === listEpoch.current) setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
+    } finally {
+      if (epoch === listEpoch.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [client, loading]);
+
+  useEffect(() => {
+    setItems(null);
+    setSelected(null);
+  }, [sessionId]);
 
   useEffect(() => {
     void reload();
-  }, [reload, refreshKey]);
+  }, [reload]);
 
   useEffect(() => {
     if (!focusRunId) return;
     setSelected(focusRunId);
     setRefreshKey((k) => k + 1);
     onFocusHandled();
-  }, [focusRunId, onFocusHandled]);
+    void reload();
+  }, [focusRunId, onFocusHandled, reload]);
 
   const master = (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <h3 className="text-xs font-semibold">{t('plugin.vivy/workflow-ui.runs.title')}</h3>
-        <Button size="icon" variant="ghost" className="ml-auto h-6 w-6" onClick={() => setRefreshKey((k) => k + 1)} title={t('common.refresh')}>
+        <Button size="icon" variant="ghost" className="ml-auto h-6 w-6" onClick={() => { void reload(); setRefreshKey((k) => k + 1); }} title={t('common.refresh')}>
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
       {error ? <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">{error}</div> : null}
       <ScrollArea className="min-h-0 flex-1">
-        {items === null ? (
+        {items === null || loading && items.length === 0 ? (
           <p className="p-3 text-[11px] text-muted-foreground">{t('common.loading')}</p>
         ) : items.length === 0 ? (
           <p className="p-3 text-[11px] text-muted-foreground">{t('plugin.vivy/workflow-ui.runs.empty')}</p>
@@ -316,11 +387,26 @@ export function RunsPane({ client, t, focusRunId, onFocusHandled }: RunsPaneProp
                     </p>
                   </div>
                   <Badge variant={statusVariant(r.status)} className="shrink-0 text-[9px]">{r.status}</Badge>
+                  {r.engine_status ? (
+                    <span className={`shrink-0 text-[9px] ${r.engine_status === 'recovery_required' ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>
+                      {t('plugin.vivy/workflow-ui.runs.engineStatus', { status: r.engine_status })}
+                    </span>
+                  ) : null}
+                  {r.engine_status === 'recovery_required' ? (
+                    <Badge variant="destructive" className="shrink-0 text-[9px]">{t('plugin.vivy/workflow-ui.runs.recoveryRequired')}</Badge>
+                  ) : null}
                 </button>
               </li>
             ))}
           </ul>
         )}
+        {nextCursor != null ? (
+          <div className="flex justify-center border-t p-2">
+            <Button size="sm" variant="outline" disabled={loading || loadingMore} onClick={() => void loadMore()}>
+              {loadingMore ? t('common.loading') : t('plugin.vivy/workflow-ui.runs.loadMore')}
+            </Button>
+          </div>
+        ) : null}
       </ScrollArea>
     </div>
   );
@@ -332,7 +418,7 @@ export function RunsPane({ client, t, focusRunId, onFocusHandled }: RunsPaneProp
       master={master}
       detail={
         selected ? (
-          <RunDetailView client={client} t={t} runId={selected} refreshKey={refreshKey} />
+          <RunDetailView client={client} sessionId={sessionId} t={t} runId={selected} refreshKey={refreshKey} />
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">{t('plugin.vivy/workflow-ui.runs.selectRun')}</p>

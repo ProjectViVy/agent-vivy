@@ -220,6 +220,11 @@
       "placeholders": [],
       "messages": {"en": "No published workflows yet.", "zh": "暂无已发布工作流。"}
     },
+    "plugin.vivy/workflow-ui.workflows.loadMore": {
+      "description": "Load the next page of published workflows",
+      "placeholders": [],
+      "messages": {"en": "Load more", "zh": "加载更多"}
+    },
     "plugin.vivy/workflow-ui.workflows.openDraft": {
       "description": "Open published revision as draft",
       "placeholders": [],
@@ -255,6 +260,21 @@
       "description": "Cancel run button",
       "placeholders": [],
       "messages": {"en": "Cancel", "zh": "取消"}
+    },
+    "plugin.vivy/workflow-ui.runs.loadMore": {
+      "description": "Load the next page of workflow Runs",
+      "placeholders": [],
+      "messages": {"en": "Load more", "zh": "加载更多"}
+    },
+    "plugin.vivy/workflow-ui.runs.engineStatus": {
+      "description": "Workflow engine status shown next to native Run status",
+      "placeholders": ["status"],
+      "messages": {"en": "Engine: {{status}}", "zh": "引擎：{{status}}"}
+    },
+    "plugin.vivy/workflow-ui.runs.recoveryRequired": {
+      "description": "Guidance shown when a Run requires recovery",
+      "placeholders": [],
+      "messages": {"en": "Recovery required; automatic resume is unavailable.", "zh": "需要恢复；自动续运行当前不可用。"}
     },
     "plugin.vivy/workflow-ui.runs.waits": {
       "description": "Pending waits banner",

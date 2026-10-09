@@ -98,6 +98,7 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
         <TabsContent value="workflows" className="mt-0 min-h-0 flex-1">
           <WorkflowsPane
             client={client}
+            sessionId={faceState.activeSessionId ?? ''}
             t={t}
             canRun={canRun}
             onOpenDraft={openDraft}
@@ -106,7 +107,7 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
           />
         </TabsContent>
         <TabsContent value="runs" className="mt-0 min-h-0 flex-1">
-          <RunsPane client={client} t={t} focusRunId={focusRun} onFocusHandled={() => setFocusRun(null)} />
+          <RunsPane client={client} sessionId={faceState.activeSessionId ?? ''} t={t} focusRunId={focusRun} onFocusHandled={() => setFocusRun(null)} />
         </TabsContent>
       </Tabs>
     </div>

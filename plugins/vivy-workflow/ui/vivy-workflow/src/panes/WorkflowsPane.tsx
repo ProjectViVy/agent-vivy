@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import type { UITranslator } from '@vivy/ui-sdk';
 import { FilePlus, Play, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorkflowClient } from '../client';
 import type { ConnectionView, WorkflowSummary } from '../studio/schema';
 import type { WorkflowStartRequest } from '../studio/transport';
@@ -18,6 +18,7 @@ import { TransportError } from '../studio/transport';
 
 interface WorkflowsPaneProps {
   client: WorkflowClient;
+  sessionId: string;
   t: UITranslator;
   canRun: boolean;
   onOpenDraft: (workflow: string) => void;
@@ -25,35 +26,92 @@ interface WorkflowsPaneProps {
   onRunStarted: (runId: string) => void;
 }
 
-export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, onRunStarted }: WorkflowsPaneProps) {
+function uniqueWorkflows(rows: WorkflowSummary[]): WorkflowSummary[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = `${row.workflow_id}@${row.revision ?? '?'}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function WorkflowsPane({ client, sessionId, t, canRun, onOpenDraft, onOpenRevision, onRunStarted }: WorkflowsPaneProps) {
   const [items, setItems] = useState<WorkflowSummary[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [capabilities, setCapabilities] = useState<Record<string, unknown> | null>(null);
   const [connections, setConnections] = useState<ConnectionView[] | null>(null);
   const [newId, setNewId] = useState('');
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [pendingStarts, setPendingStarts] = useState<Record<string, WorkflowStartRequest>>({});
+  const listEpoch = useRef(0);
+  const cursorRef = useRef<string | null>(null);
+  const loadingMoreRef = useRef(false);
 
   const reload = useCallback(async () => {
+    const epoch = ++listEpoch.current;
+    cursorRef.current = null;
+    loadingMoreRef.current = false;
+    setNextCursor(null);
+    setLoadingMore(false);
+    setLoading(true);
     setError(null);
     try {
       const page = await client.listWorkflows();
-      setItems(page.items);
+      if (epoch !== listEpoch.current) return;
+      cursorRef.current = page.next_cursor;
+      setNextCursor(page.next_cursor);
+      setItems(uniqueWorkflows(page.items));
     } catch (e) {
-      setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
-      setItems([]);
+      if (epoch === listEpoch.current) {
+        setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
+        setItems((current) => current ?? []);
+      }
+    } finally {
+      if (epoch === listEpoch.current) setLoading(false);
     }
+    void client.capabilities().then((value) => {
+      if (epoch === listEpoch.current) setCapabilities(value);
+    }).catch(() => {
+      if (epoch === listEpoch.current) setCapabilities(null);
+    });
+    void client.listConnections().then((value) => {
+      if (epoch === listEpoch.current) setConnections(value);
+    }).catch(() => {
+      if (epoch === listEpoch.current) setConnections(null);
+    });
+  }, [client, sessionId]);
+
+  const loadMore = useCallback(async () => {
+    const cursor = cursorRef.current;
+    if (cursor == null || loadingMoreRef.current || loading) return;
+    const epoch = listEpoch.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setError(null);
     try {
-      setCapabilities(await client.capabilities());
-    } catch {
-      setCapabilities(null);
+      const page = await client.listWorkflows(cursor);
+      if (epoch !== listEpoch.current) return;
+      cursorRef.current = page.next_cursor;
+      setNextCursor(page.next_cursor);
+      setItems((current) => uniqueWorkflows([...(current ?? []), ...page.items]));
+    } catch (e) {
+      if (epoch === listEpoch.current) setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
+    } finally {
+      if (epoch === listEpoch.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
     }
-    try {
-      setConnections(await client.listConnections());
-    } catch {
-      setConnections(null);
-    }
-  }, [client]);
+  }, [client, loading]);
+
+  useEffect(() => {
+    setItems(null);
+    setPendingStarts({});
+  }, [sessionId]);
 
   useEffect(() => {
     void reload();
@@ -111,7 +169,7 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
         <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">{error}</div>
       ) : null}
       <ScrollArea className="min-h-0 flex-1">
-        {items === null ? (
+        {items === null || loading && items.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : items.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">{t('plugin.vivy/workflow-ui.workflows.empty')}</p>
@@ -146,6 +204,13 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
             ))}
           </ul>
         )}
+        {nextCursor != null ? (
+          <div className="flex justify-center border-t p-2">
+            <Button size="sm" variant="outline" disabled={loading || loadingMore} onClick={() => void loadMore()}>
+              {loadingMore ? t('common.loading') : t('plugin.vivy/workflow-ui.workflows.loadMore')}
+            </Button>
+          </div>
+        ) : null}
         {capabilities ? (
           <>
             <Separator />

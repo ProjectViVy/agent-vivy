@@ -81,7 +81,8 @@ export class WorkflowClient {
     return this.call<NodeDescriptor[]>('nodeTypes');
   }
   listWorkflows(cursor?: string) {
-    return this.call<{ items: WorkflowSummary[]; next_cursor: string | null }>('listWorkflows', { cursor });
+    return this.call<{ items: WorkflowSummary[]; next_cursor: string | null }>('listWorkflows', { cursor })
+      .then((page) => ({ ...page, next_cursor: page.next_cursor || null }));
   }
   loadDraft(id: string) {
     return this.call<DraftView>('loadDraft', { workflow: id });
@@ -109,7 +110,8 @@ export class WorkflowClient {
     return this.call<{ run_id: string }>('startRun', request);
   }
   listRuns(cursor?: string) {
-    return this.call<{ items: RunSummary[]; next_cursor: string | null }>('listRuns', { cursor });
+    return this.call<{ items: RunSummary[]; next_cursor: string | null }>('listRuns', { cursor })
+      .then((page) => ({ ...page, next_cursor: page.next_cursor || null }));
   }
   getRun(id: string) {
     return this.call<RunDetail>('getRun', { run_id: id });

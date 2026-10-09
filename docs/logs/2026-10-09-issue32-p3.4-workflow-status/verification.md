@@ -15,9 +15,18 @@
 - Full affected package run passed: `go test ./internal/storage/sqlite ./internal/storage/postgres ./internal/runtime ./internal/rpc -count=1`, with `VIVY_POSTGRES_TEST_DSN` set.
 - `git diff --check` passed.
 
+## UI, identity, and integrated package evidence
+
+- `pagination-status.test.tsx` and the Module workflow suite passed: 5 files / 38 tests, covering both panes' continuation, terminal cursor, error retry with retained rows, refresh replacement, stale response fencing, deduplication, busy state, native terminal cancellation, recovery-event refresh, resume-false capabilities, and start-intent behavior.
+- Full UI suite passed: `vitest run` — 80 files / 620 tests. Existing React boundary and `act()` fixture diagnostics were emitted; no test failed.
+- `go run ./sdk/internal/cmd/source-hash plugins/vivy-workflow e98c354a4d2522cd3b99290553303d89badd1731d1fc2217a1a51c1922e6c7d2` produced the same source identity on repeated runs. The declaration and `module.go` carry that digest; generated assembly was produced by `scripts/stage-ui-assembly.mjs`.
+- `tsc --noEmit -p tsconfig.json` passed after staging the Module assembly.
+- With `VIVY_POSTGRES_TEST_DSN=postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable`, `go test ./internal/storage/sqlite ./internal/storage/postgres ./internal/runtime ./internal/rpc -count=1` passed all four packages; PostgreSQL executed against the disposable local instance.
+- `git diff --check` passed for the combined P3.4 changes.
+
 ## Remaining verification
 
-P3.4.2/.3/.6 browser pagination, completed cancellation controls, recovery badges/events, Module source hash, typecheck, real browser acceptance and `just ci` remain pending. This log records backend behavior only.
+Aggregate `just ci`, SDK/Port conformance and the split-browser product smoke (including author/edit/publish/start retry, tied-time pagination, completed and recovery-required Runs, and invalid-cursor refresh) remain P7 gates. Native/candidate acceptance remains open; these local engineering checks do not claim product acceptance.
 
 ## Cancellation-status regression discovered during P6 verification
 
