@@ -13,6 +13,7 @@ import { FilePlus, Play, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { WorkflowClient } from '../client';
 import type { ConnectionView, WorkflowSummary } from '../studio/schema';
+import type { WorkflowStartRequest } from '../studio/transport';
 import { TransportError } from '../studio/transport';
 
 interface WorkflowsPaneProps {
@@ -30,7 +31,8 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
   const [capabilities, setCapabilities] = useState<Record<string, unknown> | null>(null);
   const [connections, setConnections] = useState<ConnectionView[] | null>(null);
   const [newId, setNewId] = useState('');
-  const [runningId, setRunningId] = useState<string | null>(null);
+  const [runningKey, setRunningKey] = useState<string | null>(null);
+  const [pendingStarts, setPendingStarts] = useState<Record<string, WorkflowStartRequest>>({});
 
   const reload = useCallback(async () => {
     setError(null);
@@ -59,18 +61,32 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
 
   const run = useCallback(
     async (w: WorkflowSummary) => {
-      setRunningId(w.workflow_id);
+      const key = `${w.workflow_id}@${w.revision ?? '?'}`;
+      setRunningKey(key);
       setError(null);
+      let request = pendingStarts[key];
       try {
-        const res = await client.startRun({ workflow: w.workflow_id, revision: w.revision });
+        if (!request) {
+          if (w.revision == null) throw new TypeError('published revision is missing');
+          request = client.prepareStartRun({ workflow: w.workflow_id, revision: w.revision });
+          setPendingStarts((current) => ({ ...current, [key]: request! }));
+        }
+        const res = await client.startRun(request);
+        setPendingStarts((current) => {
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
         onRunStarted(res.run_id);
       } catch (e) {
-        setError(e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
+        setError(e instanceof TransportError && request && e.code === 'revision_conflict'
+          ? t('plugin.vivy/workflow-ui.editor.startSourceConflict')
+          : e instanceof TransportError ? `${e.code}: ${e.message}` : String(e));
       } finally {
-        setRunningId(null);
+        setRunningKey(null);
       }
     },
-    [client, onRunStarted],
+    [client, onRunStarted, pendingStarts, t],
   );
 
   return (
@@ -115,12 +131,16 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!canRun || runningId === w.workflow_id}
+                  disabled={!canRun || runningKey === `${w.workflow_id}@${w.revision ?? '?'}`}
                   title={canRun ? undefined : t('plugin.vivy/workflow-ui.editor.runDisabled')}
                   onClick={() => void run(w)}
                 >
-                  <Play className="mr-1 h-3.5 w-3.5" />
-                  {t('plugin.vivy/workflow-ui.editor.run')}
+                  {pendingStarts[`${w.workflow_id}@${w.revision ?? '?'}`]
+                    ? <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    : <Play className="mr-1 h-3.5 w-3.5" />}
+                  {t(pendingStarts[`${w.workflow_id}@${w.revision ?? '?'}`]
+                    ? 'plugin.vivy/workflow-ui.editor.retryStart'
+                    : 'plugin.vivy/workflow-ui.editor.run')}
                 </Button>
               </li>
             ))}

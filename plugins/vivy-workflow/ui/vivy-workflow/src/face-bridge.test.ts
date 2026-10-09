@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FaceClientRPC, FaceClientStore, FaceStoreState, FullUIHost } from '@vivy/ui-sdk';
 import { FaceBridge, normalizeJournalEvent } from './face-bridge';
 import { WorkflowClient } from './client';
+import type { JsonValue } from './studio/schema';
 import { TransportError } from './studio/transport';
 
 function makeRpc(action?: (method: string, params?: unknown) => Promise<unknown>) {
@@ -58,15 +59,59 @@ describe('FaceBridge.call', () => {
     expect(params).not.toHaveProperty('session_id');
   });
 
-  it('injects parent_run_id and a bounded operation_id for inofy.startRun', async () => {
+  it('prepareStartRun captures one immutable full request and retries it verbatim', async () => {
     const host = makeHost();
     const bridge = new FaceBridge(host.rpc, host.store);
-    await bridge.call('inofy.startRun', { workflow: 'wf-1', revision: 2 });
-    expect(host.rpc.call).toHaveBeenCalledWith('inofy.startRun', {
-      workflow: 'wf-1', revision: 2, session_id: 'sess-1',
-      parent_run_id: 'run-parent',
-      operation_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    const input: JsonValue = { message: 'original', nested: ['before'] };
+    const request = bridge.prepareStartRun({ workflow: 'wf-1', revision: 2, input });
+    expect(request).toMatchObject({
+      workflow: 'wf-1', revision: 2, session_id: 'sess-1', parent_run_id: 'run-parent',
+      operation_id: expect.stringMatching(/^[0-9a-f-]{36}$/), input,
     });
+    expect(Object.isFrozen(request)).toBe(true);
+    expect(Object.isFrozen(request.input)).toBe(true);
+    expect(Object.isFrozen((request.input as { nested: string[] }).nested)).toBe(true);
+
+    (input as { message: string; nested: string[] }).nested.push('mutated');
+    Object.assign(host.store.getState(), { currentRun: { id: 'run-other', session_id: 'sess-1' } });
+    await bridge.call('inofy.startRun', request);
+    await bridge.call('inofy.startRun', request);
+
+    const calls = (host.rpc.call as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(calls[0]);
+    expect(calls[0]).toEqual(['inofy.startRun', request]);
+    expect(request.parent_run_id).toBe('run-parent');
+    expect((request.input as { nested: string[] }).nested).toEqual(['before']);
+    expect(bridge.prepareStartRun({ workflow: 'wf-1', revision: 2 }).operation_id).not.toBe(request.operation_id);
+  });
+
+  it('rejects malformed prepared start requests without minting or truncating identifiers', async () => {
+    const host = makeHost();
+    const bridge = new FaceBridge(host.rpc, host.store);
+    const request = bridge.prepareStartRun({ workflow: 'wf-1', revision: 2 });
+
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, operation_id: '' }))).rejects.toThrow(/operation/i);
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, operation_id: 'x'.repeat(129) }))).rejects.toThrow(/operation/i);
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, operation_id: 'é'.repeat(65) }))).rejects.toThrow(/operation/i);
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, session_id: '' }))).rejects.toThrow(/session/i);
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, parent_run_id: '' }))).rejects.toThrow(/parent/i);
+    await expect(Promise.resolve().then(() => bridge.call('inofy.startRun', { ...request, revision: undefined }))).rejects.toThrow(/source/i);
+    expect(host.rpc.call).not.toHaveBeenCalled();
+  });
+
+  it('requires a live session and matching parent before preparing a request', () => {
+    const noSessionHost = makeHost({ activeSessionId: null });
+    const noSession = new FaceBridge(noSessionHost.rpc, noSessionHost.store);
+    expect(() => noSession.prepareStartRun({ workflow: 'wf-1', revision: 1 })).toThrow(/session/i);
+
+    const noParentHost = makeHost({ currentRun: null });
+    const noParent = new FaceBridge(noParentHost.rpc, noParentHost.store);
+    expect(() => noParent.prepareStartRun({ workflow: 'wf-1', revision: 1 })).toThrow(/parent/i);
+
+    const foreignParentHost = makeHost({ currentRun: { id: 'run-foreign', session_id: 'sess-other', status: 'active', created_at: 1 } });
+    const foreignParent = new FaceBridge(foreignParentHost.rpc, foreignParentHost.store);
+    expect(() => foreignParent.prepareStartRun({ workflow: 'wf-1', revision: 1 })).toThrow(/belong/i);
   });
 
   it('leaves non-startRun calls without run binding params', async () => {

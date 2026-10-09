@@ -1,11 +1,11 @@
 /**
  * VIVY host bridge for the workflow editor Module.
  *
- * Every `inofy.*` call is bound to the active host session (the backend
- * handlers are session-scoped and fail closed without it). `inofy.startRun`
- * additionally carries the run parentage the product contract requires:
- * `parent_run_id` is the host's current run and `operation_id` a per-call
- * idempotency key, the same model the Run Inspector uses for workflow/start.
+ * Ordinary `inofy.*` calls are bound to the active host session (the backend
+ * handlers are session-scoped and fail closed without it). Start calls use a
+ * prepared immutable request that captures session, parent Run, source,
+ * input and one idempotency key before the first send; retries forward that
+ * request without consulting mutable host state.
  *
  * The journal is the sole event authority: `subscribe("inofy.events")`
  * multiplexes onto `run/subscribe` + `run/event` notifications and pages from
@@ -13,8 +13,8 @@
  * mapping, so the editor renders committed host facts only.
  */
 import type { FaceClientRPC, FaceClientStore, FaceStoreState } from '@vivy/ui-sdk';
-import type { RunEvent } from './studio/schema';
-import { TransportError } from './studio/transport';
+import type { JsonValue, RunEvent } from './studio/schema';
+import { TransportError, type WorkflowRunIntent, type WorkflowStartRequest } from './studio/transport';
 
 /**
  * The seam between the editor client and the host face. `call` routes
@@ -24,6 +24,7 @@ import { TransportError } from './studio/transport';
  */
 export interface HostBridge {
   call<T>(method: string, params?: unknown): Promise<T>;
+  prepareStartRun(intent: WorkflowRunIntent): WorkflowStartRequest;
   subscribe(
     channel: string,
     params: Record<string, unknown> | undefined,
@@ -74,28 +75,74 @@ export function normalizeJournalEvent(raw: JournalRow): RunEvent {
 
 const MAX_OPERATION_ID_BYTES = 128;
 
+function snapshotJson(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return Object.freeze(value.map((item) => snapshotJson(item))) as unknown as JsonValue;
+  if (value !== null && typeof value === 'object') {
+    const copy: Record<string, JsonValue> = {};
+    for (const [key, item] of Object.entries(value)) copy[key] = snapshotJson(item);
+    return Object.freeze(copy);
+  }
+  return value;
+}
+
+function validateStartRequest(request: unknown): asserts request is WorkflowStartRequest {
+  if (request == null || typeof request !== 'object') throw new TypeError('prepared start request is required');
+  const body = request as Record<string, unknown>;
+  if (typeof body.workflow !== 'string' || body.workflow.length === 0) throw new TypeError('workflow is required');
+  if (typeof body.session_id !== 'string' || body.session_id.length === 0) throw new TypeError('session_id is required');
+  if (typeof body.parent_run_id !== 'string' || body.parent_run_id.length === 0) throw new TypeError('parent_run_id is required');
+  if (typeof body.operation_id !== 'string' || body.operation_id.length === 0 || new TextEncoder().encode(body.operation_id).byteLength > MAX_OPERATION_ID_BYTES) {
+    throw new TypeError(`operation_id must be nonempty and at most ${MAX_OPERATION_ID_BYTES} bytes`);
+  }
+  const hasRevision = body.revision !== undefined;
+  const hasDraftETag = body.draft_etag !== undefined;
+  if (hasRevision === hasDraftETag) throw new TypeError('exactly one start source (revision or draft_etag) is required');
+  if (hasRevision && (!Number.isSafeInteger(body.revision) || (body.revision as number) <= 0)) throw new TypeError('revision must be a positive integer');
+  if (hasDraftETag && (typeof body.draft_etag !== 'string' || body.draft_etag.length === 0)) throw new TypeError('draft_etag must be nonempty');
+}
+
 export class FaceBridge implements HostBridge {
   constructor(
     private rpc: FaceClientRPC,
     private store: FaceClientStore<FaceStoreState>,
   ) {}
 
+  prepareStartRun(intent: WorkflowRunIntent): WorkflowStartRequest {
+    if (typeof intent.workflow !== 'string' || intent.workflow.length === 0) throw new TypeError('workflow is required');
+    const hasRevision = intent.revision !== undefined;
+    const hasDraftETag = intent.draft_etag !== undefined;
+    if (hasRevision === hasDraftETag) throw new TypeError('exactly one start source (revision or draft_etag) is required');
+    if (hasRevision && (!Number.isSafeInteger(intent.revision) || intent.revision! <= 0)) throw new TypeError('revision must be a positive integer');
+    if (hasDraftETag && (typeof intent.draft_etag !== 'string' || intent.draft_etag.length === 0)) throw new TypeError('draft_etag must be nonempty');
+    const state = this.store.getState();
+    const sessionId = state.activeSessionId;
+    const parent = state.currentRun;
+    if (!sessionId) throw new TypeError('an active session is required to start a workflow');
+    if (!parent?.id) throw new TypeError('an active parent Run is required to start a workflow');
+    if (parent.session_id !== sessionId) throw new TypeError('parent Run does not belong to the active session');
+    const request: WorkflowStartRequest = {
+      workflow: intent.workflow,
+      ...(intent.revision !== undefined ? { revision: intent.revision } : {}),
+      ...(intent.draft_etag !== undefined ? { draft_etag: intent.draft_etag } : {}),
+      ...(intent.input !== undefined ? { input: snapshotJson(intent.input) } : {}),
+      session_id: sessionId,
+      parent_run_id: parent.id,
+      operation_id: crypto.randomUUID(),
+    };
+    validateStartRequest(request);
+    return Object.freeze(request);
+  }
+
   call<T>(method: string, params?: unknown): Promise<T> {
+    if (method === 'inofy.startRun') {
+      validateStartRequest(params);
+      return this.rpc.call<T>(method, params);
+    }
     const state = this.store.getState();
     const body: Record<string, unknown> = { ...(params as Record<string, unknown> | undefined) };
     const sessionId = state.activeSessionId;
     if (sessionId) body.session_id = sessionId;
     else delete body.session_id;
-    if (method === 'inofy.startRun') {
-      const parent = state.currentRun;
-      if (parent?.id) body.parent_run_id = parent.id;
-      if (typeof body.operation_id !== 'string' || !body.operation_id) {
-        body.operation_id = crypto.randomUUID();
-      }
-      if ((body.operation_id as string).length > MAX_OPERATION_ID_BYTES) {
-        body.operation_id = (body.operation_id as string).slice(0, MAX_OPERATION_ID_BYTES);
-      }
-    }
     return this.rpc.call<T>(method, body);
   }
 

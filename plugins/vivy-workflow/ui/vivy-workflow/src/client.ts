@@ -24,7 +24,7 @@ import type {
   RunSummary,
   WorkflowSummary,
 } from './studio/schema';
-import type { EventPage, EventSubscription } from './studio/transport';
+import type { EventPage, EventSubscription, WorkflowRunIntent, WorkflowStartRequest } from './studio/transport';
 import { TransportError } from './studio/transport';
 
 function statusFor(code: string): number {
@@ -102,7 +102,10 @@ export class WorkflowClient {
   getRevision(id: string, revision: number) {
     return this.call<RevisionView>('getRevision', { workflow: id, revision });
   }
-  startRun(request: { workflow: string; revision?: number; draft_etag?: string; input?: unknown }) {
+  prepareStartRun(intent: WorkflowRunIntent) {
+    return this.bridge.prepareStartRun(intent);
+  }
+  startRun(request: WorkflowStartRequest) {
     return this.call<{ run_id: string }>('startRun', request);
   }
   listRuns(cursor?: string) {

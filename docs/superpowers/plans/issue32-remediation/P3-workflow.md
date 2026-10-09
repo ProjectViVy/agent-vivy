@@ -162,11 +162,11 @@ left browser tests and editor changes pending.
 
 Add `TestINOFYAdmissionRejectsDuplicateToolNames`: `taskDefinition()` with `tool_names = ["read_file", "read_file"]` fails `validateINOFYDefinition`; repeat with `["read_file", " read_file "]` and with `[""]`. Extend `TestINOFYToolSchemaExposesOnlyHostChildTasks` so literal duplicates fail JSON Schema validation. Add `TestWorkflowProductPublishRejectsDuplicateTools`: save a syntactically valid draft, validate returns a host-admission diagnostic, publish fails, and no revision is allocated. Add `TestWorkflowProductHistoricalDuplicateToolsRejectStart`: seed one immutable malformed publication using existing storage APIs; getRevision remains readable; starting it returns `ErrINOFYInvalidDefinition` and persists no workflow admission or child effects.
 
-- [ ] **P3.2.2 Write bridge full-request retention tests.**
+- [x] **P3.2.2 Write bridge full-request retention tests.** Covers UUID capture, snapshot/freeze of nested input, parent changes, identical wire retry, new intent IDs, malformed source/session/parent, and operation IDs over the 128-byte limit.
 
 Replace the per-call-minting bridge test with `prepareStartRun captures one immutable request`. Assert operation ID is a UUID, `session_id == "sess-1"`, `parent_run_id == "run-parent"`, and exact workflow/revision/input are captured. Change the store's current parent to `"run-other"` and mutate the original input object after preparation; sending the same request twice must make identical RPC calls with the original parent and input. Add `startRun rejects a request with missing or oversized operation id`: no truncation, minting, or RPC call. Preparing another intent yields a distinct UUID. Keep ordinary session-bound non-start calls unchanged.
 
-- [ ] **P3.2.3 Write save-then-start and published-start UI fault tests.**
+- [x] **P3.2.3 Write save-then-start and published-start UI fault tests.** Added editor save-confirmation, lost-reply retry, edit-after-failure and published revision retry coverage.
 
 Use happy-dom and existing host/test patterns; assert observable requests and rendered actions. In `editor-start.test.tsx`, add `lost start reply retries the saved snapshot without resaving`: save responds with ETag `"e2"`, first start rejects a simulated transport-loss error, retry returns `"run-child"`; save count is one, both start bodies are deeply equal, and the dirty badge is cleared immediately after save. Add `save confirmation survives validate and publish failure`: each action records `"e2"` before the follow-up fails, and the next explicit save sends `"e2"`. Add `editing after a failed start creates a new intent`: altered artifact is saved once with the confirmed token and its start has a different operation ID. In `workflow-start.test.tsx`, add the equivalent lost-reply test for published revision `2`, preserving exact input and parent.
 
@@ -180,7 +180,7 @@ expect(startCalls[1]).toMatchObject({ session_id: 'sess-1', parent_run_id: 'run-
 expect(container.textContent).not.toContain('plugin.vivy/workflow-ui.editor.dirty');
 ```
 
-- [ ] **P3.2.4 Write safe stale-source and session-binding tests.**
+- [x] **P3.2.4 Write safe stale-source and session-binding tests.** Added `TestWorkflowProductDraftRetryAfterSourceChangeConflicts`; the existing captured-session RPC regression remains in place. UI stale-source retry retains the ambiguous request without saving or preparing a replacement.
 
 Add `TestWorkflowProductDraftRetryAfterSourceChangeConflicts`: admit draft ETag `e1`, edit it to `e2`, retry the exact first operation with `e1`, and assert `ErrWorkflowDefinitionConflict` plus one admission total. Add UI `stale-source retry retains ambiguous intent`: repeated retry sends the original body, receives `revision_conflict`, performs no save, and never prepares a replacement operation. Add `TestINOFYStartRunRejectsMismatchedCapturedSession`: a live peer bound to session A receives a prepared request claiming B; return `InvalidParams` before admission.
 
@@ -189,7 +189,7 @@ if !errors.Is(retryErr, storage.ErrWorkflowDefinitionConflict) { t.Fatalf("retry
 if len(revisions) != 1 || revisions[0].RunID != first.Run.ID { t.Fatalf("duplicate admission: %+v", revisions) }
 ```
 
-- [ ] **P3.2.5 Run new tests to establish red evidence.**
+- [x] **P3.2.5 Run new tests to establish red evidence.** The bridge tests failed before implementation because `prepareStartRun` was absent; UI tests then exposed missing captured session and stale ETag retention. After implementation, the new bridge and UI tests pass.
 
 ```bash
 go test ./internal/runtime -run 'Test(INOFYAdmissionRejectsDuplicateToolNames|INOFYToolSchemaExposesOnlyHostChildTasks|WorkflowProduct(PublishRejectsDuplicateTools|HistoricalDuplicateToolsRejectStart|DraftRetryAfterSourceChangeConflicts))' -count=1
@@ -203,7 +203,7 @@ Expected: duplicate authoring, fresh per-call operation keys, delayed save confi
 
 Add `uniqueItems: true` to `childConfigSchema.tool_names`. In `validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTools []string) (inofyAdmission, error)`, call `domain.CanonicalToolNames(config.ToolNames)` and reject errors with the node ID and preserved cause. Validate the existing membership ceiling without rewriting the definition, list, or digest. Existing validation, publication, proposal, and start paths already share this function; do not add a second validator.
 
-- [ ] **P3.2.7 Implement prepared start requests at the existing bridge seam.**
+- [x] **P3.2.7 Implement prepared start requests at the existing bridge seam.**
 
 Server-side captured-session validation is implemented and covered by
 `TestINOFYStartRunRejectsMismatchedCapturedSession`; bridge preparation and
@@ -211,11 +211,11 @@ verbatim forwarding remain pending the UI implementation gate.
 
 `FaceBridge.prepareStartRun` validates a live session and parent, copies the complete intent including a snapshot of input, and creates one UUID. `FaceBridge.call` forwards `inofy.startRun` prepared bodies verbatim after validating nonempty session, parent, operation ID of at most `128` bytes, and one source selector; it never overrides fields from current store state. Keep session injection for other calls. In `inofyStartRun`, require the captured `session_id` to match the server-resolved session; use the existing `InvalidParams` envelope for mismatch. Update the existing HostBridge test doubles and client/transport types together.
 
-- [ ] **P3.2.8 Implement immediate save confirmation and retained UI intent.**
+- [x] **P3.2.8 Implement immediate save confirmation and retained UI intent.**
 
 Apply `saved.etag` and `saved.artifact` immediately after each successful save, before validate/publish/start. Store a `WorkflowStartRequest | null` pending intent separately from draft state and keep it on transport error or source conflict. The Retry start action submits that request directly. Successful start clears it; a user change to workflow/source/input/artifact clears it so the next Start prepares a fresh intent. Changes to the host's current parent alone do not mutate an existing intent. Apply the same pending-intent lifecycle to published-start rows in `WorkflowsPane`; pending state is keyed by workflow and revision. Add `plugin.vivy/workflow-ui.editor.retryStart` (`Retry start` / `重试启动`) and `plugin.vivy/workflow-ui.editor.startSourceConflict` (`The saved draft changed. Check Runs before starting a new operation.` / `已保存草稿发生变化。请先检查运行列表，再启动新操作。`) using the existing catalog format.
 
-- [ ] **P3.2.9 Verify, rehash the Module, and commit.**
+- [x] **P3.2.9 Verify, rehash the Module, and commit.** See the P3.2 log for targeted and full UI/Go outcomes, the reproduced `26a119336563334d0ae75a478734730caa614085794a242fc2442453e05fbd18` source hash and typecheck. Commit recorded in the phase log.
 
 Run P3.2.5 again; run `go test ./internal/runtime ./internal/rpc -count=1`. Rehash as specified in preflight before `pnpm -C ui typecheck`. Expected: all regressions pass, one server Run for unchanged retry, and no capability/digest regression. Stage only P3.2 files.
 

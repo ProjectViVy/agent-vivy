@@ -31,7 +31,7 @@ import {
 } from '../studio/edit';
 import { fromCanvas, toCanvas, type Canvas, type CanvasNodeData } from '../studio/graph';
 import type { ApiError, Artifact, NodeDescriptor } from '../studio/schema';
-import { TransportError } from '../studio/transport';
+import { TransportError, type WorkflowStartRequest } from '../studio/transport';
 import { NodePanel } from './NodePanel';
 import { WorkflowNode } from './WorkflowNode';
 
@@ -82,6 +82,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
   const [diagnostics, setDiagnostics] = useState<Diagnostics['items'] | null>(null);
   const [busy, setBusy] = useState<'save' | 'validate' | 'publish' | 'run' | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [pendingIntent, setPendingIntent] = useState<WorkflowStartRequest | null>(null);
   const viewportRef = useRef<Viewport | undefined>(undefined);
   const idError = idInput !== '' ? validateWorkflowID(idInput) : null;
   const catalogIds = useMemo(() => catalog.map((d) => d.type_id), [catalog]);
@@ -112,8 +113,14 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     [catalogIds, reproject, selected],
   );
 
+  const invalidateStartIntent = useCallback(() => {
+    setPendingIntent(null);
+    setError(null);
+  }, []);
+
   const openDraft = useCallback(
     async (id: string) => {
+      invalidateStartIntent();
       setError(null);
       setNote(null);
       try {
@@ -128,11 +135,12 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
         setError(e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) }));
       }
     },
-    [applyArtifact, client, t],
+    [applyArtifact, client, invalidateStartIntent, t],
   );
 
   const openRevision = useCallback(
     async (id: string, revision: number) => {
+      invalidateStartIntent();
       setError(null);
       setNote(null);
       try {
@@ -151,7 +159,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
         setError(e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) }));
       }
     },
-    [applyArtifact, client, t],
+    [applyArtifact, client, invalidateStartIntent, t],
   );
 
   useEffect(() => {
@@ -169,9 +177,10 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
 
   const commitSemantic = useCallback(
     (artifact: Artifact, dirty: boolean) => {
+      invalidateStartIntent();
       setDraft((d) => (d ? { ...d, artifact, canvas: reproject(artifact, selected), dirty: d.dirty || dirty } : d));
     },
-    [reproject, selected],
+    [invalidateStartIntent, reproject, selected],
   );
 
   const onNodesChange = useCallback((changes: NodeChange<RFNode<CanvasNodeData>>[]) => {
@@ -179,6 +188,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     const moved = changes.some((c) => c.type === 'position' && c.position !== undefined);
     const removedSelected = changes.some((c) => c.type === 'remove' && c.id === selected);
     if (removedSelected) setSelected(null);
+    if (structural || moved) invalidateStartIntent();
     setDraft((d) => {
       if (!d) return d;
       const removes = changes.filter((c): c is NodeChange<RFNode<CanvasNodeData>> & { type: 'remove' } => c.type === 'remove');
@@ -191,15 +201,17 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       const canvas = { ...d.canvas, nodes: applyNodeChanges(changes, d.canvas.nodes) };
       return { ...d, canvas, dirty: d.dirty || moved || structural };
     });
-  }, [reproject, selected]);
+  }, [invalidateStartIntent, reproject, selected]);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     const structural = changes.some((c) => c.type === 'remove' || c.type === 'add');
+    if (structural) invalidateStartIntent();
     setDraft((d) => (d ? { ...d, canvas: { ...d.canvas, edges: applyEdgeChanges(changes, d.canvas.edges) }, dirty: d.dirty || structural } : d));
-  }, []);
+  }, [invalidateStartIntent]);
 
   const onConnect = useCallback((conn: Connection) => {
     if (!conn.source || !conn.target) return;
+    invalidateStartIntent();
     setDraft((d) => {
       if (!d) return d;
       const edge = {
@@ -217,9 +229,10 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       };
       return { ...d, canvas: { ...d.canvas, edges: [...d.canvas.edges, edge] }, dirty: true };
     });
-  }, []);
+  }, [invalidateStartIntent]);
 
   const addNode = useCallback((typeID: string) => {
+    invalidateStartIntent();
     setDraft((d) => {
       if (!d) return d;
       const artifact = fromCanvas(d.canvas, d.artifact);
@@ -228,7 +241,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       const { artifact: next } = addNodeAt(artifact, typeID, pos);
       return { ...d, artifact: next, canvas: reproject(next, selected), dirty: true };
     });
-  }, [reproject, selected]);
+  }, [invalidateStartIntent, reproject, selected]);
 
   const patchSelected = useCallback(
     (artifact: Artifact) => {
@@ -240,11 +253,12 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
   const deleteNode = useCallback(
     (id: string) => {
       if (!draft) return;
+      invalidateStartIntent();
       const artifact = removeNode(fromCanvas(draft.canvas, draft.artifact), id);
       if (selected === id) setSelected(null);
       setDraft((d) => (d ? { ...d, artifact, canvas: reproject(artifact, selected === id ? null : selected), dirty: true } : d));
     },
-    [draft, reproject, selected],
+    [draft, invalidateStartIntent, reproject, selected],
   );
 
   const save = useCallback(async () => {
@@ -270,8 +284,8 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     try {
       const artifact = materialize();
       const saved = await client.saveDraft(draft.workflow, artifact, draft.etag);
-      const res = await client.validate(draft.workflow, saved.etag);
       applyArtifact(draft.workflow, saved.etag, saved.artifact, false, true);
+      const res = await client.validate(draft.workflow, saved.etag);
       setDiagnostics(diagnosticItems(res.diagnostics));
       setNote(res.valid === false ? null : t('plugin.vivy/workflow-ui.editor.valid'));
     } catch (e) {
@@ -290,8 +304,8 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     try {
       const artifact = materialize();
       const saved = await client.saveDraft(draft.workflow, artifact, draft.etag);
-      const res = await client.publish(draft.workflow, saved.etag);
       applyArtifact(draft.workflow, saved.etag, saved.artifact, false, true);
+      const res = await client.publish(draft.workflow, saved.etag);
       setNote(t('plugin.vivy/workflow-ui.editor.published', { revision: res.revision, digest: shortDigest(res.definition_digest) }));
     } catch (e) {
       const err = e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) });
@@ -306,11 +320,17 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     if (!draft) return;
     setBusy('run');
     setError(null);
+    let request = pendingIntent;
     try {
-      const artifact = materialize();
-      const saved = await client.saveDraft(draft.workflow, artifact, draft.etag);
-      const res = await client.startRun({ workflow: draft.workflow, draft_etag: saved.etag });
-      applyArtifact(draft.workflow, saved.etag, saved.artifact, false, true);
+      if (!request) {
+        const artifact = materialize();
+        const saved = await client.saveDraft(draft.workflow, artifact, draft.etag);
+        applyArtifact(draft.workflow, saved.etag, saved.artifact, false, true);
+        request = client.prepareStartRun({ workflow: draft.workflow, draft_etag: saved.etag });
+        setPendingIntent(request);
+      }
+      const res = await client.startRun(request);
+      setPendingIntent(null);
       onRunStarted(res.run_id);
     } catch (e) {
       const err = e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) });
@@ -319,7 +339,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
     } finally {
       setBusy(null);
     }
-  }, [applyArtifact, client, draft, materialize, onRunStarted]);
+  }, [applyArtifact, client, draft, materialize, onRunStarted, pendingIntent]);
 
   const conflict = error?.status === 412;
   const selectedNode = useMemo(() => {
@@ -376,9 +396,16 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       {error ? (
         <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">
           <span className="truncate">
-            {error.code}: {error.message}
+            {pendingIntent && error.code === 'revision_conflict'
+              ? t('plugin.vivy/workflow-ui.editor.startSourceConflict')
+              : `${error.code}: ${error.message}`}
           </span>
-          {conflict ? (
+          {pendingIntent ? (
+            <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-[11px]" disabled={busy !== null} onClick={() => void run()}>
+              <RefreshCw className="mr-1 h-3 w-3" />
+              {t('plugin.vivy/workflow-ui.editor.retryStart')}
+            </Button>
+          ) : conflict ? (
             <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-[11px]" onClick={() => void openDraft(idInput)}>
               <RefreshCw className="mr-1 h-3 w-3" />
               {t('plugin.vivy/workflow-ui.editor.reload')}
@@ -414,6 +441,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
               onSelectionChange={({ nodes }) => setSelected(nodes[0]?.id ?? null)}
               onMoveEnd={(_, vp) => {
                 viewportRef.current = vp;
+                invalidateStartIntent();
                 setDraft((d) => (d ? { ...d, canvas: { ...d.canvas, viewport: vp }, dirty: true } : d));
               }}
               deleteKeyCode={['Backspace', 'Delete']}

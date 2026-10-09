@@ -405,6 +405,43 @@ func TestWorkflowProductDraftStartRun(t *testing.T) {
 	}
 }
 
+func TestWorkflowProductDraftRetryAfterSourceChangeConflicts(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	author := domain.SessionID("sess-prod-stale-source-retry")
+	parentRunID := prepareProductSession(t, svc, backend, author)
+	artifact := inofyProductArtifact(inofyProductDefinition)
+
+	firstDraft, err := svc.INOFYSaveDraft(ctx, author, "wf-stale-source-retry", definitions.ETagAbsent, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
+		ParentRunID: parentRunID, OperationKey: "wf-stale-source-operation", WorkflowID: "wf-stale-source-retry",
+		DraftETag: firstDraft.ETag, Input: json.RawMessage(`{"prompt":"same request"}`),
+	})
+	if err != nil || !started.Created {
+		t.Fatalf("first start: %v %+v", err, started)
+	}
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
+
+	secondDraft, err := svc.INOFYSaveDraft(ctx, author, "wf-stale-source-retry", firstDraft.ETag, artifact)
+	if err != nil || secondDraft.ETag == firstDraft.ETag {
+		t.Fatalf("edit draft after first start: draft=%+v err=%v", secondDraft, err)
+	}
+	if _, err := svc.INOFYStartRun(ctx, author, INOFYStartRunParams{
+		ParentRunID: parentRunID, OperationKey: "wf-stale-source-operation", WorkflowID: "wf-stale-source-retry",
+		DraftETag: firstDraft.ETag, Input: json.RawMessage(`{"prompt":"same request"}`),
+	}); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
+		t.Fatalf("retry against stale source = %v", err)
+	}
+
+	revisions, err := backend.ListWorkflowRevisions(ctx, parentRunID)
+	if err != nil || len(revisions) != 1 || revisions[0].RunID != started.Run.ID {
+		t.Fatalf("stale retry admitted another Run: revisions=%+v err=%v", revisions, err)
+	}
+}
+
 // TestWorkflowProductHonestCapabilities proves the advertised capability set
 // matches what the catalog actually supports: no waits, no resume.
 func TestWorkflowProductHonestCapabilities(t *testing.T) {

@@ -98,6 +98,16 @@
       "placeholders": [],
       "messages": {"en": "Run", "zh": "运行"}
     },
+    "plugin.vivy/workflow-ui.editor.retryStart": {
+      "description": "Retry the exact prepared workflow start request after an ambiguous reply",
+      "placeholders": [],
+      "messages": {"en": "Retry start", "zh": "重试启动"}
+    },
+    "plugin.vivy/workflow-ui.editor.startSourceConflict": {
+      "description": "Guidance when retrying a start whose source has since changed",
+      "placeholders": [],
+      "messages": {"en": "The saved draft changed. Check Runs before starting a new operation.", "zh": "已保存草稿发生变化。请先检查运行列表，再启动新操作。"}
+    },
     "plugin.vivy/workflow-ui.editor.runDisabled": {
       "description": "Run disabled tooltip (no active parent run)",
       "placeholders": [],

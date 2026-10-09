@@ -9,6 +9,7 @@ import type {
   ApiError,
   ConnectionView,
   DraftView,
+  JsonValue,
   NodeDescriptor,
   PublishView,
   RevisionView,
@@ -36,6 +37,19 @@ export interface EventPage {
   next_cursor: string | null;
 }
 
+export type WorkflowRunIntent = {
+  workflow: string;
+  revision?: number;
+  draft_etag?: string;
+  input?: JsonValue;
+};
+
+export type WorkflowStartRequest = Readonly<WorkflowRunIntent & {
+  session_id: string;
+  parent_run_id: string;
+  operation_id: string;
+}>;
+
 // EventSubscription streams committed run events. close() detaches;
 // callers resume by re-calling events() with the last seq seen.
 export interface EventSubscription {
@@ -53,7 +67,8 @@ export interface StudioTransport {
   publish(id: string, etag: string): Promise<PublishView>;
   getRevision(id: string, revision: number): Promise<RevisionView>;
 
-  startRun(request: { workflow: string; revision?: number; draft_etag?: string; input?: unknown }): Promise<{ run_id: string }>;
+  prepareStartRun(intent: WorkflowRunIntent): WorkflowStartRequest;
+  startRun(request: WorkflowStartRequest): Promise<{ run_id: string }>;
   listRuns(cursor?: string): Promise<{ items: RunSummary[]; next_cursor: string | null }>;
   getRun(id: string): Promise<RunDetail>;
   nodeOutput(id: string, node: string): Promise<{ output?: unknown }>;

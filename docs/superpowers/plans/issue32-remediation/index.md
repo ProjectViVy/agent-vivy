@@ -27,7 +27,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
 | P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IMPLEMENTATION COMPLETE; aggregate `just ci` and SDK/Port conformance pending P7 |
-| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1 draft/editor and P3.3 cursors complete; P3.2 start-intent and P3.4 list/status UI in progress under the recorded unavailable-skill ruling; candidate browser acceptance remains P7 |
+| P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1 draft/editor, P3.2 start-intent and P3.3 cursors complete; P3.4 list/status UI in progress under the recorded unavailable-skill ruling; candidate browser acceptance remains P7 |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | IMPLEMENTATION ENGINEERING-VERIFIED LOCALLY; P4.2 native lifecycle and P4.4 candidate observations remain P7 gates |
 | P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; aggregate `just ci`, SDK conformance, and native Windows execution pending P7 |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
@@ -35,7 +35,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 
 Current execution lane: P4.1a/b, P4.2, P4.3 and P4.4 implementation work is
 engineering-verified locally; native lifecycle and provider candidate checks
-remain for P7. P5.1/P5.2 and P6.1 are also engineering-verified locally. P3.2/P3.4
+remain for P7. P5.1/P5.2 and P6.1 are also engineering-verified locally. P3.4
 Module browser implementation is continuing under the documented
 `oil-frontend` availability ruling, with P7 browser acceptance still required.
 P1 native acceptance remains independent.
@@ -64,8 +64,8 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | C6 | P2 | P2.4 | IMPLEMENTED; current strategy cancellation rechecks under the terminal commit gate and rejects stale/foreign IDs ([P2.4 verification](../../../logs/2026-10-09-issue32-p2.4-control-cancel/verification.md)) |
 | C7 | P2 | P4.1b | IMPLEMENTED AND ENGINEERING-VERIFIED locally; aggregate `just ci` pending P7 ([P4.1b verification](../../../logs/2026-10-09-issue32-p4.1b-cognitive-cleanup/verification.md)) |
 | C8 | P2 | P4.4 | IMPLEMENTED AND ENGINEERING-VERIFIED LOCALLY; real-candidate provider observation pending P7 |
-| W1 | P2 | P3.2 | BACKEND ADMISSION AND SESSION GUARDS VERIFIED; retained UI start intent pending |
-| W2 | P2 | P3.2 | SERVER-SIDE OPERATION DEDUP PRE-EXISTING; prepared-request bridge and retry UI pending |
+| W1 | P2 | P3.2 | ENGINEERING-VERIFIED: duplicate-tool admission/publication/start guards and prepared UI session/source requests; candidate browser acceptance pending P7 |
+| W2 | P2 | P3.2 | ENGINEERING-VERIFIED: immutable start requests, immediate save confirmation, and retained retries in editor/published rows; candidate browser acceptance pending P7 |
 | W3 | P2 | P3.1 | ENGINEERING-VERIFIED: backend CAS and Module explicit create/edit/current-token revision editing; candidate browser acceptance pending P7 |
 | W4 | P2 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED in SQLite/PostgreSQL |
 | W5 | P2 | P3.4 | BACKEND RUN STATUS PROJECTION VERIFIED; UI pagination pending |
