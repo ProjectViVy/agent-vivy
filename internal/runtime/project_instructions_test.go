@@ -11,6 +11,12 @@ import (
 
 func TestDiscoverProjectInstructionsRootAgentsMD(t *testing.T) {
 	root := t.TempDir()
+	// Bound the synthetic project explicitly; managed environments may mount
+	// a Git marker on the temporary directory's ancestor.
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("root rules"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +75,12 @@ func TestDiscoverProjectInstructionsWalksUpToGitRoot(t *testing.T) {
 
 func TestDiscoverProjectInstructionsMissingAgentsMDStillListsDefault(t *testing.T) {
 	root := t.TempDir()
+	// Bound the synthetic project explicitly; managed environments may mount
+	// a Git marker on the temporary directory's ancestor.
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
 	got, err := DiscoverProjectInstructions(root)
 	if err != nil {
 		t.Fatal(err)

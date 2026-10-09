@@ -111,5 +111,7 @@ func main() {}
 		}
 	}
 	run("mod", "tidy")
-	run("build", ".")
+	// The synthesized external module has no VCS metadata. Its API proof
+	// must not depend on a managed ancestor repository.
+	run("build", "-buildvcs=false", ".")
 }
