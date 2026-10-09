@@ -29,13 +29,14 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | IMPLEMENTATION COMPLETE; aggregate `just ci` and SDK/Port conformance pending P7 |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | IN PROGRESS; P3.1-P3.3 backend committed, P3.4 status projection verified; Module UI/editor work pending required `oil-frontend` skill resolution |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
-| P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | DESIGNED |
+| P5 | R1/R3 bounded continuation; R4 mandatory settlement | P0; coordinate P2 Service changes | [P5](P5-diagnostics-settlement.md) | IN PROGRESS; P5.1 engineering verified, P5.2 pending |
 | P6 | W9 proof retirement and legacy fail-closed path | P0; coordinate Service approval changes | [P6](P6-legacy-proof.md) | ENGINEERING VERIFIED; `just ci` pending P7 |
 | P7 | integration; SDK/consumer pins; final candidate; conditional cutover/closure | P1-P6 engineering gates | [P7](P7-final-integration.md) | DESIGNED |
 
-Current execution lane: P6.1 backend is engineering-verified; P3 Module UI
-remains pending the required `oil-frontend` skill, and P1 native acceptance is
-independent. The reviewed DIVA frontend lock is
+Current execution lane: P5.1 diagnostics continuation is engineering-verified;
+P5.2 mandatory model settlement is next. P3 Module UI remains pending the
+required `oil-frontend` skill, and P1 native acceptance is independent. P6.1
+backend is also engineering-verified. The reviewed DIVA frontend lock is
 already tracked and matches its canonical hash; P1.2 verifies frozen use
 without a separate lock-restoration task.
 Implementation method is unselected. Recommended: task-level implementation
@@ -70,9 +71,9 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | W7 | P2 | P3.1 | BACKEND SAME-AUTHOR COLLISION AND OPAQUE ETAGS VERIFIED; browser collision test pending |
 | W8 | P3 | P3.3 | IMPLEMENTED AND ENGINEERING-VERIFIED; malformed cursors map to refreshable invalid input |
 | W9 | P3 | P6.1 | IMPLEMENTED AND ENGINEERING-VERIFIED; aggregate `just ci` remains pending P7 |
-| R1 | P2 | P5.1 | PLANNED; defect probe reproduced |
+| R1 | P2 | P5.1 | IMPLEMENTED AND ENGINEERING-VERIFIED locally; aggregate `just ci` and native Windows run pending |
 | R2 | P2 | P0.2 | SUPERSEDED by owner #40 decision and merged PR #42 |
-| R3 | P2 | P5.1 | PLANNED; defect probe reproduced |
+| R3 | P2 | P5.1 | IMPLEMENTED AND ENGINEERING-VERIFIED locally; aggregate `just ci` and native Windows run pending |
 | R4 | P2 | P5.2 | PLANNED; defect probe reproduced |
 
 Totals: 28 original findings, 27 planned repairs, 1 explicit supersession.
