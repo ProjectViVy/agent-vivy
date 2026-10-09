@@ -1,7 +1,8 @@
 # Issue #32 remediation implementation package
 
-Status: **DESIGNED; product implementation not started.** Owner request:
-2026-10-09, work-package design with a detailed document for every phase.
+Status: **P1 implementation active.** P0 baseline and traceability are verified;
+H1 code and host-test prerequisites are committed on isolated branches, while
+canonical Linux acceptance and the remaining P1/P2 tasks stay open.
 Design authority: [written design](../../specs/2026-10-09-issue32-remediation-design.md).
 Issue authority: [VIVY #32](https://github.com/ProjectViVy/agent-vivy/issues/32).
 This index is the sole phase/finding status board; plans own steps and interfaces.
@@ -24,7 +25,7 @@ explicit `DIVA:` paths belong to agent-diva, all others to agent-vivy.
 | Phase | Independently reviewable tasks | Prerequisite | Plan | State |
 | --- | --- | --- | --- | --- |
 | P0 | baseline, coverage, evidence/lane setup | owner documentation request | [P0](P0-baseline.md) | BASELINE VERIFIED |
-| P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | DESIGNED |
+| P1 | H1 window auth; H2 active-host CI; H3 strict candidate gate | P0 | [P1](P1-desktop-gates.md) | IN PROGRESS |
 | P2 | C1 state CAS; C2 intent/recovery; C3/C4 pins; C5/C6 control | P0; P2.1 before remaining tasks | [P2](P2-cognitive.md) | DESIGNED |
 | P3 | W3/W7 draft CAS; W1/W2 publication/start; W4/W8 cursors; W5/W6 UI/status | P0; internal task dependencies | [P3](P3-workflow.md) | DESIGNED |
 | P4 | H4 logger; C7 cleanup; H5/H7 lifecycle; H6 listener; C8 capability UI | P0; coordinate P2 App changes | [P4](P4-host-lifecycle.md) | DESIGNED |
@@ -44,8 +45,8 @@ This recommendation is not an instruction to spawn concurrent product editors.
 
 | Finding | Severity | Owning task | Current disposition |
 | --- | --- | --- | --- |
-| H1 | P1 | P1.1 | PLANNED |
-| H2 | P1 | P1.2 | PLANNED |
+| H1 | P1 | P1.1 | IMPLEMENTED; local headless tests pass; canonical Linux host race pending |
+| H2 | P1 | P1.2 | IN PROGRESS; SDK source-closure and test-mode prerequisites committed |
 | H3 | P1 | P1.3 | PLANNED |
 | C1 | P1 | P2.1 | PLANNED; defect probe reproduced |
 | C2 | P1 | P2.2 | PLANNED; call-chain confirmed |
@@ -74,8 +75,9 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | R4 | P2 | P5.2 | PLANNED; defect probe reproduced |
 
 Totals: 28 original findings, 27 planned repairs, 1 explicit supersession.
-No finding is marked fixed by this design package. Migration milestone W5/W6
-and finding IDs W5/W6 are different scopes; do not use one as the other's proof.
+H1 implementation is not yet ENGINEERING-VERIFIED because the canonical Linux
+host race run is pending. Migration milestone W5/W6 and finding IDs W5/W6 are
+different scopes; do not use one as the other's proof.
 
 ## Evidence and closure
 
