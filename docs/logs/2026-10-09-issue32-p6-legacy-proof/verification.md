@@ -42,3 +42,6 @@ unchanged.
 
 `just` is not installed, so `just ci` was not run. P7 retains the aggregate
 product gate and final integration evidence.
+
+Implementation commit: `fd1954f1` (`refactor(runtime): isolate orchestration
+proof and reject legacy resume`).

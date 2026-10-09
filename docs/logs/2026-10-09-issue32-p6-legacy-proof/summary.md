@@ -30,3 +30,5 @@ gate remains a P7 integration requirement. A pre-existing cancellation test
 also had a timing-sensitive single-status assertion; it now accepts either
 valid engine classification (`cancelled` or `recovery_required`) while keeping
 its no-replay and non-terminal native Run checks.
+
+Implementation commit: `fd1954f1` on `feat/issue32-remediation`.

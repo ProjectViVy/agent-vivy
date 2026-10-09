@@ -59,7 +59,7 @@ the retired graph state.
 - [x] **Step 3: Add the minimal production guard.** Guard actor decisions, common decision settlement and timed system settlement before first-writer mutation. Return `ErrLegacyOrchestrationResumeUnsupported`; keep the old row pending. Remove the obsolete Service dispatch to native proof resume.
 - [x] **Step 4: Move executable proof to test-only source.** Move the Eino graph proof and required type registrations into `orchestration_proof_test.go`; remove the old approval-specific graph execution/resume helpers and their approval-resume integration tests. Production `GoFiles` contains only the small marker detector and typed rejection error. Historical rows and blobs remain readable and unchanged.
 - [x] **Step 5: Verify green and production inventory.** `go test ./internal/runtime -run '^Test(LegacyOrchestration|NativeOrchestration|Orchestration|INOFY|Cognitive)' -count=1`, `go test ./internal/runtime -count=1`, and `go build ./...` passed. The build used a temporary `ui/dist/.keep` because this checkout has no embedded UI build output; that placeholder was removed after the build. `go list` excludes the proof from production GoFiles and includes it in TestGoFiles. Production `rg` finds no old graph builder, proof type or registration references.
-- [ ] **Step 6: Commit.** Commit `refactor(runtime): isolate orchestration proof and reject legacy resume` with the production-decoder inventory and focused evidence.
+- [x] **Step 6: Commit (`fd1954f1`).** Committed as `refactor(runtime): isolate orchestration proof and reject legacy resume` with the production-decoder inventory and focused evidence.
 
 ## Phase exit
 
