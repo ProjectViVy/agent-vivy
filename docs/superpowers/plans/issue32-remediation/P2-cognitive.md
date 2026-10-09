@@ -108,7 +108,7 @@ the selected Module resolves its own authority without retaining mutable policy.
 - [x] **Step 2: Verify red.** Before implementation, the runtime regression package failed to compile because `CognitiveControlState`, `CancelCognitiveRun`, and `ErrCognitiveRunMismatch` did not exist. This established the missing service seams; DIVA's existing dispatcher already copied fields supplied by its ControlPort.
 - [x] **Step 3: Implement the methods.** Added a one-snapshot control projection with legacy phase derivation. Cancellation serializes with admission, validates the durable intent and run lineage, then rechecks status and signals cancellation under `projectionMu`, shared with terminal persistence. The generic cancellation path is not called while that lock is held because a suspended run may synchronously emit its terminal event. App uses only these scoped methods.
 - [x] **Step 4: Verify green and actual adapters.** Independent review found and the red regression reproduced a terminal-wins race; the shared terminal gate fixed it. Full runtime/module/App tests, focused Race detection, `go vet` and `git diff --check` passed. App ControlPort and module action tests verified coherent output and cancellation scope. DIVA `EvolutionView.vue` already reads all recovery fields, so no UI source change was required. Evidence is in [P2.4 verification](../../../logs/2026-10-09-issue32-p2.4-control-cancel/verification.md).
-- [ ] **Step 5: Commit.** Commit `fix(cognitive): project durable state and scope cancellation`.
+- [x] **Step 5: Commit.** Committed as `e787f7b7` (`fix(cognitive): project durable state and scope cancellation`).
 
 ## Phase exit
 
@@ -117,3 +117,8 @@ conformance and the real action path. Record four distinct recovery outcomes
 and untouched foreground cancellation in the phase log. P7 performs final
 source-bound evidence generation after all internal edits; phase-local evidence
 must not be represented as the final DIVA artifact's evidence.
+
+P2.1–P2.4 implementation tasks are complete. The aggregate `just ci` command
+and selected SDK/Port conformance remain pending for P7 because `just` is not
+installed in the current environment; phase-local Go package and adapter tests
+are recorded in the task logs.
