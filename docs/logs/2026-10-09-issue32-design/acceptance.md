@@ -20,8 +20,8 @@ from their creation or from a passing document check.
 5. Follow H1-H3 through P1 into P7: unauthorized native method calls fail before
    host use, changed active-host paths trigger CI, missing native subcases block
    promotion, and exact accepted package hashes survive signing and publication.
-   The missing frontend lock has a prerequisite task rather than an invented
-   successful canonical test.
+   Verify the existing tracked frontend lock against the canonical source-lock
+   digest and exercise its frozen install in the H2 gate.
 6. Follow W2/W7/W4/W5/W6 into P3: stale create intent conflicts, ambiguous starts
    retain the exact retry request, keyset paging preserves timestamp ties,
    terminal cursors stop loading, old query responses cannot overwrite refresh,

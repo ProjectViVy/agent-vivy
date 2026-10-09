@@ -13,11 +13,13 @@ record; test commands inside the plans describe future execution.
   017ec8cc37970b291e04c619990aed00d5403116; DIVA
   518a33ef09858ee1bb190579dd7529aceaa15dd6. Inspected source/locks and pinned
   Eino/SDK seams; the design distinguishes original and consumer baselines.
-- Read the untruncated DIVA recursive tree (925 entries), package.json,
-  package-lock presence and scripts/build-desktop.py. The tree has no tracked
-  agent-diva-gui/pnpm-lock.yaml, while build_lock reads its hash and frozen
-  pnpm installation consumes it. This source check supports P1.0; no native
-  canonical-test execution is claimed.
+- Initial recursive-tree notes incorrectly reported a missing pnpm lock. The
+  exact clean local checkout at the reviewed DIVA SHA disproved that note:
+  `git ls-tree HEAD -- agent-diva-gui/pnpm-lock.yaml` reports a tracked blob,
+  `git show HEAD:agent-diva-gui/pnpm-lock.yaml | sha256sum` is
+  `01ef0ea82f41b54be2103a8bc7cf54a407a2be6b39a48a6137010a8acecea249`, and
+  `build/vivy-sources.lock.json` records the same digest. The obsolete P1.0
+  prerequisite was removed before product code changes. No native build ran.
 - Inspected the integrated agent draft content and actual repository files.
   Only the lead wrote product-repository documents; scratch inputs are outside
   the repository. Reviewed CAS/intent/settlement, strict candidate identity,
@@ -46,17 +48,19 @@ Constraints and exactly five Review Focus risks. Each task includes Files,
 Interfaces, checkboxes and a commit boundary; there are no placeholder markers
 or checked implementation steps.
 
-The coverage check found all 28 original IDs exactly once, with severities
+The corrected documentary check found all 28 original IDs exactly once, with severities
 5 P1 / 21 P2 / 2 P3, 27 PLANNED and only R2 SUPERSEDED. Every finding's owning
 task exists. All 30 local Markdown links/anchors in the 13 package/log files
 and added backlog rows resolve. Code fences are balanced. These are documentary
 results only; they do not establish the semantic correctness of a future fix.
 
-Manual integrated review corrected the frontend-lock prerequisite, single
-DIVA source-lock ownership, phase-local conformance refresh ordering, final
+Manual integrated review corrected the erroneous frontend-lock prerequisite
+and retained single DIVA source-lock ownership, phase-local conformance refresh ordering, final
 noncircular host identity, old-query UI response rejection, legacy snapshot
 ambiguity fencing, settlement-based retry safety and exact-candidate transition
-reacceptance. No new product code was used to satisfy this review.
+reacceptance. No new product code was used to satisfy this review. A second
+check after removing the incorrect lockfile task reported 25 unique tasks,
+146 unchecked steps, the same 28-row coverage and 30 resolvable local links.
 
 Git checks: `git diff --check` and `git diff --cached --check` returned exit 0
 with no whitespace diagnostics. `git diff --cached --stat` and an explicit

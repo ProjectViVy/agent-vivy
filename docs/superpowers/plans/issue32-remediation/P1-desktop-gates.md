@@ -1,6 +1,6 @@
 # P1 Desktop Authorization and Release Gates Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This deliverable authorizes planning only.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The owner authorized plan execution on 2026-10-09.
 
 **Goal:** Close H1/H2/H3 with negative authorization, CI, and publication gates on the active desktop.
 
@@ -28,17 +28,6 @@
 - A signing, rename, rebuild, or evidence-source commit change cannot silently substitute accepted bytes: Task P1.3.
 
 ---
-
-### Task P1.0: Restore the frozen frontend input required by canonical gates
-
-**Files:** Create DIVA `agent-diva-gui/pnpm-lock.yaml`; read `agent-diva-gui/package-lock.json` and `package.json`; modify `.gitignore` only if it excludes this required source input. Update `build/vivy-sources.lock.json` through the existing repin wrapper, not by inventing hashes.
-
-**Interfaces:** Consume packageManager `pnpm@10.33.2` and the tracked package-lock dependency resolutions. Produce a tracked pnpm lock that both frozen installation and build_lock's SHA-256 reader can consume. This is an H2 execution prerequisite, not a new feature or finding ID.
-
-- [ ] **Step 1: Reproduce the fresh-checkout prerequisite.** Confirm `git ls-files --error-unmatch agent-diva-gui/pnpm-lock.yaml` fails on reviewed baseline. The remote recursive tree contains package-lock.json but no pnpm-lock.yaml, while build_lock unconditionally reads it. Record this separately from behavioral red tests; a missing lock is setup failure, not H1 regression proof.
-- [ ] **Step 2: Generate the required lock from existing resolution.** Activate the exact packageManager-pinned pnpm, then run `pnpm --dir agent-diva-gui import` from the tracked package-lock. Review resulting versions against package-lock; keep module/runtime pins, especially Wails beta.27, unchanged. Do not use an unfrozen install to choose newer dependencies. Add the pnpm lock to version control and remove only an applicable ignore rule if required.
-- [ ] **Step 3: Verify clean reproducibility.** In a clean isolated checkout with the generated lock run `pnpm --dir agent-diva-gui install --frozen-lockfile`, frontend test/build, and `python scripts/build-desktop.py --mode test`. Assert the lock bytes do not change and canonical setup reaches actual Go tests. A separate existing package failure is recorded and resolved within its owner, not relabeled a lock failure.
-- [ ] **Step 4: Refresh/commit the source-input record.** Run the existing repin wrapper with reviewed source/tool inputs, review only the expected lock-derived changes, and commit `build(desktop): track the frozen frontend dependency lock`. P1.1's canonical red tests now run against a complete input snapshot.
 
 ### Task P1.1: Share native main-window authorization across all bound methods (H1)
 

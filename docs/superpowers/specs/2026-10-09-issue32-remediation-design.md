@@ -119,12 +119,12 @@ Go-host checks, generated-binding drift, frontend boundary and packaging/seal
 checks. Linux and Windows exercise the actual consumer modfile. Transition
 Rust checks remain until the existing W6 conditions permit their replacement.
 
-Fresh-checkout prerequisite: the reviewed DIVA tree tracks package-lock.json
-but not agent-diva-gui/pnpm-lock.yaml, although its build wrapper unconditionally
-reads the latter and uses frozen pnpm install. Generate/track that required lock
-from existing package-lock resolutions with packageManager-pinned pnpm10.33.2,
-preserve dependency versions, and prove frozen installation before canonical
-behavioral tests. This belongs to H2's executable gate, not a separate feature.
+Frozen frontend input: the reviewed DIVA commit tracks
+`agent-diva-gui/pnpm-lock.yaml`; its SHA-256 is exactly the value declared by
+`build/vivy-sources.lock.json`. Keep that canonical dependency input intact and
+use the packageManager-pinned pnpm 10.33.2 with frozen installation. Do not add
+or regenerate a second lock as an H2 prerequisite. P1.2 tests whether the
+existing canonical gate actually exercises that tracked input.
 
 The sole source-pin owner remains DIVA `build/vivy-sources.lock.json`; explicit
 native target declarations live there. Derive target input locks deterministically

@@ -49,7 +49,7 @@ tests that merely mirror Markdown or run product CI for these notes.
 
 - [ ] **Step 1:** Read both remote main heads and locks; compare them with the design's full identities. Record any changed paths relevant to the chosen task.
 - [ ] **Step 2:** Verify repository cleanliness and human `user.name`/`user.email`. If another lane has work, create isolated execution checkout under the repository's worktree rules; do not stack edits.
-- [ ] **Step 3:** Record actual Go/pnpm/Node/PowerShell/just versions, embedded UI prerequisite, DIVA's required tracked pnpm lock (P1.0), PostgreSQL test-service availability, Linux/Windows native target and microphone/voice availability. Do not read credentials into logs.
+- [ ] **Step 3:** Record actual Go/pnpm/Node/PowerShell/just versions, embedded UI prerequisite, DIVA's tracked pnpm lock SHA versus the canonical source lock, PostgreSQL test-service availability, Linux/Windows native target and microphone/voice availability. Do not read credentials into logs.
 - [ ] **Step 4:** Run `git diff --check`; verify the selected plan's paths still exist and public interfaces match. Expected: no whitespace errors; source drift is either resolved or explicitly blocks affected implementation.
 - [ ] **Step 5:** Commit any changed baseline/documentation with existing human attribution: `docs: refresh issue32 execution baseline`.
 

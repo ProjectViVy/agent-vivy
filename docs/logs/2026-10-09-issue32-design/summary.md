@@ -6,7 +6,7 @@ The owner requested Superpowers work-package design with a detailed document
 for every phase after the Issue #32 audit and preanalysis. The deliverable is
 one [written design](../../superpowers/specs/2026-10-09-issue32-remediation-design.md),
 one [coverage/dependency index](../../superpowers/plans/issue32-remediation/index.md),
-and eight phase plans P0-P7, subdivided into 26 tasks and 150 unchecked execution
+and eight phase plans P0-P7, subdivided into 25 tasks and 146 unchecked execution
 steps. The index is the authoritative finding status
 board; phase plans own task interfaces and execution steps.
 
@@ -21,12 +21,10 @@ Shared Service/App/state edits are sequenced. Eino checks and existing SDK
 capabilities bound custom implementation. Final source-bound evidence precedes
 DIVA repinning; native acceptance binds the exact retained candidate bytes.
 
-Source inspection also identified a canonical-test prerequisite: the reviewed
-DIVA tree tracks package-lock.json but not the pnpm-lock.yaml that
-scripts/build-desktop.py reads unconditionally. P1.0 restores the frozen input
-from the existing dependency resolution before behavioral tests. This is a
-source-confirmed setup gap, not an additional numbered issue finding or a
-claim that a native build ran.
+The reviewed DIVA tree already tracks both package-lock.json and
+pnpm-lock.yaml. The tracked pnpm lock's SHA-256 equals the hash in
+build/vivy-sources.lock.json. No lockfile-restoration work package is required;
+P1.2 will prove that the existing canonical build consumes the pinned input.
 
 Reviewed main identities are VIVY
 017ec8cc37970b291e04c619990aed00d5403116 and DIVA
@@ -43,4 +41,4 @@ no release.md because this is a planning delivery.
 
 See [verification](verification.md) for actual documentary checks and
 [acceptance](acceptance.md) for reviewing the package. Implementation remains
-the next scope; the first blocking tranche is P1.0-P1.3 and P2.1-P2.2.
+the next scope; the first blocking tranche is P1.1-P1.3 and P2.1-P2.2.
