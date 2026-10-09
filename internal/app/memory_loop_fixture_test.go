@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -221,6 +223,23 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 	if err != nil {
 		return snap, false, err
 	}
+	// Read role from the actual persisted host envelope, never infer it
+	// from the test's expected answer or fill a missing role by default.
+	var source struct {
+		Schema   string `json:"schema"`
+		RunID    string `json:"run_id"`
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal([]byte(snap.SourceBody), &source) == nil && source.Schema == "vivy.conversation-source/v1" && source.RunID == runID {
+		for _, message := range source.Messages {
+			if message.Role == "user" {
+				snap.SourceRole = message.Role
+				break
+			}
+		}
+	}
 	snap.RecordID = memoryID.String
 	if stage == "accepted" {
 		return snap, true, nil
@@ -316,7 +335,12 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 	if err := json.Unmarshal(session, &created); err != nil || created.ID == "" {
 		t.Fatalf("create: %s %v", session, err)
 	}
-	args, _ := json.Marshal(map[string]any{"session_id": created.ID, "text": "synthetic random fact not repeated in assistant response"})
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal(err)
+	}
+	fact := "synthetic random fact " + hex.EncodeToString(nonce)
+	args, _ := json.Marshal(map[string]any{"session_id": created.ID, "text": fact})
 	started, err := f.Call(context.Background(), "turn/start", args)
 	if err != nil {
 		t.Fatal(err)
@@ -343,8 +367,11 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 		t.Fatal("DIVA integration fixture has no validated generation identity")
 	}
 	requests := f.ModelRequests()
-	if len(requests) == 0 || !strings.Contains(string(requests[0]), "synthetic random fact") {
+	if len(requests) == 0 || !strings.Contains(string(requests[0]), fact) {
 		t.Fatal("real provider request not recorded")
+	}
+	if !strings.Contains(canonical.SourceBody, fact) || canonical.SourceRole != "user" {
+		t.Fatal("user-only fact or its persisted role lost at real capture boundary")
 	}
 	t.Logf("real composition run=%s event=%d ingestion=%s capture=%d record=%s revision=%d source=%q", run.ID, terminal.EventSeq, accepted.IngestionID, accepted.CaptureSeq, canonical.RecordID, canonical.Revision, canonical.SourceBody)
 	if evidenceDir := os.Getenv("VIVY_MEMORY_LOOP_EVIDENCE_DIR"); evidenceDir != "" {

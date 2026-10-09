@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -302,6 +303,9 @@ func TestCognitiveCaptureProviderPreservesIdentity(t *testing.T) {
 	if err := backend.CreateRun(ctx, domain.Run{ID: "run_cap", SessionID: "sess-cap", Status: domain.RunCompleted, Kind: domain.RunKindPrimary}); err != nil {
 		t.Fatal(err)
 	}
+	if err := backend.AppendMessage(ctx, domain.Message{ID: "capture-user", SessionID: "sess-cap", RunID: "run_cap", Role: domain.RoleUser, Content: "the exchange", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 	payload, _ := json.Marshal(map[string]string{
 		"outcome": "ok", "summary": "the exchange", "tenant_id": "profile-1",
 		"workspace_id": "ws-9", "session_id": "sess-cap",
@@ -316,7 +320,7 @@ func TestCognitiveCaptureProviderPreservesIdentity(t *testing.T) {
 	}
 	got := sink.captures[0]
 	if got.SubjectID != "profile-1" || got.WorkspaceID != "ws-9" || got.SessionID != "sess-cap" ||
-		got.EventID != "run_cap:4" || got.Phase != "completed" || got.Content != "the exchange" || got.OccurredAt != 777 {
+		got.EventID != "run_cap:4" || got.Phase != "completed" || !strings.Contains(got.Content, `"role":"user","content":"the exchange","complete":true`) || got.OccurredAt != 777 {
 		t.Fatalf("capture lost identity: %+v", got)
 	}
 	if len(notified) != 1 || notified[0].Seq != 1 {
@@ -439,6 +443,17 @@ func (r *cogRuns) ListRunTree(context.Context, domain.RunID) ([]domain.Run, erro
 }
 func (r *cogRuns) ListRunsBySession(context.Context, domain.SessionID) ([]domain.Run, error) {
 	return nil, nil
+}
+
+// The cursor-failure fixture provides one admitted user row per primary run.
+func (r *cogRuns) ListMessages(_ context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
+	var rows []domain.Message
+	for _, run := range r.runs {
+		if run.SessionID == sessionID {
+			rows = append(rows, domain.Message{ID: string(run.ID) + "-user", SessionID: sessionID, RunID: run.ID, Role: domain.RoleUser, Content: "exchange"})
+		}
+	}
+	return rows, nil
 }
 
 // The capture cursor may only advance once the sink reports durable

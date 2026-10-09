@@ -683,17 +683,25 @@ func (p *CognitiveCaptureProvider) ObserveRunWithReceipt(ctx context.Context, ev
 	if !ok {
 		return ack("skip:" + event.Type), nil
 	}
-	if payload.SessionID == "" {
-		payload.SessionID = string(run.SessionID)
+	if payload.SessionID != "" && payload.SessionID != string(run.SessionID) {
+		return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: terminal session differs from admitted run")
+	}
+	messages, ok := p.runs.(captureMessageReader)
+	if !ok {
+		return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: durable message reader unavailable")
+	}
+	content, err := cognitiveConversationSource(ctx, messages, run, payload.Summary)
+	if err != nil {
+		return observer.DeliveryReceipt{}, err
 	}
 	receipt, err := p.sink.Capture(ctx, CognitiveCapture{
 		SubjectID:   payload.TenantID,
 		WorkspaceID: payload.WorkspaceID,
-		SessionID:   payload.SessionID,
+		SessionID:   string(run.SessionID),
 		RunID:       run.ID,
 		EventID:     event.ID.String(),
 		Phase:       phase,
-		Content:     payload.Summary,
+		Content:     content,
 		OccurredAt:  event.CreatedAt,
 	})
 	if err != nil {

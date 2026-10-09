@@ -273,6 +273,10 @@ func TestSupervisorCaptureExcluded(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := backend.AppendMessage(ctx, domain.Message{ID: "user-admitted", SessionID: "sess-user", RunID: "run_user_1", Role: domain.RoleUser, Content: "user source", CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+
 	event := func(runID string, seq int64) observer.RunEvent {
 		return observer.NewRunEvent(observer.NewEventID(runID, seq),
 			string(domain.EventRunCompleted), seq,
