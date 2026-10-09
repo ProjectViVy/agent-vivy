@@ -46,8 +46,8 @@ This recommendation is not an instruction to spawn concurrent product editors.
 | Finding | Severity | Owning task | Current disposition |
 | --- | --- | --- | --- |
 | H1 | P1 | P1.1 | IMPLEMENTED; local headless tests pass; canonical Linux host race pending |
-| H2 | P1 | P1.2 | IMPLEMENTED in DIVA `8918b6f2`; local contracts pass; Linux/Windows native CI pending (DIVA log: `docs/logs/2026-10-09-issue32-p1/v0.0.2-h2-ci-and-lock-gates/`) |
-| H3 | P1 | P1.3 | PLANNED |
+| H2 | P1 | P1.2 | IMPLEMENTED in DIVA `8918b6f2`, with source-tree pin/aggregate-test follow-up in `607fc54f`; 18 local contracts pass; Linux/Windows native CI pending (DIVA logs: `v0.0.2-h2-ci-and-lock-gates`, `v0.0.3-h3-candidate-publication-gates`) |
+| H3 | P1 | P1.3 | IMPLEMENTED in DIVA `607fc54f`; strict v2 checker passes a synthetic two-platform/17-row candidate and rejects incomplete/tampered cases; native builds, real W5 acceptance, archive tags, and approved W6 state pending |
 | C1 | P1 | P2.1 | PLANNED; defect probe reproduced |
 | C2 | P1 | P2.2 | PLANNED; call-chain confirmed |
 | H4 | P2 | P4.1a | PLANNED |
