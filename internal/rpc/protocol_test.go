@@ -106,13 +106,12 @@ func TestPeerNotifyContextWaitsForCapacityAndCancels(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
-	started := time.Now()
 	err := peer.NotifyContext(ctx, "two", nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("NotifyContext error = %v", err)
 	}
-	if time.Since(started) < 20*time.Millisecond {
-		t.Fatal("NotifyContext did not apply backpressure")
+	if len(peer.out) != 1 {
+		t.Fatal("cancelled notification changed the full queue")
 	}
 }
 
@@ -173,16 +172,251 @@ func TestPeerNotifyContextDeliversBurstThroughBoundedQueue(t *testing.T) {
 	if _, err := client.Call(ctx, "burst", nil); err != nil {
 		t.Fatal(err)
 	}
-	seen := make([]bool, count)
 	for i := 0; i < count; i++ {
 		select {
 		case value := <-received:
-			if value < 0 || value >= count || seen[value] {
-				t.Fatalf("invalid or duplicate chunk %d", value)
+			if value != i {
+				t.Fatalf("notification %d = %d, want wire order", i, value)
 			}
-			seen[value] = true
 		case <-ctx.Done():
 			t.Fatalf("received %d/%d notifications: %v", i, count, ctx.Err())
+		}
+	}
+}
+
+func TestPeerNotificationsDoNotOvertakeBlockedHandler(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	received := make(chan string, 3)
+	handler := HandlerFunc(func(ctx context.Context, _ *Peer, request Request) (any, *Error) {
+		if request.Method == "barrier" {
+			return true, nil
+		}
+		if request.Method == "model.request" {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, nil
+			}
+		}
+		received <- request.Method
+		return nil, nil
+	})
+	server, _, _ := startPeerPair(t, nil, handler)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := server.NotifyContext(ctx, "model.request", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first notification did not start")
+	}
+	for _, method := range []string{"model.delta", "model.completed"} {
+		if err := server.NotifyContext(ctx, method, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The later request proves the reader is past both queued notifications.
+	if _, err := server.Call(ctx, "barrier", nil); err != nil {
+		t.Fatalf("request blocked behind notification: %v", err)
+	}
+	select {
+	case method := <-received:
+		t.Fatalf("%s overtook blocked model.request", method)
+	case <-time.After(25 * time.Millisecond):
+	}
+	release <- struct{}{}
+	for _, want := range []string{"model.request", "model.delta", "model.completed"} {
+		select {
+		case got := <-received:
+			if got != want {
+				t.Fatalf("notification = %s, want %s", got, want)
+			}
+		case <-ctx.Done():
+			t.Fatal("notification worker did not drain")
+		}
+	}
+}
+
+func TestPeerNotificationHandlerCanCallRPCThroughBurst(t *testing.T) {
+	const count = 256
+	result := make(chan error, 1)
+	received := make(chan int, count)
+	clientHandler := HandlerFunc(func(ctx context.Context, peer *Peer, request Request) (any, *Error) {
+		switch request.Method {
+		case "start":
+			_, err := peer.Call(ctx, "server/burst", nil)
+			result <- err
+		case "client/confirm":
+			return true, nil
+		case "chunk":
+			var value int
+			if err := json.Unmarshal(request.Params, &value); err != nil {
+				t.Errorf("decode chunk: %v", err)
+			}
+			received <- value
+		}
+		return nil, nil
+	})
+	serverHandler := HandlerFunc(func(ctx context.Context, peer *Peer, _ Request) (any, *Error) {
+		if _, err := peer.Call(ctx, "client/confirm", nil); err != nil {
+			return nil, &Error{Code: InternalError, Message: err.Error()}
+		}
+		for i := 0; i < count; i++ {
+			if err := peer.NotifyContext(ctx, "chunk", i); err != nil {
+				return nil, &Error{Code: InternalError, Message: err.Error()}
+			}
+		}
+		return true, nil
+	})
+	server, _, _ := startPeerPair(t, serverHandler, clientHandler)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.NotifyContext(ctx, "start", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("RPC inside notification: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("RPC response deadlocked behind notifications")
+	}
+	for i := 0; i < count; i++ {
+		select {
+		case got := <-received:
+			if got != i {
+				t.Fatalf("chunk %d = %d", i, got)
+			}
+		case <-ctx.Done():
+			t.Fatalf("received %d/%d chunks", i, count)
+		}
+	}
+}
+
+func TestPeerCloseCancelsNotificationAndDiscardsQueue(t *testing.T) {
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	queued := make(chan struct{}, 1)
+	handler := HandlerFunc(func(ctx context.Context, _ *Peer, request Request) (any, *Error) {
+		switch request.Method {
+		case "block":
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+		case "queued":
+			queued <- struct{}{}
+		}
+		return true, nil
+	})
+	server, client, _ := startPeerPair(t, nil, handler)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := server.NotifyContext(ctx, "block", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("callback did not start")
+	}
+	if err := server.NotifyContext(ctx, "queued", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Call(ctx, "barrier", nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	select {
+	case <-client.ServeDone():
+	case <-ctx.Done():
+		t.Fatal("Serve did not join cancelled callback")
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("ServeDone closed before callback returned")
+	}
+	select {
+	case <-queued:
+		t.Fatal("queued callback ran after close")
+	default:
+	}
+	if len(client.notifications) != 0 {
+		t.Fatal("closed peer retained notification payloads")
+	}
+}
+
+func TestPeerNotificationOverflowClosesWithoutBlockingReader(t *testing.T) {
+	started := make(chan struct{})
+	queued := make(chan struct{}, 1)
+	handler := HandlerFunc(func(ctx context.Context, _ *Peer, request Request) (any, *Error) {
+		if request.Method == "block" {
+			close(started)
+			<-ctx.Done()
+		} else {
+			queued <- struct{}{}
+		}
+		return nil, nil
+	})
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), handler, Options{NotificationBuffer: 1})
+	defer peer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- peer.Serve(ctx) }()
+	transport := NewJSONLTransport(right, right, nil)
+	if err := transport.WriteFrame([]byte(`{"jsonrpc":"2.0","method":"block"}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("callback did not start")
+	}
+	for i := 0; i < 2; i++ {
+		if err := transport.WriteFrame([]byte(`{"jsonrpc":"2.0","method":"queued"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case err := <-served:
+		if !errors.Is(err, ErrNotificationOverloaded) {
+			t.Fatalf("Serve error = %v, want notification overflow", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("overflow blocked the reader")
+	}
+	select {
+	case <-peer.done:
+	default:
+		t.Fatal("overflow did not close peer")
+	}
+	select {
+	case <-queued:
+		t.Fatal("overflow dispatched queued callback")
+	default:
+	}
+	if len(peer.notifications) != 0 {
+		t.Fatal("overflow retained queued payloads")
+	}
+}
+
+func TestNotificationBufferNormalization(t *testing.T) {
+	for _, value := range []int{-1, 0, 1, 7} {
+		want := value
+		if value <= 0 {
+			want = 1024
+		}
+		if got := (Options{NotificationBuffer: value}).normalized().NotificationBuffer; got != want {
+			t.Fatalf("NotificationBuffer %d normalized to %d, want %d", value, got, want)
 		}
 	}
 }
