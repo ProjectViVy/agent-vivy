@@ -184,6 +184,57 @@ type memoryLoopCaptureHandshake struct {
 	PID        int    `json:"pid"`
 	Ingestion  string `json:"ingestion_id"`
 	CaptureSeq uint64 `json:"capture_seq"`
+	RunID      string `json:"run_id,omitempty"`
+	EventID    string `json:"event_id,omitempty"`
+}
+
+type memoryLoopCaptureAttemptGate struct {
+	runtime.CognitiveCaptureSink
+	path string
+}
+
+func memoryLoopCaptureAttemptHandshake(path string) AppOption {
+	return func(options *appOptions) {
+		options.cognitiveCaptureSinkWrapper = func(sink runtime.CognitiveCaptureSink) runtime.CognitiveCaptureSink {
+			return &memoryLoopCaptureAttemptGate{CognitiveCaptureSink: sink, path: path}
+		}
+	}
+}
+
+func (g *memoryLoopCaptureAttemptGate) LookupCapture(ctx context.Context, capture runtime.CognitiveCapture) (runtime.CognitiveCaptureReceipt, bool, error) {
+	lookup, ok := g.CognitiveCaptureSink.(interface {
+		LookupCapture(context.Context, runtime.CognitiveCapture) (runtime.CognitiveCaptureReceipt, bool, error)
+	})
+	if !ok {
+		return runtime.CognitiveCaptureReceipt{}, false, nil
+	}
+	return lookup.LookupCapture(ctx, capture)
+}
+
+func (g *memoryLoopCaptureAttemptGate) Capture(ctx context.Context, capture runtime.CognitiveCapture) (runtime.CognitiveCaptureReceipt, error) {
+	claim, err := os.OpenFile(g.path+".claimed", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		return g.CognitiveCaptureSink.Capture(ctx, capture)
+	}
+	if err != nil {
+		return runtime.CognitiveCaptureReceipt{}, fmt.Errorf("claim C01 handshake: %w", err)
+	}
+	if err := claim.Close(); err != nil {
+		return runtime.CognitiveCaptureReceipt{}, fmt.Errorf("close C01 handshake claim: %w", err)
+	}
+	raw, err := json.Marshal(memoryLoopCaptureHandshake{PID: os.Getpid(), RunID: string(capture.RunID), EventID: capture.EventID})
+	if err != nil {
+		return runtime.CognitiveCaptureReceipt{}, fmt.Errorf("encode C01 handshake: %w", err)
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", g.path, os.Getpid())
+	if err := os.WriteFile(temporary, raw, 0600); err != nil {
+		return runtime.CognitiveCaptureReceipt{}, fmt.Errorf("write C01 handshake: %w", err)
+	}
+	if err := os.Rename(temporary, g.path); err != nil {
+		return runtime.CognitiveCaptureReceipt{}, fmt.Errorf("publish C01 handshake: %w", err)
+	}
+	<-ctx.Done() // Test parent kills this process after observing the durable terminal.
+	return runtime.CognitiveCaptureReceipt{}, ctx.Err()
 }
 
 func memoryLoopCaptureReceiptHandshake(path string) AppOption {
@@ -213,6 +264,93 @@ func memoryLoopCaptureReceiptHandshake(path string) AppOption {
 			select {} // Parent kills this real process after reading durable state.
 		}
 	}
+}
+
+// C01 stops at the actual sink boundary: the terminal Journal event exists,
+// but the Capture sink has not received it yet.
+func TestMemoryLoopCrashC01TerminalBeforeCapture(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Second)
+	defer cancel()
+	handshakePath := filepath.Join(t.TempDir(), "capture-attempt.json")
+	f := newMemoryLoopFixture(t, memoryLoopOptions{
+		ConfigPath: memoryLoopConfig(t), ModelMode: "nochange", CaptureAttemptHandshakePath: handshakePath,
+	})
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, session)
+	fact := memoryLoopRandomFact(t)
+	runID := memoryLoopTurn(t, f, session, fact)
+	handshake := waitMemoryLoopCaptureHandshake(t, handshakePath, 35*time.Second)
+	if f.remote == nil || handshake.PID != f.remote.pid || handshake.RunID != runID || handshake.EventID == "" {
+		t.Fatalf("pre-capture handshake does not identify the terminal event: receipt=%+v run=%s", handshake, runID)
+	}
+	terminal, err := f.Wait(ctx, "terminal", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal.ProcessID != handshake.PID || !strings.HasSuffix(handshake.EventID, fmt.Sprintf(":%d", terminal.EventSeq)) {
+		t.Fatalf("handshake differs from durable terminal event: handshake=%+v terminal=%+v", handshake, terminal)
+	}
+	if count, err := f.memoryLoopIngestionCountForEvent(ctx, runID, terminal.EventSeq); err != nil || count != 0 {
+		t.Fatalf("Capture sink already received C01 event: rows=%d err=%v", count, err)
+	}
+	cursorBefore, err := f.memoryLoopObserverCursor(ctx, runID)
+	if err != nil || cursorBefore >= terminal.EventSeq {
+		t.Fatalf("C01 cursor already acknowledged event %d: cursor=%d err=%v", terminal.EventSeq, cursorBefore, err)
+	}
+	oldPID, newPID, err := f.crashAndRestart(ctx)
+	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
+		t.Fatalf("crash/restart at C01 handshake: %d -> %d: %v", oldPID, newPID, err)
+	}
+	sessionParams, _ := json.Marshal(map[string]any{"session_id": session})
+	if _, err := f.Call(ctx, "session/get", sessionParams); err != nil {
+		t.Fatalf("rebind user session after process restart: %v", err)
+	}
+	after, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.EventSeq != terminal.EventSeq || after.CaptureSeq == 0 || after.IngestionID == "" || after.CanonicalCount != 1 || after.Revision != 1 || !strings.Contains(after.SourceBody, fact) || after.SourceRole != "user" {
+		t.Fatalf("C01 replay did not capture the original terminal source exactly once: before=%+v after=%+v", terminal, after)
+	}
+	count, err := f.memoryLoopIngestionCountForEvent(ctx, runID, terminal.EventSeq)
+	if err != nil || count != 1 {
+		t.Fatalf("C01 replay produced %d ingestion rows, err=%v", count, err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var cursorAfter uint64
+	for {
+		cursorAfter, err = f.memoryLoopObserverCursor(ctx, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cursorAfter >= terminal.EventSeq {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replayed terminal event was not acknowledged: event=%d cursor=%d", terminal.EventSeq, cursorAfter)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Logf("C01 event=%s cursor=%d->%d processes=%d->%d receipt=%s capture=%d canonical=%s revision=%d count=%d", handshake.EventID, cursorBefore, cursorAfter, oldPID, newPID, after.IngestionID, after.CaptureSeq, after.RecordID, after.Revision, after.CanonicalCount)
+}
+
+func (f *memoryLoopFixture) memoryLoopIngestionCountForEvent(ctx context.Context, runID string, eventSeq uint64) (int, error) {
+	db, err := f.readOnlyDB("garden", "garden.db")
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	suffix := fmt.Sprintf("/%s:%d", runID, eventSeq)
+	var count int
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestions WHERE substr(event_id,-length(?))=?`, suffix, suffix).Scan(&count)
+	return count, err
 }
 
 // C02 kills the real host after the capture receipt is durable but before

@@ -108,6 +108,9 @@ type appOptions struct {
 	// cognitiveCaptureReceiptHook is an internal crash-test seam. It runs
 	// after a durable capture receipt and before ObserverHost receives its ACK.
 	cognitiveCaptureReceiptHook func(runtime.CognitiveCaptureReceipt)
+	// cognitiveCaptureSinkWrapper is an internal crash-test seam for pausing
+	// immediately before the durable Capture boundary.
+	cognitiveCaptureSinkWrapper func(runtime.CognitiveCaptureSink) runtime.CognitiveCaptureSink
 	settingsPath                string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
@@ -748,7 +751,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	var cognitiveSubs []observerhost.RunSubscription
 	if cognitiveBundle != nil {
-		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
+		captureSink := cognitiveBundle.Sink()
+		if ao.cognitiveCaptureSinkWrapper != nil {
+			captureSink = ao.cognitiveCaptureSinkWrapper(captureSink)
+		}
+		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, captureSink,
 			func(receipt runtime.CognitiveCaptureReceipt) {
 				if ao.cognitiveCaptureReceiptHook != nil {
 					ao.cognitiveCaptureReceiptHook(receipt)
