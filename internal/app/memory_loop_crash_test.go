@@ -20,6 +20,7 @@ import (
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
@@ -717,6 +718,215 @@ func assertMemoryLoopBatchCanonical(t *testing.T, f *memoryLoopFixture, targets,
 		if err != nil || revision != 1 || !strings.Contains(body, facts[i]) {
 			t.Fatalf("C04 canonical effect %d missing/changed: body=%q revision=%d err=%v", i, body, revision, err)
 		}
+	}
+}
+
+type memoryLoopWatermarkHandshake struct {
+	PID             int    `json:"pid"`
+	Key             string `json:"key"`
+	Version         int64  `json:"version"`
+	WorkflowID      string `json:"workflow_id"`
+	BeforeWatermark uint64 `json:"before_watermark"`
+	AfterWatermark  uint64 `json:"after_watermark"`
+	PendingThrough  uint64 `json:"pending_through"`
+	ActiveRunID     string `json:"active_run_id"`
+}
+
+type memoryLoopCognitiveWatermarkGate struct {
+	storage.SnapshotStore
+	path string
+}
+
+func memoryLoopCognitiveWatermarkHandshakeOption(path string) AppOption {
+	return func(options *appOptions) {
+		options.cognitiveSnapshotStoreWrapper = func(store storage.SnapshotStore) storage.SnapshotStore {
+			return &memoryLoopCognitiveWatermarkGate{SnapshotStore: store, path: path}
+		}
+	}
+}
+
+func (g *memoryLoopCognitiveWatermarkGate) Put(ctx context.Context, key string, value []byte, expectVersion int64) error {
+	if key != "cognitive/state" {
+		return g.SnapshotStore.Put(ctx, key, value, expectVersion)
+	}
+	var before, after struct {
+		ActiveRunID    string `json:"active_run_id"`
+		PendingThrough uint64 `json:"pending_through"`
+		Watermark      uint64 `json:"watermark"`
+	}
+	previous, _, err := g.SnapshotStore.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+	if len(previous) > 0 {
+		if err := json.Unmarshal(previous, &before); err != nil {
+			return err
+		}
+	}
+	if err := json.Unmarshal(value, &after); err != nil {
+		return err
+	}
+	if after.Watermark <= before.Watermark || after.Watermark != after.PendingThrough || after.ActiveRunID != "" {
+		return g.SnapshotStore.Put(ctx, key, value, expectVersion)
+	}
+	claim, err := os.OpenFile(g.path+".claimed", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		return g.SnapshotStore.Put(ctx, key, value, expectVersion)
+	}
+	if err != nil {
+		return fmt.Errorf("claim C05 handshake: %w", err)
+	}
+	if err := claim.Close(); err != nil {
+		return fmt.Errorf("close C05 handshake claim: %w", err)
+	}
+	handshake := memoryLoopWatermarkHandshake{
+		PID: os.Getpid(), Key: key, Version: expectVersion, WorkflowID: before.ActiveRunID,
+		BeforeWatermark: before.Watermark, AfterWatermark: after.Watermark,
+		PendingThrough: after.PendingThrough, ActiveRunID: after.ActiveRunID,
+	}
+	raw, err := json.Marshal(handshake)
+	if err != nil {
+		return fmt.Errorf("encode C05 handshake: %w", err)
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", g.path, os.Getpid())
+	if err := os.WriteFile(temporary, raw, 0600); err != nil {
+		return fmt.Errorf("write C05 handshake: %w", err)
+	}
+	if err := os.Rename(temporary, g.path); err != nil {
+		return fmt.Errorf("publish C05 handshake: %w", err)
+	}
+	<-ctx.Done() // The parent kills the process before this watermark write.
+	return ctx.Err()
+}
+
+// C05 reaches the exact final state Put: the workflow and every effect are
+// durable, but the processed-through watermark has not yet been persisted.
+func TestMemoryLoopCrashC05EffectsDoneBeforeWatermark(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 130*time.Second)
+	defer cancel()
+	handshakePath := filepath.Join(t.TempDir(), "watermark.json")
+	f := newMemoryLoopFixture(t, memoryLoopOptions{
+		ConfigPath: memoryLoopConfig(t), ModelMode: "reflection", WatermarkHandshakePath: handshakePath,
+	})
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, session)
+	fact := memoryLoopRandomFact(t)
+	runID := memoryLoopTurn(t, f, session, fact)
+	source, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := waitMemoryLoopWatermarkHandshake(t, handshakePath, 45*time.Second)
+	if f.remote == nil || handshake.PID != f.remote.pid || handshake.Key != "cognitive/state" || handshake.WorkflowID == "" || handshake.BeforeWatermark != 0 || handshake.AfterWatermark != source.CaptureSeq || handshake.PendingThrough != source.CaptureSeq || handshake.ActiveRunID != "" {
+		t.Fatalf("C05 handshake missed the resolved-window watermark write: %+v source=%+v", handshake, source)
+	}
+	var before memoryLoopCognitionStatus
+	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &before)
+	if before.Cognition.ActiveRunID != handshake.WorkflowID || before.Cognition.Watermark != 0 || before.Cognition.PendingThrough != source.CaptureSeq || before.Cognition.Phase != "running" {
+		t.Fatalf("C05 watermark was persisted before the crash point: %+v", before.Cognition)
+	}
+	workflowParams, _ := json.Marshal(map[string]any{"run_id": handshake.WorkflowID})
+	var workflow struct {
+		ID             string `json:"id"`
+		EngineStatus   string `json:"engine_status"`
+		RevisionDigest string `json:"revision_digest"`
+	}
+	raw, err := f.Call(ctx, "workflow/get", workflowParams)
+	if err != nil || json.Unmarshal(raw, &workflow) != nil || workflow.ID != handshake.WorkflowID || workflow.EngineStatus != "succeeded" || workflow.RevisionDigest == "" {
+		t.Fatalf("C05 workflow/effect completion was not durable before watermark: %s %+v err=%v", raw, workflow, err)
+	}
+	results := memoryLoopResults(t, f, session)
+	if len(results) != 1 || results[0].Kind != string(laputaevolution.KindMemoryMutation) || results[0].Status != string(laputaevolution.StatusApplied) || results[0].Revision != 1 || results[0].TargetRef == "" {
+		t.Fatalf("C05 applied result is missing before watermark commit: %+v", results)
+	}
+	beforeReceipt := memoryLoopPublicEffectReceipt(t, f, session, results[0].OperationID)
+	if beforeReceipt.TargetRef != results[0].TargetRef || beforeReceipt.Revision != results[0].Revision {
+		t.Fatalf("C05 applied atomic receipt differs from result ledger: result=%+v receipt=%+v", results[0], beforeReceipt)
+	}
+	assertMemoryLoopC05Canonical(t, f, beforeReceipt.TargetRef, fact, 2)
+	requestsBefore := len(f.ModelRequests())
+	if requestsBefore != 3 {
+		t.Fatalf("C05 expected primary + reconcile + reflect requests before crash, got %d", requestsBefore)
+	}
+	oldPID, newPID, err := f.crashAndRestart(ctx)
+	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
+		t.Fatalf("crash/restart at C05 watermark handshake: %d -> %d: %v", oldPID, newPID, err)
+	}
+	sessionParams, _ := json.Marshal(map[string]any{"session_id": session})
+	if _, err := f.Call(ctx, "session/get", sessionParams); err != nil {
+		t.Fatalf("rebind user session after process restart: %v", err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var after memoryLoopCognitionStatus
+	for {
+		memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &after)
+		if after.Cognition.Watermark == source.CaptureSeq && after.Cognition.ActiveRunID == "" && after.Cognition.Phase == "idle" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("C05 replay did not resolve the already-completed window: %+v", after.Cognition)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := memoryLoopPublicEffectReceipt(t, f, session, beforeReceipt.OperationID); got != beforeReceipt {
+		t.Fatalf("C05 replay changed the original atomic receipt: before=%+v after=%+v", beforeReceipt, got)
+	}
+	assertMemoryLoopC05Canonical(t, f, beforeReceipt.TargetRef, fact, 2)
+	assertMemoryLoopNoExtraRequests(t, f, 0, 11*time.Second)
+	t.Logf("C05 workflow=%s source=%d watermark=0->%d effect=%s target=%s processes=%d->%d workflow-state=%s requests-before=%d requests-after=0", workflow.ID, source.CaptureSeq, after.Cognition.Watermark, beforeReceipt.OperationID, beforeReceipt.TargetRef, oldPID, newPID, workflow.EngineStatus, requestsBefore)
+}
+
+func waitMemoryLoopWatermarkHandshake(t *testing.T, path string, timeout time.Duration) memoryLoopWatermarkHandshake {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			var handshake memoryLoopWatermarkHandshake
+			if err := json.Unmarshal(raw, &handshake); err != nil {
+				t.Fatalf("decode C05 handshake: %v", err)
+			}
+			return handshake
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read C05 handshake: %v", err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("C05 watermark handshake not reached in %s", timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func assertMemoryLoopC05Canonical(t *testing.T, f *memoryLoopFixture, target, fact string, wantCount int) {
+	t.Helper()
+	db, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	var revision uint64
+	var body string
+	if err := db.QueryRow(`SELECT version,content FROM memories WHERE id=?`, target).Scan(&revision, &body); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 1 || count != wantCount || !strings.Contains(body, fact) {
+		t.Fatalf("C05 canonical effect changed: target=%s revision=%d count=%d body=%q", target, revision, count, body)
 	}
 }
 

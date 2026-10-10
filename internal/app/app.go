@@ -115,7 +115,10 @@ type appOptions struct {
 	// cognitiveDomainWrapper is a nil-by-default internal crash-test seam for
 	// pausing after a durable effect receipt and before its caller receives it.
 	cognitiveDomainWrapper func(laputaevolution.Domain) laputaevolution.Domain
-	settingsPath           string
+	// cognitiveSnapshotStoreWrapper is a nil-by-default internal crash-test
+	// seam for pausing before the processed-through watermark is persisted.
+	cognitiveSnapshotStoreWrapper func(storage.SnapshotStore) storage.SnapshotStore
+	settingsPath                  string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
 	// the code project root from which a face may resolve attachments.
@@ -818,13 +821,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if ao.cognitiveDomainWrapper != nil {
 			cognitiveDomain = ao.cognitiveDomainWrapper(cognitiveDomain)
 		}
+		var cognitiveStore storage.SnapshotStore = backend.Snapshot()
+		if ao.cognitiveSnapshotStoreWrapper != nil {
+			cognitiveStore = ao.cognitiveSnapshotStoreWrapper(cognitiveStore)
+		}
 		cognitiveBinding = &runtime.CognitiveBinding{
 			Domain:   cognitiveDomain,
 			Binding:  resolvedBinding,
 			SourceID: cognitiveBundle.SourceID(),
 			Source:   cognitiveBundle.Source(),
 			Sink:     cognitiveBundle.Sink(),
-			Store:    backend.Snapshot(),
+			Store:    cognitiveStore,
 			Mission:  cognitiveBundle.Mission(),
 			Primary:  cognitiveBundle,
 			Resolve:  cognitiveBundle.ResolveBinding,
