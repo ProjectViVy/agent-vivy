@@ -2028,6 +2028,13 @@ func (a *App) Run(ctx context.Context) error {
 	if !a.service.WaitIdle(shutdownCtx) {
 		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
 	}
+	if a.observerHost != nil {
+		a.observerHost.Close()
+	}
+	var cognitiveCloseErr error
+	if a.cognitive != nil {
+		cognitiveCloseErr = a.cognitive.Close()
+	}
 	var mcpCloseDone chan error
 	if a.mcpBackend != nil {
 		mcpCloseDone = make(chan error, 1)
@@ -2060,6 +2067,9 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if assemblyCloseErr != nil {
 		return fmt.Errorf("close generated assembly: %w", assemblyCloseErr)
+	}
+	if cognitiveCloseErr != nil {
+		return fmt.Errorf("close cognitive runtime: %w", cognitiveCloseErr)
 	}
 	if err := a.backend.Close(); err != nil {
 		return fmt.Errorf("close storage: %w", err)

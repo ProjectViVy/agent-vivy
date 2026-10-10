@@ -30,7 +30,11 @@ test: ensure-laputa
     # the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
     # exceeds it too. internal/runtime crossed the 20-minute bound on the
     # Windows runner, so the shared bound is 35m.
-    & "{{go}}" test -timeout 35m ./...
+    # Memory-loop integration requires the DIVA Recipe, not the default body.
+    # The second pass runs every excluded test against its sealed Assembly.
+    # Serialize real SQLite fixture packages to avoid Windows flush contention.
+    & "{{go}}" test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-memory-loop.ps1
 
 vet: ensure-laputa
     & "{{go}}" vet ./...

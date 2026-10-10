@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -105,6 +106,29 @@ func TestHomePathsAndLazyStore(t *testing.T) {
 	if !isFile(h.DatabasePath()) {
 		t.Fatal("add must create the database")
 	}
+}
+
+func TestHomeAddsIdenticalContentAtSameTime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		h := NewHome(t.TempDir())
+		defer h.Close()
+		now := time.Now()
+		seen := map[string]bool{}
+		for range 3 {
+			added, err := h.AddLongTerm(ctx, "same memory content", nil)
+			if err != nil {
+				t.Fatalf("add at fixed time: %v", err)
+			}
+			if seen[added.Record.ID] {
+				t.Fatalf("repeated record ID %q", added.Record.ID)
+			}
+			seen[added.Record.ID] = true
+		}
+		if !time.Now().Equal(now) {
+			t.Fatal("fixture clock advanced")
+		}
+	})
 }
 
 func TestHomeLongTermCRUDIsRevisionedAndTombstoned(t *testing.T) {
