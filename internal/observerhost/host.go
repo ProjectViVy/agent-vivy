@@ -168,9 +168,12 @@ func (h *Host) Start(parent context.Context) {
 		ctx, cancel := context.WithCancel(parent)
 		h.cancel = cancel
 		if len(h.runSubscriptions) > 0 {
+			h.mu.Lock()
+			hasPending := len(h.pending) > 0
+			h.mu.Unlock()
 			h.wg.Add(1)
 			go h.runLoop(ctx)
-			if len(h.pending) > 0 {
+			if hasPending {
 				select {
 				case h.wake <- struct{}{}:
 				default:
