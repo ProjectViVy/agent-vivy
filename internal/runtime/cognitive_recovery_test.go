@@ -13,6 +13,7 @@ import (
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
 // admitCognitiveWorkflowFixture commits a schema-2 trusted-strategy revision
@@ -220,6 +221,31 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 	}
 	if _, err := svc.StartCognitiveWorkflow(ctx, parentRunID, "cog-op-running", TrustedStrategyDIVA, cognitiveInput(t)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
 		t.Fatalf("duplicate start on interrupted run = %v", err)
+	}
+	// Controller boundary setup: bind the original admitted window to the
+	// actual recovered engine record. It must expose a durable block rather
+	// than describing a lost process as still actively doing useful work.
+	svc.deps.Cognitive.SourceID = "activity"
+	svc.deps.Cognitive.Source = &fakeSource{high: 5}
+	svc.deps.Cognitive.Store = backend.Snapshot()
+	svc.deps.Cognitive.Policy = laputaevolution.TriggerPolicy{Enabled: true}
+	st, version, err := svc.loadCognitiveState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.ActiveRunID, st.PendingThrough = string(wfRun.ID), 5
+	if err := svc.saveCognitiveState(ctx, st, version); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		elig, err := svc.TriggerCognitive(ctx)
+		if err != nil || elig.Run || string(elig.Reason) != "blocked:"+cognitiveBlockUnknown {
+			t.Fatalf("interrupted controller not visibly fenced: %+v %v", elig, err)
+		}
+	}
+	view, watermark, err := svc.CognitiveStatus(ctx)
+	if err != nil || view.Phase != "blocked" || view.BlockReason != cognitiveBlockUnknown || view.ActiveRunID != string(wfRun.ID) || view.PendingThrough != 5 || watermark != 0 {
+		t.Fatalf("original recovery window not exposed: %+v watermark=%d %v", view, watermark, err)
 	}
 }
 

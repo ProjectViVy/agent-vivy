@@ -417,6 +417,21 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 			if st.Blocked != cognitiveBlockUnknown {
 				st.ActiveRunID = ""
 			}
+		case run.Kind == domain.RunKindWorkflow:
+			// A recovered unknown workflow intentionally has no native
+			// terminal. Expose its committed engine fence instead of
+			// describing the lost process as still actively running.
+			engine, err := s.inofyEngine()
+			if err != nil {
+				return laputaevolution.Eligibility{}, err
+			}
+			state, err := engine.LoadWorkflowStep(ctx, run.ID)
+			if err != nil {
+				return laputaevolution.Eligibility{}, err
+			}
+			if state.Projection != nil && state.Projection.Status == storage.WorkflowStepRecoveryRequired {
+				st.Blocked = cognitiveBlockUnknown
+			}
 		}
 	}
 	high, err := s.cognitiveHighWatermark(ctx, st)

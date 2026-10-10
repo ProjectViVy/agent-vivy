@@ -160,11 +160,11 @@ func TestMemoryLoopInterruptedInferenceKeepsOriginalWindow(t *testing.T) {
 		t.Fatalf("durable original workflow identity missing: %+v", workflow)
 	}
 	// Manual requests and actual automatic ticks both keep the same identity.
-	assertMemoryLoopTriggerReason(t, f, session, "active")
+	assertMemoryLoopTriggerReason(t, f, session, "blocked:unknown_outcome")
 	assertMemoryLoopNoExtraRequests(t, f, 0, 11*time.Second)
 	var after memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &after)
-	if after.Cognition.ActiveRunID != admitted.Cognition.ActiveRunID || after.Cognition.Watermark != 0 {
+	if after.Cognition.ActiveRunID != admitted.Cognition.ActiveRunID || after.Cognition.Watermark != 0 || after.Cognition.Phase != "blocked" || after.Cognition.BlockReason != "unknown_outcome" {
 		t.Fatalf("interrupted window was reset or advanced: before=%+v after=%+v", admitted, after)
 	}
 	source, err := f.Wait(ctx, "canonical", primary)

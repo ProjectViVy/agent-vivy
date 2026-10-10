@@ -96,7 +96,7 @@ func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, chan
 		return inofy.Receipt{}, err
 	}
 	commitID := change.CommitID
-	if change.Transition.Expected == inofy.RunRunning && change.Transition.Target == inofy.RunRecoveryRequired {
+	if ref.Epoch > 1 && change.Transition.Expected == inofy.RunRunning && change.Transition.Target == inofy.RunRecoveryRequired {
 		// The pinned engine restarts its ordinal on reopen; this transition
 		// otherwise reuses the admission commit ID with different content.
 		// Preserve ordinary IDs/receipts and namespace only classification
