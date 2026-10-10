@@ -25,7 +25,13 @@ Task checkout and its bootstrap-cloned Laputa sibling are isolated under
 
 ## Pending candidate gates
 
-Live full Provider/Host conformance, complete `just ci`, fresh development
+The full live Provider/Host conformance suite passed (111.599s) with the
+unchanged historical bundle and edited internal sources. Independent review
+found and then confirmed the fix for Pack's final source-stability check:
+`VerifyUnchanged` compares live sources to captured identities using the original
+normalization hints. T1/T2 unchanged and edit-during-build regressions PASS.
+
+Complete `just ci`, fresh development
 readiness, final SDK integrity regressions and exact-commit GitHub Actions are
 in progress. This record does not claim those outcomes before completion.
 
@@ -36,3 +42,8 @@ also rejected changed internal source against the historical bundle; its final
 negative run is tracked separately from development success.
 
 No bundle digests or historical pass flags were refreshed. No merge or deployment.
+
+Local aggregate checks use task-owned `/var/tmp/vivy-issue51` fixtures outside
+the environment's injected ancestor `.git` mounts, preserving VCS stamping and
+instruction-discovery assertions. Superseded runs were stopped after the review
+fix; they are not final success evidence.

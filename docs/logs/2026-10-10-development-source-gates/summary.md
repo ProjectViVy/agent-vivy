@@ -4,7 +4,9 @@ Issue #51 separates ordinary development from historical release source identity
 Static SDK verify no longer compares authored source hashes. The SDK Source
 Catalog derives current T1 identities once per root during construction; the
 internal default inventory declares composition without reading/hashing files.
-T2 source locks, Recipe pins, import/capability firewalls, symlink confinement,
+SDK publication checks captured source identities again before emitting an
+artifact; editing before a build is allowed, changing its captured inputs during
+the build remains an error. T2 source locks, Recipe pins, import/capability firewalls, symlink confinement,
 UI dependency/asset checks and executable artifact inspection remain strict.
 
 Ordinary Provider conformance executes the existing Provider/Host commands and

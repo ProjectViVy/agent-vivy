@@ -60,14 +60,14 @@ type GoBinding struct {
 // SourceCatalog is the sole authority that binds a Module ID to source bytes
 // and an in-process trust classification.
 type SourceCatalog struct {
-	records map[string]SourceRecord
+	records       map[string]SourceRecord
+	sourceDigests map[[2]string]string
 }
 
 func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
-	catalog := SourceCatalog{records: make(map[string]SourceRecord, len(records))}
+	catalog := SourceCatalog{records: make(map[string]SourceRecord, len(records)), sourceDigests: make(map[[2]string]string)}
 	// Many internal Modules share a source root. Derive each identity once per
 	// catalog construction, without retaining a cache across development edits.
-	digests := make(map[[2]string]string)
 	for _, record := range records {
 		id := record.Descriptor.Module.ID
 		if id == "" {
@@ -84,14 +84,14 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 				return SourceCatalog{}, fmt.Errorf("source ref mismatch for %s: got %s, want %s", id, record.Descriptor.Source.Ref, record.Ref)
 			}
 			key := [2]string{record.Root, record.Descriptor.Source.SHA256}
-			digest, ok := digests[key]
+			digest, ok := catalog.sourceDigests[key]
 			if !ok {
 				var err error
 				digest, err = HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
 				if err != nil {
 					return SourceCatalog{}, fmt.Errorf("verify source for %s: %w", id, err)
 				}
-				digests[key] = digest
+				catalog.sourceDigests[key] = digest
 			}
 			if record.Trust == TrustT2 && digest != record.Descriptor.Source.SHA256 {
 				return SourceCatalog{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", id, digest, record.Descriptor.Source.SHA256)
@@ -106,6 +106,22 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 		catalog.records[id] = cloneSourceRecord(record)
 	}
 	return catalog, nil
+}
+
+// VerifyUnchanged checks the source identities captured by this catalog before
+// an SDK build is published. It uses the original normalization hints, never
+// refreshed authoring hashes or newly derived identities.
+func (catalog SourceCatalog) VerifyUnchanged() error {
+	for key, expected := range catalog.sourceDigests {
+		digest, err := HashSourceTree(key[0], key[1])
+		if err != nil {
+			return fmt.Errorf("verify source %s: %w", key[0], err)
+		}
+		if digest != expected {
+			return fmt.Errorf("source hash mismatch for %s: got %s, want %s", key[0], digest, expected)
+		}
+	}
+	return nil
 }
 
 // HashSourceTree hashes a deterministic path/content stream. The Descriptor's

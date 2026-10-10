@@ -585,7 +585,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 			return Artifact{}, fmt.Errorf("sdk: stage ABI header: %w", writeErr)
 		}
 	}
-	if _, err := assemblyv1.NewSourceCatalog(records); err != nil {
+	if err := catalog.VerifyUnchanged(); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: source changed during build: %w", err)
 	}
 	if err := verifyDependencyLocks(repoRoot, modfile, dependencyLocks); err != nil {
