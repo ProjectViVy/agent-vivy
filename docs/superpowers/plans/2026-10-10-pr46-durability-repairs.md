@@ -62,8 +62,8 @@ Use pinned adk.WithCancel, cancellation modes, Runner.Resume and ChatModelAgentR
 ## Task 6 — integration
 
 - [x] Review isolated changes, integrate focused commits, refresh evidence once for final internal source identity.
-- [ ] Run just ci (or record platform blockers and exact equivalent gates), race checks for queue/observer, and real pack/inspect paths.
-- [ ] Record summary, verification, acceptance and any unresolved limitation; commit focused deliverables without pushing.
+- [x] Run just ci, race checks for queue/observer, and real pack/inspect paths; final complete CI and source-bound producer gate PASS at `a44bb3f9`.
+- [x] Record summary, verification, acceptance and limitations; commit focused deliverables without pushing.
 
 ### Integration follow-up — recipe-accurate recall gate
 
@@ -71,4 +71,10 @@ The first full Go gate exposed six existing recall tests using only cognitive-fa
 
 - [x] Reproduce default composition mismatch and verify the exact original guard defect.
 - [x] Add capability-accurate recall test guards and required generated DIVA CI gate.
-- [ ] Execute the six original assertions under the actual DIVA generation, refresh final evidence, and repeat required integrated gates.
+- [x] Execute the six original assertions under the actual DIVA generation (all PASS, zero skips), refresh final evidence, and complete required integrated gates.
+
+### Integration follow-up — full restoration marker boundary
+
+- [x] Reproduce the extra 8 encoded bytes when an acknowledged steer later demotes to follow_up.
+- [x] Reserve the larger future full restoration marker before enqueue ACK while persisting the actual steer track; reject oversize without mutation.
+- [x] Verify both sides of the boundary and a real missing-checkpoint fallback, focused race, independent read-only review, final source resealing, clean packing and complete CI. See `docs/logs/2026-10-10-queue-payload-boundary/` and the final integration record.
