@@ -41,6 +41,8 @@ type memoryLoopRemote struct {
 	pid       int
 	closeOnce sync.Once
 	closeErr  error
+	trace     []string
+	traceMu   sync.Mutex
 }
 
 // This test transport forwards fixture operations to the same actual App
@@ -85,7 +87,14 @@ func startMemoryLoopRemote(ctx context.Context, options memoryLoopOptions) (*mem
 	}
 	if err := r.exchange(ctx, memoryLoopRequest{Op: "hello"}, &hello); err != nil {
 		_ = cmd.Process.Kill()
-		return nil, err
+		select {
+		case <-r.done:
+		case <-ctx.Done():
+		}
+		r.traceMu.Lock()
+		trace := strings.Join(r.trace, "\n")
+		r.traceMu.Unlock()
+		return nil, fmt.Errorf("owned process hello: %w; last output: %s", err, trace)
 	}
 	if hello.PID != cmd.Process.Pid || hello.PID == os.Getpid() {
 		_ = cmd.Process.Kill()
@@ -113,6 +122,15 @@ func (r *memoryLoopRemote) exchange(ctx context.Context, req memoryLoopRequest, 
 		for r.out.Scan() {
 			line := r.out.Text()
 			if !strings.HasPrefix(line, memoryLoopProtocol) {
+				if len(line) > 2048 {
+					line = line[:2048]
+				}
+				r.traceMu.Lock()
+				r.trace = append(r.trace, line)
+				if len(r.trace) > 20 {
+					r.trace = r.trace[len(r.trace)-20:]
+				}
+				r.traceMu.Unlock()
 				continue
 			}
 			var reply memoryLoopResponse
