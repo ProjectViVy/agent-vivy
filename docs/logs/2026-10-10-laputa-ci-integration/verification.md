@@ -10,3 +10,13 @@ Base: main 59a673ac738368eb4039f24c463df084776f8daf. Existing GitHub Actions run
 - `git diff --check` passed.
 
 Full local `just ci` and exact-commit Windows backend, UI, fresh-clone dev startup, and browser gates are pending at initial publication. Their terminal results belong in the draft PR verification record; this log does not claim they passed. Linux local checks use Go 1.26.4, Node 24.19.0, pnpm 11.19.0, PowerShell 7.6.6, and just 1.58.0. Optional PostgreSQL/live-provider/Studio checks are outside this dependency repair.
+
+## CI follow-up
+
+The first candidate's Windows UI lane passed 598 tests plus typecheck/build/i18n; the browser lane passed both Playwright tests. Fresh-clone setup and independent cold dev startup also passed (run 38060015686).
+
+The first local full gate exposed the stale internal-source conformance digest and memory recall tests using the wrong generated body. No internal source changed in this repair. The canonical `go run ./sdk/internal/cmd/source-hash internal <old-digest>` produced `182ede26e698d87eaedd1534b40ee7d44ba7a0069268354229a76a6afc864797`; only the five matching evidence identities were refreshed. The unchanged conformance reproduction gate must execute successfully before accepting them.
+
+A standalone validation clone successfully packed the DIVA Recipe and passed both SDK memory-loop overlay preparation/identity tests. The previously failing `TestMemoryLoopRecallAfterProcessRestart/profile-1` passed with unchanged assertions under that verified overlay. Full `just ci` and Windows exact-commit checks remain in progress at follow-up publication; the draft PR records terminal outcomes.
+
+Local worktree execution also exposed Go VCS discovery treating the managed ancestor `.git` mount as the repository. Validation uses a standalone clone and disposable `/var/tmp` fixtures under the environment's approved execution override, without disabling VCS stamping. Local Chromium download returned `403 Domain forbidden`; Windows CI provides browser verification. No access restriction was bypassed.
