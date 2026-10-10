@@ -865,6 +865,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
 	}
+	if err := bindCognitiveContextSources(runtimeAssembly, cognitiveBundle, backend); err != nil {
+		if cognitiveBundle != nil {
+			_ = cognitiveBundle.Close()
+		}
+		_ = backend.Close()
+		return nil, err
+	}
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend)
 	agentOps.arm(workerManager)

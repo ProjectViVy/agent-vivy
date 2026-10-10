@@ -19,19 +19,22 @@ import (
 	"testing"
 	"time"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/sdk/port/contextsource"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 	"github.com/dashimaki/laputa/persona"
 	"gopkg.in/yaml.v3"
 )
 
 type memoryLoopOptions struct {
-	ConfigPath string
-	ModelMode  string
+	ConfigPath     string
+	ModelMode      string
+	RecallDisabled bool // test-only reachability control; never production config
 }
 type memoryLoopSnapshot struct {
 	ProcessID             int
@@ -66,6 +69,7 @@ type memoryLoopFixture struct {
 	cancel           context.CancelFunc
 	mu               sync.Mutex
 	requests         []json.RawMessage
+	recallQueries    []memoryLoopRecallQuery
 	modelRelease     chan struct{}
 	modelReleaseOnce sync.Once
 }
@@ -80,7 +84,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "mission-fence" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "mission-fence" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -99,11 +103,8 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			return
 		}
 		var req struct {
-			Stream   bool `json:"stream"`
-			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"messages"`
+			Stream   bool                    `json:"stream"`
+			Messages []memoryLoopWireMessage `json:"messages"`
 		}
 		if json.Unmarshal(body, &req) != nil {
 			http.Error(w, "invalid request", 400)
@@ -152,7 +153,17 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	t.Setenv("VIVY_API_BASE", srv.URL)
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
-	f.app, err = New(context.Background(), cfg, WithoutEars(), WithoutGateway(), WithInstructionRoot(cfg.Runtime.WorkspaceRoot))
+	assembly := genassembly.BuildDefault()
+	if inventory, ok := any(&assembly).(interface{ ContextSourceProviders() any }); ok {
+		if sources, ok := inventory.ContextSourceProviders().([]contextsource.Provider); ok {
+			for i, source := range sources {
+				if source.ID() == "vivy.memory.mentle" {
+					sources[i] = &memoryLoopObservedRecallSource{Provider: source, fixture: f}
+				}
+			}
+		}
+	}
+	f.app, err = NewWithAssembly(context.Background(), cfg, assembly, WithoutEars(), WithoutGateway(), WithInstructionRoot(cfg.Runtime.WorkspaceRoot))
 	if err != nil {
 		t.Fatalf("real App.New: %v", err)
 	}
@@ -176,6 +187,61 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		t.Cleanup(func() { f.modelReleaseOnce.Do(func() { close(f.modelRelease) }) })
 	}
 	return f
+}
+
+type memoryLoopRecallQuery struct {
+	Request  contextsource.Request `json:"request"`
+	Page     contextsource.Page    `json:"page"`
+	Error    string                `json:"error,omitempty"`
+	Disabled bool                  `json:"disabled,omitempty"`
+}
+
+// The fixture only observes the selected native Source; it neither returns
+// substitute evidence nor opens an alternative owner/backend.
+type memoryLoopObservedRecallSource struct {
+	contextsource.Provider
+	fixture *memoryLoopFixture
+}
+
+func (s *memoryLoopObservedRecallSource) BindCognitiveContext(bundle cognitivecontract.Bundle, authorize func(context.Context, contextsource.Request) error) error {
+	binder, ok := s.Provider.(interface {
+		BindCognitiveContext(cognitivecontract.Bundle, func(context.Context, contextsource.Request) error) error
+	})
+	if !ok {
+		return cognitivecontract.ErrUnarmed
+	}
+	return binder.BindCognitiveContext(bundle, authorize)
+}
+
+func (s *memoryLoopObservedRecallSource) Query(ctx context.Context, request contextsource.Request) (contextsource.Page, error) {
+	var page contextsource.Page
+	var err error
+	if !s.fixture.options.RecallDisabled {
+		page, err = s.Provider.Query(ctx, request)
+	}
+	entry := memoryLoopRecallQuery{Request: request, Page: contextsource.NewPage(page.Candidates, page.NextCursor), Disabled: s.fixture.options.RecallDisabled}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	s.fixture.mu.Lock()
+	s.fixture.recallQueries = append(s.fixture.recallQueries, entry)
+	s.fixture.mu.Unlock()
+	return page, err
+}
+
+func (f *memoryLoopFixture) RecallQueries() []memoryLoopRecallQuery {
+	if f.remote != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var out []memoryLoopRecallQuery
+		if err := f.remote.exchange(ctx, memoryLoopRequest{Op: "recall-queries"}, &out); err != nil {
+			f.t.Fatal(err)
+		}
+		return out
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]memoryLoopRecallQuery(nil), f.recallQueries...)
 }
 
 func (f *memoryLoopFixture) Call(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
@@ -353,7 +419,7 @@ func (f *memoryLoopFixture) Restart(ctx context.Context) error {
 	f.cancel = nil
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer startCancel()
-	f.remote, err = startMemoryLoopRemote(startCtx, f.options.ConfigPath, f.options.ModelMode)
+	f.remote, err = startMemoryLoopRemote(startCtx, f.options)
 	return err
 }
 func (f *memoryLoopFixture) Close(ctx context.Context) error {

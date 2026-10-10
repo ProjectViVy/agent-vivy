@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"testing"
@@ -44,9 +45,9 @@ type memoryLoopRemote struct {
 
 // This test transport forwards fixture operations to the same actual App
 // and control handlers in an owned child; it adds no product runtime.
-func startMemoryLoopRemote(ctx context.Context, configPath, modelMode string) (*memoryLoopRemote, error) {
+func startMemoryLoopRemote(ctx context.Context, options memoryLoopOptions) (*memoryLoopRemote, error) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMemoryLoopProcessServer$", "-test.v")
-	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+configPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+modelMode)
+	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+options.ConfigPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+options.ModelMode, fmt.Sprintf("VIVY_MEMORY_LOOP_RECALL_DISABLED=%t", options.RecallDisabled))
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ func startMemoryLoopRemote(ctx context.Context, configPath, modelMode string) (*
 	if err != nil {
 		return nil, err
 	}
-	stderr, err := os.CreateTemp(filepath.Dir(configPath), "process-stderr-*.log")
+	stderr, err := os.CreateTemp(filepath.Dir(options.ConfigPath), "process-stderr-*.log")
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,19 @@ func startMemoryLoopRemote(ctx context.Context, configPath, modelMode string) (*
 	}
 	r := &memoryLoopRemote{cmd: cmd, in: in, out: bufio.NewScanner(out), done: make(chan error, 1)}
 	r.out.Buffer(make([]byte, 4096), 4<<20)
-	go func() { r.done <- cmd.Wait(); _ = stderr.Close() }()
+	go func() {
+		err := cmd.Wait()
+		_ = stderr.Close()
+		if err != nil {
+			// Preserve owned synthetic-child diagnostics before TempDir cleanup,
+			// including race reports otherwise absent from the JSON test log.
+			if trace, openErr := os.Open(stderr.Name()); openErr == nil {
+				_, _ = io.Copy(os.Stderr, io.LimitReader(trace, 64<<10))
+				_ = trace.Close()
+			}
+		}
+		r.done <- err
+	}()
 	var hello struct {
 		PID int `json:"pid"`
 	}
@@ -162,7 +175,7 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 	if os.Getenv("VIVY_MEMORY_LOOP_PROCESS_SERVER") == "" {
 		t.Skip("owned subprocess helper")
 	}
-	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL")})
+	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL"), RecallDisabled: os.Getenv("VIVY_MEMORY_LOOP_RECALL_DISABLED") == "true"})
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 4096), 4<<20)
 	for in.Scan() {
@@ -186,8 +199,15 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 			value, err = f.Wait(ctx, req.Stage, req.RunID)
 		case "requests":
 			value = f.ModelRequests()
+		case "recall-queries":
+			value = f.RecallQueries()
 		case "close":
+			trace := time.AfterFunc(2*time.Second, func() {
+				_, _ = fmt.Fprintf(os.Stderr, "slow owned fixture Close stage=%s\n", f.app.currentCloseStage())
+				_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+			})
 			err = f.Close(ctx)
+			trace.Stop()
 		default:
 			err = fmt.Errorf("unknown fixture operation %q", req.Op)
 		}

@@ -1,0 +1,9 @@
+# Summary
+
+Actual MEM-S08-01 RED in three profiles is repaired by the optional, cataloged vivy/diva-memory Context Source in the DIVA Recipe. The one App-owned native bundle supplies readonly card-before-evidence access. A private per-query Runtime capability plus persisted session admission prevents request-field-only authorization. Exact native revision/scope evidence becomes bounded untrusted User context through existing ContextHost and Eino projection; default non-DIVA generations omit the module.
+
+The loopback model extracts only actual request evidence. Three fresh profiles store random user-only facts, reflect them into ordinary notes, restart into distinct OS processes and recall in empty new sessions. Three empty-profile and three test-only disabled-Source controls answer unknown; disabled controls retain the original real commit. Actual human correction reaches the later model request; tombstone prevents old/raw material from replacing the deleted ordinary note.
+
+Actual race investigation also found separately committed Observer startup, backend cache, native inference lifetime and canonical evidence/collection defects. The unchanged 750 ms ContextHost deadline can expire under race instrumentation; the positive race attempt fails and remains recorded. A separate actual degraded App race case proves unknown response, no unadmitted fact projection and owned Close without race. Earlier Close timeout and one combined correction RPC failure remain recorded; a serialized 45-case composition run passes, but these first failures are not erased or counted as acceptance.
+
+No formal Story promotion, final sealed candidate, full new-source CI/conformance or fresh whole-phase review. ACTMEM Pulse/Recap RED, explicit Agent tool-only authority proof, original-operation recovery, crash/degradation matrices, Windows/live gates remain open. No push, merge, release or unattended service.

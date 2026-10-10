@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dashimaki/garden/memory"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
@@ -14,10 +15,7 @@ import (
 // never enter its closure or a fixture-owned answer store.
 func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 	var req struct {
-		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
+		Messages []memoryLoopWireMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return "", err
@@ -93,7 +91,81 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 		}
 		break
 	}
+	if mode == "recall" {
+		return memoryLoopRecallReply(req.Messages)
+	}
 	return "收到", nil
+}
+
+func memoryLoopRecallReply(messages []memoryLoopWireMessage) (string, error) {
+	for _, message := range messages {
+		if message.Role != "user" {
+			continue
+		}
+		for _, part := range strings.Split(message.Content, "[context: vivy.memory.mentle/")[1:] {
+			header, body, ok := strings.Cut(part, "\n")
+			if !ok {
+				continue
+			}
+			var evidence struct {
+				RecordID string                    `json:"record_id"`
+				Revision int                       `json:"revision"`
+				Evidence []memory.EvidenceFragment `json:"evidence"`
+			}
+			if err := json.NewDecoder(strings.NewReader(body)).Decode(&evidence); err != nil {
+				return "", err
+			}
+			if !strings.HasPrefix(header, fmt.Sprintf("%s version=%d provenance=", evidence.RecordID, evidence.Revision)) {
+				return "", fmt.Errorf("recall card identity/revision differs from actual ContextHost label")
+			}
+			var excerpts []string
+			for _, fragment := range evidence.Evidence {
+				if fragment.CardID != evidence.RecordID || fragment.Revision != uint64(evidence.Revision) || fragment.Status != "active" {
+					return "", fmt.Errorf("recall evidence does not match the actual card")
+				}
+				excerpts = append(excerpts, fragment.Excerpt)
+			}
+			if len(excerpts) > 0 {
+				return strings.Join(excerpts, "\n"), nil
+			}
+		}
+	}
+	return "未知", nil
+}
+
+// Eino UserInputMultiContent becomes native text-part arrays when ContextHost
+// contributes evidence. Decode that real wire shape without replacing the
+// captured request or consulting an expected-answer store.
+type memoryLoopWireMessage struct{ Role, Content string }
+
+func (m *memoryLoopWireMessage) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	m.Role = wire.Role
+	if err := json.Unmarshal(wire.Content, &m.Content); err == nil {
+		return nil
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(wire.Content, &parts); err != nil {
+		return err
+	}
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Type != "text" {
+			return fmt.Errorf("unsupported fixture message part %q", part.Type)
+		}
+		texts = append(texts, part.Text)
+	}
+	m.Content = strings.Join(texts, "\n")
+	return nil
 }
 
 func memoryLoopUserText(body string) string {

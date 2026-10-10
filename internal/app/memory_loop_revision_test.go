@@ -3,12 +3,82 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	genassembly "agent-vivy/internal/generated/assembly"
 	"github.com/dashimaki/garden/memory"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
+
+func TestMemoryLoopCorrectionAndDeletionInModelInput(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"})
+	a := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, a)
+	oldFact := memoryLoopRandomFact(t)
+	runA := memoryLoopTurn(t, f, a, oldFact)
+	original, err := f.Wait(context.Background(), "reflected", runA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy struct {
+		Revision uint64 `json:"policy_revision"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.policy.get", map[string]any{"session_id": a}, &policy)
+	memoryLoopAction(t, f, "diva.cognitive.policy.set", map[string]any{"session_id": a, "enabled": false, "min_interval_ms": 0, "base_revision": policy.Revision}, nil)
+	newFact := memoryLoopRandomFact(t)
+	mutation := memory.AuthorizedMutation{Operation: laputaevolution.MutationUpdate, RecordID: original.RecordID, ExpectedRevision: original.Revision, Body: newFact, Inference: laputaevolution.InferenceObserved, Sources: original.CanonicalSources}
+	var correction memory.MutationReceipt
+	memoryLoopAction(t, f, "diva.cognitive.memory.mutate", map[string]any{"session_id": a, "mutation": mutation}, &correction)
+	if correction.Status != laputaevolution.StatusApplied || correction.TargetRef != original.RecordID || correction.Revision != original.Revision+1 {
+		t.Fatalf("actual correction: %+v", correction)
+	}
+	if err := f.Restart(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b := memoryLoopSession(t, f)
+	runB := memoryLoopTurn(t, f, b, "What synthetic user-only fact do you remember from previous conversations?")
+	terminal, err := f.Wait(context.Background(), "terminal", runB)
+	if err != nil || terminal.State != "completed" {
+		t.Fatalf("corrected recall: %+v %v", terminal, err)
+	}
+	requests := f.ModelRequests()
+	if len(requests) != 1 || !strings.Contains(string(requests[0]), newFact) || strings.Contains(string(requests[0]), oldFact) {
+		t.Fatalf("corrected actual model input: %s", requests)
+	}
+	assertMemoryLoopAssistantAnswer(t, f, b, newFact)
+	mutation = memory.AuthorizedMutation{Operation: laputaevolution.MutationTombstone, RecordID: original.RecordID, ExpectedRevision: correction.Revision, Inference: laputaevolution.InferenceObserved}
+	var deleted memory.MutationReceipt
+	memoryLoopAction(t, f, "diva.cognitive.memory.mutate", map[string]any{"session_id": b, "mutation": mutation}, &deleted)
+	if deleted.Status != laputaevolution.StatusApplied || deleted.Revision != correction.Revision+1 {
+		t.Fatalf("actual deletion: %+v", deleted)
+	}
+	if err := f.Restart(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := memoryLoopSession(t, f)
+	if c == a || c == b {
+		t.Fatal("deleted control reused old transcript")
+	}
+	runC := memoryLoopTurn(t, f, c, "What synthetic user-only fact do you remember from previous conversations?")
+	terminal, err = f.Wait(context.Background(), "terminal", runC)
+	if err != nil || terminal.State != "completed" {
+		t.Fatalf("deleted recall: %+v %v", terminal, err)
+	}
+	requests = f.ModelRequests()
+	if len(requests) != 1 || strings.Contains(string(requests[0]), newFact) || strings.Contains(string(requests[0]), oldFact) || strings.Contains(string(requests[0]), "[context: vivy.memory.mentle/"+original.RecordID) {
+		t.Fatalf("deleted fact/old revision resurrected in model input: %s", requests)
+	}
+	assertMemoryLoopAssistantAnswer(t, f, c, "未知")
+	rawSource, err := f.Wait(context.Background(), "canonical", runA)
+	if err != nil || !strings.Contains(rawSource.SourceBody, oldFact) {
+		t.Fatalf("negative control erased original raw source: %+v %v", rawSource, err)
+	}
+}
 
 // Developer storage/control proof. The complete S09 case still needs ordinary
 // Agent recall and actual corrected/deleted model input, supplied by S08.

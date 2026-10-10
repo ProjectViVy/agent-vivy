@@ -1,14 +1,49 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/contexthost"
+	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/port/contextsource"
 	"agent-vivy/sdk/port/skillsource"
 )
+
+// bindCognitiveContextSources arms only manifested, generated T1 Sources.
+// The private Runtime query capability and durable session must both match.
+func bindCognitiveContextSources(assembly genassembly.RuntimeAssembly, bundle cognitivecontract.Bundle, sessions storage.SessionStore) error {
+	sources, err := generatedContextSources(assembly)
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		binder, ok := source.(interface {
+			BindCognitiveContext(cognitivecontract.Bundle, func(context.Context, contextsource.Request) error) error
+		})
+		if !ok {
+			continue
+		}
+		if bundle == nil || sessions == nil {
+			return fmt.Errorf("app: cognitive Context Source %q has no selected owner", source.ID())
+		}
+		authorize := func(ctx context.Context, request contextsource.Request) error {
+			if err := runtime.AuthorizeContextSourceRequest(ctx, request); err != nil {
+				return err
+			}
+			_, err := sessions.GetSession(ctx, domain.SessionID(request.SessionID))
+			return err
+		}
+		if err := binder.BindCognitiveContext(bundle, authorize); err != nil {
+			return fmt.Errorf("app: bind cognitive Context Source %q: %w", source.ID(), err)
+		}
+	}
+	return nil
+}
 
 // generatedContextSources and generatedSkillSources are the SDK frontend's
 // typed conversion boundary. Runtime Assembly generation emits the optional

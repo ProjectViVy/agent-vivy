@@ -3272,7 +3272,8 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 			request.TokenBudget = request.ByteBudget
 			request.CandidateBytes = contextCandidateBytes
 		}
-		contextResult, contextErr := eng.cfg.ContextHost.Query(ctx, request)
+		queryCtx := withContextSourceAdmission(ctx, request.TenantID, request.SessionID, request.WorkspaceID)
+		contextResult, contextErr := eng.cfg.ContextHost.Query(queryCtx, request)
 		if contextErr != nil {
 			if ctx.Err() != nil {
 				return nil, selection, stats, ctx.Err()

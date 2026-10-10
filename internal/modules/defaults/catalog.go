@@ -95,6 +95,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		boundRecord("vivy/memory-bml-sync", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, port("std/context-source@v1", memorymodule.ProviderID), port("std/observer/run@v1", memorymodule.ProviderID)),
 		boundRecord("vivy/memory-bml-tools", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryToolProvides...),
 		boundRecord("vivy/diva-cognitive", "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewModule", source, cognitiveProvides...),
+		boundRecord(cognitivemodule.RecallModuleID, "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewRecallModule", source, port("std/context-source@v1", cognitivemodule.RecallProviderID)),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -141,12 +142,20 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.CognitiveFactory = "Open"
 			records[i].Binding.ProviderConstructor = "ActionProviders"
 			records[i].Binding.ProviderCollection = true
+		case cognitivemodule.RecallModuleID:
+			records[i].Binding.ProviderConstructor = "NewRecallSource"
+			records[i].Binding.ContextSourceProvider = true
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
 			records[i].Binding.SkillSourceProvider = true
 		}
 		switch records[i].Descriptor.Module.ID {
+		case cognitivemodule.RecallModuleID:
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"},
+				{PortRef: module.PortRef{Port: cognitivemodule.Port}, Provider: cognitivemodule.ID},
+			}
 		case "vivy/protected-tools", "vivy/mcp-host", "vivy/memory-bml-tools":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 		case "vivy/context-source":
