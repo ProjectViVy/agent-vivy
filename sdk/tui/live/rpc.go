@@ -651,7 +651,7 @@ func (c *client) startTurnWithContext(ctx context.Context, sessionID, text, thin
 	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, "", nil, paths)
 }
 
-func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
+func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string, restored ...*queuedTurnView) (runAccepted, error) {
 	params := map[string]any{
 		"session_id": sessionID,
 		"text":       text,
@@ -675,6 +675,7 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 	if len(contextPaths) > 0 {
 		params["context_paths"] = append([]string(nil), contextPaths...)
 	}
+	applyRestoredParams(params, restored)
 	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {
 		return runAccepted{}, err
@@ -691,7 +692,61 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 
 // queuedTurnView is one kernel queued turn (VCP-B2).
 type queuedTurnView struct {
-	Text string `json:"text"`
+	Text        string                     `json:"text"`
+	ID          string                     `json:"id"`
+	SessionID   string                     `json:"session_id"`
+	Mode        string                     `json:"mode"`
+	Thinking    string                     `json:"thinking"`
+	Face        string                     `json:"face"`
+	Attachments []json.RawMessage          `json:"attachments"`
+	Payload     map[string]json.RawMessage `json:"-"`
+}
+
+func (t *queuedTurnView) UnmarshalJSON(raw []byte) error {
+	type plain queuedTurnView
+	if err := json.Unmarshal(raw, (*plain)(t)); err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, &t.Payload)
+}
+
+func (t *queuedTurnView) restorable() bool {
+	return (t.Mode == "" || t.Mode == "normal" || t.Mode == "plan") &&
+		(t.Thinking == "" || thinkingModeValues[t.Thinking]) &&
+		(t.Face == "" || t.Face == "web" || t.Face == "tui" || t.Face == "code")
+}
+
+func applyRestoredParams(params map[string]any, restored []*queuedTurnView) {
+	if len(restored) == 0 || restored[0] == nil {
+		return
+	}
+	t := restored[0]
+	for _, key := range []string{"face", "policy_profile", "collaboration_mode", "collaboration_version", "file_contexts"} {
+		if value, ok := t.Payload[key]; ok {
+			params[key] = value
+		}
+	}
+	if _, captured := t.Payload["file_contexts"]; !captured {
+		if _, edited := params["context_paths"]; !edited {
+			if paths, ok := t.Payload["context_paths"]; ok {
+				params["context_paths"] = paths
+			}
+		}
+	}
+	if _, ok := params["mode"]; !ok {
+		params["mode"] = "normal"
+	}
+	if len(t.Attachments) > 0 {
+		params["attachments"] = t.Attachments
+	}
+	var continuity map[string]json.RawMessage
+	if json.Unmarshal(t.Payload["continuity"], &continuity) == nil {
+		for _, key := range []string{"request_id", "references", "history_scope"} {
+			if value, ok := continuity[key]; ok {
+				params[key] = value
+			}
+		}
+	}
 }
 
 // queueStateView is the kernel dual-track queue snapshot (VCP-B2).
@@ -706,7 +761,7 @@ type queueStateView struct {
 // queueTurn issues one queued turn through the kernel dual-track queue
 // (turn/steer | turn/follow_up). An idle session degrades to a fresh run —
 // the response then carries run_id instead of queued:true.
-func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string) (queued bool, runID string, err error) {
+func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string, restored ...*queuedTurnView) (queued bool, runID string, err error) {
 	params := map[string]any{
 		"session_id": sessionID,
 		"text":       text,
@@ -718,6 +773,19 @@ func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking
 	if mode = strings.TrimSpace(mode); mode != "" && mode != "normal" {
 		params["mode"] = mode
 	}
+	paths := make([]string, 0, len(attachments))
+	for _, item := range attachments {
+		if item.Path != "" {
+			paths = append(paths, item.Path)
+		}
+	}
+	if len(paths) > 0 {
+		params["attachment_paths"] = paths
+	}
+	if len(contextPaths) > 0 {
+		params["context_paths"] = cloneStrings(contextPaths)
+	}
+	applyRestoredParams(params, restored)
 	raw, err := c.Call(ctx, "turn/"+track, params)
 	if err != nil {
 		return false, "", err
@@ -748,33 +816,47 @@ func (c *client) queueState(ctx context.Context, sessionID, afterRunID string) (
 	return view, nil
 }
 
-func (c *client) clearQueue(ctx context.Context, sessionID string) ([]string, error) {
+func (c *client) clearQueue(ctx context.Context, sessionID string) ([]queuedTurnView, error) {
 	raw, err := c.Call(ctx, "queue/clear", map[string]any{"session_id": sessionID})
 	if err != nil {
 		return nil, err
 	}
 	var res struct {
-		Texts []string `json:"texts"`
+		Texts []string         `json:"texts"`
+		Turns []queuedTurnView `json:"turns"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return nil, fmt.Errorf("tui: queue/clear: %w", err)
 	}
-	return res.Texts, nil
+	if len(res.Turns) == 0 {
+		for _, text := range res.Texts {
+			res.Turns = append(res.Turns, queuedTurnView{Text: text})
+		}
+	}
+	return res.Turns, nil
 }
 
-func (c *client) dequeueQueue(ctx context.Context, sessionID string) (string, bool, error) {
-	raw, err := c.Call(ctx, "queue/dequeue", map[string]any{"session_id": sessionID})
+func (c *client) dequeueQueue(ctx context.Context, sessionID string, queueID string) (*queuedTurnView, bool, error) {
+	params := map[string]any{"session_id": sessionID}
+	if queueID != "" {
+		params["queue_id"] = queueID
+	}
+	raw, err := c.Call(ctx, "queue/dequeue", params)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 	var res struct {
-		Dequeued bool   `json:"dequeued"`
-		Text     string `json:"text"`
+		Dequeued bool            `json:"dequeued"`
+		Text     string          `json:"text"`
+		Turn     *queuedTurnView `json:"turn"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", false, fmt.Errorf("tui: queue/dequeue: %w", err)
+		return nil, false, fmt.Errorf("tui: queue/dequeue: %w", err)
 	}
-	return res.Text, res.Dequeued, nil
+	if res.Turn == nil {
+		res.Turn = &queuedTurnView{Text: res.Text}
+	}
+	return res.Turn, res.Dequeued, nil
 }
 
 func (c *client) startShell(ctx context.Context, sessionID, script string, noContext bool) (runAccepted, error) {

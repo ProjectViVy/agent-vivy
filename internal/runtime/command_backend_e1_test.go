@@ -86,9 +86,14 @@ func TestShellPrefixBashAndCommandline(t *testing.T) {
 }
 
 func TestCommandOutputSpillsToWorkspace(t *testing.T) {
+	testCommandOutputSpillsToWorkspace(t, context.Background())
+}
+
+func testCommandOutputSpillsToWorkspace(t *testing.T, ctx context.Context) {
+	t.Helper()
 	backend, manager := newE1Backend(t, CommandBackendOptions{})
-	result, err := backend.Execute(context.Background(), "run-spill", tools.CommandRequest{
-		Command: "bash", Args: []string{"-c", `printf 'x%.0s' {1..200000}`},
+	result, err := backend.Execute(ctx, "run-spill", tools.CommandRequest{
+		Command: "bash", Args: []string{"-c", `printf '%200000s' x`},
 	})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -114,4 +119,10 @@ func TestCommandOutputSpillsToWorkspace(t *testing.T) {
 	if len(result.Stdout) >= 200000 {
 		t.Fatalf("inline stdout = %d bytes, want bounded tail", len(result.Stdout))
 	}
+}
+
+// Windows uses the embedded interpreter; exercise its actual spill path on
+// every platform so fixture scripts cannot silently depend on OS Bash printf.
+func TestCommandOutputSpillsToWorkspaceEmbedded(t *testing.T) {
+	testCommandOutputSpillsToWorkspace(t, withDirectShell(context.Background()))
 }

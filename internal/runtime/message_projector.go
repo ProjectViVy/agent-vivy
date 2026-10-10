@@ -102,6 +102,10 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				return nil, nil
 			}
 		case domain.EventModelRequest:
+			var request payloadModelRequestV3
+			if json.Unmarshal(re.Payload, &request) == nil && request.Source == modelCallSourceMaintenance {
+				continue
+			}
 			pending.Reset()
 		case domain.EventModelDelta:
 			var p payloadModelDelta

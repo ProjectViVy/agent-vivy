@@ -84,6 +84,12 @@
       ],
       "web": "chatInput.queuedCount",
       "tui": "vivy.tui.chrome.queued"
+    },
+    {
+      "id": "queue.restore.unsupported",
+      "arguments": [],
+      "web": "chatInput.restoreUnsupported",
+      "tui": "vivy.tui.live.restoreUnsupported"
     }
   ],
   "faceSpecific": {
@@ -340,6 +346,7 @@
       "chatInput.attachmentTooLarge",
       "chatInput.attachmentUnsupported",
       "chatInput.cancelRun",
+      "chatInput.capturedContext",
       "chatInput.clearQueue",
       "chatInput.compact",
       "chatInput.compactBusy",
@@ -355,6 +362,7 @@
       "chatInput.contextTitle",
       "chatInput.contextValueText",
       "chatInput.contextWouldCompact",
+      "chatInput.executionMode",
       "chatInput.message",
       "chatInput.permissionCautious",
       "chatInput.permissionCautiousDesc",
@@ -370,7 +378,9 @@
       "chatInput.queue",
       "chatInput.queueLaneFollowUp",
       "chatInput.queueLaneSteer",
+      "chatInput.recallReturned",
       "chatInput.removeAttachment",
+      "chatInput.removeCapturedContext",
       "chatInput.removeQueued",
       "chatInput.reviewCenter",
       "chatInput.send",
@@ -1808,6 +1818,7 @@
       "vivy.tui.live.queueFooter",
       "vivy.tui.live.queueLanes",
       "vivy.tui.live.replayFailed",
+      "vivy.tui.live.returnedTurns",
       "vivy.tui.live.runFooter",
       "vivy.tui.live.runIDRequired",
       "vivy.tui.live.runMode",

@@ -7,21 +7,22 @@ import (
 	"errors"
 	"io"
 
+	"agent-vivy/internal/modules/memory/catalog"
 	controlaction "agent-vivy/sdk/port/controlaction"
 	"github.com/ProjectViVy/agent-vivy/bml"
 )
 
 // Action IDs for the vivy/memory-bml control-action plane.
 const (
-	ActionList       = "vivy.memory.list"
-	ActionSearch     = "vivy.memory.search"
-	ActionGet        = "vivy.memory.get"
-	ActionAdd        = "vivy.memory.add"
-	ActionUpdate     = "vivy.memory.update"
-	ActionRemove     = "vivy.memory.remove"
-	ActionRulesRead  = "vivy.memory.rules.read"
-	ActionRulesWrite = "vivy.memory.rules.write"
-	ActionStatus     = "vivy.memory.status"
+	ActionList       = catalog.ActionList
+	ActionSearch     = catalog.ActionSearch
+	ActionGet        = catalog.ActionGet
+	ActionAdd        = catalog.ActionAdd
+	ActionUpdate     = catalog.ActionUpdate
+	ActionRemove     = catalog.ActionRemove
+	ActionRulesRead  = catalog.ActionRulesRead
+	ActionRulesWrite = catalog.ActionRulesWrite
+	ActionStatus     = catalog.ActionStatus
 )
 
 const (

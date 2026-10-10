@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 
+	"agent-vivy/internal/modules/memory/catalog"
 	toolport "agent-vivy/sdk/port/tool"
 	"github.com/ProjectViVy/agent-vivy/bml"
 )
@@ -13,12 +14,12 @@ import (
 // Tool IDs for the vivy/memory-bml-tools std/tool@v1 plane; snake_case to
 // match the upstream Diva tool family.
 const (
-	ToolAdd    = "memory_add"
-	ToolGet    = "memory_get"
-	ToolList   = "memory_list"
-	ToolSearch = "memory_search"
-	ToolUpdate = "memory_update"
-	ToolRemove = "memory_remove"
+	ToolAdd    = catalog.ToolAdd
+	ToolGet    = catalog.ToolGet
+	ToolList   = catalog.ToolList
+	ToolSearch = catalog.ToolSearch
+	ToolUpdate = catalog.ToolUpdate
+	ToolRemove = catalog.ToolRemove
 )
 
 // memoryTool adapts one Service method to the std/tool@v1 contract. The

@@ -18,6 +18,8 @@ var englishCatalog = map[string]string{
 	"vivy.tui.live.cancelEmpty":                "nothing to cancel",
 	"vivy.tui.live.cancelUnavailable":          "cancel is unavailable",
 	"vivy.tui.live.queueCleared":               "queued turns cleared",
+	"vivy.tui.live.restoreUnsupported":         "This turn cannot be restored by this editor. Its complete payload is retained.",
+	"vivy.tui.live.returnedTurns":              "Returned turns retained for editing; use Alt+Up to recall each turn.",
 	"vivy.tui.live.queueEmpty":                 "queue is already empty",
 	"vivy.tui.live.permissionUnavailable":      "permission change is unavailable",
 	"vivy.tui.live.runIDRequired":              "a run_id is required; workspace files are scoped to a run",

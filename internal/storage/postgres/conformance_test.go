@@ -77,6 +77,11 @@ func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+
+	controlID := domain.RunID("sessctl_queue_run-delete-work")
+	if _, err := backend.Append(ctx, storage.Commit{RunID: controlID, Events: []domain.RunEvent{{RunID: controlID, Type: domain.EventTurnDequeued, CreatedAt: 3, PayloadVersion: 1, Payload: []byte(`{"queue_id":"captured","turn":{"text":"private captured bytes"}}`)}}}); err != nil {
+		t.Fatal(err)
+	}
 	for _, mutation := range []domain.WorkMutation{{
 		SessionID: sessionID, ExpectedVersion: 0, RequestID: "delete-enter-plan", RequestHash: "delete-enter-plan",
 		Kind: domain.WorkEventPlanEntered,
@@ -95,6 +100,16 @@ func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
 	}
 	if err := backend.DeleteSession(ctx, sessionID); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	controls, err := backend.Replay(ctx, controlID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasControls := controls.Next()
+	replayErr, closeErr := controls.Err(), controls.Close()
+	if hasControls || replayErr != nil || closeErr != nil {
+		t.Fatalf("deleted session retained queue controls: %v %v %v", hasControls, replayErr, closeErr)
 	}
 	var after int
 	if err := backend.db.SQL.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_work_events WHERE session_id = $1`, sessionID).Scan(&after); err != nil || after != 0 {

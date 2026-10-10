@@ -18,6 +18,7 @@
       "minimum": 0,
       "description": "Prompt-token prefix served from the provider cache (prompt_tokens_details.cached_tokens); omitted when unreported or zero."
     },
+    "cache_write_tokens": { "type": "integer", "minimum": 0, "description": "Provider-reported cache creation subset of prompt tokens; omitted when unreported." },
     "call_id": {
       "type": "string",
       "minLength": 1,
@@ -25,7 +26,7 @@
     },
     "provider": { "type": "string", "maxLength": 128 },
     "model": { "type": "string", "maxLength": 256 },
-    "source": { "type": "string", "enum": ["main", "child", "summary"] },
+    "source": { "type": "string", "enum": ["main", "child", "summary", "maintenance"] },
     "usage_kind": {
       "type": "string",
       "enum": ["cumulative"],

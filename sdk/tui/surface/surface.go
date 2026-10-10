@@ -532,7 +532,16 @@ type RefreshMsg struct{}
 
 // RestoreInputMsg returns a failed asynchronous submission to the editor.
 // Text is reconstructed from already-parsed input and contains no file body.
-type RestoreInputMsg struct{ Text string }
+type RestoreInputMsg struct {
+	Text   string
+	Recall bool
+}
+
+// RecallRejectedMsg returns a complete recall to the private driver when a user draft appeared in flight.
+type RecallRejectedMsg struct{}
+
+// CapturedContextController exposes only safe metadata from an editor snapshot.
+type CapturedContextController interface{ PendingFileContexts() []FileContext }
 
 // GateResolvedMsg lets the view clear local input only after the remote
 // approval/question response was durably accepted.

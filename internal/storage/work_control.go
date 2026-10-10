@@ -72,6 +72,7 @@ type GoalRunStore interface {
 // run. The message, active run row, and run.started event are committed
 // together so a rejected concurrent admission cannot leave an orphan turn.
 type PrimaryRunCommit struct {
+	Events       []domain.RunEvent
 	Message      domain.Message
 	Run          domain.Run
 	Started      domain.RunEvent
@@ -106,7 +107,7 @@ func ValidatePrimaryRunCommit(admission PrimaryRunCommit) error {
 	}
 	return ValidateRunAdmissionInput(RunAdmission{
 		Message: admission.Message, Run: admission.Run, Started: admission.Started,
-		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask,
+		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask, Events: admission.Events,
 	})
 }
 

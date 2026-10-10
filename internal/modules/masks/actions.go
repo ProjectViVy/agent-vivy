@@ -9,17 +9,18 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
+	"agent-vivy/internal/modules/masks/catalog"
 	controlaction "agent-vivy/sdk/port/controlaction"
 )
 
 const (
-	ActionCatalogList   = "vivy.masks.catalog.list"
-	ActionCatalogGet    = "vivy.masks.catalog.get"
-	ActionCatalogCreate = "vivy.masks.catalog.create"
-	ActionCatalogUpdate = "vivy.masks.catalog.update"
-	ActionCatalogDelete = "vivy.masks.catalog.delete"
-	ActionSelectionGet  = "vivy.masks.selection.get"
-	ActionSelectionSet  = "vivy.masks.selection.set"
+	ActionCatalogList   = catalog.ActionCatalogList
+	ActionCatalogGet    = catalog.ActionCatalogGet
+	ActionCatalogCreate = catalog.ActionCatalogCreate
+	ActionCatalogUpdate = catalog.ActionCatalogUpdate
+	ActionCatalogDelete = catalog.ActionCatalogDelete
+	ActionSelectionGet  = catalog.ActionSelectionGet
+	ActionSelectionSet  = catalog.ActionSelectionSet
 )
 
 const (

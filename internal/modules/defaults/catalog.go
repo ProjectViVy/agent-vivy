@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	cognitivemodule "agent-vivy/internal/modules/diva-cognitive"
-	maskmodule "agent-vivy/internal/modules/masks"
-	memorymodule "agent-vivy/internal/modules/memory"
+	cognitivemodule "agent-vivy/internal/modules/diva-cognitive/catalog"
+	maskmodule "agent-vivy/internal/modules/masks/catalog"
+	memorymodule "agent-vivy/internal/modules/memory/catalog"
 	"agent-vivy/internal/modules/optional"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/sourcehash"

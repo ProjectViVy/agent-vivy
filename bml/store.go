@@ -318,6 +318,19 @@ const selectMetadataSQL = `SELECT schema_version, store_revision, record_count, 
 func (s *Store) initialize(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	callerCtx := ctx
+	if err := ctx.Err(); err != nil {
+		return persistenceErr(s.path, err)
+	}
+	// Finish schema creation before honoring shutdown cancellation, so shutdown
+	// does not roll back the schema of a newly opened file.
+	// Retain the caller's deadline and the existing SQLite busy bound.
+	deadline := time.Now().Add(time.Duration(busyTimeoutMS) * time.Millisecond)
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
+	}
+	ctx, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
+	defer cancel()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return persistenceErr(s.path, err)
@@ -349,6 +362,9 @@ func (s *Store) initialize(ctx context.Context) error {
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		return persistenceErr(s.path, err)
+	}
+	if err := callerCtx.Err(); err != nil {
 		return persistenceErr(s.path, err)
 	}
 	return nil

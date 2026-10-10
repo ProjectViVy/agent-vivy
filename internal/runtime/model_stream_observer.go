@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+
+	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -86,15 +89,6 @@ func modelCallObserverFactoryFrom(ctx context.Context) modelCallObserverFactory 
 	return factory
 }
 
-// withoutModelCallObserver strips the per-run observer binding: cache-warm
-// calls (VCP F2) are runtime-owned maintenance traffic, never journaled as
-// model.request/model.usage/model.call.finished — cache.warmed is their
-// only trace. Other context values (run id, workspace, cancellation) pass
-// through unchanged.
-func withoutModelCallObserver(ctx context.Context) context.Context {
-	return context.WithValue(ctx, modelCallObserverKey{}, modelCallObserverFactory(nil))
-}
-
 // observedModelCallCore carries the wrapper state shared by the
 // ToolCallingChatModel and BaseModel observers.
 type observedModelCallCore struct {
@@ -170,15 +164,15 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 	}
 	msg, callErr := inner.Generate(ctx, input, opts...)
 	if callErr != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: callErr})
-		return nil, callErr
+		return nil, errors.Join(callErr, obs.End(ctx, meta, modelCallResult{Err: callErr}))
 	}
 	obs.StreamOpened(meta)
 	if err := obs.Chunk(ctx, meta, msg); err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err, Usage: usageOfMessage(msg)})
+		return nil, errors.Join(err, obs.End(ctx, meta, modelCallResult{Err: err, Usage: usageOfMessage(msg)}))
+	}
+	if err := obs.End(ctx, meta, modelCallResult{Usage: usageOfMessage(msg), ResponseComplete: true}); err != nil {
 		return nil, err
 	}
-	_ = obs.End(ctx, meta, modelCallResult{Usage: usageOfMessage(msg), ResponseComplete: true})
 	return msg, nil
 }
 
@@ -206,8 +200,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	}
 	upstream, err := inner.Stream(ctx, input, opts...)
 	if err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err})
-		return nil, err
+		return nil, errors.Join(err, obs.End(ctx, meta, modelCallResult{Err: err}))
 	}
 	// Mark the call before exposing the tee to Eino. Starting the marker
 	// in the pump goroutine races Eino's eager stream forwarding: the
@@ -219,20 +212,15 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		defer upstream.Close()
 		var lastUsage *schema.TokenUsage
 		result := modelCallResult{}
-		// End settles before the downstream sees the pipe close so a
-		// run terminal can never overtake the call's finish record.
+		// Settle exactly once before exposing any terminal error or EOF,
+		// so the run terminal cannot overtake the call's finish record.
 		finish := func() {
 			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
-			writer.Close()
-		}
-		// fail journals the finish record BEFORE the error enters the
-		// pipe: a downstream terminal emitted on that error (e.g. the
-		// budget breaker) must never overtake the mandatory closure.
-		fail := func(err error) {
-			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
-			writer.Send(nil, err)
+			if err := errors.Join(result.Err, obs.End(ctx, meta, result)); err != nil {
+				// Send is released by a closed downstream reader, allowing
+				// the deferred upstream cleanup even if settlement fails.
+				writer.Send(nil, err)
+			}
 			writer.Close()
 		}
 		for {
@@ -244,7 +232,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			}
 			if recvErr != nil {
 				result.Err = recvErr
-				fail(recvErr)
+				finish()
 				return
 			}
 			if chunk == nil {
@@ -255,7 +243,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			}
 			if err := obs.Chunk(ctx, meta, chunk); err != nil {
 				result.Err = err
-				fail(err)
+				finish()
 				return
 			}
 			if writer.Send(chunk, nil) {
@@ -327,11 +315,23 @@ func (m *observingBaseModel) Stream(ctx context.Context, input []*schema.Message
 // and non-cumulative total conventions mark the call partial rather than
 // silently rewriting evidence (D2).
 type usageAccumulator struct {
-	merged   *schema.Message
-	latest   *schema.TokenUsage
-	partial  bool
-	reported bool
-	lastEmit string
+	merged     *schema.Message
+	latest     *schema.TokenUsage
+	partial    bool
+	reported   bool
+	lastEmit   string
+	cacheWrite *int
+}
+
+func (a *usageAccumulator) recordCacheWrite(msg *schema.Message) {
+	if v, ok := einoclaude.GetCacheCreationInputTokens(msg); ok {
+		if a.cacheWrite != nil && v < *a.cacheWrite {
+			a.partial = true
+		}
+		if a.cacheWrite == nil || v > *a.cacheWrite {
+			a.cacheWrite = &v
+		}
+	}
 }
 
 func (a *usageAccumulator) record(u *schema.TokenUsage) {
@@ -386,6 +386,7 @@ type normalizedUsageSample struct {
 	TotalTokens      int
 	ReasoningTokens  *int
 	CachedTokens     *int
+	CacheWriteTokens *int
 	Partial          bool
 }
 
@@ -399,6 +400,7 @@ func (a *usageAccumulator) sample() (normalizedUsageSample, bool) {
 		CompletionTokens: u.CompletionTokens,
 		TotalTokens:      u.PromptTokens + u.CompletionTokens,
 		Partial:          a.partial,
+		CacheWriteTokens: a.cacheWrite,
 	}
 	if v := u.CompletionTokensDetails.ReasoningTokens; v > 0 {
 		s.ReasoningTokens = &v
@@ -410,12 +412,15 @@ func (a *usageAccumulator) sample() (normalizedUsageSample, bool) {
 }
 
 func (s normalizedUsageSample) key() string {
-	reasoning, cached := -1, -1
+	reasoning, cached, write := -1, -1, -1
 	if s.ReasoningTokens != nil {
 		reasoning = *s.ReasoningTokens
 	}
 	if s.CachedTokens != nil {
 		cached = *s.CachedTokens
 	}
-	return fmt.Sprintf("%d/%d/%d/%d/%d/%t", s.PromptTokens, s.CompletionTokens, s.TotalTokens, reasoning, cached, s.Partial)
+	if s.CacheWriteTokens != nil {
+		write = *s.CacheWriteTokens
+	}
+	return fmt.Sprintf("%d/%d/%d/%d/%d/%d/%t", s.PromptTokens, s.CompletionTokens, s.TotalTokens, reasoning, cached, write, s.Partial)
 }

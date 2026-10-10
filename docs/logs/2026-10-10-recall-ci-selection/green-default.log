@@ -1,0 +1,22 @@
+=== RUN   TestDefaultGenerationOmitsNativeRecall
+--- PASS: TestDefaultGenerationOmitsNativeRecall (0.00s)
+=== RUN   TestMemoryLoopMemoryInjection
+    memory_loop_isolation_test.go:177: DIVA integration overlay required
+--- SKIP: TestMemoryLoopMemoryInjection (0.00s)
+=== RUN   TestMemoryLoopRecallAfterProcessRestart
+    memory_loop_recall_test.go:20: DIVA integration overlay required
+--- SKIP: TestMemoryLoopRecallAfterProcessRestart (0.00s)
+=== RUN   TestMemoryLoopRecallNegativeControls
+    memory_loop_recall_test.go:100: DIVA integration overlay required
+--- SKIP: TestMemoryLoopRecallNegativeControls (0.00s)
+=== RUN   TestMemoryLoopOrdinaryRecallAuthorityBoundary
+    memory_loop_recall_test.go:172: DIVA integration overlay required
+--- SKIP: TestMemoryLoopOrdinaryRecallAuthorityBoundary (0.00s)
+=== RUN   TestMemoryLoopRecallDeadlineDegradesSafely
+    memory_loop_recall_test.go:294: DIVA integration overlay required
+--- SKIP: TestMemoryLoopRecallDeadlineDegradesSafely (0.00s)
+=== RUN   TestMemoryLoopCorrectionAndDeletionInModelInput
+    memory_loop_revision_test.go:17: DIVA integration overlay required
+--- SKIP: TestMemoryLoopCorrectionAndDeletionInModelInput (0.00s)
+PASS
+ok  	agent-vivy/internal/app	0.064s

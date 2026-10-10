@@ -902,3 +902,18 @@ func TestDefaultGovernanceAllowsMaskActionsInDefaultProfile(t *testing.T) {
 		t.Fatalf("default profile rules = %+v, want a vivy.masks.* allow rule", rules)
 	}
 }
+
+func TestCacheWarmingRequiresExplicitOptIn(t *testing.T) {
+	cfg := Default()
+	if cfg.Runtime.CacheWarming != "off" {
+		t.Fatalf("default cache warming = %q, want off", cfg.Runtime.CacheWarming)
+	}
+	cfg.Runtime.CacheWarming = "idle"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("idle warming must be rejected: run cancellation makes refresh ineffective")
+	}
+	cfg.Runtime.CacheWarming = "streaming"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
