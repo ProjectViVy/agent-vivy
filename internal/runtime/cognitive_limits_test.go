@@ -31,7 +31,9 @@ func TestCognitiveStageOutputBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &fakeCognitiveDomain{batch: laputaevolution.EvidenceBatch{Entries: []laputaevolution.Entry{{ID: "e", Body: strings.Repeat("x", 1200)}}}}
+	// Three pre-reflection packets still exceed the older cumulative
+	// ceiling after the strategy drops its now-unused evidence batch.
+	d := &fakeCognitiveDomain{batch: laputaevolution.EvidenceBatch{Entries: []laputaevolution.Entry{{ID: "e", Body: strings.Repeat("x", 2200)}}}}
 	result, err := a.Program.Run(ctx, inofy.RunRequest{Ref: inofy.ExecutionRef{RunID: "budget-proof", Epoch: 1, ProgramDigest: a.Meta.ProgramDigest, HostBindingID: "test-bound"}, Input: cognitiveInput(t), Limits: cognitiveWorkflowLimits()}, inofy.Bindings{Nodes: laputainofy.NewExecutor(d, stageBudgetModel{}), Runs: inofy.NewMemoryRunStore()})
 	if err != nil || result.Status != inofy.RunSucceeded {
 		t.Fatalf("bounded strategy failed after %d effects: status=%s error=%v", len(d.applied), result.Status, err)

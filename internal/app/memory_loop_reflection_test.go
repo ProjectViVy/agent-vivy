@@ -70,6 +70,15 @@ func memoryLoopTurn(t *testing.T, f *memoryLoopFixture, sessionID, text string) 
 }
 
 func TestMemoryLoopAutomaticReflection(t *testing.T) {
+	memoryLoopAutomaticReflection(t, "")
+}
+
+func TestMemoryLoopAutomaticReflectionLargeSource(t *testing.T) {
+	memoryLoopAutomaticReflection(t, strings.Repeat("长", 1500))
+}
+
+func memoryLoopAutomaticReflection(t *testing.T, extraSource string) {
+	t.Helper()
 	probe := genassembly.BuildDefault()
 	if !probe.HasCognitiveFactory() {
 		t.Skip("DIVA integration overlay required")
@@ -108,7 +117,7 @@ func TestMemoryLoopAutomaticReflection(t *testing.T) {
 	if _, err := rand.Read(nonce); err != nil {
 		t.Fatal(err)
 	}
-	fact := "memory-fact=" + hex.EncodeToString(nonce)
+	fact := "memory-fact=" + hex.EncodeToString(nonce) + extraSource
 	runID := memoryLoopTurn(t, f, sessionID, fact)
 	canonical, err := f.Wait(context.Background(), "canonical", runID)
 	if err != nil {
