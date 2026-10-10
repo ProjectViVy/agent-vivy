@@ -47,3 +47,21 @@ payloads retained in the authoritative journal. This patch adds no persisted
 face draft service. Legacy text-only responses/events keep their existing text
 restore fallback. Unknown future option values are retained rather than
 withdrawn by an editor that cannot represent them.
+
+## Integrated localization follow-up
+
+The parent's integrated `just ci` reported seven unclassified new recovery
+labels in the cross-face contract. This lane reproduced the exact seven
+`Unclassified Web/TUI key` failures with `node scripts/check-i18n-cross-face.js`,
+then mapped the shared unsupported-restoration message as
+`queue.restore.unsupported` and classified the remaining editor controls and
+recovery hint as face-specific entries.
+
+- `node scripts/check-i18n-completeness.js`: passed, 1569 keys and 163 placeholders
+  in each locale, runtime copy audit clean.
+- `node --test scripts/check-i18n-cross-face.test.js`: all **8 tests passed**.
+- `node scripts/check-i18n-cross-face.js`: passed, **14 shared semantic units**;
+  all Web/TUI en/zh projections and arguments conform.
+
+This follow-up changes only the localization classification contract and this
+verification record. Runtime and SDK source hashes are unaffected.
