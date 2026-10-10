@@ -65,6 +65,9 @@ type SourceCatalog struct {
 
 func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 	catalog := SourceCatalog{records: make(map[string]SourceRecord, len(records))}
+	// Many internal Modules share a source root. Derive each identity once per
+	// catalog construction, without retaining a cache across development edits.
+	digests := make(map[[2]string]string)
 	for _, record := range records {
 		id := record.Descriptor.Module.ID
 		if id == "" {
@@ -80,13 +83,22 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 			if record.Descriptor.Source.Ref != record.Ref {
 				return SourceCatalog{}, fmt.Errorf("source ref mismatch for %s: got %s, want %s", id, record.Descriptor.Source.Ref, record.Ref)
 			}
-			digest, err := HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
-			if err != nil {
-				return SourceCatalog{}, fmt.Errorf("verify source for %s: %w", id, err)
+			key := [2]string{record.Root, record.Descriptor.Source.SHA256}
+			digest, ok := digests[key]
+			if !ok {
+				var err error
+				digest, err = HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
+				if err != nil {
+					return SourceCatalog{}, fmt.Errorf("verify source for %s: %w", id, err)
+				}
+				digests[key] = digest
 			}
-			if digest != record.Descriptor.Source.SHA256 {
+			if record.Trust == TrustT2 && digest != record.Descriptor.Source.SHA256 {
 				return SourceCatalog{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", id, digest, record.Descriptor.Source.SHA256)
 			}
+			// T1 authoring values are normalization hints, not source locks.
+			// T2 values remain verified against the external Recipe pin.
+			record.Descriptor.Source.SHA256 = digest
 		}
 		if _, exists := catalog.records[id]; exists {
 			return SourceCatalog{}, fmt.Errorf("ambiguous source for module %s", id)

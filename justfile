@@ -36,6 +36,11 @@ test: ensure-laputa
     & "{{go}}" test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-memory-loop.ps1
 
+# Explicit SDK publication-evidence check, separate from ordinary development
+# and CI behavior tests. A changed source tree is not a verified release.
+release-conformance: ensure-laputa
+    $env:VIVY_RELEASE_CONFORMANCE = '1'; & "{{go}}" test ./sdk/internal/conformance -run '^TestCheckedInProviderConformanceMatchesExecutedSuites$' -count=1
+
 vet: ensure-laputa
     & "{{go}}" vet ./...
 

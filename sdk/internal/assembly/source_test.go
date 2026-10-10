@@ -28,7 +28,7 @@ func TestSourceCatalogAssignsTrustOutsideDescriptor(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
+func TestExternalSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -40,7 +40,7 @@ func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	}
 	descriptor := testDescriptor("fixture/source")
 	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
-	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+	record := SourceRecord{Descriptor: descriptor, Trust: TrustT2, Root: root, Ref: descriptor.Source.Ref}
 	if _, err := NewSourceCatalog([]SourceRecord{record}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
+func TestExternalSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -69,7 +69,7 @@ func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
 	}
 	descriptor := testDescriptor("fixture/source")
 	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
-	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+	record := SourceRecord{Descriptor: descriptor, Trust: TrustT2, Root: root, Ref: descriptor.Source.Ref}
 	catalog, err := NewSourceCatalog([]SourceRecord{record})
 	if err != nil {
 		t.Fatal(err)
@@ -179,5 +179,44 @@ func testDescriptor(id string) module.Descriptor {
 		Requires:        []module.Requirement{},
 		RequestedGrants: []module.Grant{},
 		Lifecycle:       module.Lifecycle{Scope: module.ScopeGeneration},
+	}
+}
+
+// First-party authoring hashes are hints; only external Recipe pins are locks.
+func TestFirstPartySourceCatalogDerivesCurrentProvenance(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "module.go")
+	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldDigest, err := HashSourceTree(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, []byte("package fixture\n// ordinary edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentDigest, err := HashSourceTree(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hint := range []string{oldDigest, ""} {
+		descriptor := testDescriptor("fixture/source")
+		descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: hint}
+		record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+		catalog, err := NewSourceCatalog([]SourceRecord{record})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := catalog.Resolve(descriptor.Module.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.Descriptor.Source.SHA256 != currentDigest {
+			t.Fatalf("bound digest = %q, want current %q", resolved.Descriptor.Source.SHA256, currentDigest)
+		}
+		if record.Descriptor.Source.SHA256 != hint {
+			t.Fatal("catalog mutated authoring descriptor")
+		}
 	}
 }

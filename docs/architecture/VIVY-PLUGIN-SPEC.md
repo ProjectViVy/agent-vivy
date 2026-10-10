@@ -346,8 +346,16 @@ UI contributions, binds complete checked-in conformance results only when
 they match a selected Provider and derived source hash, embeds the immutable
 Manifest, and emits no artifact on failure. It never relabels a result onto
 an unattested third-party Provider. `pack` does not run test suites; the
-executable result-reproduction gate, Generation matrix, and focused suites
+explicit SDK `just release-conformance` gate, Generation matrix, and focused suites
 must pass before their immutable result bundle is advanced.
+
+Daily development, UI staging and ordinary CI execute behavior/contract suites
+without matching the working tree to committed release source digests. The SDK
+Source Catalog derives first-party provenance automatically; external Recipe
+pins and artifact integrity remain strict. `just release-conformance` opts into
+the historical bundle's exact-source publication-evidence check. Pack and
+Inspect do not certify a development build as a verified species release; the
+complete SDK-owned publication lifecycle is deferred until stabilization.
 
 `inspect-artifact` displays Module/Port graph, Trust assignment, effective
 Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,

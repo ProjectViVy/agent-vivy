@@ -136,7 +136,7 @@ evidence.
 Run the pressure matrix before claiming a Provider or Generation complete:
 
 ```text
-go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1
+go test ./sdk/internal/conformance -run TestProviderConformanceExecutesSuites -count=1
 go test ./sdk/internal/conformance -run 'TestGeneration(FailureMatrixEvidence|RollbackRestoresCatalogAndLocaleIdentity)' -count=1
 go test ./sdk/internal -run 'Test(GenerationFailureMatrixExecutesEveryCase|MinimalArtifactPhysicallyOmitsOptionalModules)' -count=1
 go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures|StartFailureRollsBackEveryConstructedOwner)' -count=1
@@ -146,9 +146,16 @@ go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed|PanicAndInva
 Then run the focused Host/Port suites, `just ci`, and the real selected product
 path. Record the iteration log and commit one concern.
 
-`verify` is static and never starts Provider code. `pack` consumes the
-checked-in, source-hash-bound conformance result bundle; it does not execute
-the suites. Unattested third-party Providers remain packable but receive no
-conformance record in Inspect. Advance the bundle only when the executable
-reproduction gate, focused suites, and Generation matrix match the same
-release evidence set.
+`verify` is static and never starts Provider code or compares authoring source
+hashes. The SDK Source Catalog derives current first-party provenance; external
+Recipe pins remain exact source locks. Ordinary conformance runs execute the
+current Provider/Host suites and compare semantic outcomes without requiring a
+historical source identity.
+
+`pack` is the explicit SDK artifact builder. It binds checked-in conformance
+records only to matching selected source hashes; changed or unattested sources
+acquire no release evidence. A successful pack or Inspect proves artifact
+identity/integrity, not publication certification. For the existing release
+bundle's exact-source reproduction check, run `just release-conformance`.
+Advance the bundle only with executed suites against the same sources. The
+complete species publication lifecycle is deferred until stabilization.

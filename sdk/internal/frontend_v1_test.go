@@ -898,7 +898,7 @@ func TestInspectRejectsManifestFromAnotherBinary(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsModifiedSourceTree(t *testing.T) {
+func TestVerifyAllowsAuthoringSourceEdits(t *testing.T) {
 	dir := t.TempDir()
 	descriptor, err := os.ReadFile("../../plugins/hello-fs/vivy-module.yaml")
 	if err != nil {
@@ -907,11 +907,14 @@ func TestVerifyRejectsModifiedSourceTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "vivy-module.yaml"), descriptor, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package modified\n\n// content changed without updating the declared hash\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/edited\n\ngo 1.26.4\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Verify(dir); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
-		t.Fatalf("Verify() error = %v, want source hash rejection", err)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package modified\n\n// content changed without updating the declared hash\nfunc New() {}\nfunc NewProvider() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Verify(dir); err != nil || !report.OK {
+		t.Fatalf("Verify() = %#v, %v; authoring hashes must not block edits", report, err)
 	}
 }
 
@@ -1210,5 +1213,83 @@ func TestPackSharedMissingModulePublishesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("failed pack published output: %v", err)
+	}
+}
+
+func TestStageUIDerivesFirstPartyEditsBeforeSelection(t *testing.T) {
+	root := t.TempDir()
+	// Exercise an edited internal test and a repository Module which the
+	// minimal Recipe omits. Neither has a manually refreshed authoring hash.
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "ordinary_test.go"), []byte("package fixture\n// edited test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moduleDir := filepath.Join(root, "plugins", "hello-fs")
+	if err := copySourceTree("../../plugins/hello-fs", moduleDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "ordinary_test.go"), []byte("package hellofs\n// edited first-party module test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recipe := filepath.Join(root, "minimal.yml")
+	recipeBody, err := os.ReadFile("../../recipes/minimal.vivy.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recipe, recipeBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StageUI(root, recipe, filepath.Join(root, "staged")); err != nil {
+		t.Fatal(err)
+	}
+	records, err := sourceRecords(root, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := assemblyv1.NewSourceCatalog(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := catalog.Resolve("vivy/hello-fs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A selected changed first-party Provider must not inherit old passing
+	// release evidence just because its Module ID still matches.
+	results, err := assemblyv1.ConformanceResultsForPlan(assemblyv1.AssemblyPlan{Modules: []assemblyv1.ResolvedModule{{Descriptor: edited.Descriptor, Trust: edited.Trust}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("edited source acquired historical release results: %#v", results)
+	}
+}
+
+func TestVerifyRejectsSourceSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	descriptor, err := os.ReadFile("../../plugins/hello-fs/vivy-module.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string][]byte{
+		"vivy-module.yaml": descriptor,
+		"go.mod":           []byte("module example.com/confined\n\ngo 1.26.4\n"),
+		"module.go":        []byte("package fixture\nfunc New() {}\nfunc NewProvider() {}\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside source root"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "linked.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := Verify(dir); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Verify() error = %v, want source confinement rejection", err)
 	}
 }
