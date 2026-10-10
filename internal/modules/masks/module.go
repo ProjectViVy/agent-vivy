@@ -6,13 +6,14 @@ package masks
 import (
 	"context"
 
+	"agent-vivy/internal/modules/masks/catalog"
 	"agent-vivy/sdk/module"
 	controlaction "agent-vivy/sdk/port/controlaction"
 )
 
 const (
-	ID   = "vivy/masks"
-	Port = "core/mask-service@v1"
+	ID   = catalog.ID
+	Port = catalog.Port
 )
 
 // NewModule is the pure Assembly lifecycle owner. It is deliberately

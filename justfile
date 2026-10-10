@@ -14,7 +14,7 @@ ensure-laputa:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
 
 bootstrap-test:
-    node --test scripts/ensure-laputa.test.mjs
+    node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs
 
 # Prepare sibling sources before asking Go to resolve local replacements.
 setup: ensure-laputa
