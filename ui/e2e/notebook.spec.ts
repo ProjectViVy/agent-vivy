@@ -97,7 +97,10 @@ test.describe('notebook durable editor (N3)', () => {
     await page.getByTestId('notebook-section-title').fill(SECTION_NAME);
     await page.getByTestId('notebook-section-create-submit').click();
     const select = page.getByTestId('notebook-section-select');
-    await expect(select.locator(`option:has-text("${SECTION_NAME}")`)).toHaveCount(1);
+    const createdSection = select.locator(`option:has-text("${SECTION_NAME}")`);
+    await expect(createdSection).toHaveCount(1);
+    await selectSection(page, (await createdSection.getAttribute('value'))!);
+    await expect(page.getByTestId('notebook-entry')).toHaveCount(0);
 
     // Document
     await page.getByTestId('notebook-entry-create').click();
