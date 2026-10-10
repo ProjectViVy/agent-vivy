@@ -52,8 +52,8 @@ func TestMemoryLoopScopeAndHostBinding(t *testing.T) {
 		NextCursor string `json:"next_cursor"`
 	}
 	memoryLoopAction(t, profileA, "diva.cognitive.memory.search", map[string]any{"session_id": sessionA, "query": "synthetic user-only fact", "limit": 1, "budget_chars": 1200}, &pageA)
-	if len(pageA.Items) != 1 {
-		t.Fatalf("profile A search did not return the bounded card: %+v", pageA)
+	if len(pageA.Items) != 1 || pageA.NextCursor == "" {
+		t.Fatalf("profile A search did not return a bounded first page and continuation cursor: %+v", pageA)
 	}
 	if pageA.Items[0].ID != written[1].RecordID && pageA.Items[0].ID != written[0].RecordID {
 		t.Fatalf("profile A search returned an unrelated card: %+v", pageA.Items)
@@ -90,6 +90,14 @@ func TestMemoryLoopScopeAndHostBinding(t *testing.T) {
 	deniedSession := foreignSession.Status == "failed" || foreignSession.Status == "transport_failed" && strings.Contains(foreignSession.TransportError, "not authorized")
 	if !deniedSession || len(foreignSession.Value) > 0 && string(foreignSession.Value) != "null" {
 		t.Fatalf("profile A session was accepted by profile B host: %+v", foreignSession)
+	}
+	foreignCursor := invokeMemoryLoopAction(t, profileB, "diva.cognitive.memory.search", map[string]any{"session_id": sessionB, "query": "synthetic user-only fact", "limit": 1, "budget_chars": 1200, "cursor": pageA.NextCursor})
+	var foreignCursorPage struct {
+		Items      []json.RawMessage `json:"items"`
+		NextCursor string            `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(foreignCursor.Value, &foreignCursorPage); foreignCursor.Status != "failed" || foreignCursor.Error.Code != "invalid_scope" || err != nil || len(foreignCursorPage.Items) != 0 || foreignCursorPage.NextCursor != "" {
+		t.Fatalf("profile B accepted Profile A's continuation cursor: %+v", foreignCursor)
 	}
 	foreignCard := invokeMemoryLoopAction(t, profileB, "diva.cognitive.memory.expand", map[string]any{"session_id": sessionB, "card_id": written[0].RecordID, "expected_revision": written[0].Revision, "budget_chars": 1200})
 	var foreignEvidence struct {
@@ -157,7 +165,7 @@ func TestMemoryLoopScopeAndHostBinding(t *testing.T) {
 	}
 	cancel()
 	profileB.app, profileB.peer, profileB.cancel = nil, nil, nil
-	t.Logf("scope isolation: profileA-canonical=%d profileB-search=0 stale-revision and foreign-session/card/receipt plus forged-cursor denied profileB-recall-observed=%t", written[1].CanonicalCount, recallObserved)
+	t.Logf("scope isolation: profileA-canonical=%d profileB-search=0 stale-revision and foreign-session/card/receipt plus Profile A and forged cursors denied profileB-recall-observed=%t", written[1].CanonicalCount, recallObserved)
 }
 
 // TestMemoryLoopMemoryInjection proves that a hostile ordinary memory remains
