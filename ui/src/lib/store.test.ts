@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({
   historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
   deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
-  steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
+  steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async (): Promise<Awaited<ReturnType<typeof import('./api').clearSessionQueue>>> => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
   getQueueState: vi.fn(async (): Promise<QueueState> => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -715,7 +715,7 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().selectSession('s1');
     const text = await useVivyStore.getState().dequeueQueuedTurn();
     expect(text).toBe('take me back');
-    expect(api.dequeueQueuedTurn).toHaveBeenCalledWith('s1');
+    expect(api.dequeueQueuedTurn).toHaveBeenCalledWith('s1', '__empty_queue__');
   });
 
   it('restores aborted queue text on turn.dequeued events', async () => {
@@ -727,6 +727,46 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().openRun('r1', 's1');
     subscription.onEvent?.({ run_id: 'r1', seq: 2, type: 'turn.dequeued', created_at: 3, payload_version: 1, payload: { queue_id: 'q1', track: 'steer', reason: 'aborted', text: 'was steering' } });
     await vi.waitFor(() => expect(useVivyStore.getState().queueRestoreText).toMatchObject({ text: 'was steering' }));
+  });
+
+
+  it('pins dequeue to the inspected full DTO and retains unsupported pending work', async () => {
+    useVivyStore.setState({ activeSessionId: 's1' });
+    const turn = { id:'q1',session_id:'s1',track:'follow_up',text:'restore',created_at:1,thinking:'future-effort' };
+    api.getQueueState.mockResolvedValue({steering:[],follow_up:[turn],pending:1,steer_mode:'all',follow_up_mode:'all'});
+    expect(await useVivyStore.getState().dequeueQueuedTurn()).toBeNull();
+    expect(api.dequeueQueuedTurn).not.toHaveBeenCalled();
+    turn.thinking='high';
+    api.dequeueQueuedTurn.mockResolvedValue({dequeued:false});
+    expect(await useVivyStore.getState().dequeueQueuedTurn()).toBeNull();
+    expect(api.dequeueQueuedTurn).toHaveBeenCalledWith('s1','q1');
+    api.getQueueState.mockResolvedValue({steering:[],follow_up:[],pending:0,steer_mode:'all',follow_up_mode:'all'});
+  });
+
+  it('retains aborted full DTOs separately and recalls each without re-enqueueing', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id:'r1',session_id:'s1',status:'active',created_at:1 });
+    api.getRunLog.mockResolvedValue({events:[]});
+    api.listChildren.mockResolvedValue({children:[]});
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1','s1');
+    const first={id:'q1',session_id:'s1',track:'follow_up',text:'first',created_at:1,thinking:'low'};
+    const second={...first,id:'q2',text:'second',thinking:'high',file_contexts:[{path:'a.go',name:'a.go',size:8,content:'c25hcHNob3Q='}]};
+    for (const [i,turn] of [first,second].entries()) subscription.onEvent?.({run_id:'r1',seq:i+2,type:'turn.dequeued',created_at:3,payload_version:1,payload:{reason:'aborted',text:turn.text,turn}});
+    expect(useVivyStore.getState().queueRestoreText).toBeNull();
+    expect(useVivyStore.getState().queueRecoveryTurns.s1).toEqual([first,second]);
+    expect(await useVivyStore.getState().dequeueQueuedTurn()).toEqual(second);
+    expect(await useVivyStore.getState().dequeueQueuedTurn()).toEqual(first);
+    expect(api.dequeueQueuedTurn).not.toHaveBeenCalled();
+    expect(api.followUpTurn).not.toHaveBeenCalled();
+  });
+
+  it('retains every clear response DTO without a live subscription', async () => {
+    useVivyStore.setState({activeSessionId:'s1'});
+    const turns=[{id:'q1',session_id:'s1',track:'steer',text:'one',created_at:1,thinking:'low'}, {id:'q2',session_id:'s1',track:'follow_up',text:'two',created_at:1,thinking:'high'}];
+    api.clearSessionQueue.mockResolvedValueOnce({cleared:true,texts:['one','two'],turns});
+    useVivyStore.getState().clearQueue();
+    await vi.waitFor(() => expect(useVivyStore.getState().queueRecoveryTurns.s1).toEqual(turns));
   });
 
   it('snapshots continuity when sending through the durable queue', async () => {

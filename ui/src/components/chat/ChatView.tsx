@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AttachmentInput, Face, RunMode, ThinkingMode, TurnContinuity, TurnSubmission } from '@/lib/api';
+import type { AttachmentInput, Face, QueuedTurn, RunMode, ThinkingMode, TurnContinuity, TurnSubmission } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
@@ -36,7 +36,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const cancelRun = useVivyStore((state) => state.cancelCurrentRun);
   const rewindSession = useVivyStore((state) => state.rewindSession);
   const forkSession = useVivyStore((state) => state.forkSession);
-  const [draftPreset, setDraftPreset] = useState<{ sessionId: string; text: string; seq: number } | null>(null);
+  const [draftPreset, setDraftPreset] = useState<{ sessionId: string; text: string; seq: number; turn?: QueuedTurn } | null>(null);
   const viewEpoch = useRef(0);
   const [actionError, setActionError] = useState<unknown>(null);
 	const [historyAction, setHistoryAction] = useState(false);
@@ -71,26 +71,41 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     };
   };
   const clearDraftContext = useVivyStore((state) => state.clearDraftContext);
-  const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
-    const submission: TurnSubmission = { text, mode, face, attachments, thinking, continuity: continuityFor() };
-    await startRun(sessionId, submission);
+  const restoredSubmission = (text: string, mode: RunMode, attachments: AttachmentInput[] | undefined, thinking: ThinkingMode | undefined, restored?: QueuedTurn): TurnSubmission => ({
+    text, mode, attachments, thinking,
+    face: (restored?.face as Face | undefined) ?? face,
+    policy_profile: restored?.policy_profile,
+    collaboration_mode: restored?.collaboration_mode,
+    collaboration_version: restored?.collaboration_version,
+    file_contexts: restored?.file_contexts,
+    context_paths: restored?.file_contexts?.length ? undefined : restored?.context_paths,
+    continuity: restored?.continuity ? {
+      request_id: useVivyStore.getState().draftRequestId,
+      references: useVivyStore.getState().draftReferences.map((draft) => draft.selection),
+      history_scope: useVivyStore.getState().draftScope ?? undefined,
+    } : continuityFor(),
+  });
+  const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => {
+    await startRun(sessionId, restoredSubmission(text, mode, attachments, thinking, restored));
     clearDraftContext();
   };
-  const queue = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
-    return enqueueMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() });
+  const queue = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => {
+    await enqueueMessage(restoredSubmission(text, mode, attachments, thinking, restored));
     clearDraftContext();
   };
-  // pi 双轨（VCP-B3）：steer/follow_up 由 store 分流——纯文本上内核
-  // 队列，附件/引用回退本地 FIFO。
   const steerMessage = useVivyStore((state) => state.steerMessage);
   const followUpMessage = useVivyStore((state) => state.followUpMessage);
   const dequeueQueuedTurn = useVivyStore((state) => state.dequeueQueuedTurn);
   const queueRestoreText = useVivyStore((state) => state.queueRestoreText);
-  const steer = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) =>
-    steerMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() }).finally(clearDraftContext);
-  const followUp = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) =>
-    followUpMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() }).finally(clearDraftContext);
-  // 内核队列冲刷（abort/clear）把文本还给编辑框——与 dequeue 同路。
+  const steer = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => {
+    await steerMessage(restoredSubmission(text, mode, attachments, thinking, restored));
+    clearDraftContext();
+  };
+  const followUp = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => {
+    await followUpMessage(restoredSubmission(text, mode, attachments, thinking, restored));
+    clearDraftContext();
+  };
+  // 旧版 text-only 冲刷兼容；完整 DTO 通过显式 recall 保留各自选项。
   const appliedQueueSeq = useRef(0);
   useEffect(() => {
     if (!queueRestoreText || queueRestoreText.seq === appliedQueueSeq.current) return;
@@ -169,7 +184,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div></ScrollArea>
         <WorkControlBar key={`work-${sessionId}`} sessionId={sessionId} />
         <TodoProgressStrip />
-        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onSteer={(text, mode, attachments, thinking) => steer(text, mode, attachments, thinking)} onFollowUp={(text, mode, attachments, thinking) => followUp(text, mode, attachments, thinking)} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
+        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={queue} onSteer={steer} onFollowUp={followUp} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

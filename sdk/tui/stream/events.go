@@ -55,6 +55,7 @@ type Notice struct {
 	// text for dequeue/abort editor restore.
 	QueueTrack  string
 	QueueReason string
+	QueueTurn   json.RawMessage
 }
 
 // ModelCompletionMetadata is the metadata-only model.completed v2 payload.
@@ -449,6 +450,10 @@ func Interpret(event Event) Notice {
 		base.QueueTrack = PayloadString(event.Payload, "track")
 		base.QueueReason = PayloadString(event.Payload, "reason")
 		base.Message = PayloadString(event.Payload, "text")
+		var queued map[string]json.RawMessage
+		if json.Unmarshal(event.Payload, &queued) == nil {
+			base.QueueTurn = append(json.RawMessage(nil), queued["turn"]...)
+		}
 		return base
 	default:
 		return base

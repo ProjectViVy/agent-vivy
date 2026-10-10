@@ -347,6 +347,7 @@ export const zh = {
   chatInput: {
     message: '消息',
     placeholder: '输入消息，或输入 / 选择命令（Enter 发送）',
+    executionMode: '执行模式',
     agentMode: '智能体模式',
     planMode: '计划模式',
     agentModeDesc: '直接执行任务',
@@ -382,6 +383,10 @@ export const zh = {
     cancelRun: '取消运行',
     send: '发送',
     queue: '排队发送',
+    recallReturned: '召回 {{count}} 条已退回输入 · Alt+↑',
+    capturedContext: '已捕获上下文：{{name}}',
+    removeCapturedContext: '移除已捕获上下文 {{name}}',
+    restoreUnsupported: '此编辑器无法完整恢复该输入，完整内容已保留。',
     queuedCount: '已排队 {{count}} 条',
     clearQueue: '清空队列',
     removeQueued: '移除',

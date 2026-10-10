@@ -436,8 +436,8 @@ export const getQueueState = (sessionId: string, afterRunId?: string) =>
     .then((state) => ({ ...state, steering: state.steering ?? [], follow_up: state.follow_up ?? [] }));
 export const clearSessionQueue = (sessionId: string) =>
   request<FaceQueueClearResult>('queue/clear', { session_id: sessionId });
-export const dequeueQueuedTurn = (sessionId: string) =>
-  request<FaceQueueDequeueResult>('queue/dequeue', { session_id: sessionId });
+export const dequeueQueuedTurn = (sessionId: string, queueId?: string) =>
+  request<FaceQueueDequeueResult>('queue/dequeue', { session_id: sessionId, ...(queueId ? { queue_id: queueId } : {}) });
 export const removeQueuedTurn = (sessionId: string, queueId: string) =>
   request<FaceQueueRemoveResult>('queue/remove', { session_id: sessionId, queue_id: queueId });
 

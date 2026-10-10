@@ -1968,7 +1968,7 @@ export interface FaceClientAPI {
   followUpTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceQueueTurnResult>;
   getQueueState(sessionId: string, afterRunId?: string): Promise<FaceQueueState>;
   clearSessionQueue(sessionId: string): Promise<FaceQueueClearResult>;
-  dequeueQueuedTurn(sessionId: string): Promise<FaceQueueDequeueResult>;
+  dequeueQueuedTurn(sessionId: string, queueId?: string): Promise<FaceQueueDequeueResult>;
   removeQueuedTurn(sessionId: string, queueId: string): Promise<FaceQueueRemoveResult>;
   historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
   historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
@@ -2186,6 +2186,7 @@ export interface FaceStoreState {
   /** Text handed back to the composer when the kernel flushes the queue
    * (abort/clear); seq dedupes consecutive restores. */
   readonly queueRestoreText: { readonly text: string; readonly seq: number } | null;
+  readonly queueRecoveryTurns: Record<string, FaceQueuedTurn[]>;
   /** Session-bound ephemeral draft: attached previews plus the optional
    * broader read scope; never an ACL and never localStorage authority. */
   readonly draftReferences: FaceReferenceDraft[];
@@ -2261,7 +2262,7 @@ export interface FaceStoreState {
   removeKernelQueued(queueId: string): Promise<void>;
   /** Pops the newest pending follow-up back into the editor (pi Alt+Up);
    * resolves to the restored text or null when the lane is empty. */
-  dequeueQueuedTurn(): Promise<string | null>;
+  dequeueQueuedTurn(): Promise<FaceQueuedTurn | string | null>;
   addDraftReference(preview: FaceReferencePreview, selection: FaceReferenceSelection, allowFurtherReading: boolean): void;
   removeDraftReference(id: string): void;
   setDraftScope(scope: FaceHistoryScope | null): void;

@@ -30,6 +30,8 @@ const newDraftRequestId = () =>
 const copySubmission = (submission: api.TurnSubmission): api.TurnSubmission => ({
   ...submission,
   attachments: submission.attachments?.map((item) => ({ ...item })),
+  file_contexts: submission.file_contexts?.map((item) => ({ ...item })),
+  context_paths: submission.context_paths && [...submission.context_paths],
   continuity: submission.continuity && {
     request_id: submission.continuity.request_id,
     references: submission.continuity.references?.map((reference) => ({
@@ -134,6 +136,7 @@ interface RuntimeState {
   kernelQueue: api.QueueState | null;
   /** 队列事件（abort-flush/clear）回填编辑器的草稿；seq 去重。 */
   queueRestoreText: { text: string; seq: number } | null;
+  queueRecoveryTurns: Record<string, api.QueuedTurn[]>;
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
   backgroundError: string | null;
@@ -192,7 +195,7 @@ interface RuntimeState {
   refreshQueue: (sessionId?: string) => Promise<void>;
   removeKernelQueued: (queueId: string) => Promise<void>;
   /** pi Alt+Up：弹出最新 pending follow-up 回编辑框；空轨返回 null。 */
-  dequeueQueuedTurn: () => Promise<string | null>;
+  dequeueQueuedTurn: () => Promise<api.QueuedTurn | string | null>;
   draftReferences: ReferenceDraft[];
   draftScope: api.HistoryScope | null;
   draftRequestId: string;
@@ -420,7 +423,11 @@ function handleRunEvent(event: RunEvent): void {
       const reason = String(event.payload.reason ?? '');
       const text = String(event.payload.text ?? '');
       if ((reason === 'aborted' || reason === 'cleared') && text) {
-        update.queueRestoreText = { text, seq: ++queueRestoreSeq };
+        const turn = event.payload.turn as api.QueuedTurn | undefined;
+        if (turn?.id && turn.session_id === state.activeSessionId) {
+          const existing = state.queueRecoveryTurns[turn.session_id] ?? [];
+          if (!existing.some((item) => item.id === turn.id)) update.queueRecoveryTurns = { ...state.queueRecoveryTurns, [turn.session_id]: [...existing, turn] };
+        } else update.queueRestoreText = { text, seq: ++queueRestoreSeq };
       }
     }
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
@@ -527,7 +534,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
-  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, kernelQueue: null, queueRestoreText: null,
+  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, kernelQueue: null, queueRestoreText: null, queueRecoveryTurns: {},
   work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
@@ -951,9 +958,23 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const sessionId = get().activeSessionId;
     if (!sessionId) return null;
     try {
-      const result = await api.dequeueQueuedTurn(sessionId);
+      const recovered = get().queueRecoveryTurns[sessionId] ?? [];
+      if (recovered.length) {
+        const turn = recovered[recovered.length - 1];
+        if (!canRestoreQueuedTurn(turn)) { set({ runError: t('chatInput.restoreUnsupported') }); return null; }
+        set({ queueRecoveryTurns: { ...get().queueRecoveryTurns, [sessionId]: recovered.slice(0, -1) } });
+        return turn;
+      }
+      // Validate the complete pending DTO before withdrawing durable work.
+      const view = await api.getQueueState(sessionId);
+      const pending = view.follow_up.at(-1);
+      if (pending && !canRestoreQueuedTurn(pending)) {
+        set({ runError: t('chatInput.restoreUnsupported') });
+        return null;
+      }
+      const result = await api.dequeueQueuedTurn(sessionId, pending?.id ?? '__empty_queue__');
       void get().refreshQueue();
-      return result.dequeued ? (result.text ?? null) : null;
+      return result.dequeued ? (result.turn ?? result.text ?? null) : null;
     } catch { return null; }
   },
   draftReferences: [],
@@ -1068,7 +1089,15 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   clearQueue: () => {
     const sessionId = get().activeSessionId;
-    if (sessionId) void api.clearSessionQueue(sessionId).then(() => get().refreshQueue()).catch((error) => set({ runError: errorMessage(error) }));
+    if (sessionId) void api.clearSessionQueue(sessionId).then((result) => {
+      set((state) => {
+        const recovered = state.queueRecoveryTurns[sessionId] ?? [];
+        const turns = [...recovered];
+        for (const turn of result.turns ?? []) if (!turns.some((item) => item.id === turn.id)) turns.push(turn);
+        return { queueRecoveryTurns: { ...state.queueRecoveryTurns, [sessionId]: turns } };
+      });
+      return get().refreshQueue();
+    }).catch((error) => set({ runError: errorMessage(error) }));
   },
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;
@@ -1226,4 +1255,40 @@ export function resetStoreForTests(): void {
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
   workRead = 0; workEventSeq = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;
+}
+
+export function canRestoreQueuedTurn(turn: api.QueuedTurn): boolean {
+  return (!turn.mode || ['normal', 'plan'].includes(turn.mode)) &&
+    (!turn.thinking || ['auto', 'on', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(turn.thinking)) &&
+    (!turn.face || ['web', 'tui', 'code'].includes(turn.face));
+}
+
+export function restoreTurnContext(turn: api.QueuedTurn): void {
+  if (useVivyStore.getState().activeSessionId !== turn.session_id) return;
+  const continuity = turn.continuity;
+  useVivyStore.setState({
+    draftRequestId: continuity?.request_id ?? newDraftRequestId(),
+    draftScope: continuity?.history_scope ?? null,
+    draftReferences: (continuity?.references ?? []).map((selection) => ({
+      id: `ref_${++draftSeq}`,
+      selection,
+      preview: {
+        selection: selection.selection,
+        items: (selection.selection.refs ?? []).map((ref) => ({ ref, author: '', text: '', redacted: true, truncated: false })),
+        digest: selection.expected_digest,
+        captured_at: typeof turn.created_at === 'number' ? turn.created_at : Date.parse(turn.created_at),
+        byte_count: 0,
+        source_status: 'captured',
+      },
+    })),
+  });
+}
+
+export function retainReturnedTurn(turn: api.QueuedTurn): void {
+  useVivyStore.setState((state) => {
+    const turns = state.queueRecoveryTurns[turn.session_id] ?? [];
+    return turns.some((item) => item.id === turn.id) ? {} : {
+      queueRecoveryTurns: { ...state.queueRecoveryTurns, [turn.session_id]: [...turns, turn] },
+    };
+  });
 }
