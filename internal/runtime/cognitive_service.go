@@ -460,12 +460,12 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		}
 		binding = resolved
 	}
-	if b.Binding.MissionAssigned() && b.Mission != nil {
+	if b.Mission != nil {
 		current, err := b.Mission.MissionRevision(ctx)
 		if err != nil {
 			return laputaevolution.Eligibility{}, err
 		}
-		if err := b.Binding.CheckMissionRevision(current); err != nil {
+		if err := binding.CheckMissionRevision(current); err != nil {
 			return laputaevolution.Eligibility{}, err
 		}
 		binding.MissionRevision = current

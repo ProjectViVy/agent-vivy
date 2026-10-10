@@ -65,6 +65,12 @@ func (d *lazyDomain) bound(ctx context.Context) (laputaevolution.Domain, error) 
 	return d.domain, d.err
 }
 
+// BindForRun reuses the one owned domain with this run's persisted pins.
+// The App construction binding is not a new run's authority revision.
+func (d *lazyDomain) BindForRun(ctx context.Context, binding laputaevolution.RunBinding) (laputaevolution.Domain, error) {
+	return d.bundle.BoundDomain(ctx, binding)
+}
+
 func (d *lazyDomain) Collect(ctx context.Context, window laputaevolution.Window) (laputaevolution.EvidenceBatch, error) {
 	bound, err := d.bound(ctx)
 	if err != nil {

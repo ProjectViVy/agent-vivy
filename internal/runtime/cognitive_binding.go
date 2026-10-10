@@ -195,7 +195,7 @@ func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, t
 		pins.DestinationID != b.Binding.DestinationID || pins.StrategyDigest != b.Binding.StrategyDigest {
 		return nil, errors.New("runtime: trusted run binding does not match the bound composition")
 	}
-	if pins.MissionAssigned() && b.Mission != nil {
+	if b.Mission != nil {
 		current, err := b.Mission.MissionRevision(ctx)
 		if err != nil {
 			return nil, err
@@ -204,7 +204,50 @@ func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, t
 			return nil, err
 		}
 	}
-	return laputainofy.NewExecutor(b.Domain, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
+	domainForRun := b.Domain
+	if binder, ok := b.Domain.(interface {
+		BindForRun(context.Context, laputaevolution.RunBinding) (laputaevolution.Domain, error)
+	}); ok {
+		bound, err := binder.BindForRun(ctx, pins)
+		if err != nil {
+			return nil, err
+		}
+		domainForRun = bound
+	}
+	if b.Mission != nil {
+		domainForRun = missionCheckedDomain{Domain: domainForRun, mission: b.Mission, binding: pins}
+	}
+	return laputainofy.NewExecutor(domainForRun, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
+}
+
+// Host pins are checked on each effect/recovery boundary. The selected
+// native owner additionally serializes this check with human authority writes.
+type missionCheckedDomain struct {
+	laputaevolution.Domain
+	mission CognitiveMissionSource
+	binding laputaevolution.RunBinding
+}
+
+func (d missionCheckedDomain) check(ctx context.Context) error {
+	current, err := d.mission.MissionRevision(ctx)
+	if err != nil {
+		return err
+	}
+	return d.binding.CheckMissionRevision(current)
+}
+
+func (d missionCheckedDomain) Apply(ctx context.Context, e laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	if err := d.check(ctx); err != nil {
+		return laputaevolution.EffectReceipt{}, err
+	}
+	return d.Domain.Apply(ctx, e)
+}
+
+func (d missionCheckedDomain) Lookup(ctx context.Context, operationID string) (laputaevolution.EffectReceipt, error) {
+	if err := d.check(ctx); err != nil {
+		return laputaevolution.EffectReceipt{}, err
+	}
+	return d.Domain.Lookup(ctx, operationID)
 }
 
 // cognitiveModel adapts the contract Model port onto the governed one-shot

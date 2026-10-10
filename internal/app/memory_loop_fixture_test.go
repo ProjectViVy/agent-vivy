@@ -57,15 +57,17 @@ type memoryLoopSnapshot struct {
 }
 
 type memoryLoopFixture struct {
-	t        *testing.T
-	options  memoryLoopOptions
-	remote   *memoryLoopRemote
-	app      *App
-	peer     *controlrpc.Peer
-	dataRoot string
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	requests []json.RawMessage
+	t                *testing.T
+	options          memoryLoopOptions
+	remote           *memoryLoopRemote
+	app              *App
+	peer             *controlrpc.Peer
+	dataRoot         string
+	cancel           context.CancelFunc
+	mu               sync.Mutex
+	requests         []json.RawMessage
+	modelRelease     chan struct{}
+	modelReleaseOnce sync.Once
 }
 
 func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixture {
@@ -78,7 +80,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "mission-fence" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -86,6 +88,10 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		t.Fatal(err)
 	}
 	f := &memoryLoopFixture{t: t, options: opts, dataRoot: cfg.Storage.DataDir}
+	if opts.ModelMode == "mission-fence" {
+		f.modelRelease = make(chan struct{})
+		t.Cleanup(func() { f.modelReleaseOnce.Do(func() { close(f.modelRelease) }) })
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err != nil {
@@ -93,7 +99,11 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			return
 		}
 		var req struct {
-			Stream bool `json:"stream"`
+			Stream   bool `json:"stream"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
 		if json.Unmarshal(body, &req) != nil {
 			http.Error(w, "invalid request", 400)
@@ -109,6 +119,17 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		if opts.ModelMode == "wait-cancel" {
 			<-r.Context().Done()
 			return
+		}
+		if f.modelRelease != nil {
+			for _, message := range req.Messages {
+				if message.Role == "user" && strings.HasPrefix(message.Content, "[cognitive-infer stage=reflect]\n") {
+					select {
+					case <-f.modelRelease:
+					case <-r.Context().Done():
+						return
+					}
+				}
+			}
 		}
 		reply, err := memoryLoopModelReply(opts.ModelMode, body)
 		if err != nil {
@@ -150,6 +171,10 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			t.Errorf("fixture close: %v", err)
 		}
 	})
+	if f.modelRelease != nil {
+		// Release the owned response gate before fixture/server shutdown.
+		t.Cleanup(func() { f.modelReleaseOnce.Do(func() { close(f.modelRelease) }) })
+	}
 	return f
 }
 

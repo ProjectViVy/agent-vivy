@@ -220,7 +220,7 @@ func (b *bundle) BoundDomain(ctx context.Context, binding laputaevolution.RunBin
 		}
 		b.ports = &ports
 	}
-	return b.ports.Domain, nil
+	return b.ports.WithMissionRevision(binding.MissionRevision)
 }
 
 func (b *bundle) SourceID() string { return b.sourceID }

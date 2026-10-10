@@ -155,6 +155,17 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 // trusted lane rejects a persisted binding whose scope/destination drifted
 // from the bound composition and re-verifies the Mission pin against the
 // current authority before effects or recovery may run.
+func TestUnassignedMissionAdmissionIsStillPinned(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := inofyExecService(t, testsupport.NewEchoModel())
+	b := &CognitiveBinding{Domain: &fakeCognitiveDomain{}, Mission: &fakeMission{rev: 1}, Binding: laputaevolution.RunBinding{SubjectID: "profile-1", DestinationID: "mentle", PolicyRevision: "pol-1", StrategyDigest: "dig-1"}}
+	svc.deps.Cognitive = b
+	input, _ := json.Marshal(laputaevolution.Input{Binding: b.Binding})
+	if _, err := svc.workflowNodes(ctx, "run-zero-pin", TrustedStrategyDIVA, input); laputaevolution.CodeOf(err) != laputaevolution.ErrMissionRevisionChanged {
+		t.Fatalf("unassigned Mission pin admitted after actual revision changed: %v", err)
+	}
+}
+
 func TestMissionAdmissionFence(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
@@ -230,17 +241,17 @@ func TestMissionAdmissionFence(t *testing.T) {
 
 	drifting := resolved
 	drifting.SubjectID = "profile-foreign"
-	b.Resolve = func(context.Context) (laputaevolution.RunBinding, error) { return drifting, nil }
 	svc.Cancel(runs[0].ID)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		run, getErr := backend.GetRun(ctx, runs[0].ID)
-		if getErr == nil && run.Status.Terminal() {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if _, err := svc.cognitiveAttempt(ctx, true); err == nil ||
+	// Cancellation can legitimately leave the first effectful window fenced.
+	// Probe foreign admission in a fresh owned controller, not by assuming
+	// cancellation made that prior window safely retryable.
+	foreignSvc, foreignBackend := inofyExecService(t, testsupport.NewEchoModel())
+	foreignBinding := *b
+	foreignBinding.Domain = &fakeCognitiveDomain{}
+	foreignBinding.Store = foreignBackend.Snapshot()
+	foreignBinding.Resolve = func(context.Context) (laputaevolution.RunBinding, error) { return drifting, nil }
+	foreignSvc.deps.Cognitive = &foreignBinding
+	if _, err := foreignSvc.cognitiveAttempt(ctx, true); err == nil ||
 		!strings.Contains(err.Error(), "drifted") {
 		t.Fatalf("drifting resolve err = %v, want refused", err)
 	}

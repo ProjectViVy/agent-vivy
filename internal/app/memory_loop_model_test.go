@@ -58,6 +58,19 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 					if body == "" || len(entry.Sources) == 0 {
 						continue
 					}
+					if mode == "persona" {
+						var base uint64
+						for _, view := range doc.Batch.Persona {
+							if view.Kind == laputaevolution.AuthorityIdentity {
+								base = view.Revision
+							}
+						}
+						if base == 0 {
+							return "", fmt.Errorf("actual identity authority revision missing")
+						}
+						candidates = append(candidates, map[string]any{"kind": "persona_request", "persona_request": map[string]any{"kind": "identity", "base_revision": base, "proposed_markdown": "synthetic reviewed identity " + body, "reason": "synthetic source-derived review", "sources": entry.Sources}})
+						continue
+					}
 					sum := sha256.Sum256([]byte(entry.ID + "\x00" + body))
 					mutation := map[string]any{"operation": "create", "record_id": "ml-" + hex.EncodeToString(sum[:16]), "expected_absent": true, "body": body, "sources": entry.Sources, "inference": "observed"}
 					if mode == "rejected" {
