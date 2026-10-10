@@ -83,6 +83,29 @@ offline profile that must drop http_request), extract that one tool then —
 the door is never welded, but do not pre-pay modularity for hypothetical
 flexibility.
 
+## Complexity rule: keep policy with its owner
+
+Keep feature-specific behavior in its owning Module, or its owning internal
+capability under the placement rule. `internal/` placement does not justify
+feature-specific branches in `internal/runtime/`.
+
+Before adding a mechanism, inspect the existing Host/Port and pinned upstream
+capabilities. Reuse or adapt them first. For a necessary core change or
+reimplementation of existing semantics, briefly record in the existing
+development record: the concrete gap, why composition or adaptation is
+insufficient, and the smallest shared contract change needed, if any. This does
+not relax the Eino `DEFERRED-INDEFINITE` gate.
+
+Keep one semantic authority. Protocol and database adapters may translate
+representations or implement backend-specific operations; they must preserve
+the canonical contract rather than independently redefine policy. Shared core
+extension points belong in the established Host/Port path.
+
+For an optional Module, verify that a Recipe omitting it packs and runs without
+editing runtime code. Remove superseded paths within the change's scope.
+Preserve correctness, security, durability, and required tests; minimize
+maintained mechanisms, not lines at their expense.
+
 ## Example decision
 
 Request: “Publish another `read_file` plugin.”
