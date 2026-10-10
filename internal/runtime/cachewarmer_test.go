@@ -582,9 +582,17 @@ func TestCacheWarmAdmissionBudgetDenialDoesNotFailOwningEnd(t *testing.T) {
 					}
 				}
 			}
-			p := waitForCacheWarmed(t, backend, runID, "skipped")
-			if p.Reason != "budget_exhausted" {
-				t.Fatalf("denied warm diagnostic=%+v", p)
+			if policy.MaxEvents > 0 {
+				for _, ev := range journalEvents(t, backend, runID) {
+					if ev.Type == domain.EventCacheWarmed {
+						t.Fatal("optional diagnostic bypassed exhausted event admission")
+					}
+				}
+			} else {
+				p := waitForCacheWarmed(t, backend, runID, "skipped")
+				if p.Reason != "budget_exhausted" {
+					t.Fatalf("denied warm diagnostic=%+v", p)
+				}
 			}
 		})
 	}
@@ -649,5 +657,43 @@ func TestCacheWarmPaidUsageBudgetFailureRemainsMandatory(t *testing.T) {
 	}
 	if finishes != 1 {
 		t.Fatalf("paid maintenance closures=%d, want one", finishes)
+	}
+}
+
+func TestCacheWarmDiagnosticsConsumeAvailableEventBudget(t *testing.T) {
+	m := newWarmSpyModel()
+	svc, backend, _ := newWarmService(t, m, "streaming", 100, 60)
+	ctx := context.Background()
+	mustCreateSession(t, backend, "warm-diagnostic-budget")
+	runID := domain.RunID("warm-diagnostic-budget")
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "warm-diagnostic-budget", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	mapper := newEventMapper(runID, 64<<10)
+	mapper.setUsageRoutes("test", "test-model", "")
+	ledger, err := NewBudgetLedger(BudgetPolicy{MaxEvents: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warmer := svc.newRunCacheWarmer(ctx, mapper, "warm-diagnostic-budget", svc.engine, ledger)
+	for range 2 {
+		if err := warmer.settled(normalizedUsageSample{PromptTokens: 5000}, modelCallInput{Messages: []*schema.Message{schema.SystemMessage("stable")}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	diagnostics := 0
+	for _, ev := range journalEvents(t, backend, runID) {
+		if ev.Type == domain.EventCacheWarmed {
+			diagnostics++
+		}
+	}
+	if diagnostics != 1 {
+		t.Fatalf("diagnostics=%d, want only available event admission", diagnostics)
+	}
+	if got := ledger.Snapshot().Usage.Events; got != 1 {
+		t.Fatalf("diagnostic event charges=%d, want one", got)
+	}
+	if _, warm := m.counts(); warm != 0 {
+		t.Fatalf("skipped diagnostic work invoked provider %d times", warm)
 	}
 }

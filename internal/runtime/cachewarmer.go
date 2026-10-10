@@ -195,6 +195,13 @@ func (o *cacheWarmObserver) End(ctx context.Context, meta modelCallMeta, result 
 }
 
 func (w *runCacheWarmer) journal(payload payloadCacheWarmed) {
+	// Diagnostics are optional Journal events, not settlement exemptions.
+	// Lack of admission drops the marker without failing foreground work.
+	if w.ledger != nil {
+		if err := w.ledger.ReserveEvent(); err != nil {
+			return
+		}
+	}
 	payload.Provider = w.m.runProvider
 	payload.Model = w.m.runModel
 	payload.Mode = cacheWarmModeStreaming

@@ -38,3 +38,9 @@ Warm fixture accounting: first request reports 1,345 total prompt tokens, includ
 - Follow-up complete affected-package suites passed: runtime 48.992s, RPC 14.748s, storage 0.003s, config 0.012s.
 - Follow-up focused race checks for optional admission, single-call run, paid usage-budget failure, and mandatory persistence failure passed (6.659s).
 - Follow-up vet for the four affected packages and `git diff --check` passed. Integrated `just ci` remains parent-owned.
+
+## Optional diagnostic event-cap follow-up
+
+RED confirmed an event-admission-denied warm still appended an unbudgeted marker, and two economic skips appended two diagnostics at `MaxEvents: 1`. Every diagnostic now reserves event admission, and lack of admission omits the marker without failing the owning call or making provider work.
+
+The event-cap follow-up complete affected-package suites passed: runtime 70.795s, RPC 25.431s, storage 0.012s, config 0.031s. All warming race checks passed (27.475s); affected-package vet and `git diff --check` passed. The parent owns the integrated product gate.
