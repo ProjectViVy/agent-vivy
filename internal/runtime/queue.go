@@ -233,7 +233,10 @@ func (s *Service) enqueueTurn(ctx context.Context, sid domain.SessionID, rid dom
 	}
 	// Also reserve the full restoration marker; successful enqueue must not
 	// create an item whose later dequeue/abort cannot fit the same journal.
-	removal := newEventMapper(rid, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text, Turn: &item})
+	// A steer may fall back to follow_up, whose two encoded track fields grow.
+	restoreItem := item
+	restoreItem.Track = domain.QueueTrackFollowUp
+	removal := newEventMapper(rid, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: restoreItem.ID, Track: restoreItem.Track, Reason: "dequeued", Text: restoreItem.Text, Turn: &restoreItem})
 	if err := validateQueuePayload(removal, s.engine.cfg.MaxEventPayloadBytes); err != nil {
 		return domain.QueuedTurn{}, err
 	}
