@@ -227,6 +227,9 @@ func (m *holdCancellationModel) Stream(ctx context.Context, _ []*domain.Message)
 		context.AfterFunc(ctx, func() { m.cancelOnce.Do(func() { close(m.cancelled) }) })
 	}
 	<-m.release
+	// Cleanup may release the barrier before CancelAll cancels the owned run.
+	// A cancellation-only model must never return a nil stream with nil error.
+	<-ctx.Done()
 	return nil, ctx.Err()
 }
 func (m *holdCancellationModel) unblock() { m.done.Do(func() { close(m.release) }) }
