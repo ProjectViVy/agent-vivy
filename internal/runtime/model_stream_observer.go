@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
+
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
@@ -85,15 +87,6 @@ func withModelCallObserverFactory(ctx context.Context, factory modelCallObserver
 func modelCallObserverFactoryFrom(ctx context.Context) modelCallObserverFactory {
 	factory, _ := ctx.Value(modelCallObserverKey{}).(modelCallObserverFactory)
 	return factory
-}
-
-// withoutModelCallObserver strips the per-run observer binding: cache-warm
-// calls (VCP F2) are runtime-owned maintenance traffic, never journaled as
-// model.request/model.usage/model.call.finished — cache.warmed is their
-// only trace. Other context values (run id, workspace, cancellation) pass
-// through unchanged.
-func withoutModelCallObserver(ctx context.Context) context.Context {
-	return context.WithValue(ctx, modelCallObserverKey{}, modelCallObserverFactory(nil))
 }
 
 // observedModelCallCore carries the wrapper state shared by the
@@ -322,11 +315,23 @@ func (m *observingBaseModel) Stream(ctx context.Context, input []*schema.Message
 // and non-cumulative total conventions mark the call partial rather than
 // silently rewriting evidence (D2).
 type usageAccumulator struct {
-	merged   *schema.Message
-	latest   *schema.TokenUsage
-	partial  bool
-	reported bool
-	lastEmit string
+	merged     *schema.Message
+	latest     *schema.TokenUsage
+	partial    bool
+	reported   bool
+	lastEmit   string
+	cacheWrite *int
+}
+
+func (a *usageAccumulator) recordCacheWrite(msg *schema.Message) {
+	if v, ok := einoclaude.GetCacheCreationInputTokens(msg); ok {
+		if a.cacheWrite != nil && v < *a.cacheWrite {
+			a.partial = true
+		}
+		if a.cacheWrite == nil || v > *a.cacheWrite {
+			a.cacheWrite = &v
+		}
+	}
 }
 
 func (a *usageAccumulator) record(u *schema.TokenUsage) {
@@ -381,6 +386,7 @@ type normalizedUsageSample struct {
 	TotalTokens      int
 	ReasoningTokens  *int
 	CachedTokens     *int
+	CacheWriteTokens *int
 	Partial          bool
 }
 
@@ -394,6 +400,7 @@ func (a *usageAccumulator) sample() (normalizedUsageSample, bool) {
 		CompletionTokens: u.CompletionTokens,
 		TotalTokens:      u.PromptTokens + u.CompletionTokens,
 		Partial:          a.partial,
+		CacheWriteTokens: a.cacheWrite,
 	}
 	if v := u.CompletionTokensDetails.ReasoningTokens; v > 0 {
 		s.ReasoningTokens = &v
@@ -405,12 +412,15 @@ func (a *usageAccumulator) sample() (normalizedUsageSample, bool) {
 }
 
 func (s normalizedUsageSample) key() string {
-	reasoning, cached := -1, -1
+	reasoning, cached, write := -1, -1, -1
 	if s.ReasoningTokens != nil {
 		reasoning = *s.ReasoningTokens
 	}
 	if s.CachedTokens != nil {
 		cached = *s.CachedTokens
 	}
-	return fmt.Sprintf("%d/%d/%d/%d/%d/%t", s.PromptTokens, s.CompletionTokens, s.TotalTokens, reasoning, cached, s.Partial)
+	if s.CacheWriteTokens != nil {
+		write = *s.CacheWriteTokens
+	}
+	return fmt.Sprintf("%d/%d/%d/%d/%d/%d/%t", s.PromptTokens, s.CompletionTokens, s.TotalTokens, reasoning, cached, write, s.Partial)
 }

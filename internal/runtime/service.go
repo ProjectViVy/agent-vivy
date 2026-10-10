@@ -231,12 +231,10 @@ type ServiceDeps struct {
 	// middleware; nil disables ScheduleEngineReload.
 	RebuildEngine func(ctx context.Context, cfg EngineConfig) (*Engine, error)
 	// CacheWarmingMode selects the prompt-cache warming trigger
-	// (runtime.cache_warming): "off", "streaming", or "idle". Empty keeps
-	// the "streaming" default; "off" makes the scheduler inert.
+	// (runtime.cache_warming): "off" or "streaming". Empty disables warming.
 	CacheWarmingMode string
-	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
-	// which a warm is skipped; the token-count proxy covers unpriced
-	// models (runtime.cache_warming_min_savings).
+	// CacheWarmingMinSavingsUSD gates estimated gross savings on one
+	// future reuse of the actual system/tools prefix, excluding warm cost.
 	CacheWarmingMinSavingsUSD float64
 }
 
@@ -2969,7 +2967,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	}
 	// The cache warmer (VCP F2) binds before the observer so settled
 	// calls feed it; nil when the run's model or config opts out.
-	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, selection.Names())
+	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, ledger)
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
@@ -3065,6 +3063,7 @@ type runModelCallObserver struct {
 type observedModelCall struct {
 	mode  string
 	usage usageAccumulator
+	input modelCallInput
 }
 
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -3074,7 +3073,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 		Model:    o.model,
 		Source:   o.source,
 	}
-	if o.source != modelCallSourceSummary {
+	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
 	}
 	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
@@ -3104,15 +3103,19 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
 		return meta, errors.New("runtime: model request event could not be journaled")
 	}
-	o.m.noteObservedCallStart()
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallStart()
+	}
 	o.mu.Lock()
-	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode}
+	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in}
 	o.mu.Unlock()
 	return meta, nil
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
-	o.m.noteObservedCallMaterialized(o.source)
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallMaterialized(o.source)
+	}
 }
 
 func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.Message) error {
@@ -3133,6 +3136,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 	var pendingUsageKey string
 	if state != nil {
 		if u := usageOfMessage(chunk); u != nil {
+			state.usage.recordCacheWrite(chunk)
 			state.usage.record(u)
 			if sample, ok := state.usage.sample(); ok && sample.key() != state.usage.lastEmit {
 				pendingUsageKey = sample.key()
@@ -3207,6 +3211,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 				TotalTokens:      sample.TotalTokens,
 				ReasoningTokens:  sample.ReasoningTokens,
 				CachedTokens:     sample.CachedTokens,
+				CacheWriteTokens: sample.CacheWriteTokens,
 			}
 			if sample.Partial {
 				finish.Usage.NormalizationPartial = boolTrue()
@@ -3218,7 +3223,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {
 		if sample, ok := usage.sample(); ok {
-			o.warmer.settled(sample)
+			return o.warmer.settled(sample, state.input)
 		}
 	}
 	return nil
@@ -3250,6 +3255,7 @@ func (o *runModelCallObserver) usagePayloadV2(meta modelCallMeta, sample normali
 		TotalTokens:      sample.TotalTokens,
 		ReasoningTokens:  sample.ReasoningTokens,
 		CachedTokens:     sample.CachedTokens,
+		CacheWriteTokens: sample.CacheWriteTokens,
 	}
 	if sample.Partial {
 		p.NormalizationPartial = boolTrue()
@@ -4665,7 +4671,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	}
 	// The resume leg binds its own cache warmer (VCP F2): the prior leg's
 	// scheduler died with its context.
-	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, selectedTools)
+	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, ledger)
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or

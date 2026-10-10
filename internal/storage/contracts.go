@@ -232,6 +232,7 @@ type UsageRow struct {
 	TotalTokens      int
 	ReasoningTokens  int
 	CachedTokens     int
+	CacheWriteTokens int
 	// RequestCount counts usage reports: one for a row carrying usage
 	// evidence, zero for an observed attempt without any valid sample, and
 	// may be greater for bounded session-route aggregates.
@@ -250,10 +251,11 @@ type UsageRow struct {
 	// recorded on the finish record). A missing sample stays zero — never
 	// a fabricated one.
 	HasUsage bool
-	// ReasoningKnown/CachedKnown report whether the optional buckets were
+	// ReasoningKnown/CachedKnown/CacheWriteKnown report whether the buckets were
 	// present in the evidence; false means unknown, not zero.
-	ReasoningKnown bool
-	CachedKnown    bool
+	ReasoningKnown  bool
+	CachedKnown     bool
+	CacheWriteKnown bool
 	// NormalizationPartial marks provisional evidence: contradictory or
 	// discarded reports made the normalized totals non-authoritative.
 	NormalizationPartial bool

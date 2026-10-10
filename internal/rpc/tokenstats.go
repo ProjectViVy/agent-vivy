@@ -138,7 +138,9 @@ type ModelMeta func(ctx context.Context, provider, model string) domain.ModelInf
 // rowCostUSD prices one usage row. The second return is false when the
 // route has no reference pricing.
 func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float64, bool) {
-	if meta == nil {
+	if meta == nil || r.CacheWriteTokens != 0 {
+		// No cache-write price is declared in model metadata. Never silently
+		// charge creation tokens at the ordinary input rate or treat them as free.
 		return 0, false
 	}
 	info := meta(ctx, r.Provider, r.Model)

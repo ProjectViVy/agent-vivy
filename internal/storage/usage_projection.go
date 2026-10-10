@@ -61,6 +61,7 @@ type usageSampleWire struct {
 	CompletionTokens     int    `json:"completion_tokens"`
 	TotalTokens          int    `json:"total_tokens"`
 	ReasoningTokens      *int   `json:"reasoning_tokens"`
+	CacheWriteTokens     *int   `json:"cache_write_tokens"`
 	CachedTokens         *int   `json:"cached_tokens"`
 	NormalizationPartial *bool  `json:"normalization_partial"`
 	Settlement           *bool  `json:"settlement"`
@@ -74,6 +75,7 @@ type usageFinishWire struct {
 		CompletionTokens     int   `json:"completion_tokens"`
 		TotalTokens          int   `json:"total_tokens"`
 		ReasoningTokens      *int  `json:"reasoning_tokens"`
+		CacheWriteTokens     *int  `json:"cache_write_tokens"`
 		CachedTokens         *int  `json:"cached_tokens"`
 		NormalizationPartial *bool `json:"normalization_partial"`
 	} `json:"usage"`
@@ -91,6 +93,7 @@ type usageCounts struct {
 	total      int
 	reasoning  *int
 	cached     *int
+	write      *int
 	partial    bool
 	settlement bool
 }
@@ -110,6 +113,12 @@ func validUsageCounts(u usageCounts) bool {
 		return false
 	}
 	if u.cached != nil && (*u.cached < 0 || *u.cached > u.prompt) {
+		return false
+	}
+	if u.write != nil && (*u.write < 0 || *u.write > u.prompt) {
+		return false
+	}
+	if u.write != nil && u.cached != nil && *u.write+*u.cached > u.prompt {
 		return false
 	}
 	return true
@@ -184,6 +193,7 @@ func ProjectUsageRows(run UsageRunInput, sinceMilli int64) []UsageRow {
 				total:      p.TotalTokens,
 				reasoning:  p.ReasoningTokens,
 				cached:     p.CachedTokens,
+				write:      p.CacheWriteTokens,
 				partial:    p.NormalizationPartial != nil && *p.NormalizationPartial,
 			}
 			if p.Settlement != nil {
@@ -286,6 +296,7 @@ func projectAttempt(run UsageRunInput, callID string, att *usageAttempt, started
 			total:      u.TotalTokens,
 			reasoning:  u.ReasoningTokens,
 			cached:     u.CachedTokens,
+			write:      u.CacheWriteTokens,
 			partial:    u.NormalizationPartial != nil && *u.NormalizationPartial,
 		}
 		hasUsage = validUsageCounts(counts)
@@ -303,6 +314,10 @@ func projectAttempt(run UsageRunInput, callID string, att *usageAttempt, started
 		if counts.cached != nil {
 			row.CachedTokens = *counts.cached
 			row.CachedKnown = true
+		}
+		if counts.write != nil {
+			row.CacheWriteTokens = *counts.write
+			row.CacheWriteKnown = true
 		}
 		row.NormalizationPartial = counts.partial || att.sawInvalid
 		row.Settlement = counts.settlement
@@ -347,6 +362,10 @@ func projectLegacyUsage(run UsageRunInput, ev CanonicalUsageEvent, started runSt
 		row.CachedTokens = *p.CachedTokens
 		row.CachedKnown = true
 	}
+	if p.CacheWriteTokens != nil {
+		row.CacheWriteTokens = *p.CacheWriteTokens
+		row.CacheWriteKnown = true
+	}
 	row.Provider, row.Model = started.Provider, started.Model
 	applyUsageAttribution(&row, p.Provider, p.Model, p.Source)
 	return row, true
@@ -388,12 +407,14 @@ func AggregateUsageRows(rows []UsageRow) []UsageRow {
 			current = row
 			current.PromptTokens, current.CompletionTokens, current.TotalTokens = 0, 0, 0
 			current.ReasoningTokens, current.CachedTokens, current.RequestCount = 0, 0, 0
+			current.CacheWriteTokens = 0
 		}
 		current.PromptTokens += row.PromptTokens
 		current.CompletionTokens += row.CompletionTokens
 		current.TotalTokens += row.TotalTokens
 		current.ReasoningTokens += row.ReasoningTokens
 		current.CachedTokens += row.CachedTokens
+		current.CacheWriteTokens += row.CacheWriteTokens
 		current.RequestCount += row.RequestCount
 		if row.CreatedAt > current.CreatedAt {
 			current.CreatedAt = row.CreatedAt

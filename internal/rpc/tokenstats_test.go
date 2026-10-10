@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -327,5 +328,18 @@ func TestBuildTokenSnapshotCoverageStates(t *testing.T) {
 	}
 	if !complete.Total.CostKnown {
 		t.Fatalf("fully observed priced scope must be cost_known: %+v", complete.Total)
+	}
+}
+
+func TestRowCostCacheWriteWithoutDeclaredRateIsUnknown(t *testing.T) {
+	var row storage.UsageRow
+	if err := json.Unmarshal([]byte(`{"PromptTokens":1500,"CompletionTokens":2,"CacheWriteTokens":1200,"CacheWriteKnown":true}`), &row); err != nil {
+		t.Fatal(err)
+	}
+	meta := ModelMeta(func(context.Context, string, string) domain.ModelInfo {
+		return domain.ModelInfo{InputPerMTokens: 3, CachedInputPerMTokens: 0.3, OutputPerMTokens: 15}
+	})
+	if cost, known := rowCostUSD(context.Background(), meta, row); known || cost != 0 {
+		t.Fatalf("undeclared cache write price priced as ordinary input: %v/%v", cost, known)
 	}
 }
