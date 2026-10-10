@@ -125,6 +125,7 @@ func TestMemoryLoopInterruptedInferenceKeepsOriginalWindow(t *testing.T) {
 	if admitted.Cognition.ActiveRunID == "" || admitted.Cognition.Watermark != 0 || window.After != 0 || window.Through != before.CaptureSeq {
 		t.Fatalf("original admission missing: %+v window=%+v", admitted, window)
 	}
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "before-crash", before)
 	oldPID, newPID, err := f.crashAndRestart(ctx)
 	if err != nil || oldPID <= 0 || newPID <= 0 || oldPID == newPID {
 		t.Fatalf("actual process crash/restart: %d -> %d: %v", oldPID, newPID, err)
@@ -172,4 +173,5 @@ func TestMemoryLoopInterruptedInferenceKeepsOriginalWindow(t *testing.T) {
 		t.Fatalf("interrupted inference duplicated/lost canonical source: %+v %v", source, err)
 	}
 	t.Logf("real interrupted workflow=%s source=%d window=[%d,%d] processes=%d->%d engine=%s watermark=%d requests=%d", workflow.ID, source.CaptureSeq, window.After, window.Through, oldPID, newPID, workflow.EngineStatus, after.Cognition.Watermark, len(f.ModelRequests()))
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "after-crash", source)
 }

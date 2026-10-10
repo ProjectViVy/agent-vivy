@@ -79,4 +79,5 @@ func TestMemoryLoopExcludesDerivedEvidence(t *testing.T) {
 	if count != 1 || high != source.CaptureSeq || state.Cognition.Watermark != source.CaptureSeq || state.Cognition.PendingThrough != source.CaptureSeq || state.Cognition.Phase != "idle" {
 		t.Fatalf("derived activity reentered actual source: rows=%d high=%d source=%d state=%+v", count, high, source.CaptureSeq, state)
 	}
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "settled", source, reflected)
 }

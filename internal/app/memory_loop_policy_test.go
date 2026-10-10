@@ -178,6 +178,7 @@ func TestMemoryLoopForegroundBusyDefersOriginalInput(t *testing.T) {
 	if err != nil || after.CanonicalCount != 2 {
 		t.Fatalf("no-change after busy created derived source: %+v %v", after, err)
 	}
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "settled", original, after)
 }
 
 func memoryLoopInferenceWindow(t *testing.T, raw json.RawMessage, stage string) laputaevolution.Window {
@@ -272,6 +273,7 @@ func TestMemoryLoopMinimumIntervalDefersActualNewSource(t *testing.T) {
 	if len(f.ModelRequests()) != 6 {
 		t.Fatalf("interval release did not admit exactly once: %d", len(f.ModelRequests()))
 	}
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "settled", first, next)
 }
 
 func TestMemoryLoopConcurrentWakeKeepsOneOriginalActiveWindow(t *testing.T) {
@@ -352,4 +354,5 @@ func TestMemoryLoopConcurrentWakeKeepsOneOriginalActiveWindow(t *testing.T) {
 	if err != nil || reflected.CanonicalCount != 4 {
 		t.Fatalf("later input or original memory effects lost/duplicated: %+v %v", reflected, err)
 	}
+	saveMemoryLoopDevelopmentEvidence(t, f, session, "settled", latest, reflected)
 }
