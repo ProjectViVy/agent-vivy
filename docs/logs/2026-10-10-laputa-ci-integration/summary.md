@@ -6,4 +6,6 @@ Compilation exposed two further integration failures: the source-bound conforman
 
 Windows CI also exposed a receipt-handshake fixture read failing with ERROR_SHARING_VIOLATION during atomic publication. Retry only this transient Windows error within the existing deadline; all other errors and receipt assertions remain unchanged. A Windows-only regression holds a real exclusive file handle and verifies the intact receipt after release. Refresh the five source identities again for these test-source changes.
 
-No runtime implementation, existing test assertion, module version declaration, product Recipe, notebook branch, or architecture contract changes. Every test remains covered by the required gate. No merge, deployment, or release is included.
+The next Windows log exposed two additional ordinary failures. `App.Run` omitted the existing observer drain and owned cognitive Bundle close performed by `App.Close`, leaving Garden databases open at fixture cleanup. Add those lifecycle calls to Run without changing the contract or timeout. The output-spill fixture used a printf precision unsupported by the actual Windows embedded interpreter; use a supported width format and exercise both shell paths with the same full spill assertions.
+
+No module version declaration, product Recipe, notebook branch, or architecture contract changes. Existing assertions remain intact and shutdown now additionally checks that the cognitive source is unusable after Run returns. Every test remains covered by the required gate. No merge, deployment, or release is included.
