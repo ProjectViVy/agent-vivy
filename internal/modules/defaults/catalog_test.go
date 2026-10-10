@@ -120,3 +120,18 @@ func TestDefaultCatalogBindsP4HostsAndSources(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogDeclaresCompositionWithoutReadingSourceTree(t *testing.T) {
+	records, err := Catalog(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if err := record.Descriptor.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if record.Descriptor.Source.SHA256 != "" {
+			t.Fatal("declarative defaults must leave provenance derivation to the SDK Source Catalog")
+		}
+	}
+}

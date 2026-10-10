@@ -28,7 +28,7 @@ func TestSourceCatalogAssignsTrustOutsideDescriptor(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
+func TestExternalSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -40,7 +40,7 @@ func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	}
 	descriptor := testDescriptor("fixture/source")
 	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
-	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+	record := SourceRecord{Descriptor: descriptor, Trust: TrustT2, Root: root, Ref: descriptor.Source.Ref}
 	if _, err := NewSourceCatalog([]SourceRecord{record}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
+func TestExternalSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
 	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
@@ -69,7 +69,7 @@ func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
 	}
 	descriptor := testDescriptor("fixture/source")
 	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
-	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+	record := SourceRecord{Descriptor: descriptor, Trust: TrustT2, Root: root, Ref: descriptor.Source.Ref}
 	catalog, err := NewSourceCatalog([]SourceRecord{record})
 	if err != nil {
 		t.Fatal(err)
@@ -179,5 +179,86 @@ func testDescriptor(id string) module.Descriptor {
 		Requires:        []module.Requirement{},
 		RequestedGrants: []module.Grant{},
 		Lifecycle:       module.Lifecycle{Scope: module.ScopeGeneration},
+	}
+}
+
+// First-party authoring hashes are hints; only external Recipe pins are locks.
+func TestFirstPartySourceCatalogDerivesCurrentProvenance(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "module.go")
+	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldDigest, err := HashSourceTree(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, []byte("package fixture\n// ordinary edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentDigest, err := HashSourceTree(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hint := range []string{oldDigest, ""} {
+		descriptor := testDescriptor("fixture/source")
+		descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: hint}
+		record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
+		catalog, err := NewSourceCatalog([]SourceRecord{record})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := catalog.Resolve(descriptor.Module.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.Descriptor.Source.SHA256 != currentDigest {
+			t.Fatalf("bound digest = %q, want current %q", resolved.Descriptor.Source.SHA256, currentDigest)
+		}
+		if record.Descriptor.Source.SHA256 != hint {
+			t.Fatal("catalog mutated authoring descriptor")
+		}
+	}
+}
+
+func TestSourceCatalogVerifiesCapturedSourcesBeforePublication(t *testing.T) {
+	for _, trust := range []Trust{TrustT1, TrustT2} {
+		t.Run(string(trust), func(t *testing.T) {
+			root := t.TempDir()
+			filename := filepath.Join(root, "module.go")
+			hint := strings.Repeat("a", 64)
+			// Keep an embedded normalization hint to prove that final validation
+			// uses the captured hint, not the newly derived digest.
+			original := []byte("package fixture\n// " + hint + "\n")
+			if err := os.WriteFile(filename, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			descriptor := testDescriptor("fixture/source")
+			descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: hint}
+			if trust == TrustT2 {
+				digest, err := HashSourceTree(root, hint)
+				if err != nil {
+					t.Fatal(err)
+				}
+				original = []byte(strings.ReplaceAll(string(original), hint, digest))
+				if err := os.WriteFile(filename, original, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				descriptor.Source.SHA256 = digest
+			}
+			catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: descriptor, Trust: trust, Root: root, Ref: descriptor.Source.Ref}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := catalog.VerifyUnchanged(); err != nil {
+				t.Fatalf("unchanged captured source: %v", err)
+			}
+			if err := os.WriteFile(filename, append(original, []byte("// edit during build\n")...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := catalog.VerifyUnchanged(); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
+				t.Fatalf("publication source check = %v, want captured identity rejection", err)
+			}
+		})
 	}
 }
