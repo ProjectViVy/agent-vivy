@@ -88,6 +88,16 @@ func trustedStrategyOf(spec *trustedSpec) string {
 	return spec.strategyID
 }
 
+// The fixed six-stage strategy carries bounded evidence through several
+// packets. Keep each packet's ceiling, and budget all six outputs rather
+// than treating the whole graph as one packet. Authored graphs keep their
+// existing aggregate ceiling.
+func cognitiveWorkflowLimits() inofy.Limits {
+	limits := inofyWorkflowLimits()
+	limits.MaxOutputBytesTotal = 6 * orchestration.MaxOutputBytes
+	return limits
+}
+
 // trustedStrategyAdmission compiles one host-owned strategy definition
 // against its dedicated catalog. The definition bytes come from code, so an
 // authored graph can never reference these nodes.
@@ -107,7 +117,7 @@ func trustedStrategyAdmission(ctx context.Context, strategyID string) (inofyAdmi
 	if err != nil {
 		return inofyAdmission{}, err
 	}
-	program, diags, err := inofy.Compile(ctx, def, catalog, inofy.CompileOptions{Limits: inofyWorkflowLimits()})
+	program, diags, err := inofy.Compile(ctx, def, catalog, inofy.CompileOptions{Limits: cognitiveWorkflowLimits()})
 	if err != nil {
 		return inofyAdmission{}, fmt.Errorf("runtime: compile trusted strategy: %w", err)
 	}
