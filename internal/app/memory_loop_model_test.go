@@ -56,7 +56,7 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 					if body == "" || len(entry.Sources) == 0 {
 						continue
 					}
-					if mode == "persona" {
+					if mode == "persona" || mode == "persona-restricted" {
 						var base uint64
 						for _, view := range doc.Batch.Persona {
 							if view.Kind == laputaevolution.AuthorityIdentity {
@@ -66,7 +66,20 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 						if base == 0 {
 							return "", fmt.Errorf("actual identity authority revision missing")
 						}
-						candidates = append(candidates, map[string]any{"kind": "persona_request", "persona_request": map[string]any{"kind": "identity", "base_revision": base, "proposed_markdown": "synthetic reviewed identity " + body, "reason": "synthetic source-derived review", "sources": entry.Sources}})
+						payload := map[string]any{"kind": "identity", "base_revision": base, "proposed_markdown": "synthetic reviewed identity " + body, "reason": "synthetic source-derived review", "sources": entry.Sources}
+						if mode == "persona-restricted" {
+							switch {
+							case strings.Contains(body, "[forbid=mission]"):
+								payload["kind"] = "mission"
+							case strings.Contains(body, "[forbid=dream]"):
+								payload["kind"] = "dream"
+							case strings.Contains(body, "[forbid=actor]"):
+								payload["actor"] = "user"
+							default:
+								return "", fmt.Errorf("restricted probe marker missing from actual user source")
+							}
+						}
+						candidates = append(candidates, map[string]any{"kind": "persona_request", "persona_request": payload})
 						continue
 					}
 					sum := sha256.Sum256([]byte(entry.ID + "\x00" + body))
