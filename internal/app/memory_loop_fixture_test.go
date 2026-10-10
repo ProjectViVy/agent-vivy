@@ -241,10 +241,11 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 }
 
 type memoryLoopRecallQuery struct {
-	Request  contextsource.Request `json:"request"`
-	Page     contextsource.Page    `json:"page"`
-	Error    string                `json:"error,omitempty"`
-	Disabled bool                  `json:"disabled,omitempty"`
+	Request       contextsource.Request `json:"request"`
+	Page          contextsource.Page    `json:"page"`
+	Error         string                `json:"error,omitempty"`
+	ElapsedMillis int64                 `json:"elapsed_ms,omitempty"`
+	Disabled      bool                  `json:"disabled,omitempty"`
 }
 
 // The fixture only observes the selected native Source; it neither returns
@@ -267,10 +268,13 @@ func (s *memoryLoopObservedRecallSource) BindCognitiveContext(bundle cognitiveco
 func (s *memoryLoopObservedRecallSource) Query(ctx context.Context, request contextsource.Request) (contextsource.Page, error) {
 	var page contextsource.Page
 	var err error
+	var elapsedMillis int64
 	if !s.fixture.options.RecallDisabled {
+		started := time.Now()
 		page, err = s.Provider.Query(ctx, request)
+		elapsedMillis = time.Since(started).Milliseconds()
 	}
-	entry := memoryLoopRecallQuery{Request: request, Page: contextsource.NewPage(page.Candidates, page.NextCursor), Disabled: s.fixture.options.RecallDisabled}
+	entry := memoryLoopRecallQuery{Request: request, Page: contextsource.NewPage(page.Candidates, page.NextCursor), ElapsedMillis: elapsedMillis, Disabled: s.fixture.options.RecallDisabled}
 	if err != nil {
 		entry.Error = err.Error()
 	}
