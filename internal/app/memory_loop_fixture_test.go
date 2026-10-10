@@ -40,6 +40,7 @@ type memoryLoopOptions struct {
 	EffectHandshakePath         string // test-only C03 effect-to-caller-receipt crash handshake
 	EffectHandshakeIndex        int    // zero-based memory effect index for C03/C04 handshakes
 	WatermarkHandshakePath      string // test-only C05 resolved-window-to-watermark crash handshake
+	C06IndexHandshakePath       string // C06 overlay-only canonical-to-index crash handshake
 }
 type memoryLoopSnapshot struct {
 	ProcessID             int
@@ -212,6 +213,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if opts.WatermarkHandshakePath != "" {
 		compositionOptions = append(compositionOptions, memoryLoopCognitiveWatermarkHandshakeOption(opts.WatermarkHandshakePath))
 	}
+	configureMemoryLoopC06Hook(opts.C06IndexHandshakePath)
 	f.app, err = NewWithAssembly(context.Background(), cfg, assembly, compositionOptions...)
 	if err != nil {
 		t.Fatalf("real App.New: %v", err)

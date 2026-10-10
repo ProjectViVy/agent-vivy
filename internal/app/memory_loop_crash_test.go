@@ -930,6 +930,217 @@ func assertMemoryLoopC05Canonical(t *testing.T, f *memoryLoopFixture, target, fa
 	}
 }
 
+type memoryLoopC06Handshake struct {
+	PID             int    `json:"pid"`
+	OperationID     string `json:"operation_id"`
+	TargetRef       string `json:"target_ref"`
+	Revision        uint64 `json:"revision"`
+	Status          string `json:"status"`
+	CanonicalStatus string `json:"canonical_status"`
+	IndexStatus     string `json:"index_status"`
+}
+
+// C06 kills the real process after Mentle's canonical transaction and durable
+// index outbox commit, but before the derived index job is claimed.
+func TestMemoryLoopCrashC06CanonicalBeforeDerivedIndex(t *testing.T) {
+	if !memoryLoopC06OverlayAvailable() {
+		t.Skip("C06 diagnostic overlay required")
+	}
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	handshakePath := filepath.Join(t.TempDir(), "canonical-before-index.json")
+	f := newMemoryLoopFixture(t, memoryLoopOptions{
+		ConfigPath: memoryLoopConfig(t), ModelMode: "reflection", C06IndexHandshakePath: handshakePath,
+	})
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, session)
+	fact := memoryLoopRandomFact(t)
+	runID := memoryLoopTurn(t, f, session, fact)
+	source, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := waitMemoryLoopC06Handshake(t, handshakePath, 45*time.Second)
+	if f.remote == nil || handshake.PID != f.remote.pid || !strings.Contains(handshake.OperationID, "/graph/nodes/effects:") || handshake.TargetRef == "" || handshake.Revision != 1 || handshake.Status != "applied" || handshake.CanonicalStatus != "completed" || handshake.IndexStatus != "pending" {
+		t.Fatalf("C06 did not stop after a completed canonical commit and before index application: %+v", handshake)
+	}
+	beforeReceipt := memoryLoopC06PublicReceipt(t, f, session, handshake.OperationID)
+	if beforeReceipt.TargetRef != handshake.TargetRef || beforeReceipt.Revision != handshake.Revision || beforeReceipt.Status != handshake.Status || beforeReceipt.CanonicalStatus != handshake.CanonicalStatus || beforeReceipt.IndexStatus != handshake.IndexStatus {
+		t.Fatalf("C06 public receipt differs from committed pre-index receipt: handshake=%+v receipt=%+v", handshake, beforeReceipt)
+	}
+	assertMemoryLoopC06Canonical(t, f, handshake.TargetRef, fact, 2)
+	assertMemoryLoopC06Outbox(t, f, handshake.TargetRef, "pending", 0)
+
+	var before struct {
+		Memory struct {
+			IndexState string `json:"index_state"`
+		} `json:"memory"`
+		Cognition struct {
+			ActiveRunID    string `json:"active_run_id"`
+			Watermark      uint64 `json:"watermark"`
+			PendingThrough uint64 `json:"pending_through"`
+			Phase          string `json:"phase"`
+		} `json:"cognition"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &before)
+	if before.Memory.IndexState != "pending" || before.Cognition.ActiveRunID == "" || before.Cognition.Phase != "running" || before.Cognition.Watermark != 0 || before.Cognition.PendingThrough != source.CaptureSeq {
+		t.Fatalf("C06 crash boundary was not observed as canonical pending-index with unresolved workflow: status=%+v source=%+v", before, source)
+	}
+	workflowID := before.Cognition.ActiveRunID
+	requestsBefore := len(f.ModelRequests())
+	if requestsBefore != 3 {
+		t.Fatalf("C06 expected primary + reconcile + reflect requests before crash, got %d", requestsBefore)
+	}
+	oldPID, newPID, err := f.crashAndRestart(ctx)
+	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
+		t.Fatalf("crash/restart at C06 canonical/index boundary: %d -> %d: %v", oldPID, newPID, err)
+	}
+	sessionParams, _ := json.Marshal(map[string]any{"session_id": session})
+	if _, err := f.Call(ctx, "session/get", sessionParams); err != nil {
+		t.Fatalf("rebind user session after process restart: %v", err)
+	}
+
+	deadline := time.Now().Add(20 * time.Second)
+	var after struct {
+		Memory struct {
+			IndexState string `json:"index_state"`
+		} `json:"memory"`
+		Cognition struct {
+			ActiveRunID string `json:"active_run_id"`
+			Watermark   uint64 `json:"watermark"`
+			Phase       string `json:"phase"`
+			BlockReason string `json:"block_reason"`
+		} `json:"cognition"`
+	}
+	for {
+		memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &after)
+		if after.Memory.IndexState == "ok" && after.Cognition.Phase == "blocked" && after.Cognition.BlockReason == "unknown_outcome" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("C06 startup did not replay the pending index and classify the interrupted workflow: %+v", after)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after.Cognition.ActiveRunID != workflowID || after.Cognition.Watermark != 0 {
+		t.Fatalf("C06 recovery advanced or replaced the unresolved workflow: before=%+v after=%+v", before.Cognition, after.Cognition)
+	}
+	assertMemoryLoopC06Canonical(t, f, handshake.TargetRef, fact, 2)
+	assertMemoryLoopC06Outbox(t, f, handshake.TargetRef, "", -1)
+	afterReceipt := memoryLoopC06PublicReceipt(t, f, session, handshake.OperationID)
+	if afterReceipt.OperationID != beforeReceipt.OperationID || afterReceipt.TargetRef != beforeReceipt.TargetRef || afterReceipt.Revision != beforeReceipt.Revision || afterReceipt.Status != beforeReceipt.Status || afterReceipt.CanonicalStatus != beforeReceipt.CanonicalStatus || afterReceipt.IndexStatus != "ready" {
+		t.Fatalf("C06 recovered receipt must preserve canonical identity and report ready index: before=%+v after=%+v", beforeReceipt, afterReceipt)
+	}
+	var cards struct {
+		Items []struct {
+			ID       string `json:"id"`
+			Revision uint64 `json:"revision"`
+		} `json:"items"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.memory.search", map[string]any{"session_id": session, "query": fact, "limit": 20, "budget_chars": 1200}, &cards)
+	found := false
+	for _, card := range cards.Items {
+		if card.ID == handshake.TargetRef && card.Revision == handshake.Revision {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("C06 restarted derived search did not expose the committed canonical memory: %+v", cards.Items)
+	}
+	assertMemoryLoopNoExtraRequests(t, f, 0, 11*time.Second)
+	t.Logf("C06 operation=%s canonical=%s revision=%d index=pending->ok processes=%d->%d workflow=%s watermark=%d canonical-count=2 requests-before=%d requests-after=0", handshake.OperationID, handshake.TargetRef, handshake.Revision, oldPID, newPID, workflowID, after.Cognition.Watermark, requestsBefore)
+}
+
+func waitMemoryLoopC06Handshake(t *testing.T, path string, timeout time.Duration) memoryLoopC06Handshake {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			var handshake memoryLoopC06Handshake
+			if err := json.Unmarshal(raw, &handshake); err != nil {
+				t.Fatalf("decode C06 handshake: %v", err)
+			}
+			return handshake
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read C06 handshake: %v", err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("C06 canonical/index handshake not reached in %s", timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func memoryLoopC06PublicReceipt(t *testing.T, f *memoryLoopFixture, session, operationID string) memoryLoopC06Handshake {
+	t.Helper()
+	var receipt memoryLoopC06Handshake
+	memoryLoopAction(t, f, "diva.cognitive.memory.receipt", map[string]any{"session_id": session, "operation_id": operationID}, &receipt)
+	if receipt.OperationID != operationID || receipt.TargetRef == "" || receipt.Revision == 0 || receipt.Status != "applied" || receipt.CanonicalStatus != "completed" {
+		t.Fatalf("C06 atomic public receipt missing for %s: %+v", operationID, receipt)
+	}
+	return receipt
+}
+
+func assertMemoryLoopC06Canonical(t *testing.T, f *memoryLoopFixture, target, fact string, wantCount int) {
+	t.Helper()
+	db, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count, revision int
+	var body string
+	if err := db.QueryRow(`SELECT version,content FROM memories WHERE id=?`, target).Scan(&revision, &body); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 1 || count != wantCount || !strings.Contains(body, fact) {
+		t.Fatalf("C06 canonical memory changed or duplicated: target=%s revision=%d count=%d body=%q", target, revision, count, body)
+	}
+}
+
+func assertMemoryLoopC06Outbox(t *testing.T, f *memoryLoopFixture, target, wantState string, wantAttempts int) {
+	t.Helper()
+	db, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM index_jobs WHERE memory_id=?`, target).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if wantState == "" {
+		if count != 0 {
+			t.Fatalf("C06 recovered outbox still has %d jobs for canonical memory %s", count, target)
+		}
+		return
+	}
+	var state string
+	var attempts int
+	if err := db.QueryRow(`SELECT state,attempts FROM index_jobs WHERE memory_id=?`, target).Scan(&state, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || state != wantState || attempts != wantAttempts {
+		t.Fatalf("C06 index outbox before crash = count:%d state:%s attempts:%d, want count:1 state:%s attempts:%d", count, state, attempts, wantState, wantAttempts)
+	}
+}
+
 // C01 stops at the actual sink boundary: the terminal Journal event exists,
 // but the Capture sink has not received it yet.
 func TestMemoryLoopCrashC01TerminalBeforeCapture(t *testing.T) {
