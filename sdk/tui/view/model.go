@@ -427,6 +427,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
 		// and local input intact so a retry does not discard user work.
 	case surface.RestoreInputMsg:
+		if msg.Recall && strings.TrimSpace(m.input) != "" {
+			return m, m.driver.Handle(surface.RecallRejectedMsg{})
+		}
 		if strings.TrimSpace(msg.Text) != "" {
 			if strings.TrimSpace(m.input) == "" {
 				m.input = msg.Text
@@ -913,7 +916,7 @@ func (m Model) runBoundAction(action string, msg tea.KeyMsg) (Model, tea.Cmd, bo
 		}
 		return m, nil, true
 	case "dequeue":
-		if gate == nil {
+		if gate == nil && strings.TrimSpace(m.input) == "" {
 			// pi Alt+Up: withdraw the newest queued turn into the composer.
 			return m, m.driver.Dequeue(), true
 		}

@@ -1176,6 +1176,11 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if chips := m.renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
 		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
+	if controller, ok := m.driver.(surface.CapturedContextController); ok {
+		if chips := m.renderFileContextChips(controller.PendingFileContexts()); chips != "" {
+			lines = append(lines, p.Dim.Render(truncate(chips, inner)))
+		}
+	}
 	if chip := m.pasteGuardChip(m.input); chip != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate(chip, inner)))
 	}

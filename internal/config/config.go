@@ -107,9 +107,8 @@ const defaultMaxToolTurns = 8
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
 
-// defaultCacheWarmingMinSavingsUSD is the avoided re-read cost a warm
-// must beat before the scheduler spends a request on it (pi's ≈$0.05
-// floor, kept as a fixed floor rather than a derived one).
+// defaultCacheWarmingMinSavingsUSD gates the estimated gross saving for
+// one future read of the exact reusable prefix. It is not a net-profit claim.
 const defaultCacheWarmingMinSavingsUSD = 0.05
 
 const (
@@ -313,15 +312,13 @@ type Runtime struct {
 	// beyond it the full stream spills to <workspace>/.vivy/tool-output/.
 	// Non-positive keeps the 64 KiB default; larger values are clamped.
 	ToolOutputSpillBytes int `yaml:"tool_output_spill_bytes"`
-	// CacheWarming selects the prompt-cache warming scheduler: "off",
-	// "streaming" (refresh after each settled model call), or "idle"
-	// (refresh before the model's declared cache lifetime expires).
-	// Warming only runs for models declaring supports_warming; it costs
-	// one extra minimal request per refresh.
+	// CacheWarming is opt-in: "off" (default) or "streaming" (refresh
+	// during the active run after a settled model call). Each refresh adds a
+	// bounded provider round trip before the owning call returns.
 	CacheWarming string `yaml:"cache_warming"`
-	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
-	// which a warm is skipped; non-positive keeps the 0.05 default. When
-	// the model is unpriced a token-count proxy applies instead.
+	// CacheWarmingMinSavingsUSD gates estimated gross savings for one reuse
+	// of the actual system/tools prefix, excluding conversation tokens and
+	// warm cost. Zero disables the estimate gate; unknown prices otherwise skip.
 	CacheWarmingMinSavingsUSD float64 `yaml:"cache_warming_min_savings"`
 	// Compaction controls automatic context compression (Eino native
 	// reduction + summarization middlewares).
@@ -690,7 +687,7 @@ func Default() Config {
 			HTTPTimeoutSeconds:        10,
 			ExecuteAllowedCommands:    []string{"go", "git", "rg"},
 			ExecuteMaxTimeoutSeconds:  30,
-			CacheWarming:              "streaming",
+			CacheWarming:              "off",
 			CacheWarmingMinSavingsUSD: defaultCacheWarmingMinSavingsUSD,
 			Compaction:                DefaultCompactionConfig(),
 			Cron:                      CronConfig{Enabled: true},
@@ -900,9 +897,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("runtime.execute_max_timeout_seconds must be between 1 and %d seconds", maxExecuteTimeoutSeconds)
 	}
 	switch c.Runtime.CacheWarming {
-	case "off", "streaming", "idle":
+	case "off", "streaming":
 	default:
-		return fmt.Errorf("runtime.cache_warming %q must be off, streaming, or idle", c.Runtime.CacheWarming)
+		return fmt.Errorf("runtime.cache_warming %q must be off or streaming", c.Runtime.CacheWarming)
 	}
 	if c.Runtime.CacheWarmingMinSavingsUSD < 0 {
 		return errors.New("runtime.cache_warming_min_savings must not be negative")

@@ -105,6 +105,8 @@ type Live struct {
 	// restoreDraft is the newest dequeued/flushed text pending editor
 	// restore (pi returns queued messages on abort/dequeue).
 	restoreDraft         string
+	editorTurns          map[string]*queuedTurnView
+	returnedTurns        map[string][]queuedTurnView
 	nextRecoveryAt       time.Time
 	streamFailures       map[string]string
 	retiredSubscriptions map[string]struct{}
@@ -436,6 +438,7 @@ type liveTurnStartedMsg struct {
 	RunID        string
 	Attachments  []surface.Attachment
 	ContextPaths []string
+	RestoreTurn  *queuedTurnView
 	FileContexts []surface.FileContext
 	Shell        bool
 	Err          error
@@ -449,6 +452,8 @@ type liveAttachmentResolvedMsg struct {
 
 type liveQueuedTurnMsg struct {
 	Track, SessionID, Text, Thinking, Mode string
+	RestoreTurn                            *queuedTurnView
+	Attachments                            []surface.Attachment
 	Queued                                 bool
 	RunID                                  string
 	Err                                    error
@@ -464,6 +469,7 @@ type liveQueueMsg struct {
 	View        queueStateView
 	Err         error
 	RestoreText string
+	RestoreTurn *queuedTurnView
 }
 
 type liveSubscribedMsg struct {
@@ -610,6 +616,15 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyQueuedTurn(msg)
 	case liveAdmittedRunMsg:
 		return l.applyAdmittedRun(msg)
+	case surface.RecallRejectedMsg:
+		l.mu.Lock()
+		if turn := l.editorTurns[l.activeID]; turn != nil {
+			l.keepReturnedTurnLocked(l.activeID, *turn)
+			delete(l.editorTurns, l.activeID)
+			delete(l.drafts, l.activeID)
+		}
+		l.mu.Unlock()
+		return nil
 	case liveQueueMsg:
 		return l.applyQueueMsg(msg)
 	case liveRPCMsg:
@@ -948,6 +963,11 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 
 func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.mu.Lock()
+	if msg.Err == nil {
+		if msg.RestoreTurn != nil && l.editorTurns[msg.SessionID] != nil && l.editorTurns[msg.SessionID].ID == msg.RestoreTurn.ID {
+			delete(l.editorTurns, msg.SessionID)
+		}
+	}
 	if msg.SessionID != "" && l.activeID != "" && msg.SessionID != l.activeID {
 		// The session may have changed while turn/start was in flight. Keep a
 		// failed draft attached to its origin, but never mutate the new
@@ -978,6 +998,9 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 			Content: l.translator.T("vivy.tui.live.turnFailed", nil) + shortErr(msg.Err),
 		})
 		l.mu.Unlock()
+		if msg.RestoreTurn != nil {
+			return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.UserText} }
+		}
 		if len(msg.ContextPaths) > 0 {
 			return restoreFileInputCmd(msg.UserText, msg.ContextPaths)
 		}
@@ -1414,12 +1437,16 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 // queueTurnCmd issues a queued turn through the kernel dual-track queue
 // (turn/steer | turn/follow_up). The kernel degrades an idle session to a
 // fresh run — the response then carries run_id.
-func (l *Live) queueTurnCmd(track, sessionID, text, thinking, mode string) tea.Cmd {
+func (l *Live) queueTurnCmd(track, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string, restored ...*queuedTurnView) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		queued, runID, err := l.client.queueTurn(ctx, track, sessionID, text, thinking, mode)
-		return liveQueuedTurnMsg{Track: track, SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Queued: queued, RunID: runID, Err: err}
+		queued, runID, err := l.client.queueTurn(ctx, track, sessionID, text, thinking, mode, attachments, contextPaths, restored...)
+		var captured *queuedTurnView
+		if len(restored) > 0 {
+			captured = restored[0]
+		}
+		return liveQueuedTurnMsg{RestoreTurn: captured, Attachments: attachments, Track: track, SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Queued: queued, RunID: runID, Err: err}
 	}
 }
 
@@ -1427,9 +1454,20 @@ func (l *Live) applyQueuedTurn(msg liveQueuedTurnMsg) tea.Cmd {
 	if msg.Err != nil {
 		l.mu.Lock()
 		l.lastErr = shortErr(msg.Err)
+		if msg.RestoreTurn != nil {
+			l.installEditorTurnLocked(msg.SessionID, msg.RestoreTurn)
+			l.drafts[msg.SessionID] = cloneAttachments(msg.Attachments)
+		} else {
+			l.drafts[msg.SessionID] = cloneAttachments(msg.Attachments)
+		}
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.Text} }
 	}
+	l.mu.Lock()
+	if msg.RestoreTurn != nil && l.editorTurns[msg.SessionID] != nil && l.editorTurns[msg.SessionID].ID == msg.RestoreTurn.ID {
+		delete(l.editorTurns, msg.SessionID)
+	}
+	l.mu.Unlock()
 	if msg.RunID != "" {
 		// Idle-session fallback: the queued turn became a fresh run. Paint
 		// the optimistic bubble and subscribe like a normal send.
@@ -1538,9 +1576,21 @@ func (l *Live) applyQueueMsg(msg liveQueueMsg) tea.Cmd {
 		l.queueSteer = len(msg.View.Steering)
 		l.queueFollow = len(msg.View.FollowUps)
 	}
+	if msg.RestoreTurn != nil {
+		if msg.SessionID == l.activeID && l.editorTurns[msg.SessionID] == nil && len(l.drafts[msg.SessionID]) == 0 {
+			l.installEditorTurnLocked(msg.SessionID, msg.RestoreTurn)
+		} else {
+			l.keepReturnedTurnLocked(msg.SessionID, *msg.RestoreTurn)
+			msg.RestoreText = ""
+		}
+	}
+	active := msg.SessionID == l.activeID
 	l.mu.Unlock()
+	if !active {
+		return nil
+	}
 	if msg.RestoreText != "" {
-		return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.RestoreText} }
+		return func() tea.Msg { return surface.RestoreInputMsg{Text: msg.RestoreText, Recall: msg.RestoreTurn != nil} }
 	}
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
@@ -1596,7 +1646,14 @@ func (l *Live) applyNotice(notice eventNotice) {
 		// composer — same as pi's Alt+Up recall.
 		if notice.Kind == "queue_dequeued" && notice.Message != "" &&
 			(notice.QueueReason == "aborted" || notice.QueueReason == "cleared") {
-			l.restoreDraft = notice.Message
+			if len(notice.QueueTurn) > 0 {
+				var turn queuedTurnView
+				if json.Unmarshal(notice.QueueTurn, &turn) == nil {
+					l.keepReturnedTurnLocked(l.activeID, turn)
+				}
+			} else {
+				l.restoreDraft = notice.Message
+			}
 		}
 	}
 	if done {
@@ -2099,11 +2156,17 @@ func (l *Live) SendFollowUp(text string) tea.Cmd {
 	thinking := l.thinkingMode
 	mode := l.runMode
 	sessionID := l.activeID
-	if (l.busy || l.gate != nil) && sessionID != "" {
-		l.mu.Unlock()
-		return l.queueTurnCmd("follow_up", sessionID, text, thinking, mode)
-	}
 	attachments := cloneAttachments(l.drafts[sessionID])
+	if (l.busy || l.gate != nil) && sessionID != "" {
+		restored := l.editorTurns[sessionID].snapshot()
+		if restored != nil {
+			restored.Mode = mode
+			restored.Thinking = thinking
+		}
+		delete(l.drafts, sessionID)
+		l.mu.Unlock()
+		return l.queueTurnCmd("follow_up", sessionID, text, thinking, mode, attachments, nil, restored)
+	}
 	l.mu.Unlock()
 	return l.sendWithAttachments(text, thinking, mode, attachments, true)
 }
@@ -2113,6 +2176,21 @@ func (l *Live) SendFollowUp(text string) tea.Cmd {
 func (l *Live) Dequeue() tea.Cmd {
 	l.mu.Lock()
 	sessionID := l.activeID
+	if l.editorTurns[sessionID] != nil || len(l.drafts[sessionID]) > 0 {
+		l.mu.Unlock()
+		return nil
+	}
+	if returned := l.returnedTurns[sessionID]; len(returned) > 0 {
+		turn := returned[len(returned)-1]
+		if !turn.restorable() {
+			l.lastErr = l.translator.T("vivy.tui.live.restoreUnsupported", nil)
+			l.mu.Unlock()
+			return nil
+		}
+		l.returnedTurns[sessionID] = returned[:len(returned)-1]
+		l.mu.Unlock()
+		return func() tea.Msg { return liveQueueMsg{SessionID: sessionID, RestoreText: turn.Text, RestoreTurn: &turn} }
+	}
 	l.mu.Unlock()
 	if sessionID == "" {
 		return nil
@@ -2120,14 +2198,28 @@ func (l *Live) Dequeue() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		text, ok, err := l.client.dequeueQueue(ctx, sessionID)
+		view, err := l.client.queueState(ctx, sessionID, "")
 		if err != nil {
 			return liveQueueMsg{Err: err}
 		}
-		view, _ := l.client.queueState(ctx, sessionID, "")
+		if len(view.FollowUps) > 0 && !view.FollowUps[len(view.FollowUps)-1].restorable() {
+			return liveQueueMsg{Err: errors.New(l.translator.T("vivy.tui.live.restoreUnsupported", nil))}
+		}
+		queueID := "__empty_queue__"
+		if len(view.FollowUps) > 0 {
+			queueID = view.FollowUps[len(view.FollowUps)-1].ID
+		}
+		turn, ok, err := l.client.dequeueQueue(ctx, sessionID, queueID)
+		if err != nil {
+			return liveQueueMsg{Err: err}
+		}
+		view, _ = l.client.queueState(ctx, sessionID, "")
 		msg := liveQueueMsg{SessionID: sessionID, View: view}
 		if ok {
-			msg.RestoreText = text
+			msg.RestoreText = turn.Text
+			if turn.Payload != nil {
+				msg.RestoreTurn = turn
+			}
 		}
 		return msg
 	}
@@ -2204,21 +2296,17 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 		return nil
 	}
 	sessionID := l.activeID
+	restored := l.editorTurns[sessionID].snapshot()
+	if restored != nil {
+		restored.Mode = mode
+		restored.Thinking = thinking
+	}
 	if l.busy || l.gate != nil {
 		if consumeDraft {
 			delete(l.drafts, sessionID)
 		}
-		if len(attachments) == 0 && len(contextPaths) == 0 {
-			// Kernel dual-track queue (VCP-B2): Enter steers at the next
-			// turn boundary; a gate demotes it to the follow-up lane.
-			l.mu.Unlock()
-			return l.queueTurnCmd("steer", sessionID, text, thinking, mode)
-		}
-		// Attachments/context paths cannot ride the kernel text queue yet —
-		// keep the face-local FIFO for those turns.
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		l.mu.Unlock()
-		return func() tea.Msg { return surface.RefreshMsg{} }
+		return l.queueTurnCmd("steer", sessionID, text, thinking, mode, cloneAttachments(attachments), contextPaths, restored)
 	}
 	if consumeDraft {
 		delete(l.drafts, sessionID)
@@ -2240,14 +2328,14 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 		if len(contextPaths) > 0 {
 			fileContexts, err = l.client.resolveProjectContext(ctx, contextPaths)
 			if err != nil {
-				return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, Err: err}
+				return liveTurnStartedMsg{RestoreTurn: restored, SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, Err: err}
 			}
 		}
-		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, mode, attachments, contextPaths)
+		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, mode, attachments, contextPaths, restored)
 		if err != nil {
-			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts), Err: err}
+			return liveTurnStartedMsg{RestoreTurn: restored, SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts), Err: err}
 		}
-		return liveTurnStartedMsg{SessionID: sessionID, UserText: text, RunID: accepted.RunID, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts)}
+		return liveTurnStartedMsg{RestoreTurn: restored, SessionID: sessionID, UserText: text, RunID: accepted.RunID, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts)}
 	}
 }
 
@@ -2677,6 +2765,9 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 		l.mu.Lock()
 		count := len(l.drafts[l.activeID])
 		delete(l.drafts, l.activeID)
+		if turn := l.editorTurns[l.activeID]; turn != nil {
+			turn.Attachments = nil
+		}
 		l.mu.Unlock()
 		if count == 0 {
 			return commandResultCmd("image", l.translator.T("vivy.tui.live.imagesEmpty", nil), nil)
@@ -2693,6 +2784,9 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 		if index > len(pending) {
 			l.mu.Unlock()
 			return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageNotPending", map[string]any{"index": index})))
+		}
+		if turn := l.editorTurns[l.activeID]; turn != nil && index <= len(turn.Attachments) {
+			turn.Attachments = append(turn.Attachments[:index-1], turn.Attachments[index:]...)
 		}
 		pending = append(pending[:index-1], pending[index:]...)
 		if len(pending) == 0 {
@@ -2807,7 +2901,13 @@ func (l *Live) ClearQueue() bool {
 			defer cancel()
 			if texts, err := l.client.clearQueue(ctx, sessionID); err == nil && len(texts) > 0 {
 				l.mu.Lock()
-				l.restoreDraft = texts[len(texts)-1]
+				for _, turn := range texts {
+					if turn.Payload != nil {
+						l.keepReturnedTurnLocked(sessionID, turn)
+					} else {
+						l.restoreDraft = turn.Text
+					}
+				}
 				l.mu.Unlock()
 				select {
 				case l.eventWake <- struct{}{}:
@@ -2867,7 +2967,13 @@ func (l *Live) queueClearCmd(sessionID string) tea.Cmd {
 		local := len(l.queue)
 		l.queue = nil
 		if len(texts) > 0 {
-			l.restoreDraft = texts[len(texts)-1]
+			for _, turn := range texts {
+				if turn.Payload != nil {
+					l.keepReturnedTurnLocked(sessionID, turn)
+				} else {
+					l.restoreDraft = turn.Text
+				}
+			}
 		}
 		l.queueDirty = true
 		l.mu.Unlock()

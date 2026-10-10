@@ -113,9 +113,9 @@ type Provenance struct {
 // every boundary that admits them (RPC for the user path, the channel
 // host for the channel path), storage persists the raw bytes as given.
 type Attachment struct {
-	Name     string
-	MimeType string
-	Data     []byte
+	Name     string `json:"name"`
+	MimeType string `json:"mime_type"`
+	Data     []byte `json:"data"`
 }
 
 // FileContext is one server-resolved project file attached to a user turn.
@@ -124,10 +124,10 @@ type Attachment struct {
 // metadata fields, while runtime context construction uses the durable
 // snapshot so a later file edit cannot rewrite historical model input.
 type FileContext struct {
-	Path    string
-	Name    string
-	Size    int64
-	Content []byte
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Content []byte `json:"content"`
 }
 
 // Message is one turn in a session. Content is append-only; there is no

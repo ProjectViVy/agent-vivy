@@ -74,6 +74,13 @@ func TestReportPublicationFirstPromotedReplayAndCandidate(t *testing.T) {
 	if err != nil || rec2.EntryID != rec.EntryID || rec2.RevisionID != rec.RevisionID {
 		t.Fatalf("replay = %+v err=%v", rec2, err)
 	}
+	annotation, err := b.Notebook().CreateComment(ctx, nb.MutationContext{
+		ScopeID: nb.HomeScopeID, Actor: nb.Actor{Kind: nb.ActorHuman, Ref: "local:reviewer"},
+		OperationKey: "report-annotation",
+	}, nb.CreateCommentRequest{EntryID: rec.EntryID, AnchorRevisionID: rec.RevisionID, Body: "keep this feedback"})
+	if err != nil {
+		t.Fatalf("annotate report: %v", err)
+	}
 	in2 := in
 	in2.OperationKey = "op-2"
 	in2.Generation.RunID = "run-2"
@@ -97,6 +104,15 @@ func TestReportPublicationFirstPromotedReplayAndCandidate(t *testing.T) {
 	if err != nil || head.HeadRevisionID != rec3.RevisionID {
 		t.Fatalf("head after candidate = %+v", head)
 	}
+	comments, err := b.Notebook().ListComments(ctx, nb.HomeScopeID, nb.ListCommentsRequest{EntryID: rec.EntryID})
+	if err != nil || len(comments.Comments) != 1 {
+		t.Fatalf("annotations after regeneration = %+v, error = %v", comments, err)
+	}
+	comment := comments.Comments[0]
+	if comment.ID != annotation.ResourceID || comment.Body != "keep this feedback" || comment.AnchorRevisionID != rec.RevisionID {
+		t.Fatalf("regeneration changed the original annotation: %+v", comment)
+	}
+
 }
 
 func TestReportSourcesBounded(t *testing.T) {

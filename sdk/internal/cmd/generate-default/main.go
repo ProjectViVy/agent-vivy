@@ -37,10 +37,11 @@ type extern struct {
 func main() {
 	repo := flag.String("repo", ".", "repository root")
 	output := flag.String("output", "zz_default.go", "generated output")
+	recipePath := flag.String("recipe", "recipes/default.vivy.yml", "recipe relative to repository root")
 	flag.Parse()
 	root, err := filepath.Abs(*repo)
 	must(err)
-	raw, err := os.ReadFile(filepath.Join(root, "recipes/default.vivy.yml"))
+	raw, err := os.ReadFile(filepath.Join(root, *recipePath))
 	must(err)
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)

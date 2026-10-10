@@ -31,7 +31,13 @@ function fixture(t) {
   git(source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'modules');
   const commit = git(source, 'rev-parse', 'HEAD');
   writeFileSync(join(root, 'laputa-source.lock.json'), JSON.stringify({ repository: source, commit }));
+  writeFileSync(join(root, 'go.mod'), hostMod(commit));
   return { dir, source, root, commit, checkout: join(dir, 'laputa') };
+}
+
+function hostMod(commit) {
+  return 'module fixture\n\ngo 1.26.4\n\nrequire (\n' +
+    ['garden', 'mentle', 'laputa'].map(name => `github.com/ProjectViVy/laputa/${name} v0.0.0-20261010120923-${commit.slice(0, 12)}\n`).join('') + ')\n';
 }
 
 function ensure(f) {
@@ -71,6 +77,7 @@ test('a clean old checkout advances to the pin', t => {
   git(f.source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'next');
   const commit = git(f.source, 'rev-parse', 'HEAD');
   writeFileSync(join(f.root, 'laputa-source.lock.json'), JSON.stringify({ repository: f.source, commit }));
+  writeFileSync(join(f.root, 'go.mod'), hostMod(commit));
   const result = ensure(f);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal(git(f.checkout, 'rev-parse', 'HEAD'), commit);
@@ -81,6 +88,7 @@ test('an old checkout with local changes is preserved and fails with an actionab
   assert.equal(ensure(f).status, 0);
   writeFileSync(join(f.checkout, 'garden', 'go.mod'), 'local work');
   writeFileSync(join(f.root, 'laputa-source.lock.json'), JSON.stringify({ repository: f.source, commit: 'a'.repeat(40) }));
+  writeFileSync(join(f.root, 'go.mod'), hostMod('a'.repeat(40)));
   const result = ensure(f);
   assert.notEqual(result.status, 0);
   assert.match(result.stdout + result.stderr, /local changes/i);
@@ -100,9 +108,44 @@ test('an unrelated repository in the sibling path is rejected without changing i
 
 test('an invalid module identity at the pinned commit fails before Go starts', t => {
   const f = fixture(t);
-  assert.equal(ensure(f).status, 0);
-  writeFileSync(join(f.checkout, 'garden', 'go.mod'), 'module github.com/elsewhere/garden\n');
+  writeFileSync(join(f.source, 'garden', 'go.mod'), 'module github.com/elsewhere/garden\n\ngo 1.26.4\n');
+  git(f.source, 'add', '.');
+  git(f.source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'wrong identity');
+  const commit = git(f.source, 'rev-parse', 'HEAD');
+  writeFileSync(join(f.root, 'laputa-source.lock.json'), JSON.stringify({ repository: f.source, commit }));
+  writeFileSync(join(f.root, 'go.mod'), hostMod(commit));
   const result = ensure(f);
   assert.notEqual(result.status, 0);
   assert.match(result.stdout + result.stderr, /module/i);
+});
+
+test('a source lock and Go revision mismatch fails before touching the sibling', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.root, 'go.mod'), hostMod('b'.repeat(40)));
+  const result = ensure(f);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout + result.stderr, /revision|go.mod/i);
+});
+
+test('a modified source at the exact pinned commit is rejected', t => {
+  const f = fixture(t);
+  assert.equal(ensure(f).status, 0);
+  writeFileSync(join(f.checkout, 'garden', 'changed.go'), 'package garden\n');
+  const result = ensure(f);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout + result.stderr, /local changes/i);
+  assert.equal(readFileSync(join(f.checkout, 'garden', 'changed.go'), 'utf8'), 'package garden\n');
+});
+
+test('a pinned dependency toolchain mismatch fails before Go starts', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.source, 'garden', 'go.mod'), 'module github.com/ProjectViVy/laputa/garden\n\ngo 1.27.0\n');
+  git(f.source, 'add', '.');
+  git(f.source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'wrong toolchain');
+  const commit = git(f.source, 'rev-parse', 'HEAD');
+  writeFileSync(join(f.root, 'laputa-source.lock.json'), JSON.stringify({ repository: f.source, commit }));
+  writeFileSync(join(f.root, 'go.mod'), hostMod(commit));
+  const result = ensure(f);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout + result.stderr, /Go version/i);
 });

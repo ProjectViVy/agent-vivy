@@ -66,6 +66,11 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 	if in.Started.PayloadVersion <= 0 {
 		return admissionInvalid("run.started payload version is invalid")
 	}
+	for _, event := range in.Events {
+		if event.RunID != in.Run.ID || event.PayloadVersion <= 0 || (event.Type != domain.EventTurnQueued && event.Type != domain.EventTurnDequeued) {
+			return admissionInvalid("invalid queue admission event")
+		}
+	}
 	if in.Edit != nil {
 		if in.Edit.SessionID != in.Run.SessionID {
 			return admissionInvalid("edit marker and run sessions differ")

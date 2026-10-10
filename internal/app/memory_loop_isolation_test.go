@@ -173,7 +173,7 @@ func TestMemoryLoopScopeAndHostBinding(t *testing.T) {
 // create an effect receipt by itself.
 func TestMemoryLoopMemoryInjection(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	options := memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"}

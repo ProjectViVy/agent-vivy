@@ -185,6 +185,206 @@ func TestObserverRecordsStreamSetupFailure(t *testing.T) {
 	}
 }
 
+// A successful provider response still fails closed when its mandatory
+// settlement cannot be persisted. Existing call/Chunk causes must survive.
+func TestObserverGeneratePropagatesSettlementError(t *testing.T) {
+	settlementErr := errors.New("finish journal failed")
+	providerErr := errors.New("provider failed")
+	chunkErr := errors.New("chunk journal failed")
+	for _, tc := range []struct {
+		name     string
+		callErr  error
+		chunkErr error
+	}{
+		{name: "complete"},
+		{name: "provider failure", callErr: providerErr},
+		{name: "chunk failure", chunkErr: chunkErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := &recordingObserver{endErr: settlementErr, chunkErr: tc.chunkErr}
+			usage := &schema.TokenUsage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}
+			msg := &schema.Message{Role: schema.Assistant, Content: "done", ResponseMeta: &schema.ResponseMeta{Usage: usage}}
+			got, err := observeChatModel(&fakeChatModel{generateMsg: msg, generateErr: tc.callErr}).Generate(observedCtx(obs), nil)
+			if !errors.Is(err, settlementErr) {
+				t.Fatalf("Generate error = %v, want settlement cause %v", err, settlementErr)
+			}
+			if got != nil {
+				t.Fatalf("Generate returned a response despite failed settlement: %v", got)
+			}
+			cause := tc.callErr
+			if cause == nil {
+				cause = tc.chunkErr
+			}
+			if cause != nil && !errors.Is(err, cause) {
+				t.Fatalf("Generate error = %v, lost original cause %v", err, cause)
+			}
+			_, _, _, ends := obs.counts()
+			if ends != 1 {
+				t.Fatalf("End calls = %d, want exactly one", ends)
+			}
+			result := obs.results[0]
+			if result.Err != cause || result.ResponseComplete != (cause == nil) {
+				t.Fatalf("settled provider result = %+v, want cause %v", result, cause)
+			}
+			if tc.callErr == nil && result.Usage != usage {
+				t.Fatalf("settled usage = %v, want provider usage %v", result.Usage, usage)
+			}
+		})
+	}
+}
+
+func TestObserverStreamSetupJoinsSettlementError(t *testing.T) {
+	providerErr := errors.New("provider refused setup")
+	settlementErr := errors.New("finish journal failed")
+	obs := &recordingObserver{endErr: settlementErr}
+	out, err := observeChatModel(&fakeChatModel{streamErr: providerErr}).Stream(observedCtx(obs), nil)
+	if out != nil || !errors.Is(err, providerErr) || !errors.Is(err, settlementErr) {
+		t.Fatalf("Stream = %v, %v; want both provider and settlement causes", out, err)
+	}
+	begins, opened, chunks, ends := obs.counts()
+	if begins != 1 || opened != 0 || chunks != 0 || ends != 1 {
+		t.Fatalf("lifecycle = %d/%d/%d/%d, want 1/0/0/1", begins, opened, chunks, ends)
+	}
+	if obs.results[0].Err != providerErr {
+		t.Fatalf("settled error = %v, want provider cause", obs.results[0].Err)
+	}
+}
+
+func TestObserverStreamPropagatesSettlementErrorBeforeEOF(t *testing.T) {
+	settlementErr := errors.New("finish journal failed")
+	providerErr := errors.New("provider read failed")
+	chunkErr := errors.New("chunk journal failed")
+	for _, tc := range []struct {
+		name     string
+		readErr  error
+		chunkErr error
+	}{
+		{name: "complete"},
+		{name: "provider failure", readErr: providerErr},
+		{name: "chunk failure", chunkErr: chunkErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := &recordingObserver{endErr: settlementErr, chunkErr: tc.chunkErr}
+			usage := &schema.TokenUsage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}
+			sr, sw := schema.Pipe[*schema.Message](2)
+			sw.Send(&schema.Message{Role: schema.Assistant, Content: "done", ResponseMeta: &schema.ResponseMeta{Usage: usage}}, nil)
+			if tc.readErr != nil {
+				sw.Send(nil, tc.readErr)
+			}
+			sw.Close()
+			out, err := observeChatModel(&fakeChatModel{streamReader: sr}).Stream(observedCtx(obs), nil)
+			if err != nil {
+				t.Fatalf("Stream setup: %v", err)
+			}
+			defer out.Close()
+			if tc.chunkErr == nil {
+				if msg, err := out.Recv(); err != nil || msg.Content != "done" {
+					t.Fatalf("first Recv = %v, %v; want provider chunk", msg, err)
+				}
+			}
+			_, err = out.Recv()
+			if !errors.Is(err, settlementErr) {
+				t.Fatalf("terminal Recv = %v, want settlement cause before EOF", err)
+			}
+			cause := tc.readErr
+			if cause == nil {
+				cause = tc.chunkErr
+			}
+			if cause != nil && !errors.Is(err, cause) {
+				t.Fatalf("terminal Recv = %v, lost original cause %v", err, cause)
+			}
+			_, _, _, ends := obs.counts()
+			if ends != 1 {
+				t.Fatalf("End calls before terminal Recv = %d, want one", ends)
+			}
+			result := obs.results[0]
+			if result.Err != cause || result.ResponseComplete != (cause == nil) || result.Usage != usage {
+				t.Fatalf("settled provider result = %+v, want cause %v and provider usage", result, cause)
+			}
+			if _, err := out.Recv(); err != io.EOF {
+				t.Fatalf("Recv after settlement error = %v, want EOF", err)
+			}
+			if _, _, _, ends := obs.counts(); ends != 1 {
+				t.Fatalf("End calls after EOF = %d, want one", ends)
+			}
+		})
+	}
+}
+
+type gatedSettlementObserver struct {
+	*recordingObserver
+	started chan struct{}
+	release chan struct{}
+}
+
+func (o *gatedSettlementObserver) End(ctx context.Context, meta modelCallMeta, result modelCallResult) error {
+	close(o.started)
+	<-o.release
+	return o.recordingObserver.End(ctx, meta, result)
+}
+
+func TestObserverSettlementFailureAfterDownstreamCloseReleasesUpstream(t *testing.T) {
+	for _, failure := range []string{"read", "chunk", "downstream"} {
+		t.Run(failure, func(t *testing.T) {
+			providerErr := errors.New("provider read failed")
+			obs := &gatedSettlementObserver{
+				recordingObserver: &recordingObserver{endErr: errors.New("finish journal failed")},
+				started:           make(chan struct{}),
+				release:           make(chan struct{}),
+			}
+			if failure == "chunk" {
+				obs.chunkErr = errors.New("chunk journal failed")
+			}
+			sr, sw := schema.Pipe[*schema.Message](0)
+			producerClosed := make(chan bool, 1)
+			produce := make(chan struct{})
+			go func() {
+				defer sw.Close()
+				<-produce
+				if failure == "read" {
+					sw.Send(nil, providerErr)
+				} else {
+					sw.Send(schema.AssistantMessage("done", nil), nil)
+				}
+				// This send cannot complete until the pump either receives
+				// again (incorrect) or closes the upstream (required).
+				producerClosed <- sw.Send(schema.AssistantMessage("unexpected", nil), nil)
+			}()
+			out, err := observeChatModel(&fakeChatModel{streamReader: sr}).Stream(observedCtx(obs), nil)
+			if err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+			if failure == "downstream" {
+				out.Close()
+			}
+			close(produce)
+			select {
+			case <-obs.started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("settlement never started")
+			}
+			if failure != "downstream" {
+				out.Close()
+			}
+			close(obs.release)
+			select {
+			case closed := <-producerClosed:
+				if !closed {
+					t.Fatal("pump consumed another upstream chunk after settlement")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("closed downstream blocked settlement error delivery and upstream cleanup")
+			}
+			if _, _, _, ends := obs.counts(); ends != 1 {
+				t.Fatalf("End calls = %d, want exactly one", ends)
+			}
+			if failure == "downstream" && !errors.Is(obs.results[0].Err, context.Canceled) {
+				t.Fatalf("closed downstream result = %v, want cancellation", obs.results[0].Err)
+			}
+		})
+	}
+}
+
 // TestObserverBoundToolsPreservesCallScope: WithTools flows into the
 // Begin input while each invocation still gets its own meta scope.
 func TestObserverBoundToolsPreservesCallScope(t *testing.T) {

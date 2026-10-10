@@ -163,6 +163,12 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		started.RunID, int64(started.Seq), string(started.Type), started.CreatedAt, started.PayloadVersion, started.Payload); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: append primary run.started: %w", err)
 	}
+	for i, event := range admission.Events {
+		event.Seq = domain.EventSeq(i + 2)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES ($1,$2,$3,$4,$5,$6)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
+			return domain.RunEvent{}, fmt.Errorf("storage: append primary queue admission: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: commit primary run admission: %w", err)
 	}
