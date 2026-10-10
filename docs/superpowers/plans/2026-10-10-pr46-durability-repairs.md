@@ -27,40 +27,48 @@ Use pinned adk.WithCancel, cancellation modes, Runner.Resume and ChatModelAgentR
 
 ## Task 1 — M1 dependency closure and optional catalog
 
-- [ ] Reproduce old-pin compilation and add bootstrap/Go revision consistency and optional-import regressions.
-- [ ] Review upstream ff3936f..4b2bec2 required API changes; pin exact reviewed full SHA and matching pseudo-versions.
-- [ ] Extract cognitive/memory/mask identities and action metadata without importing optional owners; preserve one definition per identifier.
-- [ ] Refresh source-bound conformance evidence after integrated source changes; verify exact-pin clean sibling, headless/embedded compilation, minimal/default pack and inspect.
+- [x] Reproduce old-pin compilation and add bootstrap/Go revision consistency and optional-import regressions.
+- [x] Review upstream ff3936f..4b2bec2 required API changes; pin exact reviewed full SHA and matching pseudo-versions.
+- [x] Extract cognitive/memory/mask identities and action metadata without importing optional owners; preserve one definition per identifier.
+- [x] Refresh source-bound conformance evidence after integrated source changes; verify exact-pin clean sibling, headless/embedded compilation, minimal/default pack and inspect.
 
 ## Task 2 — M2/M3 queue and cancellation (one lane)
 
-- [ ] Add regressions for replay failure/retry/concurrency, FIFO/reactivation, persistence failures, fast terminal/tail race, busy options, context cancellation and repeated steering.
-- [ ] Extend existing admission transaction to include dequeue/tail events before driving; publish only complete replay; return errors from mutations.
-- [ ] Carry full existing DTO, drain through RunWithOptions, batch contiguous compatible options, and replace face-local queues with kernel authority.
-- [ ] Atomically install a new Eino cancel handle for each resumed phase using the owning run context.
-- [ ] Run focused runtime/storage/RPC/face tests and record results.
+- [x] Add regressions for replay failure/retry/concurrency, FIFO/reactivation, persistence failures, fast terminal/tail race, busy options, context cancellation and repeated steering.
+- [x] Extend existing admission transaction to include dequeue/tail events before driving; publish only complete replay; return errors from mutations.
+- [x] Carry full existing DTO, drain through RunWithOptions, batch contiguous compatible options, and replace face-local queues with kernel authority.
+- [x] Atomically install a new Eino cancel handle for each resumed phase using the owning run context.
+- [x] Run focused runtime/storage/RPC/face tests and record results.
 
 ## Task 3 — M4 model settlement
 
-- [ ] Add failing Generate/setup/chunk/EOF/error and downstream-close settlement tests.
-- [ ] Join provider and settlement errors; send normal EOF settlement failure through the bounded pipe before closure.
-- [ ] Run observer regressions and existing producer-barrier tests.
+- [x] Add failing Generate/setup/chunk/EOF/error and downstream-close settlement tests.
+- [x] Join provider and settlement errors; send normal EOF settlement failure through the bounded pipe before closure.
+- [x] Run observer regressions and existing producer-barrier tests.
 
 ## Task 4 — M5 diagnostics cursors
 
-- [ ] Add failing append and truncation-above-offset regressions plus replacement coverage.
-- [ ] Validate cursor using stable opened-file identity, prior size, and offset, preserving bounded reads.
-- [ ] Run diagnostics and cross-platform compilation checks.
+- [x] Add failing append and truncation-above-offset regressions plus replacement coverage.
+- [x] Validate cursor using stable opened-file identity, prior size, and offset, preserving bounded reads.
+- [x] Run diagnostics and cross-platform compilation checks.
 
 ## Task 5 — M6 cache warming
 
-- [ ] Add failing maintenance accounting, default config, actual reusable-prefix and lifecycle tests.
-- [ ] Opt in to streaming warming; remove ineffective idle mode; retain existing coalescing/cancellation and mandatory observation.
-- [ ] Record actual warm usage, prefix and available pricing evidence; remove unsupported profitability estimates and represent unknown cache-write pricing honestly.
-- [ ] Run focused warming/config/usage tests.
+- [x] Add failing maintenance accounting, default config, actual reusable-prefix and lifecycle tests.
+- [x] Opt in to streaming warming; remove ineffective idle mode; retain existing coalescing/cancellation and mandatory observation.
+- [x] Record actual warm usage, prefix and available pricing evidence; remove unsupported profitability estimates and represent unknown cache-write pricing honestly.
+- [x] Run focused warming/config/usage tests.
 
 ## Task 6 — integration
 
-- [ ] Review isolated changes, integrate focused commits, refresh evidence once for final internal source identity.
+- [x] Review isolated changes, integrate focused commits, refresh evidence once for final internal source identity.
 - [ ] Run just ci (or record platform blockers and exact equivalent gates), race checks for queue/observer, and real pack/inspect paths.
 - [ ] Record summary, verification, acceptance and any unresolved limitation; commit focused deliverables without pushing.
+
+### Integration follow-up — recipe-accurate recall gate
+
+The first full Go gate exposed six existing recall tests using only cognitive-factory presence as their guard. The unchanged default recipe/assembly deliberately omits `vivy/diva-memory`; the DIVA recipe selects it. M1–M6 did not remove that provider. Repair the guard against actual recalled-source inventory and add a required CI execution of all six tests under the official SDK-generated DIVA recipe overlay. Preserve recipe ownership and generated Assembly; add no hand-wired production providers. Reuse the generator with an optional recipe parameter and remove temporary overlay inputs after each gate.
+
+- [x] Reproduce default composition mismatch and verify the exact original guard defect.
+- [x] Add capability-accurate recall test guards and required generated DIVA CI gate.
+- [ ] Execute the six original assertions under the actual DIVA generation, refresh final evidence, and repeat required integrated gates.

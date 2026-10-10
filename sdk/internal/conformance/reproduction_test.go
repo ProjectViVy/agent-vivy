@@ -461,7 +461,7 @@ func releaseSuiteCases(internalDigest string) []releaseSuiteCase {
 		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "9077d8f57c38763d6a9d9c0a9abc54fc5fbe13aad1b970e8952401110ad5eb3f", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
 		{"std/channel@v1", "vivy/discord", "plugins/discord", "53d1c4ac64f4ba746c3851ddbdb24794214855b75342b1ca7aa6a32be0232ee0", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
 		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "b2d112b9bf7c8ce506031cabb7533748e04b758b9c7f2e9621e77fa5c3ab2840", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
-		{"std/channel@v1", "vivy/qq", "plugins/qq", "ee1603a7fe325d9adc01e62809a7798897110cc1c1622f683642a699bed90355", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
+		{"std/channel@v1", "vivy/qq", "plugins/qq", "ede386c84e08e19c43b161a535e8a1b70cf7eef98dafe1b725f1e7025c19c7ed", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
 		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "b96eb4af5b0f844955f15bfdc21a4e3fc9a837e06e94a3642fd11b096a09ca95", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "24ba4a2b09d270a0c1a9a55acd4eb34ef2cba1343f97e1cddb1f923a108f64b4", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "daa1a129a770f2fec8dd2ee86ba7a63b4a124ce543f93364144db49b579b9ca6", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
