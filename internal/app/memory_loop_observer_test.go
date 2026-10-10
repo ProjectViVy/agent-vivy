@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 
 	"agent-vivy/internal/domain"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
@@ -65,7 +63,7 @@ func (f *memoryLoopFixture) reflectedSnapshot(ctx context.Context, runID string)
 	if snap.ProcessedThrough < snap.CaptureSeq {
 		return snap, false, nil
 	}
-	canonical, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(f.dataRoot, "garden", "palace", "palace.db", "canonical.sqlite3"))+"?mode=ro")
+	canonical, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
 	if err != nil {
 		return snap, false, err
 	}

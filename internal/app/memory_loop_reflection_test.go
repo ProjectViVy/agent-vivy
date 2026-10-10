@@ -3,11 +3,9 @@ package app
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,7 +88,7 @@ func memoryLoopAutomaticReflection(t *testing.T, extraSource string) {
 		if !t.Failed() {
 			return
 		}
-		db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(f.dataRoot, "vivy-test.db"))+"?mode=ro")
+		db, err := f.readOnlyDB("vivy-test.db")
 		if err != nil {
 			return
 		}

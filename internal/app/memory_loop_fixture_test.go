@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -101,6 +102,14 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		f.mu.Lock()
 		f.requests = append(f.requests, append(json.RawMessage(nil), body...))
 		f.mu.Unlock()
+		if opts.ModelMode == "failed" {
+			http.Error(w, "synthetic authentication failure", http.StatusUnauthorized)
+			return
+		}
+		if opts.ModelMode == "wait-cancel" {
+			<-r.Context().Done()
+			return
+		}
 		reply, err := memoryLoopModelReply(opts.ModelMode, body)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -235,7 +244,7 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 	}
 	// Test-only read-only observation of the real durable source. Role is
 	// deliberately left empty if the production source does not expose it.
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(f.dataRoot, "garden", "garden.db"))+"?mode=ro")
+	db, err := f.readOnlyDB("garden", "garden.db")
 	if err != nil {
 		return snap, false, err
 	}
@@ -289,7 +298,7 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 	if snap.State != "completed" {
 		return snap, false, nil
 	}
-	canonical, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(f.dataRoot, "garden", "palace", "palace.db", "canonical.sqlite3"))+"?mode=ro")
+	canonical, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
 	if err != nil {
 		return snap, false, err
 	}
@@ -437,7 +446,11 @@ func TestMemoryLoopFixtureUsesRealComposition(t *testing.T) {
 
 func memoryLoopConfig(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	return memoryLoopConfigAtRoot(t, t.TempDir())
+}
+
+func memoryLoopConfigAtRoot(t *testing.T, root string) string {
+	t.Helper()
 	cfg := config.Default()
 	// The isolated operator-selected profile admits effectful public control
 	// actions. Session/origin/grant checks remain on the actual ActionHost.
@@ -480,4 +493,9 @@ func memoryLoopConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return configPath
+}
+
+func (f *memoryLoopFixture) readOnlyDB(parts ...string) (*sql.DB, error) {
+	path := filepath.Join(append([]string{f.dataRoot}, parts...)...)
+	return sql.Open("sqlite", "file:"+url.PathEscape(filepath.ToSlash(path))+"?mode=ro")
 }
