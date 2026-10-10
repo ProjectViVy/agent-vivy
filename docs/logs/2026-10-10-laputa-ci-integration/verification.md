@@ -40,3 +40,11 @@ The final local b9a16946 full gate passed App (33.265s), runtime (190.018s), SDK
 The CodeFace event-preservation regression failed on EOF before the helper change; both it and the original follow-up case pass five consecutive runs afterward. Both portable codeclient unit tests pass. The next candidate internal digest is 603ce20c43eca1d843387df7d243501ac33655a14953f78b0af608e556d2b57a. Full local and exact-head Windows gates must still complete. No previous red run is recorded as green.
 
 An intermediate workflow edit placed runner.temp in job-level env, where the runner context is unavailable. It created no CI run. Scope TEMP/TMP to the backend execution step instead; actionlint 1.7.12 passes for the corrected workflow. This change does not alter source identities or test budgets.
+
+## Terminal 4d9a621b results and record identity repair
+
+Run 38068388904 ended with backend/aggregate failure and UI/browser success (598 UI tests, both Chromium tests). Fresh setup and independent cold dev startup passed. Ordinary App, runtime (54.413s), codeclient (9.830s), SDK/internal (576.732s), and conformance reproduction (84.085s) passed. The only ordinary failure was TestProviderQueryPaginatesWithCursor at Add; this stopped the required DIVA/headless/plugin gates from running.
+
+A new testing/synctest frozen-clock regression reproduced the record ID collision deterministically: the second identical-content add returned record revision conflict, expected None, actual Some(1). New IDs include the CAS-protected store revision, retaining the existing timestamp and digest components. `cd bml; go test -count=1 ./...` passes (0.513s); the original unmodified pagination case passes 100 consecutive runs. Full local and exact-head Windows gates remain required; the PR verification record will hold terminal evidence.
+
+`cd bml; go vet ./...` and the complete `go test ./internal/modules/memory -count=1` suite also pass. The superseded 4d9a621b local gate passed ordinary tests and started DIVA preparation; it was stopped before completion when the record identity fix required a new exact-commit run. It is not counted as a full gate pass.
