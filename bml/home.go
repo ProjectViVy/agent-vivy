@@ -394,12 +394,14 @@ func (h *Home) AddRecord(ctx context.Context, kind Kind, content string, evidenc
 	}
 	now := time.Now().UTC()
 	digest := MemoryContentDigest([]byte(content))
-	id := fmt.Sprintf("memory-%d-%s", now.UnixMicro(), digest.Value[:12])
-	record := longTermRecord(id, content, evidence, now)
 	metadata, err := store.Metadata(ctx)
 	if err != nil {
 		return StoredRecord{}, homeBmlUnavailable(err)
 	}
+	// The store CAS makes this revision unique even when the clock and content
+	// repeat. A timestamp alone can collide on Windows.
+	id := fmt.Sprintf("memory-%d-%s-%d", now.UnixMicro(), digest.Value[:12], metadata.StoreRevision+1)
+	record := longTermRecord(id, content, evidence, now)
 	stored, err := store.Put(ctx, record, metadata.StoreRevision, nil)
 	if err != nil {
 		return StoredRecord{}, homeBmlUnavailable(err)

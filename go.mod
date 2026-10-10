@@ -59,7 +59,7 @@ require (
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/coder/hnsw v0.6.1 // indirect
+	github.com/coder/hnsw v0.6.2-0.20250701161932-41f4a3674f5b // indirect
 	github.com/ProjectViVy/laputa/mentle v0.0.0-20261010120923-4b2bec2cc2ab // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
