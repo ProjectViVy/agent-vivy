@@ -37,6 +37,7 @@ type memoryLoopOptions struct {
 	RecallDisabled              bool   // test-only reachability control; never production config
 	CaptureAttemptHandshakePath string // test-only C01 terminal-to-capture handshake
 	CaptureHandshakePath        string // test-only C02 receipt-to-ACK crash handshake
+	EffectHandshakePath         string // test-only C03 effect-to-caller-receipt crash handshake
 }
 type memoryLoopSnapshot struct {
 	ProcessID             int
@@ -202,6 +203,9 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	}
 	if opts.CaptureAttemptHandshakePath != "" {
 		compositionOptions = append(compositionOptions, memoryLoopCaptureAttemptHandshake(opts.CaptureAttemptHandshakePath))
+	}
+	if opts.EffectHandshakePath != "" {
+		compositionOptions = append(compositionOptions, memoryLoopEffectReceiptHandshakeOption(opts.EffectHandshakePath))
 	}
 	f.app, err = NewWithAssembly(context.Background(), cfg, assembly, compositionOptions...)
 	if err != nil {

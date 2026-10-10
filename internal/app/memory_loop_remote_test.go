@@ -50,7 +50,7 @@ type memoryLoopRemote struct {
 // and control handlers in an owned child; it adds no product runtime.
 func startMemoryLoopRemote(ctx context.Context, options memoryLoopOptions) (*memoryLoopRemote, error) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMemoryLoopProcessServer$", "-test.v")
-	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+options.ConfigPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+options.ModelMode, fmt.Sprintf("VIVY_MEMORY_LOOP_RECALL_DISABLED=%t", options.RecallDisabled), "VIVY_MEMORY_LOOP_CAPTURE_ATTEMPT_HANDSHAKE="+options.CaptureAttemptHandshakePath, "VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE="+options.CaptureHandshakePath)
+	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+options.ConfigPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+options.ModelMode, fmt.Sprintf("VIVY_MEMORY_LOOP_RECALL_DISABLED=%t", options.RecallDisabled), "VIVY_MEMORY_LOOP_CAPTURE_ATTEMPT_HANDSHAKE="+options.CaptureAttemptHandshakePath, "VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE="+options.CaptureHandshakePath, "VIVY_MEMORY_LOOP_EFFECT_HANDSHAKE="+options.EffectHandshakePath)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 	if os.Getenv("VIVY_MEMORY_LOOP_PROCESS_SERVER") == "" {
 		t.Skip("owned subprocess helper")
 	}
-	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL"), RecallDisabled: os.Getenv("VIVY_MEMORY_LOOP_RECALL_DISABLED") == "true", CaptureAttemptHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_CAPTURE_ATTEMPT_HANDSHAKE"), CaptureHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE")})
+	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL"), RecallDisabled: os.Getenv("VIVY_MEMORY_LOOP_RECALL_DISABLED") == "true", CaptureAttemptHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_CAPTURE_ATTEMPT_HANDSHAKE"), CaptureHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE"), EffectHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_EFFECT_HANDSHAKE")})
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 4096), 4<<20)
 	for in.Scan() {

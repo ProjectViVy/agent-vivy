@@ -20,6 +20,7 @@ import (
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
 // Test-only crash transport. It kills only the fixture-owned process after
@@ -262,6 +263,222 @@ func memoryLoopCaptureReceiptHandshake(path string) AppOption {
 				panic(fmt.Errorf("publish C02 handshake: %w", err))
 			}
 			select {} // Parent kills this real process after reading durable state.
+		}
+	}
+}
+
+type memoryLoopEffectReceiptHandshake struct {
+	PID         int    `json:"pid"`
+	OperationID string `json:"operation_id"`
+	TargetRef   string `json:"target_ref"`
+	Revision    uint64 `json:"revision"`
+	Status      string `json:"status"`
+}
+
+// memoryLoopEffectReceiptGate waits after the actual domain has committed and
+// returned its atomic receipt, but before the strategy's caller can observe it.
+type memoryLoopEffectReceiptGate struct {
+	laputaevolution.Domain
+	path string
+}
+
+func memoryLoopEffectReceiptHandshakeOption(path string) AppOption {
+	return func(options *appOptions) {
+		options.cognitiveDomainWrapper = func(domain laputaevolution.Domain) laputaevolution.Domain {
+			return &memoryLoopEffectReceiptGate{Domain: domain, path: path}
+		}
+	}
+}
+
+func (g *memoryLoopEffectReceiptGate) BindForRun(ctx context.Context, binding laputaevolution.RunBinding) (laputaevolution.Domain, error) {
+	binder, ok := g.Domain.(interface {
+		BindForRun(context.Context, laputaevolution.RunBinding) (laputaevolution.Domain, error)
+	})
+	if !ok {
+		return nil, errors.New("C03 domain does not support run binding")
+	}
+	bound, err := binder.BindForRun(ctx, binding)
+	if err != nil {
+		return nil, err
+	}
+	return &memoryLoopEffectReceiptGate{Domain: bound, path: g.path}, nil
+}
+
+func (g *memoryLoopEffectReceiptGate) Apply(ctx context.Context, effect laputaevolution.Effect) (laputaevolution.EffectReceipt, error) {
+	receipt, err := g.Domain.Apply(ctx, effect)
+	if err != nil || effect.Kind != laputaevolution.KindMemoryMutation || receipt.Status != laputaevolution.StatusApplied {
+		return receipt, err
+	}
+	claim, err := os.OpenFile(g.path+".claimed", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		return receipt, nil // Restart consumes the recorded receipt without blocking again.
+	}
+	if err != nil {
+		return laputaevolution.EffectReceipt{}, fmt.Errorf("claim C03 handshake: %w", err)
+	}
+	if err := claim.Close(); err != nil {
+		return laputaevolution.EffectReceipt{}, fmt.Errorf("close C03 handshake claim: %w", err)
+	}
+	handshake := memoryLoopEffectReceiptHandshake{PID: os.Getpid(), OperationID: receipt.OperationID, TargetRef: receipt.TargetRef, Revision: receipt.Revision, Status: string(receipt.Status)}
+	raw, err := json.Marshal(handshake)
+	if err != nil {
+		return laputaevolution.EffectReceipt{}, fmt.Errorf("encode C03 handshake: %w", err)
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", g.path, os.Getpid())
+	if err := os.WriteFile(temporary, raw, 0600); err != nil {
+		return laputaevolution.EffectReceipt{}, fmt.Errorf("write C03 handshake: %w", err)
+	}
+	if err := os.Rename(temporary, g.path); err != nil {
+		return laputaevolution.EffectReceipt{}, fmt.Errorf("publish C03 handshake: %w", err)
+	}
+	<-ctx.Done() // The parent kills this process while the caller lacks the receipt.
+	return laputaevolution.EffectReceipt{}, ctx.Err()
+}
+
+// C03 proves that canonical memory and its atomic receipt are durable while
+// the DIVA caller is still blocked before acknowledgement of Apply's result.
+func TestMemoryLoopCrashC03CanonicalBeforeCallerReceipt(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 130*time.Second)
+	defer cancel()
+	handshakePath := filepath.Join(t.TempDir(), "effect-receipt.json")
+	f := newMemoryLoopFixture(t, memoryLoopOptions{
+		ConfigPath: memoryLoopConfig(t), ModelMode: "reflection", EffectHandshakePath: handshakePath,
+	})
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, session)
+	fact := memoryLoopRandomFact(t)
+	runID := memoryLoopTurn(t, f, session, fact)
+	primary, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := waitMemoryLoopEffectHandshake(t, handshakePath, 40*time.Second)
+	if f.remote == nil || handshake.PID != f.remote.pid || handshake.OperationID == "" || handshake.TargetRef == "" || handshake.Revision == 0 || handshake.Status != string(laputaevolution.StatusApplied) {
+		t.Fatalf("C03 handshake does not identify a committed memory effect: %+v", handshake)
+	}
+	var receipt struct {
+		OperationID string `json:"operation_id"`
+		TargetRef   string `json:"target_ref"`
+		Revision    uint64 `json:"revision"`
+		Status      string `json:"status"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.memory.receipt", map[string]any{"session_id": session, "operation_id": handshake.OperationID}, &receipt)
+	if receipt.OperationID != handshake.OperationID || receipt.TargetRef != handshake.TargetRef || receipt.Revision != handshake.Revision || receipt.Status != handshake.Status {
+		t.Fatalf("public atomic receipt differs from the unreturned Apply receipt: handshake=%+v public=%+v", handshake, receipt)
+	}
+	canonical, err := f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	var revision uint64
+	var count int
+	if err := canonical.QueryRowContext(ctx, `SELECT version,content FROM memories WHERE id=?`, handshake.TargetRef).Scan(&revision, &body); err != nil {
+		_ = canonical.Close()
+		t.Fatal(err)
+	}
+	if err := canonical.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&count); err != nil {
+		_ = canonical.Close()
+		t.Fatal(err)
+	}
+	_ = canonical.Close()
+	if revision != handshake.Revision || count != 2 || !strings.Contains(body, fact) || primary.CanonicalCount != 1 {
+		t.Fatalf("C03 canonical commit mismatch: primary=%+v canonical=%+v revision=%d count=%d body=%q", primary, handshake, revision, count, body)
+	}
+	var cognitionBefore memoryLoopCognitionStatus
+	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &cognitionBefore)
+	if cognitionBefore.Cognition.ActiveRunID == "" || cognitionBefore.Cognition.Phase != "running" {
+		t.Fatalf("C03 caller completed before returning from the blocked Apply: %+v", cognitionBefore.Cognition)
+	}
+	requestsBefore := len(f.ModelRequests())
+	oldPID, newPID, err := f.crashAndRestart(ctx)
+	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
+		t.Fatalf("crash/restart at C03 handshake: %d -> %d: %v", oldPID, newPID, err)
+	}
+	sessionParams, _ := json.Marshal(map[string]any{"session_id": session})
+	if _, err := f.Call(ctx, "session/get", sessionParams); err != nil {
+		t.Fatalf("rebind user session after process restart: %v", err)
+	}
+	workflowParams, _ := json.Marshal(map[string]any{"run_id": cognitionBefore.Cognition.ActiveRunID})
+	var workflow struct {
+		ID             string `json:"id"`
+		EngineStatus   string `json:"engine_status"`
+		RevisionDigest string `json:"revision_digest"`
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		raw, err := f.Call(ctx, "workflow/get", workflowParams)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		if workflow.EngineStatus == "recovery_required" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("C03 interrupted caller was neither resumed safely nor classified unknown: %+v", workflow)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if workflow.ID != cognitionBefore.Cognition.ActiveRunID || workflow.RevisionDigest == "" {
+		t.Fatalf("C03 recovery lost original workflow identity: %+v", workflow)
+	}
+	var afterReceipt struct {
+		OperationID string `json:"operation_id"`
+		TargetRef   string `json:"target_ref"`
+		Revision    uint64 `json:"revision"`
+		Status      string `json:"status"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.memory.receipt", map[string]any{"session_id": session, "operation_id": handshake.OperationID}, &afterReceipt)
+	if afterReceipt != receipt {
+		t.Fatalf("C03 original atomic receipt changed after restart: before=%+v after=%+v", receipt, afterReceipt)
+	}
+	assertMemoryLoopNoExtraRequests(t, f, 0, 11*time.Second)
+	if requestsBefore < 3 {
+		t.Fatalf("C03 never reached reflection inference before the effect: requests=%d", requestsBefore)
+	}
+	canonical, err = f.readOnlyDB("garden", "palace", "palace.db", "canonical.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer canonical.Close()
+	if err := canonical.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("C03 recovery duplicated canonical memory: count=%d err=%v", count, err)
+	}
+	t.Logf("C03 operation=%s canonical=%s revision=%d processes=%d->%d workflow=%s requests-before=%d requests-after=0", handshake.OperationID, handshake.TargetRef, handshake.Revision, oldPID, newPID, workflow.EngineStatus, requestsBefore)
+}
+
+func waitMemoryLoopEffectHandshake(t *testing.T, path string, timeout time.Duration) memoryLoopEffectReceiptHandshake {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			var handshake memoryLoopEffectReceiptHandshake
+			if err := json.Unmarshal(raw, &handshake); err != nil {
+				t.Fatalf("decode C03 handshake: %v", err)
+			}
+			return handshake
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read C03 handshake: %v", err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("C03 receipt handshake not reached in %s", timeout)
+		case <-ticker.C:
 		}
 	}
 }

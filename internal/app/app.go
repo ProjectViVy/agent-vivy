@@ -58,6 +58,7 @@ import (
 	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
 // shutdownGrace bounds the whole graceful shutdown window. It stays under
@@ -111,7 +112,10 @@ type appOptions struct {
 	// cognitiveCaptureSinkWrapper is an internal crash-test seam for pausing
 	// immediately before the durable Capture boundary.
 	cognitiveCaptureSinkWrapper func(runtime.CognitiveCaptureSink) runtime.CognitiveCaptureSink
-	settingsPath                string
+	// cognitiveDomainWrapper is a nil-by-default internal crash-test seam for
+	// pausing after a durable effect receipt and before its caller receives it.
+	cognitiveDomainWrapper func(laputaevolution.Domain) laputaevolution.Domain
+	settingsPath           string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
 	// the code project root from which a face may resolve attachments.
@@ -810,8 +814,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: resolve cognitive binding: %w", err)
 		}
+		var cognitiveDomain laputaevolution.Domain = &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle}
+		if ao.cognitiveDomainWrapper != nil {
+			cognitiveDomain = ao.cognitiveDomainWrapper(cognitiveDomain)
+		}
 		cognitiveBinding = &runtime.CognitiveBinding{
-			Domain:   &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle},
+			Domain:   cognitiveDomain,
 			Binding:  resolvedBinding,
 			SourceID: cognitiveBundle.SourceID(),
 			Source:   cognitiveBundle.Source(),
