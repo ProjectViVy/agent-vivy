@@ -23,6 +23,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 	"github.com/dashimaki/laputa/persona"
 	"gopkg.in/yaml.v3"
 )
@@ -32,21 +33,26 @@ type memoryLoopOptions struct {
 	ModelMode  string
 }
 type memoryLoopSnapshot struct {
-	ProcessID        int
-	RunID            string
-	EventSeq         uint64
-	IngestionID      string
-	CaptureSeq       uint64
-	ProcessedThrough uint64
-	OperationID      string
-	RecordID         string
-	Revision         uint64
-	CanonicalCount   int
-	CanonicalBody    string
-	SourceBody       string
-	SourceRole       string
-	SourceHash       string
-	State            string
+	ProcessID             int
+	RunID                 string
+	EventSeq              uint64
+	IngestionID           string
+	CaptureSeq            uint64
+	ProcessedThrough      uint64
+	OperationID           string
+	RecordID              string
+	Revision              uint64
+	CanonicalCount        int
+	CanonicalBody         string
+	SourceBody            string
+	SourceRole            string
+	SourceHash            string
+	State                 string
+	CanonicalSources      []laputaevolution.SourceRef
+	SourceProviderID      string
+	BoundScope            laputaevolution.Scope
+	PrimarySourceURI      string
+	PrimarySourceRevision string
 }
 
 type memoryLoopFixture struct {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"agent-vivy/internal/domain"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
 func (f *memoryLoopFixture) cognitiveValue(ctx context.Context, action, sessionID string, extra map[string]any, dst any) error {
@@ -48,7 +49,9 @@ func (f *memoryLoopFixture) reflectedSnapshot(ctx context.Context, runID string)
 		return snap, false, err
 	}
 	var status struct {
+		Scope     laputaevolution.Scope `json:"scope"`
 		Cognition struct {
+			SourceID    string `json:"source_id"`
 			Watermark   uint64 `json:"watermark"`
 			Phase       string `json:"phase"`
 			BlockReason string `json:"block_reason"`
@@ -58,6 +61,7 @@ func (f *memoryLoopFixture) reflectedSnapshot(ctx context.Context, runID string)
 		return snap, false, err
 	}
 	snap.ProcessedThrough = status.Cognition.Watermark
+	snap.SourceProviderID, snap.BoundScope = status.Cognition.SourceID, status.Scope
 	if snap.ProcessedThrough < snap.CaptureSeq {
 		return snap, false, nil
 	}
@@ -88,7 +92,8 @@ func (f *memoryLoopFixture) reflectedSnapshot(ctx context.Context, runID string)
 			}
 			var body string
 			var revision uint64
-			if err := canonical.QueryRowContext(ctx, `SELECT version,content FROM memories WHERE id=?`, item.TargetRef).Scan(&revision, &body); err != nil {
+			var metadata, source []byte
+			if err := canonical.QueryRowContext(ctx, `SELECT version,content,metadata_json,source_json FROM memories WHERE id=?`, item.TargetRef).Scan(&revision, &body, &metadata, &source); err != nil {
 				return snap, false, err
 			}
 			if body != want {
@@ -97,6 +102,20 @@ func (f *memoryLoopFixture) reflectedSnapshot(ctx context.Context, runID string)
 			if revision != item.Revision {
 				return snap, false, fmt.Errorf("effect/canonical revision mismatch")
 			}
+			var refs struct {
+				Sources []laputaevolution.SourceRef `json:"evolution_sources"`
+			}
+			var primary struct {
+				URI      string `json:"uri"`
+				Revision string `json:"revision"`
+			}
+			if err := json.Unmarshal(metadata, &refs); err != nil {
+				return snap, false, err
+			}
+			if err := json.Unmarshal(source, &primary); err != nil {
+				return snap, false, err
+			}
+			snap.CanonicalSources, snap.PrimarySourceURI, snap.PrimarySourceRevision = refs.Sources, primary.URI, primary.Revision
 			snap.OperationID, snap.RecordID, snap.Revision, snap.CanonicalBody, snap.State = item.OperationID, item.TargetRef, revision, body, item.Status
 			if err := canonical.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&snap.CanonicalCount); err != nil {
 				return snap, false, err

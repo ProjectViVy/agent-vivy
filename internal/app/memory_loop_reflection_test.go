@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +134,14 @@ func memoryLoopAutomaticReflection(t *testing.T, extraSource string) {
 	}
 	if reflected.CanonicalCount != 2 {
 		t.Fatalf("canonical count=%d; want raw source plus one memory effect", reflected.CanonicalCount)
+	}
+	if len(reflected.CanonicalSources) != 1 {
+		t.Fatalf("ordinary memory lost actual source provenance: %+v", reflected.CanonicalSources)
+	}
+	ref := reflected.CanonicalSources[0]
+	uri, err := url.Parse(reflected.PrimarySourceURI)
+	if err != nil || ref.SourceID != reflected.SourceProviderID || ref.RecordID != strconv.FormatUint(canonical.CaptureSeq, 10) || ref.Scope != reflected.BoundScope || reflected.PrimarySourceRevision != strconv.FormatUint(ref.Revision, 10) || uri.Query().Get("record_id") != ref.RecordID || uri.Query().Get("source_id") != ref.SourceID {
+		t.Fatalf("canonical provenance does not join durable source: reflected=%+v source=%+v err=%v", reflected, canonical, err)
 	}
 	stages := map[string]bool{}
 	for _, req := range f.ModelRequests() {
