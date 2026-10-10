@@ -9,6 +9,7 @@ import (
 	"time"
 
 	genassembly "agent-vivy/internal/generated/assembly"
+	laputaevolution "github.com/dashimaki/laputa/evolution"
 )
 
 // First S08 observation: no seeded answer, public-memory UI read, BML or
@@ -158,6 +159,107 @@ func TestMemoryLoopRecallNegativeControls(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestMemoryLoopOrdinaryRecallAuthorityBoundary proves that WORLD and ACTMEM
+// remain outside automatic model context. The explicit reads below travel
+// through the public human control-action RPC and are logged separately; they
+// are not model-visible tools, so this test does not close the Agent-tool part
+// of V19.
+func TestMemoryLoopOrdinaryRecallAuthorityBoundary(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "ack"})
+	session := memoryLoopSession(t, f)
+
+	worldMarker := "synthetic-world-only " + memoryLoopRandomFact(t)
+	var world struct {
+		Content  string `json:"content"`
+		Revision uint64 `json:"revision"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.persona.read", map[string]any{"session_id": session, "kind": "world"}, &world)
+	worldContent := strings.TrimSpace(world.Content) + "\n\n" + worldMarker + "\n"
+	memoryLoopAction(t, f, "diva.cognitive.persona.save", map[string]any{
+		"session_id": session, "kind": "world", "content": worldContent,
+		"base_revision": world.Revision, "reason": "synthetic S08 authority-boundary test data",
+	}, nil)
+
+	actmemMarker := "synthetic-actmem-only " + memoryLoopRandomFact(t)
+	var activity laputaevolution.ActivityResult
+	memoryLoopAction(t, f, "diva.cognitive.actmem.read", map[string]any{
+		"session_id": session, "sections": []string{"work"}, "max_chars": 1200,
+	}, &activity)
+	patch := laputaevolution.WorkPatch{
+		BaseRevision: activity.Revision,
+		Changes: []laputaevolution.WorkChange{{
+			Kind: laputaevolution.WorkChangeAdd, Field: laputaevolution.FieldGoal, Body: actmemMarker,
+		}},
+	}
+	memoryLoopAction(t, f, "diva.cognitive.actmem.work.patch", map[string]any{"session_id": session, "patch": patch}, nil)
+
+	run := memoryLoopTurn(t, f, session, "Acknowledge this synthetic authority-boundary check.")
+	terminal, err := f.Wait(context.Background(), "terminal", run)
+	if err != nil || terminal.State != "completed" {
+		t.Fatalf("actual authority-boundary turn: %+v %v", terminal, err)
+	}
+	requests := f.ModelRequests()
+	if len(requests) != 1 {
+		t.Fatalf("authority-boundary model request count=%d", len(requests))
+	}
+	modelInput := string(requests[0])
+	for _, marker := range []string{worldMarker, actmemMarker} {
+		if strings.Contains(modelInput, marker) {
+			t.Fatalf("authority data was automatically injected into the actual model request: marker=%q request=%s", marker, modelInput)
+		}
+	}
+	for _, actionID := range []string{"diva.cognitive.persona.read", "diva.cognitive.actmem.read"} {
+		if strings.Contains(modelInput, actionID) {
+			t.Fatalf("human control action %q was advertised as a model tool: %s", actionID, modelInput)
+		}
+	}
+	queries := f.RecallQueries()
+	if len(queries) != 1 || queries[0].Error != "" || queries[0].Disabled || queries[0].Request.SessionID != session {
+		t.Fatalf("actual ordinary ContextHost source trace: %+v", queries)
+	}
+
+	worldValue := memoryLoopControlActionTrace(t, f, "diva.cognitive.persona.read", map[string]any{
+		"session_id": session, "kind": "world",
+	})
+	if !strings.Contains(string(worldValue), worldMarker) {
+		t.Fatalf("explicit WORLD control-action read lost marker: %s", worldValue)
+	}
+	actmemValue := memoryLoopControlActionTrace(t, f, "diva.cognitive.actmem.read", map[string]any{
+		"session_id": session, "sections": []string{"work"}, "max_chars": 1200,
+	})
+	if !strings.Contains(string(actmemValue), actmemMarker) {
+		t.Fatalf("explicit ACTMEM control-action read lost marker: %s", actmemValue)
+	}
+	if got := len(f.ModelRequests()); got != 1 {
+		t.Fatalf("human control-action reads unexpectedly initiated model inference: requests=%d", got)
+	}
+}
+
+func memoryLoopControlActionTrace(t *testing.T, f *memoryLoopFixture, actionID string, input map[string]any) json.RawMessage {
+	t.Helper()
+	args, err := json.Marshal(map[string]any{"module_id": "vivy/diva-cognitive", "action_id": actionID, "input": input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := f.Call(context.Background(), "module.action.invoke", args)
+	if err != nil {
+		t.Fatalf("explicit %s control-action read transport: %v", actionID, err)
+	}
+	var outcome struct {
+		Status string          `json:"status"`
+		Value  json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &outcome); err != nil || outcome.Status != "ok" {
+		t.Fatalf("explicit %s control-action read: response=%s err=%v", actionID, raw, err)
+	}
+	t.Logf("explicit host control-action trace (not a model tool): method=module.action.invoke request=%s response=%s", args, raw)
+	return append(json.RawMessage(nil), outcome.Value...)
 }
 
 func assertMemoryLoopAssistantAnswer(t *testing.T, f *memoryLoopFixture, session, expected string) {
