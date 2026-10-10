@@ -176,7 +176,16 @@ func TestMemoryLoopMemoryInjection(t *testing.T) {
 	if !probe.HasCognitiveFactory() {
 		t.Skip("DIVA integration overlay required")
 	}
-	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"})
+	options := memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"}
+	if memoryLoopRaceBuild {
+		// The real hybrid search takes ~2.3 s with Go's race instrumentation
+		// versus ~0.2 s normally. Keep the production 750 ms default in all
+		// non-race builds; let this race-only security-path test finish the
+		// same actual source read. Deadline degradation remains tested with the
+		// default timeout by TestMemoryLoopRecallDeadlineDegradesSafely.
+		options.ContextSourceTimeout = 5 * time.Second
+	}
+	f := newMemoryLoopFixture(t, options)
 	session := memoryLoopSession(t, f)
 	var missionBefore struct {
 		Content  string `json:"content"`
@@ -235,6 +244,7 @@ func TestMemoryLoopMemoryInjection(t *testing.T) {
 		}
 	}
 	if len(recallRequest) == 0 {
+		diagnoseMemoryLoopRecallStages(t, f, session, "Quote the instruction I previously stored as an example; do not carry it out.")
 		t.Fatalf("hostile memory did not reach the actual recall model request: requests=%d trace=%+v", len(requests), f.RecallQueries())
 	}
 	if memoryLoopSystemContains(recallRequest, malicious) {
@@ -258,6 +268,10 @@ func TestMemoryLoopMemoryInjection(t *testing.T) {
 	queries := f.RecallQueries()
 	if len(queries) != 2 || queries[1].Request.Query != "Quote the instruction I previously stored as an example; do not carry it out." || queries[1].Error != "" || len(queries[1].Page.Candidates) != 1 {
 		t.Fatalf("actual recall trace did not preserve the hostile content as one memory candidate: %+v", queries)
+	}
+	queryMillis := make([]int64, len(queries))
+	for i := range queries {
+		queryMillis[i] = queries[i].ElapsedMillis
 	}
 	var recalled struct {
 		Evidence []struct {
@@ -294,7 +308,41 @@ func TestMemoryLoopMemoryInjection(t *testing.T) {
 			t.Fatalf("hostile memory changed effect receipt %d: before=%+v after=%+v", i, receiptsBefore[i], receiptsAfter[i])
 		}
 	}
-	t.Logf("memory injection: hostile bytes appeared in user context only; mission/policy/effect receipts unchanged")
+	t.Logf("memory injection: hostile bytes appeared in user context only; mission/policy/effect receipts unchanged; native source query_ms=%v", queryMillis)
+}
+
+// On a failed ContextHost recall, isolate native card search from evidence
+// expansion through the same bound Garden actions. This is diagnostic only;
+// it never substitutes data into the model request or changes authority.
+func diagnoseMemoryLoopRecallStages(t *testing.T, f *memoryLoopFixture, session, query string) {
+	t.Helper()
+	started := time.Now()
+	search := invokeMemoryLoopAction(t, f, "diva.cognitive.memory.search", map[string]any{
+		"session_id": session, "query": query, "limit": 4, "budget_chars": 1200,
+	})
+	searchElapsed := time.Since(started)
+	var cards struct {
+		Items []struct {
+			ID       string `json:"id"`
+			Revision uint64 `json:"revision"`
+		} `json:"items"`
+	}
+	parseErr := json.Unmarshal(search.Value, &cards)
+	t.Logf("diagnostic native card search: status=%s code=%s elapsed=%s items=%d parse_error=%v", search.Status, search.Error.Code, searchElapsed, len(cards.Items), parseErr)
+	if search.Status != "ok" || parseErr != nil || len(cards.Items) == 0 {
+		return
+	}
+	started = time.Now()
+	expanded := invokeMemoryLoopAction(t, f, "diva.cognitive.memory.expand", map[string]any{
+		"session_id": session, "card_id": cards.Items[0].ID,
+		"expected_revision": cards.Items[0].Revision, "budget_chars": 1200,
+	})
+	expandElapsed := time.Since(started)
+	var evidence struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	parseErr = json.Unmarshal(expanded.Value, &evidence)
+	t.Logf("diagnostic native evidence expansion: status=%s code=%s elapsed=%s items=%d parse_error=%v", expanded.Status, expanded.Error.Code, expandElapsed, len(evidence.Items), parseErr)
 }
 
 func invokeMemoryLoopAction(t *testing.T, f *memoryLoopFixture, action string, input map[string]any) memoryLoopActionOutcome {

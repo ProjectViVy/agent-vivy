@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,13 +35,14 @@ import (
 type memoryLoopOptions struct {
 	ConfigPath                  string
 	ModelMode                   string
-	RecallDisabled              bool   // test-only reachability control; never production config
-	CaptureAttemptHandshakePath string // test-only C01 terminal-to-capture handshake
-	CaptureHandshakePath        string // test-only C02 receipt-to-ACK crash handshake
-	EffectHandshakePath         string // test-only C03 effect-to-caller-receipt crash handshake
-	EffectHandshakeIndex        int    // zero-based memory effect index for C03/C04 handshakes
-	WatermarkHandshakePath      string // test-only C05 resolved-window-to-watermark crash handshake
-	C06IndexHandshakePath       string // C06 overlay-only canonical-to-index crash handshake
+	RecallDisabled              bool          // test-only reachability control; never production config
+	ContextSourceTimeout        time.Duration // test-only allowance for race-instrumented native search
+	CaptureAttemptHandshakePath string        // test-only C01 terminal-to-capture handshake
+	CaptureHandshakePath        string        // test-only C02 receipt-to-ACK crash handshake
+	EffectHandshakePath         string        // test-only C03 effect-to-caller-receipt crash handshake
+	EffectHandshakeIndex        int           // zero-based memory effect index for C03/C04 handshakes
+	WatermarkHandshakePath      string        // test-only C05 resolved-window-to-watermark crash handshake
+	C06IndexHandshakePath       string        // C06 overlay-only canonical-to-index crash handshake
 }
 type memoryLoopSnapshot struct {
 	ProcessID             int
@@ -201,6 +203,9 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		}
 	}
 	compositionOptions := []AppOption{WithoutEars(), WithoutGateway(), WithInstructionRoot(cfg.Runtime.WorkspaceRoot)}
+	if opts.ContextSourceTimeout > 0 {
+		compositionOptions = append(compositionOptions, withContextSourceTimeout(opts.ContextSourceTimeout))
+	}
 	if opts.CaptureHandshakePath != "" {
 		compositionOptions = append(compositionOptions, memoryLoopCaptureReceiptHandshake(opts.CaptureHandshakePath))
 	}
@@ -244,6 +249,8 @@ type memoryLoopRecallQuery struct {
 	Request       contextsource.Request `json:"request"`
 	Page          contextsource.Page    `json:"page"`
 	Error         string                `json:"error,omitempty"`
+	ErrorCause    string                `json:"error_cause,omitempty"`
+	ContextErr    string                `json:"context_error,omitempty"`
 	ElapsedMillis int64                 `json:"elapsed_ms,omitempty"`
 	Disabled      bool                  `json:"disabled,omitempty"`
 }
@@ -277,6 +284,15 @@ func (s *memoryLoopObservedRecallSource) Query(ctx context.Context, request cont
 	entry := memoryLoopRecallQuery{Request: request, Page: contextsource.NewPage(page.Candidates, page.NextCursor), ElapsedMillis: elapsedMillis, Disabled: s.fixture.options.RecallDisabled}
 	if err != nil {
 		entry.Error = err.Error()
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			entry.ErrorCause = "deadline_exceeded"
+		case errors.Is(err, context.Canceled):
+			entry.ErrorCause = "canceled"
+		}
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		entry.ContextErr = contextErr.Error()
 	}
 	s.fixture.mu.Lock()
 	s.fixture.recallQueries = append(s.fixture.recallQueries, entry)
@@ -327,6 +343,36 @@ func (f *memoryLoopFixture) ModelRequests() []json.RawMessage {
 		out[i] = append(json.RawMessage(nil), req...)
 	}
 	return out
+}
+
+// redeliverRun rewinds only the fixture-owned Observer cursor and asks the
+// actual App to replay a completed run through its normal ObserverHost path.
+func (f *memoryLoopFixture) redeliverRun(ctx context.Context, runID string) (uint64, error) {
+	if f.remote != nil {
+		var cursor uint64
+		err := f.remote.exchange(ctx, memoryLoopRequest{Op: "observer-redeliver", RunID: runID}, &cursor)
+		return cursor, err
+	}
+	if f.app == nil || f.app.observerHost == nil || f.app.backend == nil {
+		return 0, errors.New("fixture App has no owned ObserverHost")
+	}
+	key := memoryLoopObserverCursorKey(runID)
+	store := f.app.backend.Snapshot()
+	_, version, err := store.Get(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	if err := store.Put(ctx, key, []byte("0"), version); err != nil {
+		return 0, err
+	}
+	if err := f.app.observerHost.DeliverRun(ctx, domain.RunID(runID)); err != nil {
+		return 0, err
+	}
+	value, _, err := store.Get(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseUint(string(value), 10, 64)
 }
 
 func (f *memoryLoopFixture) Wait(ctx context.Context, stage, runID string) (memoryLoopSnapshot, error) {

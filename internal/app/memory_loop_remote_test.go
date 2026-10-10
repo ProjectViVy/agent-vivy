@@ -231,6 +231,8 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 				}
 				value = cursor
 			}
+		case "observer-redeliver":
+			value, err = f.redeliverRun(ctx, req.RunID)
 		case "recall-queries":
 			value = f.RecallQueries()
 		case "close":

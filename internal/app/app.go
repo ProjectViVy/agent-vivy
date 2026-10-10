@@ -127,6 +127,9 @@ type appOptions struct {
 	// conventional skill packages. It is independent of projectRoot so the
 	// web sandbox can inject project instructions without exposing @file.
 	instructionRoot string
+	// contextSourceTimeout is a test seam for instrumented integration runs;
+	// production compositions retain ContextHost's own default.
+	contextSourceTimeout time.Duration
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -170,6 +173,10 @@ func WithCodeProjectRoot(path string) AppOption {
 // agentsmd / skill middlewares. It does not change the file-tool world.
 func WithInstructionRoot(path string) AppOption {
 	return func(o *appOptions) { o.instructionRoot = path }
+}
+
+func withContextSourceTimeout(timeout time.Duration) AppOption {
+	return func(o *appOptions) { o.contextSourceTimeout = timeout }
 }
 
 // developerPresentationLocale reads the development-only locale input from
@@ -660,7 +667,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 	engineCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
-	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend)
+	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend, ao.contextSourceTimeout)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err
@@ -1220,7 +1227,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			if toolsChanged || mcpChanged || compactionChanged {
 				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
 				var reloadErr error
-				reloadCfg.ContextHost, reloadErr = contextHostForAssembly(runtimeAssembly, mcpBackend)
+				reloadCfg.ContextHost, reloadErr = contextHostForAssembly(runtimeAssembly, mcpBackend, ao.contextSourceTimeout)
 				if reloadErr != nil {
 					logger.Warn("MCP context bridge reload skipped", "err", reloadErr)
 					reloadCfg.ContextHost = nil

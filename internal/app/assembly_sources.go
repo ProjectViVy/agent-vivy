@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/contexthost"
@@ -83,6 +84,10 @@ func generatedSkillSources(assembly genassembly.RuntimeAssembly) ([]skillsource.
 }
 
 func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...contextsource.Provider) (*contexthost.Host, error) {
+	return buildGeneratedContextHostWithTimeout(assembly, 0, extra...)
+}
+
+func buildGeneratedContextHostWithTimeout(assembly genassembly.RuntimeAssembly, sourceTimeout time.Duration, extra ...contextsource.Provider) (*contexthost.Host, error) {
 	sources, err := generatedContextSources(assembly)
 	if err != nil {
 		return nil, err
@@ -115,13 +120,13 @@ func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...co
 			required = append(required, policy.ProviderID)
 		}
 	}
-	return contexthost.New(contexthost.Config{Sources: sources, RequiredSourceIDs: required})
+	return contexthost.New(contexthost.Config{Sources: sources, RequiredSourceIDs: required, SourceTimeout: sourceTimeout})
 }
 
 // contextHostForAssembly combines build-owned Context Sources with an
 // explicitly configured MCP Resource bridge. MCPResourceProvider is lazy and
 // does not connect while this composition snapshot is built.
-func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *runtime.MCPBackend) (*contexthost.Host, error) {
+func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *runtime.MCPBackend, sourceTimeout ...time.Duration) (*contexthost.Host, error) {
 	// A packed generation that omits ContextHost cannot regain that Host by
 	// selecting an MCP Resource bridge at runtime. The generated manifest is
 	// the sealed composition boundary; an absent Host means this capability is
@@ -137,5 +142,9 @@ func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *ru
 			return nil, err
 		}
 	}
-	return buildGeneratedContextHost(assembly, extra)
+	var timeout time.Duration
+	if len(sourceTimeout) > 0 {
+		timeout = sourceTimeout[0]
+	}
+	return buildGeneratedContextHostWithTimeout(assembly, timeout, extra)
 }

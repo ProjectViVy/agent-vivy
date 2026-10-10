@@ -60,6 +60,36 @@ func TestMemoryLoopCorrectionAndDeletionInModelInput(t *testing.T) {
 	if err := f.Restart(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	sourceBeforeReplay, err := f.Wait(context.Background(), "canonical", runA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reattach, _ := json.Marshal(map[string]any{"session_id": a})
+	if _, err := f.Call(context.Background(), "session/get", reattach); err != nil {
+		t.Fatalf("reattach original session after process restart: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		seq, err := f.redeliverRun(context.Background(), runA)
+		if err != nil || seq < sourceBeforeReplay.EventSeq {
+			t.Fatalf("deleted source redelivery did not settle its observer cursor: seq=%d want>=%d err=%v", seq, sourceBeforeReplay.EventSeq, err)
+		}
+		assertMemoryLoopReplayUnchanged(t, f, runA, sourceBeforeReplay)
+	}
+	var deletedSearch struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	memoryLoopAction(t, f, "diva.cognitive.memory.search", map[string]any{"session_id": a, "query": oldFact, "limit": 20, "budget_chars": 1200}, &deletedSearch)
+	for _, item := range deletedSearch.Items {
+		if item.ID == original.RecordID {
+			t.Fatal("redelivering the already processed source revived its tombstoned memory")
+		}
+	}
+	assertMemoryLoopTriggerReason(t, f, a, "disabled")
+	if len(f.ModelRequests()) != 0 {
+		t.Fatal("replaying the deleted source scheduled another reflection")
+	}
 	c := memoryLoopSession(t, f)
 	if c == a || c == b {
 		t.Fatal("deleted control reused old transcript")
