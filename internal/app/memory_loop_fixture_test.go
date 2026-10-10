@@ -32,6 +32,7 @@ type memoryLoopOptions struct {
 	ModelMode  string
 }
 type memoryLoopSnapshot struct {
+	ProcessID        int
 	RunID            string
 	EventSeq         uint64
 	IngestionID      string
@@ -49,6 +50,9 @@ type memoryLoopSnapshot struct {
 }
 
 type memoryLoopFixture struct {
+	t        *testing.T
+	options  memoryLoopOptions
+	remote   *memoryLoopRemote
 	app      *App
 	peer     *controlrpc.Peer
 	dataRoot string
@@ -67,14 +71,14 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" {
-		t.Fatal("reflection/recall model modes are pending S06/S08; no synthetic result supplied")
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" {
+		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &memoryLoopFixture{dataRoot: cfg.Storage.DataDir}
+	f := &memoryLoopFixture{t: t, options: opts, dataRoot: cfg.Storage.DataDir}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err != nil {
@@ -91,13 +95,19 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		f.mu.Lock()
 		f.requests = append(f.requests, append(json.RawMessage(nil), body...))
 		f.mu.Unlock()
+		reply, err := memoryLoopModelReply(opts.ModelMode, body)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		content, _ := json.Marshal(reply)
 		if req.Stream {
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, "data: {\"id\":\"memory-loop\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"收到\"},\"finish_reason\":null}]}\n\n")
+			_, _ = fmt.Fprintf(w, "data: {\"id\":\"memory-loop\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":%s},\"finish_reason\":null}]}\n\n", content)
 			_, _ = io.WriteString(w, "data: {\"id\":\"memory-loop\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n")
 		} else {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"id":"memory-loop","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"收到"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+			_, _ = fmt.Fprintf(w, `{"id":"memory-loop","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":%s},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, content)
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -131,10 +141,24 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 func (f *memoryLoopFixture) Call(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	if f.remote != nil {
+		var value json.RawMessage
+		err := f.remote.exchange(callCtx, memoryLoopRequest{Op: "call", Method: method, Params: params}, &value)
+		return value, err
+	}
 	return f.peer.Call(callCtx, method, params)
 }
 
 func (f *memoryLoopFixture) ModelRequests() []json.RawMessage {
+	if f.remote != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var requests []json.RawMessage
+		if err := f.remote.exchange(ctx, memoryLoopRequest{Op: "requests"}, &requests); err != nil {
+			f.t.Fatalf("fresh process requests: %v", err)
+		}
+		return requests
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]json.RawMessage, len(f.requests))
@@ -145,11 +169,15 @@ func (f *memoryLoopFixture) ModelRequests() []json.RawMessage {
 }
 
 func (f *memoryLoopFixture) Wait(ctx context.Context, stage, runID string) (memoryLoopSnapshot, error) {
+	if f.remote != nil {
+		ctx, cancel := context.WithTimeout(ctx, 65*time.Second)
+		defer cancel()
+		var snap memoryLoopSnapshot
+		err := f.remote.exchange(ctx, memoryLoopRequest{Op: "wait", Stage: stage, RunID: runID}, &snap)
+		return snap, err
+	}
 	if stage != "terminal" && stage != "accepted" && stage != "canonical" && stage != "reflected" {
 		return memoryLoopSnapshot{}, fmt.Errorf("unobservable stage %q", stage)
-	}
-	if stage == "reflected" {
-		return memoryLoopSnapshot{}, errors.New("reflection observation pending S06")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -172,7 +200,10 @@ func (f *memoryLoopFixture) Wait(ctx context.Context, stage, runID string) (memo
 }
 
 func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (memoryLoopSnapshot, bool, error) {
-	snap := memoryLoopSnapshot{RunID: runID}
+	if stage == "reflected" {
+		return f.reflectedSnapshot(ctx, runID)
+	}
+	snap := memoryLoopSnapshot{RunID: runID, ProcessID: os.Getpid()}
 	if stage == "terminal" {
 		run, err := f.app.backend.GetRun(ctx, domain.RunID(runID))
 		if err != nil {
@@ -270,9 +301,25 @@ func (f *memoryLoopFixture) snapshot(ctx context.Context, stage, runID string) (
 }
 
 func (f *memoryLoopFixture) Restart(ctx context.Context) error {
-	return errors.New("cross-process restart pending S08; use separate close/open smoke explicitly")
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	err := f.Close(closeCtx)
+	cancel()
+	if err != nil {
+		return err
+	}
+	f.remote = nil
+	f.app = nil
+	f.peer = nil
+	f.cancel = nil
+	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer startCancel()
+	f.remote, err = startMemoryLoopRemote(startCtx, f.options.ConfigPath, f.options.ModelMode)
+	return err
 }
 func (f *memoryLoopFixture) Close(ctx context.Context) error {
+	if f.remote != nil {
+		return f.remote.close(ctx)
+	}
 	if f.cancel != nil {
 		f.cancel()
 	}
@@ -386,6 +433,9 @@ func memoryLoopConfig(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	cfg := config.Default()
+	// The isolated operator-selected profile admits effectful public control
+	// actions. Session/origin/grant checks remain on the actual ActionHost.
+	cfg.Governance.Profile = string(domain.PolicyProfileFullAuto)
 	cfg.Storage.Backend = "sqlite"
 	cfg.Storage.DataDir = root
 	cfg.Storage.SQLite.Path = filepath.Join(root, "vivy-test.db")
