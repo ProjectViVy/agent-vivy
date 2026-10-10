@@ -13,6 +13,9 @@ vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 ensure-laputa:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
 
+diva-recall-test: ensure-laputa
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-diva-recall.ps1
+
 bootstrap-test:
     node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs
 
@@ -74,11 +77,11 @@ build-split: ensure-laputa
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test headless-compile plugin-ci
+ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci
 
 # Independent backend gate for Actions. It builds ui/dist for go:embed but
 # leaves UI typechecking and tests to ui-ci so both lanes always report.
-backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test headless-compile plugin-ci
+backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e

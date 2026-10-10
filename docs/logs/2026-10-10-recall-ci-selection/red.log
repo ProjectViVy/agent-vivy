@@ -1,0 +1,8 @@
+2026/10/10 16:12:24 INFO project instructions discovered root=/tmp/TestMemoryLoopMemoryInjection1112239690/001/workspace agents_md=[AGENTS.md] skill_roots=0
+--- FAIL: TestMemoryLoopMemoryInjection (11.07s)
+    memory_loop_isolation_test.go:247: diagnostic native card search: status=ok code= elapsed=224.422477ms items=3 parse_error=<nil>
+    memory_loop_isolation_test.go:247: diagnostic native evidence expansion: status=ok code= elapsed=1.1042ms items=1 parse_error=<nil>
+    memory_loop_isolation_test.go:248: hostile memory did not reach the actual recall model request: requests=4 trace=[]
+FAIL
+FAIL	agent-vivy/internal/app	11.134s
+FAIL

@@ -83,6 +83,25 @@ type memoryLoopFixture struct {
 	modelReleaseOnce sync.Once
 }
 
+// Recall fixtures require the optional source as well as the cognitive owner.
+// The default generation has the owner but deliberately omits native recall.
+func memoryLoopHasRecallSource(t *testing.T, assembly genassembly.RuntimeAssembly) bool {
+	t.Helper()
+	if !assembly.HasCognitiveFactory() {
+		return false
+	}
+	sources, err := generatedContextSources(assembly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range sources {
+		if source != nil && source.ID() == "vivy.memory.mentle" {
+			return true
+		}
+	}
+	return false
+}
+
 func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixture {
 	t.Helper()
 	if !filepath.IsAbs(opts.ConfigPath) {
