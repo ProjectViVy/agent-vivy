@@ -76,7 +76,8 @@ type memoryLoopFixture struct {
 	dataRoot         string
 	cancel           context.CancelFunc
 	runCancel        context.CancelFunc
-	runDone          chan error
+	runDone          chan struct{}
+	runErr           error
 	mu               sync.Mutex
 	requests         []json.RawMessage
 	responses        []memoryLoopModelResponse
@@ -253,8 +254,13 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	}
 	runCtx, runCancel := context.WithCancel(context.Background())
 	f.runCancel = runCancel
-	f.runDone = make(chan error, 1)
-	go func() { f.runDone <- f.app.Run(runCtx) }()
+	// Broadcast completion: explicit Close and subprocess test cleanup must
+	// observe the same result instead of competing for one channel value.
+	f.runDone = make(chan struct{})
+	go func() {
+		f.runErr = f.app.Run(runCtx)
+		close(f.runDone)
+	}()
 	waitFor(t, 2*time.Second, f.app.service.CognitiveLoopActive)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -545,6 +551,7 @@ func (f *memoryLoopFixture) Restart(ctx context.Context) error {
 	f.cancel = nil
 	f.runCancel = nil
 	f.runDone = nil
+	f.runErr = nil
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer startCancel()
 	f.remote, err = startMemoryLoopRemote(startCtx, f.options)
@@ -564,8 +571,8 @@ func (f *memoryLoopFixture) Close(ctx context.Context) error {
 		if f.runCancel != nil && f.runDone != nil {
 			f.runCancel()
 			select {
-			case err := <-f.runDone:
-				return err
+			case <-f.runDone:
+				return f.runErr
 			case <-ctx.Done():
 				return ctx.Err()
 			}
