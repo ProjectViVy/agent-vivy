@@ -170,7 +170,7 @@ func TestHostSourceTimeoutIsIsolated(t *testing.T) {
 	}
 }
 
-func TestHostRedactsSecretLikeContent(t *testing.T) {
+func TestHostPreservesSyntheticCredentialText(t *testing.T) {
 	skill := skillsource.Skill{ID: "safe", Name: "safe", Version: "v1", SourceHash: "a", Available: true, Content: "key sk-test-12345678901234567890"}
 	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{"safe": skill}}
 	host, err := New(Config{Sources: []skillsource.Provider{source}})
@@ -181,8 +181,8 @@ func TestHostRedactsSecretLikeContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(resolved.Content, "sk-test-") {
-		t.Fatalf("secret-like content was not redacted: %q", resolved.Content)
+	if resolved.Content != skill.Content {
+		t.Fatalf("authorized content changed: %q", resolved.Content)
 	}
 }
 
@@ -280,15 +280,19 @@ func TestHostOwnsActivationScopeAndAuthorization(t *testing.T) {
 	}
 }
 
-func TestHostChecksRedactedContentAgainstSkillBudget(t *testing.T) {
+func TestHostChecksExactContentAgainstSkillBudget(t *testing.T) {
 	skill := skillsource.Skill{ID: "redact", Name: "redact", Version: "v1", SourceHash: "source", Available: true, Content: "token:x"}
 	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{skill.ID: skill}}
 	host, err := New(Config{Sources: []skillsource.Provider{source}, MaxSkillBytes: len(skill.Content)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got, err := host.Get(context.Background(), Request{}, skill.ID); err != nil || got.Content != skill.Content {
+		t.Fatalf("exact-fit content = %q err=%v", got.Content, err)
+	}
+	host.maxSkillBytes = len(skill.Content) - 1
 	if _, err := host.Get(context.Background(), Request{}, skill.ID); !errors.Is(err, ErrSkillTooLarge) {
-		t.Fatalf("redaction expansion error = %v, want ErrSkillTooLarge", err)
+		t.Fatalf("oversized content = %v", err)
 	}
 }
 
@@ -304,7 +308,7 @@ func TestHostAlwaysBudgetIncludesProjectedBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(content) > 48 || strings.Contains(content, "token:x") {
+	if len(content) > 48 || !strings.Contains(content, "token:x") {
 		t.Fatalf("always projection escaped Host byte budget/redaction: len=%d content=%q", len(content), content)
 	}
 }

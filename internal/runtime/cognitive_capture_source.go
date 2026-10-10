@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tools"
 )
 
 // captureMessageReader reuses the existing durable MessageStore read surface.
@@ -47,7 +46,7 @@ func cognitiveConversationCapture(ctx context.Context, store captureMessageReade
 		if row.RunID != run.ID || row.SessionID != run.SessionID || row.Role != domain.RoleUser {
 			continue
 		}
-		content := tools.RedactSensitive(row.Content)
+		content := row.Content
 		userContents = append(userContents, content)
 		source.Messages = append(source.Messages, captureSourceMessage{ID: row.ID, Role: string(row.Role), Content: content, Complete: content == row.Content})
 	}
@@ -57,7 +56,7 @@ func cognitiveConversationCapture(ctx context.Context, store captureMessageReade
 	if summary != "" {
 		// Terminal summary is only a bounded assistant projection. Never label
 		// it user evidence or claim it is the complete assistant transcript.
-		source.Messages = append(source.Messages, captureSourceMessage{Role: "assistant", Content: tools.RedactSensitive(summary), Complete: false})
+		source.Messages = append(source.Messages, captureSourceMessage{Role: "assistant", Content: summary, Complete: false})
 	}
 	raw, err := json.Marshal(source)
 	if err != nil {

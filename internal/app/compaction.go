@@ -13,12 +13,16 @@ import (
 // compactionPolicyFor merges the settings overlay over the config defaults
 // and resolves max_tokens=0 against the provider model's context window.
 // The result is the engine-visible compaction snapshot.
-func compactionPolicyFor(cfg config.Config, overlay *settings.CompactionSettings, modelWindow int) runtime.CompactionPolicy {
+func compactionPolicyFor(cfg config.Config, overlay *settings.CompactionSettings, modelWindow int, modelName string) runtime.CompactionPolicy {
 	c := cfg.Runtime.Compaction
 	enabled := c.Enabled
 	maxTokens := c.MaxTokens
 	pct := c.TriggerPercent
 	keep := c.KeepRecent
+	perModel := make(map[string]runtime.CompactionOverride, len(c.PerModel))
+	for model, o := range c.PerModel {
+		perModel[model] = runtime.CompactionOverride{MaxTokens: o.MaxTokens, TriggerPercent: o.TriggerPercent, KeepRecent: o.KeepRecent}
+	}
 	if overlay != nil {
 		if overlay.Enabled != nil {
 			enabled = *overlay.Enabled
@@ -32,11 +36,24 @@ func compactionPolicyFor(cfg config.Config, overlay *settings.CompactionSettings
 		if overlay.KeepRecent != 0 {
 			keep = overlay.KeepRecent
 		}
+		for model, o := range overlay.PerModel {
+			merged := perModel[model]
+			if o.MaxTokens > 0 {
+				merged.MaxTokens = o.MaxTokens
+			}
+			if o.TriggerPercent > 0 {
+				merged.TriggerPercent = o.TriggerPercent
+			}
+			if o.KeepRecent > 0 {
+				merged.KeepRecent = o.KeepRecent
+			}
+			perModel[model] = merged
+		}
 	}
 	if maxTokens <= 0 {
 		maxTokens = modelWindow
 	}
-	return runtime.CompactionPolicy{Enabled: enabled, MaxTokens: maxTokens, TriggerPercent: pct, KeepRecent: keep}
+	return runtime.CompactionPolicy{Enabled: enabled, MaxTokens: maxTokens, TriggerPercent: pct, KeepRecent: keep, PerModel: perModel}.For(modelName)
 }
 
 // mergedCompactionConfig folds the settings overlay into the config struct
@@ -57,6 +74,22 @@ func mergedCompactionConfig(base config.CompactionConfig, overlay *settings.Comp
 	}
 	if overlay.KeepRecent != 0 {
 		base.KeepRecent = overlay.KeepRecent
+	}
+	for model, o := range overlay.PerModel {
+		if base.PerModel == nil {
+			base.PerModel = make(map[string]config.CompactionOverride)
+		}
+		merged := base.PerModel[model]
+		if o.MaxTokens > 0 {
+			merged.MaxTokens = o.MaxTokens
+		}
+		if o.TriggerPercent > 0 {
+			merged.TriggerPercent = o.TriggerPercent
+		}
+		if o.KeepRecent > 0 {
+			merged.KeepRecent = o.KeepRecent
+		}
+		base.PerModel[model] = merged
 	}
 	return base
 }

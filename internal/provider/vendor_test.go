@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -449,7 +450,7 @@ func TestLoadEmbeddedMetadataAnchors(t *testing.T) {
 	}
 	// A model listed without metadata stays unknown: zero means unknown, never
 	// free and never zero-cost (DESIGN §6).
-	if legacy, ok := anthropic.Model("claude-3-opus-20240229"); !ok || legacy != (Model{ID: "claude-3-opus-20240229"}) {
+	if legacy, ok := anthropic.Model("claude-3-opus-20240229"); !ok || !reflect.DeepEqual(legacy, Model{ID: "claude-3-opus-20240229"}) {
 		t.Fatalf("unannotated model must carry only its id, got %+v", legacy)
 	}
 }

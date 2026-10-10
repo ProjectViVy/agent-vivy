@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	goRuntime "runtime"
@@ -72,6 +73,54 @@ func TestBashBackendDeniedInReadOnlySandbox(t *testing.T) {
 	_, err := backend.Execute(withRunID(context.Background(), "run_bash_ro"), "run_bash_ro", tools.CommandRequest{Command: "bash", Args: []string{"-c", "echo hi"}})
 	if !errors.Is(err, ErrSandboxDenied) {
 		t.Fatalf("read-only bash error = %v, want ErrSandboxDenied", err)
+	}
+}
+
+func TestBashBackendQuotedRedirectsAndHeredocsWriteWorkspaceFiles(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	backend, root := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	runID := domain.RunID("run_bash_redirects")
+	script := "cat > probe.txt <<'EOF'\nbenchmark payload\nEOF\nprintf 'benchmark payload\\n' > 'quoted.txt'\n"
+	result, err := backend.Execute(withRunID(context.Background(), runID), runID, tools.CommandRequest{Command: "bash", Args: []string{"-c", script}})
+	if err != nil {
+		t.Fatalf("bash execute: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("bash exit code = %d stderr %q, want 0", result.ExitCode, result.Stderr)
+	}
+	workspace := filepath.Join(root, string(runID))
+	for _, name := range []string{"probe.txt", "quoted.txt"} {
+		content, err := os.ReadFile(filepath.Join(workspace, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(content) != "benchmark payload\n" {
+			t.Fatalf("%s = %q, want benchmark payload", name, content)
+		}
+	}
+}
+
+func TestBashBackendQuotedRedirectStillCannotEscapeWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	backend, root := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	for _, script := range []string{
+		"echo x > '/tmp/vivy-escape-probe'",
+		"echo x > '../vivy-escape-probe'",
+		"cat > '../vivy-escape-probe' <<'EOF'\nx\nEOF",
+	} {
+		if _, err := backend.Execute(withRunID(context.Background(), "run_bash_boundary"), "run_bash_boundary", tools.CommandRequest{Command: "bash", Args: []string{"-c", script}}); err == nil || !strings.Contains(err.Error(), "deny-table") {
+			t.Fatalf("script %q error = %v, want deny-table rejection", script, err)
+		}
+	}
+	if _, err := os.Stat("/tmp/vivy-escape-probe"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("/tmp escape probe exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(root), "vivy-escape-probe")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("parent escape probe exists: %v", err)
 	}
 }
 
@@ -468,7 +517,7 @@ func TestServiceBashTraversalRefusedWithoutFailingRun(t *testing.T) {
 			refusal = string(ev.Payload)
 		}
 	}
-	if !strings.Contains(refusal, "did not run") || !strings.Contains(refusal, "path traversal") {
+	if !strings.Contains(refusal, "did not run") || !strings.Contains(refusal, "outside the run workspace") {
 		t.Fatalf("traversal refusal payload = %q, want a model-visible refusal", refusal)
 	}
 	if strings.Contains(refusal, "exit_code") {

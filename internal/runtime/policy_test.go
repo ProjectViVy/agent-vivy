@@ -84,3 +84,37 @@ func TestPolicySnapshotChangesWhenDefinitionChanges(t *testing.T) {
 		t.Fatalf("snapshots = %+v / %+v, want distinct non-empty hashes", first, second)
 	}
 }
+
+func TestPolicyToolPrefixRuleMatchesModuleActions(t *testing.T) {
+	engine, err := NewPolicyEngine(map[domain.PolicyProfile]PolicyDefinition{
+		domain.PolicyProfileDefault: {
+			Rules: []PolicyRule{
+				{Tool: "vivy.masks.*", Decision: domain.PolicyAllow, Reason: "mask preference"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		tool string
+		want domain.PolicyDecision
+	}{
+		{"vivy.masks.selection.set", domain.PolicyAllow},
+		{"vivy.masks.catalog.list", domain.PolicyAllow},
+		{"vivy.memory.add", domain.PolicyPrompt},
+		// The prefix ends at the asterisk: a sibling namespace must not match.
+		{"vivy.masksx.eviltwin", domain.PolicyPrompt},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			eval, err := engine.Evaluate(domain.PolicyProfileDefault, domain.ToolSpec{Name: tc.tool, Readonly: false}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if eval.Decision != tc.want {
+				t.Fatalf("decision = %q (%s), want %q", eval.Decision, eval.Reason, tc.want)
+			}
+		})
+	}
+}

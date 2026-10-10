@@ -13,12 +13,6 @@ const baseWork: WorkState = {
   goal: { id: 'g1', revision: 2, objective: 'Ship the release', phase: 'active', max_rounds: 3, rounds_started: 1 },
 };
 
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
-  return { promise, resolve };
-}
-
 describe('chat work controls', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -97,27 +91,27 @@ describe('chat work controls', () => {
     expect(editGoal).toHaveBeenNthCalledWith(2, 'My revised objective', 3, { id: 'g1', revision: 2 });
   });
 
-  it('offers Resume for an active but disarmed Goal and shows its independent permission', async () => {
+  it('hides work controls in an empty session and offers no mode-entry buttons', async () => {
+    useVivyStore.setState({ work: { ...baseWork, goal: undefined } });
     await render();
-    expect(button('Resume Goal')).toBeDefined();
-    expect(button('Pause Goal')).toBeUndefined();
-    expect(container.textContent).toContain('Permission: Cautious');
-    expect(container.textContent).toContain('Disarmed');
+    expect(container.querySelector('section')).toBeNull();
+    expect(button('Create Goal')).toBeUndefined();
+    expect(button('Enter Plan')).toBeUndefined();
   });
 
-  it('offers Pause when armed and keeps stopping for Plan visible until the Enter Plan request settles', async () => {
-    const pending = deferred();
-    const enterPlan = vi.fn(() => pending.promise);
-    useVivyStore.setState({ work: { ...baseWork, activation: 'armed', current_run_id: 'r1' }, enterPlan: enterPlan as never });
+  it('keeps active Goal status without a resume or Plan entry button', async () => {
+    await render();
+    expect(button('Resume Goal')).toBeUndefined();
+    expect(button('Enter Plan')).toBeUndefined();
+    expect(container.textContent).toContain('Disarmed');
+    expect(container.textContent).toContain('/goal');
+  });
+
+  it('offers Pause when armed without another mode-entry route', async () => {
+    useVivyStore.setState({ work: { ...baseWork, activation: 'armed', current_run_id: 'r1' } });
     await render();
     expect(button('Pause Goal')).toBeDefined();
-    expect(button('Enter Plan')).toBeDefined();
-    await act(async () => { button('Enter Plan')?.click(); });
-    expect(enterPlan).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain('Stopping for Plan');
-    expect(button('Enter Plan')?.disabled).toBe(true);
-    await act(async () => { pending.resolve(); await pending.promise; });
-    expect(container.textContent).not.toContain('Stopping for Plan');
+    expect(button('Enter Plan')).toBeUndefined();
   });
 
   it('shows the blocked round limit and keeps the admitted count visible', async () => {
@@ -141,7 +135,8 @@ describe('chat work controls', () => {
     expect(decidePlan).toHaveBeenCalledWith('execute_once', undefined, undefined, undefined, 'submission-7');
     expect(container.textContent).toContain('review_stale');
     expect(button('Execute plan once')).toBeDefined();
-    expect(button('Start Goal')).toBeDefined();
+    expect(button('Start Goal')).toBeUndefined();
+    expect(container.textContent).toContain('/goal');
   });
 
   it('does not offer Start Goal over the paused Goal retained during planning', async () => {

@@ -7,6 +7,7 @@ export const RPC_METHODS = [
   'plan/get', 'plan/enter', 'plan/leave', 'plan/decide',
 	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
+	'session/tree', 'session/clone', 'session/import', 'session/export', 'exports/read',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'history/search', 'history/read', 'history/sessions', 'reference/preview', 'reference/get',
   'deliverables/list', 'deliverables/get', 'deliverables/read', 'deliverables/close',
@@ -20,6 +21,7 @@ export const RPC_METHODS = [
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
+  'model/thinking', 'model/thinking/levels',
   'channel/inspect', 'channel/get', 'channel/update',
   'channel/deliveries/list', 'channel/deliveries/redeliver',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
@@ -65,8 +67,8 @@ export interface MessageProvenance { source: string; channel?: string; chat_id?:
 export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number; attachments?: MessageAttachment[]; provenance?: MessageProvenance }
 /** turn/start 附件输入：data 为原始 base64（不带 data: 前缀），服务端做类型/大小校验。 */
 export interface AttachmentInput { name?: string; mime_type: string; data: string }
-/** turn/start 思考偏好：on 仅在模型元数据支持时由内核翻译为 provider 原生参数。 */
-export type ThinkingMode = 'auto' | 'on' | 'off';
+/** turn/start 思考偏好：七级 effort 面 + auto/on/off 别名；on 仅在模型元数据支持时由内核翻译为 provider 原生参数。 */
+export type ThinkingMode = 'auto' | 'on' | 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** session/messages 返回的用户消息附件：data_url 为服务端拼好的 data URL。 */
 export interface MessageAttachment { name?: string; mime_type: string; data_url: string }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
@@ -312,7 +314,7 @@ export async function request<T>(method: string, params?: unknown): Promise<T> {
 
 export const initialize = async (): Promise<RpcCapabilities> => (await getRpcClient()).capabilities;
 export const listSessions = () => request<{ sessions: Session[] }>('session/list');
-export const getSession = (id: string) => request<{ session: Session; messages: Message[] }>('session/get', { session_id: id });
+export const getSession = (id: string) => request<{ session: Session; messages: Message[]; queue?: QueueState }>('session/get', { session_id: id });
 export const createSession = (title: string, workspacePath = '') => request<Session>('session/create', { title, workspace_path: workspacePath });
 export const renameSession = (id: string, title: string) => request<Session>('session/rename', { session_id: id, title });
 export const setSessionPermission = (id: string, preset: Exclude<PermissionPreset, 'custom'>) => request<Session>('session/set_permission', { session_id: id, preset });
@@ -325,13 +327,28 @@ export const getPlan = (sessionId: string, submissionId: string) =>
 export const commitWork = (method: WorkMethod, params: Record<string, unknown>) =>
   request<WorkCommitView>(method, params);
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
-export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
+export const compactSession = (sessionId: string, instructions?: string) =>
+  request<CompactResult>('context/compact', { session_id: sessionId, ...(instructions ? { instructions } : {}) });
 /** session/rewind：截点互斥（含截点）之后退出上下文，行留档不删除。 */
 export const rewindSession = (sessionId: string, messageId: string) =>
   request<{ cutoff_message_id: string; remaining_count: number }>('session/rewind', { session_id: sessionId, message_id: messageId });
 /** session/fork：以截点（含）为止的历史复制出新会话，原会话不动。 */
 export const forkSession = (sessionId: string, messageId: string, title?: string) =>
   request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/fork', { session_id: sessionId, message_id: messageId, title });
+/** session/tree：C1 派生只读模型——节点为有界会话集，边为 fork/clone 链路。 */
+export const sessionTree = () => request<FaceSessionTree>('session/tree');
+/** session/clone：整份历史复制出新会话，返回 fork 形状。 */
+export const cloneSession = (sessionId: string, title?: string) =>
+  request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/clone', { session_id: sessionId, title });
+/** session/import：pi JSONL 导入为新会话（永不合并）。 */
+export const importSession = (data: string) =>
+  request<{ session_id: string; imported: number; skipped: number }>('session/import', { data });
+/** session/export：可见视图渲染为 exports 目录下的独立 HTML。 */
+export const exportSession = (sessionId: string) =>
+  request<{ path: string; name: string; sha256: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
+/** exports/read：digest 绑定的 exports 目录读取，是导出文件的验证下载通道。 */
+export const readExport = (name: string, expectedDigest?: string) =>
+  request<{ name: string; digest: string; size: number; data_base64: string }>('exports/read', { name, expected_digest: expectedDigest });
 export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
   request<{ run_id: string; status: RunStatus }>('session/edit', {
     session_id: sessionId, message_id: messageId, text,
@@ -353,6 +370,7 @@ import type {
   FaceHistorySessionPage, FaceReferencePreview, FaceReferenceSelection, FaceReferenceView,
   FaceSourceRef, FaceTurnContinuity, FaceTurnSubmission,
   FaceDeliverable, FaceDeliveryChunk, FaceDeliveryFailure, FaceDeliveryItemState,
+  FaceSessionTree,
   FaceDeliveryItemStatus, FaceDeliveryReadRequest, FaceDeliverySet, FaceDeliverySetPage,
   FaceDeliverySetStatus,
 } from '@vivy/ui-sdk';
@@ -385,6 +403,33 @@ export const startTurn = (sessionId: string, submission: TurnSubmission) =>
     references: submission.continuity?.references,
     history_scope: submission.continuity?.history_scope,
   });
+/** Kernel dual-track queue (pi parity, VCP-B3): steer injects at the next
+ * turn boundary of the active run; follow_up is admitted after terminal
+ * settle. Kernel items are text-only. Types owned by @vivy/ui-sdk so the
+ * Face contract and this host API share one shape (SC-D4). */
+import type {
+  FaceQueuedTurn, FaceQueueState, FaceQueueTurnResult,
+  FaceQueueDequeueResult, FaceQueueRemoveResult, FaceQueueClearResult,
+} from '@vivy/ui-sdk';
+export type QueuedTurn = FaceQueuedTurn;
+export type QueueState = FaceQueueState;
+export type QueueTurnResult = FaceQueueTurnResult;
+
+export const steerTurn = (sessionId: string, text: string) =>
+  request<QueueTurnResult>('turn/steer', { session_id: sessionId, text });
+export const followUpTurn = (sessionId: string, text: string) =>
+  request<QueueTurnResult>('turn/follow_up', { session_id: sessionId, text });
+export const getQueueState = (sessionId: string, afterRunId?: string) =>
+  request<QueueState>('queue/state', { session_id: sessionId, after_run_id: afterRunId })
+    // Go nil slices marshal as null; faces always want arrays.
+    .then((state) => ({ ...state, steering: state.steering ?? [], follow_up: state.follow_up ?? [] }));
+export const clearSessionQueue = (sessionId: string) =>
+  request<FaceQueueClearResult>('queue/clear', { session_id: sessionId });
+export const dequeueQueuedTurn = (sessionId: string) =>
+  request<FaceQueueDequeueResult>('queue/dequeue', { session_id: sessionId });
+export const removeQueuedTurn = (sessionId: string, queueId: string) =>
+  request<FaceQueueRemoveResult>('queue/remove', { session_id: sessionId, queue_id: queueId });
+
 export const historySearch = (sessionId: string, params: FaceHistorySearchRequest) =>
   request<HistoryPage>('history/search', { session_id: sessionId, ...params });
 export const historySessions = (params: { query?: string; cursor?: string; limit?: number }) =>
@@ -471,6 +516,23 @@ export const updateSettings = (params: SettingsUpdate) => {
   if (params.api_key === undefined) delete payload.api_key;
   return request<Settings>('settings/update', payload);
 };
+
+/** model/thinking 报告：持久化偏好 + 按活跃模型声明策略解析出的有效级。 */
+export interface ThinkingReport {
+  thinking: ThinkingMode;
+  effective: string;
+  supported: string[] | null;
+  supports_thinking: boolean;
+  default_thinking: string;
+  read_only: boolean;
+}
+/** model/thinking/levels：活跃模型声明的 levels 面（未声明但支持思考时报告全七级）。 */
+export interface ThinkingLevelsView { levels: string[]; default: string; supports_thinking: boolean }
+
+/** model/thinking：带 level 持久化默认思考偏好；不带只读当前状态。 */
+export const getThinking = () => request<ThinkingReport>('model/thinking');
+export const setThinking = (level: ThinkingMode) => request<ThinkingReport>('model/thinking', { level });
+export const thinkingLevels = () => request<ThinkingLevelsView>('model/thinking/levels');
 
 /** 密封协议适配器 id（后端 provider.AdapterFamilies()）：选择写侧的唯一词汇。 */
 export type ProviderAdapterId = 'openai-completions' | 'openai-responses' | 'anthropic-messages';

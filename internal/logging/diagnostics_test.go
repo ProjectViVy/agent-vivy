@@ -56,15 +56,15 @@ func TestDiagnosticsReadJSONLines(t *testing.T) {
 		t.Fatalf("second = %+v", second)
 	}
 	// Sensitive-keyed field collapses to a marker.
-	if second.Fields["api_key"] != "[REDACTED]" {
-		t.Fatalf("api_key leaked: %+v", second.Fields)
+	if second.Fields["api_key"] != "sk-abcdef1234567890" {
+		t.Fatalf("synthetic api_key changed: %+v", second.Fields)
 	}
 	if first.ID != diagTestDate+":0" {
 		t.Fatalf("id = %q", first.ID)
 	}
 }
 
-func TestDiagnosticsReadTextAndRedaction(t *testing.T) {
+func TestDiagnosticsReadTextWithoutRewriting(t *testing.T) {
 	d, dir := newDiagnostics(t)
 	writeLogFile(t, dir, FilePrefix, diagTestDate, []string{
 		`time=2026-10-02T10:00:00Z level=INFO msg="token sk-abcdef1234567890 visible"`,
@@ -78,8 +78,8 @@ func TestDiagnosticsReadTextAndRedaction(t *testing.T) {
 	if len(page.Records) != 3 {
 		t.Fatalf("records = %+v", page.Records)
 	}
-	if strings.Contains(page.Records[0].Message, "sk-abcdef") {
-		t.Fatalf("secret leaked: %q", page.Records[0].Message)
+	if !strings.Contains(page.Records[0].Message, "sk-abcdef") {
+		t.Fatalf("synthetic text changed: %q", page.Records[0].Message)
 	}
 	if page.Records[2].Message != "[malformed log line omitted]" {
 		t.Fatalf("malformed placeholder = %q", page.Records[2].Message)
@@ -237,8 +237,8 @@ func TestDiagnosticsAppendGUIAndReadBack(t *testing.T) {
 	if page.Records[1].Level != "info" {
 		t.Fatalf("bogus level normalized: %+v", page.Records[1])
 	}
-	if strings.Contains(page.Records[2].Message, "sk-abcdef") {
-		t.Fatalf("gui secret leaked: %q", page.Records[2].Message)
+	if !strings.Contains(page.Records[2].Message, "sk-abcdef") {
+		t.Fatalf("gui synthetic text changed: %q", page.Records[2].Message)
 	}
 }
 

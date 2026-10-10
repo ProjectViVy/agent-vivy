@@ -21,7 +21,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // Test-only crash transport. It kills only the fixture-owned process after

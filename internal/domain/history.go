@@ -236,7 +236,8 @@ func (r SourceRef) Validate() error {
 	return validateUTF8Strings("source reference", string(r.RunID), r.MessageID)
 }
 
-// HistoryItem is a redacted, bounded projection. Redacted and Truncated are
+// HistoryItem is an authorized, bounded projection. Redacted is a legacy
+// wire field (false for new projections). Redacted and Truncated are
 // independent because an item may have both properties.
 type HistoryItem struct {
 	Ref        SourceRef   `json:"ref"`

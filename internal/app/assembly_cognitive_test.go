@@ -14,7 +14,7 @@ import (
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func genassemblyForCognitive(modules []string) *genassembly.RuntimeAssembly {
@@ -33,7 +33,7 @@ func TestCognitiveBundleForAssemblyIsAbsentWhenCapabilityIsOmitted(t *testing.T)
 }
 
 func TestCognitiveBundleForAssemblyFailsClosedWithoutTypedFactory(t *testing.T) {
-	// The generated default Assembly carries the accessor returning nil —
+	// An unpopulated Assembly carries a nil factory binding —
 	// a selected module whose binding never emitted the factory fails init
 	// instead of degrading to a second construction path.
 	assembly := genassemblyForCognitive([]string{"vivy/diva-cognitive"})

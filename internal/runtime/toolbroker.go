@@ -87,9 +87,6 @@ func prepareBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngin
 	if err := tools.ValidateArgs(spec, rawArgs); err != nil {
 		return nil, err
 	}
-	if err := tools.ValidateArgsSafety(spec, rawArgs); err != nil {
-		return nil, err
-	}
 	evaluation, err := policy.Evaluate(profile, spec, rawArgs)
 	if err != nil {
 		return nil, err
@@ -112,9 +109,6 @@ func prepareBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngin
 	if err := tools.ValidateArgs(spec, effective); err != nil {
 		return nil, err
 	}
-	if err := tools.ValidateArgsSafety(spec, effective); err != nil {
-		return nil, err
-	}
 	if string(effective) != originalArgs {
 		if next, err := policy.Evaluate(profile, spec, effective); err != nil {
 			return nil, err
@@ -128,9 +122,6 @@ func prepareBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngin
 func validatePreparedBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngine, profile domain.PolicyProfile, effective json.RawMessage, approved bool) error {
 	spec := tool.Spec()
 	if err := tools.ValidateArgs(spec, effective); err != nil {
-		return err
-	}
-	if err := tools.ValidateArgsSafety(spec, effective); err != nil {
 		return err
 	}
 	evaluation, err := policy.Evaluate(profile, spec, effective)
@@ -149,12 +140,11 @@ func validatePreparedBrokerTool(ctx context.Context, tool tools.Tool, policy *Po
 
 func invokePreparedBrokerTool(ctx context.Context, tool tools.Tool, hooks *ToolHookChain, runID domain.RunID, profile domain.PolicyProfile, args json.RawMessage, maxResultBytes int) (string, error) {
 	result, toolErr := tool.InvokableRun(tools.WithRunID(ctx, runID), args)
-	redacted := tools.RedactSensitive(result)
 	if hooks != nil {
-		hooks.PostToolUse(ctx, ToolHookCall{RunID: runID, ToolName: tool.Spec().Name, Arguments: args, Profile: profile}, redacted, toolErr)
+		hooks.PostToolUse(ctx, ToolHookCall{RunID: runID, ToolName: tool.Spec().Name, Arguments: args, Profile: profile}, result, toolErr)
 	}
 	if toolErr != nil {
 		return "", toolErr
 	}
-	return compactToolResult(untrustedToolResultHeader+redacted, maxResultBytes), nil
+	return compactToolResult(untrustedToolResultHeader+result, maxResultBytes), nil
 }

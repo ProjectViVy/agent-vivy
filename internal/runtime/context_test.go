@@ -543,8 +543,8 @@ func TestServiceRunReturnsContextViewAndBoundedSummaryThroughCommittedObserverPa
 		if payload["outcome"] != "completed" || payload["view"] == "" || payload["tenant_id"] != "tenant-actual" || payload["workspace_id"] != "workspace-actual" || payload["session_id"] != "sess-terminal-projection" {
 			t.Fatalf("terminal SCX projection = %#v", payload)
 		}
-		if payload["summary"] == "" || strings.Contains(payload["summary"], "sk-test-") {
-			t.Fatalf("terminal summary was absent or unredacted: %q", payload["summary"])
+		if payload["summary"] != "SCX terminal summary token sk-test-12345678901234567890" {
+			t.Fatalf("terminal summary changed: %q", payload["summary"])
 		}
 		return
 	}

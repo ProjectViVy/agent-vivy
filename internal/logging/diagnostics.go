@@ -52,7 +52,7 @@ var (
 	ErrDiagnosticsClosed = errors.New("logging: diagnostics closed")
 )
 
-// DiagnosticRecord is one bounded, redacted log line (D5). ID is the
+// DiagnosticRecord is one bounded log line (D5). ID is the
 // stable file-offset identity `<date>:<offset>`; Truncated marks a record
 // clipped to DiagMaxRecordBytes.
 type DiagnosticRecord struct {
@@ -243,9 +243,8 @@ func normalizeDiagLevel(level string) (string, bool) {
 }
 
 // parseDiagLine decodes one raw line into a bounded record. JSON lines
-// keep bounded sanitized attributes; everything else becomes a raw
-// sanitized message. Malformed JSON is reported as a placeholder, never
-// an unredacted raw fragment.
+// keep authorized attributes; everything else becomes a bounded message.
+// Malformed JSON is reported as a placeholder.
 func parseDiagLine(id string, raw []byte) DiagnosticRecord {
 	trimmed := strings.TrimSpace(string(raw))
 	record := DiagnosticRecord{ID: id}
@@ -256,7 +255,7 @@ func parseDiagLine(id string, raw []byte) DiagnosticRecord {
 			return record
 		}
 	} else {
-		record.Message = Redact(trimmed)
+		record.Message = trimmed
 		return record
 	}
 	fields := map[string]any{}
@@ -281,19 +280,15 @@ func parseDiagLine(id string, raw []byte) DiagnosticRecord {
 			}
 		case "msg", "message":
 			if s, ok := value.(string); ok {
-				record.Message = Redact(s)
+				record.Message = s
 			}
 		case "component", "logger", "source":
 			if s, ok := value.(string); ok {
 				record.Component = s
 			}
 		default:
-			if sensitiveAttrKey(key) {
-				fields[key] = valueMarker
-				continue
-			}
 			if s, ok := value.(string); ok {
-				fields[key] = Redact(s)
+				fields[key] = s
 				continue
 			}
 			fields[key] = value
@@ -486,7 +481,7 @@ func (d *Diagnostics) AppendGUI(ctx context.Context, batch GuiLogBatch) (GuiLogA
 
 // marshalGuiRecord renders one GUI record as the JSON line the reader
 // parses back. Level/time are normalized, the message and string fields
-// are redacted, sensitive-keyed fields collapse to a marker.
+// retain their original values within the structural payload budget.
 func marshalGuiRecord(record GuiLogRecord, nowMs int64) ([]byte, error) {
 	level, _ := normalizeDiagLevel(record.Level)
 	at := nowMs
@@ -496,18 +491,14 @@ func marshalGuiRecord(record GuiLogRecord, nowMs int64) ([]byte, error) {
 	obj := map[string]any{
 		"time":  time.UnixMilli(at).Format(time.RFC3339Nano),
 		"level": level,
-		"msg":   Redact(record.Message),
+		"msg":   record.Message,
 	}
 	if record.Component != "" {
 		obj["component"] = record.Component
 	}
 	for key, value := range record.Fields {
-		if sensitiveAttrKey(key) {
-			obj[key] = valueMarker
-			continue
-		}
 		if s, ok := value.(string); ok {
-			obj[key] = Redact(s)
+			obj[key] = s
 			continue
 		}
 		obj[key] = value

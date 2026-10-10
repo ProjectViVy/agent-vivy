@@ -17,7 +17,11 @@ interface RpcReply {
 }
 
 /** Session-free control-plane RPC (settings only — mask actions are peer-bound). */
-async function rpc(page: Page, method: string, params: Record<string, unknown>): Promise<RpcReply> {
+async function rpc(
+  page: Page,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<RpcReply> {
   return page.evaluate(
     async ([m, p]) => {
       const boot = await fetch('/rpc/bootstrap', { cache: 'no-store' });
@@ -31,7 +35,14 @@ async function rpc(page: Page, method: string, params: Record<string, unknown>):
         socket.onmessage = (event) => {
           const data = JSON.parse(String(event.data));
           if (data.id === 'init') {
-            socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'call', method: m, params: p }));
+            socket.send(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'call',
+                method: m,
+                params: p,
+              }),
+            );
           } else if (data.id === 'call') {
             socket.close();
             resolve(data);
@@ -39,7 +50,14 @@ async function rpc(page: Page, method: string, params: Record<string, unknown>):
         };
         socket.onerror = () => resolve({ error: { message: 'ws error' } });
         socket.onopen = () =>
-          socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { protocol_version: info.protocol_version } }));
+          socket.send(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 'init',
+              method: 'initialize',
+              params: { protocol_version: info.protocol_version },
+            }),
+          );
       });
     },
     [method, params] as const,
@@ -48,13 +66,19 @@ async function rpc(page: Page, method: string, params: Record<string, unknown>):
 
 /** Opens the app with the welcome gate already dismissed (en default locale). */
 async function openApp(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.addInitScript(() =>
+    localStorage.setItem('vivy.ui.welcome.completed', '1'),
+  );
   await page.goto('/');
 }
 
 /** Expands the VIVY nav group (when collapsed) and opens the module page. */
 async function openMasksPage(page: Page): Promise<void> {
   const link = page.getByRole('link', { name: 'Masks' });
+  if (!(await link.isVisible().catch(() => false))) {
+    const nav = page.getByRole('button', { name: 'Open navigation' });
+    if (await nav.isVisible().catch(() => false)) await nav.click();
+  }
   if (!(await link.isVisible().catch(() => false))) {
     await page.getByRole('button', { name: 'VIVY' }).click();
   }
@@ -65,136 +89,370 @@ async function openMasksPage(page: Page): Promise<void> {
 /** Creates a session through the UI so the app peer owns it. */
 async function newSession(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'New session' }).first().click();
-  await expect(page.getByPlaceholder('Type a message... (Enter to send)')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Message' })).toBeVisible();
 }
 
-/** Selects the first (most recent) session row in the sidebar. */
-async function selectFirstSession(page: Page): Promise<void> {
-  const row = page.locator('div.group.cursor-pointer').first();
-  await expect(row).toBeVisible();
-  await row.click();
+function selector(page: Page) {
+  return page.locator('[data-chat-toolbar] [data-mask-header] button').first();
+}
+async function chooseMask(page: Page, name: string): Promise<void> {
+  await selector(page).click();
+  const choice = page
+    .getByRole('menuitem')
+    .filter({ hasText: name })
+    .or(page.getByRole('dialog').getByRole('button').filter({ hasText: name }))
+    .first();
+  await choice.click();
+  await expect(selector(page)).toContainText(name);
+}
+function editor(page: Page) {
+  return page
+    .getByRole('dialog')
+    .filter({ has: page.locator('[data-mask-editor]') });
+}
+async function openCustomEditor(page: Page, name: string) {
+  await page
+    .locator('[data-mask-id]')
+    .filter({ hasText: name })
+    .locator('button')
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Edit mask', exact: true }).click();
+  await expect(editor(page)).toBeVisible();
 }
 
 async function configureHangingProvider(page: Page): Promise<void> {
   const upsert = await rpc(page, 'settings/providers/upsert', {
     display_name: 'Hang Mock',
-    bundle: 'openai-completions',
+    bundle: 'deepseek',
     base_url: mockProviderBaseURL,
-    default_model: 'hang-mock',
-    models: ['hang-mock'],
+    default_model: 'deepseek-flash',
+    models: ['deepseek-flash'],
     api_key: 'e2e-placeholder',
   });
   expect(upsert.error).toBeUndefined();
-  const settings = await rpc(page, 'settings/get', {});
-  const doc = (settings.result ?? {}) as Record<string, unknown>;
-  const update = await rpc(page, 'settings/update', {
-    ...doc,
-    provider: 'openai-completions',
+  // The narrow picker accepts the existing vendor alias and validates its
+  // compiled adapter, preserving vendor ownership for a local test address.
+  const update = await rpc(page, 'settings/model/select', {
+    provider: 'deepseek',
     base_url: mockProviderBaseURL,
-    default_model: 'hang-mock',
+    model: 'deepseek-flash',
   });
   expect(update.error).toBeUndefined();
 }
 
-test('mask module nav entry, catalog, and builtin definitions render', async ({ page }) => {
+test('default identity, role cards and preview remain distinct from session selection', async ({
+  page,
+}) => {
   await openApp(page);
+  await expect(selector(page)).toContainText('Just me');
+  await newSession(page);
   await openMasksPage(page);
-  await expect(page.getByRole('button', { name: 'Programmer built-in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Researcher built-in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Writer built-in' })).toBeVisible();
+  await expect(page.locator('[data-mask-id=""]')).toContainText('Just me');
+  for (const id of ['programmer', 'researcher', 'writer'])
+    await expect(page.locator(`[data-mask-id="builtin/${id}"]`)).toBeVisible();
+  await page
+    .locator('[data-mask-id="builtin/programmer"] button')
+    .first()
+    .click();
+  await expect(page.locator('[data-mask-instructions]')).not.toBeEmpty();
+  await expect(selector(page)).toContainText('Just me');
+  await expect(page.locator('textarea')).toHaveCount(0);
+  await page.screenshot({
+    path: test.info().outputPath('library-desktop.png'),
+    fullPage: true,
+  });
 });
 
-test('chat header selector applies a session mask and persists across reload', async ({ page }) => {
+test('page and toolbar switch immediately and persist across reload', async ({
+  page,
+}) => {
   await openApp(page);
   await newSession(page);
-
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
-  await expect(selector).toBeEnabled();
-  await selector.selectOption({ label: 'Programmer' });
-  await expect(selector).toHaveValue('builtin/programmer');
-
+  await openMasksPage(page);
+  await page.locator('[data-mask-id="builtin/writer"] [data-mask-use]').click();
+  await expect(selector(page)).toContainText('Writer');
+  await chooseMask(page, 'Researcher');
+  await expect(
+    page.locator('[data-active-mask="builtin/researcher"]'),
+  ).toContainText('Researcher');
   await page.reload();
-  await selectFirstSession(page);
-  await expect(page.getByRole('combobox', { name: 'Session mask' })).toHaveValue('builtin/programmer');
+  await expect(selector(page)).toContainText('Researcher');
+  await chooseMask(page, 'Just me');
+  await expect(page.locator('[data-active-mask=""]')).toContainText('Just me');
 });
 
-test('custom mask create, stale revision conflict, and in-use delete refusal', async ({ page, browser }) => {
+test('create, edit, revision conflict and delete lifecycle', async ({
+  page,
+  browser,
+}) => {
   await openApp(page);
   await newSession(page);
-
-  // Create a custom mask through the catalog editor.
   await openMasksPage(page);
-  await page.getByTestId('mask-page').locator('button[data-mask-action="new"]').click();
-  const editor = page.locator('section[aria-label="Mask editor"]');
-  await editor.locator('input').first().fill('E2E Mask');
-  await editor.locator('textarea').fill('You are an e2e mask.');
-  await editor.getByRole('button', { name: 'Save' }).click();
-  const catalogItem = page.getByRole('button', { name: /E2E Mask/ });
-  await expect(catalogItem).toBeVisible();
+  await page.locator('[data-mask-action="new"]').click();
+  await editor(page).getByLabel('Name', { exact: true }).fill('E2E Mask');
+  await editor(page)
+    .getByLabel('Instructions', { exact: true })
+    .fill('Original instructions.');
+  await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editor(page)).toBeHidden();
+  await expect(selector(page)).toContainText('Just me');
 
-  // Two browser contexts racing the same definition: the second save must
-  // surface the revision-conflict copy instead of silently overwriting.
   const second = await browser.newContext();
   const page2 = await second.newPage();
   await openApp(page2);
   await newSession(page2);
   await openMasksPage(page2);
-  await page2.getByRole('button', { name: /E2E Mask/ }).click();
-  const editor2 = page2.locator('section[aria-label="Mask editor"]');
-  // The second context must hold the pre-write revision before the first
-  // context commits, otherwise its "stale" save silently wins.
-  await expect(editor2.locator('input').first()).toHaveValue('E2E Mask');
+  await openCustomEditor(page2, 'E2E Mask');
+  await openCustomEditor(page, 'E2E Mask');
+  await editor(page)
+    .getByLabel('Instructions', { exact: true })
+    .fill('First committed edit.');
+  await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editor(page)).toBeHidden();
+  await editor(page2)
+    .getByLabel('Instructions', { exact: true })
+    .fill('Local stale draft.');
+  await editor(page2)
+    .getByRole('button', { name: 'Save', exact: true })
+    .click();
+  await expect(editor(page2).getByRole('alert')).toContainText(
+    'changed elsewhere',
+  );
+  await expect(
+    editor(page2).getByLabel('Instructions', { exact: true }),
+  ).toHaveValue('Local stale draft.');
+  await editor(page2)
+    .getByRole('button', { name: 'Load latest version' })
+    .click();
+  await page2
+    .getByRole('button', { name: 'Discard changes', exact: true })
+    .click();
+  await expect(
+    editor(page2).getByLabel('Instructions', { exact: true }),
+  ).toHaveValue('First committed edit.');
+  await editor(page2)
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await page2
+    .locator('[data-mask-id]')
+    .filter({ hasText: 'E2E Mask' })
+    .locator('[data-mask-use]')
+    .click();
 
-  await catalogItem.click();
-  await editor.locator('textarea').fill('first write wins');
-  await editor.getByRole('button', { name: 'Save' }).click();
-  // Wait until the first write settles so the second one is provably stale.
-  await expect(editor.getByRole('button', { name: 'Save' })).toBeEnabled();
-
-  await editor2.locator('textarea').fill('stale write loses');
-  await editor2.getByRole('button', { name: 'Save' }).click();
-  await expect(page2.getByRole('alert')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const confirm = page.getByRole('dialog');
+  await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(confirm.getByRole('alert')).toContainText('session');
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await chooseMask(page2, 'Just me');
   await second.close();
-
-  // Bind the mask to the session via the page selector, then prove delete is refused in-use.
-  await page.getByTestId('mask-page').getByRole('combobox', { name: 'Session mask' }).selectOption({ label: 'E2E Mask · custom' });
-  await catalogItem.click();
-  await editor.getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByRole('alert')).toBeVisible();
-  await expect(catalogItem).toBeVisible();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click();
+  await expect(
+    page.locator('[data-mask-id]').filter({ hasText: 'E2E Mask' }),
+  ).toHaveCount(0);
 });
 
-test('code mode toggles independently of the session mask', async ({ page }) => {
+test('builtin duplicate opens editor, dirty cancel is guarded and Save and use synchronizes identity', async ({
+  page,
+}) => {
   await openApp(page);
   await newSession(page);
-
-  const codeToggle = page.getByRole('button', { name: 'Enable code mode' });
-  test.skip(!(await codeToggle.isVisible()), 'packed generation does not advertise code_mode_available');
-
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
-  await selector.selectOption({ label: 'Programmer' });
-  await expect(selector).toHaveValue('builtin/programmer');
-
-  await codeToggle.click();
-  await expect(page.getByRole('button', { name: 'Code mode on' })).toBeVisible();
-  await expect(selector).toHaveValue('builtin/programmer');
-
-  await page.getByRole('button', { name: 'Code mode on' }).click();
-  await expect(page.getByRole('button', { name: 'Enable code mode' })).toBeVisible();
-  await expect(selector).toHaveValue('builtin/programmer');
+  await openMasksPage(page);
+  await page
+    .locator('[data-mask-id="builtin/programmer"] button')
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Duplicate and edit' }).click();
+  await expect(editor(page).getByLabel('Name', { exact: true })).toHaveValue(
+    'Programmer copy',
+  );
+  await editor(page)
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await expect(
+    page.getByRole('dialog', { name: 'Discard unsaved changes?' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing' }).click();
+  await expect(editor(page)).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('editor-desktop.png') });
+  await editor(page)
+    .getByRole('button', { name: 'Save and use', exact: true })
+    .click();
+  await expect(editor(page)).toBeHidden();
+  await expect(selector(page)).toContainText('Programmer copy');
 });
 
-test('selection during an active run is queued for the next run', async ({ page }) => {
+test('code/life is a small placeholder independent from the actual mask', async ({
+  page,
+}) => {
+  await openApp(page);
+  await newSession(page);
+  await chooseMask(page, 'Programmer');
+  const mode = page.locator('[data-conversation-mode-placeholder]');
+  await expect(mode).toHaveText('Code');
+  const modeBounds = await mode.boundingBox();
+  const maskBounds = await selector(page).boundingBox();
+  expect(modeBounds!.x + modeBounds!.width).toBeLessThanOrEqual(maskBounds!.x);
+  await mode.click();
+  await expect(mode).toHaveText('Life');
+  await expect(selector(page)).toContainText('Programmer');
+  await mode.click();
+  await expect(mode).toHaveText('Code');
+  await expect(selector(page)).toContainText('Programmer');
+});
+
+test('switching during an active reply updates the session identity immediately', async ({
+  page,
+}) => {
   await openApp(page);
   await configureHangingProvider(page);
+  await page.reload();
   await newSession(page);
-
-  // The mock provider hangs forever, keeping the run active.
-  await page.getByPlaceholder('Type a message... (Enter to send)').fill('keep the run active');
+  await chooseMask(page, 'Programmer');
+  await page
+    .getByRole('combobox', { name: 'Message' })
+    .fill('keep the run active');
   await page.getByRole('button', { name: 'Send' }).click();
+  await expect(selector(page)).toHaveAttribute(
+    'title',
+    /This reply keeps its original role/,
+  );
+  await chooseMask(page, 'Writer');
+  await expect(selector(page)).toContainText('Writer');
+  await openMasksPage(page);
+  await expect(
+    page.locator('[data-active-mask="builtin/writer"]'),
+  ).toContainText('Writer');
+  await expect(
+    page.locator('[data-active-mask="builtin/writer"]'),
+  ).toContainText('This reply keeps its original role');
+});
 
-  const selector = page.getByRole('combobox', { name: 'Session mask' });
-  await expect(page.getByText('Next run choice; the current run already captured its mask')).toBeVisible();
-  await selector.selectOption({ label: 'Writer' });
-  await expect(selector).toHaveValue('builtin/writer');
+for (const width of [1440, 1024, 390, 320]) {
+  test(`responsive identity, library and editor stay in bounds at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openApp(page);
+    if (width < 768)
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+    await newSession(page);
+    await openMasksPage(page);
+    await expect(selector(page)).toContainText('Just me');
+    await expect(page.locator('[data-mask-id=""]')).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    const headerSize = await page
+      .locator('[data-chat-toolbar]')
+      .evaluate((node) => ({
+        scroll: node.scrollWidth,
+        client: node.clientWidth,
+      }));
+    expect(headerSize.scroll - headerSize.client).toBeLessThanOrEqual(1);
+    await page.locator('[data-mask-action="new"]').click();
+    await editor(page)
+      .getByLabel('Name', { exact: true })
+      .fill('Responsive custom mask');
+    await editor(page)
+      .getByLabel('Instructions', { exact: true })
+      .fill('Use the available width.');
+    for (const name of ['Cancel', 'Save', 'Save and use']) {
+      await expect
+        .poll(async () => {
+          const bounds = await editor(page)
+            .getByRole('button', { name, exact: true })
+            .boundingBox();
+          return Boolean(
+            bounds &&
+              bounds.x >= 0 &&
+              bounds.x + bounds.width <= width &&
+              bounds.y + bounds.height <= 900,
+          );
+        })
+        .toBe(true);
+    }
+    await page.screenshot({
+      path: test.info().outputPath(`editor-${width}.png`),
+    });
+    await editor(page)
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+    await page
+      .getByRole('button', { name: 'Discard changes', exact: true })
+      .click();
+    if (width < 768) {
+      await chooseMask(page, 'Programmer');
+      await page
+        .locator('[data-mask-id="builtin/programmer"] button')
+        .first()
+        .click();
+      await expect(page.getByRole('dialog')).toContainText('Programmer');
+      await expect
+        .poll(async () => {
+          const bounds = await page.getByRole('dialog').boundingBox();
+          return Boolean(
+            bounds &&
+              bounds.height > 300 &&
+              bounds.y >= 0 &&
+              bounds.y + bounds.height <= 900,
+          );
+        })
+        .toBe(true);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      await page.screenshot({
+        path: test.info().outputPath(`details-${width}.png`),
+      });
+    }
+  });
+}
+
+test('Chinese default identity and editor remain readable at 320px', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await openApp(page);
+  const locale = await rpc(page, 'settings/locale', { locale: 'zh' });
+  expect(locale.error).toBeUndefined();
+  await page.reload();
+  await page.getByRole('button', { name: '打开导航' }).click();
+  await page
+    .getByRole('button', { name: '新建会话', exact: true })
+    .first()
+    .click();
+  await expect(selector(page)).toContainText('我就是我');
+  const name = selector(page).locator('span').last();
+  expect(
+    await name.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
+  await page.getByRole('button', { name: '打开导航' }).click();
+  const masks = page.getByRole('link', { name: '面具', exact: true });
+  if (!(await masks.isVisible()))
+    await page.getByRole('button', { name: 'VIVY', exact: true }).click();
+  await masks.click();
+  await expect(page.locator('[data-mask-id=""]')).toContainText('我就是我');
+  await page.locator('[data-mask-action="new"]').click();
+  await expect(editor(page).getByLabel('名称', { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const bounds = await editor(page)
+        .getByRole('button', { name: '保存并使用', exact: true })
+        .boundingBox();
+      return Boolean(
+        bounds &&
+          bounds.y + bounds.height <= 900 &&
+          bounds.x + bounds.width <= 320,
+      );
+    })
+    .toBe(true);
+  await page.screenshot({ path: test.info().outputPath('editor-zh-320.png') });
+  const reset = await rpc(page, 'settings/locale', { locale: 'en' });
+  expect(reset.error).toBeUndefined();
 });

@@ -207,6 +207,37 @@ func TestResolverIsNonFatalForAnUnusableStoredValue(t *testing.T) {
 	}
 }
 
+// TestResolverProjectPinRestoresPerProjectSelection: a model picked inside a
+// project is pinned under that project's root and restores over the global
+// selection on the next launch in the same project (VCP F3).
+func TestResolverProjectPinRestoresPerProjectSelection(t *testing.T) {
+	dir := t.TempDir()
+	path := settings.Path(dir)
+	project := "/work/alpha"
+	if _, err := settings.Save(path, settings.Settings{
+		Provider: settings.ProviderDeepSeek, ApiKey: "sk-global",
+		ProjectDefaults: map[string]settings.ScopedModel{
+			project: {Provider: "openai", Model: "gpt-4o"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pinned := newModelResolverForProject(config.Default(), path, project, testCatalog(t), testModelHost(t)).Current()
+	if pinned.Provider != "openai" || pinned.Model != "gpt-4o" {
+		t.Fatalf("pinned selection = %s/%s, want openai/gpt-4o", pinned.Provider, pinned.Model)
+	}
+	// A fresh resolver (a relaunch) restores the same pin.
+	again := newModelResolverForProject(config.Default(), path, project, testCatalog(t), testModelHost(t)).Current()
+	if again.Provider != "openai" || again.Model != "gpt-4o" {
+		t.Fatalf("relaunch selection = %s/%s, want openai/gpt-4o", again.Provider, again.Model)
+	}
+	// A different project keeps the global selection.
+	other := newModelResolverForProject(config.Default(), path, "/work/beta", testCatalog(t), testModelHost(t)).Current()
+	if other.Provider != "deepseek" {
+		t.Fatalf("unpinned project selection = %s, want deepseek", other.Provider)
+	}
+}
+
 func TestResolverEmptyWithoutSettings(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()

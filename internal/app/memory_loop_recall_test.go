@@ -9,7 +9,7 @@ import (
 	"time"
 
 	genassembly "agent-vivy/internal/generated/assembly"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // First S08 observation: no seeded answer, public-memory UI read, BML or

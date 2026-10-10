@@ -290,11 +290,11 @@ func gitRemoteURL(dir string) string {
 	return out
 }
 
-// gitTrackedFiles returns every version-controlled file of dir (the canonical
-// source set: .git metadata, ignored outputs and untracked build artifacts are
-// excluded by construction).
+// gitTrackedFiles returns the source files present in a worktree: tracked files
+// plus untracked, non-ignored files. This is the canonical development source
+// set; deleted entries, ignored outputs and untracked SDK staging are excluded.
 func gitTrackedFiles(dir string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "-z")
+	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "--exclude=.vivy-pack-*/", "-z")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -302,9 +302,16 @@ func gitTrackedFiles(dir string) ([]string, error) {
 	}
 	var files []string
 	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
-		if rel != "" {
-			files = append(files, rel)
+		if rel == "" {
+			continue
 		}
+		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("inspect source file %s: %w", rel, err)
+		}
+		files = append(files, rel)
 	}
 	sort.Strings(files)
 	return files, nil
@@ -327,7 +334,7 @@ func findGitRoot(dir string) (string, error) {
 	}
 }
 
-// hashSourceTree computes the canonical tracked-source digest: each tracked
+// hashSourceTree computes the canonical worktree-source digest: each source
 // file contributes "<relpath>\x00<size>\x00<bytes>" to one sha256 stream.
 // Worktree bytes are hashed so development snapshots still seal the exact
 // content that was built; git's file list keeps .git and ignored outputs out.
@@ -372,8 +379,9 @@ func hashSourceTree(dir string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// stageSourceTree copies only tracked files into destination so a snapshot
-// never carries .git metadata, ignored outputs or untracked scratch.
+// stageSourceTree copies the canonical worktree-source set into destination so
+// a dirty development snapshot includes new source but never .git metadata or
+// ignored output.
 func stageSourceTree(source, destination string) error {
 	files, err := gitTrackedFiles(source)
 	if err != nil {
@@ -386,6 +394,9 @@ func stageSourceTree(source, destination string) error {
 		}
 		info, err := os.Lstat(filepath.Join(source, filepath.FromSlash(rel)))
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			return err
 		}
 		switch {

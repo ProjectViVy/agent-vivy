@@ -27,8 +27,8 @@ import (
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/sdk/port/contextsource"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	"github.com/dashimaki/laputa/persona"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	"github.com/ProjectViVy/laputa/laputa/persona"
 	"gopkg.in/yaml.v3"
 )
 

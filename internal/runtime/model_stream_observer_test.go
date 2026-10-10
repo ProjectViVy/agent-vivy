@@ -936,7 +936,7 @@ func TestObservedCallSourceAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	factory := modelCallObserverFactoryFrom(svc.withLiveModelStreamObserver(ctx, m, "sess-src", ledger, nil, false))
+	factory := modelCallObserverFactoryFrom(svc.withLiveModelStreamObserver(ctx, m, "sess-src", ledger, nil, false, nil))
 	if factory == nil {
 		t.Fatal("factory missing")
 	}
@@ -963,7 +963,7 @@ func TestObservedCallSourceAttribution(t *testing.T) {
 		t.Fatalf("summary meta = %+v", meta)
 	}
 
-	childFactory := modelCallObserverFactoryFrom(svc.withLiveModelStreamObserver(ctx, m, "sess-src", ledger, nil, true))
+	childFactory := modelCallObserverFactoryFrom(svc.withLiveModelStreamObserver(ctx, m, "sess-src", ledger, nil, true, nil))
 	child := childFactory(modelCallRoute{}).(*runModelCallObserver)
 	if child.source != "child" {
 		t.Fatalf("child source = %q, want child", child.source)

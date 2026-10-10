@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	laputadiva "github.com/dashimaki/laputa/evolution/diva"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputadiva "github.com/ProjectViVy/laputa/laputa/evolution/diva"
 
 	"agent-vivy/internal/domain"
 )

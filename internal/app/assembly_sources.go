@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"agent-vivy/internal/cognitivecontract"
@@ -12,6 +13,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/port/contextsource"
+	"agent-vivy/sdk/port/pretool"
 	"agent-vivy/sdk/port/skillsource"
 )
 
@@ -44,6 +46,34 @@ func bindCognitiveContextSources(assembly genassembly.RuntimeAssembly, bundle co
 		}
 	}
 	return nil
+}
+
+func generatedPreToolMiddleware(assembly genassembly.RuntimeAssembly) ([]pretool.Provider, error) {
+	var middleware []pretool.Provider
+	if provider, ok := any(&assembly).(interface{ PreToolProviders() any }); ok {
+		value := provider.PreToolProviders()
+		if value != nil {
+			var valid bool
+			middleware, valid = value.([]pretool.Provider)
+			if !valid {
+				return nil, fmt.Errorf("app: generated pre-tool inventory has invalid type %T", value)
+			}
+		}
+	}
+	ids := make([]string, 0, len(middleware))
+	for _, provider := range middleware {
+		if provider == nil || provider.ID() == "" {
+			return nil, fmt.Errorf("app: generated pre-tool provider has no identity")
+		}
+		ids = append(ids, provider.ID())
+	}
+	if !slices.Equal(ids, assembly.Manifest.PreToolMiddleware) {
+		return nil, fmt.Errorf("app: generated pre-tool identities %v do not match sealed manifest %v", ids, assembly.Manifest.PreToolMiddleware)
+	}
+	if len(ids) > 0 && !assemblyHasModule(assembly.Manifest.Modules, "vivy/tool-host") {
+		return nil, fmt.Errorf("app: generated pre-tool providers are present without compiled ToolHost")
+	}
+	return append([]pretool.Provider(nil), middleware...), nil
 }
 
 // generatedContextSources and generatedSkillSources are the SDK frontend's

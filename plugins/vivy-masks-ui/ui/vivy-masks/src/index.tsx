@@ -9,18 +9,20 @@
 import { defineNavigationItem, defineUIExtension, defineUIRoute, type ChatHeaderContribution, type FullUIHost } from '@vivy/ui-sdk';
 import { MaskPage } from './MaskPage';
 import { MaskHeader } from './MaskHeader';
+import { MaskSession } from './mask-session';
 
 const ROUTE = '/masks';
 
 export const extension = defineUIExtension({
   id: 'vivy.masks-ui.extension',
   install: (host: FullUIHost) => {
+    const session = new MaskSession(host);
     const registrations = [
       host.composition.routes.register('vivy-masks-ui', defineUIRoute({
         path: ROUTE,
         titleKey: 'plugin.vivy/masks-ui.title',
         subtitleKey: 'plugin.vivy/masks-ui.subtitle',
-        render: () => <MaskPage />,
+        render: () => <MaskPage session={session} />,
       })),
       host.composition.navigation.register('vivy-masks-ui', defineNavigationItem({
         group: 'vivy',
@@ -31,7 +33,7 @@ export const extension = defineUIExtension({
       })),
       host.composition.components.register('vivy-masks-ui.header', {
         slot: 'chat.header',
-        render: (context) => <MaskHeader context={context} />,
+        render: (context) => <MaskHeader context={context} session={session} />,
       } satisfies ChatHeaderContribution),
     ];
     return () => {

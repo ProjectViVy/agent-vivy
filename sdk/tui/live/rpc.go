@@ -108,12 +108,19 @@ type providerEntryView struct {
 }
 
 type catalogEndpointView struct {
-	Adapter      string   `json:"adapter"`
-	BaseURL      string   `json:"base_url"`
-	DefaultModel string   `json:"default_model"`
-	Models       []string `json:"models"`
-	Executable   bool     `json:"executable"`
-	State        string   `json:"state"`
+	Adapter        string   `json:"adapter"`
+	BaseURL        string   `json:"base_url"`
+	DefaultModel   string   `json:"default_model"`
+	Models         []string `json:"models"`
+	ThinkingModels []string `json:"thinking_models"`
+	Executable     bool     `json:"executable"`
+	State          string   `json:"state"`
+}
+
+type scopedModelView struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url"`
 }
 
 type catalogEntryView struct {
@@ -128,6 +135,7 @@ type providersView struct {
 	ActiveProvider string              `json:"active_provider"`
 	ActiveModel    string              `json:"active_model"`
 	ActiveBaseURL  string              `json:"active_base_url"`
+	ScopedModels   []scopedModelView   `json:"scoped_models"`
 	ReadOnly       bool                `json:"read_only"`
 	Frozen         bool                `json:"frozen"`
 	ConfigProvider string              `json:"config_provider"`
@@ -139,9 +147,15 @@ func mapProvidersView(view providersView) surface.ModelCatalog {
 	if currentProvider == "" || currentModel == "" {
 		currentProvider, currentModel, currentBaseURL = view.ConfigProvider, view.ConfigModel, ""
 	}
+	// Declared-order scope rank: scoped entries sort right behind the current
+	// selection, in the order model/cycle walks them.
+	scopeRank := make(map[string]int, len(view.ScopedModels))
+	for i, entry := range view.ScopedModels {
+		scopeRank[entry.Provider+"\x00"+entry.Model+"\x00"+entry.BaseURL] = i
+	}
 	options := make([]surface.ModelOption, 0)
 	seen := make(map[string]struct{})
-	add := func(provider, model, baseURL, display string) {
+	add := func(provider, model, baseURL, display string, thinking bool) {
 		provider, model, baseURL = strings.TrimSpace(provider), strings.TrimSpace(model), strings.TrimSpace(baseURL)
 		if provider == "" || model == "" {
 			return
@@ -151,9 +165,10 @@ func mapProvidersView(view providersView) surface.ModelCatalog {
 			return
 		}
 		seen[key] = struct{}{}
-		options = append(options, surface.ModelOption{Provider: provider, Model: model, BaseURL: baseURL, DisplayName: strings.TrimSpace(display), Current: provider == currentProvider && model == currentModel && baseURL == currentBaseURL})
+		_, scoped := scopeRank[key]
+		options = append(options, surface.ModelOption{Provider: provider, Model: model, BaseURL: baseURL, DisplayName: strings.TrimSpace(display), Current: provider == currentProvider && model == currentModel && baseURL == currentBaseURL, Scoped: scoped, Thinking: thinking})
 	}
-	add(view.ConfigProvider, view.ConfigModel, "", view.ConfigProvider)
+	add(view.ConfigProvider, view.ConfigModel, "", view.ConfigProvider, false)
 	// The embedded catalog names a sealed adapter plus the address it is
 	// reachable at, which is exactly what a selection carries (PROV-P4). A
 	// deferred protocol stays out of the picker: selecting it could not execute.
@@ -162,25 +177,39 @@ func mapProvidersView(view providersView) surface.ModelCatalog {
 			if !endpoint.Executable {
 				continue
 			}
-			add(endpoint.Adapter, endpoint.DefaultModel, endpoint.BaseURL, entry.DisplayName)
+			thinking := make(map[string]struct{}, len(endpoint.ThinkingModels))
+			for _, model := range endpoint.ThinkingModels {
+				thinking[model] = struct{}{}
+			}
+			_, defaultThinking := thinking[endpoint.DefaultModel]
+			add(endpoint.Adapter, endpoint.DefaultModel, endpoint.BaseURL, entry.DisplayName, defaultThinking)
 			for _, model := range endpoint.Models {
-				add(endpoint.Adapter, model, endpoint.BaseURL, entry.DisplayName)
+				_, hasThinking := thinking[model]
+				add(endpoint.Adapter, model, endpoint.BaseURL, entry.DisplayName, hasThinking)
 			}
 		}
 	}
 	for _, entry := range view.Entries {
-		add(entry.Bundle, entry.DefaultModel, entry.BaseURL, entry.DisplayName)
+		add(entry.Bundle, entry.DefaultModel, entry.BaseURL, entry.DisplayName, false)
 		for _, model := range entry.Models {
-			add(entry.Bundle, model, entry.BaseURL, entry.DisplayName)
+			add(entry.Bundle, model, entry.BaseURL, entry.DisplayName, false)
 		}
 	}
 	// A legacy active selection may no longer have a registry row. Keep it
 	// visible as current, but add it last so matching configured entries retain
 	// their operator-facing display name.
-	add(currentProvider, currentModel, currentBaseURL, currentProvider)
+	add(currentProvider, currentModel, currentBaseURL, currentProvider, false)
 	sort.SliceStable(options, func(i, j int) bool {
 		if options[i].Current != options[j].Current {
 			return options[i].Current
+		}
+		leftRank, leftScoped := scopeRank[options[i].Provider+"\x00"+options[i].Model+"\x00"+options[i].BaseURL]
+		rightRank, rightScoped := scopeRank[options[j].Provider+"\x00"+options[j].Model+"\x00"+options[j].BaseURL]
+		if leftScoped != rightScoped {
+			return leftScoped
+		}
+		if leftScoped && rightScoped && leftRank != rightRank {
+			return leftRank < rightRank
 		}
 		left := strings.ToLower(options[i].DisplayName + "\x00" + options[i].Provider + "\x00" + options[i].Model)
 		right := strings.ToLower(options[j].DisplayName + "\x00" + options[j].Provider + "\x00" + options[j].Model)
@@ -213,6 +242,38 @@ func (c *client) selectModel(ctx context.Context, option surface.ModelOption) (s
 	return mapProvidersView(view), nil
 }
 
+// cycleModel asks the control plane to select the next scoped_models entry in
+// declared order (model/cycle). The server walks the set itself so the cycle
+// always honors the declared order and skips unavailable entries.
+func (c *client) cycleModel(ctx context.Context) (surface.ModelCatalog, error) {
+	raw, err := c.Call(ctx, "model/cycle", nil)
+	if err != nil {
+		return surface.ModelCatalog{}, err
+	}
+	var view providersView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return surface.ModelCatalog{}, fmt.Errorf("tui: model/cycle: %w", err)
+	}
+	return mapProvidersView(view), nil
+}
+
+// scopeModel flips the option's membership in scoped_models (model/scope).
+// The response embeds the providers view plus the new membership flag.
+func (c *client) scopeModel(ctx context.Context, option surface.ModelOption) (surface.ModelCatalog, bool, error) {
+	raw, err := c.Call(ctx, "model/scope", map[string]string{"provider": option.Provider, "model": option.Model, "base_url": option.BaseURL})
+	if err != nil {
+		return surface.ModelCatalog{}, false, err
+	}
+	var view struct {
+		providersView
+		Scoped bool `json:"scoped"`
+	}
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return surface.ModelCatalog{}, false, fmt.Errorf("tui: model/scope: %w", err)
+	}
+	return mapProvidersView(view.providersView), view.Scoped, nil
+}
+
 type sidebarView struct {
 	Session            sessionView        `json:"session"`
 	CWD                string             `json:"cwd"`
@@ -230,6 +291,8 @@ type sidebarView struct {
 	Skills             []sidebarSkillView `json:"skills"`
 	LSPKnown           bool               `json:"lsp_known"`
 	LSP                []sidebarLSPView   `json:"lsp"`
+	ToolsKnown         bool               `json:"tools_known"`
+	ToolCount          int                `json:"tool_count,omitempty"`
 }
 
 type dynamicCommandView struct {
@@ -254,6 +317,25 @@ type dynamicCommandsView struct {
 type dynamicCommandExpansionView struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+}
+
+// thinkingReportView mirrors the model/thinking response relevant to the
+// footer: the resolved effective level for the live model.
+type thinkingReportView struct {
+	Thinking  string `json:"thinking"`
+	Effective string `json:"effective"`
+}
+
+func (c *client) setThinking(ctx context.Context, level string) (thinkingReportView, error) {
+	var out thinkingReportView
+	raw, err := c.Call(ctx, "model/thinking", map[string]string{"level": level})
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("tui: model/thinking: %w", err)
+	}
+	return out, nil
 }
 
 func (c *client) dynamicCommands(ctx context.Context) ([]surface.DynamicCommand, error) {
@@ -431,6 +513,8 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 			snapshot.LSP = append(snapshot.LSP, surface.LanguageServer{Language: server.Language, State: server.State})
 		}
 	}
+	snapshot.ToolsKnown = view.ToolsKnown
+	snapshot.ToolCount = view.ToolCount
 	return snapshot
 }
 
@@ -605,12 +689,102 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 	return accepted, nil
 }
 
-func (c *client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
-	// shell/start intentionally accepts only session_id and script. Policy,
-	// approval and execution remain runtime-owned by the control plane.
-	raw, err := c.Call(ctx, "shell/start", map[string]string{
+// queuedTurnView is one kernel queued turn (VCP-B2).
+type queuedTurnView struct {
+	Text string `json:"text"`
+}
+
+// queueStateView is the kernel dual-track queue snapshot (VCP-B2).
+type queueStateView struct {
+	Steering      []queuedTurnView `json:"steering"`
+	FollowUps     []queuedTurnView `json:"follow_up"`
+	SteerMode     string           `json:"steer_mode"`
+	FollowUpMode  string           `json:"follow_up_mode"`
+	AdmittedRunID string           `json:"admitted_run_id"`
+}
+
+// queueTurn issues one queued turn through the kernel dual-track queue
+// (turn/steer | turn/follow_up). An idle session degrades to a fresh run —
+// the response then carries run_id instead of queued:true.
+func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string) (queued bool, runID string, err error) {
+	params := map[string]any{
+		"session_id": sessionID,
+		"text":       text,
+		"face":       "code",
+	}
+	if thinking = strings.TrimSpace(thinking); thinking != "" {
+		params["thinking"] = thinking
+	}
+	if mode = strings.TrimSpace(mode); mode != "" && mode != "normal" {
+		params["mode"] = mode
+	}
+	raw, err := c.Call(ctx, "turn/"+track, params)
+	if err != nil {
+		return false, "", err
+	}
+	var res struct {
+		Queued bool   `json:"queued"`
+		RunID  string `json:"run_id"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return false, "", fmt.Errorf("tui: turn/%s: %w", track, err)
+	}
+	return res.Queued, res.RunID, nil
+}
+
+func (c *client) queueState(ctx context.Context, sessionID, afterRunID string) (queueStateView, error) {
+	params := map[string]any{"session_id": sessionID}
+	if afterRunID != "" {
+		params["after_run_id"] = afterRunID
+	}
+	raw, err := c.Call(ctx, "queue/state", params)
+	if err != nil {
+		return queueStateView{}, err
+	}
+	var view queueStateView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return queueStateView{}, fmt.Errorf("tui: queue/state: %w", err)
+	}
+	return view, nil
+}
+
+func (c *client) clearQueue(ctx context.Context, sessionID string) ([]string, error) {
+	raw, err := c.Call(ctx, "queue/clear", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Texts []string `json:"texts"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("tui: queue/clear: %w", err)
+	}
+	return res.Texts, nil
+}
+
+func (c *client) dequeueQueue(ctx context.Context, sessionID string) (string, bool, error) {
+	raw, err := c.Call(ctx, "queue/dequeue", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return "", false, err
+	}
+	var res struct {
+		Dequeued bool   `json:"dequeued"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", false, fmt.Errorf("tui: queue/dequeue: %w", err)
+	}
+	return res.Text, res.Dequeued, nil
+}
+
+func (c *client) startShell(ctx context.Context, sessionID, script string, noContext bool) (runAccepted, error) {
+	// shell/start intentionally accepts only session_id, script and the
+	// no_context flag. Policy, approval and execution remain runtime-owned
+	// by the control plane.
+	raw, err := c.Call(ctx, "shell/start", map[string]any{
 		"session_id": sessionID,
 		"script":     script,
+		"no_context": noContext,
 	})
 	if err != nil {
 		return runAccepted{}, err

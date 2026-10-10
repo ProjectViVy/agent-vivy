@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"agent-vivy/internal/domain"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func (f *memoryLoopFixture) cognitiveValue(ctx context.Context, action, sessionID string, extra map[string]any, dst any) error {

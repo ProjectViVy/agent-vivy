@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 
 	"agent-vivy/internal/storage"
 )

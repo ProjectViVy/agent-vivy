@@ -74,7 +74,8 @@ func compose(cfg config.Config, sessions runtime.SessionWorkspaceLookup, runs ru
 	provider.workspaces = manager
 	provider.sandbox = governor
 	provider.filesystem = runtime.NewEinoFilesystemBackend(manager, governor)
-	provider.commands = runtime.NewCommandBackend(manager, governor, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	provider.commands = runtime.NewCommandBackend(manager, governor, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second,
+		runtime.CommandBackendOptions{ShellPrefix: cfg.Runtime.ShellCommandPrefix, SpillBytes: cfg.Runtime.ToolOutputSpillBytes})
 	return provider, nil
 }
 

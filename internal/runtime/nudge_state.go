@@ -12,7 +12,7 @@ import (
 const nudgeTemplateVersion = "nudge-v1"
 
 // completedCall is the durable outcome record for one dispatched tool
-// call. Outcome values are already redacted and bounded by the mapper;
+// call. Outcome values are already bounded by the mapper;
 // the state copies them by value and never retains raw arguments beyond
 // the outstanding batch.
 type completedCall struct {
@@ -49,7 +49,7 @@ type nudgeBatch struct {
 }
 
 // nudgeState is the single run-local observation point for bounded tool
-// outcomes (ND-2): it owns the loop detector, correlates typed failure
+// outcomes (ND-2): it owns advisory repetition counts, correlates typed failure
 // marks, seals a batch only after all of its tool.finished events have
 // durably persisted, and yields at most one reminder to the model
 // boundary per settled batch. It is created per drive/resume leg, shared
@@ -66,7 +66,7 @@ type nudgeState struct {
 
 	batch  *nudgeBatch
 	marks  map[string]toolFailure
-	window loopWindow
+	window nudgeWindow
 
 	notice      *nudgeNotice
 	noticeTaken bool
@@ -91,7 +91,7 @@ func (s *nudgeState) setTerminalLocked(cause error) {
 	s.broadcastLocked()
 }
 
-// terminalErr reports the stop cause (loop detection, seal/abort error)
+// terminalErr reports the stop cause (seal/abort error)
 // once set; the consuming Service reads it after Seal to emit the run's
 // terminal event.
 func (s *nudgeState) terminalErr() error {
@@ -239,13 +239,20 @@ func (s *nudgeState) SatisfyDurable(id string) error {
 // loop window in request order, the highest-threshold failure notice is
 // prepared (ties: earliest request position), and the waiting model
 // boundary is released. A non-nil err abandons the batch and releases
-// waiters with that cause; detection of the repetition limit sets the
-// same terminal path. Calling Seal before the batch is fully persisted
+// waiters with that cause. Calling Seal before the batch is fully persisted
 // is an invariant error.
 func (s *nudgeState) Seal(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sealLocked(err)
+}
+
+func (s *nudgeState) skipNotice(callID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.notice != nil && s.notice.CallID == callID {
+		s.notice = nil
+	}
 }
 
 func (s *nudgeState) sealLocked(err error) {
@@ -267,14 +274,14 @@ func (s *nudgeState) sealLocked(err error) {
 			continue
 		}
 		call := batch.calls[id]
-		count, recErr := s.window.record(call.Name, call.ArgsJSON, call.Result, call.Error)
-		if errors.Is(recErr, errLoopDetected) {
-			s.setTerminalLocked(errLoopDetected)
-			return
-		}
-		// Successful calls feed the hard stop but never produce a
+		// Successful calls advance the advisory window but never produce a
 		// reminder (§6): only marked failures are notice candidates.
-		if call.Failure == nil || (count != 3 && count != 5) {
+		if call.Failure == nil {
+			s.window.record("", "", "", "")
+			continue
+		}
+		count := s.window.record(call.Name, call.ArgsJSON, call.Result, call.Error)
+		if count != 3 && count != 5 {
 			continue
 		}
 		if best == nil || count > best.Count {

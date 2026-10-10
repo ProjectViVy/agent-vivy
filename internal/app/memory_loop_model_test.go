@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dashimaki/garden/memory"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	"github.com/ProjectViVy/laputa/garden/memory"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // The loopback model sees only the actual HTTP request. Random test facts

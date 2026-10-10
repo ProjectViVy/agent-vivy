@@ -17,7 +17,7 @@ func normalizeThinkingMode(mode domain.ThinkingMode) (domain.ThinkingMode, error
 		return domain.ThinkingModeAuto, nil
 	}
 	if !mode.Valid() {
-		return "", errors.Join(ErrInvalidThinkingMode, errors.New("thinking must be auto, on or off"))
+		return "", errors.Join(ErrInvalidThinkingMode, errors.New("thinking must be auto, on, off, or one of minimal|low|medium|high|xhigh|max"))
 	}
 	return mode, nil
 }

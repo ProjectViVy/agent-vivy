@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/ProjectViVy/inofy"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	laputadiva "github.com/dashimaki/laputa/evolution/diva"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputadiva "github.com/ProjectViVy/laputa/laputa/evolution/diva"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"

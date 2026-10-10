@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/ProjectViVy/inofy"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	laputainofy "github.com/dashimaki/laputa/evolution/inofy"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 )
 
 type stageBudgetModel struct{}

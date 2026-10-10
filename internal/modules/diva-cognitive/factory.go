@@ -17,9 +17,10 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 
 	"github.com/ProjectViVy/inofy"
-	"github.com/dashimaki/garden/agentapi"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	laputainofy "github.com/dashimaki/laputa/evolution/inofy"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
+	"github.com/ProjectViVy/laputa/laputa/persona"
 )
 
 // Identity fixed by composition, never by payload. DIVA embeds exactly one
@@ -124,6 +125,13 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 		var apiErr *agentapi.Error
 		if !errors.As(err, &apiErr) || apiErr.Code != "not_found" {
 			return cognitivecontract.PreparedPrimaryContext{}, err
+		}
+		status, statusErr := human.PersonaStatus(ctx)
+		if statusErr != nil {
+			return cognitivecontract.PreparedPrimaryContext{}, statusErr
+		}
+		if status.Status == persona.StatusUninitialized {
+			return cognitivecontract.PreparedPrimaryContext{}, cognitivecontract.ErrPersonaUninitialized
 		}
 		// ADR-0012 captures the Frozen Core at session start; for a session
 		// that never ran a recall the capture is still absent, so the first

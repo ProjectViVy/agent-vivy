@@ -12,8 +12,8 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/contextsource"
-	"github.com/dashimaki/garden/agentapi"
-	"github.com/dashimaki/garden/memory"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
+	"github.com/ProjectViVy/laputa/garden/memory"
 )
 
 const RecallModuleID = "vivy/diva-memory"

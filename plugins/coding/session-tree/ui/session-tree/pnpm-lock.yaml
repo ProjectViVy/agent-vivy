@@ -1,0 +1,19 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@vivy/ui-sdk':
+        specifier: 1.0.0
+        version: file:../../../../../sdk/ui
+      lucide-react:
+        specifier: 0.575.0
+        version: 0.575.0
+      react:
+        specifier: 19.2.8
+        version: 19.2.8

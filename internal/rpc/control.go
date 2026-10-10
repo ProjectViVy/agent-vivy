@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +25,7 @@ import (
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -41,8 +41,6 @@ import (
 	"agent-vivy/sdk/tui/command"
 	tuii18n "agent-vivy/sdk/tui/i18n"
 )
-
-var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
 
 const (
 	CodeNotFound = -32004
@@ -191,6 +189,13 @@ type ControlDeps struct {
 	// Diagnostics serves bounded log reads and GUI capture (D5).
 	// Nil disables the methods.
 	Diagnostics DiagnosticsService
+	// DiagnosticsBundleDir is where diagnostics/bundle writes bug-report
+	// files (VCP C2). Empty disables diagnostics/bundle.
+	DiagnosticsBundleDir string
+	// ExportsDir is the controlled artifact root exports/read serves from
+	// (VCP C3): the same directory session/export and diagnostics/bundle
+	// write into. Empty disables exports/read.
+	ExportsDir string
 	// ModelMeta resolves reference model metadata (pricing, image support)
 	// for the stats/tokens cost math (D9). Nil or zero rates mark a route
 	// unpriced — the snapshot reports cost_known=false, never $0-free.
@@ -440,6 +445,17 @@ type sessionParams struct {
 	IncludeAttachmentData *bool  `json:"include_attachment_data,omitempty"`
 }
 
+// compactParams adds the optional summarizer focus (pi's
+// /compact <instructions>) to the session params.
+type compactParams struct {
+	SessionID    string `json:"session_id"`
+	Instructions string `json:"instructions,omitempty"`
+}
+
+// compactInstructionsMaxLen bounds the instructions a face can attach to a
+// manual compaction; the summarizer prompt stays a bounded input.
+const compactInstructionsMaxLen = 4096
+
 // sessionCompactionsParams extends sessionParams with a result cap for
 // session/compactions (clamped server-side to 200).
 type sessionCompactionsParams struct {
@@ -475,6 +491,9 @@ type turnParams struct {
 type shellParams struct {
 	SessionID string `json:"session_id"`
 	Script    string `json:"script"`
+	// NoContext keeps the shell result out of the model feed (the !!
+	// variant); the transcript still shows the journaled run.
+	NoContext bool `json:"no_context"`
 }
 
 type editSessionParams struct {
@@ -676,9 +695,7 @@ func toMessageResult(message domain.Message, includeAttachmentData bool) message
 			Command string `json:"command"`
 		}
 		if json.Unmarshal(message.ToolArgs, &audit) == nil {
-			if redactedShellPreviewPattern.MatchString(audit.Command) {
-				result.ToolPreview = audit.Command
-			}
+			result.ToolPreview = audit.Command
 		}
 	}
 	for _, attachment := range message.Attachments {
@@ -1121,6 +1138,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"generations.reject", "species.inspect",
 			"settings.get", "settings.update", "settings.locale",
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh", "settings.model.select",
+			"model.scope", "model.cycle",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
@@ -1144,6 +1162,13 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.Diagnostics != nil {
 			// OBS-05 (D5): bounded diagnostic reads and GUI capture.
 			capabilities = append(capabilities, "diagnostics.logs", "diagnostics.gui_append")
+			if h.deps.DiagnosticsBundleDir != "" {
+				capabilities = append(capabilities, "diagnostics.bundle")
+			}
+		}
+		if h.deps.ExportsDir != "" {
+			// VCP C3: verified-download reads for session exports and /bug bundles.
+			capabilities = append(capabilities, "exports.read")
 		}
 		if h.deps.Work != nil && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
@@ -1317,6 +1342,24 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			bindPeerSessionResult(peer, result)
 		}
 		return result, rpcErr
+	case "session/clone":
+		result, rpcErr := h.cloneSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
+	case "session/tree":
+		return h.sessionTree(ctx)
+	case "session/import":
+		result, rpcErr := h.importSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
+	case "session/export":
+		return h.exportSession(ctx, request)
+	case "exports/read":
+		return h.exportsRead(ctx, request)
 	case "session/edit":
 		result, rpcErr := h.editSession(ctx, request)
 		if rpcErr == nil {
@@ -1361,6 +1404,20 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
 		return h.cancelRun(ctx, request)
+	case "turn/steer":
+		return h.steerTurn(ctx, request)
+	case "turn/follow_up":
+		return h.followUpTurn(ctx, request)
+	case "queue/state":
+		return h.queueState(ctx, request)
+	case "queue/clear":
+		return h.clearQueue(ctx, request)
+	case "queue/dequeue":
+		return h.dequeueQueue(ctx, request)
+	case "queue/remove":
+		return h.removeQueueItem(ctx, request)
+	case "queue/mode":
+		return h.setQueueMode(ctx, request)
 	case "run/get":
 		result, rpcErr := h.getRun(ctx, request)
 		if rpcErr == nil {
@@ -1500,6 +1557,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.updateLocale(request)
 	case "settings/update":
 		return h.updateSettings(ctx, request)
+	case "model/thinking":
+		return h.setThinking(ctx, request)
+	case "model/thinking/levels":
+		return h.thinkingLevels(ctx, request)
 	case "settings/providers":
 		return h.listProviders(ctx)
 	case "settings/providers/upsert":
@@ -1510,6 +1571,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.refreshProviderModels(ctx, request)
 	case "settings/model/select":
 		return h.selectModel(ctx, request)
+	case "model/scope":
+		return h.toggleModelScope(ctx, request)
+	case "model/cycle":
+		return h.cycleModel(ctx, request)
 	case "settings/mcp":
 		return h.listMCP(ctx)
 	case "settings/mcp/upsert":
@@ -1523,9 +1588,13 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "settings/mcp/read", "settings/mcp/resources/read", "mcp/read", "mcp/resources/read":
 		return h.readMCPResource(ctx, request)
 	case "tools/list":
-		return h.listTools()
+		return h.listTools(ctx, request)
 	case "tools/set-active":
-		return h.setActiveTools(request)
+		return h.setActiveTools(ctx, request)
+	case "tools/activate":
+		return h.setToolActivation(ctx, request, true)
+	case "tools/deactivate":
+		return h.setToolActivation(ctx, request, false)
 	case "channel/inspect":
 		return h.inspectChannels()
 	case "channel/get":
@@ -1542,6 +1611,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.diagnosticsLogs(ctx, request)
 	case "diagnostics/gui/append":
 		return h.diagnosticsGUIAppend(ctx, request)
+	case "diagnostics/bundle":
+		return h.diagnosticsBundle(ctx, request)
 	case "skills/list":
 		return h.listSkills(ctx)
 	case "skills/get":
@@ -2114,10 +2185,24 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	for _, message := range messages {
 		out = append(out, toMessageResult(message, includeAttachmentData(params)))
 	}
-	return map[string]any{
+	result := map[string]any{
 		"session":  toSessionResult(session),
 		"messages": out,
-	}, nil
+	}
+	// VCP-B1: faces render the dual-track queue (steer + follow_up lanes)
+	// directly from session/get — the pi get_state surface.
+	if h.deps.Service != nil {
+		state := h.deps.Service.QueueState(ctx, session.ID, "")
+		result["queue"] = map[string]any{
+			"steering":             state.Steering,
+			"follow_up":            state.FollowUps,
+			"steer_mode":           state.SteerMode,
+			"follow_up_mode":       state.FollowUpMode,
+			"pending":              len(state.Steering) + len(state.FollowUps),
+			"last_admitted_run_id": state.LastAdmittedRunID,
+		}
+	}
+	return result, nil
 }
 
 func (h *controlHandler) deleteSession(ctx context.Context, request Request) (any, *Error) {
@@ -2229,14 +2314,20 @@ func (h *controlHandler) sessionContext(ctx context.Context, request Request) (a
 // reports before/after tokens. A busy session (run in flight) is a 409: the
 // run already compresses in-run.
 func (h *controlHandler) compactContext(ctx context.Context, request Request) (any, *Error) {
-	params, rpcErr := parseSessionParams(request)
-	if rpcErr != nil {
-		return nil, rpcErr
+	var params compactParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.SessionID) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if len(params.Instructions) > compactInstructionsMaxLen {
+		return nil, &Error{Code: InvalidParams, Message: "instructions exceeds the 4096-byte bound"}
 	}
 	if h.deps.Service == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
 	}
-	result, err := h.deps.Service.CompactSession(ctx, domain.SessionID(params.SessionID))
+	result, err := h.deps.Service.CompactSession(ctx, domain.SessionID(params.SessionID), runtime.CompactOptions{Instructions: params.Instructions})
 	if errors.Is(err, runtime.ErrCompactionBusy) {
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}
@@ -2309,6 +2400,113 @@ func (h *controlHandler) forkSession(ctx context.Context, request Request) (any,
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}
 	if errors.Is(err, runtime.ErrInvalidCutoff) || errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type cloneParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+// cloneSession copies the session's whole visible view into a new session
+// (VCP C1): a fork pinned at the effective tail, recorded with the
+// session.cloned_from provenance event.
+func (h *controlHandler) cloneSession(ctx context.Context, request Request) (any, *Error) {
+	var params cloneParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.CloneSession(ctx, domain.SessionID(params.SessionID), params.Title)
+	if errors.Is(err, runtime.ErrSessionBusy) {
+		return nil, &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+// sessionTree returns the bounded session-tree read model (VCP C1): nodes
+// are the newest sessions, edges are the fork/clone provenance anchors.
+func (h *controlHandler) sessionTree(ctx context.Context) (any, *Error) {
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.SessionTree(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+// importMaxDataBytes bounds an inline JSONL transcript body (VCP C1).
+const importMaxDataBytes = 8 << 20
+
+type importParams struct {
+	Data  string `json:"data"`
+	Title string `json:"title"`
+}
+
+// importSession rebuilds a pi session transcript (JSONL) as a new session
+// (VCP C1). Import never merges into an existing session.
+func (h *controlHandler) importSession(ctx context.Context, request Request) (any, *Error) {
+	var params importParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.Data == "" {
+		return nil, &Error{Code: InvalidParams, Message: "data is required"}
+	}
+	if len(params.Data) > importMaxDataBytes {
+		return nil, &Error{Code: InvalidParams, Message: "data exceeds the 8 MiB import cap"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.ImportSession(ctx, params.Data, params.Title)
+	if errors.Is(err, runtime.ErrImportMalformed) {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type exportParams struct {
+	SessionID string `json:"session_id"`
+	Format    string `json:"format"`
+}
+
+// exportSession writes the session's visible view as a standalone HTML
+// file in the instance exports directory (VCP C1) and returns its path.
+func (h *controlHandler) exportSession(ctx context.Context, request Request) (any, *Error) {
+	var params exportParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.ExportSession(ctx, domain.SessionID(params.SessionID), params.Format)
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
 	}
 	if err != nil {
@@ -3468,7 +3666,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
-		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
+		Thinking: h.thinkingFor(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true, Continuity: params.continuity,
 	})
 	if err != nil {
@@ -3477,12 +3675,176 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
 }
 
+// Queue handlers (VCP-B1, pi parity): steer injects at the next turn
+// boundary of the active run; follow_up waits for terminal settle. Both
+// fall back to a fresh turn/start when the session is idle — matching pi's
+// "prompt while idle" semantics (busy rules in the B1 plan).
+
+type queueTurnParams struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+	Mode      string `json:"mode,omitempty"`
+	Face      string `json:"face,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`
+}
+
+func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *Error) {
+	var params queueTurnParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
+	}
+	item, err := h.deps.Service.Steer(ctx, domain.SessionID(params.SessionID), params.Text)
+	if err != nil {
+		if errors.Is(err, runtime.ErrQueueUnavailable) {
+			return h.queueStartFallback(ctx, params)
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
+}
+
+func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any, *Error) {
+	var params queueTurnParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
+	}
+	item, err := h.deps.Service.FollowUp(ctx, domain.SessionID(params.SessionID), params.Text)
+	if err != nil {
+		if errors.Is(err, runtime.ErrQueueUnavailable) {
+			return h.queueStartFallback(ctx, params)
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
+}
+
+// queueStartFallback runs a queued turn as a fresh prompt when the session
+// is idle — pi: steering/follow-up on an idle session equals prompt.
+func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams) (any, *Error) {
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face),
+		Thinking: h.thinkingFor(params.Thinking), HumanAdmission: true,
+	})
+	if err != nil {
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted, "queued": false}, nil
+}
+
+func (h *controlHandler) queueState(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID  string `json:"session_id"`
+		AfterRunID string `json:"after_run_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	state := h.deps.Service.QueueState(ctx, domain.SessionID(params.SessionID), domain.RunID(params.AfterRunID))
+	return map[string]any{
+		"steering":             state.Steering,
+		"follow_up":            state.FollowUps,
+		"steer_mode":           state.SteerMode,
+		"follow_up_mode":       state.FollowUpMode,
+		"pending":              len(state.Steering) + len(state.FollowUps),
+		"last_admitted_run_id": state.LastAdmittedRunID,
+		"admitted_run_id":      state.AdmittedRunID,
+	}, nil
+}
+
+func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	state := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	texts := make([]string, 0, len(state.Steering)+len(state.FollowUps))
+	for _, item := range state.Steering {
+		texts = append(texts, item.Text)
+	}
+	for _, item := range state.FollowUps {
+		texts = append(texts, item.Text)
+	}
+	return map[string]any{"cleared": true, "texts": texts}, nil
+}
+
+// dequeueQueue pops the newest pending follow-up for editor restore
+// (pi Alt+Up). Empty lane reports dequeued:false rather than an error.
+func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	item, ok := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	if !ok {
+		return map[string]any{"dequeued": false}, nil
+	}
+	return map[string]any{"dequeued": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
+}
+
+// removeQueueItem cancels one pending item by id — the GUI's per-item
+// affordance (pi shows × on every queued entry). Items already armed or
+// admitted report removed:false rather than an error.
+func (h *controlHandler) removeQueueItem(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+		QueueID   string `json:"queue_id"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.QueueID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and queue_id are required"}
+	}
+	item, ok := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	if !ok {
+		return map[string]any{"removed": false}, nil
+	}
+	return map[string]any{"removed": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
+}
+
+func (h *controlHandler) setQueueMode(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+		Track     string `json:"track"`
+		Mode      string `json:"mode"`
+	}
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Track == "" || params.Mode == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id, track and mode are required"}
+	}
+	if err := h.deps.Service.SetQueueMode(ctx, domain.SessionID(params.SessionID), params.Track, params.Mode); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	return map[string]any{"set": true, "track": params.Track, "mode": params.Mode}, nil
+}
+
 func (h *controlHandler) startShell(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseShellParams(request)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	runID, err := h.deps.Service.RunShell(ctx, domain.SessionID(params.SessionID), params.Script)
+	runID, err := h.deps.Service.RunShell(ctx, domain.SessionID(params.SessionID), params.Script, runtime.ShellRunOptions{NoContext: params.NoContext})
 	if err != nil {
 		if errors.Is(err, runtime.ErrShellUnavailable) {
 			return nil, &Error{Code: MethodNotFound, Message: "governed shell is unavailable"}
@@ -3506,7 +3868,7 @@ func (h *controlHandler) editSession(ctx context.Context, request Request) (any,
 	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
-		Thinking:       domain.ThinkingMode(params.Thinking),
+		Thinking:       h.thinkingFor(params.Thinking),
 		HumanAdmission: true,
 	})
 	if err != nil {
@@ -4038,8 +4400,8 @@ func parseShellParams(request Request) (shellParams, *Error) {
 		return params, &Error{Code: InvalidParams, Message: "params must be a JSON object"}
 	}
 	for name := range fields {
-		if name != "session_id" && name != "script" {
-			return params, &Error{Code: InvalidParams, Message: "shell/start accepts only session_id and script"}
+		if name != "session_id" && name != "script" && name != "no_context" {
+			return params, &Error{Code: InvalidParams, Message: "shell/start accepts only session_id, script and no_context"}
 		}
 	}
 	if params.SessionID == "" || params.Script == "" {
@@ -4812,6 +5174,11 @@ type toolsCatalogEntry struct {
 	Description string `json:"description"`
 	Readonly    bool   `json:"readonly"`
 	Active      bool   `json:"active"`
+	// Exposure is the resolved model-visibility level (direct, model-only,
+	// deferred, hidden); Activated marks a deferred tool currently
+	// visible for the session named by tools/list's session_id.
+	Exposure  string `json:"exposure"`
+	Activated bool   `json:"activated,omitempty"`
 }
 
 // toolsCatalogView is the tools/list payload: the full catalog with active
@@ -4891,7 +5258,15 @@ func reconcileMCPToolSelection(selection []string, catalog []domain.ToolSpec) []
 	return result
 }
 
-func (h *controlHandler) listTools() (any, *Error) {
+func (h *controlHandler) listTools(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if len(request.Params) > 0 {
+		if err := decodeParams(request, &params); err != nil {
+			return nil, err
+		}
+	}
 	active, written, rpcErr := h.activeToolsFromOverlay()
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -4902,11 +5277,20 @@ func (h *controlHandler) listTools() (any, *Error) {
 	for _, name := range active {
 		activeSet[name] = struct{}{}
 	}
+	var activated map[string]struct{}
+	if params.SessionID != "" && h.deps.Service != nil {
+		activated = make(map[string]struct{})
+		for _, name := range h.deps.Service.ToolActivation(ctx, domain.SessionID(params.SessionID)) {
+			activated[name] = struct{}{}
+		}
+	}
 	entries := make([]toolsCatalogEntry, 0, len(catalog))
 	for _, spec := range catalog {
 		_, isActive := activeSet[spec.Name]
+		_, isActivated := activated[spec.Name]
 		entries = append(entries, toolsCatalogEntry{
 			Name: spec.Name, Description: spec.Description, Readonly: spec.Readonly, Active: isActive,
+			Exposure: string(tools.ResolveToolExposure(spec)), Activated: isActivated,
 		})
 	}
 	return toolsCatalogView{
@@ -4917,11 +5301,67 @@ func (h *controlHandler) listTools() (any, *Error) {
 	}, nil
 }
 
+// setToolActivation flips a session's deferred-tool activation (pi
+// tools/activate). Only deferred tools are activatable: hidden rejects
+// outright, direct/model-only report as already visible without a state
+// change. The service journals the flip so it survives restart.
+func (h *controlHandler) setToolActivation(ctx context.Context, request Request, activate bool) (any, *Error) {
+	if h.deps.Service == nil {
+		return nil, &Error{Code: InternalError, Message: "runtime service unavailable"}
+	}
+	var params struct {
+		SessionID string   `json:"session_id"`
+		IDs       []string `json:"ids"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	if len(params.IDs) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "ids must not be empty"}
+	}
+	catalog := h.toolCatalog()
+	specs := make(map[string]domain.ToolSpec, len(catalog))
+	for _, spec := range catalog {
+		specs[spec.Name] = spec
+	}
+	outcomes := make(map[string]string, len(params.IDs))
+	apply := make([]string, 0, len(params.IDs))
+	for _, id := range params.IDs {
+		spec, ok := specs[id]
+		if !ok {
+			outcomes[id] = "unknown_tool"
+			continue
+		}
+		switch tools.ResolveToolExposure(spec) {
+		case domain.ToolExposureHidden:
+			outcomes[id] = "hidden"
+		case domain.ToolExposureDeferred:
+			apply = append(apply, id)
+			if activate {
+				outcomes[id] = "activated"
+			} else {
+				outcomes[id] = "deactivated"
+			}
+		default:
+			outcomes[id] = "already_visible"
+		}
+	}
+	if len(apply) > 0 {
+		if err := h.deps.Service.SetToolActivation(ctx, domain.SessionID(params.SessionID), apply, activate); err != nil {
+			return nil, &Error{Code: InternalError, Message: err.Error()}
+		}
+	}
+	return map[string]any{"tools": outcomes}, nil
+}
+
 // setActiveTools replaces the operator-managed active set (tools_enabled
 // overlay) wholesale, matching the UI's checkbox model. An empty list is
 // the legal chat-only mode. Names must be registered: an unknown name here
 // would fail the engine's Resolve gate on the next launch (FR-10).
-func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
+func (h *controlHandler) setActiveTools(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
@@ -4966,7 +5406,7 @@ func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
 		return nil, rpcErr
 	}
 	h.notifySettingsChanged()
-	return h.listTools()
+	return h.listTools(ctx, request)
 }
 
 // providerEntryResult is one registry entry surfaced in the Settings UI.
@@ -5053,6 +5493,9 @@ type catalogEndpointResult struct {
 	BaseURL      string   `json:"base_url"`
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
+	// ThinkingModels is the subset of Models that declares extended-thinking
+	// support; the terminal picker renders it as the thinking badge (VCP F3).
+	ThinkingModels []string `json:"thinking_models"`
 	// Executable is false for an adapter this Generation seals but cannot
 	// construct (DEFERRED-INDEFINITE): the UI shows it and disables it.
 	Executable bool `json:"executable"`
@@ -5080,14 +5523,24 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 			if models == nil {
 				models = []string{}
 			}
+			thinking := make([]string, 0, len(endpoint.Models))
+			for _, model := range endpoint.Models {
+				if model.SupportsThinking {
+					thinking = append(thinking, model.ID)
+				}
+			}
+			if thinking == nil {
+				thinking = []string{}
+			}
 			state := capabilities[endpoint.Adapter]
 			endpoints = append(endpoints, catalogEndpointResult{
-				Adapter:      endpoint.Adapter,
-				BaseURL:      endpoint.BaseURL,
-				DefaultModel: endpoint.DefaultModel,
-				Models:       models,
-				Executable:   state == modelhost.CapabilitySupported,
-				State:        string(state),
+				Adapter:        endpoint.Adapter,
+				BaseURL:        endpoint.BaseURL,
+				DefaultModel:   endpoint.DefaultModel,
+				Models:         models,
+				ThinkingModels: thinking,
+				Executable:     state == modelhost.CapabilitySupported,
+				State:          string(state),
 			})
 		}
 		catalog = append(catalog, catalogEntryResult{
@@ -5095,6 +5548,14 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 		})
 	}
 	return catalog
+}
+
+// scopedModelResult is one selection identity in the operator's cycle set
+// (settings.yaml scoped_models), in declared order.
+type scopedModelResult struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url,omitempty"`
 }
 
 // providersResult is the full registry view: entries (redacted), the embedded
@@ -5106,10 +5567,14 @@ type providersResult struct {
 	ActiveProvider string                        `json:"active_provider"`
 	ActiveModel    string                        `json:"active_model"`
 	ActiveBaseURL  string                        `json:"active_base_url"`
-	ReadOnly       bool                          `json:"read_only"`
-	Frozen         bool                          `json:"frozen"`
-	ConfigProvider string                        `json:"config_provider"`
-	ConfigModel    string                        `json:"config_model"`
+	// ScopedModels is the declared-order cycle set (pi scoped_models): the
+	// identity list the terminal marks scoped entries against and the order
+	// model/cycle walks.
+	ScopedModels   []scopedModelResult `json:"scoped_models"`
+	ReadOnly       bool                `json:"read_only"`
+	Frozen         bool                `json:"frozen"`
+	ConfigProvider string              `json:"config_provider"`
+	ConfigModel    string              `json:"config_model"`
 }
 
 func (h *controlHandler) providersView(s settings.Settings) providersResult {
@@ -5125,6 +5590,10 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	if h.deps.Frozen || activeProvider != s.Provider || activeModel != s.DefaultModel {
 		activeBaseURL = h.deps.RuntimeBaseURL
 	}
+	scoped := make([]scopedModelResult, 0, len(s.ScopedModels))
+	for _, entry := range s.ScopedModels {
+		scoped = append(scoped, scopedModelResult{Provider: entry.Provider, Model: entry.Model, BaseURL: entry.BaseURL})
+	}
 	return providersResult{
 		Entries:        entries,
 		Catalog:        catalog,
@@ -5132,6 +5601,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 		ActiveProvider: activeProvider,
 		ActiveModel:    activeModel,
 		ActiveBaseURL:  activeBaseURL,
+		ScopedModels:   scoped,
 		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
 		Frozen:         h.deps.Frozen,
 		ConfigProvider: h.deps.ConfigProvider,
@@ -5172,6 +5642,92 @@ func (h *controlHandler) updateSettingsOrError(fn func(settings.Settings) (setti
 		return settings.Settings{}, internalError(err)
 	}
 	return saved, nil
+}
+
+// thinkingFor merges a caller's per-turn preference with the persisted
+// default: an explicit parameter wins, else the settings default applies.
+// A settings read failure degrades to "" (auto at admission) — the turn
+// must not fail on a preferences read.
+func (h *controlHandler) thinkingFor(requested string) domain.ThinkingMode {
+	if requested != "" {
+		return domain.ThinkingMode(requested)
+	}
+	cur, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return ""
+	}
+	return domain.ThinkingMode(cur.Thinking)
+}
+
+// setThinking is the model/thinking verb: a present "level" persists it as
+// the default (validated against the seven-level surface); an absent level
+// only reports the current state.
+func (h *controlHandler) setThinking(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		Level string `json:"level"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.Level != "" {
+		mode := domain.ThinkingMode(params.Level)
+		if !mode.Valid() {
+			return nil, &Error{Code: InvalidParams, Message: "thinking level must be auto, on, off, or one of minimal|low|medium|high|xhigh|max"}
+		}
+		if h.deps.SettingsPath == "" {
+			return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+		}
+		if _, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			if mode == domain.ThinkingModeAuto {
+				cur.Thinking = ""
+			} else {
+				cur.Thinking = params.Level
+			}
+			return cur, nil
+		}); rpcErr != nil {
+			return nil, rpcErr
+		}
+	}
+	return h.thinkingReport(ctx)
+}
+
+// thinkingReport renders the thinking state for the live model: the
+// persisted preference plus the level it resolves to under the model's
+// declared policy.
+func (h *controlHandler) thinkingReport(ctx context.Context) (any, *Error) {
+	requested := domain.ThinkingMode(h.thinkingFor(""))
+	if requested == "" {
+		requested = domain.ThinkingModeAuto
+	}
+	info := h.deps.Service.GetModelInfo(ctx)
+	return map[string]any{
+		"thinking":          string(requested),
+		"effective":         string(provider.EffectiveThinkingLevel(info, requested)),
+		"supported":         info.ThinkingLevels,
+		"supports_thinking": info.SupportsThinking,
+		"default_thinking":  info.DefaultThinking,
+		"read_only":         h.deps.SettingsPath == "" || h.deps.Frozen,
+	}, nil
+}
+
+// thinkingLevels is the model/thinking/levels verb: the live model's
+// declared thinking policy. A thinking-capable model with no declared
+// levels reports the full seven-level surface (the run path honors any
+// requested level); a non-thinking model reports an empty list.
+func (h *controlHandler) thinkingLevels(ctx context.Context, request Request) (any, *Error) {
+	info := h.deps.Service.GetModelInfo(ctx)
+	levels := info.ThinkingLevels
+	if len(levels) == 0 && info.SupportsThinking {
+		levels = make([]string, 0, len(domain.ThinkingLevelOrder))
+		for _, level := range domain.ThinkingLevelOrder {
+			levels = append(levels, string(level))
+		}
+	}
+	return map[string]any{
+		"levels":            levels,
+		"default":           info.DefaultThinking,
+		"supports_thinking": info.SupportsThinking,
+	}, nil
 }
 
 // listProviders returns the registry plus the active selection and config
@@ -5232,59 +5788,17 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	var updateErr *Error
 	changeErr := h.deps.Service.ChangeModelWhenIdle(params.Provider, params.Model, func() error {
 		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
-			allowed := adapter == h.deps.ConfigAdapter &&
-				params.Model == h.deps.ConfigModel && params.BaseURL == ""
-			// Preserve a current legacy selection as an idempotent no-op even if
-			// its old registry row has since disappeared. It is not offered as a
-			// new target to other clients.
-			if !allowed && settings.NormalizeAdapter(cur.Provider) == adapter && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
-				allowed = true
-			}
-			for _, entry := range cur.Providers {
-				if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != params.BaseURL {
-					continue
-				}
-				if entry.DefaultModel == params.Model {
-					allowed = true
-				}
-				for _, modelID := range entry.Models {
-					if modelID == params.Model {
-						allowed = true
-						break
-					}
-				}
-			}
-			// An address-less selection resolves to a vendor's declared endpoint for
-			// that adapter: the vendor a pre-migration client named, or else the
-			// configured one. That endpoint's model list is the embedded catalog a
-			// client may pick from.
-			if params.BaseURL == "" {
-				vendorName := settings.NormalizeProviderSelection(params.Provider).LegacyVendor
-				if vendorName == "" {
-					vendorName = h.deps.ConfigProvider
-				}
-				for _, vendor := range h.deps.ProviderVendors {
-					if vendor.Name != vendorName {
-						continue
-					}
-					endpoint, ok := vendor.EndpointForAdapter(adapter)
-					if !ok {
-						continue
-					}
-					for _, modelID := range endpoint.ModelIDs() {
-						if modelID == params.Model {
-							allowed = true
-							break
-						}
-					}
-				}
-			}
-			if !allowed {
+			if !h.modelSelectionAllowed(cur, params.Provider, params.Model, params.BaseURL) {
 				return settings.Settings{}, &settingsFnError{&Error{Code: InvalidParams, Message: "model is not present in the provider catalog"}}
 			}
 			cur.Provider = params.Provider
 			cur.DefaultModel = params.Model
 			cur.BaseURL = params.BaseURL
+			// A project-bound process pins its picks so the next launch in the
+			// same project restores this selection (VCP F3).
+			cur.PinProjectDefault(h.deps.ProjectRoot, settings.ScopedModel{
+				Provider: params.Provider, Model: params.Model, BaseURL: params.BaseURL,
+			})
 			return cur, nil
 		})
 		if updateErr != nil {
@@ -5292,6 +5806,205 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 		}
 		return nil
 	})
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	if errors.Is(changeErr, runtime.ErrModelChangeBusy) {
+		return nil, &Error{Code: CodeConflict, Message: "finish or cancel active and suspended runs before changing models"}
+	}
+	if changeErr != nil {
+		return nil, internalError(changeErr)
+	}
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return h.providersView(saved), nil
+}
+
+// modelSelectionAllowed reports whether the (provider, model, base_url)
+// selection names a target the redacted settings/providers catalog offers:
+// the configured default, a persisted registry entry, or a vendor-declared
+// endpoint model. selectModel and cycleModel share it so the cycle cannot
+// land on a selection the picker could not have offered.
+func (h *controlHandler) modelSelectionAllowed(s settings.Settings, providerName, model, baseURL string) bool {
+	adapter := settings.NormalizeAdapter(providerName)
+	allowed := adapter == h.deps.ConfigAdapter &&
+		model == h.deps.ConfigModel && baseURL == ""
+	// Preserve a current legacy selection as an idempotent no-op even if its
+	// old registry row has since disappeared. It is not offered as a new
+	// target to other clients.
+	if !allowed && settings.NormalizeAdapter(s.Provider) == adapter && s.DefaultModel == model && s.BaseURL == baseURL {
+		allowed = true
+	}
+	for _, entry := range s.Providers {
+		if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != baseURL {
+			continue
+		}
+		if entry.DefaultModel == model {
+			allowed = true
+		}
+		for _, modelID := range entry.Models {
+			if modelID == model {
+				allowed = true
+				break
+			}
+		}
+	}
+	// An address-less selection resolves to a vendor's declared endpoint for
+	// that adapter: the vendor a pre-migration client named, or else the
+	// configured one. That endpoint's model list is the embedded catalog a
+	// client may pick from.
+	if baseURL == "" {
+		vendorName := settings.NormalizeProviderSelection(providerName).LegacyVendor
+		if vendorName == "" {
+			vendorName = h.deps.ConfigProvider
+		}
+		for _, vendor := range h.deps.ProviderVendors {
+			if vendor.Name != vendorName {
+				continue
+			}
+			endpoint, ok := vendor.EndpointForAdapter(adapter)
+			if !ok {
+				continue
+			}
+			for _, modelID := range endpoint.ModelIDs() {
+				if modelID == model {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	return allowed
+}
+
+// toggleModelScope is model/scope (pi /scope-model): it flips the named
+// selection — the live selection by default — in and out of the operator's
+// scoped_models cycle set and reports the new membership state. The write is
+// a settings overlay only; it never changes the active model and is not
+// gated on run state.
+func (h *controlHandler) toggleModelScope(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"base_url"`
+	}
+	if len(request.Params) > 0 {
+		if err := decodeParams(request, &params); err != nil {
+			return nil, err
+		}
+	}
+	sel := settings.ScopedModel{
+		Provider: strings.TrimSpace(params.Provider),
+		Model:    strings.TrimSpace(params.Model),
+		BaseURL:  strings.TrimSpace(params.BaseURL),
+	}
+	if sel.Provider == "" && sel.Model == "" {
+		// No explicit selection: scope the live one.
+		current, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		provider, model := current.Provider, current.DefaultModel
+		if h.deps.Service != nil {
+			provider, model = h.deps.Service.CurrentModel()
+		}
+		sel = settings.ScopedModel{Provider: provider, Model: model, BaseURL: current.BaseURL}
+	}
+	if sel.Provider == "" || sel.Model == "" {
+		return nil, &Error{Code: InvalidParams, Message: "provider and model are required when no active selection exists"}
+	}
+	scoped := false
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		scoped = cur.ToggleScoped(sel)
+		return cur, nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return struct {
+		providersResult
+		Scoped bool `json:"scoped"`
+	}{providersResult: h.providersView(saved), Scoped: scoped}, nil
+}
+
+// cycleModel is model/cycle (pi scoped-model cycling): it walks the
+// operator's scoped_models set in declared order starting after the live
+// selection, picks the first entry whose selection is still offered by the
+// catalog — skipping providers this Generation cannot execute and models
+// that left the catalog — and selects it through the same busy-fence and
+// project-pin path as settings/model/select.
+func (h *controlHandler) cycleModel(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: CodeConflict, Message: "live model selection is unavailable in this deployment"}
+	}
+	h.modelChangeMu.Lock()
+	defer h.modelChangeMu.Unlock()
+	current, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if len(current.ScopedModels) == 0 {
+		return nil, &Error{Code: InvalidParams, Message: "no scoped models; toggle entries with /scope-model"}
+	}
+	activeProvider, activeModel := h.deps.Service.CurrentModel()
+	active := settings.ScopedModel{Provider: activeProvider, Model: activeModel, BaseURL: current.BaseURL}
+	start := 0
+	for i, entry := range current.ScopedModels {
+		if entry.Matches(active) {
+			start = i + 1
+			break
+		}
+	}
+	var next settings.ScopedModel
+	found := false
+	for step := 0; step < len(current.ScopedModels); step++ {
+		candidate := current.ScopedModels[(start+step)%len(current.ScopedModels)]
+		if candidate.Matches(active) {
+			continue
+		}
+		if err := h.profileSelectionError(settings.NormalizeAdapter(candidate.Provider)); err != nil {
+			continue
+		}
+		if !h.modelSelectionAllowed(current, candidate.Provider, candidate.Model, candidate.BaseURL) {
+			continue
+		}
+		next = candidate
+		found = true
+		break
+	}
+	if !found {
+		return nil, &Error{Code: InvalidParams, Message: "no scoped model is selectable in this generation"}
+	}
+	var saved settings.Settings
+	var updateErr *Error
+	changeErr := h.deps.Service.ChangeModelWhenIdle(next.Provider, next.Model, func() error {
+		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			cur.Provider = next.Provider
+			cur.DefaultModel = next.Model
+			cur.BaseURL = next.BaseURL
+			cur.PinProjectDefault(h.deps.ProjectRoot, next)
+			return cur, nil
+		})
+		if updateErr != nil {
+			return updateErr
+		}
+		return nil
+	})
+	_ = request
 	if updateErr != nil {
 		return nil, updateErr
 	}
@@ -6096,7 +6809,6 @@ func legacyMCPStatus(state string) string {
 }
 
 func sanitizeMCPReason(value string) string {
-	value = tools.RedactSensitive(value)
 	value = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
 			return -1
@@ -6407,7 +7119,7 @@ func mcpBackendError(err error) *Error {
 			code = InvalidParams
 		}
 	}
-	message := tools.RedactSensitive(err.Error())
+	message := err.Error()
 	message = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
@@ -6498,6 +7210,8 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
+	case errors.Is(err, cognitivecontract.ErrPersonaUninitialized):
+		return &Error{Code: CodeConflict, Message: "persona is not initialized; open Persona and complete initialization before starting a conversation"}
 	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidCollaborationMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):

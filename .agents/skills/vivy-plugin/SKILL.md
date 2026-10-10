@@ -52,11 +52,59 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
 - Protected Tool IDs cannot be shadowed, aliased, replaced, or overridden.
 - All Tool sources use ToolHost. Channels, Faces, Context, Skills, MCP,
   Middleware, Observers, Status, and Actions use their named Host.
-- All first-party features remain in the default Generation; unconfigured
+- All established first-party features remain in the default Generation;
+  `plugins/exp/*` are explicit Recipe-only exceptions, never default imports.
+  Unconfigured
   network instances stay inactive.
 - Selected UI Modules have complete UI control by default. Do not add a UI
   Grant or permission prompt. The backend still distrusts every browser claim.
 - Same-process T2 code is trusted, not sandboxed. Untrusted execution is T3.
+
+## Placement rule: universal stays internal
+
+**"Universal" means every Generation selects it.** A capability that every
+Recipe picks (file/shell/ask_user/skills tools, and universal enhancements
+such as todo, notes, http_request, download, sequential_thinking) is kernel
+inventory, not a plugin: wrapping it in a Module adds digest pinning,
+descriptor, and binding maintenance for zero variation — it would be
+selected in every Generation anyway.
+
+Plugin categories exist for capability that a real Recipe boundary drops:
+
+| Category | Holds | Examples |
+|---|---|---|
+| `internal/` | Universal: selected by every Generation | protected tools, todo, notes |
+| `plugins/infra/` | Local daemon discovery/health/lifecycle | infra/llm (ollama, llama.cpp…), future asr/tts/vad |
+| `plugins/coding/` | Programming-specialized capability | lsp, session-tree, coding tools |
+| `plugins/provider/` | Cloud provider/credential adapters | future OAuth login flows |
+
+If a universal tool later gains a confirmed variation boundary (e.g. an
+offline profile that must drop http_request), extract that one tool then —
+the door is never welded, but do not pre-pay modularity for hypothetical
+flexibility.
+
+## Complexity rule: keep policy with its owner
+
+Keep feature-specific behavior in its owning Module, or its owning internal
+capability under the placement rule. `internal/` placement does not justify
+feature-specific branches in `internal/runtime/`.
+
+Before adding a mechanism, inspect the existing Host/Port and pinned upstream
+capabilities. Reuse or adapt them first. For a necessary core change or
+reimplementation of existing semantics, briefly record in the existing
+development record: the concrete gap, why composition or adaptation is
+insufficient, and the smallest shared contract change needed, if any. This does
+not relax the Eino `DEFERRED-INDEFINITE` gate.
+
+Keep one semantic authority. Protocol and database adapters may translate
+representations or implement backend-specific operations; they must preserve
+the canonical contract rather than independently redefine policy. Shared core
+extension points belong in the established Host/Port path.
+
+For an optional Module, verify that a Recipe omitting it packs and runs without
+editing runtime code. Remove superseded paths within the change's scope.
+Preserve correctness, security, durability, and required tests; minimize
+maintained mechanisms, not lines at their expense.
 
 ## Example decision
 

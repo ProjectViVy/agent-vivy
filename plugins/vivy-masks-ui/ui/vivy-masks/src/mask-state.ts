@@ -1,4 +1,4 @@
-import type { MaskDefinition, MaskMetadata, MaskSelection } from './mask-client';
+import type { MaskDefinition } from './mask-client';
 
 export interface MaskDraft {
   readonly id?: string;
@@ -14,16 +14,12 @@ export interface MaskUIError {
   readonly message: string;
   readonly currentRevision?: number;
   readonly referenceCount?: number;
+  readonly reloadFailed?: boolean;
 }
 
 export interface MaskState {
-  readonly epoch: number;
-  readonly activeSessionId: string | null;
-  readonly catalog: readonly MaskMetadata[];
+  readonly openedId: string | null;
   readonly definitions: Readonly<Record<string, MaskDefinition>>;
-  readonly selection: MaskSelection | null;
-  readonly selectionPending: boolean;
-  readonly catalogPending: boolean;
   readonly definitionPending: readonly string[];
   readonly draft: MaskDraft | null;
   readonly draftDirty: boolean;
@@ -33,13 +29,8 @@ export interface MaskState {
 }
 
 export const initialMaskState: MaskState = Object.freeze({
-  epoch: 0,
-  activeSessionId: null,
-  catalog: [],
+  openedId: '',
   definitions: {},
-  selection: null,
-  selectionPending: false,
-  catalogPending: false,
   definitionPending: [],
   draft: null,
   draftDirty: false,
@@ -49,21 +40,14 @@ export const initialMaskState: MaskState = Object.freeze({
 });
 
 export type MaskAction =
-  | { readonly type: 'catalog/load-start' }
-  | { readonly type: 'catalog/load-success'; readonly items: readonly MaskMetadata[] }
-  | { readonly type: 'catalog/load-error'; readonly error: MaskUIError }
-  | { readonly type: 'session/change'; readonly epoch: number; readonly sessionId: string | null }
-  | { readonly type: 'session/load-start'; readonly epoch: number; readonly sessionId: string }
-  | { readonly type: 'session/load-success'; readonly epoch: number; readonly selection: MaskSelection }
-  | { readonly type: 'session/load-error'; readonly epoch: number; readonly sessionId: string; readonly error: MaskUIError }
-  | { readonly type: 'selection/save-start'; readonly epoch: number; readonly sessionId: string }
-  | { readonly type: 'selection/save-success'; readonly epoch: number; readonly sessionId: string; readonly selection: MaskSelection }
-  | { readonly type: 'selection/save-error'; readonly epoch: number; readonly sessionId: string; readonly error: MaskUIError }
   | { readonly type: 'definition/load-start'; readonly id: string }
   | { readonly type: 'definition/loaded'; readonly definition: MaskDefinition }
   | { readonly type: 'definition/load-error'; readonly id: string; readonly error: MaskUIError }
-  | { readonly type: 'draft/new' }
+  | { readonly type: 'draft/new'; readonly draft?: Pick<MaskDraft, 'name' | 'description' | 'body'> }
   | { readonly type: 'definition/open'; readonly definition: MaskDefinition }
+  | { readonly type: 'definition/default' }
+  | { readonly type: 'draft/cancel' }
+  | { readonly type: 'error/clear' }
   | { readonly type: 'draft/change'; readonly field: 'name' | 'description' | 'body'; readonly value: string }
   | { readonly type: 'draft/save-start'; readonly operationId?: string }
   | { readonly type: 'draft/save-success'; readonly definition: MaskDefinition }
@@ -74,45 +58,10 @@ export type MaskAction =
 
 export function maskReducer(state: MaskState, action: MaskAction): MaskState {
   switch (action.type) {
-    case 'catalog/load-start':
-      return { ...state, catalogPending: true, error: null };
-    case 'catalog/load-success':
-      return { ...state, catalogPending: false, catalog: [...action.items], error: null };
-    case 'catalog/load-error':
-      return { ...state, catalogPending: false, error: action.error };
-    case 'session/change':
-      return {
-        ...state,
-        epoch: action.epoch,
-        activeSessionId: action.sessionId,
-        selection: null,
-        selectionPending: Boolean(action.sessionId),
-        error: null,
-      };
-    case 'session/load-start':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: true, error: null };
-    case 'session/load-success':
-      if (state.epoch !== action.epoch || state.activeSessionId !== action.selection.session_id) return state;
-      return { ...state, selection: action.selection, selectionPending: false, error: null };
-    case 'session/load-error':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: false, error: action.error };
-    case 'selection/save-start':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return {
-        ...state,
-        selectionPending: true,
-        error: null,
-      };
-    case 'selection/save-success':
-      if (!matchesSession(state, action.epoch, action.sessionId) || action.selection.session_id !== action.sessionId) return state;
-      return { ...state, selection: action.selection, selectionPending: false, error: null };
-    case 'selection/save-error':
-      if (!matchesSession(state, action.epoch, action.sessionId)) return state;
-      return { ...state, selectionPending: false, error: action.error };
+    case 'error/clear':
+      return { ...state, error: null };
     case 'definition/load-start':
-      return { ...state, definitionPending: unique([...state.definitionPending, action.id]), error: null };
+      return { ...state, openedId: action.id, draft: null, draftDirty: false, definitionPending: unique([...state.definitionPending, action.id]), error: null };
     case 'definition/loaded': {
       const definitionPending = state.definitionPending.filter((id) => id !== action.definition.id);
       const next = {
@@ -121,7 +70,7 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
         definitionPending,
         error: state.error,
       };
-      if (!state.draftDirty || state.draft?.id !== action.definition.id) {
+      if (state.openedId === action.definition.id && !state.draftDirty && !state.draftSaving) {
         return {
           ...next,
           draft: draftFromDefinition(action.definition),
@@ -135,32 +84,42 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
       return {
         ...state,
         definitionPending: state.definitionPending.filter((id) => id !== action.id),
-        error: action.error,
+        error: state.openedId === action.id ? action.error : state.error,
       };
     case 'draft/new':
       return {
         ...state,
-        draft: { name: '', description: '', body: '' },
-        draftDirty: false,
+        openedId: null,
+        draft: action.draft ?? { name: '', description: '', body: '' },
+        draftDirty: Boolean(action.draft),
         draftSaving: false,
         error: null,
       };
     case 'definition/open':
       return {
         ...state,
+        openedId: action.definition.id,
         definitions: { ...state.definitions, [action.definition.id]: action.definition },
         draft: draftFromDefinition(action.definition),
         draftDirty: false,
         draftSaving: false,
         error: null,
       };
+    case 'definition/default':
+      return { ...state, openedId: '', draft: null, draftDirty: false, error: null };
+    case 'draft/cancel': {
+      const definition = state.openedId ? state.definitions[state.openedId] : undefined;
+      return { ...state, openedId: definition?.id ?? '', draft: definition ? draftFromDefinition(definition) : null, draftDirty: false, error: null };
+    }
     case 'draft/change':
-      if (!state.draft) return state;
+      // A failed create may have committed. Retry its exact operation payload
+      // before accepting edits that would change the idempotency identity.
+      if (!state.draft || (!state.draft.id && state.draft.operationId)) return state;
       return {
         ...state,
         draft: { ...state.draft, [action.field]: action.value },
         draftDirty: true,
-        error: null,
+        error: state.error?.code === 'revision_conflict' ? state.error : null,
       };
     case 'draft/save-start':
       return {
@@ -174,14 +133,24 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
     case 'draft/save-success':
       return {
         ...state,
+        openedId: action.definition.id,
         definitions: { ...state.definitions, [action.definition.id]: action.definition },
         draft: draftFromDefinition(action.definition),
         draftDirty: false,
         draftSaving: false,
         error: null,
       };
-    case 'draft/save-error':
-      return { ...state, draftSaving: false, error: action.error };
+    case 'draft/save-error': {
+      const rejected = ['invalid_mask', 'authorization_denied'].includes(String(action.error.code));
+      return {
+        ...state,
+        draft: rejected && state.draft && !state.draft.id
+          ? { ...state.draft, operationId: undefined }
+          : state.draft,
+        draftSaving: false,
+        error: action.error,
+      };
+    }
     case 'delete/start':
       return { ...state, deletingId: action.id, error: null };
     case 'delete/success': {
@@ -189,8 +158,8 @@ export function maskReducer(state: MaskState, action: MaskAction): MaskState {
       delete definitions[action.id];
       return {
         ...state,
-        catalog: state.catalog.filter((item) => item.id !== action.id),
         definitions,
+        openedId: state.openedId === action.id ? '' : state.openedId,
         draft: state.draft?.id === action.id ? null : state.draft,
         draftDirty: state.draft?.id === action.id ? false : state.draftDirty,
         deletingId: null,
@@ -210,10 +179,6 @@ export function draftFromDefinition(definition: MaskDefinition): MaskDraft {
     description: definition.description,
     body: definition.body,
   };
-}
-
-function matchesSession(state: MaskState, epoch: number, sessionId: string): boolean {
-  return state.epoch === epoch && state.activeSessionId === sessionId;
 }
 
 function unique(values: readonly string[]): string[] {

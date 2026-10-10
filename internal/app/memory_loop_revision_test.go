@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	genassembly "agent-vivy/internal/generated/assembly"
-	"github.com/dashimaki/garden/memory"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	"github.com/ProjectViVy/laputa/garden/memory"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func TestMemoryLoopCorrectionAndDeletionInModelInput(t *testing.T) {

@@ -16,6 +16,31 @@ var _ moduleport.MaskFactory = maskfixture.Factory
 
 const maskFactoryFixtureSelector = "Factory"
 
+func TestGenerateRuntimeAssemblyBindsOrderedPreToolMiddleware(t *testing.T) {
+	var modules []ResolvedModule
+	for _, id := range []string{"a", "b"} {
+		descriptor := testDescriptor("fixture/" + id)
+		descriptor.Provides = []module.PortRef{{Port: "std/middleware/pre-tool@v1", ID: "fixture." + id}}
+		modules = append(modules, ResolvedModule{Descriptor: descriptor, Binding: GoBinding{ImportPath: "example.com/fixture/" + id, Package: id, ProviderConstructor: "NewProvider"}})
+	}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: modules, OrderedContributions: map[string][]string{"std/middleware/pre-tool@v1": {"fixture/b", "fixture/a"}}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.Join(strings.Fields(string(generated)), " ")
+	for _, want := range []string{
+		`"agent-vivy/sdk/port/pretool"`,
+		`PreToolMiddleware []pretool.Provider`,
+		`PreToolMiddleware: append(append([]pretool.Provider{}, b.NewProvider()), a.NewProvider())`,
+		`PreToolMiddleware: []string{"fixture.b", "fixture.a"}`,
+		`func (assembly *RuntimeAssembly) PreToolProviders() any`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("selected middleware has no ordered runtime binding %q", want)
+		}
+	}
+}
+
 func TestGenerateRuntimeAssemblyUsesTypedProviderConstructors(t *testing.T) {
 	channelDescriptor := testDescriptor("fixture/chat")
 	channelDescriptor.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.chat"}}
@@ -300,5 +325,37 @@ func TestGenerateRuntimeAssemblyMCPStateRequiresTypedHostBinding(t *testing.T) {
 	}
 	if !strings.Contains(string(generated), `"mcp": generation.Unconfigured`) {
 		t.Fatalf("typed MCP binding did not produce compiled MCP signal:\n%s", generated)
+	}
+}
+
+func TestGenerateRuntimeAssemblyFormIdentity(t *testing.T) {
+	channelDescriptor := testDescriptor("fixture/chat")
+	channelDescriptor.Provides = []module.PortRef{{Port: "std/channel@v1", ID: "fixture.chat"}}
+	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: channelDescriptor, Binding: GoBinding{ImportPath: "example.com/fixture/chat", Package: "chat", Constructor: "New", ProviderConstructor: "NewProvider"}}}}
+
+	declared, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity("vivy-headless/1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`const HeadlessGenerationID = "vivy-headless/1"`,
+		"GenerationID:",
+		"HeadlessGenerationID,",
+	} {
+		if !strings.Contains(string(declared), want) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, declared)
+		}
+	}
+
+	plain, err := GenerateRuntimeAssembly(plan, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "HeadlessGenerationID") || strings.Contains(string(plain), "GenerationID:") {
+		t.Fatalf("plain generation must not declare a form identity:\n%s", plain)
+	}
+
+	if _, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity("bad\x01id")); err == nil {
+		t.Fatal("expected invalid form identity to fail")
 	}
 }

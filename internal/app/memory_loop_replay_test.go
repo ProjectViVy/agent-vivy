@@ -12,7 +12,7 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
-	"github.com/dashimaki/garden/agentapi"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
 )
 
 // Controlled cursor rewind exercises the real host redelivery path. This is

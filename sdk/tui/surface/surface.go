@@ -126,6 +126,10 @@ type Sidebar struct {
 	SkillsKnown        bool
 	LSP                []LanguageServer
 	LSPKnown           bool
+	// ToolsKnown/ToolCount report the active tool catalog size for the
+	// startup resource listing (VCP-G3).
+	ToolsKnown bool
+	ToolCount  int
 }
 
 // ToolCard is an inline tool result / pending approval inside the chat.
@@ -195,9 +199,13 @@ type Meta struct {
 	Host   string
 	Busy   bool
 	Queued int
-	RunID  string
-	Error  string
-	Footer string // short status fragment after help keys
+	// SteerQueued / FollowUpQueued are the kernel dual-track lane counts
+	// (VCP-B2); Queued keeps the total for older renderers.
+	SteerQueued    int
+	FollowUpQueued int
+	RunID          string
+	Error          string
+	Footer         string // short status fragment after help keys
 	// BusySince is when the current run started; zero while idle. The chrome
 	// uses it for the elapsed-run timer.
 	BusySince time.Time
@@ -222,6 +230,14 @@ type Driver interface {
 	MoveSession(delta int) tea.Cmd
 	NewSession(title string) tea.Cmd
 	Send(text string) tea.Cmd
+	// SendFollowUp queues text behind the active run (pi Alt+Enter). On an
+	// idle session the driver may degrade it to a fresh turn — same as
+	// Send.
+	SendFollowUp(text string) tea.Cmd
+	// Dequeue withdraws the newest pending queued turn for editor restore
+	// (pi Alt+Up); the driver answers with RestoreInputMsg or nil when the
+	// queue is empty.
+	Dequeue() tea.Cmd
 	DecideApproval(decision string) tea.Cmd
 	AnswerQuestion(answer string) tea.Cmd
 	SetPermission(preset string) tea.Cmd
@@ -243,6 +259,7 @@ type Driver interface {
 	ShellExecutor
 	CapabilityReporter
 	SessionController
+	SessionTreeProvider
 }
 
 // CommandExecutor translates an already-canonical command into its
@@ -348,6 +365,13 @@ type ModelOption struct {
 	BaseURL     string
 	DisplayName string
 	Current     bool
+	// Scoped marks membership in the operator's scoped_models cycle set
+	// (pi scoped_models); the picker renders it as a scope marker.
+	Scoped bool
+	// Thinking marks a model that declares extended-thinking support; the
+	// picker renders it as a badge. False also covers "unknown" (custom
+	// registry entries carry no capability metadata).
+	Thinking bool
 }
 
 // ModelCatalog is the complete redacted candidate set returned by
@@ -367,6 +391,13 @@ type ModelController interface {
 	ModelCatalog() ModelCatalog
 	RefreshModels(request uint64) tea.Cmd
 	SelectModel(request uint64, option ModelOption) tea.Cmd
+	// CycleModel selects the next scoped_models entry in declared order
+	// (pi scoped-model cycling; the chord is Alt+P — Ctrl+P is the command
+	// palette in this face). The server skips unavailable entries.
+	CycleModel(request uint64) tea.Cmd
+	// ScopeModel toggles the option in/out of the scoped_models set
+	// (pi /scope-model).
+	ScopeModel(request uint64, option ModelOption) tea.Cmd
 }
 
 type ModelsMsg struct {
@@ -378,6 +409,17 @@ type ModelsMsg struct {
 type ModelSelectedMsg struct {
 	Request uint64
 	Option  ModelOption
+	Catalog ModelCatalog
+	Err     error
+}
+
+// ModelScopedMsg carries the /scope-model toggle result: the option that was
+// flipped, its new membership state, and the refreshed catalog (with updated
+// Scoped markers).
+type ModelScopedMsg struct {
+	Request uint64
+	Option  ModelOption
+	Scoped  bool
 	Catalog ModelCatalog
 	Err     error
 }
@@ -418,7 +460,9 @@ type ProjectFilesMsg struct {
 // Implementations must call the server-owned shell/start route; no terminal
 // face may execute a process locally.
 type ShellExecutor interface {
-	ExecuteShell(script string) tea.Cmd
+	// ExecuteShell runs one governed direct shell. noContext selects the !!
+	// variant: the run journals and renders but never enters the model feed.
+	ExecuteShell(script string, noContext bool) tea.Cmd
 }
 
 // CapabilityReporter exposes only capabilities returned by initialize.
@@ -432,6 +476,38 @@ type SessionController interface {
 	SelectSession(id string) tea.Cmd
 	RenameSession(id, title string) tea.Cmd
 	DeleteSession(id string) tea.Cmd
+}
+
+// SessionTreeProvider fetches the kernel session-tree read model for the
+// /tree navigator (VCP C2). The control plane owns the graph; the view only
+// lays it out.
+type SessionTreeProvider interface {
+	SessionTree() tea.Cmd
+}
+
+// TreeNode mirrors the control plane's session/tree node shape without
+// importing kernel types.
+type TreeNode struct {
+	SessionID          string `json:"session_id"`
+	Title              string `json:"title"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
+	ParentSessionID    string `json:"parent_session_id"`
+	ForkPointMessageID string `json:"fork_point_message_id"`
+}
+
+// TreeEdge is one provenance link between two sessions.
+type TreeEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
+}
+
+// TreeMsg carries the session/tree RPC snapshot to the view.
+type TreeMsg struct {
+	Nodes []TreeNode
+	Edges []TreeEdge
+	Err   error
 }
 
 // SessionsMsg is emitted by a SessionController after list or mutation RPCs.

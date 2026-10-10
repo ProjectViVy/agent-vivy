@@ -1,0 +1,8 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/exp-argument-guard, version: 0.1.0}
+source: {ref: repo:plugins/exp/argument-guard, sha256: 47717b6c964ce413e87d914e588856d7bf2eb357d8e330d88d54c0cabc38e1ae}
+provides:
+  - {port: std/middleware/pre-tool@v1, id: vivy.exp.argument_guard}
+requires:
+  - {port: core/tool-host@v1, provider: vivy/tool-host}
+lifecycle: {scope: generation}

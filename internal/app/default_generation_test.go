@@ -35,6 +35,17 @@ type defaultGenerationInventory struct {
 	RunObservers       []string          `json:"runObservers"`
 }
 
+func TestGeneratedPreToolMiddlewareRejectsMissingBinding(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	if middleware, err := generatedPreToolMiddleware(assembly); err != nil || len(middleware) != 0 {
+		t.Fatalf("default unexpectedly selects middleware: %v, %v", middleware, err)
+	}
+	assembly.Manifest.PreToolMiddleware = []string{"fixture.guard"}
+	if _, err := generatedPreToolMiddleware(assembly); err == nil {
+		t.Fatal("selected middleware without a runtime binding was accepted")
+	}
+}
+
 func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
@@ -142,7 +153,7 @@ func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 
 func TestDefaultGeneratedToolProvidersBindRuntimeImplementations(t *testing.T) {
 	assembly := genassembly.BuildDefault()
-	registry, err := bindGeneratedTools(assembly.Tools, tools.Builtin(nil))
+	registry, err := bindGeneratedTools(assembly.Tools, tools.Builtin(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +217,7 @@ func TestValidateRuntimeAssemblyRejectsTypedSourcesWithoutHosts(t *testing.T) {
 }
 
 func TestGeneratedToolInventoryIsAuthoritative(t *testing.T) {
-	registry, err := bindGeneratedTools(nil, tools.Builtin(nil))
+	registry, err := bindGeneratedTools(nil, tools.Builtin(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

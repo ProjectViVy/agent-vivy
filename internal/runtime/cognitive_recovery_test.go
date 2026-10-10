@@ -13,7 +13,7 @@ import (
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // admitCognitiveWorkflowFixture commits a schema-2 trusted-strategy revision

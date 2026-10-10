@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +92,7 @@ func TestLoadValid(t *testing.T) {
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
 		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != filepath.Join(userDataRoot(), "workspace") ||
 		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 ||
-		cfg.Runtime.Compaction != (CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {
+		!reflect.DeepEqual(cfg.Runtime.Compaction, CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {
@@ -882,5 +883,22 @@ func TestHookConfigValidation(t *testing.T) {
 				t.Fatalf("Load err = %v, want contains %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestDefaultGovernanceAllowsMaskActionsInDefaultProfile(t *testing.T) {
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("defaults do not validate: %v", err)
+	}
+	rules := cfg.Governance.Profiles["default"].Rules
+	var maskRule *GovernanceRule
+	for i := range rules {
+		if rules[i].Tool == "vivy.masks.*" {
+			maskRule = &rules[i]
+		}
+	}
+	if maskRule == nil || maskRule.Decision != "allow" {
+		t.Fatalf("default profile rules = %+v, want a vivy.masks.* allow rule", rules)
 	}
 }

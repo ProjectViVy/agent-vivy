@@ -15,7 +15,7 @@ import (
 	"agent-vivy/internal/storage"
 	controlaction "agent-vivy/sdk/port/controlaction"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // Factory is emitted into a generated RuntimeAssembly only when the
@@ -42,6 +42,10 @@ type FactoryInput struct {
 // ErrUnarmed fails closed when a bound port is reached before its runtime
 // callback is attached or after the owner is closed.
 var ErrUnarmed = errors.New("cognitivecontract: binding is not armed")
+
+// ErrPersonaUninitialized gates primary admission until the owner completes
+// first-run setup; transports expose a safe, actionable message.
+var ErrPersonaUninitialized = errors.New("cognitivecontract: persona is not initialized")
 
 // Capture is the host-owned capture request for one terminal primary run.
 // EventID is the stable redelivery key ("<run_id>:<journal_seq>"): the

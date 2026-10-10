@@ -240,25 +240,25 @@ func TestToolAdapterSandboxDenialRefusesInsteadOfFailing(t *testing.T) {
 	}
 }
 
-func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
+func TestToolAdapterPreservesAndMarksUntrustedResult(t *testing.T) {
 	adapter := newToolAdapter(secretResultTool{}, 0, nil, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if !strings.HasPrefix(got, untrustedToolResultHeader) || strings.Contains(got, "sk-live") || strings.Contains(got, "alice@example.com") {
+	if !strings.HasPrefix(got, untrustedToolResultHeader) || !strings.Contains(got, "sk-live") || !strings.Contains(got, "alice@example.com") {
 		t.Fatalf("secured result = %q", got)
 	}
 }
 
-func TestToolAdapterRedactsProviderErrorAndPreservesCause(t *testing.T) {
+func TestToolAdapterPreservesProviderErrorAndCause(t *testing.T) {
 	adapter := newToolAdapter(secretErrorTool{}, 0, nil, nil, nil)
 	_, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err == nil {
 		t.Fatal("secret error tool returned nil error")
 	}
-	if strings.Contains(err.Error(), "sk-live-abcdefghijkl") || !strings.Contains(err.Error(), "REDACTED_SECRET") {
-		t.Fatalf("tool error leaked Secret material: %v", err)
+	if !strings.Contains(err.Error(), "sk-live-abcdefghijkl") || strings.Contains(err.Error(), "REDACTED_SECRET") {
+		t.Fatalf("tool error changed synthetic task text: %v", err)
 	}
 	if !errors.Is(err, errSecretToolFailure) {
 		t.Fatalf("tool error lost cause chain: %v", err)

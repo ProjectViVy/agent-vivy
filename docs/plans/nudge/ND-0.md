@@ -1,5 +1,7 @@
 # ND-0: Eino Integration Contract Implementation Plan
 
+> Issue #40 (2026-10-07) supersedes historical ND-D1 hard-stop and redaction clauses. Current contract: [NUDGE-DESIGN](../../architecture/NUDGE-DESIGN.md), advisory-only repetition and skip-on-unfit reminders. Earlier execution evidence remains revision-bound, not proof of current behavior.
+
 > **For agentic workers:** Use `superpowers:executing-plans` to implement task-by-task. Use subagent-driven-development only when delegation is separately selected. This plan is not implementation authorization.
 
 **Spec:** [NUDGE-DESIGN.md](../../architecture/NUDGE-DESIGN.md), revision ND-D1.

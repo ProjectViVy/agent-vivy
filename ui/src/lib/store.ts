@@ -133,6 +133,12 @@ interface RuntimeState {
   workError: string | null;
   workBusy: boolean;
   queuedMessages: QueuedMessage[];
+  /** 内核双轨队列（pi parity, VCP-B3）：steer 轨在运行中立即 steering，
+   *  follow_up 轨在终态 settle 后由内核自动准入下一条 run。仅文本；
+   *  带附件/引用的提交仍走本地 FIFO（queuedMessages）。 */
+  kernelQueue: api.QueueState | null;
+  /** 队列事件（abort-flush/clear）回填编辑器的草稿；seq 去重。 */
+  queueRestoreText: { text: string; seq: number } | null;
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
   backgroundError: string | null;
@@ -185,6 +191,13 @@ interface RuntimeState {
   startRun: (sessionId: string, submission: api.TurnSubmission) => Promise<void>;
 	editSession: (sessionId: string, messageId: string, text: string, mode?: api.RunMode, face?: api.Face, thinking?: api.ThinkingMode) => Promise<void>;
   enqueueMessage: (submission: api.TurnSubmission) => void;
+  /** 内核队列动词：纯文本走内核双轨；带附件/引用回退本地 FIFO。 */
+  steerMessage: (submission: api.TurnSubmission) => Promise<void>;
+  followUpMessage: (submission: api.TurnSubmission) => Promise<void>;
+  refreshQueue: (sessionId?: string) => Promise<void>;
+  removeKernelQueued: (queueId: string) => Promise<void>;
+  /** pi Alt+Up：弹出最新 pending follow-up 回编辑框；空轨返回 null。 */
+  dequeueQueuedTurn: () => Promise<string | null>;
   draftReferences: ReferenceDraft[];
   draftScope: api.HistoryScope | null;
   draftRequestId: string;
@@ -239,7 +252,7 @@ interface RuntimeState {
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   saveLocale: (locale: api.Locale) => Promise<void>;
   loadSessionContext: (sessionId?: string) => Promise<void>;
-  compactSession: (sessionId: string) => Promise<api.CompactResult>;
+  compactSession: (sessionId: string, instructions?: string) => Promise<api.CompactResult>;
   /** session/rewind 后重读消息；返回刷新后的可见视图。 */
   rewindSession: (sessionId: string, messageId: string) => Promise<api.Message[]>;
   /** session/fork 后刷新会话列表；返回新会话 id（导航由调用方做）。 */
@@ -266,6 +279,64 @@ let workEventSeq = 0;
 let runOpen = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
+let queueRestoreSeq = 0;
+
+/** 内核队列仅载文本（与 TUI 同规则）：附件/历史引用提交仍走本地 FIFO。 */
+const kernelEligible = (submission: api.TurnSubmission): boolean =>
+  !submission.attachments?.length && !submission.continuity?.references?.length;
+
+/** steer/follow_up 应答分流：queued=true 走内核轨（steer 补乐观 user 气泡——
+ *  HistoryModifier resume 不发 user 消息事件）；idle 回退已直接开新 run，
+ *  接管并订阅（与 startRun 的成功块同构）。 */
+function adoptQueueResult(sessionId: string, result: api.QueueTurnResult, submission: api.TurnSubmission): void {
+  const state = useVivyStore.getState();
+  if (state.activeSessionId !== sessionId) return;
+  if (result.queued) {
+    if (result.track === 'steer') {
+      useVivyStore.setState((s) => ({ messages: [...s.messages, { id: `local-steer-${result.queue_id}`, run_id: s.currentRun?.id, role: 'user' as const, content: submission.text, created_at: Date.now() }] }));
+    }
+    return;
+  }
+  if (result.run_id && !runActive(state.currentRun)) {
+    const run: api.Run = { id: result.run_id, session_id: sessionId, status: (result.status as api.RunStatus) ?? 'accepted', created_at: Date.now() };
+    useVivyStore.setState((s) => ({
+      currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting',
+      messages: [...s.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user' as const, content: submission.text, created_at: Date.now() }],
+      backgroundRuns: [run, ...s.backgroundRuns.filter((item) => item.id !== run.id)],
+    }));
+    startSubscription(run.id, 0);
+  }
+}
+
+/** 内核 settle-admission 解析（pi）：follow-up 在终态自动准入新 run，但
+ *  admitted_run_id 与终态发布存在竞态，短暂轮询后放弃。命中时接管为
+ *  currentRun 并订阅其事件流（与 TUI admitSettledCmd 同构）。 */
+async function admitSettledRun(settlingRunId: string, attemptsLeft = 10): Promise<void> {
+  const state = useVivyStore.getState();
+  const sessionId = state.activeSessionId;
+  if (!sessionId) return;
+  try {
+    const queue = await api.getQueueState(sessionId, settlingRunId);
+    const current = useVivyStore.getState();
+    if (current.activeSessionId !== sessionId || current.currentRun?.id !== settlingRunId) return;
+    // 无可准入项（follow-up 车道空且无 admitted 记录）：立即让位本地 FIFO，
+    // 不为零队列付出整段轮询延迟。
+    if (!queue.admitted_run_id && (queue.follow_up?.length ?? 0) === 0) return;
+    if (queue.admitted_run_id) {
+      const run: api.Run = { id: queue.admitted_run_id, session_id: sessionId, status: 'active', created_at: Date.now() };
+      useVivyStore.setState((s) => ({
+        currentRun: run, kernelQueue: queue, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting',
+        backgroundRuns: [run, ...s.backgroundRuns.filter((item) => item.id !== run.id)],
+      }));
+      startSubscription(run.id, 0);
+      return;
+    }
+  } catch { /* 轮询失败继续重试直至上限 */ }
+  if (attemptsLeft > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await admitSettledRun(settlingRunId, attemptsLeft - 1);
+  }
+}
 let settingsRead = 0;
 let settingsMutation = 0;
 let pendingSettingsMutation: number | null = null;
@@ -367,11 +438,24 @@ function handleRunEvent(event: RunEvent): void {
     update.currentRun = state.currentRun ? { ...state.currentRun, status: event.type.slice(4) as api.RunStatus } : null;
     if (event.type === 'run.failed') update.runError = runFailedMessage(event.payload) ?? t('errors.runFailedTitle');
     stopSubscription();
-    // 队列只在成功完成后派发（对照 Crush）：失败 / 取消保留队列，由用户处置。
+    // 终态后：内核可能已自动准入下一条 follow-up run（pi settle：completed
+    // 与 failed 都准入，cancelled 冲刷队列）——先短轮询 queue/state 解析
+    // admitted run 再派本地 FIFO，避免两条 run 并发。本地 FIFO 仍只在
+    // completed 后派发（对照 Crush）：失败/取消保留队列由用户处置。
     if (event.type === 'run.completed') {
-      void refreshAfterTerminal(event.run_id).then(drainQueue);
+      void refreshAfterTerminal(event.run_id).then(() => admitSettledRun(event.run_id)).then(drainQueue).then(() => state.refreshQueue());
     } else {
-      void refreshAfterTerminal(event.run_id);
+      void refreshAfterTerminal(event.run_id).then(() => admitSettledRun(event.run_id)).then(() => state.refreshQueue());
+    }
+  } else if (event.type === 'turn.queued' || event.type === 'turn.dequeued' || event.type === 'turn.steered') {
+    void state.refreshQueue();
+    // abort-flush / clear 把队列文本还给用户：最新一条回填编辑框（pi）。
+    if (event.type === 'turn.dequeued') {
+      const reason = String(event.payload.reason ?? '');
+      const text = String(event.payload.text ?? '');
+      if ((reason === 'aborted' || reason === 'cleared') && text) {
+        update.queueRestoreText = { text, seq: ++queueRestoreSeq };
+      }
     }
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
   else if (event.type.includes('approval') || event.type.includes('question')) void state.loadReviews();
@@ -493,7 +577,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
-  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
+  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [], kernelQueue: null, queueRestoreText: null,
   work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
@@ -669,7 +753,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -679,12 +763,13 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const epoch = ++sessionEpoch;
     runOpen += 1;
     stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
       }), loadWorkIntoStore(id, epoch)]);
       void loadContextIntoStore(id);
+      void get().refreshQueue(id);
       const work = get().work;
       if (work && epoch === sessionEpoch && get().activeSessionId === id) startWorkSubscription(id, work.version);
       const background = await api.listBackgroundRuns();
@@ -711,6 +796,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     }
   },
   commitWork: async (method, fields = {}) => {
+    const epoch = sessionEpoch;
     const state = get();
     const sessionId = state.activeSessionId;
     const work = state.work;
@@ -723,13 +809,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         request_id: workRequestID(method.replace('/', '-')),
         ...fields,
       });
-      if (get().activeSessionId === sessionId) set({ work: result.work, workPhase: 'ready', workError: null });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) {
+        // Automatic rounds may publish newer Work before the mutation's
+        // response reaches this peer. Never roll those facts back.
+        const latest = get().work;
+        set({ work: latest && latest.version > result.work.version ? latest : result.work, workPhase: 'ready', workError: null });
+      }
       return result;
     } catch (error) {
-      if (get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) set({ workError: errorMessage(error) });
       throw error;
     } finally {
-      if (get().activeSessionId === sessionId) set({ workBusy: false });
+      if (epoch === sessionEpoch && get().activeSessionId === sessionId) set({ workBusy: false });
     }
   },
   createGoal: (objective, maxRounds) => get().commitWork('goal/create', { objective, max_rounds: maxRounds }),
@@ -877,6 +968,47 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 		finally { set({ runBusy: false }); }
 	},
   enqueueMessage: (submission) => set((state) => ({ queuedMessages: [...state.queuedMessages, { ...copySubmission(submission), id: `queued-${++queuedSeq}` }] })),
+  // 内核双轨：纯文本 → turn/steer|turn/follow_up；带附件/引用 → 本地 FIFO。
+  steerMessage: async (submission) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
+    try {
+      adoptQueueResult(sessionId, await api.steerTurn(sessionId, submission.text), submission);
+      void get().refreshQueue();
+    } catch (error) { set({ runError: errorMessage(error) }); }
+  },
+  followUpMessage: async (submission) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
+    try {
+      adoptQueueResult(sessionId, await api.followUpTurn(sessionId, submission.text), submission);
+      void get().refreshQueue();
+    } catch (error) { set({ runError: errorMessage(error) }); }
+  },
+  refreshQueue: async (sessionId = get().activeSessionId ?? undefined) => {
+    if (!sessionId) return;
+    try {
+      const queue = await api.getQueueState(sessionId);
+      if (get().activeSessionId === sessionId) set({ kernelQueue: queue });
+    } catch { /* 队列视图非关键：静默重试于下一事件 */ }
+  },
+  removeKernelQueued: async (queueId) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    try { await api.removeQueuedTurn(sessionId, queueId); } catch { /* 已消失：仍刷新队列视图 */ }
+    void get().refreshQueue();
+  },
+  dequeueQueuedTurn: async () => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return null;
+    try {
+      const result = await api.dequeueQueuedTurn(sessionId);
+      void get().refreshQueue();
+      return result.dequeued ? (result.text ?? null) : null;
+    } catch { return null; }
+  },
   draftReferences: [],
   draftScope: null,
   draftRequestId: newDraftRequestId(),
@@ -992,7 +1124,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) }));
     drainQueue();
   },
-  clearQueue: () => set({ queuedMessages: [] }),
+  // 清空 = 本地 FIFO + 内核双轨（pi clear_queue）。
+  clearQueue: () => {
+    set({ queuedMessages: [] });
+    const sessionId = get().activeSessionId;
+    if (sessionId) void api.clearSessionQueue(sessionId).catch(() => undefined).then(() => get().refreshQueue());
+  },
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;
     set({ runBusy: true, runError: null });
@@ -1078,8 +1215,8 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     } finally { finishSettingsMutation(operation); }
   },
   loadSessionContext: async (sessionId = get().activeSessionId ?? undefined) => { if (sessionId) await loadContextIntoStore(sessionId); },
-  compactSession: async (sessionId) => {
-    const result = await api.compactSession(sessionId);
+  compactSession: async (sessionId, instructions) => {
+    const result = await api.compactSession(sessionId, instructions);
     await loadContextIntoStore(sessionId);
     return result;
   },
@@ -1132,6 +1269,18 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   recordEval: async (params) => { set({ lifecycleBusy: true, lifecycleError: null }); try { await api.recordEval(params); await get().loadLifecycle(); } catch (error) { set({ lifecycleError: errorMessage(error) }); throw error; } finally { set({ lifecycleBusy: false }); } },
   promoteGeneration: async (params) => { set({ lifecycleBusy: true, lifecycleError: null }); try { await api.promoteGeneration(params); await get().loadLifecycle(); } catch (error) { set({ lifecycleError: errorMessage(error) }); throw error; } finally { set({ lifecycleBusy: false }); } },
 }));
+
+/** Reconcile an admission-changing RPC before using the local queue gate. */
+export async function reconcileRun(runId: string, sessionId: string): Promise<void> {
+  const epoch = sessionEpoch;
+  const run = await api.getRun(runId);
+  const state = useVivyStore.getState();
+  if (epoch !== sessionEpoch || state.activeSessionId !== sessionId || state.currentRun?.id !== runId) return;
+  // A terminal notification may win this read; never restore an active
+  // snapshot over it. Keep the existing transcript and subscription intact.
+  if (!runActive(state.currentRun)) return;
+  useVivyStore.setState({ currentRun: run, backgroundRuns: state.backgroundRuns.map((item) => item.id === runId ? run : item) });
+}
 
 export function resetStoreForTests(): void {
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;

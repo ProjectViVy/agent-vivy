@@ -150,8 +150,8 @@ func TestRunObserverSeesOnlyCommittedEvents(t *testing.T) {
 	if len(provider.events) != 1 || provider.events[0].ID.String() != "run-1:1" {
 		t.Fatalf("observer events = %#v", provider.events)
 	}
-	if string(provider.events[0].Payload) == `{"secret":"sk-test-1234567890123456"}` {
-		t.Fatal("observer payload was not redacted")
+	if string(provider.events[0].Payload) != `{"secret":"sk-test-1234567890123456"}` {
+		t.Fatal("authorized observer payload changed")
 	}
 }
 

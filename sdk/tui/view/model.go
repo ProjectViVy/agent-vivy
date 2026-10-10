@@ -20,6 +20,7 @@ import (
 	"agent-vivy/sdk/tui/command"
 	tuii18n "agent-vivy/sdk/tui/i18n"
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/theme"
 )
 
 const (
@@ -74,6 +75,11 @@ type Model struct {
 	sessionActionBusy  bool
 	sessionError       string
 	sessionRequest     uint64
+	treeOpen           bool
+	treeRows           []treeRow
+	treeCursor         int
+	treeLoading        bool
+	treeError          string
 
 	commandOverlayTitle    string
 	commandOverlay         string
@@ -104,6 +110,11 @@ type Model struct {
 	modelPickerCursor    int
 	modelPickerError     string
 	modelPickerRequest   uint64
+	// modelActionRequest routes picker-less model actions (Alt+P scope
+	// cycle, /scope-model toggle) — their results land in
+	// ModelSelectedMsg/ModelScopedMsg while the picker is closed.
+	modelActionRequest uint64
+	modelActionPending bool
 
 	fileCompletionOpen       bool
 	fileCompletionLoading    bool
@@ -131,8 +142,19 @@ type Model struct {
 	chatAnchorStamp uint64
 	chatAssembly    *chatAssembly
 	mdCache         *messageMarkdownCache
+	keys            *Keymap
+	imageState      *imageCache
 	shortcutsOpen   bool
 	spinFrame       int
+
+	// Transcript search (G3): a one-line query row; searchMatches indexes the
+	// active message list and searchCursor tracks the current jump target.
+	searchOpen        bool
+	searchQuery       string
+	searchMatches     []int
+	searchCursor      int
+	searchSavedScroll int
+	searchSavedFollow bool
 
 	gateID           string
 	gateScroll       int
@@ -148,6 +170,22 @@ type Options struct {
 	// owned by the caller, not the view.
 	Locale          corei18n.Locale
 	DebugToolOutput bool
+	// Theme names the color theme: "", "auto" (terminal detect), "dark",
+	// "light", or a file under ThemesDir. Resolution always succeeds —
+	// failures degrade to dark with a startup warning overlay.
+	Theme string
+	// ThemesDir is the operator theme directory; empty uses
+	// theme.DefaultDir().
+	ThemesDir string
+	// NoThemes disables the user theme directory entirely; only embedded
+	// themes resolve.
+	NoThemes bool
+	// KeybindingsFile overrides action→chord bindings (keybindings.yaml).
+	// Missing or unreadable files fall back to defaults with a warning.
+	KeybindingsFile string
+	// Images controls inline terminal graphics: "auto" (detect), "on", or
+	// "off" (default chip rendering). Anything else is treated as auto.
+	Images string
 }
 
 // New returns a model bound to the given driver.
@@ -162,18 +200,24 @@ func New(driver surface.Driver, options ...Options) Model {
 	if opts.Locale == "" {
 		opts.Locale = corei18n.English
 	}
+	themesDir := strings.TrimSpace(opts.ThemesDir)
+	if themesDir == "" && !opts.NoThemes {
+		themesDir = theme.DefaultDir()
+	}
+	colors, themeWarnings := theme.Resolve(themesDir, opts.Theme)
+	keys, keyWarnings := LoadKeymap(opts.KeybindingsFile)
 	translator := tuii18n.New(opts.Locale)
 	registry := command.DefaultRegistry(translator)
 	if !driver.SupportsCapability("project.init.status") {
 		registry = registry.Without("init")
 	}
-	return Model{
+	m := Model{
 		driver:          driver,
 		translator:      translator,
 		commandRegistry: registry,
 		width:           120,
 		height:          36,
-		palette:         DefaultPalette(),
+		palette:         PaletteFromColors(colors),
 		debugToolOutput: opts.DebugToolOutput,
 		windowTitle:     windowTitleBrand,
 		chatFollow:      true,
@@ -181,7 +225,18 @@ func New(driver surface.Driver, options ...Options) Model {
 		chatAnchorSeg:   -1,
 		chatAssembly:    &chatAssembly{},
 		mdCache:         newMessageMarkdownCache(),
+		keys:            keys,
+		imageState: &imageCache{
+			protocol: resolveImageProtocol(opts.Images, os.Getenv),
+			byPath:   map[string]uint32{},
+			iterm:    map[string]string{},
+		},
 	}
+	startupWarnings := append(themeWarnings, keyWarnings...)
+	if len(startupWarnings) != 0 {
+		m = m.showCommandResult(m.translator.T("vivy.tui.dialog.theme", nil), strings.Join(startupWarnings, "\n"))
+	}
+	return m
 }
 
 type messageMarkdownKey struct {
@@ -303,6 +358,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouse(msg)
 	case surface.SessionsMsg:
 		m.applySessionsMsg(msg)
+	case surface.TreeMsg:
+		m.applyTreeMsg(msg)
 	case surface.GateResolvedMsg:
 		if msg.Kind == "question" {
 			m.input = ""
@@ -358,6 +415,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyModelsMsg(msg)
 	case surface.ModelSelectedMsg:
 		m.applyModelSelectedMsg(msg)
+	case surface.ModelScopedMsg:
+		m.applyModelScopedMsg(msg)
 	case fileCompletionStartMsg:
 		if m.fileCompletionOpen && msg.Request == m.fileCompletionRequest && msg.Query == m.fileCompletionQuery && msg.SessionID == m.fileCompletionSessionID {
 			if cmd := m.driver.CompleteProjectFiles(msg.Request, msg.Query); cmd != nil {
@@ -374,6 +433,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.input = msg.Text + " " + m.input
 			}
+		}
+	case externalEditorResultMsg:
+		if msg.err != nil {
+			m = m.showCommandResult(m.translator.T("vivy.tui.dialog.editor", nil),
+				m.translator.T("vivy.tui.editor.error", map[string]any{"error": msg.err.Error()}))
+		} else {
+			m.input = msg.content
+			m.closeFileCompletion()
 		}
 	}
 	if m.sidebarFocused && !m.sidebarCanScroll() {
@@ -412,6 +479,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// One-shot kitty uploads piggyback on the command channel so frames emit
+	// only cheap placement sequences.
+	cmds = append(cmds, m.imageTransmitCmds()...)
 	return m, tea.Batch(cmds...)
 }
 
@@ -469,7 +539,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		}
 		return
 	}
-	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" || m.shortcutsOpen {
+	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.treeOpen || m.commandConfirmName != "" || m.commandOverlay != "" || m.shortcutsOpen {
 		return
 	}
 	if msg.Action != tea.MouseActionPress {
@@ -552,7 +622,6 @@ func (m Model) View() string {
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	gate := m.driver.PendingGate()
-	meta := m.driver.Meta()
 	if gate != nil && m.sessionsOpen {
 		// A gate may arrive asynchronously while the Sessions dialog is open.
 		// Close the secondary surface before routing this key so the gate remains
@@ -561,6 +630,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.sessionRenaming = false
 		m.sessionDeleteID = ""
 		m.sessionActionBusy = false
+	}
+	if gate != nil && m.treeOpen {
+		m.treeOpen = false
 	}
 	if gate != nil && msg.Type == tea.KeyCtrlS {
 		// A pending approval/question remains the top-most interaction. Do not
@@ -591,6 +663,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.shortcutsOpen {
 		m.shortcutsOpen = false
 	}
+	if gate != nil && m.searchOpen {
+		m.searchOpen = false
+	}
 	if gate == nil && m.dynamicCommandPending && msg.Type == tea.KeyEsc {
 		// Abort the RPC first so the editor unlock is immediate instead of
 		// waiting out the server timeout, then invalidate the stale result.
@@ -615,8 +690,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if gate == nil && m.searchOpen {
+		return m.handleSearchKey(msg)
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if m.treeOpen {
+		return m.handleTreeKey(msg)
 	}
 	if gate == nil && m.shortcutsOpen {
 		switch msg.Type {
@@ -667,32 +748,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// through the normal global/editor routing below.
 		m.sidebarFocused = false
 	}
-	if gate == nil && m.sidebarCanScroll() && msg.Type == tea.KeyCtrlRight {
-		m.sidebarFocused = true
-		m.clampSidebarScroll()
-		return m, nil
-	}
-	if gate == nil && !m.sidebarFocused {
-		switch msg.Type {
-		case tea.KeyPgUp:
-			m.scrollChat(-m.chatViewportHeight())
-			return m, nil
-		case tea.KeyPgDown:
-			m.scrollChat(m.chatViewportHeight())
-			return m, nil
-		case tea.KeyHome:
-			m.chatScroll = 0
-			m.chatFollow = m.chatMaxScroll() == 0
-			m.setChatAnchor(0, 0)
-			return m, nil
-		case tea.KeyEnd:
-			m.chatFollow = true
-			m.chatAnchorSeg = -1
-			m.clampChatScroll()
-			return m, nil
+	if gate != nil && gate.Submitting {
+		if m.keys.Action(keyChord(msg)) == "quit" {
+			return m, tea.Quit
 		}
-	}
-	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC {
 		return m, nil
 	}
 	if gate != nil && gate.Kind == "approval" && !gate.Submitting {
@@ -700,108 +759,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return next, nil
 		}
 	}
-	switch msg.Type {
-	case tea.KeyCtrlC:
-		return m, tea.Quit
-	case tea.KeyCtrlS:
-		m.shortcutsOpen = false
-		return m.openSessions()
-	case tea.KeyCtrlX:
-		if gate != nil {
-			return m, nil
+	// Named keybindings dispatch: every global chord lives in m.keys and can
+	// be remapped through keybindings.yaml. Keys no action claims fall
+	// through to the editor handling below.
+	if action := m.keys.Action(keyChord(msg)); action != "" {
+		if next, cmd, handled := m.runBoundAction(action, msg); handled {
+			return next, cmd
 		}
-		m.shortcutsOpen = !m.shortcutsOpen
-		if m.shortcutsOpen {
-			m.closeCommandPalette()
-			m.closeFileCompletion()
-			m.closeModelPicker()
-		}
-		return m, nil
-	case tea.KeyCtrlP:
-		if gate == nil {
-			m.shortcutsOpen = false
-			return m, m.openCommandPalette()
-		}
-		return m, nil
-	}
-	if gate == nil && m.input == "" && m.isHelpKey(msg) {
-		m.shortcutsOpen = false
-		return m, m.openCommandPalette()
 	}
 	switch msg.Type {
-	case tea.KeyCtrlL:
-		if gate == nil {
-			return m.openModelPicker("")
-		}
-		return m, nil
-	case tea.KeyEsc:
-		if gate != nil {
-			if gate.Kind == "approval" && !gate.Submitting {
-				return m, m.driver.DecideApproval(approvalDenied)
-			}
-			return m, nil
-		}
-		if meta.Queued > 0 {
-			m.driver.ClearQueue()
-			return m, nil
-		}
-		if meta.Busy {
-			return m, m.driver.Cancel()
-		}
-		m.input = ""
-		m.closeFileCompletion()
-		return m, nil
-	case tea.KeyCtrlN:
-		if gate == nil && !meta.Busy {
-			m.input = ""
-			return m, m.driver.NewSession("")
-		}
-		return m, nil
-	case tea.KeyCtrlY:
-		if gate != nil && gate.Kind == "approval" && !gate.Submitting {
-			return m, m.driver.DecideApproval(approvalApproved)
-		}
-		if gate == nil && !meta.Busy {
-			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
-		}
-		return m, nil
-	case tea.KeyCtrlT:
-		if gate != nil {
-			return m, nil
-		}
-		return m.setThinking("")
-	case tea.KeyCtrlO:
-		if gate != nil {
-			return m, nil
-		}
-		m.toolExpanded = !m.toolExpanded
-		return m, nil
-	case tea.KeyCtrlR:
-		if gate != nil {
-			return m, nil
-		}
-		m.reasoningCollapsed = !m.reasoningCollapsed
-		return m, nil
-	case tea.KeyShiftTab:
-		if gate == nil && m.input == "" && !meta.Busy {
-			return m.cycleWorkingMode()
-		}
-		return m, nil
-	case tea.KeyTab, tea.KeyUp, tea.KeyDown:
-		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
+	case tea.KeyUp, tea.KeyTab, tea.KeyDown:
+		// Session navigation belongs to the explicit sessions dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
 		return m, nil
 	case tea.KeyEnter:
-		if gate != nil {
-			if gate.Submitting {
-				return m, nil
-			}
-			if gate.Kind == "question" {
-				return m, m.driver.AnswerQuestion(m.input)
-			}
-			return m, m.driver.DecideApproval(approvalApproved)
+		// Reachable only when "send" was remapped off enter: the key then
+		// behaves as a newline outside gates.
+		if gate == nil {
+			m.input += "\n"
 		}
-		return m.submitInput()
+		return m, nil
 	case tea.KeyBackspace:
 		if gate != nil && gate.Kind == "approval" {
 			return m, nil
@@ -814,12 +791,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.input += " "
 		m.closeFileCompletion()
-		return m, nil
-	case tea.KeyCtrlJ:
-		if gate != nil && gate.Kind == "approval" {
-			return m, nil
-		}
-		m.input += "\n"
 		return m, nil
 	case tea.KeyRunes:
 		text := string(msg.Runes)
@@ -835,19 +806,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if text == "q" && m.input == "" && gate == nil && !meta.Busy {
-			return m, tea.Quit
-		}
-		if text == "G" && m.input == "" && gate == nil && !meta.Busy {
-			// Vim jump-to-bottom, same as the `end` key. Guarded like `q` so an
-			// in-progress draft or a running turn keeps `G` as plain input.
-			m.chatFollow = true
-			m.clampChatScroll()
-			return m, nil
-		}
-		if text == "/" && m.input == "" && gate == nil {
-			return m, m.openCommandPalette()
-		}
 		m.input += text
 		return m.refreshFileCompletion()
 	}
@@ -860,6 +818,214 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// runBoundAction executes a keybindings.yaml action. handled=false means the
+// action's context guard rejected the key, so it falls through to typing
+// (e.g. "q" bound to fast_quit must still type when the input is non-empty).
+func (m Model) runBoundAction(action string, msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	gate := m.driver.PendingGate()
+	meta := m.driver.Meta()
+	// Printable chords ("/", "q", "G", "H") must not fire while the composer
+	// holds a draft; modifier chords fire regardless of input.
+	runeChord := msg.Type == tea.KeyRunes
+	switch action {
+	case "quit":
+		return m, tea.Quit, true
+	case "palette":
+		if gate != nil {
+			return m, nil, true
+		}
+		if runeChord && m.input != "" {
+			// A printable chord ("H", "/") must keep typing when the
+			// composer already holds a draft.
+			return m, nil, false
+		}
+		m.shortcutsOpen = false
+		return m, m.openCommandPalette(), true
+	case "shortcuts":
+		if gate != nil {
+			return m, nil, true
+		}
+		m.shortcutsOpen = !m.shortcutsOpen
+		if m.shortcutsOpen {
+			m.closeCommandPalette()
+			m.closeFileCompletion()
+			m.closeModelPicker()
+		}
+		return m, nil, true
+	case "sessions":
+		m.shortcutsOpen = false
+		next, cmd := m.openSessions()
+		return next, cmd, true
+	case "new_session":
+		if gate == nil && !meta.Busy {
+			m.input = ""
+			return m, m.driver.NewSession(""), true
+		}
+		return m, nil, true
+	case "model_picker":
+		if gate == nil {
+			next, cmd := m.openModelPicker("")
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "model_cycle":
+		if gate == nil {
+			next, cmd := m.cycleScopedModel()
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "permission_cycle":
+		if gate != nil && gate.Kind == "approval" && !gate.Submitting {
+			return m, m.driver.DecideApproval(approvalApproved), true
+		}
+		if gate == nil && !meta.Busy {
+			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset)), true
+		}
+		return m, nil, true
+	case "thinking_cycle":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.setThinking("")
+		return next, cmd, true
+	case "tools_toggle":
+		if gate == nil {
+			m.toolExpanded = !m.toolExpanded
+		}
+		return m, nil, true
+	case "reasoning_toggle":
+		if gate == nil {
+			m.reasoningCollapsed = !m.reasoningCollapsed
+		}
+		return m, nil, true
+	case "mode_cycle":
+		if gate == nil && m.input == "" && !meta.Busy {
+			next, cmd := m.cycleWorkingMode()
+			return next, cmd, true
+		}
+		return m, nil, true
+	case "sidebar_focus":
+		if gate == nil && m.sidebarCanScroll() {
+			m.sidebarFocused = true
+			m.clampSidebarScroll()
+		}
+		return m, nil, true
+	case "dequeue":
+		if gate == nil {
+			// pi Alt+Up: withdraw the newest queued turn into the composer.
+			return m, m.driver.Dequeue(), true
+		}
+		return m, nil, true
+	case "follow_up":
+		if gate != nil {
+			return m, nil, true
+		}
+		// pi Alt+Enter / Ctrl+Q fallback: follow-up lane — runs after the
+		// turn settles.
+		next, cmd := m.submitFollowUp()
+		return next, cmd, true
+	case "send":
+		if gate != nil {
+			if gate.Submitting {
+				return m, nil, true
+			}
+			if gate.Kind == "question" {
+				return m, m.driver.AnswerQuestion(m.input), true
+			}
+			return m, m.driver.DecideApproval(approvalApproved), true
+		}
+		next, cmd := m.submitInput()
+		return next, cmd, true
+	case "newline":
+		if gate != nil && gate.Kind == "approval" {
+			return m, nil, true
+		}
+		m.input += "\n"
+		return m, nil, true
+	case "cancel":
+		if gate != nil {
+			if gate.Kind == "approval" && !gate.Submitting {
+				return m, m.driver.DecideApproval(approvalDenied), true
+			}
+			return m, nil, true
+		}
+		if meta.Queued > 0 {
+			m.driver.ClearQueue()
+			return m, nil, true
+		}
+		if meta.Busy {
+			return m, m.driver.Cancel(), true
+		}
+		m.input = ""
+		m.closeFileCompletion()
+		return m, nil, true
+	case "fast_quit":
+		if m.input == "" && gate == nil && !meta.Busy {
+			return m, tea.Quit, true
+		}
+		return m, nil, false
+	case "jump_bottom":
+		if m.input == "" && gate == nil && !meta.Busy {
+			m.chatFollow = true
+			m.clampChatScroll()
+			return m, nil, true
+		}
+		return m, nil, false
+	case "page_up":
+		if gate == nil && !m.sidebarFocused {
+			m.scrollChat(-m.chatViewportHeight())
+		}
+		return m, nil, true
+	case "page_down":
+		if gate == nil && !m.sidebarFocused {
+			m.scrollChat(m.chatViewportHeight())
+		}
+		return m, nil, true
+	case "top":
+		if gate == nil && !m.sidebarFocused {
+			m.chatScroll = 0
+			m.chatFollow = m.chatMaxScroll() == 0
+			m.setChatAnchor(0, 0)
+		}
+		return m, nil, true
+	case "bottom":
+		if gate == nil && !m.sidebarFocused {
+			m.chatFollow = true
+			m.chatAnchorSeg = -1
+			m.clampChatScroll()
+		}
+		return m, nil, true
+	case "search":
+		if gate == nil {
+			return m.openSearch(), nil, true
+		}
+		return m, nil, true
+	case "prompt_prev":
+		if gate == nil && !m.sidebarFocused {
+			return m.jumpToUserMessage(-1), nil, true
+		}
+		return m, nil, true
+	case "prompt_next":
+		if gate == nil && !m.sidebarFocused {
+			return m.jumpToUserMessage(1), nil, true
+		}
+		return m, nil, true
+	case "copy_last":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.copyLastAssistant()
+		return next, cmd, true
+	case "external_editor":
+		if gate != nil {
+			return m, nil, true
+		}
+		next, cmd := m.openExternalEditor()
+		return next, cmd, true
+	}
+	return m, nil, false
 }
 
 func (m *Model) syncGateView() {
@@ -1346,6 +1512,7 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	m.closeFileCompletion()
 	m.shortcutsOpen = false
 	m.sessionsOpen = false
+	m.treeOpen = false
 	m.commandOverlayTitle = ""
 	m.commandOverlay = ""
 	m.modelPickerOpen = true
@@ -1395,7 +1562,28 @@ func (m *Model) applyModelsMsg(msg surface.ModelsMsg) {
 }
 
 func (m *Model) applyModelSelectedMsg(msg surface.ModelSelectedMsg) {
-	if !m.modelPickerOpen || msg.Request != m.modelPickerRequest {
+	if !m.modelPickerOpen {
+		// Picker-less action (Alt+P scope cycle): acknowledge the new
+		// selection or surface the refusal.
+		if !m.modelActionPending || msg.Request != m.modelActionRequest {
+			return
+		}
+		m.modelActionPending = false
+		if msg.Err != nil {
+			*m = m.showCommandError(msg.Err)
+			return
+		}
+		current := ""
+		for _, option := range msg.Catalog.Options {
+			if option.Current {
+				current = option.Provider + " · " + option.Model
+				break
+			}
+		}
+		*m = m.showCommandResult(m.translator.T("vivy.tui.dialog.model", nil), m.translator.T("vivy.tui.model.cycled", map[string]any{"model": current}))
+		return
+	}
+	if msg.Request != m.modelPickerRequest {
 		return
 	}
 	m.modelPickerSelecting = false
@@ -1404,6 +1592,69 @@ func (m *Model) applyModelSelectedMsg(msg surface.ModelSelectedMsg) {
 		return
 	}
 	m.closeModelPicker()
+}
+
+func (m *Model) applyModelScopedMsg(msg surface.ModelScopedMsg) {
+	if !m.modelActionPending || msg.Request != m.modelActionRequest {
+		return
+	}
+	m.modelActionPending = false
+	if msg.Err != nil {
+		*m = m.showCommandError(msg.Err)
+		return
+	}
+	label := msg.Option.Provider + " · " + msg.Option.Model
+	key := "vivy.tui.model.scope.removed"
+	if msg.Scoped {
+		key = "vivy.tui.model.scope.added"
+	}
+	*m = m.showCommandResult(m.translator.T("vivy.tui.dialog.model", nil), m.translator.T(key, map[string]any{"model": label}))
+}
+
+// cycleScopedModel is the Alt+P action: the control plane walks the
+// scoped_models set in declared order and selects the first available entry
+// after the live one (pi scoped-model cycling; the chord differs from pi's
+// Ctrl+P because that key is the command palette in this face).
+func (m Model) cycleScopedModel() (Model, tea.Cmd) {
+	if !m.modelSelectionAvailable() {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+	}
+	m.modelActionRequest++
+	m.modelActionPending = true
+	request := m.modelActionRequest
+	if cmd := m.driver.CycleModel(request); cmd != nil {
+		return m, cmd
+	}
+	m.modelActionPending = false
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+}
+
+// scopeCurrentModel is /scope-model: it toggles the active selection in and
+// out of the scoped_models cycle set.
+func (m Model) scopeCurrentModel() (Model, tea.Cmd) {
+	if !m.modelSelectionAvailable() {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
+	}
+	var current surface.ModelOption
+	found := false
+	for _, option := range m.driver.ModelCatalog().Options {
+		if option.Current {
+			current = option
+			found = true
+			break
+		}
+	}
+	if !found {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelNoCurrent", nil))), nil
+	}
+	m.modelActionRequest++
+	m.modelActionPending = true
+	request := m.modelActionRequest
+	if cmd := m.driver.ScopeModel(request, current); cmd != nil {
+		return m, cmd
+	}
+	m.modelActionPending = false
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
 }
 
 func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1704,6 +1955,29 @@ func safeDynamicCommandName(name string) bool {
 	return true
 }
 
+// submitFollowUp sends plain-text input through the kernel follow-up lane
+// (pi Alt+Enter). Command/shell/file submissions keep the normal path —
+// the kernel text queue cannot carry their payloads yet.
+func (m Model) submitFollowUp() (Model, tea.Cmd) {
+	if m.dynamicCommandPending {
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicPending", nil))), nil
+	}
+	registry, _ := m.effectiveCommandRegistry()
+	parsed, err := registry.Parse(m.input)
+	if err != nil {
+		return m.showCommandError(err), nil
+	}
+	if parsed.IsCommand() || parsed.IsShell() || parsed.IsFile() || parsed.IsUnavailable() {
+		return m.submitInput()
+	}
+	cmd := m.driver.SendFollowUp(parsed.Text)
+	if cmd != nil {
+		m.input = ""
+		m.chatFollow = true
+	}
+	return m, cmd
+}
+
 func (m Model) submitInput() (Model, tea.Cmd) {
 	if m.dynamicCommandPending {
 		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicPending", nil))), nil
@@ -1722,7 +1996,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		if !m.driver.SupportsCapability("shell.start") {
 			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.shellUnavailable", nil))), nil
 		}
-		if cmd := m.driver.ExecuteShell(parsed.Shell.Script); cmd != nil {
+		if cmd := m.driver.ExecuteShell(parsed.Shell.Script, parsed.Shell.NoContext); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd
@@ -1808,6 +2082,34 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/sessions"}))), nil
 		}
 		return m.openSessions()
+	case "tree":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/tree"}))), nil
+		}
+		return m.openTree()
+	case "copy":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/copy"}))), nil
+		}
+		return m.copyLastAssistant()
+	case "clone":
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.confirmCommand(name, args)
+	case "import":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/import <path>"}))), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "export", "bug", "debug":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/" + name}))), nil
+		}
+		return m.executeDriverCommand(name, args)
 	case "model":
 		return m.openModelPicker(strings.Join(args, " "))
 	case "init":
@@ -1881,6 +2183,13 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			mode = strings.ToLower(strings.TrimSpace(args[0]))
 		}
 		return m.setThinking(mode)
+	case "scope-model":
+		// pi /scope-model: toggle the active selection in/out of the
+		// scoped_models cycle set. The write is settings-only, so it is
+		// allowed while a run is in flight.
+		return m.scopeCurrentModel()
+	case "hotkeys":
+		return m.showCommandResult(m.translator.T("vivy.tui.dialog.hotkeys", nil), strings.Join(m.keys.Lines(), "\n")), nil
 	case "image":
 		return m.executeImageCommand(args)
 	case "compact":
@@ -1914,24 +2223,70 @@ func (m Model) executeImageCommand(args []string) (Model, tea.Cmd) {
 	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.commandUnavailable", map[string]any{"command": "image"}))), nil
 }
 
+// thinkingDisplay prefers the control-plane resolved effective level once
+// a persist report has arrived; before that it shows the requested mode.
+func (m Model) thinkingDisplay() string {
+	if reporter, ok := m.driver.(interface {
+		ThinkingEffective() string
+	}); ok {
+		if effective := reporter.ThinkingEffective(); effective != "" {
+			return effective
+		}
+	}
+	return m.driver.ThinkingMode()
+}
+
 func (m Model) setThinking(mode string) (Model, tea.Cmd) {
 	if mode == "" {
 		mode = nextThinking(m.driver.ThinkingMode())
 	}
-	if mode != "auto" && mode != "on" && mode != "off" {
+	if !validThinkingMode(mode) {
 		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.thinking", nil))), nil
 	}
 	if err := m.driver.SetThinkingMode(mode); err != nil {
 		return m.showCommandError(err), nil
 	}
-	return m.showCommandResult(m.translator.T("vivy.tui.dialog.thinking", nil), m.translator.T("vivy.tui.thinking.next", map[string]any{"mode": mode})), nil
+	m = m.showCommandResult(m.translator.T("vivy.tui.dialog.thinking", nil), m.translator.T("vivy.tui.thinking.next", map[string]any{"mode": mode}))
+	// Persist through the control plane when the driver supports it; the
+	// report carries the effective level the model resolves to.
+	if persister, ok := m.driver.(interface {
+		PersistThinkingMode(string) tea.Cmd
+	}); ok {
+		return m, persister.PersistThinkingMode(mode)
+	}
+	return m, nil
 }
 
+// thinkingModes is the TUI's seven-level surface mirrored from
+// internal/domain (sdk/ cannot import internal/).
+var thinkingModes = []string{"auto", "minimal", "low", "medium", "high", "xhigh", "max", "off", "on"}
+
+func validThinkingMode(mode string) bool {
+	for _, candidate := range thinkingModes {
+		if candidate == mode {
+			return true
+		}
+	}
+	return false
+}
+
+// nextThinking cycles the draft preference: auto → minimal..max → off →
+// auto. "on" (legacy alias) resolves to auto in the cycle.
 func nextThinking(current string) string {
 	switch strings.ToLower(strings.TrimSpace(current)) {
-	case "auto":
-		return "on"
-	case "on":
+	case "auto", "on":
+		return "minimal"
+	case "minimal":
+		return "low"
+	case "low":
+		return "medium"
+	case "medium":
+		return "high"
+	case "high":
+		return "xhigh"
+	case "xhigh":
+		return "max"
+	case "max":
 		return "off"
 	default:
 		return "auto"
@@ -2081,7 +2436,7 @@ func (m Model) statusText() string {
 	if active.PermissionPreset != "" {
 		lines = append(lines, m.translator.T("vivy.tui.status.permission", map[string]any{"preset": active.PermissionPreset}))
 	}
-	lines = append(lines, m.translator.T("vivy.tui.status.thinking", map[string]any{"mode": m.driver.ThinkingMode()}))
+	lines = append(lines, m.translator.T("vivy.tui.status.thinking", map[string]any{"mode": m.thinkingDisplay()}))
 	snapshot := m.driver.Sidebar()
 	if snapshot.HasContext {
 		ctx := snapshot.Context
@@ -2106,6 +2461,7 @@ func (m Model) openSessions() (Model, tea.Cmd) {
 	m.closeFileCompletion()
 	m.closeModelPicker()
 	m.shortcutsOpen = false
+	m.treeOpen = false
 	m.sessionsOpen = true
 	m.sessionRows = append([]surface.Session(nil), m.driver.Sessions()...)
 	m.sessionFilter = ""

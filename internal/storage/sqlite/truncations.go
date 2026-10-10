@@ -80,3 +80,35 @@ func (b *Backend) ListViewTruncations(ctx context.Context, sessionID domain.Sess
 	}
 	return out, nil
 }
+
+// ListSessionForkLinks returns every fork/forked-from provenance marker
+// across all sessions in insertion order — the session-tree edge set.
+func (b *Backend) ListSessionForkLinks(ctx context.Context) ([]storage.SessionTruncation, error) {
+	rows, err := b.db.QueryContext(ctx, `
+		SELECT session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at
+		FROM session_truncations
+		WHERE reason IN (?, ?)
+		ORDER BY id ASC`, storage.TruncationFork, storage.TruncationForkedFrom)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list session fork links: %w", err)
+	}
+	defer rows.Close()
+	out := []storage.SessionTruncation{}
+	for rows.Next() {
+		var (
+			t             storage.SessionTruncation
+			sid           string
+			forkSessionID string
+		)
+		if err := rows.Scan(&sid, &t.RunID, &t.CutoffMessageID, &t.TailMessageID, &t.WorkSeq, &t.Reason, &forkSessionID, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("storage: scan fork link: %w", err)
+		}
+		t.SessionID = domain.SessionID(sid)
+		t.ForkSessionID = forkSessionID
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: list session fork links: %w", err)
+	}
+	return out, nil
+}

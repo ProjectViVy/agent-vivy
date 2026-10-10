@@ -58,7 +58,7 @@ import (
 	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // shutdownGrace bounds the whole graceful shutdown window. It stays under
@@ -243,6 +243,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err := validateRuntimeAssembly(runtimeAssembly); err != nil {
 		return nil, err
 	}
+	preToolMiddleware, err := generatedPreToolMiddleware(runtimeAssembly)
+	if err != nil {
+		return nil, err
+	}
 	developerLocale, err := developerPresentationLocale(ao.instructionRoot, presentation.SealedGeneration)
 	if err != nil {
 		return nil, fmt.Errorf("app: resolve developer locale: %w", err)
@@ -363,7 +367,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
 	modelHost := modelProvider.Host()
-	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost, credentialResolver)
+	resolver := newModelResolverForProject(cfg, liveSettingsPath, ao.projectRoot, catalog, modelHost, credentialResolver)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -542,7 +546,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
-		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
+		var mcpCfgs []runtime.MCPServerConfig
+		if s, err := settings.Load(liveSettingsPath); err == nil {
+			mcpCfgs = liveMCPConfigs(cfg, s)
+		} else {
+			mcpCfgs = mcpRuntimeConfigs(cfg.Runtime.MCPServers)
+		}
+		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next, resolveToolExposure(cfg.Tools, mcpCfgs), preToolMiddleware...)
 		if stageErr != nil {
 			return stageErr
 		}
@@ -660,7 +670,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if info, infoErr := catalog.ResolveModelInfo(ctx, providerName, modelID); infoErr == nil {
 		modelWindow = info.ContextWindow
 	}
-	cmp := compactionPolicyFor(cfg, nil, modelWindow)
+	cmp := compactionPolicyFor(cfg, nil, modelWindow, modelID)
 	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend, backend)
 	if err != nil {
 		_ = backend.Close()
@@ -797,10 +807,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 	// A sealed first-party composition must never silently downgrade to the
-	// legacy sequential primary admission path. An unpacked development/test
-	// embedder has no sealed identity and remains on the explicitly compatible
-	// path; a packed build is marked by presentation.SealedGeneration and a
-	// non-empty linker-derived identity is also treated as sealed.
+	// legacy sequential primary admission path. The headless default
+	// composition carries its own declared identity in the generated Assembly
+	// (HeadlessGenerationID), so every binary built from this repository —
+	// dev, headless, or embedded — arms the same mask/admission contracts as
+	// a packed build. Only a custom embedder Assembly without any identity
+	// stays on the explicitly compatible path.
 	sealed := presentation.SealedGeneration || generationID != ""
 	maskService, err := maskManagerForAssembly(ctx, runtimeAssembly, backend, generationID, sealed)
 	if err != nil {
@@ -848,6 +860,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
 		Work:                  workStore,
+		WorkSink:              workBus,
 		Runs:                  backend,
 		Messages:              backend,
 		GoalRuns:              goalRunStore,
@@ -869,6 +882,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Truncations:          backend,
+		ExportDir:            filepath.Join(dataRoot, "exports"),
 		// A backend without the atomic ContinuityStore seam leaves the dep
 		// nil; continuity submissions then fail unavailable rather than
 		// degrading to a non-atomic write (SC-D4).
@@ -892,6 +906,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			ec.HiddenTools = hidden
 			return loopDriver.Build(ctx, live, ec)
 		},
+		CacheWarmingMode:          cfg.Runtime.CacheWarming,
+		CacheWarmingMinSavingsUSD: cfg.Runtime.CacheWarmingMinSavingsUSD,
 	})
 	if cognitiveBundle != nil {
 		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {
@@ -919,9 +935,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	// The action host is enabled only when the compiler emitted action
-	// ProviderSets and the process can prove the exact sealed Generation. An
-	// empty or unverifiable inventory is a disabled capability, never an
-	// implicit default-allow host.
+	// ProviderSets and the composition carries a proven identity — the
+	// linker-embedded sealed manifest for a packed build, or the declared
+	// HeadlessGenerationID for the default headless composition. An empty or
+	// unverifiable inventory is a disabled capability, never an implicit
+	// default-allow host.
 	rpcToken := controlrpc.NewSessionToken()
 	var actionHost *actionhost.Host
 	actionHostOwned := false
@@ -1115,7 +1133,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
 		Diagnostics:      diagnostics,
-		FileVersions:     fileVersions,
+		// /bug bundles land beside session exports (VCP C2).
+		DiagnosticsBundleDir: filepath.Join(dataRoot, "exports"),
+		// exports/read serves verified downloads from the same artifact root (VCP C3).
+		ExportsDir:   filepath.Join(dataRoot, "exports"),
+		FileVersions: fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
 		// compaction use (D9: no separate data source). Resolve failures
 		// mean unpriced/unknown, which the cost math reports as such.
@@ -1221,8 +1243,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			// summarization middleware) only when the effective policy
 			// changed. The rebuild lands immediately when idle, otherwise
 			// at the next idle run start.
-			window := svc.GetModelInfo(context.Background()).ContextWindow
-			cmp := compactionPolicyFor(cfg, s.Compaction, window)
+			modelInfo := svc.GetModelInfo(context.Background())
+			cmp := compactionPolicyFor(cfg, s.Compaction, modelInfo.ContextWindow, modelInfo.ID)
 			compactionChanged := !sameCompactionPolicy(svc.CompactionPolicy(), &cmp)
 			if toolsChanged || mcpChanged || compactionChanged {
 				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
@@ -1567,10 +1589,12 @@ func actionToolSpec(definition actionport.Definition) domain.ToolSpec {
 	}
 }
 
-// runtimeGenerationID accepts an explicitly injected identity in tests and
-// generated compositions, then falls back to the linker-embedded sealed
-// manifest used by packed binaries. It intentionally never invents an ID
-// from mutable runtime state.
+// runtimeGenerationID resolves the composition identity: the generated
+// Assembly's declared identity first (the headless default composition
+// declares HeadlessGenerationID in its generated artifact), then the
+// linker-embedded sealed manifest used by packed binaries. It intentionally
+// never invents an ID from mutable runtime state; an Assembly without either
+// source stays unidentified and its capability seams stay dormant.
 func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	if id := strings.TrimSpace(runtimeAssembly.GenerationID); id != "" {
 		return id
@@ -1801,6 +1825,7 @@ func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
 			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
 			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
+			ToolExposure: cloneMCPToolExposure(server.ToolExposure),
 		})
 	}
 	return out
@@ -1814,6 +1839,7 @@ func mcpRuntimeConfigs(servers []config.MCPServer) []runtime.MCPServerConfig {
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
 			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
 			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
+			ToolExposure: cloneMCPToolExposure(server.ToolExposure),
 		})
 	}
 	return out
@@ -1825,6 +1851,17 @@ func cloneBoolPtr(value *bool) *bool {
 	}
 	copy := *value
 	return &copy
+}
+
+func cloneMCPToolExposure(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for glob, level := range value {
+		out[glob] = level
+	}
+	return out
 }
 
 func cloneMCPEnvFrom(value map[string]string) map[string]string {

@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	mentlefacade "github.com/dashimaki/mentle/facade"
+	mentlefacade "github.com/ProjectViVy/laputa/mentle/facade"
 )
 
 func memoryLoopC06OverlayAvailable() bool { return true }

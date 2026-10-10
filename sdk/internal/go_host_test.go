@@ -40,8 +40,78 @@ func stageGoHostFixture(t *testing.T, vivyRoot string) string {
 	return destination
 }
 
+func TestDirtySourceSnapshotIncludesAddedFilesAndOmitsDeletedFiles(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("init", "-q")
+	write("tracked.txt", "old")
+	write(".gitignore", "ignored.txt\n")
+	run("add", "tracked.txt", ".gitignore")
+	if err := os.Remove(filepath.Join(dir, "tracked.txt")); err != nil {
+		t.Fatal(err)
+	}
+	write("added.txt", "first")
+	write("ignored.txt", "ignored")
+
+	first, err := hashSourceTree(dir)
+	if err != nil {
+		t.Fatalf("hash dirty source tree: %v", err)
+	}
+	write("added.txt", "second")
+	second, err := hashSourceTree(dir)
+	if err != nil {
+		t.Fatalf("hash changed dirty source tree: %v", err)
+	}
+	if first == second {
+		t.Fatal("untracked source content was not sealed")
+	}
+	buildStage, err := os.MkdirTemp(dir, ".vivy-pack-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(buildStage, "zz_assembly.go"), []byte("generated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withStage, err := hashSourceTree(dir)
+	if err != nil || withStage != second {
+		t.Fatalf("SDK staging changed its own source pin: %s != %s, %v", withStage, second, err)
+	}
+
+	staged := t.TempDir()
+	if err := stageSourceTree(dir, staged); err != nil {
+		t.Fatalf("stage dirty source tree: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(staged, "added.txt")); err != nil || string(got) != "second" {
+		t.Fatalf("added source was not staged: %q, %v", got, err)
+	}
+	for _, name := range []string{"tracked.txt", "ignored.txt", filepath.Base(buildStage)} {
+		if _, err := os.Stat(filepath.Join(staged, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s unexpectedly staged: %v", name, err)
+		}
+	}
+	run("add", filepath.Join(filepath.Base(buildStage), "zz_assembly.go"))
+	withTrackedStage, err := hashSourceTree(dir)
+	if err != nil || withTrackedStage == second {
+		t.Fatalf("explicitly tracked source was excluded: %s, %v", withTrackedStage, err)
+	}
+}
+
 // A consumer module sees only its own go.mod: agent-vivy's local replaces
-// (dashimaki laputa/garden/mentle, agent-vivy/* submodules, bml) are not
+// (ProjectViVy laputa modules, agent-vivy/* submodules, bml) are not
 // inherited, so the fixture cannot compile until the pack target generates
 // the consumer modfile with the full replacement closure (W3-4).
 func TestGoHostFixtureRequiresGeneratedReplaceClosure(t *testing.T) {
@@ -62,7 +132,7 @@ func TestGoHostFixtureRequiresGeneratedReplaceClosure(t *testing.T) {
 		t.Fatal("go-host fixture built without the generated replacement closure; replaces were inherited unexpectedly")
 	}
 	text := string(output)
-	for _, missing := range []string{"dashimaki/laputa", "dashimaki/garden", "agent-vivy/bml", "agent-vivy/plugins/"} {
+	for _, missing := range []string{"ProjectViVy/laputa/laputa", "ProjectViVy/laputa/garden", "agent-vivy/bml", "agent-vivy/plugins/"} {
 		if strings.Contains(text, missing) {
 			return
 		}

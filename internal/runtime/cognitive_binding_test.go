@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/ProjectViVy/inofy"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"

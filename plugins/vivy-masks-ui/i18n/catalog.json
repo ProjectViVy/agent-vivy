@@ -9,7 +9,7 @@
     "plugin.vivy/masks-ui.subtitle": {
       "description": "Mask catalog page subtitle",
       "placeholders": [],
-      "messages": {"en": "Choose the next run mask and manage custom definitions", "zh": "选择下一次运行的面具并管理自定义定义"}
+      "messages": {"en": "Choose a working role for this conversation and manage custom masks", "zh": "为当前会话选择工作角色，并管理自定义面具"}
     },
     "plugin.vivy/masks-ui.nav": {
       "description": "Mask catalog navigation label",
@@ -32,19 +32,19 @@
       "messages": {"en": "Select a session to choose its mask", "zh": "选择会话后才能选择面具"}
     },
     "plugin.vivy/masks-ui.nextRun": {
-      "description": "Selection state while a run is active",
+      "description": "Mask UI nextRun",
       "placeholders": [],
-      "messages": {"en": "Next run choice; the current run already captured its mask", "zh": "下一次运行的选择；当前运行已捕获面具"}
+      "messages": {"en": "The conversation switches immediately. This reply keeps its original role; the next message uses the new one.", "zh": "会话身份立即切换。当前回复保留原角色，下一条消息使用新角色。"}
     },
     "plugin.vivy/masks-ui.currentSession": {
-      "description": "Selection state when the session is idle",
+      "description": "Mask UI currentSession",
       "placeholders": [],
-      "messages": {"en": "Applied to the next admission in this session", "zh": "应用于此会话下一次准入"}
+      "messages": {"en": "Changes apply to this conversation immediately.", "zh": "选择后立即更新当前会话身份。"}
     },
     "plugin.vivy/masks-ui.unmasked": {
-      "description": "Explicit empty mask choice",
+      "description": "Mask UI unmasked",
       "placeholders": [],
-      "messages": {"en": "No mask", "zh": "不使用面具"}
+      "messages": {"en": "Just me", "zh": "我就是我"}
     },
     "plugin.vivy/masks-ui.custom": {
       "description": "Custom mask badge",
@@ -69,12 +69,12 @@
     "plugin.vivy/masks-ui.catalogTitle": {
       "description": "Mask catalog title",
       "placeholders": [],
-      "messages": {"en": "Catalog", "zh": "目录"}
+      "messages": {"en": "Mask library", "zh": "面具库"}
     },
     "plugin.vivy/masks-ui.empty": {
-      "description": "Empty mask catalog message",
+      "description": "Mask UI empty",
       "placeholders": [],
-      "messages": {"en": "No masks are available", "zh": "暂无可用面具"}
+      "messages": {"en": "No catalog masks yet. Your default identity is still available; create a custom mask to begin.", "zh": "暂时没有库内面具。默认身份仍然可用，也可以创建自定义面具。"}
     },
     "plugin.vivy/masks-ui.new": {
       "description": "Create mask button",
@@ -89,7 +89,7 @@
     "plugin.vivy/masks-ui.editorTitle": {
       "description": "Mask editor title",
       "placeholders": [],
-      "messages": {"en": "Definition", "zh": "定义"}
+      "messages": {"en": "Mask details", "zh": "面具详情"}
     },
     "plugin.vivy/masks-ui.editorHint": {
       "description": "Mask editor empty hint",
@@ -131,6 +131,11 @@
       "placeholders": [],
       "messages": {"en": "The mask UI is unavailable outside an assembled Face", "zh": "面具界面只能在已装配的 Face 中使用"}
     },
+    "plugin.vivy/masks-ui.errors.reloadFailed": {
+      "description": "Mask UI conflict reload failure",
+      "placeholders": [],
+      "messages": {"en": "Could not load the latest version. Your draft is kept; retry loading it.", "zh": "无法加载最新版本。草稿已保留，请重试加载。"}
+    },
     "plugin.vivy/masks-ui.errors.revisionConflict": {
       "description": "Mask optimistic concurrency conflict",
       "placeholders": [],
@@ -150,6 +155,256 @@
       "description": "Mask action capability unavailable",
       "placeholders": [],
       "messages": {"en": "The selected generation cannot provide mask instructions.", "zh": "当前选中的 Generation 无法提供面具指令。"}
+    },
+    "plugin.vivy/masks-ui.chooseMask": {
+      "description": "Mask UI chooseMask",
+      "placeholders": [],
+      "messages": {"en": "Choose a mask", "zh": "选择面具"}
+    },
+    "plugin.vivy/masks-ui.manageMasks": {
+      "description": "Mask UI manageMasks",
+      "placeholders": [],
+      "messages": {"en": "Manage masks", "zh": "管理面具"}
+    },
+    "plugin.vivy/masks-ui.retry": {
+      "description": "Mask UI retry",
+      "placeholders": [],
+      "messages": {"en": "Retry", "zh": "重试"}
+    },
+    "plugin.vivy/masks-ui.unmaskedHint": {
+      "description": "Mask UI unmaskedHint",
+      "placeholders": [],
+      "messages": {"en": "Talk as Vivy, without additional role instructions.", "zh": "以 Vivy 本来的身份对话，不附加角色指令。"}
+    },
+    "plugin.vivy/masks-ui.current": {
+      "description": "Mask UI current",
+      "placeholders": ["name"],
+      "messages": {"en": "Current: {{name}}", "zh": "当前：{{name}}"}
+    },
+    "plugin.vivy/masks-ui.currentBadge": {
+      "description": "Mask UI currentBadge",
+      "placeholders": [],
+      "messages": {"en": "Current", "zh": "当前"}
+    },
+    "plugin.vivy/masks-ui.libraryHint": {
+      "description": "Mask UI libraryHint",
+      "placeholders": [],
+      "messages": {"en": "Preview a role, then choose whether to use it.", "zh": "查看角色详情，再决定是否使用。"}
+    },
+    "plugin.vivy/masks-ui.inUse": {
+      "description": "Mask UI inUse",
+      "placeholders": [],
+      "messages": {"en": "In use", "zh": "当前使用"}
+    },
+    "plugin.vivy/masks-ui.useMask": {
+      "description": "Mask UI useMask",
+      "placeholders": ["name"],
+      "messages": {"en": "Use {{name}}", "zh": "使用{{name}}"}
+    },
+    "plugin.vivy/masks-ui.duplicate": {
+      "description": "Mask UI duplicate",
+      "placeholders": [],
+      "messages": {"en": "Duplicate and edit", "zh": "复制并编辑"}
+    },
+    "plugin.vivy/masks-ui.copyName": {
+      "description": "Mask UI copyName",
+      "placeholders": ["name"],
+      "messages": {"en": "{{name}} copy", "zh": "{{name}}副本"}
+    },
+    "plugin.vivy/masks-ui.roleHint": {
+      "description": "Mask UI roleHint",
+      "placeholders": [],
+      "messages": {"en": "A mask changes the working role for this conversation. Persona, model, permissions, and code mode are managed separately.", "zh": "面具调整当前会话的工作角色。人格、模型、权限与代码模式分别管理。"}
+    },
+    "plugin.vivy/masks-ui.errors.selectionConflict": {
+      "description": "Mask UI errors.selectionConflict",
+      "placeholders": [],
+      "messages": {"en": "The mask choice changed elsewhere. The current choice has been reloaded; retry to apply yours.", "zh": "面具选择已在其他位置变更。已重新读取当前选择，请重试。"}
+    },
+    "plugin.vivy/masks-ui.defaultIdentity": {
+      "description": "Mask UI defaultIdentity",
+      "placeholders": [],
+      "messages": {"en": "Default identity", "zh": "默认身份"}
+    },
+    "plugin.vivy/masks-ui.defaultBody": {
+      "description": "Mask UI defaultBody",
+      "placeholders": [],
+      "messages": {"en": "Keep Vivy’s personality, memories and natural expression. No working-role instructions are added.", "zh": "保留 Vivy 原有的人格、记忆和自然表达，不添加工作角色指令。"}
+    },
+    "plugin.vivy/masks-ui.defaultHint": {
+      "description": "Mask UI defaultHint",
+      "placeholders": [],
+      "messages": {"en": "Your default identity is always available and does not belong to the editable mask library.", "zh": "默认身份始终可见，无需创建，也不能编辑或删除。"}
+    },
+    "plugin.vivy/masks-ui.detailsUnavailable": {
+      "description": "Mask UI detailsUnavailable",
+      "placeholders": [],
+      "messages": {"en": "Could not load the role instructions. Try opening this mask again.", "zh": "角色指令未能加载，请重新打开此面具。"}
+    },
+    "plugin.vivy/masks-ui.builtInHint": {
+      "description": "Mask UI builtInHint",
+      "placeholders": [],
+      "messages": {"en": "Built-in masks are read-only. Duplicate one to create your own version.", "zh": "内置面具不可修改。复制后可以创建自己的版本。"}
+    },
+    "plugin.vivy/masks-ui.customHint": {
+      "description": "Mask UI customHint",
+      "placeholders": [],
+      "messages": {"en": "Custom masks can be edited. A mask referenced by any conversation cannot be deleted.", "zh": "自定义面具可以编辑。仍被会话使用的面具不能删除。"}
+    },
+    "plugin.vivy/masks-ui.edit": {
+      "description": "Mask UI edit",
+      "placeholders": [],
+      "messages": {"en": "Edit mask", "zh": "编辑面具"}
+    },
+    "plugin.vivy/masks-ui.createTitle": {
+      "description": "Mask UI createTitle",
+      "placeholders": [],
+      "messages": {"en": "Create a mask", "zh": "新建面具"}
+    },
+    "plugin.vivy/masks-ui.editTitle": {
+      "description": "Mask UI editTitle",
+      "placeholders": [],
+      "messages": {"en": "Edit mask", "zh": "编辑面具"}
+    },
+    "plugin.vivy/masks-ui.editorDescription": {
+      "description": "Mask UI editorDescription",
+      "placeholders": [],
+      "messages": {"en": "Define a working role. Saving and applying it are separate actions.", "zh": "定义工作角色。保存面具与应用到会话是两个独立动作。"}
+    },
+    "plugin.vivy/masks-ui.untitled": {
+      "description": "Mask UI untitled",
+      "placeholders": [],
+      "messages": {"en": "Untitled mask", "zh": "未命名面具"}
+    },
+    "plugin.vivy/masks-ui.retryCreate": {
+      "description": "Mask UI retryCreate",
+      "placeholders": [],
+      "messages": {"en": "Retry saves the same request to avoid duplicates. To change its contents, cancel and check the library first.", "zh": "重试会提交同一保存请求，避免重复创建。如需修改内容，请先取消并检查面具库。"}
+    },
+    "plugin.vivy/masks-ui.namePlaceholder": {
+      "description": "Mask UI namePlaceholder",
+      "placeholders": [],
+      "messages": {"en": "For example: Frontend partner", "zh": "例如：前端搭档"}
+    },
+    "plugin.vivy/masks-ui.descriptionPlaceholder": {
+      "description": "Mask UI descriptionPlaceholder",
+      "placeholders": [],
+      "messages": {"en": "What does this role help with?", "zh": "这个角色可以帮助你做什么？"}
+    },
+    "plugin.vivy/masks-ui.bodyPlaceholder": {
+      "description": "Mask UI bodyPlaceholder",
+      "placeholders": [],
+      "messages": {"en": "Describe the role, working methods and response preferences.", "zh": "描述角色、工作方式和回答偏好。"}
+    },
+    "plugin.vivy/masks-ui.cancel": {
+      "description": "Mask UI cancel",
+      "placeholders": [],
+      "messages": {"en": "Cancel", "zh": "取消"}
+    },
+    "plugin.vivy/masks-ui.saveAndUse": {
+      "description": "Mask UI saveAndUse",
+      "placeholders": [],
+      "messages": {"en": "Save and use", "zh": "保存并使用"}
+    },
+    "plugin.vivy/masks-ui.identityPending": {
+      "description": "Mask UI identityPending",
+      "placeholders": [],
+      "messages": {"en": "Identity pending", "zh": "身份待确认"}
+    },
+    "plugin.vivy/masks-ui.switched": {
+      "description": "Mask UI switched",
+      "placeholders": ["name"],
+      "messages": {"en": "This conversation now uses {{name}}.", "zh": "当前会话已使用{{name}}。"}
+    },
+    "plugin.vivy/masks-ui.switchedDuringRun": {
+      "description": "Mask UI switchedDuringRun",
+      "placeholders": ["name"],
+      "messages": {"en": "Switched to {{name}}. This reply keeps its original role; your next message uses the new one.", "zh": "已切换为{{name}}。当前回复保留原角色，下一条消息使用新角色。"}
+    },
+    "plugin.vivy/masks-ui.saved": {
+      "description": "Mask UI saved",
+      "placeholders": [],
+      "messages": {"en": "Mask saved.", "zh": "面具已保存。"}
+    },
+    "plugin.vivy/masks-ui.deleted": {
+      "description": "Mask UI deleted",
+      "placeholders": [],
+      "messages": {"en": "Mask deleted.", "zh": "面具已删除。"}
+    },
+    "plugin.vivy/masks-ui.connectionError": {
+      "description": "Mask UI connectionError",
+      "placeholders": [],
+      "messages": {"en": "Could not refresh mask data", "zh": "面具数据连接异常"}
+    },
+    "plugin.vivy/masks-ui.changeMask": {
+      "description": "Mask UI changeMask",
+      "placeholders": [],
+      "messages": {"en": "Switch", "zh": "切换"}
+    },
+    "plugin.vivy/masks-ui.search": {
+      "description": "Mask UI search",
+      "placeholders": [],
+      "messages": {"en": "Search masks", "zh": "搜索面具"}
+    },
+    "plugin.vivy/masks-ui.noMatches": {
+      "description": "Mask UI noMatches",
+      "placeholders": [],
+      "messages": {"en": "No matching masks.", "zh": "没有匹配的面具。"}
+    },
+    "plugin.vivy/masks-ui.viewDetails": {
+      "description": "Mask UI viewDetails",
+      "placeholders": [],
+      "messages": {"en": "View details", "zh": "查看详情"}
+    },
+    "plugin.vivy/masks-ui.apply": {
+      "description": "Mask UI apply",
+      "placeholders": [],
+      "messages": {"en": "Use mask", "zh": "使用面具"}
+    },
+    "plugin.vivy/masks-ui.discardTitle": {
+      "description": "Mask UI discardTitle",
+      "placeholders": [],
+      "messages": {"en": "Discard unsaved changes?", "zh": "放弃未保存的修改？"}
+    },
+    "plugin.vivy/masks-ui.discardDescription": {
+      "description": "Mask UI discardDescription",
+      "placeholders": [],
+      "messages": {"en": "Your changes will be lost. You can keep editing instead.", "zh": "这些修改尚未保存。你可以继续编辑，或放弃本次修改。"}
+    },
+    "plugin.vivy/masks-ui.keepEditing": {
+      "description": "Mask UI keepEditing",
+      "placeholders": [],
+      "messages": {"en": "Keep editing", "zh": "继续编辑"}
+    },
+    "plugin.vivy/masks-ui.discard": {
+      "description": "Mask UI discard",
+      "placeholders": [],
+      "messages": {"en": "Discard changes", "zh": "放弃修改"}
+    },
+    "plugin.vivy/masks-ui.deleteTitle": {
+      "description": "Mask UI deleteTitle",
+      "placeholders": ["name"],
+      "messages": {"en": "Delete {{name}}?", "zh": "删除{{name}}？"}
+    },
+    "plugin.vivy/masks-ui.deleteDescription": {
+      "description": "Mask UI deleteDescription",
+      "placeholders": [],
+      "messages": {"en": "This deletes the custom definition permanently. Built-in masks and conversation history are unchanged.", "zh": "此操作会永久删除这个自定义面具。内置面具和会话记录不受影响。"}
+    },
+    "plugin.vivy/masks-ui.deleteCurrentHint": {
+      "description": "Mask UI deleteCurrentHint",
+      "placeholders": [],
+      "messages": {"en": "This conversation uses this mask. Switch to another identity before deleting it.", "zh": "当前会话正在使用此面具。请先切换到其他身份，再删除。"}
+    },
+    "plugin.vivy/masks-ui.selectorAria": {
+      "description": "Mask UI selectorAria",
+      "placeholders": ["name"],
+      "messages": {"en": "Session mask: {{name}}", "zh": "会话面具：{{name}}"}
+    },
+    "plugin.vivy/masks-ui.reloadLatest": {
+      "description": "Mask UI reloadLatest",
+      "placeholders": [],
+      "messages": {"en": "Load latest version", "zh": "读取最新版本"}
     }
   }
 }

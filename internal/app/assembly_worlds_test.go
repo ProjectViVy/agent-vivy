@@ -33,7 +33,7 @@ func TestGeneratedToolWorldInvokesThroughGrantedHost(t *testing.T) {
 	if len(staged) != 1 {
 		t.Fatalf("staged ToolWorld providers = %d, want 1", len(staged))
 	}
-	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...))
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

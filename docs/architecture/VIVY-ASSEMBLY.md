@@ -257,7 +257,7 @@ that fails or misses Ready aborts startup. The Host then:
 2. stops started Modules in exact reverse owner order;
 3. closes constructed instances in reverse order;
 4. preserves the initiating error and attaches cleanup failures;
-5. records a bounded, redacted diagnostic result;
+5. records a bounded diagnostic result;
 6. does not publish the Generation as ready.
 
 Stop and Close are idempotent and deadline-bound. Optional runtime instances

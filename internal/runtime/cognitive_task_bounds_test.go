@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 func TestCognitiveInferencePreservesCompleteBoundedRequest(t *testing.T) {

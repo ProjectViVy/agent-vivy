@@ -9,9 +9,9 @@ import (
 	"time"
 
 	genassembly "agent-vivy/internal/generated/assembly"
-	"github.com/dashimaki/garden/agentapi"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
-	"github.com/dashimaki/laputa/persona"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	"github.com/ProjectViVy/laputa/laputa/persona"
 )
 
 func TestMemoryLoopPersonaReviewAndFrozenSessions(t *testing.T) {

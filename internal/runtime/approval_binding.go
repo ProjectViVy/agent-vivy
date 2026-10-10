@@ -3,8 +3,6 @@ package runtime
 import (
 	"encoding/json"
 	"errors"
-
-	"agent-vivy/internal/tools"
 )
 
 const toolApprovalProposalEnvelopeKind = "vivy.tool-approval-proposal/v1"
@@ -38,33 +36,4 @@ func unbindToolApprovalProposal(data json.RawMessage) (providerData json.RawMess
 		return nil, "", errors.New("runtime: tool approval proposal has no arguments hash")
 	}
 	return append(json.RawMessage(nil), envelope.ProviderData...), envelope.ArgumentsHash, nil
-}
-
-func redactedApprovalArguments(arguments map[string]any) map[string]any {
-	redacted, _ := redactApprovalArgumentValue(arguments).(map[string]any)
-	if redacted == nil {
-		return map[string]any{}
-	}
-	return redacted
-}
-
-func redactApprovalArgumentValue(value any) any {
-	switch typed := value.(type) {
-	case string:
-		return tools.RedactSensitive(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for index := range typed {
-			out[index] = redactApprovalArgumentValue(typed[index])
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			out[key] = redactApprovalArgumentValue(item)
-		}
-		return out
-	default:
-		return value
-	}
 }

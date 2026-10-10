@@ -25,7 +25,6 @@ import (
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/logging"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/module"
@@ -186,7 +185,7 @@ type Registration = ProviderBinding
 type InstanceResolver func(context.Context, string, string) (InstanceStatus, error)
 
 // SecretResolver resolves one compiler-authorized Secret reference. Secret
-// values are retained only in the invocation-local redaction set.
+// values are retained only in the invocation-local Secret authority set.
 type SecretResolver interface {
 	Resolve(context.Context, string, string, string) (string, error)
 }
@@ -1160,7 +1159,7 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	if err != nil {
 		return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, output, AuditOutcomeFailed, action.ErrInvalidOutput, started)
 	}
-	if leaked := findSecret(output, secrets) || containsSecretValue(decodedOutput, secrets) || containsCredential(output); leaked {
+	if leaked := findSecret(output, secrets) || containsSecretValue(decodedOutput, secrets); leaked {
 		return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, output, AuditOutcomeFailed, action.ErrSecretLeak, started)
 	}
 	if err := registered.result.Validate(decodedOutput); err != nil {
@@ -1563,7 +1562,7 @@ func (host *providerHost) Settings() json.RawMessage {
 	if _, err := decodeJSON(value); err != nil {
 		return json.RawMessage("{}")
 	}
-	if redacted := logging.Redact(string(value)); redacted != string(value) || containsSecretValueString(string(value), host.secretValues()) {
+	if containsSecretValueString(string(value), host.secretValues()) {
 		return json.RawMessage("{}")
 	}
 	return append(json.RawMessage(nil), value...)
@@ -1698,11 +1697,10 @@ func (host *Host) safeError(err error, secrets []string) string {
 	}
 	text := err.Error()
 	for _, secret := range secrets {
-		if secret != "" {
-			text = strings.ReplaceAll(text, secret, "[REDACTED_SECRET]")
+		if secret != "" && strings.Contains(text, secret) {
+			return action.ErrSecretLeak.Error()
 		}
 	}
-	text = logging.Redact(text)
 	if len(text) > maxAuditError {
 		text = text[:maxAuditError] + "…"
 	}
@@ -1740,16 +1738,6 @@ func containsSecretValue(value any, secrets []string) bool {
 		}
 	}
 	return false
-}
-
-// containsCredential catches the same high-confidence credential/key-value
-// forms that the ToolHost redaction boundary removes. A Control Action result
-// is rejected rather than returned with a silently altered shape: callers
-// must fix the Provider instead of accidentally treating a redacted token as
-// a usable value.
-func containsCredential(payload []byte) bool {
-	redacted := logging.Redact(string(payload))
-	return strings.Contains(redacted, "[REDACTED_SECRET]") || strings.Contains(redacted, "[REDACTED]")
 }
 
 func authorizationPublicError(definition action.Definition) error {
@@ -1934,7 +1922,7 @@ func maxInt64(value, floor int64) int64 {
 }
 
 func auditIdentifier(value string) string {
-	value = logging.Redact(strings.TrimSpace(value))
+	value = strings.TrimSpace(value)
 	const maxIdentifierBytes = 256
 	if len(value) > maxIdentifierBytes {
 		return value[:maxIdentifierBytes] + "…"
@@ -2026,7 +2014,7 @@ func schemaError(err error) string {
 	}
 	// jsonschema validation errors may echo the offending scalar value. That
 	// value is caller/provider data and can be a credential even when it does
-	// not match one of the kernel's high-confidence redaction patterns. Keep
+	// not originate from a Secret resolver. Keep
 	// the taxonomy and a stable reason while dropping the value entirely.
 	return "schema validation failed"
 }

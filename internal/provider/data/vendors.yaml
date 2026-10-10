@@ -75,24 +75,41 @@
         - id: claude-3-sonnet-20240229
         - id: claude-3-haiku-20240307
         - id: claude-opus-4-6
+          supports_thinking: true
+          thinking_levels: [minimal, low, medium, high, xhigh, max]
+          default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-sonnet-4-5
           context_window: 200000
           input_per_mtok: 3
           output_per_mtok: 15
           supports_images: true
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high, xhigh, max]
+          default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-haiku-4-5
           context_window: 200000
           input_per_mtok: 1
           output_per_mtok: 5
           supports_images: true
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high]
+          default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
         - id: claude-opus-4-5
           context_window: 200000
           input_per_mtok: 5
           output_per_mtok: 25
           supports_images: true
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high, xhigh, max]
+          default_thinking: medium
+          supports_warming: true
+          cache_lifetime_seconds: 300
       supports_prompt_caching: true
   provenance:
     source: agent-diva/agent-diva-providers/src/providers.yaml
@@ -559,21 +576,35 @@
           output_per_mtok: 1.5
         - id: o1-preview
           supports_thinking: true
+          thinking_levels: [low, medium, high]
+          default_thinking: medium
         - id: o1-mini
           context_window: 128000
           input_per_mtok: 1.1
           output_per_mtok: 4.4
           supports_thinking: true
+          thinking_levels: [low, medium, high]
+          default_thinking: medium
         - id: gpt-5.1
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high]
+          default_thinking: medium
         - id: gpt-5
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high]
+          default_thinking: medium
         - id: gpt-5-mini
           supports_thinking: true
+          thinking_levels: [minimal, low, medium, high]
+          default_thinking: medium
         - id: gpt-5-nano
           supports_thinking: true
+          thinking_levels: [minimal, low]
+          default_thinking: low
         - id: gpt-5-pro
           supports_thinking: true
+          thinking_levels: [high, xhigh, max]
+          default_thinking: high
         - id: gpt-5-chat
         - id: gpt-image-1
     - adapter: openai-responses

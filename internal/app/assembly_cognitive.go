@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"agent-vivy/internal/cognitivecontract"
@@ -11,7 +12,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // generatedCognitiveFactoryBinding is the opaque accessor emitted by the
@@ -36,6 +37,13 @@ func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.Runti
 	if !ok || factory == nil {
 		return nil, fmt.Errorf("app: generated cognitive factory binding has invalid type")
 	}
+	// Config paths may be relative to the process working directory. The
+	// owner requires an absolute root; resolve it before crossing its seam.
+	dataRoot, err := filepath.Abs(cfg.DataDirectory())
+	if err != nil {
+		return nil, fmt.Errorf("app: resolve cognitive data directory: %w", err)
+	}
+	cfg.Storage.DataDir = dataRoot
 	bundle, err := factory(ctx, cognitivecontract.FactoryInput{
 		Config:       cfg,
 		GenerationID: generationID,

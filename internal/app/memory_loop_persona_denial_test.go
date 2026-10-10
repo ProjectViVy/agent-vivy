@@ -8,7 +8,7 @@ import (
 	"time"
 
 	genassembly "agent-vivy/internal/generated/assembly"
-	"github.com/dashimaki/garden/agentapi"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
 )
 
 func TestMemoryLoopModelCannotEscalatePersonaAuthority(t *testing.T) {

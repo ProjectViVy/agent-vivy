@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -37,7 +38,7 @@ func TestRepositoryModulePathsUseCanonicalNamespace(t *testing.T) {
 		"../../plugins/discord/go.mod",
 		"../../plugins/feishu/go.mod",
 		"../../plugins/governance/go.mod",
-		"../../plugins/lsp/go.mod",
+		"../../plugins/coding/lsp/go.mod",
 		"../../plugins/qq/go.mod",
 		"../../plugins/scx-reference/go.mod",
 		"../../plugins/telegram/go.mod",
@@ -753,6 +754,11 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 		{"headless", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"vivy-code", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"scx", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"lite", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
+		{"diva", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-selected", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-omitted", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-backend-only", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
 	}
 	for _, test := range tests {
 		name := test.name
@@ -768,6 +774,27 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 			}
 			if inspected.Manifest.GenerationID != artifact.Manifest.GenerationID {
 				t.Fatal("embedded and returned Generation identity differ")
+			}
+			for _, selected := range inspected.Manifest.Modules {
+				if strings.Contains(selected.ID, "exp-") || strings.Contains(selected.Source.Ref, "plugins/exp/") {
+					t.Fatalf("%s selected an EXP Module: %+v", name, selected)
+				}
+			}
+			binder, err := os.ReadFile(filepath.Join(output, "zz_assembly.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(binder), "plugins/exp/") {
+				t.Fatal("generated Assembly imported EXP")
+			}
+			symbols, err := exec.Command("go", "tool", "nm", artifact.Binary).CombinedOutput()
+			if err != nil {
+				t.Fatalf("inspect compiled symbols: %v: %s", err, symbols)
+			}
+			for _, forbidden := range []string{"agent-vivy/plugins/exp/", "agent-vivy/internal/logging.Redact", "agent-vivy/internal/tools.ValidateArgsSafety", "agent-vivy/internal/runtime.errLoopDetected", "agent-vivy/internal/runtime.(*loopWindow)"} {
+				if bytes.Contains(symbols, []byte(forbidden)) {
+					t.Fatalf("%s binary retained %s", name, forbidden)
+				}
 			}
 			if got := string(inspected.Manifest.CapabilityStates["channels"]); got != test.channels {
 				t.Fatalf("channels capability = %s, want %s", got, test.channels)
@@ -895,7 +922,7 @@ func TestVerifyEverySelectedPublicModule(t *testing.T) {
 		"../../plugins/feishu",
 		"../../plugins/governance",
 		"../../plugins/hello-fs",
-		"../../plugins/lsp",
+		"../../plugins/coding/lsp",
 		"../../plugins/qq",
 		"../../plugins/scx-reference",
 		"../../plugins/telegram",
@@ -967,7 +994,7 @@ func TestPackSelectedToolWorlds(t *testing.T) {
 		name, recipe string
 	}{
 		{"hello-fs", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/hello-fs]\ngrantApprovals:\n  - {module: vivy/hello-fs, name: fs.read}\n"},
-		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/lsp/plugin_test.go]\n"},
+		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/coding/lsp/plugin_test.go]\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

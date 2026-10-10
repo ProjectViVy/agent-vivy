@@ -14,7 +14,7 @@ import (
 
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
-	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // The model requests the real protected filesystem Tool. Its response is

@@ -1,7 +1,7 @@
 // Disposable OpenAI-compatible endpoint for the masks e2e split pair.
 // /healthz answers so Playwright can detect readiness; the chat-completions
 // route intentionally never responds, which keeps a run `active` for as long
-// as the test needs (mask selection must still queue for the next run).
+// as the test needs (selection updates immediately; the admitted reply keeps its role).
 import http from 'node:http';
 
 const server = http.createServer((req, res) => {

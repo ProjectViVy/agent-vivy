@@ -67,7 +67,7 @@ func TestProductionMCPWorldIsComposedThroughToolHost(t *testing.T) {
 	if len(staged) != 1 {
 		t.Fatalf("MCP world was skipped during production composition: %d staged entries", len(staged))
 	}
-	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...))
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestAssemblyRuntimeToolsAreSoleToolHostViews(t *testing.T) {
 	}
 
 	registry := tools.NewRegistry(fixtureLegacyTool{id: "legacy.echo", result: "legacy-ok"}).WithAdditional(staged...)
-	governed, err := bindGeneratedTools(nil, registry)
+	governed, err := bindGeneratedTools(nil, registry, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

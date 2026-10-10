@@ -1,6 +1,7 @@
 package face
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -93,5 +94,57 @@ func TestFaceSettingsLocaleReachesView(t *testing.T) {
 				t.Fatalf("result=%+v err=%v calls=%v rendered=%t", result, err, env.calls, rendered)
 			}
 		})
+	}
+}
+
+type rpcEnv struct {
+	turns map[string]map[string]any
+}
+
+func (*rpcEnv) ModuleID() string { return "vivy/tui" }
+
+func (e *rpcEnv) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "initialize" {
+		return json.RawMessage(`{"capabilities":[]}`), nil
+	}
+	if strings.HasPrefix(method, "turn/") {
+		raw, _ := json.Marshal(params)
+		var decoded map[string]any
+		_ = json.Unmarshal(raw, &decoded)
+		e.turns[method] = decoded
+		return json.RawMessage(`{"queued":true}`), nil
+	}
+	return json.RawMessage(`{}`), nil
+}
+
+func (*rpcEnv) OnEvent(func(string, json.RawMessage)) {}
+
+// A queued turn degrades to a fresh run on an idle session; the kernel
+// fallback runs RunWithOptions with the params' face. The code face must
+// keep its "code" attribution — an empty face becomes a web run, which a
+// persona-gated composition rejects.
+func TestRPCModeQueuedTurnsKeepCodeFace(t *testing.T) {
+	in := strings.NewReader(
+		`{"id":"s1","type":"steer","message":"x"}` + "\n" +
+			`{"id":"f1","type":"follow_up","message":"y"}` + "\n",
+	)
+	var out bytes.Buffer
+	env := &rpcEnv{turns: map[string]map[string]any{}}
+	f := &terminalFace{opts: faceport.Options{In: in, Out: &out, Err: io.Discard, SessionID: "sess-1"}}
+	result, err := f.runRPCMode(context.Background(), env)
+	if err != nil || result.Status != "completed" {
+		t.Fatalf("result=%+v err=%v out=%s", result, err, out.String())
+	}
+	for _, method := range []string{"turn/steer", "turn/follow_up"} {
+		params, ok := env.turns[method]
+		if !ok {
+			t.Fatalf("%s was never issued", method)
+		}
+		if params["face"] != "code" {
+			t.Fatalf("%s face = %v, want code", method, params["face"])
+		}
+		if params["session_id"] != "sess-1" {
+			t.Fatalf("%s session_id = %v, want sess-1", method, params["session_id"])
+		}
 	}
 }

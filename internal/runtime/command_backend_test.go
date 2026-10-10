@@ -172,22 +172,13 @@ func TestCommandBackendTimeoutCeiling(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			backend := NewCommandBackend(manager, sandbox, []string{"go"}, test.configured)
-			_, _, _, _, timeout, err := backend.validateRequest(context.Background(), "run-command", tools.CommandRequest{Command: "go", TimeoutMS: test.requestMS})
+			validated, err := backend.validateRequest(context.Background(), "run-command", tools.CommandRequest{Command: "go", TimeoutMS: test.requestMS})
 			if err != nil {
 				t.Fatalf("validateRequest: %v", err)
 			}
-			if timeout != test.want {
-				t.Fatalf("timeout = %v, want %v", timeout, test.want)
+			if validated.scope.timeout != test.want {
+				t.Fatalf("timeout = %v, want %v", validated.scope.timeout, test.want)
 			}
 		})
-	}
-}
-
-func TestBoundedCommandOutputKeepsLimit(t *testing.T) {
-	var output boundedCommandOutput
-	output.limit = 4
-	_, _ = output.Write([]byte("abcdef"))
-	if output.String() != "abcd" || !output.truncated {
-		t.Fatalf("output=%q truncated=%v", output.String(), output.truncated)
 	}
 }

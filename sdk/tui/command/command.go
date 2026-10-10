@@ -48,9 +48,12 @@ type Invocation struct {
 // ShellInvocation is the parsed form of a !script line. Script deliberately
 // preserves every byte after the leading marker (including intentional
 // whitespace); the server is responsible for parsing, policy and execution.
+// NoContext marks the !! variant: the run journals and renders in the
+// transcript but its output never enters the model feed.
 type ShellInvocation struct {
-	Script string
-	Raw    string
+	Script    string
+	Raw       string
+	NoContext bool
 }
 
 // Result is the classification of one editor line. A plain result has a nil
@@ -120,11 +123,16 @@ func Parse(input string) (Result, error) {
 	trimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
 	prefix := input[:len(input)-len(trimmed)]
 	if !strings.HasPrefix(trimmed, "/") {
-		// Double prefixes escape one marker. Shell and project-context effects
-		// are represented as data here; execution and filesystem access remain
-		// owned by the control plane.
+		// !! is the no-context shell variant: same governed execution as !
+		// but the result stays out of the model feed (transcript only).
+		// @@ still escapes one @ marker; execution and filesystem access
+		// remain owned by the control plane.
 		if strings.HasPrefix(trimmed, "!!") {
-			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
+			script := trimmed[2:]
+			if strings.TrimSpace(script) == "" {
+				return Result{}, &SyntaxError{Offset: 2, Message: "shell script is required"}
+			}
+			return Result{Kind: Shell, Text: input, Shell: &ShellInvocation{Script: script, Raw: input, NoContext: true}}, nil
 		}
 		if strings.HasPrefix(trimmed, "@@") {
 			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
@@ -432,8 +440,13 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return nil
 	}
 	switch spec.Name {
-	case "help", "init", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
+	case "help", "init", "status", "sessions", "cancel", "todos", "tools", "quit":
 		return count(0, 0)
+	case "compact":
+		if len(args) > 0 && strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return usage()
+		}
+		return count(0, -1)
 	case "model":
 		return count(0, -1)
 	case "mcp":
@@ -490,7 +503,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 		}
 		if len(args) == 1 {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
-			case "auto", "on", "off":
+			case "auto", "on", "off", "minimal", "low", "medium", "high", "xhigh", "max":
 			default:
 				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.thinking", nil))
 			}
@@ -515,6 +528,15 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/image <relative-path> | /image remove <index> | /image clear"}))
 	case "fork":
 		return count(1, 2)
+	case "clone":
+		if len(args) > 0 && strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return usage()
+		}
+		return count(0, -1)
+	case "tree", "export", "copy", "bug", "debug", "scope-model", "hotkeys":
+		return count(0, 0)
+	case "import":
+		return count(1, 1)
 	case "rewind":
 		return count(1, 1)
 	case "stats":
@@ -595,10 +617,19 @@ func DefaultRegistry(translator tuii18n.Translator) Registry {
 		Spec{Name: "cancel", Usage: "/cancel", Description: description("cancel")},
 		Spec{Name: "queue", Usage: "/queue clear", Description: description("queue")},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: description("permission")},
-		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: description("thinking")},
+		Spec{Name: "thinking", Usage: "/thinking [auto|on|off|minimal|low|medium|high|xhigh|max]", Description: description("thinking")},
+		Spec{Name: "scope-model", Usage: "/scope-model", Description: description("scope-model")},
+		Spec{Name: "hotkeys", Usage: "/hotkeys", Description: description("hotkeys")},
 		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
-		Spec{Name: "compact", Usage: "/compact", Description: description("compact")},
+		Spec{Name: "compact", Usage: "/compact [instructions]", Description: description("compact")},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},
+		Spec{Name: "clone", Usage: "/clone [title]", Description: description("clone")},
+		Spec{Name: "tree", Usage: "/tree", Description: description("tree")},
+		Spec{Name: "import", Usage: "/import <path>", Description: description("import")},
+		Spec{Name: "export", Usage: "/export", Description: description("export")},
+		Spec{Name: "copy", Usage: "/copy", Description: description("copy")},
+		Spec{Name: "bug", Usage: "/bug", Description: description("bug")},
+		Spec{Name: "debug", Usage: "/debug", Description: description("debug")},
 		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: description("rewind")},
 		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: description("todos")},
 		Spec{Name: "stats", Usage: "/stats [period]", Description: description("stats")},

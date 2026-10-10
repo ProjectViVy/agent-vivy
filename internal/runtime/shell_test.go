@@ -217,13 +217,54 @@ func TestRunShellSafeAutoUsesUnifiedLifecycleWithoutModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list messages: %v", err)
 	}
-	for _, message := range messages {
-		if strings.Contains(string(message.ToolArgs), "echo direct_shell_ok") || strings.Contains(message.Content, "echo direct_shell_ok") {
-			t.Fatal("raw shell script entered ordinary message history")
-		}
+	if len(messages) != 2 || !strings.Contains(string(messages[0].ToolArgs), "echo direct_shell_ok") || !strings.Contains(messages[1].Content, "echo direct_shell_ok") {
+		t.Fatalf("shell history changed command/result: %+v", messages)
 	}
 	if len(messages) != 2 || messages[0].ToolName != tools.BashName || messages[1].ToolName != tools.BashName {
 		t.Fatalf("sanitized shell history = %+v, want tool call/result pair", messages)
+	}
+}
+
+func TestRunShellNoContextKeepsOutputOutOfModelFeed(t *testing.T) {
+	f := newShellFixture(t, domain.ApprovalPolicyAuto)
+	feedRun, err := f.service.RunShell(context.Background(), f.sessionID, "echo feed_marker")
+	if err != nil {
+		t.Fatalf("run shell: %v", err)
+	}
+	waitForRunStatus(t, f.backend, feedRun, domain.RunCompleted)
+
+	noCtxRun, err := f.service.RunShell(context.Background(), f.sessionID, "echo nofeed_marker", ShellRunOptions{NoContext: true})
+	if err != nil {
+		t.Fatalf("run no-context shell: %v", err)
+	}
+	waitForRunStatus(t, f.backend, noCtxRun, domain.RunCompleted)
+
+	// The no-context run still journals its full lifecycle for the transcript.
+	events := replayAll(t, f.backend, noCtxRun)
+	if eventIndex(events, domain.EventToolFinished) < 0 {
+		t.Fatalf("no-context run lost its tool events: %v", events)
+	}
+	blob := shellEventString(t, events)
+	if !strings.Contains(blob, `"no_context":true`) || !strings.Contains(blob, "nofeed_marker") {
+		t.Fatalf("no-context run.started/output = %s", blob)
+	}
+
+	// Only the ordinary ! run projects tool rows into the message feed.
+	messages, err := f.backend.ListMessages(context.Background(), f.sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	feed, noFeed := 0, 0
+	for _, message := range messages {
+		switch message.RunID {
+		case feedRun:
+			feed++
+		case noCtxRun:
+			noFeed++
+		}
+	}
+	if feed != 2 || noFeed != 0 {
+		t.Fatalf("projected messages feed=%d noctx=%d: %+v", feed, noFeed, messages)
 	}
 }
 
@@ -237,8 +278,8 @@ func TestRunShellApprovalApproveRunsAfterDurableDecision(t *testing.T) {
 	if approval.ProposalData == nil || strings.Contains(string(approval.ProposalData), "echo approved > approved_marker") {
 		t.Fatal("approval stored raw shell input")
 	}
-	if strings.Contains(approval.Preview, "echo approved > approved_marker") || strings.Contains(approval.Target, "echo approved > approved_marker") {
-		t.Fatal("approval preview stored raw shell input")
+	if approval.Preview != "echo approved > approved_marker" || approval.Target != "echo approved > approved_marker" {
+		t.Fatal("approval preview changed authorized shell input")
 	}
 	if err := f.service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
 		t.Fatalf("approve shell: %v", err)
@@ -360,7 +401,7 @@ func TestRunShellExpirePendingApprovalDeletesState(t *testing.T) {
 	assertShellStateDeleted(t, f.backend.Blobs(), approval)
 }
 
-func TestRunShellCancelExecutingAndBoundedRedactedResult(t *testing.T) {
+func TestRunShellCancelExecutingAndBoundedFaithfulResult(t *testing.T) {
 	f := newShellFixture(t, domain.ApprovalPolicyAuto)
 	runID, err := f.service.RunShell(context.Background(), f.sessionID, "printf 'password=hunter2\\n'; printf '%100000s' sk-live-abcdefghijklmnop")
 	if err != nil {
@@ -369,8 +410,8 @@ func TestRunShellCancelExecutingAndBoundedRedactedResult(t *testing.T) {
 	waitForRunStatus(t, f.backend, runID, domain.RunCompleted)
 	events := replayAll(t, f.backend, runID)
 	joined := shellEventString(t, events)
-	if strings.Contains(joined, "sk-live-") || strings.Contains(joined, "hunter2") {
-		t.Fatal("secret canary entered shell journal")
+	if !strings.Contains(joined, "sk-live-") || !strings.Contains(joined, "hunter2") {
+		t.Fatal("synthetic task text missing from shell journal")
 	}
 	for _, event := range events {
 		if event.Type == domain.EventToolFinished && len(event.Payload) > maxShellResultBytes {
@@ -508,7 +549,7 @@ func TestRunShellRecoveryFailureCancelsApprovalAndDeletesState(t *testing.T) {
 	assertShellStateDeleted(t, f.backend.Blobs(), approval)
 }
 
-func TestRunShellHookCannotInjectExecutionControlsOrLeakReason(t *testing.T) {
+func TestRunShellHookCannotInjectExecutionControlsAndPreservesReason(t *testing.T) {
 	canary := "raw-hook-canary echo should-not-leak"
 	hook := &testToolHook{name: "shell-guard", pre: PreToolUseResult{
 		Decision:    hookRewrite,
@@ -525,8 +566,8 @@ func TestRunShellHookCannotInjectExecutionControlsOrLeakReason(t *testing.T) {
 	if eventIndex(events, domain.EventToolStarted) >= 0 {
 		t.Fatal("hook-injected background control reached execution")
 	}
-	if strings.Contains(shellEventString(t, events), canary) {
-		t.Fatal("untrusted hook reason entered shell journal")
+	if !strings.Contains(shellEventString(t, events), canary) {
+		t.Fatal("authorized hook reason absent from shell journal")
 	}
 }
 
@@ -536,8 +577,8 @@ func TestShellStateReferenceIsOpaqueJSON(t *testing.T) {
 	if strings.Contains(string(ref), "touch secret-marker") || shellStateRef(ref) != "shell_state_test" {
 		t.Fatalf("opaque shell state reference malformed: %s", ref)
 	}
-	if !strings.Contains(shellAuditLabel(args), "redacted") {
-		t.Fatal("shell audit label is not redacted")
+	if shellAuditLabel(args) != "touch secret-marker" {
+		t.Fatal("shell audit label changed task command")
 	}
 }
 
