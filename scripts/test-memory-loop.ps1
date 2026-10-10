@@ -35,9 +35,15 @@ try {
     try {
         $package = & go list -json . | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0) { throw "Could not list App test sources" }
-        # These two files assert fields belonging only to the default body;
+        # These files assert fields belonging only to the default body;
         # they run in the first pass and contain no TestMemoryLoop tests.
-        $tests = @($package.TestGoFiles | Where-Object { $_ -notin @("default_generation_test.go", "headless_mask_arming_test.go") })
+        $defaultBodyTests = @("default_generation_test.go", "headless_mask_arming_test.go", "assembly_notebook_test.go")
+        foreach ($file in $defaultBodyTests) {
+            if (Select-String -LiteralPath $file -Pattern '^func TestMemoryLoop' -Quiet) {
+                throw "Default-body exclusion would omit memory-loop tests: $file"
+            }
+        }
+        $tests = @($package.TestGoFiles | Where-Object { $_ -notin $defaultBodyTests })
         $sources = @($package.GoFiles) + $tests
         Invoke-Go (@("test", "-overlay", (Join-Path $overlay "overlay.json"), "-timeout", "35m", "-run", "^TestMemoryLoop") + $sources)
     } finally { Pop-Location }
