@@ -62,7 +62,11 @@ func saveMemoryLoopDevelopmentEvidence(t *testing.T, f *memoryLoopFixture, sessi
 		t.Fatal(err)
 	}
 	writeJSON("status.json", status)
-	writeJSON("model-requests.json", f.ModelRequests())
+	requests := f.ModelRequests()
+	responses := f.ModelResponses()
+	writeJSON("model-requests.json", requests)
+	writeJSON("model-responses.json", responses)
+	writeJSON("model-counts.json", map[string]any{"requests": len(requests), "completed_response_handlers": len(responses), "requests_without_completed_response": len(requests) - len(responses), "client_consumption_asserted": false})
 	writeJSON("native-snapshots.json", snapshots)
 	for i, snapshot := range snapshots {
 		write(fmt.Sprintf("source-%d.txt", i+1), []byte(snapshot.SourceBody))

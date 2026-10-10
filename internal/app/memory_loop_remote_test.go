@@ -217,6 +217,8 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 			value, err = f.Wait(ctx, req.Stage, req.RunID)
 		case "requests":
 			value = f.ModelRequests()
+		case "responses":
+			value = f.ModelResponses()
 		case "recall-queries":
 			value = f.RecallQueries()
 		case "close":

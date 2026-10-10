@@ -20,6 +20,14 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return "", err
 	}
+	if mode == "response-echo" {
+		for i := len(req.Messages) - 1; i >= 0; i-- {
+			if req.Messages[i].Role == "user" {
+				return strings.Repeat("合成响应 ", 500) + req.Messages[i].Content, nil
+			}
+		}
+		return "", fmt.Errorf("actual user source missing")
+	}
 	if mode == "ack" {
 		return "收到", nil
 	}

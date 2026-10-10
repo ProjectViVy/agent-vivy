@@ -69,6 +69,7 @@ type memoryLoopFixture struct {
 	cancel           context.CancelFunc
 	mu               sync.Mutex
 	requests         []json.RawMessage
+	responses        []memoryLoopModelResponse
 	recallQueries    []memoryLoopRecallQuery
 	modelRelease     chan struct{}
 	modelReleaseOnce sync.Once
@@ -84,7 +85,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "persona-restricted" && opts.ModelMode != "mission-fence" && opts.ModelMode != "busy" && opts.ModelMode != "tool-source" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "persona-restricted" && opts.ModelMode != "mission-fence" && opts.ModelMode != "busy" && opts.ModelMode != "tool-source" && opts.ModelMode != "response-echo" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -103,8 +104,24 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			return
 		}
 		f.mu.Lock()
+		requestIndex := len(f.requests)
 		f.requests = append(f.requests, append(json.RawMessage(nil), body...))
 		f.mu.Unlock()
+		observed := &memoryLoopObservedResponseWriter{ResponseWriter: w}
+		w = observed
+		defer func() {
+			status := observed.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			result := memoryLoopModelResponse{RequestIndex: requestIndex, Status: status, Headers: observed.Header().Clone(), Body: string(observed.body), FinishedAt: time.Now().UTC()}
+			if observed.err != nil {
+				result.WriteError = observed.err.Error()
+			}
+			f.mu.Lock()
+			f.responses = append(f.responses, result)
+			f.mu.Unlock()
+		}()
 		var req struct {
 			Stream   bool                    `json:"stream"`
 			Messages []memoryLoopWireMessage `json:"messages"`
