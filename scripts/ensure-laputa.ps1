@@ -1,4 +1,4 @@
-# Prepare the Git source closure used by Go and sealed go-host packaging.
+# Prepare the pinned Laputa source closure required by Go builds.
 [CmdletBinding()]
 param(
     [string]$RepoRoot,

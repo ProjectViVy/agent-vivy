@@ -58,10 +58,10 @@ Prefer `git clone --recurse-submodules` so `studio/` is present immediately.
 `just setup` and `just dev` work after a plain clone: they automatically prepare
 `../laputa` from `ProjectViVy/laputa` at the commit in `laputa-source.lock.json`.
 The Garden, Mentle and Laputa modules live in that one repository under the
-`github.com/ProjectViVy/laputa/` namespace. This complete Git source checkout is
-also part of the SDK's sealed go-host source closure; it is separate from the
-optional Studio submodule. The parent directory must be writable, and the first
-bootstrap requires access to GitHub. No sibling INOFY checkout is required.
+`github.com/ProjectViVy/laputa/` namespace. This complete Git source checkout
+is required for VIVY builds and is separate from the optional Studio submodule.
+The parent directory must be writable, and the first bootstrap requires access
+to GitHub. No sibling INOFY checkout is required.
 
 The same bootstrap runs in CI and is a no-op when the pinned checkout is ready.
 A clean older checkout is updated to the pin; local changes at a different
