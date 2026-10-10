@@ -19,10 +19,6 @@ jobs:
     name: backend ci
     runs-on: windows-latest
     timeout-minutes: 60
-    env:
-      # Keep owned disk-backed test fixtures in the runner's temporary volume.
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
 
     steps:
       - name: Check out repository
@@ -104,6 +100,10 @@ jobs:
           }
 
       - name: Run backend CI
+        env:
+          # Keep owned disk-backed test fixtures in the runner's temporary volume.
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: just backend-ci
 
   ui:
