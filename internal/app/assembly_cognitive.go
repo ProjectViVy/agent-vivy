@@ -116,6 +116,9 @@ func (c *cognitiveControlPort) GetState(ctx context.Context) (cognitivecontract.
 		ActiveRunID:    state.ActiveRunID,
 		SourceID:       c.bundle.SourceID(),
 		Watermark:      watermark,
+		PendingThrough: state.PendingThrough,
+		Phase:          state.Phase,
+		BlockReason:    state.BlockReason,
 	}, nil
 }
 

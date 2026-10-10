@@ -11,6 +11,7 @@ import (
 
 	"github.com/ProjectViVy/inofy"
 	laputaevolution "github.com/dashimaki/laputa/evolution"
+	laputadiva "github.com/dashimaki/laputa/evolution/diva"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
@@ -47,9 +48,9 @@ type cognitiveState struct {
 	PolicyRevision      uint64                        `json:"policy_revision"`
 	LastReason          string                        `json:"last_reason,omitempty"`
 	// Blocked is the durable admission fence: a non-empty reason stops
-	// automatic retries until a deliberate manual trigger clears it.
-	// Unknown outcomes, human cancellation and exhausted retries record
-	// their cause here; disabling/enabling the loop never clears it.
+	// automatic retries. Manual triggers may retry cancellation/exhaustion,
+	// but cannot clear an unresolved effect. Disabling/enabling the loop
+	// never clears the fence.
 	Blocked string `json:"blocked,omitempty"`
 }
 
@@ -152,18 +153,41 @@ func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevo
 // ErrPolicyConflict rejects a policy write whose base revision is stale.
 var ErrPolicyConflict = errors.New("runtime: cognitive policy revision conflict")
 
+// CognitiveStatusView projects the single durable admission record, including
+// its unresolved window. ActiveRunID also names terminal runs awaiting recovery.
+type CognitiveStatusView struct {
+	laputaevolution.TriggerState
+	PendingThrough uint64
+	Phase          string
+	BlockReason    string
+}
+
 // CognitiveStatus exposes the durable trigger record for inspection.
-func (s *Service) CognitiveStatus(ctx context.Context) (laputaevolution.TriggerState, uint64, error) {
+func (s *Service) CognitiveStatus(ctx context.Context) (CognitiveStatusView, uint64, error) {
 	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
-		return laputaevolution.TriggerState{}, 0, ErrCognitiveUnavailable
+		return CognitiveStatusView{}, 0, ErrCognitiveUnavailable
 	}
 	st, _, err := s.loadCognitiveState(ctx)
 	if err != nil {
-		return laputaevolution.TriggerState{}, 0, err
+		return CognitiveStatusView{}, 0, err
 	}
-	return laputaevolution.TriggerState{
-		LastCompletedUnixMS: st.LastCompletedUnixMS,
-		ActiveRunID:         st.ActiveRunID,
+	phase := "idle"
+	switch {
+	case st.Blocked != "":
+		phase = "blocked"
+	case st.ActiveRunID != "":
+		phase = "running"
+	case !st.Policy.Enabled:
+		phase = "disabled"
+	}
+	return CognitiveStatusView{
+		TriggerState: laputaevolution.TriggerState{
+			LastCompletedUnixMS: st.LastCompletedUnixMS,
+			ActiveRunID:         st.ActiveRunID,
+		},
+		PendingThrough: st.PendingThrough,
+		Phase:          phase,
+		BlockReason:    st.Blocked,
 	}, st.Watermark, nil
 }
 
@@ -248,7 +272,7 @@ func (s *Service) CognitiveLoopActive() bool {
 func (s *Service) cognitiveRunBlocked(ctx context.Context, runID domain.RunID) bool {
 	details, err := s.GetWorkflow(ctx, runID)
 	if err != nil {
-		return false
+		return true
 	}
 	if details.EngineStatus == string(inofy.RunRecoveryRequired) {
 		return true
@@ -258,8 +282,42 @@ func (s *Service) cognitiveRunBlocked(ctx context.Context, runID domain.RunID) b
 			strings.Contains(node.Message, "outcome is unknown") {
 			return true
 		}
+		// These stages can commit authority effects before their result is
+		// persisted. A later engine failure must not mint new operation IDs.
+		if (node.Key == "reconcile" || node.Key == "effects") &&
+			(node.Status == "running" || node.Status == "completed" || node.Status == "failed" || node.Status == "cancelled") {
+			return true
+		}
 	}
 	return false
+}
+
+func (s *Service) cognitiveWindowResolved(ctx context.Context, st cognitiveState) bool {
+	details, err := s.GetWorkflow(ctx, domain.RunID(st.ActiveRunID))
+	if err != nil {
+		return false
+	}
+	var outcome laputadiva.Outcome
+	if err := laputaevolution.DecodeStrictJSON([]byte(details.Outputs["outcome"]), &outcome); err != nil {
+		return false
+	}
+	want := laputaevolution.Window{SourceID: s.deps.Cognitive.SourceID, After: st.Watermark, Through: st.PendingThrough}
+	if outcome.Window != want {
+		return false
+	}
+	switch outcome.Status {
+	case laputadiva.OutcomeApplied, laputadiva.OutcomeSubmitted, laputadiva.OutcomeNoChange:
+	default:
+		return false
+	}
+	for _, receipt := range outcome.Receipts {
+		switch receipt.Status {
+		case laputaevolution.StatusApplied, laputaevolution.StatusSubmitted, laputaevolution.StatusNoChange:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) kickCognitive() {
@@ -323,13 +381,21 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		case run.Status.Terminal():
 			switch {
 			case run.Status == domain.RunCompleted:
-				st.Watermark = st.PendingThrough
-				st.LastCompletedUnixMS = now
-				st.Attempt = 0
+				if s.cognitiveWindowResolved(ctx, st) {
+					st.Watermark = st.PendingThrough
+					st.LastCompletedUnixMS = now
+					st.Attempt = 0
+				} else {
+					st.Blocked = cognitiveBlockUnknown
+				}
 			case run.Status == domain.RunCancelled:
 				// Human cancellation pauses; automatic admission never
 				// retries it.
-				st.Blocked = cognitiveBlockCancelled
+				if st.Blocked == cognitiveBlockUnknown || s.cognitiveRunBlocked(ctx, run.ID) {
+					st.Blocked = cognitiveBlockUnknown
+				} else {
+					st.Blocked = cognitiveBlockCancelled
+				}
 			case s.cognitiveRunBlocked(ctx, run.ID):
 				// Unknown outcome, missing binding or authority change:
 				// effects may already be applied, so retrying could
@@ -344,16 +410,18 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 					st.Blocked = cognitiveBlockExhausted
 				}
 			}
-			st.ActiveRunID = ""
+			if st.Blocked != cognitiveBlockUnknown {
+				st.ActiveRunID = ""
+			}
 		}
 	}
 	high, err := s.cognitiveHighWatermark(ctx, st)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
-	if st.Blocked != "" && !manual {
-		// Durable fence: automatic wakes stop here. A manual trigger is a
-		// deliberate human retry and clears the recorded reason.
+	if st.Blocked != "" && (!manual || st.Blocked == cognitiveBlockUnknown) {
+		// A trigger is not receipt recovery. Preserve unresolved windows
+		// across both automatic and manual wakes until actually reconciled.
 		st.LastReason = "blocked:" + st.Blocked
 		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveState(ctx, st)
 	}

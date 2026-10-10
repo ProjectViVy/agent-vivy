@@ -59,7 +59,15 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 						continue
 					}
 					sum := sha256.Sum256([]byte(entry.ID + "\x00" + body))
-					candidates = append(candidates, map[string]any{"kind": "memory_mutation", "memory_mutation": map[string]any{"operation": "create", "record_id": "ml-" + hex.EncodeToString(sum[:16]), "expected_absent": true, "body": body, "sources": entry.Sources, "inference": "observed"}})
+					mutation := map[string]any{"operation": "create", "record_id": "ml-" + hex.EncodeToString(sum[:16]), "expected_absent": true, "body": body, "sources": entry.Sources, "inference": "observed"}
+					if mode == "rejected" {
+						// A valid update against an absent canonical record must
+						// be rejected by the real backend, never by a fake port.
+						mutation["operation"] = "update"
+						mutation["expected_revision"] = 1
+						delete(mutation, "expected_absent")
+					}
+					candidates = append(candidates, map[string]any{"kind": "memory_mutation", "memory_mutation": mutation})
 				}
 				if len(candidates) == 0 {
 					answer = map[string]any{"no_change_reason": "no user-source evidence"}

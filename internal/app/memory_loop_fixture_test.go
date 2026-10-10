@@ -71,7 +71,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "rejected" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
