@@ -12,8 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -474,7 +476,9 @@ func waitMemoryLoopEffectHandshake(t *testing.T, path string, timeout time.Durat
 			}
 			return handshake
 		}
-		if !errors.Is(err, os.ErrNotExist) {
+		// Windows may briefly deny reads while the fixture publishes its receipt.
+		sharingViolation := goruntime.GOOS == "windows" && errors.Is(err, syscall.Errno(32))
+		if !errors.Is(err, os.ErrNotExist) && !sharingViolation {
 			t.Fatalf("read C03 handshake: %v", err)
 		}
 		select {
