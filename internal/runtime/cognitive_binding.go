@@ -110,10 +110,20 @@ func trustedStrategyAdmission(ctx context.Context, strategyID string) (inofyAdmi
 		if err != nil {
 			return inofyAdmission{}, fmt.Errorf("runtime: build trusted strategy: %w", err)
 		}
+	case TrustedStrategyReport:
+		def, err = reportDefinition()
+		if err != nil {
+			return inofyAdmission{}, fmt.Errorf("runtime: build trusted strategy: %w", err)
+		}
 	default:
 		return inofyAdmission{}, fmt.Errorf("runtime: unknown trusted strategy %q", strategyID)
 	}
-	catalog, err := trustedStrategyCatalog()
+	var catalog inofy.Catalog
+	if strategyID == TrustedStrategyReport {
+		catalog, err = reportStrategyCatalog()
+	} else {
+		catalog, err = trustedStrategyCatalog()
+	}
 	if err != nil {
 		return inofyAdmission{}, err
 	}
@@ -178,6 +188,11 @@ func (s *Service) StartCognitiveWorkflow(ctx context.Context, parentRunID domain
 func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, trustedStrategy string, input json.RawMessage) (inofy.NodeExecutor, error) {
 	if trustedStrategy == "" {
 		return newINOFYNodeExecutor(s), nil
+	}
+	if trustedStrategy == TrustedStrategyReport {
+		// Report roots verify their persisted pins inside the executor; no
+		// cognitive binding is required and R0 binds no effects.
+		return newReportNodeExecutor(s), nil
 	}
 	b := s.deps.Cognitive
 	if b == nil || b.Domain == nil {

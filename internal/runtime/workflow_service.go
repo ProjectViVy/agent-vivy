@@ -528,16 +528,31 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 		revision.RootRunID != run.RootID || revision.CreatedAt != run.CreatedAt {
 		return storage.ErrWorkflowRevisionConflict
 	}
-	parent, err := s.deps.Runs.GetRun(ctx, revision.ParentRunID)
-	if err != nil {
-		return fmt.Errorf("runtime: load workflow authorizer lineage: %w", err)
-	}
-	rootID := parent.RootID
-	if rootID == "" {
-		rootID = parent.ID
-	}
-	if parent.SessionID != run.SessionID || rootID != run.RootID || parent.Depth+1 != run.Depth {
-		return storage.ErrWorkflowRevisionConflict
+	if revision.RootPurpose != "" {
+		// Trusted root: no parent Run lineage. The control Session must still
+		// carry its trusted purpose and the Run must be its own depth-0 root.
+		if run.Purpose == "" || run.Depth != 0 {
+			return storage.ErrWorkflowRevisionConflict
+		}
+		control, err := s.deps.Sessions.GetSession(ctx, run.SessionID)
+		if err != nil {
+			return fmt.Errorf("runtime: load workflow control session during recovery: %w", err)
+		}
+		if control.Purpose != domain.SessionPurposeReportControl || revision.RootPurpose != TrustedStrategyReport {
+			return storage.ErrWorkflowRevisionConflict
+		}
+	} else {
+		parent, err := s.deps.Runs.GetRun(ctx, revision.ParentRunID)
+		if err != nil {
+			return fmt.Errorf("runtime: load workflow authorizer lineage: %w", err)
+		}
+		rootID := parent.RootID
+		if rootID == "" {
+			rootID = parent.ID
+		}
+		if parent.SessionID != run.SessionID || rootID != run.RootID || parent.Depth+1 != run.Depth {
+			return storage.ErrWorkflowRevisionConflict
+		}
 	}
 	authority, err := decodeWorkflowAuthority(revision)
 	if err != nil {
@@ -558,7 +573,17 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	}
 	var allowedTools []string
 	var admitted inofyAdmission
-	if authority.TrustedStrategy != "" {
+	if authority.TrustedStrategy == TrustedStrategyReport {
+		// Report roots rebind to the code-owned sealed program; no cognitive
+		// domain or bound model is required for the R0 admission path.
+		// With the reports capability omitted, active report Runs are
+		// fenced into recovery_required — never re-executed by a generic
+		// executor — until an owner with the capability resumes them (R3).
+		if s.deps.Report == nil {
+			return ErrWorkflowRecoveryRequired
+		}
+		admitted, err = trustedStrategyAdmission(ctx, TrustedStrategyReport)
+	} else if authority.TrustedStrategy != "" {
 		// Trusted revisions rebind to the same code-owned strategy catalog
 		// and require the bound Domain to be wired; a saved descriptor or
 		// catalog drift fails the digest compare below.

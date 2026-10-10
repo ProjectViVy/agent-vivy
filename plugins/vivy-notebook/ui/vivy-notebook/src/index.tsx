@@ -18,7 +18,6 @@ export const extension = defineUIExtension({
         path: ROUTE,
         titleKey: 'plugin.vivy/notebook.title',
         subtitleKey: 'plugin.vivy/notebook.subtitle',
-        demo: true,
         render: () => <NotebookPage />,
       })),
       host.composition.navigation.register('vivy-notebook', defineNavigationItem({

@@ -43,6 +43,7 @@ import (
 	loopmodule "agent-vivy/internal/modules/loop"
 	memorymodule "agent-vivy/internal/modules/memory"
 	modelmodule "agent-vivy/internal/modules/model"
+	notebookmodule "agent-vivy/internal/modules/notebook"
 	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
 	"agent-vivy/internal/observerhost"
@@ -544,7 +545,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		if stageErr != nil {
 			return stageErr
 		}
-		next := tools.BuiltinWithChildInbox(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
+		next := tools.BuiltinWithChildInbox(nil, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
 		var mcpCfgs []runtime.MCPServerConfig
 		if s, err := settings.Load(liveSettingsPath); err == nil {
@@ -773,6 +774,23 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, err
 	}
+	// N2: the optional notebook owner binds through the same sealed accessor
+	// pattern. An omitted module leaves the action/tool inventories absent.
+	notebookBundle, err := notebookBundleForAssembly(ctx, &runtimeAssembly, generationID, backend)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	if notebookBundle != nil {
+		notebookmodule.SetActive(notebookBundle)
+	}
+	// R0: the optional reports owner binds through the same sealed accessor
+	// pattern; its admission bridge is attached once the Service exists.
+	reportsBundle, err := reportsBundleForAssembly(ctx, &runtimeAssembly, generationID, notebookScopeResolver{engine: backend})
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	var cognitiveSubs []observerhost.RunSubscription
 	if cognitiveBundle != nil {
 		captureSink := cognitiveBundle.Sink()
@@ -787,7 +805,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				if svc != nil && receipt.Seq != 0 {
 					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
 				}
-			}))
+			}, ingestExclusionPredicate(backend)))
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
 	if err != nil {
@@ -865,7 +883,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Messages:              backend,
 		GoalRuns:              goalRunStore,
 		PrimaryRuns:           primaryRunStore,
-		Notes:                 backend,
 		Approvals:             backend,
 		Questions:             backend,
 		ApprovalExpiration:    cfg.Tools.Approval.Expiration,
@@ -916,6 +933,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
 	}
+	if reportsBundle != nil {
+		reportsBundle.AttachAdmission(svc)
+	}
 	if err := bindCognitiveContextSources(runtimeAssembly, cognitiveBundle, backend); err != nil {
 		if cognitiveBundle != nil {
 			_ = cognitiveBundle.Close()
@@ -952,6 +972,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		authenticateAction := actionAuthenticate(string(rpcToken))
 		authorizeAction := actionAuthorize(policy, liveProfile)
+		authorizeAction = withNotebookHumanOrigin(authorizeAction, policy, liveProfile)
 		authorizeBridge := func(ctx context.Context, identity actionhost.Identity, request actionhost.BridgeRequest) error {
 			if identity.SessionID == "" {
 				return actionport.ErrUnauthenticated
@@ -975,9 +996,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			cognitiveProvider = provider
 		}
 		actionHost, err = actionhost.New(actionhost.Deps{
-			ProviderSets: runtimeAssembly.ActionSets,
-			MaskManager:  maskService,
-			Cognitive:    cognitiveProvider,
+			ProviderSets:   runtimeAssembly.ActionSets,
+			MaskManager:    maskService,
+			Cognitive:      cognitiveProvider,
+			Notebook:       notebookBundle,
+			NotebookScopes: notebookScopeResolver{engine: backend},
+			Reports:        reportsBundle,
+			ReportScopes:   reportScopeResolver{engine: backend},
 			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
 				_, err := backend.GetSession(ctx, sessionID)
 				return err
@@ -1559,6 +1584,30 @@ func actionAuthorize(policy *runtime.PolicyEngine, liveProfile domain.PolicyProf
 		}
 		if definition.RequiresApproval || definition.ApprovalRequired {
 			return actionport.ErrApprovalRequired
+		}
+		return nil
+	}
+}
+
+// withNotebookHumanOrigin is the narrow trusted-origin rule for direct
+// authenticated notebook edits (N2): a human control-plane caller (no bound
+// Run) may mutate the notebook under the profile default without a full-auto
+// profile or approval ceremony. Explicit policy rules — deny or prompt —
+// remain decisive; agent-bound invocations (identity.RunID) keep frozen-run
+// policy. The exemption names the owner so no other action inherits it.
+func withNotebookHumanOrigin(next func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error, policy *runtime.PolicyEngine, liveProfile domain.PolicyProfile) func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error {
+	return func(ctx context.Context, identity actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
+		if err := next(ctx, identity, definition, input); err != nil {
+			if errors.Is(err, actionport.ErrApprovalRequired) && identity.ID != "" && identity.RunID == "" && definition.Owner == "vivy/notebook-core" {
+				if policy == nil {
+					return err
+				}
+				evaluation, evalErr := policy.Evaluate(liveProfile, actionToolSpec(definition), input)
+				if evalErr == nil && evaluation.Decision == domain.PolicyPrompt && !evaluation.Matched {
+					return nil
+				}
+			}
+			return err
 		}
 		return nil
 	}

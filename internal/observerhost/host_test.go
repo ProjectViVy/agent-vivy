@@ -209,6 +209,46 @@ func TestDiagnosticOverloadIncrementsDropCounterWithoutBlocking(t *testing.T) {
 	}
 }
 
+// N2: a notebook-tainted run must never reach automatic observers (BML /
+// cognitive ingest), but skipping delivery still advances the durable cursor
+// so the run is not redelivered forever.
+func TestRunObserverExcludedRunSkipsDeliveryButAdvancesCursor(t *testing.T) {
+	journal := &memoryJournal{}
+	cursors := &memorySnapshots{}
+	provider := &recordingRunObserver{id: "fixture/excluded"}
+	host, err := New(Config{Journal: journal, Cursors: cursors, RunSubscriptions: []RunSubscription{{
+		Provider:             provider,
+		EventTypes:           []string{string(domain.EventToolFinished)},
+		AllowedPayloadFields: []string{"result"},
+		ExcludeRun: func(context.Context, domain.RunID) (bool, error) {
+			return true, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = journal.Append(context.Background(), storage.Commit{RunID: "run-nb", Events: []domain.RunEvent{{
+		Type: domain.EventToolFinished, CreatedAt: 1,
+		Payload: json.RawMessage(`{"result":"notebook row"}`),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.DeliverRun(context.Background(), "run-nb"); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.events) != 0 {
+		t.Fatalf("excluded run reached observer: %#v", provider.events)
+	}
+	cursor, _, err := cursors.Get(context.Background(), cursorKey(provider.id, "run-nb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cursor) != "1" {
+		t.Fatalf("cursor did not advance over excluded run: %q", cursor)
+	}
+}
+
 type delayedBarrierObserver struct{ recordingRunObserver }
 
 func (p *delayedBarrierObserver) ObserveRun(ctx context.Context, event observer.RunEvent) error {

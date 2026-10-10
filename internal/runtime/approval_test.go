@@ -57,7 +57,7 @@ func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatMod
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		Questions:          backend,
 		ApprovalExpiration: expiration, Sink: sink,
 	})
@@ -577,7 +577,7 @@ func newApprovalServiceForRestart(t *testing.T, backend *sqlite.Backend, workspa
 		return nil, err
 	}
 	return NewService(engine, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		Approvals: backend, Questions: backend, Workspaces: workspaces, Sink: newTestSink(),
 		ApprovalExpiration: 5 * time.Minute, Budget: DefaultBudgetPolicy(),
 	}), nil

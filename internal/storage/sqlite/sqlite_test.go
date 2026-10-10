@@ -3,13 +3,16 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/migrations"
 )
 
 func openBackend(t *testing.T) *Backend {
@@ -316,22 +319,37 @@ func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vivy.db")
 	ctx := context.Background()
 
-	b, err := Open(ctx, path)
+	// Seed the actual historical head, so later additive migrations have not
+	// already been marked applied when the repaired table is recreated.
+	raw, err := sql.Open("sqlite", path)
 	if err != nil {
-		t.Fatalf("initial Open: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := b.db.ExecContext(ctx, `DROP TABLE cron_jobs`); err != nil {
+	full, err := migrations.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := fstest.MapFS{}
+	for _, dialect := range []migrations.Dialect{migrations.SQLite, migrations.Postgres} {
+		for _, m := range full.Migrations(dialect)[:16] {
+			fsys[string(dialect)+"/"+filepath.Base(m.Path)] = &fstest.MapFile{Data: []byte(m.SQL)}
+		}
+	}
+	head16, err := migrations.Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.ApplyManifest(ctx, raw, migrations.SQLite, head16); err != nil {
+		t.Fatalf("seed migration016 shape: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `DROP TABLE cron_jobs`); err != nil {
 		t.Fatalf("remove cron_jobs from legacy shape: %v", err)
 	}
-	if _, err := b.db.ExecContext(ctx,
-		`DELETE FROM schema_migrations WHERE version = 17`); err != nil {
-		t.Fatalf("remove repair marker: %v", err)
-	}
-	if err := b.Close(); err != nil {
+	if err := raw.Close(); err != nil {
 		t.Fatalf("close legacy shape: %v", err)
 	}
 
-	b, err = Open(ctx, path)
+	b, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open after migration016-only shape: %v", err)
 	}

@@ -797,7 +797,7 @@ func newObservedService(t *testing.T, chat model.ToolCallingChatModel, budget Bu
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Truncations: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: sink, Truncations: backend,
 		Budget: budget,
 	})
 	return svc, backend, sink

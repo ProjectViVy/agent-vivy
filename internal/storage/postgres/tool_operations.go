@@ -43,9 +43,10 @@ func (b *Backend) AdmitToolOperation(ctx context.Context, admission domain.ToolO
 		return domain.ToolOperation{}, false, domain.RunEvent{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO tool_operations
-		(run_id, operation_id, tool_name, request_digest, middleware_input_arguments, arguments_digest, effective_arguments, state, claim_owner, result, failure, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '', ?, ?)`, admission.RunID, admission.OperationID, admission.ToolName,
-		admission.RequestDigest, admission.MiddlewareInputArguments, admission.ArgumentsDigest, admission.EffectiveArguments, string(admission.State), admission.CreatedAt, admission.UpdatedAt); err != nil {
+		(run_id, operation_id, tool_name, request_digest, middleware_input_arguments, arguments_digest, effective_arguments, state, claim_owner, result, failure, content_origin, exclude_automatic_ingest, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '', ?, ?, ?, ?)`, admission.RunID, admission.OperationID, admission.ToolName,
+		admission.RequestDigest, admission.MiddlewareInputArguments, admission.ArgumentsDigest, admission.EffectiveArguments, string(admission.State),
+		admission.ContentOrigin, admission.ExcludeAutomaticIngest, admission.CreatedAt, admission.UpdatedAt); err != nil {
 		return domain.ToolOperation{}, false, domain.RunEvent{}, fmt.Errorf("storage: insert tool operation admission: %w", err)
 	}
 	event, err := postgresAppendToolOperationEvent(ctx, tx, admission)
@@ -170,10 +171,10 @@ func postgresGetToolOperation(ctx context.Context, q postgresToolOperationQuery,
 	var op domain.ToolOperation
 	var state string
 	err := q.QueryRowContext(ctx, `SELECT run_id, operation_id, tool_name, request_digest, middleware_input_arguments, arguments_digest,
-		effective_arguments, state, claim_owner, result, failure, created_at, updated_at
+		effective_arguments, state, claim_owner, result, failure, content_origin, exclude_automatic_ingest, created_at, updated_at
 		FROM tool_operations WHERE run_id = ? AND operation_id = ?`, runID, operationID).Scan(
 		&op.RunID, &op.OperationID, &op.ToolName, &op.RequestDigest, &op.MiddlewareInputArguments, &op.ArgumentsDigest,
-		&op.EffectiveArguments, &state, &op.ClaimOwner, &op.Result, &op.Failure, &op.CreatedAt, &op.UpdatedAt)
+		&op.EffectiveArguments, &state, &op.ClaimOwner, &op.Result, &op.Failure, &op.ContentOrigin, &op.ExcludeAutomaticIngest, &op.CreatedAt, &op.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ToolOperation{}, false, nil
 	}
@@ -228,4 +229,15 @@ func postgresAppendToolOperationEvent(ctx context.Context, tx *Tx, op domain.Too
 		return domain.RunEvent{}, fmt.Errorf("storage: append tool operation event: %w", err)
 	}
 	return event, nil
+}
+
+// HasExcludedToolOperations reports whether the run admitted any
+// provenance-excluded operation. The eligibility check is metadata-only.
+func (b *Backend) HasExcludedToolOperations(ctx context.Context, runID domain.RunID) (bool, error) {
+	var n int
+	err := b.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM tool_operations WHERE run_id = ? AND exclude_automatic_ingest <> FALSE`, runID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }

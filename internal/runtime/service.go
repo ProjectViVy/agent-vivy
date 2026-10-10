@@ -127,9 +127,6 @@ type ServiceDeps struct {
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
 	TenantID string
-	// Notes feeds the preamble's notebook digest (MA-3); nil leaves the
-	// digest out.
-	Notes storage.NoteStore
 	// Approvals persists the approval rows behind the effectful tool
 	// gate (C6); nil leaves interrupts unable to suspend.
 	Approvals storage.ApprovalStore
@@ -207,6 +204,10 @@ type ServiceDeps struct {
 	// product surface (drafts, publishing, product runs) stays unavailable
 	// while the core task-graph path keeps working.
 	WorkflowDefinitions storage.WorkflowDefinitionStore
+	// Report is the bounded report authority (settings, generations, source
+	// reads). NewService discovers it from Sessions; nil keeps the reports
+	// capability closed — admission and effect dispatch fail unavailable.
+	Report storage.ReportStore
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
@@ -483,6 +484,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if deps.WorkflowDefinitions == nil {
 		deps.WorkflowDefinitions, _ = deps.Sessions.(storage.WorkflowDefinitionStore)
+	}
+	if deps.Report == nil {
+		deps.Report, _ = deps.Sessions.(storage.ReportStore)
 	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"
@@ -3389,10 +3393,9 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 		return nil, selection, ContextStats{}, err
 	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, whether active tools exist, and the
-	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
-	// official middleware.
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face, collaboration)
+	// static Instruction cannot (date and whether active tools exist).
+	// Tool discovery is owned by Eino's official middleware.
+	preamble := composeRunPreamble(time.Now(), len(selection.Specs) > 0, face, collaboration)
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
@@ -3507,12 +3510,25 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		return stored, false
 	}
 	kept := stored[idx:]
+	excluded := false
+	for _, m := range stored[:idx] {
+		if m.ExcludeAutomaticIngest {
+			excluded = true
+			break
+		}
+	}
 	summary := domain.Message{
 		ID:        newMessageID(),
 		SessionID: latest.SessionID,
 		Role:      domain.RoleUser,
 		CreatedAt: latest.TailFrom,
 		Content:   compactionSummaryPrefix + latest.Summary,
+	}
+	if excluded {
+		// A folded range containing excluded rows taints the derived summary:
+		// mixed summaries are conservatively excluded from automatic ingest.
+		summary.ExcludeAutomaticIngest = true
+		summary.ContentOrigin = domain.ContentOriginNotebook
 	}
 	out := make([]domain.Message, 0, len(kept)+1)
 	out = append(out, summary)
@@ -3522,21 +3538,6 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 
 // compactionSummaryPrefix marks a durable session summary inside the feed.
 const compactionSummaryPrefix = "【会话压缩摘要，以下为较早对话与工具调用的浓缩：】\n"
-
-// notesDigest builds the preamble's notebook section (MA-3). Any listing
-// failure degrades to no digest with a warning: the preamble stays
-// useful even when the notebook read fails.
-func (s *Service) notesDigest(ctx context.Context) string {
-	if s.deps.Notes == nil {
-		return ""
-	}
-	notes, err := s.deps.Notes.ListNotes(ctx)
-	if err != nil {
-		slog.Warn("notes digest skipped; listing failed", "err", err)
-		return ""
-	}
-	return formatNotesDigest(notes)
-}
 
 // consume maps engine events into the journal until the iterator closes,
 // then emits run.completed. Interrupts suspend the run without a terminal

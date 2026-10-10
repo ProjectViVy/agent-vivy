@@ -95,9 +95,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-42", "parent deletion fences child session tree", cnChildSessionDelete},
 		{"CN-43", "immutable workflow revision admission", cnWorkflowRevisionAdmission},
 		{"CN-44", "durable active-child slot limit", cnChildSlotLimit},
+		{"CN-45", "notebook exclusion provenance", cnNotebookExclusionProvenance},
 	}
-	if len(cases) != 44 {
-		t.Fatalf("conformance suite must carry exactly 44 cases, got %d", len(cases))
+	if len(cases) != 45 {
+		t.Fatalf("conformance suite must carry exactly 45 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -786,6 +787,104 @@ func conformanceToolOperation(runID domain.RunID, id string) domain.ToolOperatio
 	return domain.ToolOperation{RunID: runID, OperationID: id, ToolName: "write_note",
 		RequestDigest: conformanceToolOperationDigest("request:" + string(args)), MiddlewareInputArguments: append([]byte(nil), args...),
 		ArgumentsDigest: conformanceToolOperationDigest(string(args)), EffectiveArguments: args}
+}
+
+// cnNotebookExclusionProvenance proves N2's durable exclusion marker survives
+// admission, reopen, and projection on both dialects: the tool operation and
+// its derived message carry the flag, unmarked runs report no exclusion, and
+// no retroactive taint appears on earlier rows.
+func cnNotebookExclusionProvenance(t *testing.T, h Harness) {
+	slot := h.Setup(t)
+	t.Cleanup(func() { _ = slot.Engine.Close() })
+	b := slot.Engine
+	ctx := context.Background()
+	const sessionID = domain.SessionID("session-cn-notebook-prov")
+	const runID = domain.RunID("run-cn-notebook-prov")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "provenance", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if excluded, err := b.HasExcludedToolOperations(ctx, runID); err != nil || excluded {
+		t.Fatalf("empty run HasExcludedToolOperations = %v, %v", excluded, err)
+	}
+	normal := conformanceToolOperation(runID, "call-plain")
+	if _, inserted, _, err := b.AdmitToolOperation(ctx, normal); err != nil || !inserted {
+		t.Fatalf("plain admission: %v inserted=%v", err, inserted)
+	}
+	if excluded, err := b.HasExcludedToolOperations(ctx, runID); err != nil || excluded {
+		t.Fatalf("plain op must not mark run: %v, %v", excluded, err)
+	}
+	note := conformanceToolOperation(runID, "call-note")
+	note.ContentOrigin = domain.ContentOriginNotebook
+	note.ExcludeAutomaticIngest = true
+	if _, inserted, _, err := b.AdmitToolOperation(ctx, note); err != nil || !inserted {
+		t.Fatalf("notebook admission: %v inserted=%v", err, inserted)
+	}
+	stored, err := b.GetToolOperation(ctx, runID, "call-note")
+	if err != nil {
+		t.Fatalf("read notebook op: %v", err)
+	}
+	if stored.ContentOrigin != domain.ContentOriginNotebook || !stored.ExcludeAutomaticIngest {
+		t.Fatalf("op provenance lost: %+v", stored)
+	}
+	plain, err := b.GetToolOperation(ctx, runID, "call-plain")
+	if err != nil {
+		t.Fatalf("read plain op: %v", err)
+	}
+	if plain.ContentOrigin != "" || plain.ExcludeAutomaticIngest {
+		t.Fatalf("retroactive taint on plain op: %+v", plain)
+	}
+	if excluded, err := b.HasExcludedToolOperations(ctx, runID); err != nil || !excluded {
+		t.Fatalf("excluded run not detected: %v, %v", excluded, err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "msg-nb", SessionID: sessionID, RunID: runID, Role: domain.RoleTool, CreatedAt: 3, Content: "note result", ContentOrigin: domain.ContentOriginNotebook, ExcludeAutomaticIngest: true}); err != nil {
+		t.Fatalf("append flagged message: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "msg-plain", SessionID: sessionID, RunID: runID, Role: domain.RoleTool, CreatedAt: 4, Content: "plain result"}); err != nil {
+		t.Fatalf("append plain message: %v", err)
+	}
+	messages, err := b.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var flagged, unflagged *domain.Message
+	for i := range messages {
+		switch messages[i].ID {
+		case "msg-nb":
+			flagged = &messages[i]
+		case "msg-plain":
+			unflagged = &messages[i]
+		}
+	}
+	if flagged == nil || unflagged == nil {
+		t.Fatalf("missing persisted messages: %d", len(messages))
+	}
+	if flagged.ContentOrigin != domain.ContentOriginNotebook || !flagged.ExcludeAutomaticIngest {
+		t.Fatalf("message provenance lost: %+v", flagged)
+	}
+	if unflagged.ContentOrigin != "" || unflagged.ExcludeAutomaticIngest {
+		t.Fatalf("retroactive taint on plain message: %+v", unflagged)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := slot.Reopen()
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if excluded, err := reopened.HasExcludedToolOperations(ctx, runID); err != nil || !excluded {
+		t.Fatalf("exclusion did not survive reopen: %v, %v", excluded, err)
+	}
+	reloaded, err := reopened.GetToolOperation(ctx, runID, "call-note")
+	if err != nil || !reloaded.ExcludeAutomaticIngest {
+		t.Fatalf("op provenance lost after reopen: %v %+v", err, reloaded)
+	}
 }
 
 func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {

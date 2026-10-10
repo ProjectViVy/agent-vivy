@@ -7,6 +7,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/generation"
@@ -76,6 +77,11 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 	if err != nil {
 		return nil, err
 	}
+	for i := range subscriptions {
+		if subscriptions[i].Provider.ID() == memorymodule.ProviderID {
+			subscriptions[i].ExcludeRun = ingestExclusionPredicate(backend)
+		}
+	}
 	// Construction-owned subscriptions (e.g. the cognitive capture seam)
 	// append after the sealed inventory; nothing may subscribe after Start.
 	subscriptions = append(subscriptions, extraSubs...)
@@ -92,8 +98,24 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 	return observerhost.New(observerhost.Config{Journal: backend, Cursors: backend.Snapshot(), RunSubscriptions: subscriptions, RecoverRunIDs: recoverRunIDs})
 }
 
+// ingestExclusionPredicate gates observer delivery: report-purpose Runs and
+// runs with ingestion-excluded tool operations never feed memory or
+// cognitive capture, while the Journal cursor still advances.
+func ingestExclusionPredicate(backend storage.Engine) func(context.Context, domain.RunID) (bool, error) {
+	return func(ctx context.Context, id domain.RunID) (bool, error) {
+		run, err := backend.GetRun(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		if run.Purpose == domain.RunPurposeReport {
+			return true, nil
+		}
+		return backend.HasExcludedToolOperations(ctx, id)
+	}
+}
+
 func terminalRunIDs(ctx context.Context, backend storage.Engine) ([]domain.RunID, error) {
-	sessions, err := backend.ListSessions(ctx)
+	sessions, err := backend.ListSessionsForRecovery(ctx)
 	if err != nil {
 		return nil, err
 	}

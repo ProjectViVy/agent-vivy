@@ -14,6 +14,10 @@ var (
 	// ErrVersionConflict is returned by SnapshotStore.Put when the stored
 	// version differs from expectVersion (optimistic concurrency).
 	ErrVersionConflict = errors.New("storage: snapshot version conflict")
+	// ErrRevisionConflict is returned by CAS writes (cron settings, report
+	// settings) when the stored revision moved past the caller's expected
+	// value; the caller rereads and retries.
+	ErrRevisionConflict = errors.New("storage: revision conflict")
 	// ErrRunClosed is returned by Journal.Append once the run has a
 	// terminal event (D-008 exactly-one-terminal).
 	ErrRunClosed = errors.New("storage: run already has a terminal event")
@@ -97,6 +101,10 @@ type ToolOperationStore interface {
 	GetToolOperation(context.Context, domain.RunID, string) (domain.ToolOperation, error)
 	ClaimToolOperation(context.Context, domain.RunID, string, string) (domain.ToolOperation, bool, domain.RunEvent, error)
 	CompleteToolOperation(context.Context, domain.RunID, string, string, string, string) (domain.ToolOperation, domain.RunEvent, error)
+	// HasExcludedToolOperations reports whether a run admitted any
+	// operation flagged exclude_automatic_ingest. Automatic-ingest
+	// subscriptions use it to skip the run while still advancing cursors.
+	HasExcludedToolOperations(context.Context, domain.RunID) (bool, error)
 }
 
 // SnapshotStore holds the latest consistent domain state per key. Version
@@ -140,7 +148,11 @@ type LeaseStore interface {
 type SessionStore interface {
 	CreateSession(ctx context.Context, s domain.Session) error
 	// ListSessions returns all sessions by durable activity, newest first.
+	// Hidden trusted-purpose sessions are excluded.
 	ListSessions(ctx context.Context) ([]domain.Session, error)
+	// ListSessionsForRecovery adds hidden trusted-purpose sessions (e.g.
+	// report control) so recovery/administration sees every workflow root.
+	ListSessionsForRecovery(ctx context.Context) ([]domain.Session, error)
 	GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error)
 	RenameSession(ctx context.Context, id domain.SessionID, title string) error
 	UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, mode domain.SandboxMode, policy domain.ApprovalPolicy) error
@@ -413,6 +425,10 @@ type CronStore interface {
 	ListCronJobs(ctx context.Context) ([]domain.CronJob, error)
 	UpdateCronJob(ctx context.Context, job domain.CronJob) error
 	DeleteCronJob(ctx context.Context, id string) error
+	// UpdateCronJobCAS rewrites the job only when its stored revision still
+	// equals expected; the store increments revision on success. A stale
+	// expected value returns ErrRevisionConflict.
+	UpdateCronJobCAS(ctx context.Context, job domain.CronJob, expected int64) (domain.CronJob, error)
 }
 
 // SessionCompaction is one durable session-level context-compression record.
@@ -755,6 +771,8 @@ type Engine interface {
 	LeaseStore
 	ChannelDeliveryStore
 	ChannelMaintenanceStore
+	// Notebook exposes the scoped, revisioned content store (N1).
+	Notebook() NotebookStore
 	Snapshot() SnapshotStore
 	Blobs() BlobStore
 	Close() error

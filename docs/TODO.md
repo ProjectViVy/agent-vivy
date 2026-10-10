@@ -142,3 +142,7 @@ are **not** on this board; they need their own capability proposal.
 
 > The completed HITL P0 stage is archived in `docs/COMPLETE.MD`; unfinished P1 follow-ups are now
 > owner-deferred in `docs/DEFER.MD` until explicitly re-prioritized.
+
+## Integration completion record (2026-10-10)
+
+| LAPUTA-MEMORY-API-PIN | Align the pinned Laputa API with main's cognitive module | DONE — integrated #48/#49 | PR #47 merge verification reproduced six compile errors on unmodified main at `59a673ac`: the Laputa pin `ff3936f` lacks `WithMissionRevision`, `CaptureActivity`, `CaptureRequest.Activity`, `LookupCapture`, and `ArchiveCapturedSession`. Dependency closure is restored by merged #48/#49; consolidated integration verification is tracked under `docs/logs/2026-10-10-submitted-pr-integration/`. Related: `laputa-source.lock.json`, `internal/modules/diva-cognitive/factory.go`, [verification](logs/2026-10-10-notebook-pr47-merge/verification.md). |

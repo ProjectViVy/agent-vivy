@@ -21,21 +21,36 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 		s.UpdatedAt = time.Now().UnixMilli()
 	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath); err != nil {
+		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path, purpose) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath, string(s.Purpose)); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
 }
 
 // ListSessions returns top-level conversations by durable activity, newest
-// first. Addressable child sessions are opened through the child inspector.
+// first. Hidden trusted-purpose sessions stay out of the chat lane;
+// addressable child sessions are opened through the child inspector.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
-	rows, err := b.db.QueryContext(ctx,
-		`SELECT s.id, s.title, s.created_at, s.updated_at, s.sandbox_mode, s.approval_policy, s.workspace_path
+	return b.listSessions(ctx, false)
+}
+
+// ListSessionsForRecovery returns the same top-level set plus hidden
+// trusted-purpose sessions so recovery and administration enumerate every
+// workflow root.
+func (b *Backend) ListSessionsForRecovery(ctx context.Context) ([]domain.Session, error) {
+	return b.listSessions(ctx, true)
+}
+
+func (b *Backend) listSessions(ctx context.Context, includeHidden bool) ([]domain.Session, error) {
+	query := `SELECT s.id, s.title, s.created_at, s.updated_at, s.sandbox_mode, s.approval_policy, s.workspace_path, s.purpose
 		 FROM sessions s
-		 WHERE NOT EXISTS (SELECT 1 FROM child_sessions c WHERE c.child_session_id = s.id)
-		 ORDER BY s.updated_at DESC, s.id`)
+		 WHERE NOT EXISTS (SELECT 1 FROM child_sessions c WHERE c.child_session_id = s.id)`
+	if !includeHidden {
+		query += ` AND s.purpose = ''`
+	}
+	query += ` ORDER BY s.updated_at DESC, s.id`
+	rows, err := b.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list sessions: %w", err)
 	}
@@ -45,7 +60,7 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath); err != nil {
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath, &s.Purpose); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
@@ -58,8 +73,8 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path, purpose FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath, &s.Purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}

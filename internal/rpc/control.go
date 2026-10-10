@@ -3496,6 +3496,9 @@ func (h *controlHandler) updateCron(ctx context.Context, request Request) (any, 
 	} else if err != nil {
 		return nil, internalError(err)
 	}
+	if existing.Payload.Kind == domain.CronPayloadKindReport {
+		return nil, &Error{Code: InvalidParams, Message: "report settings rows are mutable only via vivy.reports.settings.write"}
+	}
 	enabled := existing.Enabled
 	if params.Enabled != nil {
 		enabled = *params.Enabled
@@ -3532,6 +3535,13 @@ func (h *controlHandler) deleteCron(ctx context.Context, request Request) (any, 
 	}
 	if params.ID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	if existing, getErr := h.deps.Crons.GetCronJob(ctx, params.ID); getErr == nil &&
+		existing.Payload.Kind == domain.CronPayloadKindReport {
+		// Report cron rows are the durable ReportSettings authority; they
+		// are mutable only through vivy.reports.settings.write, never
+		// through generic cron mutation.
+		return nil, &Error{Code: InvalidParams, Message: "report settings rows cannot be deleted via cron.delete"}
 	}
 	h.deps.CronRunner.StopCron(params.ID)
 	if err := h.deps.Crons.DeleteCronJob(ctx, params.ID); err != nil {
