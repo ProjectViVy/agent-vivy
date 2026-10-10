@@ -36,7 +36,7 @@ vet: ensure-laputa
     & "{{go}}" vet ./...
 
 fmt-check:
-    powershell -NoProfile -Command '$files = & git ls-files -- ''*.go''; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
+    powershell -NoProfile -Command '$files = & git ls-files --cached --others --exclude-standard -- ''*.go'' | Where-Object { Test-Path -LiteralPath $_ }; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
 
 # Per-module vet+test for plugins/* and faces/* independent modules (each
 # with its own go.mod; hello-fs belongs to the main module and is covered

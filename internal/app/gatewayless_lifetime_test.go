@@ -1,10 +1,8 @@
 package app
 
-// Lifetime evidence for the embedded host owner (agent-diva DN-L /
-// GATEWAYLESS-LIFETIME-EVIDENCE): a gateway-less App.Run must block on its
-// context and must not return just because no listener exists, and the
-// embedded lifecycle owner must keep the interaction sweeper running so
-// approvals expire durably.
+// A gateway-less App.Run must block on its context, keep lifecycle services
+// running while faces drive the in-process control plane, and stop them on
+// cancellation.
 
 import (
 	"context"
@@ -18,7 +16,7 @@ import (
 // TestGatewaylessRunBlocksUntilContextCancel demonstrates the premature
 // return: with no HTTP listener there is no server error to report, so Run
 // must wait on ctx alone. The baseline closed errCh immediately and
-// returned nil while the host was still expected to be live.
+// returned nil while the App was still expected to be live.
 func TestGatewaylessRunBlocksUntilContextCancel(t *testing.T) {
 	a, _ := composeGatewayless(t)
 
@@ -43,10 +41,10 @@ func TestGatewaylessRunBlocksUntilContextCancel(t *testing.T) {
 	}
 }
 
-// TestStartEmbeddedServicesExpiresApprovals proves the embedded lifecycle
-// owner starts the interaction sweeper Run used to own: a pending approval
-// under a short expiration resolves to expired without any Run call.
-func TestStartEmbeddedServicesExpiresApprovals(t *testing.T) {
+// TestGatewaylessRunExpiresApprovals proves App.Run owns the interaction
+// sweeper: a pending approval under a short expiration resolves without a
+// direct service-start call.
+func TestGatewaylessRunExpiresApprovals(t *testing.T) {
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	t.Setenv("DEEPSEEK_API_KEY", "facehost-test-key")
@@ -60,8 +58,20 @@ func TestStartEmbeddedServicesExpiresApprovals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}
-	t.Cleanup(func() { _ = a.Close() })
-	a.StartEmbeddedServices()
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- a.Run(runCtx) }()
+	t.Cleanup(func() {
+		cancelRun()
+		select {
+		case err := <-runDone:
+			if err != nil {
+				t.Errorf("Run: %v", err)
+			}
+		case <-time.After(shutdownGrace + 10*time.Second):
+			t.Error("Run did not stop after context cancellation")
+		}
+	})
 
 	dialCtx, cancelDial := context.WithCancel(context.Background())
 	t.Cleanup(cancelDial)
@@ -69,6 +79,7 @@ func TestStartEmbeddedServicesExpiresApprovals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	t.Cleanup(func() { _ = client.Close() })
 
 	session := callControl(t, client, "session/create", map[string]any{"title": "sweeper"})
 	sessionID, _ := session["id"].(string)

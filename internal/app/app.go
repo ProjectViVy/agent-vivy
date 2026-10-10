@@ -1372,23 +1372,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	return app, nil
 }
 
-// StartEmbeddedServices starts the lifecycle services Run would normally own
-// (interaction sweeper, cron scheduler) for hosts that embed a gateway-less
-// composition without calling Run — the embedded host's Open owns them.
-// Shutdown ownership is unchanged: Close stops them.
-func (a *App) StartEmbeddedServices() {
-	if a == nil || a.service == nil {
-		return
-	}
-	a.service.StartInteractionSweeper(context.Background(), time.Second)
-	if a.cfg.Runtime.Cron.Enabled {
-		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
-	}
-	// Selected cognition starts once, exactly like Run; the loop is
-	// idempotent and a no-op without a bound trigger store.
-	a.service.StartCognitiveLoop(context.Background(), 0)
-}
-
 // Close shuts down a gateway-less composition and is safe to call more than
 // once. Resident gateway processes use Run, whose shutdown additionally owns
 // the HTTP listener ordering.
