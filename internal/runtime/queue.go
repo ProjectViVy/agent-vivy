@@ -21,6 +21,13 @@ import (
 
 var ErrQueueUnavailable = errors.New("runtime: no active run for session")
 var errQueueChanged = errors.New("runtime: queue changed before admission")
+var ErrQueuePayloadTooLarge = errors.New("runtime: full queued turn exceeds journal payload limit")
+
+// Removal controls use the existing non-executable synthetic Journal pattern.
+// Each namespace belongs to one immutable carrier and has no RunStore row.
+func queueControlRunID(carrier domain.RunID) domain.RunID {
+	return domain.RunID("sessctl_queue_" + string(carrier))
+}
 
 type sessionQueue struct {
 	latestCreatedAt         int64
@@ -120,6 +127,25 @@ func (s *Service) rebuildQueue(ctx context.Context, sid domain.SessionID, q *ses
 	if err = errors.Join(iterErr, closeErr); err != nil {
 		return err
 	}
+	controls, err := s.deps.Journal.Replay(ctx, queueControlRunID(latest), 0)
+	if err != nil {
+		return err
+	}
+	for controls.Next() {
+		event := controls.Value().Event
+		if event.Type != domain.EventTurnDequeued {
+			continue
+		}
+		var removed payloadTurnDequeued
+		if err := json.Unmarshal(event.Payload, &removed); err != nil {
+			_ = controls.Close()
+			return err
+		}
+		pending = removeQueued(pending, removed.QueueID)
+	}
+	if err := errors.Join(controls.Err(), controls.Close()); err != nil {
+		return err
+	}
 	var steer, follow []domain.QueuedTurn
 	for _, item := range pending {
 		if item.Track == domain.QueueTrackSteer {
@@ -149,8 +175,18 @@ func (s *Service) journalQueueMarker(ctx context.Context, item domain.QueuedTurn
 	if item.EnqueuedOn == "" {
 		return ErrQueueUnavailable
 	}
-	_, err := s.appendRunEvent(ctx, newEventMapper(item.EnqueuedOn, s.engine.cfg.MaxEventPayloadBytes).build(kind, payload), false)
+	event := newEventMapper(item.EnqueuedOn, s.engine.cfg.MaxEventPayloadBytes).build(kind, payload)
+	if err := validateQueuePayload(event, s.engine.cfg.MaxEventPayloadBytes); err != nil {
+		return err
+	}
+	_, err := s.appendRunEvent(ctx, event, false)
 	return err
+}
+func validateQueuePayload(event domain.RunEvent, limit int) error {
+	if limit > 0 && len(event.Payload) > limit {
+		return fmt.Errorf("%w: %d bytes; limit is %d", ErrQueuePayloadTooLarge, len(event.Payload), limit)
+	}
+	return nil
 }
 func (s *Service) Steer(ctx context.Context, sid domain.SessionID, text string) (domain.QueuedTurn, error) {
 	return s.SteerWithOptions(ctx, sid, domain.QueuedTurn{Text: text})
@@ -193,6 +229,12 @@ func (s *Service) enqueueTurn(ctx context.Context, sid domain.SessionID, rid dom
 		return domain.QueuedTurn{}, err
 	}
 	if _, err = normalizeThinkingMode(item.Thinking); err != nil {
+		return domain.QueuedTurn{}, err
+	}
+	// Also reserve the full restoration marker; successful enqueue must not
+	// create an item whose later dequeue/abort cannot fit the same journal.
+	removal := newEventMapper(rid, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text, Turn: &item})
+	if err := validateQueuePayload(removal, s.engine.cfg.MaxEventPayloadBytes); err != nil {
 		return domain.QueuedTurn{}, err
 	}
 	if err = s.journalQueueMarker(ctx, item, domain.EventTurnQueued, queuedPayload(item)); err != nil {
@@ -292,21 +334,53 @@ func (s *Service) clearQueue(ctx context.Context, sid domain.SessionID, reason s
 		}
 		events = append(events, newEventMapper(carrier, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: reason, Text: item.Text, Turn: &item}))
 	}
-	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
-	if s.sessionDeleted(sid) {
-		return QueueState{}, storage.ErrNotFound
-	}
-	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: carrier, Events: events})
-	if err != nil {
+	if err := s.appendQueueRemovals(ctx, sid, events); err != nil {
 		return QueueState{}, err
 	}
 	q.steer, q.followUp = nil, nil
+	return state, nil
+}
+
+// Called under q.mu. A sealed producer stays immutable; only ErrRunClosed
+// selects the carrier-qualified control namespace. Both paths fail closed.
+func (s *Service) appendQueueRemovals(ctx context.Context, sid domain.SessionID, events []domain.RunEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	for _, event := range events {
+		if err := validateQueuePayload(event, s.engine.cfg.MaxEventPayloadBytes); err != nil {
+			return err
+		}
+	}
+	carrier := events[0].RunID
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(sid) {
+		return storage.ErrNotFound
+	}
+	run, err := s.deps.Runs.GetRun(ctx, carrier)
+	if err != nil {
+		return err
+	}
+	if run.SessionID != sid {
+		return storage.ErrNotFound
+	}
+	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: carrier, Events: events})
+	if errors.Is(err, storage.ErrRunClosed) {
+		control := queueControlRunID(carrier)
+		for i := range events {
+			events[i].RunID = control
+		}
+		seq, err = s.deps.Journal.Append(ctx, storage.Commit{RunID: control, Events: events})
+	}
+	if err != nil {
+		return err
+	}
 	for i, event := range events {
 		event.Seq = seq - domain.EventSeq(len(events)-i-1)
 		s.publish(ctx, event)
 	}
-	return state, nil
+	return nil
 }
 func (s *Service) Dequeue(ctx context.Context, sid domain.SessionID, expectedID ...string) (domain.QueuedTurn, bool, error) {
 	q, err := s.queueFor(ctx, sid)
@@ -341,7 +415,8 @@ func (s *Service) QueueRemove(ctx context.Context, sid domain.SessionID, id stri
 	return domain.QueuedTurn{}, false, nil
 }
 func (s *Service) removeQueueLocked(ctx context.Context, q *sessionQueue, item domain.QueuedTurn) (domain.QueuedTurn, bool, error) {
-	if err := s.journalQueueMarker(ctx, item, domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text, Turn: &item}); err != nil {
+	event := newEventMapper(item.EnqueuedOn, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text, Turn: &item})
+	if err := s.appendQueueRemovals(ctx, item.SessionID, []domain.RunEvent{event}); err != nil {
 		return domain.QueuedTurn{}, false, err
 	}
 	q.steer = removeQueued(q.steer, item.ID)
@@ -477,17 +552,26 @@ func queuePrefixMatches(pending, selected []domain.QueuedTurn) bool {
 
 // Called under q.mu in the existing admission gate. All markers are part of
 // the admission transaction, so the newest journal always owns the entire tail.
-func queueAdmissionEvents(m *eventMapper, q *sessionQueue, items []domain.QueuedTurn) []domain.RunEvent {
+func queueAdmissionEvents(m *eventMapper, q *sessionQueue, items []domain.QueuedTurn) ([]domain.RunEvent, error) {
 	var events []domain.RunEvent
 	for _, item := range append(append([]domain.QueuedTurn(nil), q.steer...), q.followUp...) {
 		item.Track = domain.QueueTrackFollowUp
 		item.EnqueuedOn = m.runID
+		removal := m.build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "dequeued", Text: item.Text, Turn: &item})
+		if err := validateQueuePayload(removal, m.maxPayload); err != nil {
+			return nil, err
+		}
 		events = append(events, m.build(domain.EventTurnQueued, queuedPayload(item)))
 	}
 	for _, item := range items {
 		events = append(events, m.build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "started", NextRunID: string(m.runID)}))
 	}
-	return events
+	for _, event := range events {
+		if err := validateQueuePayload(event, m.maxPayload); err != nil {
+			return nil, err
+		}
+	}
+	return events, nil
 }
 func queueAdmitted(q *sessionQueue, items []domain.QueuedTurn, rid, after domain.RunID) {
 	q.followUp = append(append([]domain.QueuedTurn(nil), q.steer...), q.followUp...)

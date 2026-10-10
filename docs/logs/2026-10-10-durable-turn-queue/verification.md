@@ -21,3 +21,9 @@ Final checkpoint results:
 - git diff --check: PASS.
 
 Real interaction follow-up: tests reproduced RED for question cancellation retries after queue replay/terminal failure and for approval cancellation stealing an already approved durable decision. The new real question/approval tests include one cancellation lifecycle event and exactly one terminal after retry; decision-winner controls remain active. Optional dequeue-ID test reproduced stale inspection removing a newer item. Final focused command covering those cases and existing pending/question/approval cancellation behavior passed (2.678s).
+
+Sealed-carrier follow-up RED evidence: after failed admission, QueueRemove returned storage.ErrRunClosed; oversized full attachment DTOs were acknowledged; SQLite and live PostgreSQL session deletion left synthetic removal records. All corresponding focused regressions passed after the fixes. Control replay tests cover iterator error and close failure, private retry, and ignoring a previous carrier's controls after re-admission. Failed synthetic control writes retain the entire queue; successful retry is durable. A bounded 20 KB image dequeues intact and all its encoded journal events remain within the configured ceiling.
+
+Focused runtime + SQLite + live PostgreSQL command passed (0.420s / 0.061s / 0.403s); final control-write failure and bounded-image regression passed (0.126s). The temporary PostgreSQL 17 test database supplied by root uses unique disposable test schemas; no production database was used. A full runtime/RPC/SQLite/live PostgreSQL rerun is also running for this checkpoint; final integrated CI remains root-owned.
+
+Final sealed-carrier full rerun: go test -p 2 ./internal/runtime ./internal/rpc ./internal/storage/sqlite ./internal/storage/postgres -count=1 with VIVY_POSTGRES_TEST_DSN set: PASS (runtime 57.681s; RPC 15.318s; SQLite 7.147s; live Postgres 37.592s). git diff --check: PASS.

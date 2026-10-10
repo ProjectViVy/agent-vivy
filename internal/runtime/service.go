@@ -1190,7 +1190,11 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
-	queueEvents := queueAdmissionEvents(m, queue, options.queueItems)
+	queueEvents, queueErr := queueAdmissionEvents(m, queue, options.queueItems)
+	if queueErr != nil {
+		releaseWorkspace()
+		return "", queueErr
+	}
 	admission.Events = queueEvents
 	if len(queueEvents) > 0 && options.GoalRound != nil {
 		releaseWorkspace()

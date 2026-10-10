@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -795,5 +797,204 @@ func TestQueueDequeueExpectedIDRetainsNewerTurn(t *testing.T) {
 	}
 	if item, removed, err := svc.Dequeue(ctx, "dequeue-cas", newest.ID); err != nil || !removed || item.ID != newest.ID {
 		t.Fatalf("matched dequeue failed: %+v %v %v", item, removed, err)
+	}
+}
+
+func TestFailedAdmissionQueueControlsRemainDurableAfterSeal(t *testing.T) {
+	model := newGateModel()
+	svc, backend := newQueueTestService(t, model)
+	ctx := context.Background()
+	mustCreateSession(t, backend, "sealed-controls")
+	failed := make(chan error, 1)
+	svc.deps.PrimaryRuns = queueFailingPrimaryStore{PrimaryRunStore: backend, failed: failed}
+	rid, err := svc.Run(ctx, "sealed-controls", "initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-model.entered
+	var queued []domain.QueuedTurn
+	for _, text := range []string{"remove", "clear", "dequeue"} {
+		item, err := svc.FollowUpWithOptions(ctx, "sealed-controls", domain.QueuedTurn{Text: text, Thinking: domain.ThinkingLevelHigh, Attachments: []domain.Attachment{{Name: "captured.png", MimeType: "image/png", Data: []byte{1, 2, 3}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		queued = append(queued, item)
+	}
+	close(model.release)
+	if err := <-failed; err == nil {
+		t.Fatal("admission failure missing")
+	}
+	svc.WaitIdle(ctx)
+	svc.deps.PrimaryRuns = backend
+	if _, ok, err := svc.QueueRemove(ctx, "sealed-controls", queued[0].ID); err != nil || !ok {
+		t.Fatalf("sealed remove = %v %v", ok, err)
+	}
+	svc.dropSessionQueue("sealed-controls")
+	state := mustQueueState(t, svc, ctx, "sealed-controls", "")
+	if len(state.FollowUps) != 2 || !reflect.DeepEqual(state.FollowUps[1].Attachments, queued[2].Attachments) {
+		t.Fatalf("remove replay lost remaining DTOs: %+v", state)
+	}
+	if turn, ok, err := svc.Dequeue(ctx, "sealed-controls", queued[2].ID); err != nil || !ok || !reflect.DeepEqual(turn.Attachments, queued[2].Attachments) {
+		t.Fatalf("sealed dequeue = %+v %v %v", turn, ok, err)
+	}
+	svc.dropSessionQueue("sealed-controls")
+	if state := mustQueueState(t, svc, ctx, "sealed-controls", ""); len(state.FollowUps) != 1 {
+		t.Fatalf("dequeue replay = %+v", state)
+	}
+	if state, err := svc.ClearQueue(ctx, "sealed-controls"); err != nil || len(state.FollowUps) != 1 {
+		t.Fatalf("sealed clear = %+v %v", state, err)
+	}
+	svc.dropSessionQueue("sealed-controls")
+	if state := mustQueueState(t, svc, ctx, "sealed-controls", ""); len(state.FollowUps) != 0 {
+		t.Fatalf("clear replay = %+v", state)
+	}
+	events := journalEvents(t, backend, rid)
+	if !events[len(events)-1].Type.Terminal() {
+		t.Fatal("control appended after real terminal")
+	}
+	runs, err := backend.ListRunsBySession(ctx, "sealed-controls")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("queue controls created model run: %+v %v", runs, err)
+	}
+}
+func TestQueuePayloadLimitRejectsFullDTOBeforeAdmission(t *testing.T) {
+	svc, backend := newQueueTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	mustCreateSession(t, backend, "payload-boundary")
+	if err := backend.CreateRun(ctx, domain.Run{ID: "payload-carrier", SessionID: "payload-boundary", Status: domain.RunActive}); err != nil {
+		t.Fatal(err)
+	}
+	svc.active["payload-carrier"] = func() {}
+	svc.runSessions["payload-carrier"] = "payload-boundary"
+	_, err := svc.FollowUpWithOptions(ctx, "payload-boundary", domain.QueuedTurn{Text: "full image", Attachments: []domain.Attachment{{Name: "large.png", MimeType: "image/png", Data: make([]byte, svc.MaxEventPayloadBytes())}}})
+	if !errors.Is(err, ErrQueuePayloadTooLarge) {
+		t.Fatalf("oversized DTO error = %v", err)
+	}
+	if state := mustQueueState(t, svc, ctx, "payload-boundary", ""); len(state.FollowUps) != 0 {
+		t.Fatal("oversized DTO visible")
+	}
+	svc.dropSessionQueue("payload-boundary")
+	if state := mustQueueState(t, svc, ctx, "payload-boundary", ""); len(state.FollowUps) != 0 {
+		t.Fatal("oversized DTO durable")
+	}
+
+	accepted, err := svc.FollowUpWithOptions(ctx, "payload-boundary", domain.QueuedTurn{Text: "bounded image", Attachments: []domain.Attachment{{Name: "bounded.png", MimeType: "image/png", Data: make([]byte, 20_000)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored, ok, err := svc.Dequeue(ctx, "payload-boundary", accepted.ID); err != nil || !ok || !reflect.DeepEqual(restored.Attachments, accepted.Attachments) {
+		t.Fatalf("bounded DTO did not restore intact: %v %v", ok, err)
+	}
+	for _, event := range journalEvents(t, backend, "payload-carrier") {
+		if len(event.Payload) > svc.MaxEventPayloadBytes() {
+			t.Fatalf("event exceeds encoded bound: %d", len(event.Payload))
+		}
+	}
+}
+
+type failingQueueControlReplay struct {
+	storage.Journal
+	once         bool
+	closeFailure bool
+}
+
+func (j *failingQueueControlReplay) Replay(ctx context.Context, rid domain.RunID, after domain.EventSeq) (storage.Iterator[storage.Entry], error) {
+	it, err := j.Journal.Replay(ctx, rid, after)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(string(rid), "sessctl_queue_") && !j.once {
+		j.once = true
+		if j.closeFailure {
+			return queueControlCloseFailure{Iterator: it}, nil
+		}
+		return &queueReplayFailure{Iterator: it}, nil
+	}
+	return it, nil
+}
+
+type queueControlCloseFailure struct {
+	storage.Iterator[storage.Entry]
+}
+
+func (it queueControlCloseFailure) Close() error {
+	return errors.Join(it.Iterator.Close(), errors.New("control replay close failed"))
+}
+func TestQueueControlReplayFailureNeverPublishesPartialState(t *testing.T) {
+	for _, closeFailure := range []bool{false, true} {
+		t.Run(fmt.Sprint(closeFailure), func(t *testing.T) {
+			svc, backend := newQueueTestService(t, testsupport.NewEchoModel())
+			ctx := context.Background()
+			mustCreateSession(t, backend, "controls-retry")
+			if err := backend.CreateRun(ctx, domain.Run{ID: "control-carrier", SessionID: "controls-retry", Status: domain.RunCompleted, CreatedAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			mapper := newEventMapper("control-carrier", svc.MaxEventPayloadBytes())
+			if _, err := backend.Append(ctx, storage.Commit{RunID: "control-carrier", Events: []domain.RunEvent{mapper.build(domain.EventTurnQueued, payloadTurnQueued{QueueID: "removed", Text: "original", Track: domain.QueueTrackFollowUp}), mapper.build(domain.EventRunCompleted, payloadRunCompleted{})}}); err != nil {
+				t.Fatal(err)
+			}
+			control := queueControlRunID("control-carrier")
+			if _, err := backend.Append(ctx, storage.Commit{RunID: control, Events: []domain.RunEvent{newEventMapper(control, svc.MaxEventPayloadBytes()).build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: "removed"})}}); err != nil {
+				t.Fatal(err)
+			}
+			svc.deps.Journal = &failingQueueControlReplay{Journal: backend, closeFailure: closeFailure}
+			if state, err := svc.QueueState(ctx, "controls-retry", ""); err == nil {
+				t.Fatalf("control failure hidden: %+v", state)
+			}
+			if state := mustQueueState(t, svc, ctx, "controls-retry", ""); len(state.FollowUps) != 0 {
+				t.Fatalf("control retry lost removal: %+v", state)
+			}
+			// An old carrier's controls cannot remove a re-admitted same-ID turn.
+			if err := backend.CreateRun(ctx, domain.Run{ID: "new-carrier", SessionID: "controls-retry", Status: domain.RunActive, CreatedAt: 2}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := backend.Append(ctx, storage.Commit{RunID: "new-carrier", Events: []domain.RunEvent{newEventMapper("new-carrier", svc.MaxEventPayloadBytes()).build(domain.EventTurnQueued, payloadTurnQueued{QueueID: "removed", Text: "readmitted", Track: domain.QueueTrackFollowUp})}}); err != nil {
+				t.Fatal(err)
+			}
+			svc.dropSessionQueue("controls-retry")
+			if state := mustQueueState(t, svc, ctx, "controls-retry", ""); len(state.FollowUps) != 1 {
+				t.Fatalf("old controls applied to new carrier: %+v", state)
+			}
+		})
+	}
+}
+
+type failQueueControlAppend struct{ storage.Journal }
+
+func (j failQueueControlAppend) Append(ctx context.Context, commit storage.Commit) (domain.EventSeq, error) {
+	if strings.HasPrefix(string(commit.RunID), "sessctl_queue_") {
+		return 0, errors.New("control write unavailable")
+	}
+	return j.Journal.Append(ctx, commit)
+}
+func TestSealedClearControlWriteFailureRetainsEntireQueue(t *testing.T) {
+	svc, backend := newQueueTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	mustCreateSession(t, backend, "control-write-fail")
+	if err := backend.CreateRun(ctx, domain.Run{ID: "sealed-clear", SessionID: "control-write-fail", Status: domain.RunCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	mapper := newEventMapper("sealed-clear", svc.MaxEventPayloadBytes())
+	if _, err := backend.Append(ctx, storage.Commit{RunID: "sealed-clear", Events: []domain.RunEvent{mapper.build(domain.EventTurnQueued, payloadTurnQueued{QueueID: "one", Text: "one", Track: domain.QueueTrackFollowUp}), mapper.build(domain.EventTurnQueued, payloadTurnQueued{QueueID: "two", Text: "two", Track: domain.QueueTrackFollowUp}), mapper.build(domain.EventRunCompleted, payloadRunCompleted{})}}); err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Journal = failQueueControlAppend{Journal: backend}
+	if _, err := svc.ClearQueue(ctx, "control-write-fail"); err == nil {
+		t.Fatal("control failure hidden")
+	}
+	if state := mustQueueState(t, svc, ctx, "control-write-fail", ""); len(state.FollowUps) != 2 {
+		t.Fatal("failed control mutated live queue")
+	}
+	svc.dropSessionQueue("control-write-fail")
+	if state := mustQueueState(t, svc, ctx, "control-write-fail", ""); len(state.FollowUps) != 2 {
+		t.Fatal("failed control mutated durable queue")
+	}
+	svc.deps.Journal = backend
+	if state, err := svc.ClearQueue(ctx, "control-write-fail"); err != nil || len(state.FollowUps) != 2 {
+		t.Fatalf("clear retry = %+v %v", state, err)
+	}
+	svc.dropSessionQueue("control-write-fail")
+	if state := mustQueueState(t, svc, ctx, "control-write-fail", ""); len(state.FollowUps) != 0 {
+		t.Fatal("clear retry not durable")
 	}
 }
