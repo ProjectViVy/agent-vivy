@@ -13,10 +13,11 @@ import (
 
 type memoryLoopCognitionStatus struct {
 	Cognition struct {
-		ActiveRunID string `json:"active_run_id"`
-		Watermark   uint64 `json:"watermark"`
-		Phase       string `json:"phase"`
-		BlockReason string `json:"block_reason"`
+		ActiveRunID    string `json:"active_run_id"`
+		Watermark      uint64 `json:"watermark"`
+		PendingThrough uint64 `json:"pending_through"`
+		Phase          string `json:"phase"`
+		BlockReason    string `json:"block_reason"`
 	} `json:"cognition"`
 }
 

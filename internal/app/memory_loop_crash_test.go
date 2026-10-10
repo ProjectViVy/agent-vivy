@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -16,6 +19,7 @@ import (
 
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
+	"agent-vivy/internal/runtime"
 )
 
 // Test-only crash transport. It kills only the fixture-owned process after
@@ -174,4 +178,163 @@ func TestMemoryLoopInterruptedInferenceKeepsOriginalWindow(t *testing.T) {
 	}
 	t.Logf("real interrupted workflow=%s source=%d window=[%d,%d] processes=%d->%d engine=%s watermark=%d requests=%d", workflow.ID, source.CaptureSeq, window.After, window.Through, oldPID, newPID, workflow.EngineStatus, after.Cognition.Watermark, len(f.ModelRequests()))
 	saveMemoryLoopDevelopmentEvidence(t, f, session, "after-crash", source)
+}
+
+type memoryLoopCaptureHandshake struct {
+	PID        int    `json:"pid"`
+	Ingestion  string `json:"ingestion_id"`
+	CaptureSeq uint64 `json:"capture_seq"`
+}
+
+func memoryLoopCaptureReceiptHandshake(path string) AppOption {
+	return func(options *appOptions) {
+		options.cognitiveCaptureReceiptHook = func(receipt runtime.CognitiveCaptureReceipt) {
+			claim, err := os.OpenFile(path+".claimed", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if errors.Is(err, os.ErrExist) {
+				return // Restart already consumed the one-shot crash handshake.
+			}
+			if err != nil {
+				panic(fmt.Errorf("claim C02 handshake: %w", err))
+			}
+			if err := claim.Close(); err != nil {
+				panic(fmt.Errorf("close C02 handshake claim: %w", err))
+			}
+			raw, err := json.Marshal(memoryLoopCaptureHandshake{PID: os.Getpid(), Ingestion: receipt.IngestionID, CaptureSeq: receipt.Seq})
+			if err != nil {
+				panic(fmt.Errorf("encode C02 handshake: %w", err))
+			}
+			temporary := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+			if err := os.WriteFile(temporary, raw, 0600); err != nil {
+				panic(fmt.Errorf("write C02 handshake: %w", err))
+			}
+			if err := os.Rename(temporary, path); err != nil {
+				panic(fmt.Errorf("publish C02 handshake: %w", err))
+			}
+			select {} // Parent kills this real process after reading durable state.
+		}
+	}
+}
+
+// C02 kills the real host after the capture receipt is durable but before
+// ObserverHost can advance its cursor. The file is a condition handshake
+// emitted by the actual receipt callback, not a timing guess.
+func TestMemoryLoopCrashC02CaptureBeforeObserverAck(t *testing.T) {
+	probe := genassembly.BuildDefault()
+	if !probe.HasCognitiveFactory() {
+		t.Skip("DIVA integration overlay required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Second)
+	defer cancel()
+	handshakePath := filepath.Join(t.TempDir(), "capture-receipt.json")
+	f := newMemoryLoopFixture(t, memoryLoopOptions{
+		ConfigPath: memoryLoopConfig(t), ModelMode: "nochange", CaptureHandshakePath: handshakePath,
+	})
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session := memoryLoopSession(t, f)
+	memoryLoopEnable(t, f, session)
+	fact := memoryLoopRandomFact(t)
+	runID := memoryLoopTurn(t, f, session, fact)
+	handshake := waitMemoryLoopCaptureHandshake(t, handshakePath, 35*time.Second)
+	if f.remote == nil || handshake.PID != f.remote.pid || handshake.Ingestion == "" || handshake.CaptureSeq == 0 {
+		t.Fatalf("capture receipt handshake does not identify the owned child: receipt=%+v", handshake)
+	}
+	before, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ProcessID != handshake.PID || before.CaptureSeq != handshake.CaptureSeq || before.IngestionID != handshake.Ingestion || before.CanonicalCount != 1 || before.Revision == 0 || !strings.Contains(before.SourceBody, fact) {
+		t.Fatalf("C02 durable canonical snapshot differs from receipt: receipt=%+v snapshot=%+v", handshake, before)
+	}
+	var cognitionBefore memoryLoopCognitionStatus
+	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &cognitionBefore)
+	if cognitionBefore.Cognition.Watermark != 0 || cognitionBefore.Cognition.PendingThrough != 0 {
+		t.Fatalf("source was processed before ObserverHost ACK: %+v", cognitionBefore.Cognition)
+	}
+	cursorBefore, err := f.memoryLoopObserverCursor(ctx, runID)
+	if err != nil || cursorBefore >= before.EventSeq {
+		t.Fatalf("C02 cursor already acknowledged event %d: cursor=%d err=%v", before.EventSeq, cursorBefore, err)
+	}
+	oldPID, newPID, err := f.crashAndRestart(ctx)
+	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
+		t.Fatalf("crash/restart at C02 handshake: %d -> %d: %v", oldPID, newPID, err)
+	}
+	sessionParams, _ := json.Marshal(map[string]any{"session_id": session})
+	if _, err := f.Call(ctx, "session/get", sessionParams); err != nil {
+		t.Fatalf("rebind user session after process restart: %v", err)
+	}
+	after, err := f.Wait(ctx, "canonical", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.IngestionID != before.IngestionID || after.CaptureSeq != before.CaptureSeq || after.RecordID != before.RecordID || after.Revision != before.Revision || after.CanonicalCount != 1 || after.SourceHash != before.SourceHash {
+		t.Fatalf("C02 redelivery did not reuse original receipt/source: before=%+v after=%+v", before, after)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var cursorAfter uint64
+	for {
+		cursorAfter, err = f.memoryLoopObserverCursor(ctx, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cursorAfter >= after.EventSeq {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replayed terminal event was not acknowledged: event=%d cursor=%d", after.EventSeq, cursorAfter)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var cognitionAfter memoryLoopCognitionStatus
+	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &cognitionAfter)
+	if cognitionAfter.Cognition.Watermark > after.CaptureSeq || cognitionAfter.Cognition.PendingThrough > after.CaptureSeq {
+		t.Fatalf("C02 restart advanced beyond committed source: %+v capture=%d", cognitionAfter.Cognition, after.CaptureSeq)
+	}
+	t.Logf("C02 receipt=%s capture=%d event=%d cursor=%d->%d processes=%d->%d canonical=%s revision=%d watermark=%d pending=%d", after.IngestionID, after.CaptureSeq, after.EventSeq, cursorBefore, cursorAfter, oldPID, newPID, after.RecordID, after.Revision, cognitionAfter.Cognition.Watermark, cognitionAfter.Cognition.PendingThrough)
+}
+
+func waitMemoryLoopCaptureHandshake(t *testing.T, path string, timeout time.Duration) memoryLoopCaptureHandshake {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			var receipt memoryLoopCaptureHandshake
+			if err := json.Unmarshal(raw, &receipt); err != nil {
+				t.Fatalf("decode C02 receipt handshake: %v", err)
+			}
+			return receipt
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read C02 receipt handshake: %v", err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("C02 receipt handshake not reached in %s", timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (f *memoryLoopFixture) memoryLoopObserverCursor(ctx context.Context, runID string) (uint64, error) {
+	if f.remote != nil {
+		var value uint64
+		err := f.remote.exchange(ctx, memoryLoopRequest{Op: "observer-cursor", RunID: runID}, &value)
+		return value, err
+	}
+	key := memoryLoopObserverCursorKey(runID)
+	value, _, err := f.app.backend.Snapshot().Get(ctx, key)
+	if err != nil || len(value) == 0 {
+		return 0, err
+	}
+	return strconv.ParseUint(string(value), 10, 64)
+}
+
+func memoryLoopObserverCursorKey(runID string) string {
+	sum := sha256.Sum256([]byte(runtime.CognitiveCaptureProviderID + "\x00" + runID))
+	return "observer/run/" + hex.EncodeToString(sum[:])
 }

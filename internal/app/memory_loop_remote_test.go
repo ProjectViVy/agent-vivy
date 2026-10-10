@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -49,7 +50,7 @@ type memoryLoopRemote struct {
 // and control handlers in an owned child; it adds no product runtime.
 func startMemoryLoopRemote(ctx context.Context, options memoryLoopOptions) (*memoryLoopRemote, error) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMemoryLoopProcessServer$", "-test.v")
-	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+options.ConfigPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+options.ModelMode, fmt.Sprintf("VIVY_MEMORY_LOOP_RECALL_DISABLED=%t", options.RecallDisabled))
+	cmd.Env = append(os.Environ(), "VIVY_MEMORY_LOOP_PROCESS_SERVER=1", "VIVY_MEMORY_LOOP_PROCESS_CONFIG="+options.ConfigPath, "VIVY_MEMORY_LOOP_PROCESS_MODEL="+options.ModelMode, fmt.Sprintf("VIVY_MEMORY_LOOP_RECALL_DISABLED=%t", options.RecallDisabled), "VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE="+options.CaptureHandshakePath)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -193,7 +194,7 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 	if os.Getenv("VIVY_MEMORY_LOOP_PROCESS_SERVER") == "" {
 		t.Skip("owned subprocess helper")
 	}
-	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL"), RecallDisabled: os.Getenv("VIVY_MEMORY_LOOP_RECALL_DISABLED") == "true"})
+	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_CONFIG"), ModelMode: os.Getenv("VIVY_MEMORY_LOOP_PROCESS_MODEL"), RecallDisabled: os.Getenv("VIVY_MEMORY_LOOP_RECALL_DISABLED") == "true", CaptureHandshakePath: os.Getenv("VIVY_MEMORY_LOOP_CAPTURE_HANDSHAKE")})
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 4096), 4<<20)
 	for in.Scan() {
@@ -219,6 +220,16 @@ func TestMemoryLoopProcessServer(t *testing.T) {
 			value = f.ModelRequests()
 		case "responses":
 			value = f.ModelResponses()
+		case "observer-cursor":
+			var raw []byte
+			raw, _, err = f.app.backend.Snapshot().Get(ctx, memoryLoopObserverCursorKey(req.RunID))
+			if err == nil {
+				var cursor uint64
+				if len(raw) > 0 {
+					cursor, err = strconv.ParseUint(string(raw), 10, 64)
+				}
+				value = cursor
+			}
 		case "recall-queries":
 			value = f.RecallQueries()
 		case "close":

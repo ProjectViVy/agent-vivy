@@ -102,10 +102,13 @@ type App struct {
 type AppOption func(*appOptions)
 
 type appOptions struct {
-	channels     bool
-	gateway      bool
-	sink         runtime.EventSink
-	settingsPath string
+	channels bool
+	gateway  bool
+	sink     runtime.EventSink
+	// cognitiveCaptureReceiptHook is an internal crash-test seam. It runs
+	// after a durable capture receipt and before ObserverHost receives its ACK.
+	cognitiveCaptureReceiptHook func(runtime.CognitiveCaptureReceipt)
+	settingsPath                string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
 	// the code project root from which a face may resolve attachments.
@@ -747,6 +750,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if cognitiveBundle != nil {
 		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
 			func(receipt runtime.CognitiveCaptureReceipt) {
+				if ao.cognitiveCaptureReceiptHook != nil {
+					ao.cognitiveCaptureReceiptHook(receipt)
+				}
 				if svc != nil && receipt.Seq != 0 {
 					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
 				}

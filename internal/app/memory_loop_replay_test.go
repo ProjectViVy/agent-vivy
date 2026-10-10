@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
-	"agent-vivy/internal/runtime"
 	"github.com/dashimaki/garden/agentapi"
 )
 
@@ -77,8 +74,7 @@ func TestMemoryLoopCaptureReplayAndContentConflict(t *testing.T) {
 	}
 	// Same key derivation as the observer host, test-only. Rewind the actual
 	// task-owned snapshot with CAS, never a user profile or private SQL table.
-	sum := sha256.Sum256([]byte(runtime.CognitiveCaptureProviderID + "\x00" + runID))
-	key := "observer/run/" + hex.EncodeToString(sum[:])
+	key := memoryLoopObserverCursorKey(runID)
 	store := f.app.backend.Snapshot()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
