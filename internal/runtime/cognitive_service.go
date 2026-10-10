@@ -511,18 +511,12 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 }
 
 func (s *Service) cognitiveHighWatermark(ctx context.Context, st cognitiveState) (uint64, error) {
-	b := s.deps.Cognitive
-	high := st.SourceHigh
-	if b.Source != nil {
-		sourceHigh, err := b.Source.HighWatermark(ctx)
-		if err != nil {
-			return 0, err
-		}
-		if sourceHigh > high {
-			high = sourceHigh
-		}
+	if source := s.deps.Cognitive.Source; source != nil {
+		// Notifications indicate acceptance, not completed native projection.
+		// The bound source alone decides which durable prefix is admissible.
+		return source.HighWatermark(ctx)
 	}
-	return high, nil
+	return st.SourceHigh, nil
 }
 
 // cognitiveForegroundBusy reports any live user-facing run. The supervisor
@@ -778,7 +772,7 @@ func (p *CognitiveCaptureProvider) ObserveRunWithReceipt(ctx context.Context, ev
 		if !ok {
 			return observer.DeliveryReceipt{}, fmt.Errorf("cognitive capture: durable message reader unavailable")
 		}
-		cap.Content, err = cognitiveConversationSource(ctx, messages, run, payload.Summary)
+		cap.Content, cap.UserContent, err = cognitiveConversationCapture(ctx, messages, run, payload.Summary)
 		if err != nil {
 			return observer.DeliveryReceipt{}, err
 		}

@@ -54,7 +54,8 @@ type Capture struct {
 	EventID     string
 	Phase       string // completed | failed | canceled
 	Content     string
-	OccurredAt  int64 // unix ms
+	UserContent string // trusted admitted, redacted user source; never assistant/tool/system
+	OccurredAt  int64  // unix ms
 }
 
 // CaptureReceipt is the durable acceptance returned by the bound capture
@@ -70,6 +71,13 @@ type CaptureReceipt struct {
 // Implementations must return the original receipt on redelivery.
 type CaptureSink interface {
 	Capture(ctx context.Context, capture Capture) (CaptureReceipt, error)
+}
+
+// SessionFinalizer is the owned capture sink's optional host lifecycle port.
+// Producer admission and terminal Observer delivery must be sealed/drained
+// before it archives the original session's captured activity.
+type SessionFinalizer interface {
+	FinalizeSession(context.Context, string) error
 }
 
 // Source reports the committed-activity watermark of the bound input source.

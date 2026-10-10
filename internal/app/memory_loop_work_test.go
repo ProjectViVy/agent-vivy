@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -38,7 +39,20 @@ func TestMemoryLoopReconciliationReadsExistingWork(t *testing.T) {
 	}
 	var after laputaevolution.ActivityResult
 	memoryLoopAction(t, f, "diva.cognitive.actmem.read", map[string]any{"session_id": session, "sections": []string{"work"}, "max_chars": 1200}, &after)
-	if len(after.Entries) != 1 || after.Entries[0].ID != activity.Entries[0].ID || after.Entries[0].Body != oldWork || after.Revision != activity.Revision {
+	// Empty source slices are semantically identical across YAML/JSON reads.
+	for i := range activity.Entries {
+		if len(activity.Entries[i].Sources) == 0 {
+			activity.Entries[i].Sources = nil
+		}
+	}
+	for i := range after.Entries {
+		if len(after.Entries[i].Sources) == 0 {
+			after.Entries[i].Sources = nil
+		}
+	}
+	// The terminal pair advances the profile-wide head once. Empty Work
+	// reconciliation must preserve every Work field while using that new head.
+	if !reflect.DeepEqual(after.Entries, activity.Entries) || after.Revision != activity.Revision+1 {
 		t.Fatalf("empty reconciliation changed existing Work: before=%+v after=%+v", activity, after)
 	}
 }

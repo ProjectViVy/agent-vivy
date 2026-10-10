@@ -50,6 +50,9 @@ func TestMemoryLoopCaptureAdmittedUserSource(t *testing.T) {
 			if len(sink.captures) != 1 {
 				t.Fatalf("captures=%d", len(sink.captures))
 			}
+			if sink.captures[0].UserContent != body {
+				t.Fatal("activity source differs from actual admitted user content")
+			}
 			content := sink.captures[0].Content
 			var source struct {
 				Schema    string `json:"schema"`

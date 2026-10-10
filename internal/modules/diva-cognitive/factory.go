@@ -309,9 +309,14 @@ func (s boundSink) Capture(ctx context.Context, cap cognitivecontract.Capture) (
 	if err != nil {
 		return cognitivecontract.CaptureReceipt{}, err
 	}
+	var activity *agentapi.CaptureActivity
+	if strings.TrimSpace(cap.UserContent) != "" {
+		activity = &agentapi.CaptureActivity{UserText: cap.UserContent}
+	}
 	sum := sha256.Sum256([]byte(cap.Content))
 	receipt, err := bound.Capture(ctx, agentapi.CaptureRequest{
 		Phase:       phase,
+		Activity:    activity,
 		Content:     cap.Content,
 		ContentHash: "sha256:" + hex.EncodeToString(sum[:]),
 		Provenance:  provenanceOf(cap),
@@ -391,4 +396,12 @@ func (s boundSink) LookupCapture(ctx context.Context, cap cognitivecontract.Capt
 		return cognitivecontract.CaptureReceipt{}, false, err
 	}
 	return cognitivecontract.CaptureReceipt{IngestionID: receipt.IngestionID, Seq: receipt.Seq, Status: receipt.Status}, found, nil
+}
+
+func (s boundSink) FinalizeSession(ctx context.Context, sessionID string) error {
+	bound, err := s.client.BindSession(sessionID)
+	if err != nil {
+		return err
+	}
+	return bound.ArchiveCapturedSession(ctx)
 }

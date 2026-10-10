@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -31,20 +32,27 @@ type captureConversationSource struct {
 }
 
 func cognitiveConversationSource(ctx context.Context, store captureMessageReader, run domain.Run, summary string) (string, error) {
+	content, _, err := cognitiveConversationCapture(ctx, store, run, summary)
+	return content, err
+}
+
+func cognitiveConversationCapture(ctx context.Context, store captureMessageReader, run domain.Run, summary string) (string, string, error) {
 	rows, err := store.ListMessages(ctx, run.SessionID)
 	if err != nil {
-		return "", fmt.Errorf("cognitive capture: read admitted user source: %w", err)
+		return "", "", fmt.Errorf("cognitive capture: read admitted user source: %w", err)
 	}
+	var userContents []string
 	source := captureConversationSource{Schema: "vivy.conversation-source/v1", RunID: run.ID, SessionID: run.SessionID}
 	for _, row := range rows {
 		if row.RunID != run.ID || row.SessionID != run.SessionID || row.Role != domain.RoleUser {
 			continue
 		}
 		content := tools.RedactSensitive(row.Content)
+		userContents = append(userContents, content)
 		source.Messages = append(source.Messages, captureSourceMessage{ID: row.ID, Role: string(row.Role), Content: content, Complete: content == row.Content})
 	}
 	if len(source.Messages) == 0 {
-		return "", fmt.Errorf("cognitive capture: no admitted user source for run %s", run.ID)
+		return "", "", fmt.Errorf("cognitive capture: no admitted user source for run %s", run.ID)
 	}
 	if summary != "" {
 		// Terminal summary is only a bounded assistant projection. Never label
@@ -53,7 +61,7 @@ func cognitiveConversationSource(ctx context.Context, store captureMessageReader
 	}
 	raw, err := json.Marshal(source)
 	if err != nil {
-		return "", fmt.Errorf("cognitive capture: encode conversation source: %w", err)
+		return "", "", fmt.Errorf("cognitive capture: encode conversation source: %w", err)
 	}
-	return string(raw), nil
+	return string(raw), strings.Join(userContents, "\n"), nil
 }

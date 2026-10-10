@@ -551,3 +551,17 @@ func TestCognitiveNotifyInputFeedsWindow(t *testing.T) {
 		t.Fatalf("window = %+v", d.lastWindow)
 	}
 }
+
+func TestCognitiveHighWatermarkHonorsOwnedSourceFence(t *testing.T) {
+	svc, _ := inofyExecService(t, cognitiveTestModel())
+	svc.deps.Cognitive = &CognitiveBinding{Source: &fakeSource{high: 2}}
+	high, err := svc.cognitiveHighWatermark(context.Background(), cognitiveState{SourceHigh: 7})
+	if err != nil || high != 2 {
+		t.Fatalf("acceptance notification bypassed native source fence: high=%d err=%v", high, err)
+	}
+	svc.deps.Cognitive.Source = nil
+	high, err = svc.cognitiveHighWatermark(context.Background(), cognitiveState{SourceHigh: 7})
+	if err != nil || high != 7 {
+		t.Fatalf("notification-only source lost input: %d %v", high, err)
+	}
+}
