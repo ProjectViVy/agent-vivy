@@ -107,6 +107,9 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 	if mode == "recall" {
 		return memoryLoopRecallReply(req.Messages)
 	}
+	if mode == "tool-source" {
+		return "synthetic-assistant-only-do-not-capture", nil
+	}
 	return "收到", nil
 }
 
@@ -160,6 +163,11 @@ func (m *memoryLoopWireMessage) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	m.Role = wire.Role
+	// An assistant Tool-call message may omit content entirely.
+	if len(wire.Content) == 0 && wire.Role == "assistant" {
+		m.Content = ""
+		return nil
+	}
 	if err := json.Unmarshal(wire.Content, &m.Content); err == nil {
 		return nil
 	}

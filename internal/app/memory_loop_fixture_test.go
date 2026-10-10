@@ -84,7 +84,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "persona-restricted" && opts.ModelMode != "mission-fence" && opts.ModelMode != "busy" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "persona-restricted" && opts.ModelMode != "mission-fence" && opts.ModelMode != "busy" && opts.ModelMode != "tool-source" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -92,7 +92,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		t.Fatal(err)
 	}
 	f := &memoryLoopFixture{t: t, options: opts, dataRoot: cfg.Storage.DataDir}
-	if opts.ModelMode == "mission-fence" || opts.ModelMode == "busy" {
+	if opts.ModelMode == "mission-fence" || opts.ModelMode == "busy" || opts.ModelMode == "tool-source" {
 		f.modelRelease = make(chan struct{})
 		t.Cleanup(func() { f.modelReleaseOnce.Do(func() { close(f.modelRelease) }) })
 	}
@@ -102,17 +102,17 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			http.Error(w, "request read failed", 400)
 			return
 		}
+		f.mu.Lock()
+		f.requests = append(f.requests, append(json.RawMessage(nil), body...))
+		f.mu.Unlock()
 		var req struct {
 			Stream   bool                    `json:"stream"`
 			Messages []memoryLoopWireMessage `json:"messages"`
 		}
-		if json.Unmarshal(body, &req) != nil {
-			http.Error(w, "invalid request", 400)
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid request: "+err.Error(), 400)
 			return
 		}
-		f.mu.Lock()
-		f.requests = append(f.requests, append(json.RawMessage(nil), body...))
-		f.mu.Unlock()
 		if opts.ModelMode == "failed" {
 			http.Error(w, "synthetic authentication failure", http.StatusUnauthorized)
 			return
@@ -142,6 +142,9 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 					}
 				}
 			}
+		}
+		if opts.ModelMode == "tool-source" && memoryLoopToolSourceResponse(w, r, req.Stream, req.Messages, f.modelRelease) {
+			return
 		}
 		reply, err := memoryLoopModelReply(opts.ModelMode, body)
 		if err != nil {
