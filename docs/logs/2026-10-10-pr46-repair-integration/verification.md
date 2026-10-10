@@ -7,7 +7,7 @@
 - Independent final recovery review: both previously reproduced parked cancellation retry and sealed-carrier queue-edit failures now PASS. Control replay/close/write retry, decision ownership, encoded DTO ceiling and SQLite cleanup tests passed. PostgreSQL cleanup parity also exercised in the queue lane's live PostgreSQL17 suite.
 - Root live PostgreSQL17 full suite: `go test ./internal/storage/postgres -count=1`: PASS (23.447s before final control cleanup). Final integrated CI uses the isolated live DSN to execute final storage tests too.
 - Focused lane tests, race tests, provider-failure injection and RED-to-GREEN evidence are recorded in the M1–M6 and queue-editor iteration logs. No live provider calls were needed.
-- Final internal source SHA256: `45ddc6969401360857041edf23d2f5e475b880ef39d329e1f3834730ae833e14`. QQ source SHA256: `ede386c84e08e19c43b161a535e8a1b70cf7eef98dafe1b725f1e7025c19c7ed`. Only source-bound digest fields were refreshed; no evidence pass flags were edited. `go generate ./internal/generated/assembly` succeeded and reproduced the checked-in declared headless form byte-for-byte.
+- Final internal source SHA256: `eba914561ec043b74bd56e00236fc7a48df2e20dbc8956fca39cf033288a94fe`. QQ source SHA256: `ede386c84e08e19c43b161a535e8a1b70cf7eef98dafe1b725f1e7025c19c7ed`. Only source-bound digest fields were refreshed; no evidence pass flags were edited. `go generate ./internal/generated/assembly` succeeded and reproduced the checked-in declared headless form byte-for-byte.
 
 ## Final gates
 
@@ -18,6 +18,7 @@
 - First full backend gate: runtime45.647s, RPC15.001s, real PostgreSQL22.511s, SQLite7.059s, SDK host216.219s, SDK internal669.806s and 79 package results PASS. Whole gate remained RED: six App recall groups demanded a provider intentionally absent from the unchanged default recipe; QQ conformance hit a mock factory-created/authentication-not-complete race. Both causes were independently reproduced. No pass flags were changed to conceal those failures.
 - Recipe-accurate repair: six original assertions PASS with zero skips through the actual SDK-generated `recipes/diva.vivy.yml` overlay. A default-inventory regression confirms native recall remains omitted; the existing CI and backend-CI now require the DIVA recall gate. Default selection and runtime queries remain unchanged. See `2026-10-10-recall-ci-selection/`.
 - QQ fixture repair: wait for synchronized protocol counters and supervisor completion. Deterministic paused-factory RED; focused20x, race20x, full QQ tests and vet GREEN. Only fixture/source-bound evidence changed; no production QQ behavior. See `2026-10-10-qq-redial-test-boundary/`.
+- Final boundary review found an acknowledged steer whose full restoration marker exceeded the 64 KiB ceiling after fallback. Enqueue now reserves the larger follow-up track in both encoded fields while persisting the actual steer. Two-sided boundary and real missing-checkpoint fallback regressions RED→GREEN; focused4 tests0.287s and race5.152s PASS; independent read-only review found no blocker. The in-flight earlier CI attempt was stopped before this source change and is not counted as passing. See `2026-10-10-queue-payload-boundary/`.
 - Final `just ci`, executed source-bound conformance suites and final re-sealed clean pack identities: pending completion.
 
 ## Environment and limits
