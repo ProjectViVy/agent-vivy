@@ -1,7 +1,9 @@
 package codeclient
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,40 +16,55 @@ import (
 	"time"
 )
 
-// fakeRPC is a bash script speaking the wire contract with canned replies.
-const fakeRPC = `#!/usr/bin/env bash
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-  case "$line" in
-    *'"type":"get_state"'*)
-      printf '{"id":"%s","type":"response","command":"get_state","success":true,"data":{"session_id":"fake-1","isStreaming":false,"pendingMessageCount":0}}\n' "$id" ;;
-    *'"type":"prompt"'*)
-      printf '{"type":"agent_start","run_id":"r1"}\n'
-      printf '{"type":"message_update","delta":"hi "}\n'
-      printf '{"type":"message_update","delta":"there"}\n'
-      printf '{"type":"agent_settled","status":"completed"}\n'
-      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"disposition":"started","run_id":"r1"}}\n' "$id" ;;
-    *'"type":"steer"'*)
-      printf '{"id":"%s","type":"response","command":"steer","success":false,"error":"steer not implemented yet (lands with B1 steering)"}\n' "$id" ;;
-    *'"type":"abort"'*)
-      printf '{"id":"%s","type":"response","command":"abort","success":true,"data":null}\n' "$id" ;;
-    *)
-      printf '{"id":"%s","type":"response","command":"x","success":false,"error":"unknown"}\n' "$id" ;;
-  esac
-done
-`
-
-func fakeBinary(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-vivy-code")
-	if err := os.WriteFile(path, []byte(fakeRPC), 0o755); err != nil {
-		t.Fatal(err)
+// The protocol fixture is this test executable, so it runs on Windows as well
+// as Unix without a shebang, shell, or external text-processing commands.
+func TestMain(m *testing.M) {
+	if os.Getenv("VIVY_CODECLIENT_RPC_FIXTURE") != "1" {
+		os.Exit(m.Run())
 	}
-	return path
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var command struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &command); err != nil {
+			os.Exit(1)
+		}
+		response := map[string]any{"id": command.ID, "type": "response", "command": command.Type, "success": true, "data": nil}
+		switch command.Type {
+		case "get_state":
+			response["data"] = map[string]any{"session_id": "fake-1", "isStreaming": false, "pendingMessageCount": 0}
+		case "prompt":
+			for _, event := range []map[string]any{{"type": "agent_start", "run_id": "r1"}, {"type": "message_update", "delta": "hi "}, {"type": "message_update", "delta": "there"}, {"type": "agent_settled", "status": "completed"}} {
+				if err := encoder.Encode(event); err != nil {
+					os.Exit(1)
+				}
+			}
+			response["data"] = map[string]any{"disposition": "started", "run_id": "r1"}
+		case "steer":
+			response["success"], response["error"] = false, "steer not implemented yet (lands with B1 steering)"
+		case "abort":
+		default:
+			response["success"], response["error"] = false, "unknown"
+		}
+		if err := encoder.Encode(response); err != nil {
+			os.Exit(1)
+		}
+	}
+	if scanner.Err() != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func fakeRPCConfig() Config {
+	return Config{Binary: os.Args[0], Env: []string{"VIVY_CODECLIENT_RPC_FIXTURE=1"}}
 }
 
 func TestClientCorrelatesResponsesAndStreamsEvents(t *testing.T) {
-	c, err := New(Config{Binary: fakeBinary(t)})
+	c, err := New(fakeRPCConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +103,7 @@ func TestClientCorrelatesResponsesAndStreamsEvents(t *testing.T) {
 }
 
 func TestClientPropagatesProtocolErrors(t *testing.T) {
-	c, err := New(Config{Binary: fakeBinary(t)})
+	c, err := New(fakeRPCConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

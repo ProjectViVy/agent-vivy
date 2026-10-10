@@ -32,7 +32,8 @@ test: ensure-laputa
     # Windows runner, so the shared bound is 35m.
     # Memory-loop integration requires the DIVA Recipe, not the default body.
     # The second pass runs every excluded test against its sealed Assembly.
-    & "{{go}}" test -timeout 35m -skip '^TestMemoryLoop' ./...
+    # Serialize real SQLite fixture packages to avoid Windows flush contention.
+    & "{{go}}" test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-memory-loop.ps1
 
 vet: ensure-laputa
