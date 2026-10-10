@@ -27,3 +27,14 @@ The parent delivery owns the integrated `just ci` gate, including the pinned Lap
 - `go vet -p 2 ./internal/runtime ./internal/rpc ./internal/storage ./internal/config` and `git diff --check`: passed.
 
 Warm fixture accounting: first request reports 1,345 total prompt tokens, including 1,234 creation tokens, and two output tokens. The repeated identical-prefix request reports 1,234 cached-read tokens inside the same 1,345 prompt tokens and two output tokens. Unreported cache-write presence on the hit remains unknown rather than synthesized zero. Prices are undeclared, so the fixture does not establish a dollar amount or profitability.
+
+## Review follow-up verification
+
+- RED `TestCacheWarmAdmissionBudgetDenialDoesNotFailOwningEnd`: both `MaxModelCalls: 1` and exhausted `MaxEvents: 2` returned budget errors from successful owning End.
+- GREEN focused budget/persistence checks: optional denial skips, a real single-call Service.Run completes with no paid warm, and paid usage-budget/persistence failures remain mandatory.
+- RED `TestRowCostMaintenanceUnreportedCacheWriteIsUnknown`: missing write presence was priced as known `$0.0045` with synthetic declared rates.
+- RED `TestRowCostWarmCapableAggregateKeepsUnknownCacheWrite`: source ordering main/maintenance hid missing write evidence and reported known aggregate cost.
+- Tests now cover both aggregate orders and explicitly reported zero-write evidence.
+- Follow-up complete affected-package suites passed: runtime 48.992s, RPC 14.748s, storage 0.003s, config 0.012s.
+- Follow-up focused race checks for optional admission, single-call run, paid usage-budget failure, and mandatory persistence failure passed (6.659s).
+- Follow-up vet for the four affected packages and `git diff --check` passed. Integrated `just ci` remains parent-owned.

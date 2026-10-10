@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -127,6 +128,12 @@ func (w *runCacheWarmer) warm(prefix modelCallInput, diagnostic payloadCacheWarm
 	tracked := &cacheWarmObserver{modelCallObserver: observer, callID: &diagnostic.CallID}
 	callCtx = withModelCallObserverFactory(callCtx, func(modelCallRoute) modelCallObserver { return tracked })
 	resp, err := observeChatModel(w.eng.chatModel).Generate(callCtx, msgs, opts...)
+	if tracked.admissionDenied {
+		diagnostic.Status = "skipped"
+		diagnostic.Reason = "budget_exhausted"
+		w.journal(diagnostic)
+		return nil
+	}
 	if tracked.err != nil {
 		return tracked.err
 	}
@@ -153,8 +160,9 @@ func (w *runCacheWarmer) warm(prefix modelCallInput, diagnostic payloadCacheWarm
 
 type cacheWarmObserver struct {
 	modelCallObserver
-	callID *string
-	err    error
+	callID          *string
+	err             error
+	admissionDenied bool
 }
 
 func (o *cacheWarmObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -162,6 +170,10 @@ func (o *cacheWarmObserver) Begin(ctx context.Context, in modelCallInput) (model
 	if err == nil {
 		*o.callID = meta.CallID
 	} else {
+		// No provider work was admitted. Optional maintenance must not turn
+		// successful foreground settlement into a budget failure. Later usage
+		// or finish failures remain mandatory because the call may already be paid.
+		o.admissionDenied = errors.Is(err, ErrBudgetExceeded)
 		o.err = err
 	}
 	return meta, err

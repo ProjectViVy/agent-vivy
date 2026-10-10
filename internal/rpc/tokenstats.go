@@ -144,6 +144,11 @@ func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float6
 		return 0, false
 	}
 	info := meta(ctx, r.Provider, r.Model)
+	// An unreported creation bucket cannot be priced as zero on maintenance
+	// or a creation-capable route, including session aggregates with source main.
+	if (r.Source == "maintenance" || info.SupportsWarming) && !r.CacheWriteKnown {
+		return 0, false
+	}
 	if info.InputPerMTokens == 0 || info.OutputPerMTokens == 0 {
 		return 0, false
 	}

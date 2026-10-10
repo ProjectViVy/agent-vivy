@@ -343,3 +343,40 @@ func TestRowCostCacheWriteWithoutDeclaredRateIsUnknown(t *testing.T) {
 		t.Fatalf("undeclared cache write price priced as ordinary input: %v/%v", cost, known)
 	}
 }
+
+func TestRowCostMaintenanceUnreportedCacheWriteIsUnknown(t *testing.T) {
+	meta := ModelMeta(func(context.Context, string, string) domain.ModelInfo {
+		return domain.ModelInfo{InputPerMTokens: 3, CachedInputPerMTokens: 0.3, OutputPerMTokens: 15}
+	})
+	row := storage.UsageRow{Source: "maintenance", PromptTokens: 1500, CompletionTokens: 2}
+	if cost, known := rowCostUSD(context.Background(), meta, row); known || cost != 0 {
+		t.Fatalf("unreported maintenance cache writes priced as zero: %v/%v", cost, known)
+	}
+	row.CacheWriteKnown = true
+	if cost, known := rowCostUSD(context.Background(), meta, row); !known || cost <= 0 {
+		t.Fatalf("explicit zero-write maintenance evidence lost known reference pricing: %v/%v", cost, known)
+	}
+}
+
+func TestRowCostWarmCapableAggregateKeepsUnknownCacheWrite(t *testing.T) {
+	meta := ModelMeta(func(context.Context, string, string) domain.ModelInfo {
+		return domain.ModelInfo{SupportsWarming: true, InputPerMTokens: 3, CachedInputPerMTokens: 0.3, OutputPerMTokens: 15}
+	})
+	known := storage.UsageRow{SessionID: "s", Provider: "p", Model: "m", Source: "main", PromptTokens: 100, CompletionTokens: 1, CacheWriteKnown: true}
+	unknown := known
+	unknown.Source = "maintenance"
+	unknown.CacheWriteKnown = false
+	for _, rows := range [][]storage.UsageRow{{known, unknown}, {unknown, known}} {
+		aggregates := storage.AggregateUsageRows(rows)
+		if len(aggregates) != 1 {
+			t.Fatalf("aggregates=%+v", aggregates)
+		}
+		if cost, priced := rowCostUSD(context.Background(), meta, aggregates[0]); priced || cost != 0 {
+			t.Fatalf("mixed cache-write evidence priced in source ordering %s,%s: %v/%v", rows[0].Source, rows[1].Source, cost, priced)
+		}
+	}
+	aggregates := storage.AggregateUsageRows([]storage.UsageRow{known, known})
+	if cost, priced := rowCostUSD(context.Background(), meta, aggregates[0]); !priced || cost <= 0 {
+		t.Fatalf("explicit known-zero cache writes lost pricing: %v/%v", cost, priced)
+	}
+}

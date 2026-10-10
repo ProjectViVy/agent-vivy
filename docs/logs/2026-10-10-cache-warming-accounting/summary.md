@@ -15,3 +15,9 @@ The retained `cache_warming_min_savings` setting gates estimated gross savings f
 Inspected pinned Eino v0.9.13 `components/model` Generate/options, `schema.ConcatMessages` usage merging, callbacks/stream-copy semantics, and EinoExt Claude v0.1.25 `convTokenUsage` / `GetCacheCreationInputTokens`. Claude prompt totals include ordinary input, cache reads, and cache creation; creation is a reported subset, not additional prompt tokens. The existing runtime observer supplies the mandatory Journal preflight/settlement behavior callbacks cannot enforce. This change reuses that seam, the native model options, and the shared token estimator; it adds no alternate runtime, provider, database, background service, or rate catalog. Replace the tiny observer tracker if Eino supplies the same mandatory persistence error classification.
 
 No release artifact is built in this lane; integration and the full product gate belong to the parent delivery.
+
+## Review follow-up
+
+Optional maintenance denied by its Begin model-call/event budget is now `skipped` with `budget_exhausted`, without provider invocation or failure of the already successful main call. This exception applies only before admission: paid-call usage budget failure, Journal admission failure, and mandatory settlement persistence failure still return through the owning End. A real single-call run at `MaxModelCalls: 1` remains successful with zero paid warm calls.
+
+Missing cache-write presence also keeps maintenance and catalog-declared warming-capable rows unpriced even if their other reference rates are known. Route aggregates combine cache-write presence conservatively across every included row, so source ordering cannot conceal missing creation evidence. An explicit reported zero-write bucket can use known ordinary/read/output rates; absent evidence is never inferred to be zero.

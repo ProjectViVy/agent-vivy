@@ -415,6 +415,7 @@ func AggregateUsageRows(rows []UsageRow) []UsageRow {
 		current.ReasoningTokens += row.ReasoningTokens
 		current.CachedTokens += row.CachedTokens
 		current.CacheWriteTokens += row.CacheWriteTokens
+		current.CacheWriteKnown = current.CacheWriteKnown && row.CacheWriteKnown
 		current.RequestCount += row.RequestCount
 		if row.CreatedAt > current.CreatedAt {
 			current.CreatedAt = row.CreatedAt

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type warmSpyModel struct {
 	release     chan struct{}
 	warmErr     error
 	warmStarted chan struct{}
+	singleTurn  bool
 
 	mu        sync.Mutex
 	calls     int
@@ -119,6 +121,9 @@ func (m *warmSpyModel) Stream(ctx context.Context, input []*schema.Message, _ ..
 	idx := m.calls
 	m.mu.Unlock()
 	if idx == 1 {
+		if m.singleTurn {
+			return streamOf(schema.AssistantMessage("done", nil), usageText("", 5000, 10)), nil
+		}
 		return streamOf(toolCallMessage("call_warm_1", tools.EchoInfoName, `{}`), usageText("", 5000, 10)), nil
 	}
 	select {
@@ -532,5 +537,117 @@ func TestCacheWarmPricedGateExcludesConversationTokens(t *testing.T) {
 	}
 	if _, warm := m.counts(); warm != 0 {
 		t.Fatalf("unrelated conversation justified %d warm calls", warm)
+	}
+}
+
+func TestCacheWarmAdmissionBudgetDenialDoesNotFailOwningEnd(t *testing.T) {
+	for _, policy := range []BudgetPolicy{{MaxModelCalls: 1}, {MaxEvents: 2}} {
+		t.Run(fmt.Sprintf("calls-%d-events-%d", policy.MaxModelCalls, policy.MaxEvents), func(t *testing.T) {
+			m := newWarmSpyModel()
+			svc, backend, _ := newWarmService(t, m, "streaming", 0, 60)
+			ctx := context.Background()
+			sessionID := domain.SessionID("warm-budget")
+			runID := domain.RunID("warm-budget")
+			mustCreateSession(t, backend, sessionID)
+			if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			mapper := newEventMapper(runID, 64<<10)
+			mapper.setUsageRoutes("test", "test-model", "")
+			ledger, err := NewBudgetLedger(policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			warmer := svc.newRunCacheWarmer(ctx, mapper, sessionID, svc.engine, ledger)
+			o := &runModelCallObserver{svc: svc, m: mapper, sessionID: sessionID, ledger: ledger, source: "main", provider: "test", model: "test-model", warmer: warmer, calls: map[string]*observedModelCall{}}
+			meta, err := o.Begin(ctx, modelCallInput{Mode: "generate", Messages: []*schema.Message{schema.SystemMessage("system"), schema.UserMessage("hello")}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := o.Chunk(ctx, meta, usageText("", 100, 1)); err != nil {
+				t.Fatal(err)
+			}
+			if err := o.End(ctx, meta, modelCallResult{ResponseComplete: true}); err != nil {
+				t.Fatalf("optional warm admission failed completed main call: %v", err)
+			}
+			if _, warm := m.counts(); warm != 0 {
+				t.Fatalf("denied maintenance made %d paid calls", warm)
+			}
+			for _, ev := range journalEvents(t, backend, runID) {
+				if ev.Type == domain.EventModelRequest {
+					var p payloadModelRequestV3
+					_ = json.Unmarshal(ev.Payload, &p)
+					if p.Source == "maintenance" {
+						t.Fatal("unadmitted warm has lifecycle request")
+					}
+				}
+			}
+			p := waitForCacheWarmed(t, backend, runID, "skipped")
+			if p.Reason != "budget_exhausted" {
+				t.Fatalf("denied warm diagnostic=%+v", p)
+			}
+		})
+	}
+}
+
+func TestCacheWarmSingleMainCallBudgetCompletesRun(t *testing.T) {
+	m := newWarmSpyModel()
+	m.singleTurn = true
+	svc, backend, _ := newWarmService(t, m, "streaming", 0, 60)
+	svc.deps.Budget = BudgetPolicy{MaxModelCalls: 1}
+	mustCreateSession(t, backend, "warm-single-budget")
+	runID, err := svc.Run(context.Background(), "warm-single-budget", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	calls, warm := m.counts()
+	if calls != 1 || warm != 0 {
+		t.Fatalf("main calls=%d warm calls=%d; want one main and no paid maintenance", calls, warm)
+	}
+	p := waitForCacheWarmed(t, backend, runID, "skipped")
+	if p.Reason != "budget_exhausted" {
+		t.Fatalf("diagnostic=%+v", p)
+	}
+}
+
+func TestCacheWarmPaidUsageBudgetFailureRemainsMandatory(t *testing.T) {
+	m := newWarmSpyModel()
+	svc, backend, _ := newWarmService(t, m, "streaming", 0, 60)
+	ctx := context.Background()
+	mustCreateSession(t, backend, "warm-paid-budget")
+	runID := domain.RunID("warm-paid-budget")
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "warm-paid-budget", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	mapper := newEventMapper(runID, 64<<10)
+	mapper.setUsageRoutes("test", "test-model", "")
+	ledger, err := NewBudgetLedger(BudgetPolicy{MaxEvents: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warmer := svc.newRunCacheWarmer(ctx, mapper, "warm-paid-budget", svc.engine, ledger)
+	err = warmer.warm(modelCallInput{Messages: []*schema.Message{schema.SystemMessage("system")}}, payloadCacheWarmed{})
+	if !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("paid usage admission failure=%v, want mandatory budget error", err)
+	}
+	if _, warm := m.counts(); warm != 1 {
+		t.Fatalf("paid calls=%d, want one", warm)
+	}
+	finishes := 0
+	for _, ev := range journalEvents(t, backend, runID) {
+		if ev.Type == domain.EventModelCallFinished {
+			var p payloadModelCallFinished
+			_ = json.Unmarshal(ev.Payload, &p)
+			if p.Source == "maintenance" {
+				finishes++
+				if p.Status != "failed" || p.Usage == nil {
+					t.Fatalf("paid failure settlement=%+v", p)
+				}
+			}
+		}
+	}
+	if finishes != 1 {
+		t.Fatalf("paid maintenance closures=%d, want one", finishes)
 	}
 }
