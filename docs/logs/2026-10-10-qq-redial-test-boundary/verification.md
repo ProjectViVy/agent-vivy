@@ -34,3 +34,5 @@ actually ended and proves no further attempts can occur.
 The parent explicitly owns source-hash evidence refresh, executed conformance
 reproduction and final integrated `just ci` after this narrow fixture commit.
 This lane does not claim those integrated gates passed or modify pass flags.
+
+Integrated sealing also updates the QQ descriptor/YAML source declarations and conformance fixture to the canonical fixture-adjusted digest. Tree normalization of the declared digest confirms `ede386c84e08e19c43b161a535e8a1b70cf7eef98dafe1b725f1e7025c19c7ed`; publication flags remain unchanged and are independently executed by the root conformance gate.
