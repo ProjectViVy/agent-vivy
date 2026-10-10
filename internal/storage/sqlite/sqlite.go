@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -28,7 +29,10 @@ const (
 // Open opens (or creates) the database at path and applies all pending
 // migrations. The returned Backend implements the four storage contracts.
 func Open(ctx context.Context, path string) (*Backend, error) {
-	db, err := sql.Open("sqlite", "file:"+path)
+	// path is a filesystem name, not a caller-supplied SQLite URI. Escape
+	// URI delimiters and literal percent sequences before the driver parses
+	// them; otherwise distinct profile paths can open the same database.
+	db, err := sql.Open("sqlite", "file:"+url.PathEscape(path))
 	if err != nil {
 		return nil, fmt.Errorf("storage: open sqlite %s: %w", path, err)
 	}
