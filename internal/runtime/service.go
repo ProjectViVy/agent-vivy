@@ -298,6 +298,9 @@ type Service struct {
 	// nil until StartCognitiveLoop starts it.
 	cogMu     sync.Mutex
 	cognitive *cognitiveRuntime
+	// cogStateMu serializes admission, policy CAS and accepted-source updates
+	// on their shared durable record. Workflow execution remains asynchronous.
+	cogStateMu sync.Mutex
 	// workBlockedCalls records the sibling tool-call IDs from a model batch
 	// interrupted by submit_plan. Fresh model calls remain eligible after the
 	// human decision, while unreviewed siblings from the original batch stay
