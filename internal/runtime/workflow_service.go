@@ -568,6 +568,12 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	if authority.TrustedStrategy == TrustedStrategyReport {
 		// Report roots rebind to the code-owned sealed program; no cognitive
 		// domain or bound model is required for the R0 admission path.
+		// With the reports capability omitted, active report Runs are
+		// fenced into recovery_required — never re-executed by a generic
+		// executor — until an owner with the capability resumes them (R3).
+		if s.deps.Report == nil {
+			return ErrWorkflowRecoveryRequired
+		}
 		admitted, err = trustedStrategyAdmission(ctx, TrustedStrategyReport)
 	} else if authority.TrustedStrategy != "" {
 		// Trusted revisions rebind to the same code-owned strategy catalog

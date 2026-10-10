@@ -22,6 +22,10 @@ type Service interface {
 	// ReadReportSettings returns the durable per-scope settings row,
 	// materializing the disabled manual defaults on first access.
 	ReadReportSettings(context.Context, AdmissionContext, Period) (ReportSettings, error)
+	// WriteReportSettings replaces the mutable settings fields under
+	// revision CAS plus an idempotency receipt committed in one Storage
+	// transaction.
+	WriteReportSettings(context.Context, AdmissionContext, nb.OperationKeyed[ReportSettingsWrite]) (ReportSettingsWriteResult, error)
 }
 
 // ScopedActions is the trusted, owner-bound facade the ActionHost grants
@@ -32,6 +36,7 @@ type ScopedActions interface {
 	Get(context.Context, string) (ReportResult, error)
 	Cancel(context.Context, string) error
 	ReadSettings(context.Context, Period) (ReportSettings, error)
+	WriteSettings(context.Context, nb.OperationKeyed[ReportSettingsWrite]) (ReportSettingsWriteResult, error)
 }
 
 // AdmissionPort is the narrow bridge the composition binds to the common
@@ -42,6 +47,7 @@ type AdmissionPort interface {
 	GetReport(context.Context, AdmissionContext, string) (ReportResult, error)
 	CancelReport(context.Context, AdmissionContext, string) error
 	ReadReportSettings(context.Context, AdmissionContext, Period) (ReportSettings, error)
+	WriteReportSettings(context.Context, AdmissionContext, nb.OperationKeyed[ReportSettingsWrite]) (ReportSettingsWriteResult, error)
 }
 
 // Factory is emitted into a generated RuntimeAssembly only when the

@@ -167,6 +167,7 @@ export const REPORT_ACTIONS = Object.freeze({
   get: 'vivy.reports.get',
   cancel: 'vivy.reports.cancel',
   settingsRead: 'vivy.reports.settings.read',
+  settingsWrite: 'vivy.reports.settings.write',
 } as const);
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly';
@@ -189,6 +190,11 @@ export interface ReportSettings {
   readonly enabled: boolean;
   readonly revision: number;
   readonly schedule_expr?: string;
+}
+
+export interface ReportSettingsWriteResult {
+  readonly settings: ReportSettings;
+  readonly replayed: boolean;
 }
 
 export interface GenerationProvenance {

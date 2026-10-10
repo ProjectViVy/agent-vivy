@@ -78,3 +78,10 @@ func (a *reportScopedActions) Cancel(ctx context.Context, runID string) error {
 func (a *reportScopedActions) ReadSettings(ctx context.Context, period rc.Period) (rc.ReportSettings, error) {
 	return a.bundle.Service().ReadReportSettings(ctx, a.ac, period)
 }
+
+func (a *reportScopedActions) WriteSettings(ctx context.Context, req nb.OperationKeyed[rc.ReportSettingsWrite]) (rc.ReportSettingsWriteResult, error) {
+	if req.OperationKey == "" {
+		return rc.ReportSettingsWriteResult{}, &rc.Error{Code: rc.CodeInvalidRequest, Message: "operation_key is required"}
+	}
+	return a.bundle.Service().WriteReportSettings(ctx, a.ac, req)
+}

@@ -74,6 +74,10 @@ func (f *fakeAdmission) ReadReportSettings(context.Context, reportcontract.Admis
 	return reportcontract.ReportSettings{Revision: 1}, nil
 }
 
+func (f *fakeAdmission) WriteReportSettings(_ context.Context, _ reportcontract.AdmissionContext, keyed nb.OperationKeyed[reportcontract.ReportSettingsWrite]) (reportcontract.ReportSettingsWriteResult, error) {
+	return reportcontract.ReportSettingsWriteResult{Settings: reportcontract.ReportSettings{Revision: keyed.Request.ExpectedRevision + 1}}, nil
+}
+
 func TestAttachAdmissionDelegates(t *testing.T) {
 	bundle, err := Open(context.Background(), reportcontract.FactoryInput{
 		Scopes: testScopes{}, GenerationID: "gen-test"})

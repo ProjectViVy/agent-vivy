@@ -6,8 +6,14 @@ import (
 	"encoding/hex"
 
 	"agent-vivy/internal/domain"
+	nb "agent-vivy/internal/notebookcontract"
 	rc "agent-vivy/internal/reportcontract"
 )
+
+// ReportSettingsMutationKind is the notebook_mutations resource kind under
+// which settings writes record their idempotency receipt (R3: the receipt
+// mechanism is shared; no second execution table).
+const ReportSettingsMutationKind = "report.settings"
 
 // ReportSettingsJobID is the deterministic CronJob identity for one
 // (scope, period) settings row — one row is the persistent authority for
@@ -30,6 +36,14 @@ type ReportSettingsStore interface {
 	// WriteReportSettingsCAS replaces the settings payload under revision
 	// CAS: a stale expected revision returns ErrRevisionConflict.
 	WriteReportSettingsCAS(ctx context.Context, expected int64, settings rc.ReportSettings) (rc.ReportSettings, error)
+	// CommitReportSettings commits a validated settings replacement inside
+	// one transaction with its notebook_mutations idempotency receipt:
+	// receipt lookup first, then the cron-row CAS update, then the receipt
+	// insert. An identical retried operation key replays the committed
+	// row instead of writing twice; the same key with a different payload
+	// is an idempotency conflict. nextRunAtMs is the host-computed durable
+	// next fire (cron evaluation is runtime-owned, not storage-owned).
+	CommitReportSettings(ctx context.Context, mc nb.MutationContext, expected int64, settings rc.ReportSettings, nextRunAtMs int64) (rc.ReportSettings, nb.MutationReceipt, error)
 }
 
 // ReportGeneration is the durable provenance+receipt row for one admitted

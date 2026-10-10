@@ -10,7 +10,7 @@ import {
   NOTEBOOK_ACTIONS, NOTEBOOK_MODULE_ID,
   REPORT_ACTIONS, REPORTS_MODULE_ID,
   type ReportAdmission, type ReportOutcome, type ReportPeriod,
-  type ReportResult, type ReportSettings, type ReportWindowSelector,
+  type ReportResult, type ReportSettings, type ReportSettingsWriteResult, type ReportWindowSelector,
   type CommentPage, type EntryPage, type EntryView, type ExportBundle,
   type MutationReceipt, type RevisionPage, type SectionPage,
   type ActionOutcome, type NotebookErrorCode, type CommentStatus,
@@ -219,6 +219,20 @@ export class ReportsClient {
 
   readSettings(input: { readonly period: ReportPeriod }): Promise<ReportSettings> {
     return this.invoke(REPORT_ACTIONS.settingsRead, input);
+  }
+
+  writeSettings(input: {
+    readonly period: ReportPeriod;
+    readonly expected_revision: number;
+    readonly operation_key: string;
+    readonly timezone: string;
+    readonly section_id: string;
+    readonly provider?: string;
+    readonly model_id?: string;
+    readonly enabled: boolean;
+    readonly schedule_expr: string;
+  }): Promise<ReportSettingsWriteResult> {
+    return this.invoke(REPORT_ACTIONS.settingsWrite, input);
   }
 
   private async invoke<Request extends object, Result>(actionId: string, input: Request): Promise<Result> {

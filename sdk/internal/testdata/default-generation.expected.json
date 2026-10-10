@@ -128,7 +128,8 @@
     "vivy.reports.generate",
     "vivy.reports.get",
     "vivy.reports.cancel",
-    "vivy.reports.settings.read"
+    "vivy.reports.settings.read",
+    "vivy.reports.settings.write"
   ],
   "toolWorldProviders": [
     "mcp"

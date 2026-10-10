@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sync"
 
+	nb "agent-vivy/internal/notebookcontract"
 	"agent-vivy/internal/reportcontract"
 	"agent-vivy/sdk/module"
 )
@@ -127,4 +128,17 @@ func (s *service) ReadReportSettings(ctx context.Context, ac reportcontract.Admi
 		}
 	}
 	return admission.ReadReportSettings(ctx, ac, period)
+}
+
+func (s *service) WriteReportSettings(ctx context.Context, ac reportcontract.AdmissionContext, keyed nb.OperationKeyed[reportcontract.ReportSettingsWrite]) (reportcontract.ReportSettingsWriteResult, error) {
+	s.bundle.mu.RLock()
+	admission := s.bundle.admission
+	s.bundle.mu.RUnlock()
+	if admission == nil {
+		return reportcontract.ReportSettingsWriteResult{}, &reportcontract.Error{
+			Code:    reportcontract.CodeCapabilityUnavailable,
+			Message: "report admission is not bound",
+		}
+	}
+	return admission.WriteReportSettings(ctx, ac, keyed)
 }

@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	ActionGenerate     = "vivy.reports.generate"
-	ActionGet          = "vivy.reports.get"
-	ActionCancel       = "vivy.reports.cancel"
-	ActionSettingsRead = "vivy.reports.settings.read"
+	ActionGenerate      = "vivy.reports.generate"
+	ActionGet           = "vivy.reports.get"
+	ActionCancel        = "vivy.reports.cancel"
+	ActionSettingsRead  = "vivy.reports.settings.read"
+	ActionSettingsWrite = "vivy.reports.settings.write"
 )
 
 // ActionIDs is the sealed control-action inventory the source catalog
 // mirrors onto std/control-action@v1 Provides.
-var ActionIDs = []string{ActionGenerate, ActionGet, ActionCancel, ActionSettingsRead}
+var ActionIDs = []string{ActionGenerate, ActionGet, ActionCancel, ActionSettingsRead, ActionSettingsWrite}
 
 const (
 	maxReportActionInput  = 64 << 10
@@ -82,6 +83,18 @@ func ActionProviders() []controlaction.Provider {
 			invoke: invokeReport(func(s rc.ScopedActions, in reportSettingsIn) (any, error) {
 				return s.ReadSettings(context.Background(), rc.Period(in.Period))
 			})},
+		reportAction{definition: rdef(ActionSettingsWrite, "Replace report settings under revision CAS", controlaction.EffectWrite,
+			`{"type":"object","additionalProperties":false,"required":["period","expected_revision","operation_key","timezone","section_id","enabled","schedule_expr"],"properties":{"period":{"enum":["daily","weekly","monthly"]},"expected_revision":{"type":"integer","minimum":1},"operation_key":{"type":"string","minLength":1},"timezone":{"type":"string","minLength":1},"section_id":{"type":"string","minLength":1},"provider":{"type":"string"},"model_id":{"type":"string"},"enabled":{"type":"boolean"},"schedule_expr":{"type":"string"}}}`),
+			invoke: invokeReport(func(s rc.ScopedActions, in reportSettingsWriteIn) (any, error) {
+				return s.WriteSettings(context.Background(), nb.OperationKeyed[rc.ReportSettingsWrite]{
+					OperationKey: in.OperationKey,
+					Request: rc.ReportSettingsWrite{
+						Period: rc.Period(in.Period), ExpectedRevision: in.ExpectedRevision,
+						Timezone: in.Timezone, SectionID: in.SectionID,
+						Provider: in.Provider, ModelID: in.ModelID,
+						Enabled: in.Enabled, ScheduleExpr: in.ScheduleExpr},
+				})
+			})},
 	}
 }
 
@@ -96,6 +109,17 @@ type reportGetIn struct {
 }
 type reportSettingsIn struct {
 	Period string `json:"period"`
+}
+type reportSettingsWriteIn struct {
+	Period           string `json:"period"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	OperationKey     string `json:"operation_key"`
+	Timezone         string `json:"timezone"`
+	SectionID        string `json:"section_id"`
+	Provider         string `json:"provider,omitempty"`
+	ModelID          string `json:"model_id,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	ScheduleExpr     string `json:"schedule_expr"`
 }
 
 func invokeReport[T any](fn func(rc.ScopedActions, T) (any, error)) func(context.Context, rc.ScopedActions, json.RawMessage) (any, error) {

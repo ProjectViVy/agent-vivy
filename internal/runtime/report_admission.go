@@ -140,7 +140,11 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		s.projectionMu.Unlock()
 		return rc.ReportAdmission{}, settingsErr
 	}
-	window, windowErr := ResolveReportWindow(req.Period, req.Window, settings.Timezone, time.Now().UnixMilli())
+	asOfMs := req.AsOfMs
+	if asOfMs <= 0 {
+		asOfMs = time.Now().UnixMilli()
+	}
+	window, windowErr := ResolveReportWindow(req.Period, req.Window, settings.Timezone, asOfMs)
 	if windowErr != nil {
 		s.projectionMu.Unlock()
 		return rc.ReportAdmission{}, &rc.Error{Code: rc.CodeInvalidRequest, Message: "cannot resolve report window: " + windowErr.Error()}
@@ -163,6 +167,7 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		ConfigRevision: settings.Revision,
 		Provider:       settings.Provider,
 		ModelID:        settings.ModelID,
+		Skipped:        s.reportSkippedWindows(ctx, string(ac.Scope), req.Period, window, settings.Timezone),
 	})
 	if err != nil {
 		s.projectionMu.Unlock()
@@ -396,6 +401,26 @@ func (s *Service) reportSettings(ctx context.Context, scope string, period rc.Pe
 		Scope: scope, Period: period, Timezone: "UTC", SectionID: sectionID})
 }
 
+// reportSkippedWindows lists completed period IDs a bounded catch-up
+// passed over before this admission: only the latest completed period is
+// admitted, and the skipped range is recorded in the committed run input
+// so the status surface can show it. Manual admissions record an empty
+// range.
+func (s *Service) reportSkippedWindows(ctx context.Context, scope string, period rc.Period, window rc.Window, tz string) []string {
+	if s.deps.Report == nil {
+		return nil
+	}
+	rows, err := s.deps.Report.ListReportGenerations(ctx, scope, reportSeriesID(period), "", window.ID)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	last := rows[len(rows)-1].WindowID
+	if last == window.ID {
+		return nil
+	}
+	return skippedWindowsBetween(period, last, window.ID, tz, 24)
+}
+
 // reportControlScope verifies the caller's scope still matches the run's
 // admission scope — a get/cancel never crosses scope boundaries.
 func (s *Service) reportRunForScope(ctx context.Context, scope, runID string) (domain.Run, error) {
@@ -424,6 +449,12 @@ func (s *Service) GetReport(ctx context.Context, ac rc.AdmissionContext, runID s
 		return rc.ReportResult{}, err
 	}
 	res := rc.ReportResult{RunID: runID, Status: string(run.Status)}
+	if rev, revErr := s.deps.WorkflowRevisions.GetWorkflowRevision(ctx, domain.RunID(runID)); revErr == nil {
+		var input reportRunInput
+		if json.Unmarshal(rev.InputJSON, &input) == nil {
+			res.SkippedWindows = input.Skipped
+		}
+	}
 	if s.deps.Report != nil {
 		if g, gerr := s.deps.Report.GetReportGenerationByRun(ctx, string(ac.Scope), runID); gerr == nil {
 			res.Generation = &rc.GenerationProvenance{
@@ -433,7 +464,7 @@ func (s *Service) GetReport(ctx context.Context, ac rc.AdmissionContext, runID s
 				InputDigest: g.InputDigest, FactsDigest: g.FactsDigest,
 				Provider: g.Provider, ModelID: g.ModelID,
 				OutcomeMode: g.OutcomeMode, OutcomeReason: g.OutcomeReason,
-				EntryID: g.EntryID, RevisionID: g.RevisionID,
+				EntryID: g.EntryID, RevisionID: g.RevisionID, Skipped: res.SkippedWindows,
 			}
 		}
 	}

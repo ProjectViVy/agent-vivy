@@ -118,6 +118,47 @@ type reportRunInput struct {
 	ConfigRevision int64             `json:"config_revision"`
 	Provider       string            `json:"provider,omitempty"`
 	ModelID        string            `json:"model_id,omitempty"`
+	// Skipped records completed periods bounded catch-up passed over: only
+	// the latest completed period is admitted per restart, and the skipped
+	// range rides the committed input as durable evidence.
+	Skipped []string `json:"skipped_windows,omitempty"`
+}
+
+// skippedWindowsBetween enumerates completed period IDs strictly after
+// prevID up to (excluding) firedID, bounded by limit. Window IDs are
+// civil-calendar identities, so stepping goes through dates, never fixed
+// durations — DST and month lengths resolve correctly.
+func skippedWindowsBetween(period rc.Period, prevID, firedID, tz string, limit int) []string {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil
+	}
+	var prev, fired time.Time
+	switch period {
+	case rc.PeriodMonthly:
+		prev, err = time.ParseInLocation("2006-01", prevID, loc)
+		if err != nil {
+			return nil
+		}
+		fired, err = time.ParseInLocation("2006-01", firedID, loc)
+		if err != nil {
+			return nil
+		}
+	default:
+		prev, err = time.ParseInLocation("2006-01-02", prevID, loc)
+		if err != nil {
+			return nil
+		}
+		fired, err = time.ParseInLocation("2006-01-02", firedID, loc)
+		if err != nil {
+			return nil
+		}
+	}
+	var out []string
+	for cur := addPeriod(prev, period, 1, loc); cur.Before(fired) && len(out) < limit; cur = addPeriod(cur, period, 1, loc) {
+		out = append(out, windowID(period, cur, loc))
+	}
+	return out
 }
 
 func (in reportRunInput) rcWindow() rc.Window {

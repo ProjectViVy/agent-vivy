@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"agent-vivy/internal/domain"
+	nb "agent-vivy/internal/notebookcontract"
 	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
 )
@@ -114,5 +116,51 @@ func TestReportSourcesBounded(t *testing.T) {
 		if sess.Purpose != "" {
 			t.Fatalf("hidden session leaked: %v", sess.ID)
 		}
+	}
+}
+
+func TestReportSettingsCommitReceiptReplay(t *testing.T) {
+	b := openReportBackend(t)
+	ctx := context.Background()
+
+	base, err := b.EnsureReportSettings(ctx, "home", rc.PeriodWeekly, rc.ReportSettings{
+		Scope: "home", Period: rc.PeriodWeekly, Timezone: "UTC", SectionID: "section-weekly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := base
+	desired.Timezone = "Asia/Shanghai"
+	desired.Enabled = true
+	desired.ScheduleExpr = "0 7 * * 1"
+	mc := nb.MutationContext{ScopeID: "home", Actor: nb.Actor{Kind: nb.ActorHuman, Ref: "peer:test"}, OperationKey: "op-commit-1"}
+
+	committed, receipt, err := b.CommitReportSettings(ctx, mc, base.Revision, desired, 4242)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.Revision != base.Revision+1 || receipt.Replayed || receipt.Version != base.Revision+1 {
+		t.Fatalf("commit = %+v receipt %+v", committed, receipt)
+	}
+	got, err := b.GetReportSettings(ctx, "home", rc.PeriodWeekly)
+	if err != nil || got.Revision != committed.Revision || got.Timezone != "Asia/Shanghai" || !got.Enabled {
+		t.Fatalf("persisted settings = %+v err=%v", got, err)
+	}
+
+	// Same operation key + identical payload replays the committed outcome.
+	committed2, receipt2, err := b.CommitReportSettings(ctx, mc, base.Revision, desired, 4242)
+	if err != nil || !receipt2.Replayed || committed2.Revision != committed.Revision {
+		t.Fatalf("replay = %+v receipt %+v err=%v", committed2, receipt2, err)
+	}
+	// Same operation key + divergent payload is an idempotency conflict.
+	divergent := desired
+	divergent.Timezone = "UTC"
+	if _, _, err := b.CommitReportSettings(ctx, mc, base.Revision, divergent, 4242); !errors.Is(err, nb.ErrIdempotencyConflict) {
+		t.Fatalf("divergent replay err = %v", err)
+	}
+	// A new key carrying the consumed base revision is a revision conflict.
+	mc2 := mc
+	mc2.OperationKey = "op-commit-2"
+	if _, _, err := b.CommitReportSettings(ctx, mc2, base.Revision, desired, 4242); !errors.Is(err, storage.ErrRevisionConflict) {
+		t.Fatalf("stale expected err = %v", err)
 	}
 }

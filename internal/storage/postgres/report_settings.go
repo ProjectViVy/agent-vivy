@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"agent-vivy/internal/domain"
+	nb "agent-vivy/internal/notebookcontract"
 	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
 )
@@ -78,4 +80,69 @@ func (b *Backend) WriteReportSettingsCAS(ctx context.Context, expected int64, se
 		return rc.ReportSettings{}, err
 	}
 	return jobToReportSettings(updated)
+}
+
+// reportSettingsWriteRequest is the canonical digest input of a settings
+// commit: scope binds the write to its trusted namespace.
+type reportSettingsWriteRequest struct {
+	Scope string `json:"scope"`
+	rc.ReportSettingsWrite
+}
+
+func (b *Backend) CommitReportSettings(ctx context.Context, mc nb.MutationContext, expected int64, settings rc.ReportSettings, nextRunAtMs int64) (rc.ReportSettings, nb.MutationReceipt, error) {
+	req := reportSettingsWriteRequest{
+		Scope: settings.Scope,
+		ReportSettingsWrite: rc.ReportSettingsWrite{
+			Period: settings.Period, ExpectedRevision: expected,
+			Timezone: settings.Timezone, SectionID: settings.SectionID,
+			Provider: settings.Provider, ModelID: settings.ModelID,
+			Enabled: settings.Enabled, ScheduleExpr: settings.ScheduleExpr,
+		},
+	}
+	job := reportSettingsJob(settings, settings.Enabled, time.Now().UnixMilli())
+	job.State.NextRunAtMs = nextRunAtMs
+	committed := settings
+	committed.Revision = expected + 1
+	receipt, err := notebookStore{db: b.db}.mutate(ctx, mc, storage.ReportSettingsMutationKind, req,
+		func(tx *Tx, now int64) (nb.MutationReceipt, error) {
+			job.UpdatedAt = now
+			schedule, payload, err := cronJSON(job)
+			if err != nil {
+				return nb.MutationReceipt{}, err
+			}
+			res, err := tx.ExecContext(ctx, `
+				UPDATE cron_jobs SET name = ?, enabled = ?, schedule_json = ?, payload_json = ?, session_id = ?,
+					next_run_at_ms = ?, last_run_at_ms = ?, last_status = ?, last_error = ?, delete_after_run = ?,
+				updated_at_ms = ?, revision = revision + 1
+				WHERE id = ? AND revision = ?`,
+				job.Name, job.Enabled, schedule, payload, string(job.SessionID),
+				job.State.NextRunAtMs, job.State.LastRunAtMs, job.State.LastStatus, job.State.LastError,
+				job.DeleteAfterRun, job.UpdatedAt, job.ID, expected)
+			if err != nil {
+				return nb.MutationReceipt{}, fmt.Errorf("storage: commit report settings %s: %w", job.ID, err)
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				var exists string
+				scanErr := tx.QueryRowContext(ctx, `SELECT id FROM cron_jobs WHERE id = ?`, job.ID).Scan(&exists)
+				if scanErr != nil {
+					if errors.Is(scanErr, sql.ErrNoRows) {
+						return nb.MutationReceipt{}, storage.ErrNotFound
+					}
+					return nb.MutationReceipt{}, scanErr
+				}
+				return nb.MutationReceipt{}, storage.ErrRevisionConflict
+			}
+			return nb.MutationReceipt{ResourceID: job.ID, Version: committed.Revision}, nil
+		})
+	if err != nil {
+		return rc.ReportSettings{}, nb.MutationReceipt{}, err
+	}
+	if receipt.Replayed {
+		row, getErr := b.GetReportSettings(ctx, settings.Scope, settings.Period)
+		if getErr != nil {
+			return rc.ReportSettings{}, nb.MutationReceipt{}, getErr
+		}
+		return row, receipt, nil
+	}
+	return committed, receipt, nil
 }

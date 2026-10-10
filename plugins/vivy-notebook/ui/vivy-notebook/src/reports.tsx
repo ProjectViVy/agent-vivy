@@ -44,6 +44,8 @@ export function NotebookReports({ entry, onGenerated }: NotebookReportsProps) {
   const [period, setPeriod] = useState<ReportPeriod>('daily');
   const [windowSel, setWindowSel] = useState<ReportWindowSelector>('completed');
   const [settings, setSettings] = useState<ReportSettings | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<{ timezone: string; schedule: string; section: string; provider: string; model: string; enabled: boolean } | null>(null);
   const [active, setActive] = useState<ReportResult | null>(null);
   const [opKey, setOpKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +204,71 @@ export function NotebookReports({ entry, onGenerated }: NotebookReportsProps) {
           {t('plugin.vivy/notebook.reports.settingsDisabled')}
         </span>
       )}
+      {settings && !editing && (
+        <Button size="sm" variant="ghost" data-testid="report-settings-open"
+          onClick={() => {
+            setEditing(true);
+            setDraft({ timezone: settings.timezone || 'UTC', schedule: settings.schedule_expr || '0 9 * * *',
+              section: settings.section_id, provider: settings.provider || '', model: settings.model_id || '',
+              enabled: settings.enabled });
+          }}>
+          {t('plugin.vivy/notebook.reports.settings')}
+        </Button>
+      )}
       {error && <span className="text-xs text-destructive" role="alert">{error}</span>}
+      {editing && draft && settings && (
+        <div className="mt-2 grid gap-2 rounded border p-2" data-testid="report-settings-form">
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={draft.enabled}
+              onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} data-testid="settings-enabled" />
+            {t('plugin.vivy/notebook.reports.settings.enabled')}
+          </label>
+          <input className="rounded border bg-background px-2 py-1 text-xs" value={draft.schedule}
+            onChange={(e) => setDraft({ ...draft, schedule: e.target.value })}
+            placeholder={t('plugin.vivy/notebook.reports.settings.schedule')} data-testid="settings-schedule" />
+          <input className="rounded border bg-background px-2 py-1 text-xs" value={draft.timezone}
+            onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
+            placeholder={t('plugin.vivy/notebook.reports.settings.timezone')} data-testid="settings-timezone" />
+          <input className="rounded border bg-background px-2 py-1 text-xs" value={draft.section}
+            onChange={(e) => setDraft({ ...draft, section: e.target.value })}
+            placeholder={t('plugin.vivy/notebook.reports.settings.destination')} data-testid="settings-section" />
+          <input className="rounded border bg-background px-2 py-1 text-xs" value={draft.provider}
+            onChange={(e) => setDraft({ ...draft, provider: e.target.value })}
+            placeholder={t('plugin.vivy/notebook.reports.settings.provider')} data-testid="settings-provider" />
+          <input className="rounded border bg-background px-2 py-1 text-xs" value={draft.model}
+            onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+            placeholder={t('plugin.vivy/notebook.reports.settings.model')} data-testid="settings-model" />
+          <div className="flex gap-2">
+            <Button size="sm" data-testid="settings-save" onClick={() => void (async () => {
+              setError(null);
+              try {
+                const res = await client.writeSettings({
+                  period, expected_revision: settings.revision, operation_key: newOperationKey(),
+                  timezone: draft.timezone, section_id: draft.section,
+                  provider: draft.provider || undefined, model_id: draft.model || undefined,
+                  enabled: draft.enabled, schedule_expr: draft.schedule,
+                });
+                setSettings(res.settings);
+                setEditing(false);
+              } catch (cause) {
+                if (cause instanceof NotebookError && cause.code === 'idempotency_conflict') {
+                  const fresh = await client.readSettings({ period });
+                  setSettings(fresh);
+                  setEditing(false);
+                  setError(t('plugin.vivy/notebook.reports.settings.conflict'));
+                } else {
+                  setError(cause instanceof Error ? cause.message : String(cause));
+                }
+              }
+            })()}>
+              {t('plugin.vivy/notebook.reports.settings.save')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              {t('plugin.vivy/notebook.reports.settings.discard')}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

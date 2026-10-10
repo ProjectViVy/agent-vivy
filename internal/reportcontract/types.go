@@ -57,6 +57,10 @@ type ReportRequest struct {
 	Window       WindowSelector `json:"window"`
 	OperationKey string         `json:"operation_key"`
 	Target       *TargetRef     `json:"target,omitempty"`
+	// AsOfMs pins the admitted as-of instant for scheduled admissions; the
+	// request digest never covers it, so a retried trigger rejoins the same
+	// Run. Zero uses the admission-time clock (manual path).
+	AsOfMs int64 `json:"as_of_ms,omitempty"`
 }
 
 // AdmissionContext carries host-resolved provenance. Callers never supply
@@ -130,6 +134,28 @@ type ReportSettings struct {
 	Enabled      bool   `json:"enabled"`
 	Revision     int64  `json:"revision"`
 	ScheduleExpr string `json:"schedule_expr,omitempty"`
+}
+
+// ReportSettingsWrite is one typed settings replacement a caller may
+// request. Scope and period are bound by the trusted facade and the path
+// parameter; the wire carries only mutable fields plus the expected
+// revision that makes the write compare-and-swap.
+type ReportSettingsWrite struct {
+	Period           Period `json:"period"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	Timezone         string `json:"timezone"`
+	SectionID        string `json:"section_id"`
+	Provider         string `json:"provider,omitempty"`
+	ModelID          string `json:"model_id,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	ScheduleExpr     string `json:"schedule_expr,omitempty"`
+}
+
+// ReportSettingsWriteResult reports the committed row and whether the
+// operation key replayed an already-committed write.
+type ReportSettingsWriteResult struct {
+	Settings ReportSettings `json:"settings"`
+	Replayed bool           `json:"replayed"`
 }
 
 // SourceRef identifies one exact authorized evidence item — a session
@@ -219,6 +245,9 @@ type GenerationProvenance struct {
 	OutcomeReason  string `json:"outcome_reason,omitempty"`
 	EntryID        string `json:"entry_id"`
 	RevisionID     string `json:"revision_id"`
+	// Skipped records completed periods the scheduler passed over before
+	// this admission — bounded catch-up admits only the latest period.
+	Skipped []string `json:"skipped_windows,omitempty"`
 }
 
 // ReportResult is the persisted run-level projection a get action returns.
@@ -226,4 +255,7 @@ type ReportResult struct {
 	RunID      string                `json:"run_id"`
 	Status     string                `json:"status"`
 	Generation *GenerationProvenance `json:"generation,omitempty"`
+	// SkippedWindows lists completed periods skipped by bounded catch-up
+	// before this run's admission, as recorded in its committed input.
+	SkippedWindows []string `json:"skipped_windows,omitempty"`
 }
