@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -42,8 +43,23 @@ func TestReleasedCronRepairMigrationIsImmutable(t *testing.T) {
 		Postgres: "d8d06421d2906d09708123e80b8dd9262c9e6a57d4f91d5f681a0074bdfdb9bd",
 	} {
 		t.Run(string(dialect), func(t *testing.T) {
-			if got := full.Migrations(dialect)[16].Checksum; got != checksum {
-				t.Fatalf("released migration 017 checksum = %s, want %s", got, checksum)
+			released, err := os.ReadFile("testdata/released-017/" + string(dialect) + "/017_cron_repair.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Git may check text fixtures out as CRLF on Windows. Verify the
+			// frozen Git content independently, while retaining exact native
+			// bytes and checksums for released databases on each platform.
+			canonical := bytes.ReplaceAll(released, []byte("\r\n"), []byte("\n"))
+			if got := fmt.Sprintf("%x", sha256.Sum256(canonical)); got != checksum {
+				t.Fatalf("frozen released migration 017 Git checksum = %s, want %s", got, checksum)
+			}
+			migration := full.Migrations(dialect)[16]
+			if migration.SQL != string(released) {
+				t.Fatal("migration 017 bytes differ from the frozen release")
+			}
+			if got := fmt.Sprintf("%x", sha256.Sum256(released)); migration.Checksum != got {
+				t.Fatalf("released migration 017 native checksum = %s, want %s", migration.Checksum, got)
 			}
 		})
 	}
