@@ -8,6 +8,9 @@
 import { createModuleActionClient, type FaceClientRPC } from '@vivy/ui-sdk';
 import {
   NOTEBOOK_ACTIONS, NOTEBOOK_MODULE_ID,
+  REPORT_ACTIONS, REPORTS_MODULE_ID,
+  type ReportAdmission, type ReportOutcome, type ReportPeriod,
+  type ReportResult, type ReportSettings, type ReportWindowSelector,
   type CommentPage, type EntryPage, type EntryView, type ExportBundle,
   type MutationReceipt, type RevisionPage, type SectionPage,
   type ActionOutcome, type NotebookErrorCode, type CommentStatus,
@@ -180,5 +183,66 @@ export class NotebookClient {
       );
     }
     throw new NotebookError('outcome_unknown', 'notebook action returned an unrecognized outcome', true);
+  }
+}
+
+/**
+ * Reports adapter over the sealed `vivy.reports.*` inventory (R1). Same
+ * authority rule as the notebook adapter: scope/actor/origin are bound
+ * server-side; the wire carries only period/window/target/operation_key.
+ * The outcome envelope names its success field `result`, not `data`.
+ */
+export class ReportsClient {
+  constructor(private readonly actions: NotebookActionTransport) {}
+
+  static fromRPC(rpc: FaceClientRPC): ReportsClient {
+    return new ReportsClient(createModuleActionClient(rpc));
+  }
+
+  generate(input: {
+    readonly period: ReportPeriod;
+    readonly window: ReportWindowSelector;
+    readonly operationKey: string;
+    readonly target?: { readonly section_id?: string; readonly entry_id?: string };
+  }): Promise<ReportAdmission> {
+    const { operationKey, ...request } = input;
+    return this.invoke(REPORT_ACTIONS.generate, { operation_key: operationKey, ...request });
+  }
+
+  get(input: { readonly run_id: string }): Promise<ReportResult> {
+    return this.invoke(REPORT_ACTIONS.get, input);
+  }
+
+  cancel(input: { readonly run_id: string }): Promise<void> {
+    return this.invoke(REPORT_ACTIONS.cancel, input).then(() => undefined);
+  }
+
+  readSettings(input: { readonly period: ReportPeriod }): Promise<ReportSettings> {
+    return this.invoke(REPORT_ACTIONS.settingsRead, input);
+  }
+
+  private async invoke<Request extends object, Result>(actionId: string, input: Request): Promise<Result> {
+    let outcome: ReportOutcome<Result> | undefined;
+    try {
+      outcome = await this.actions.invoke<Request, ReportOutcome<Result>>({
+        moduleId: REPORTS_MODULE_ID,
+        actionId,
+        input,
+      });
+    } catch (cause) {
+      const code = (cause as { code?: unknown })?.code;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (code === -32004 || code === -32601 || /not configured|not found|unavailable/i.test(message)) {
+        throw new NotebookError('capability_unavailable', message, false);
+      }
+      throw cause;
+    }
+    if (outcome != null && outcome.status === 'ok') {
+      return outcome.result as Result;
+    }
+    if (outcome != null && outcome.status === 'error' && outcome.error) {
+      throw new NotebookError(outcome.error.code, outcome.error.message, outcome.error.retryable);
+    }
+    throw new NotebookError('outcome_unknown', 'reports action returned an unrecognized outcome', true);
   }
 }

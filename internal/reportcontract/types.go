@@ -69,12 +69,12 @@ type AdmissionContext struct {
 
 // ReportAdmission is the bounded result of one StartReport call.
 type ReportAdmission struct {
-	RunID    string
-	Created  bool
-	Rejoined bool
+	RunID    string `json:"run_id"`
+	Created  bool   `json:"created"`
+	Rejoined bool   `json:"rejoined"`
 	// Busy reports a distinct operation key declining against a
 	// non-terminal Run that already owns the same target.
-	Busy bool
+	Busy bool `json:"busy"`
 }
 
 // Code is the stable domain error code of the bounded result envelope.

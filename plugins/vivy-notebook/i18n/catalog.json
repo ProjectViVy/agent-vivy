@@ -4,91 +4,839 @@
     "plugin.vivy/notebook.title": {
       "description": "Notebook page copy: title",
       "placeholders": [],
-      "messages": { "en": "Notebook", "zh": "记事本" }
+      "messages": {
+        "en": "Notebook",
+        "zh": "记事本"
+      }
     },
     "plugin.vivy/notebook.subtitle": {
       "description": "Notebook page copy: subtitle",
       "placeholders": [],
-      "messages": { "en": "Sections, documents, revisions and comments", "zh": "分区、文档、修订与评论" }
+      "messages": {
+        "en": "Sections, documents, revisions and comments",
+        "zh": "分区、文档、修订与评论"
+      }
     },
     "plugin.vivy/notebook.nav": {
       "description": "Sidebar VIVY group label for the Notebook Module",
       "placeholders": [],
-      "messages": { "en": "Notebook", "zh": "记事本" }
+      "messages": {
+        "en": "Notebook",
+        "zh": "记事本"
+      }
     },
     "plugin.vivy/notebook.unavailable": {
       "description": "Shown when the backend notebook capability is absent",
       "placeholders": [],
-      "messages": { "en": "The notebook service is not available in this generation.", "zh": "此生代未提供记事本服务。" }
+      "messages": {
+        "en": "The notebook service is not available in this generation.",
+        "zh": "此生代未提供记事本服务。"
+      }
     },
-    "plugin.vivy/notebook.loadFailed": { "description": "Entry load failure", "placeholders": [], "messages": { "en": "Failed to load the entry", "zh": "条目加载失败" } },
-    "plugin.vivy/notebook.sectionsFailed": { "description": "Section list failure", "placeholders": [], "messages": { "en": "Failed to load sections", "zh": "分区加载失败" } },
-    "plugin.vivy/notebook.entriesFailed": { "description": "Entry list failure", "placeholders": [], "messages": { "en": "Failed to load documents", "zh": "文档加载失败" } },
-    "plugin.vivy/notebook.sectionsLabel": { "description": "Section picker label", "placeholders": [], "messages": { "en": "Sections", "zh": "分区" } },
-    "plugin.vivy/notebook.documents": { "description": "Entry list heading", "placeholders": [], "messages": { "en": "Documents", "zh": "文档" } },
-    "plugin.vivy/notebook.newSection": { "description": "Create section button", "placeholders": [], "messages": { "en": "New section", "zh": "新建分区" } },
-    "plugin.vivy/notebook.renameSection": { "description": "Rename section button", "placeholders": [], "messages": { "en": "Rename section", "zh": "重命名分区" } },
-    "plugin.vivy/notebook.sectionTitlePlaceholder": { "description": "Section title input placeholder", "placeholders": [], "messages": { "en": "Section title", "zh": "分区标题" } },
-    "plugin.vivy/notebook.newNote": { "description": "Create entry button", "placeholders": [], "messages": { "en": "New note", "zh": "新建笔记" } },
-    "plugin.vivy/notebook.untitled": { "description": "Default entry title", "placeholders": [], "messages": { "en": "Untitled", "zh": "未命名" } },
-    "plugin.vivy/notebook.showDeleted": { "description": "Include deleted entries toggle", "placeholders": [], "messages": { "en": "Show deleted", "zh": "显示已删除" } },
-    "plugin.vivy/notebook.emptySection": { "description": "Empty entry list", "placeholders": [], "messages": { "en": "No documents in this section yet", "zh": "此分区暂无文档" } },
-    "plugin.vivy/notebook.selectEntry": { "description": "Detail placeholder", "placeholders": [], "messages": { "en": "Select a document to read or edit", "zh": "选择一份文档阅读或编辑" } },
-    "plugin.vivy/notebook.deleted": { "description": "Deleted badge", "placeholders": [], "messages": { "en": "Deleted", "zh": "已删除" } },
-    "plugin.vivy/notebook.restore": { "description": "Restore button", "placeholders": [], "messages": { "en": "Restore", "zh": "恢复" } },
-    "plugin.vivy/notebook.moveTo": { "description": "Move entry target picker", "placeholders": [], "messages": { "en": "Move to section", "zh": "移动到分区" } },
-    "plugin.vivy/notebook.export": { "description": "Export button", "placeholders": [], "messages": { "en": "Export", "zh": "导出" } },
-    "plugin.vivy/notebook.save": { "description": "Save button", "placeholders": [], "messages": { "en": "Save", "zh": "保存" } },
-    "plugin.vivy/notebook.edit": { "description": "Edit tab", "placeholders": [], "messages": { "en": "Edit", "zh": "编辑" } },
-    "plugin.vivy/notebook.preview": { "description": "Preview tab", "placeholders": [], "messages": { "en": "Preview", "zh": "预览" } },
-    "plugin.vivy/notebook.titleLabel": { "description": "Entry title input label", "placeholders": [], "messages": { "en": "Title", "zh": "标题" } },
-    "plugin.vivy/notebook.markdownLabel": { "description": "Markdown editor label", "placeholders": [], "messages": { "en": "Markdown body", "zh": "Markdown 正文" } },
-    "plugin.vivy/notebook.discardPrompt": { "description": "Unsaved navigation guard", "placeholders": [], "messages": { "en": "Unsaved changes will be lost.", "zh": "未保存的修改将丢失。" } },
-    "plugin.vivy/notebook.discardLeave": { "description": "Discard-and-leave button", "placeholders": [], "messages": { "en": "Discard and leave", "zh": "放弃并离开" } },
-    "plugin.vivy/notebook.discardStay": { "description": "Stay button", "placeholders": [], "messages": { "en": "Keep editing", "zh": "继续编辑" } },
-    "plugin.vivy/notebook.conflictBody": { "description": "Revision conflict banner", "placeholders": [], "messages": { "en": "A newer version exists. Your draft is kept; choose how to continue.", "zh": "存在更新的版本。草稿已保留，请选择如何继续。" } },
-    "plugin.vivy/notebook.keepEditing": { "description": "Rebase and keep editing", "placeholders": [], "messages": { "en": "Keep editing on top of it", "zh": "在其基础上继续编辑" } },
-    "plugin.vivy/notebook.viewCurrent": { "description": "View current version", "placeholders": [], "messages": { "en": "View current version", "zh": "查看当前版本" } },
-    "plugin.vivy/notebook.reload": { "description": "Reload discards draft", "placeholders": [], "messages": { "en": "Reload (discard draft)", "zh": "重新加载（放弃草稿）" } },
-    "plugin.vivy/notebook.unknownBody": { "description": "Unknown-outcome banner", "placeholders": [], "messages": { "en": "The save outcome is unknown. Retrying is safe — the same operation reconciles its stored receipt.", "zh": "保存结果未知。重试是安全的——同一操作会核对其已存回执。" } },
-    "plugin.vivy/notebook.retrySave": { "description": "Retry save button", "placeholders": [], "messages": { "en": "Retry", "zh": "重试" } },
-    "plugin.vivy/notebook.checkState": { "description": "Reload current state", "placeholders": [], "messages": { "en": "Check current state", "zh": "查看当前状态" } },
-    "plugin.vivy/notebook.saveState.clean": { "description": "Clean state", "placeholders": [], "messages": { "en": "saved", "zh": "已保存" } },
-    "plugin.vivy/notebook.saveState.dirty": { "description": "Dirty state", "placeholders": [], "messages": { "en": "unsaved changes", "zh": "有未保存修改" } },
-    "plugin.vivy/notebook.saveState.saving": { "description": "Saving state", "placeholders": [], "messages": { "en": "saving…", "zh": "保存中…" } },
-    "plugin.vivy/notebook.saveState.saved": { "description": "Saved state", "placeholders": [], "messages": { "en": "saved", "zh": "已保存" } },
-    "plugin.vivy/notebook.saveState.conflict": { "description": "Conflict state", "placeholders": [], "messages": { "en": "conflict", "zh": "冲突" } },
-    "plugin.vivy/notebook.saveState.unknown": { "description": "Unknown state", "placeholders": [], "messages": { "en": "save outcome unknown", "zh": "保存结果未知" } },
-    "plugin.vivy/notebook.saveState.error": { "description": "Error state", "placeholders": [], "messages": { "en": "save failed", "zh": "保存失败" } },
-    "plugin.vivy/notebook.kind.note": { "description": "Entry kind note", "placeholders": [], "messages": { "en": "note", "zh": "笔记" } },
-    "plugin.vivy/notebook.kind.report": { "description": "Entry kind report", "placeholders": [], "messages": { "en": "report", "zh": "报告" } },
-    "plugin.vivy/notebook.origin.legacy": { "description": "Revision origin legacy", "placeholders": [], "messages": { "en": "legacy", "zh": "旧导入" } },
-    "plugin.vivy/notebook.origin.human": { "description": "Revision origin human", "placeholders": [], "messages": { "en": "human", "zh": "人工" } },
-    "plugin.vivy/notebook.origin.agent": { "description": "Revision origin agent", "placeholders": [], "messages": { "en": "agent", "zh": "代理" } },
-    "plugin.vivy/notebook.origin.generated": { "description": "Revision origin generated", "placeholders": [], "messages": { "en": "generated", "zh": "生成" } },
-    "plugin.vivy/notebook.roles.notes": { "description": "System section notes", "placeholders": [], "messages": { "en": "Notes", "zh": "笔记" } },
-    "plugin.vivy/notebook.roles.daily": { "description": "System section daily", "placeholders": [], "messages": { "en": "Daily", "zh": "日报" } },
-    "plugin.vivy/notebook.roles.weekly": { "description": "System section weekly", "placeholders": [], "messages": { "en": "Weekly", "zh": "周报" } },
-    "plugin.vivy/notebook.roles.monthly": { "description": "System section monthly", "placeholders": [], "messages": { "en": "Monthly", "zh": "月报" } },
-    "plugin.vivy/notebook.viewingRevision": { "description": "Viewing an old revision badge", "placeholders": ["sequence"], "messages": { "en": "viewing #{{sequence}}", "zh": "正在查看 #{{sequence}}" } },
-    "plugin.vivy/notebook.backToHead": { "description": "Back to head button", "placeholders": [], "messages": { "en": "Back to head", "zh": "回到最新" } },
-    "plugin.vivy/notebook.adopt": { "description": "Adopt revision button", "placeholders": [], "messages": { "en": "Adopt as new head", "zh": "采纳为新版本" } },
-    "plugin.vivy/notebook.viewRevision": { "description": "View revision button", "placeholders": [], "messages": { "en": "View", "zh": "查看" } },
-    "plugin.vivy/notebook.viewing": { "description": "Currently-viewed badge", "placeholders": [], "messages": { "en": "viewing", "zh": "查看中" } },
-    "plugin.vivy/notebook.head": { "description": "Head revision badge", "placeholders": [], "messages": { "en": "head", "zh": "最新" } },
-    "plugin.vivy/notebook.noRevisions": { "description": "No revisions empty state", "placeholders": [], "messages": { "en": "No revisions yet", "zh": "暂无修订" } },
-    "plugin.vivy/notebook.tabs.editor": { "description": "Editor tab", "placeholders": [], "messages": { "en": "Editor", "zh": "编辑器" } },
-    "plugin.vivy/notebook.tabs.revisions": { "description": "Revisions tab", "placeholders": [], "messages": { "en": "Revisions", "zh": "修订" } },
-    "plugin.vivy/notebook.tabs.comments": { "description": "Comments tab", "placeholders": [], "messages": { "en": "Comments", "zh": "评论" } },
-    "plugin.vivy/notebook.commentStatus.active": { "description": "Active comments", "placeholders": [], "messages": { "en": "Open", "zh": "未解决" } },
-    "plugin.vivy/notebook.commentStatus.resolved": { "description": "Resolved comments", "placeholders": [], "messages": { "en": "Resolved", "zh": "已解决" } },
-    "plugin.vivy/notebook.commentStatus.deleted": { "description": "Deleted comments", "placeholders": [], "messages": { "en": "Deleted", "zh": "已删除" } },
-    "plugin.vivy/notebook.noComments.active": { "description": "No open comments", "placeholders": [], "messages": { "en": "No open comments", "zh": "暂无未解决评论" } },
-    "plugin.vivy/notebook.noComments.resolved": { "description": "No resolved comments", "placeholders": [], "messages": { "en": "No resolved comments", "zh": "暂无已解决评论" } },
-    "plugin.vivy/notebook.noComments.deleted": { "description": "No deleted comments", "placeholders": [], "messages": { "en": "No deleted comments", "zh": "暂无已删除评论" } },
-    "plugin.vivy/notebook.commentPlaceholder": { "description": "New comment placeholder", "placeholders": [], "messages": { "en": "Add a comment…", "zh": "添加评论…" } },
-    "plugin.vivy/notebook.addComment": { "description": "Add comment button", "placeholders": [], "messages": { "en": "Comment", "zh": "评论" } },
-    "plugin.vivy/notebook.saveComment": { "description": "Save comment edit", "placeholders": [], "messages": { "en": "Save", "zh": "保存" } },
-    "plugin.vivy/notebook.resolve": { "description": "Resolve comment", "placeholders": [], "messages": { "en": "Resolve", "zh": "解决" } }
+    "plugin.vivy/notebook.loadFailed": {
+      "description": "Entry load failure",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load the entry",
+        "zh": "条目加载失败"
+      }
+    },
+    "plugin.vivy/notebook.sectionsFailed": {
+      "description": "Section list failure",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load sections",
+        "zh": "分区加载失败"
+      }
+    },
+    "plugin.vivy/notebook.entriesFailed": {
+      "description": "Entry list failure",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load documents",
+        "zh": "文档加载失败"
+      }
+    },
+    "plugin.vivy/notebook.sectionsLabel": {
+      "description": "Section picker label",
+      "placeholders": [],
+      "messages": {
+        "en": "Sections",
+        "zh": "分区"
+      }
+    },
+    "plugin.vivy/notebook.documents": {
+      "description": "Entry list heading",
+      "placeholders": [],
+      "messages": {
+        "en": "Documents",
+        "zh": "文档"
+      }
+    },
+    "plugin.vivy/notebook.newSection": {
+      "description": "Create section button",
+      "placeholders": [],
+      "messages": {
+        "en": "New section",
+        "zh": "新建分区"
+      }
+    },
+    "plugin.vivy/notebook.renameSection": {
+      "description": "Rename section button",
+      "placeholders": [],
+      "messages": {
+        "en": "Rename section",
+        "zh": "重命名分区"
+      }
+    },
+    "plugin.vivy/notebook.sectionTitlePlaceholder": {
+      "description": "Section title input placeholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Section title",
+        "zh": "分区标题"
+      }
+    },
+    "plugin.vivy/notebook.newNote": {
+      "description": "Create entry button",
+      "placeholders": [],
+      "messages": {
+        "en": "New note",
+        "zh": "新建笔记"
+      }
+    },
+    "plugin.vivy/notebook.untitled": {
+      "description": "Default entry title",
+      "placeholders": [],
+      "messages": {
+        "en": "Untitled",
+        "zh": "未命名"
+      }
+    },
+    "plugin.vivy/notebook.showDeleted": {
+      "description": "Include deleted entries toggle",
+      "placeholders": [],
+      "messages": {
+        "en": "Show deleted",
+        "zh": "显示已删除"
+      }
+    },
+    "plugin.vivy/notebook.emptySection": {
+      "description": "Empty entry list",
+      "placeholders": [],
+      "messages": {
+        "en": "No documents in this section yet",
+        "zh": "此分区暂无文档"
+      }
+    },
+    "plugin.vivy/notebook.selectEntry": {
+      "description": "Detail placeholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Select a document to read or edit",
+        "zh": "选择一份文档阅读或编辑"
+      }
+    },
+    "plugin.vivy/notebook.deleted": {
+      "description": "Deleted badge",
+      "placeholders": [],
+      "messages": {
+        "en": "Deleted",
+        "zh": "已删除"
+      }
+    },
+    "plugin.vivy/notebook.restore": {
+      "description": "Restore button",
+      "placeholders": [],
+      "messages": {
+        "en": "Restore",
+        "zh": "恢复"
+      }
+    },
+    "plugin.vivy/notebook.moveTo": {
+      "description": "Move entry target picker",
+      "placeholders": [],
+      "messages": {
+        "en": "Move to section",
+        "zh": "移动到分区"
+      }
+    },
+    "plugin.vivy/notebook.export": {
+      "description": "Export button",
+      "placeholders": [],
+      "messages": {
+        "en": "Export",
+        "zh": "导出"
+      }
+    },
+    "plugin.vivy/notebook.save": {
+      "description": "Save button",
+      "placeholders": [],
+      "messages": {
+        "en": "Save",
+        "zh": "保存"
+      }
+    },
+    "plugin.vivy/notebook.edit": {
+      "description": "Edit tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Edit",
+        "zh": "编辑"
+      }
+    },
+    "plugin.vivy/notebook.preview": {
+      "description": "Preview tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Preview",
+        "zh": "预览"
+      }
+    },
+    "plugin.vivy/notebook.titleLabel": {
+      "description": "Entry title input label",
+      "placeholders": [],
+      "messages": {
+        "en": "Title",
+        "zh": "标题"
+      }
+    },
+    "plugin.vivy/notebook.markdownLabel": {
+      "description": "Markdown editor label",
+      "placeholders": [],
+      "messages": {
+        "en": "Markdown body",
+        "zh": "Markdown 正文"
+      }
+    },
+    "plugin.vivy/notebook.discardPrompt": {
+      "description": "Unsaved navigation guard",
+      "placeholders": [],
+      "messages": {
+        "en": "Unsaved changes will be lost.",
+        "zh": "未保存的修改将丢失。"
+      }
+    },
+    "plugin.vivy/notebook.discardLeave": {
+      "description": "Discard-and-leave button",
+      "placeholders": [],
+      "messages": {
+        "en": "Discard and leave",
+        "zh": "放弃并离开"
+      }
+    },
+    "plugin.vivy/notebook.discardStay": {
+      "description": "Stay button",
+      "placeholders": [],
+      "messages": {
+        "en": "Keep editing",
+        "zh": "继续编辑"
+      }
+    },
+    "plugin.vivy/notebook.conflictBody": {
+      "description": "Revision conflict banner",
+      "placeholders": [],
+      "messages": {
+        "en": "A newer version exists. Your draft is kept; choose how to continue.",
+        "zh": "存在更新的版本。草稿已保留，请选择如何继续。"
+      }
+    },
+    "plugin.vivy/notebook.keepEditing": {
+      "description": "Rebase and keep editing",
+      "placeholders": [],
+      "messages": {
+        "en": "Keep editing on top of it",
+        "zh": "在其基础上继续编辑"
+      }
+    },
+    "plugin.vivy/notebook.viewCurrent": {
+      "description": "View current version",
+      "placeholders": [],
+      "messages": {
+        "en": "View current version",
+        "zh": "查看当前版本"
+      }
+    },
+    "plugin.vivy/notebook.reload": {
+      "description": "Reload discards draft",
+      "placeholders": [],
+      "messages": {
+        "en": "Reload (discard draft)",
+        "zh": "重新加载（放弃草稿）"
+      }
+    },
+    "plugin.vivy/notebook.unknownBody": {
+      "description": "Unknown-outcome banner",
+      "placeholders": [],
+      "messages": {
+        "en": "The save outcome is unknown. Retrying is safe — the same operation reconciles its stored receipt.",
+        "zh": "保存结果未知。重试是安全的——同一操作会核对其已存回执。"
+      }
+    },
+    "plugin.vivy/notebook.retrySave": {
+      "description": "Retry save button",
+      "placeholders": [],
+      "messages": {
+        "en": "Retry",
+        "zh": "重试"
+      }
+    },
+    "plugin.vivy/notebook.checkState": {
+      "description": "Reload current state",
+      "placeholders": [],
+      "messages": {
+        "en": "Check current state",
+        "zh": "查看当前状态"
+      }
+    },
+    "plugin.vivy/notebook.saveState.clean": {
+      "description": "Clean state",
+      "placeholders": [],
+      "messages": {
+        "en": "saved",
+        "zh": "已保存"
+      }
+    },
+    "plugin.vivy/notebook.saveState.dirty": {
+      "description": "Dirty state",
+      "placeholders": [],
+      "messages": {
+        "en": "unsaved changes",
+        "zh": "有未保存修改"
+      }
+    },
+    "plugin.vivy/notebook.saveState.saving": {
+      "description": "Saving state",
+      "placeholders": [],
+      "messages": {
+        "en": "saving…",
+        "zh": "保存中…"
+      }
+    },
+    "plugin.vivy/notebook.saveState.saved": {
+      "description": "Saved state",
+      "placeholders": [],
+      "messages": {
+        "en": "saved",
+        "zh": "已保存"
+      }
+    },
+    "plugin.vivy/notebook.saveState.conflict": {
+      "description": "Conflict state",
+      "placeholders": [],
+      "messages": {
+        "en": "conflict",
+        "zh": "冲突"
+      }
+    },
+    "plugin.vivy/notebook.saveState.unknown": {
+      "description": "Unknown state",
+      "placeholders": [],
+      "messages": {
+        "en": "save outcome unknown",
+        "zh": "保存结果未知"
+      }
+    },
+    "plugin.vivy/notebook.saveState.error": {
+      "description": "Error state",
+      "placeholders": [],
+      "messages": {
+        "en": "save failed",
+        "zh": "保存失败"
+      }
+    },
+    "plugin.vivy/notebook.kind.note": {
+      "description": "Entry kind note",
+      "placeholders": [],
+      "messages": {
+        "en": "note",
+        "zh": "笔记"
+      }
+    },
+    "plugin.vivy/notebook.kind.report": {
+      "description": "Entry kind report",
+      "placeholders": [],
+      "messages": {
+        "en": "report",
+        "zh": "报告"
+      }
+    },
+    "plugin.vivy/notebook.origin.legacy": {
+      "description": "Revision origin legacy",
+      "placeholders": [],
+      "messages": {
+        "en": "legacy",
+        "zh": "旧导入"
+      }
+    },
+    "plugin.vivy/notebook.origin.human": {
+      "description": "Revision origin human",
+      "placeholders": [],
+      "messages": {
+        "en": "human",
+        "zh": "人工"
+      }
+    },
+    "plugin.vivy/notebook.origin.agent": {
+      "description": "Revision origin agent",
+      "placeholders": [],
+      "messages": {
+        "en": "agent",
+        "zh": "代理"
+      }
+    },
+    "plugin.vivy/notebook.origin.generated": {
+      "description": "Revision origin generated",
+      "placeholders": [],
+      "messages": {
+        "en": "generated",
+        "zh": "生成"
+      }
+    },
+    "plugin.vivy/notebook.roles.notes": {
+      "description": "System section notes",
+      "placeholders": [],
+      "messages": {
+        "en": "Notes",
+        "zh": "笔记"
+      }
+    },
+    "plugin.vivy/notebook.roles.daily": {
+      "description": "System section daily",
+      "placeholders": [],
+      "messages": {
+        "en": "Daily",
+        "zh": "日报"
+      }
+    },
+    "plugin.vivy/notebook.roles.weekly": {
+      "description": "System section weekly",
+      "placeholders": [],
+      "messages": {
+        "en": "Weekly",
+        "zh": "周报"
+      }
+    },
+    "plugin.vivy/notebook.roles.monthly": {
+      "description": "System section monthly",
+      "placeholders": [],
+      "messages": {
+        "en": "Monthly",
+        "zh": "月报"
+      }
+    },
+    "plugin.vivy/notebook.viewingRevision": {
+      "description": "Viewing an old revision badge",
+      "placeholders": [
+        "sequence"
+      ],
+      "messages": {
+        "en": "viewing #{{sequence}}",
+        "zh": "正在查看 #{{sequence}}"
+      }
+    },
+    "plugin.vivy/notebook.backToHead": {
+      "description": "Back to head button",
+      "placeholders": [],
+      "messages": {
+        "en": "Back to head",
+        "zh": "回到最新"
+      }
+    },
+    "plugin.vivy/notebook.adopt": {
+      "description": "Adopt revision button",
+      "placeholders": [],
+      "messages": {
+        "en": "Adopt as new head",
+        "zh": "采纳为新版本"
+      }
+    },
+    "plugin.vivy/notebook.viewRevision": {
+      "description": "View revision button",
+      "placeholders": [],
+      "messages": {
+        "en": "View",
+        "zh": "查看"
+      }
+    },
+    "plugin.vivy/notebook.viewing": {
+      "description": "Currently-viewed badge",
+      "placeholders": [],
+      "messages": {
+        "en": "viewing",
+        "zh": "查看中"
+      }
+    },
+    "plugin.vivy/notebook.head": {
+      "description": "Head revision badge",
+      "placeholders": [],
+      "messages": {
+        "en": "head",
+        "zh": "最新"
+      }
+    },
+    "plugin.vivy/notebook.noRevisions": {
+      "description": "No revisions empty state",
+      "placeholders": [],
+      "messages": {
+        "en": "No revisions yet",
+        "zh": "暂无修订"
+      }
+    },
+    "plugin.vivy/notebook.tabs.editor": {
+      "description": "Editor tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Editor",
+        "zh": "编辑器"
+      }
+    },
+    "plugin.vivy/notebook.tabs.revisions": {
+      "description": "Revisions tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Revisions",
+        "zh": "修订"
+      }
+    },
+    "plugin.vivy/notebook.tabs.comments": {
+      "description": "Comments tab",
+      "placeholders": [],
+      "messages": {
+        "en": "Comments",
+        "zh": "评论"
+      }
+    },
+    "plugin.vivy/notebook.commentStatus.active": {
+      "description": "Active comments",
+      "placeholders": [],
+      "messages": {
+        "en": "Open",
+        "zh": "未解决"
+      }
+    },
+    "plugin.vivy/notebook.commentStatus.resolved": {
+      "description": "Resolved comments",
+      "placeholders": [],
+      "messages": {
+        "en": "Resolved",
+        "zh": "已解决"
+      }
+    },
+    "plugin.vivy/notebook.commentStatus.deleted": {
+      "description": "Deleted comments",
+      "placeholders": [],
+      "messages": {
+        "en": "Deleted",
+        "zh": "已删除"
+      }
+    },
+    "plugin.vivy/notebook.noComments.active": {
+      "description": "No open comments",
+      "placeholders": [],
+      "messages": {
+        "en": "No open comments",
+        "zh": "暂无未解决评论"
+      }
+    },
+    "plugin.vivy/notebook.noComments.resolved": {
+      "description": "No resolved comments",
+      "placeholders": [],
+      "messages": {
+        "en": "No resolved comments",
+        "zh": "暂无已解决评论"
+      }
+    },
+    "plugin.vivy/notebook.noComments.deleted": {
+      "description": "No deleted comments",
+      "placeholders": [],
+      "messages": {
+        "en": "No deleted comments",
+        "zh": "暂无已删除评论"
+      }
+    },
+    "plugin.vivy/notebook.commentPlaceholder": {
+      "description": "New comment placeholder",
+      "placeholders": [],
+      "messages": {
+        "en": "Add a comment…",
+        "zh": "添加评论…"
+      }
+    },
+    "plugin.vivy/notebook.addComment": {
+      "description": "Add comment button",
+      "placeholders": [],
+      "messages": {
+        "en": "Comment",
+        "zh": "评论"
+      }
+    },
+    "plugin.vivy/notebook.saveComment": {
+      "description": "Save comment edit",
+      "placeholders": [],
+      "messages": {
+        "en": "Save",
+        "zh": "保存"
+      }
+    },
+    "plugin.vivy/notebook.resolve": {
+      "description": "Resolve comment",
+      "placeholders": [],
+      "messages": {
+        "en": "Resolve",
+        "zh": "解决"
+      }
+    },
+    "plugin.vivy/notebook.reports.period": {
+      "description": "Report period selector label",
+      "placeholders": [],
+      "messages": {
+        "en": "Period",
+        "zh": "周期"
+      }
+    },
+    "plugin.vivy/notebook.reports.window": {
+      "description": "Report window selector label",
+      "placeholders": [],
+      "messages": {
+        "en": "Window",
+        "zh": "窗口"
+      }
+    },
+    "plugin.vivy/notebook.reports.period.daily": {
+      "description": "Daily period",
+      "placeholders": [],
+      "messages": {
+        "en": "Daily",
+        "zh": "日报"
+      }
+    },
+    "plugin.vivy/notebook.reports.period.weekly": {
+      "description": "Weekly period",
+      "placeholders": [],
+      "messages": {
+        "en": "Weekly",
+        "zh": "周报"
+      }
+    },
+    "plugin.vivy/notebook.reports.period.monthly": {
+      "description": "Monthly period",
+      "placeholders": [],
+      "messages": {
+        "en": "Monthly",
+        "zh": "月报"
+      }
+    },
+    "plugin.vivy/notebook.reports.window.completed": {
+      "description": "Completed window",
+      "placeholders": [],
+      "messages": {
+        "en": "Completed",
+        "zh": "已完成"
+      }
+    },
+    "plugin.vivy/notebook.reports.window.current": {
+      "description": "Current window",
+      "placeholders": [],
+      "messages": {
+        "en": "Current",
+        "zh": "进行中"
+      }
+    },
+    "plugin.vivy/notebook.reports.generate": {
+      "description": "Generate report button",
+      "placeholders": [],
+      "messages": {
+        "en": "Generate report",
+        "zh": "生成报告"
+      }
+    },
+    "plugin.vivy/notebook.reports.regenerate": {
+      "description": "Regenerate report button",
+      "placeholders": [],
+      "messages": {
+        "en": "Regenerate",
+        "zh": "重新生成"
+      }
+    },
+    "plugin.vivy/notebook.reports.cancel": {
+      "description": "Cancel generation button",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancel",
+        "zh": "取消"
+      }
+    },
+    "plugin.vivy/notebook.reports.busy": {
+      "description": "Another report is already active for this target",
+      "placeholders": [],
+      "messages": {
+        "en": "A report is already running for this target",
+        "zh": "该目标已有报告在生成中"
+      }
+    },
+    "plugin.vivy/notebook.reports.retryAfterLostAck": {
+      "description": "Retry keeps the same operation key after a lost acknowledgement",
+      "placeholders": [],
+      "messages": {
+        "en": "Response lost — retrying resumes the same request",
+        "zh": "应答丢失——重试将继续同一请求"
+      }
+    },
+    "plugin.vivy/notebook.reports.outcomeUnknown": {
+      "description": "Generation outcome unknown after interruption",
+      "placeholders": [],
+      "messages": {
+        "en": "Outcome unknown — the run may need recovery",
+        "zh": "结果未知——该运行可能需要恢复"
+      }
+    },
+    "plugin.vivy/notebook.reports.settingsDisabled": {
+      "description": "Scheduled reports are off; manual generation still works",
+      "placeholders": [],
+      "messages": {
+        "en": "Scheduling is off for this period — manual generation still works",
+        "zh": "该周期未启用调度——仍可手动生成"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.accepted": {
+      "description": "Run accepted",
+      "placeholders": [],
+      "messages": {
+        "en": "Accepted",
+        "zh": "已受理"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.queued": {
+      "description": "Run queued",
+      "placeholders": [],
+      "messages": {
+        "en": "Queued",
+        "zh": "排队中"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.active": {
+      "description": "Run active",
+      "placeholders": [],
+      "messages": {
+        "en": "Generating",
+        "zh": "生成中"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.completed": {
+      "description": "Run completed",
+      "placeholders": [],
+      "messages": {
+        "en": "Completed",
+        "zh": "已完成"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.failed": {
+      "description": "Run failed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed",
+        "zh": "失败"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.cancelled": {
+      "description": "Run cancelled",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancelled",
+        "zh": "已取消"
+      }
+    },
+    "plugin.vivy/notebook.reports.status.recovery_required": {
+      "description": "Recovery required",
+      "placeholders": [],
+      "messages": {
+        "en": "Needs recovery",
+        "zh": "需要恢复"
+      }
+    },
+    "plugin.vivy/notebook.reports.viewGenerated": {
+      "description": "View a generated candidate revision",
+      "placeholders": [],
+      "messages": {
+        "en": "View generated version",
+        "zh": "查看生成版本"
+      }
+    },
+    "plugin.vivy/notebook.reports.useThisVersion": {
+      "description": "Adopt a generated candidate revision",
+      "placeholders": [],
+      "messages": {
+        "en": "Use this version",
+        "zh": "采用此版本"
+      }
+    },
+    "plugin.vivy/notebook.reports.feedbackIncluded": {
+      "description": "Comment was captured as generation feedback",
+      "placeholders": [],
+      "messages": {
+        "en": "included",
+        "zh": "已收录"
+      }
+    },
+    "plugin.vivy/notebook.reports.provenance": {
+      "description": "Report provenance strip",
+      "placeholders": [
+        "series",
+        "window"
+      ],
+      "messages": {
+        "en": "Series {{series}} · window {{window}}",
+        "zh": "系列 {{series}} · 窗口 {{window}}"
+      }
+    },
+    "plugin.vivy/notebook.reports.asOf": {
+      "description": "Generation as-of label",
+      "placeholders": [],
+      "messages": {
+        "en": "as of",
+        "zh": "截至"
+      }
+    },
+    "plugin.vivy/notebook.reports.mode.promoted": {
+      "description": "Outcome mode promoted",
+      "placeholders": [],
+      "messages": {
+        "en": "Promoted",
+        "zh": "已发布"
+      }
+    },
+    "plugin.vivy/notebook.reports.mode.candidate": {
+      "description": "Outcome mode candidate",
+      "placeholders": [],
+      "messages": {
+        "en": "Candidate",
+        "zh": "候选"
+      }
+    },
+    "plugin.vivy/notebook.reports.mode.fallback": {
+      "description": "Outcome mode fallback",
+      "placeholders": [],
+      "messages": {
+        "en": "Fallback",
+        "zh": "回退"
+      }
+    },
+    "plugin.vivy/notebook.reports.mode.empty": {
+      "description": "Outcome mode empty",
+      "placeholders": [],
+      "messages": {
+        "en": "Empty",
+        "zh": "空"
+      }
+    },
+    "plugin.vivy/notebook.reports.mode.model": {
+      "description": "Outcome mode model",
+      "placeholders": [],
+      "messages": {
+        "en": "Model",
+        "zh": "模型"
+      }
+    }
   }
 }

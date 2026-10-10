@@ -157,3 +157,73 @@ export interface ActionOutcome<T> {
     readonly current_revision_id?: string;
   };
 }
+
+/* --- Reports (R1 `vivy.reports.*` actions, owner `vivy/reports`) --- */
+
+export const REPORTS_MODULE_ID = 'vivy/reports' as const;
+
+export const REPORT_ACTIONS = Object.freeze({
+  generate: 'vivy.reports.generate',
+  get: 'vivy.reports.get',
+  cancel: 'vivy.reports.cancel',
+  settingsRead: 'vivy.reports.settings.read',
+} as const);
+
+export type ReportPeriod = 'daily' | 'weekly' | 'monthly';
+export type ReportWindowSelector = 'current' | 'completed';
+
+export interface ReportAdmission {
+  readonly run_id: string;
+  readonly created: boolean;
+  readonly rejoined: boolean;
+  readonly busy: boolean;
+}
+
+export interface ReportSettings {
+  readonly scope: string;
+  readonly period: ReportPeriod;
+  readonly timezone: string;
+  readonly section_id: string;
+  readonly provider?: string;
+  readonly model_id?: string;
+  readonly enabled: boolean;
+  readonly revision: number;
+  readonly schedule_expr?: string;
+}
+
+export interface GenerationProvenance {
+  readonly run_id: string;
+  readonly scope: string;
+  readonly series_id: string;
+  readonly window_id: string;
+  readonly config_revision: number;
+  readonly timezone: string;
+  readonly start_ms: number;
+  readonly end_ms: number;
+  readonly as_of_ms: number;
+  readonly input_digest: string;
+  readonly facts_digest: string;
+  readonly provider?: string;
+  readonly model_id?: string;
+  readonly outcome_mode: string;
+  readonly outcome_reason?: string;
+  readonly entry_id: string;
+  readonly revision_id: string;
+}
+
+export interface ReportResult {
+  readonly run_id: string;
+  readonly status: string;
+  readonly generation?: GenerationProvenance;
+}
+
+/** The bounded report outcome envelope — `result`, not `data`. */
+export interface ReportOutcome<T> {
+  readonly status: 'ok' | 'error' | string;
+  readonly result?: T;
+  readonly error?: {
+    readonly code: NotebookErrorCode | string;
+    readonly message: string;
+    readonly retryable: boolean;
+  };
+}

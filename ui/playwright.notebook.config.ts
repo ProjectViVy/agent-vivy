@@ -23,6 +23,7 @@ export const nbConfigPath = nbConfig;
 export const notebookBins = {
   selected: path.join(packRoot, 'default', 'vivy'),
   omitted: path.join(packRoot, 'no-notebook', 'vivy'),
+  noReports: path.join(packRoot, 'no-reports', 'vivy'),
 };
 
 function packOnce(recipe: string, output: string): void {
@@ -38,6 +39,7 @@ function packOnce(recipe: string, output: string): void {
 if (!process.env.VIVY_NB_E2E_PREPARED) {
   packOnce(path.join(repoRoot, 'recipes', 'default.vivy.yml'), path.join(packRoot, 'default'));
   packOnce(path.join(repoRoot, 'recipes', 'no-notebook.vivy.yml'), path.join(packRoot, 'no-notebook'));
+  packOnce(path.join(repoRoot, 'recipes', 'no-reports.vivy.yml'), path.join(packRoot, 'no-reports'));
   fs.rmSync(workdir, { recursive: true, force: true });
   fs.mkdirSync(path.join(workdir, 'state'), { recursive: true });
   const dbPath = path.join(workdir, 'state', 'e2e.db').replace(/\\/g, '/');
@@ -79,7 +81,7 @@ if (!process.env.VIVY_NB_E2E_PREPARED) {
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'notebook.spec.ts',
+  testMatch: ['notebook.spec.ts', 'notebook-reports.spec.ts'],
   timeout: 120_000,
   workers: 1,
   retries: 0,

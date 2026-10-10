@@ -20,9 +20,10 @@ import { NotebookClient, NotebookError, newOperationKey } from './api';
 import { NotebookEditor } from './editor';
 import { NotebookRevisions } from './revisions';
 import { NotebookComments } from './comments';
+import { NotebookReports } from './reports';
 import {
   NOTEBOOK_ERROR_CODES, NOTEBOOK_MAX_PAGE_ROWS,
-  type Entry, type Section,
+  type Entry, type GenerationProvenance, type Section,
 } from './types';
 
 type CollectionState = 'loading' | 'ready' | 'error';
@@ -53,6 +54,8 @@ export function NotebookView() {
   const [moveTarget, setMoveTarget] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [lastGeneration, setLastGeneration] = useState<GenerationProvenance | null>(null);
+  const [generatedRevs, setGeneratedRevs] = useState<ReadonlySet<string>>(new Set());
   const sectionsEpoch = useRef(0);
   const entriesEpoch = useRef(0);
 
@@ -106,6 +109,24 @@ export function NotebookView() {
 
   useEffect(() => { void loadSections(); }, [client]);
   useEffect(() => { void loadEntries(sectionId); }, [client, sectionId, includeDeleted]);
+
+  // Feedback honesty: comments anchored to a generated revision are labeled
+  // `included` — fetched only for report entries, never inferred from text.
+  useEffect(() => {
+    setLastGeneration(null);
+    if (!client || !selectedEntry?.report_series_id) {
+      setGeneratedRevs(new Set());
+      return;
+    }
+    let alive = true;
+    client.listRevisions({ entry_id: selectedEntry.id, limit: NOTEBOOK_MAX_PAGE_ROWS })
+      .then((page) => {
+        if (!alive) return;
+        setGeneratedRevs(new Set(page.revisions.filter((r) => r.origin === 'generated').map((r) => r.id)));
+      })
+      .catch(() => { if (alive) setGeneratedRevs(new Set()); });
+    return () => { alive = false; };
+  }, [client, selectedEntry?.id, selectedEntry?.report_series_id, refreshKey]);
 
   /** Navigation that would drop a dirty buffer goes through one confirmation. */
   const navigate = (next: () => void) => {
@@ -338,6 +359,14 @@ export function NotebookView() {
               ))}
             </select>
             <Button size="sm" variant="outline" onClick={() => void exportRevision()} data-testid="notebook-export">{t('plugin.vivy/notebook.export')}</Button>
+            <NotebookReports
+              entry={selectedEntry}
+              onGenerated={(result) => {
+                if (result.generation) setLastGeneration(result.generation);
+                setRefreshKey((k) => k + 1);
+                void loadEntries(sectionId);
+              }}
+            />
             <Button size="sm" variant="outline" onClick={() => void mutateEntry('delete')} data-testid="notebook-entry-delete">
               <Trash2 className="mr-1 h-3.5 w-3.5" />{t('common.delete')}
             </Button>
@@ -345,6 +374,17 @@ export function NotebookView() {
         )}
       </div>
       {detailError ? <p className="border-b bg-destructive/10 px-4 py-1.5 text-xs text-destructive" data-testid="notebook-detail-error">{detailError}</p> : null}
+      {selectedEntry.report_series_id ? (
+        <p className="border-b px-4 py-1.5 text-xs text-muted-foreground" data-testid="report-provenance">
+          {t('plugin.vivy/notebook.reports.provenance', {
+            series: selectedEntry.report_series_id,
+            window: selectedEntry.report_window_id ?? '-',
+          })}
+          {lastGeneration
+            ? ` · ${lastGeneration.timezone} · ${t('plugin.vivy/notebook.reports.asOf')} ${new Date(lastGeneration.as_of_ms).toLocaleString(dateTimeLocale())} · ${t(`plugin.vivy/notebook.reports.mode.${lastGeneration.outcome_mode}`, { defaultValue: lastGeneration.outcome_mode })}${lastGeneration.outcome_reason ? ` (${lastGeneration.outcome_reason})` : ''}`
+            : ''}
+        </p>
+      ) : null}
       <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
         <div className="border-b px-4 py-1.5">
           <TabsList>

@@ -99,12 +99,16 @@ export function NotebookRevisions({ client, entryId, headRevisionId, entryVersio
           <p className="mt-1 truncate text-xs text-muted-foreground">{revision.actor}</p>
           <div className="mt-2 flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onView(revision.id === viewingRevisionId ? null : revision.id)} data-testid="notebook-revision-view">
-              {revision.id === viewingRevisionId ? t('plugin.vivy/notebook.backToHead') : t('plugin.vivy/notebook.viewRevision')}
+              {revision.id === viewingRevisionId
+                ? t('plugin.vivy/notebook.backToHead')
+                : revision.origin === 'generated'
+                  ? t('plugin.vivy/notebook.reports.viewGenerated')
+                  : t('plugin.vivy/notebook.viewRevision')}
             </Button>
             {revision.id !== headRevisionId ? (
               <Button size="sm" variant="ghost" disabled={busy === revision.id} onClick={() => void adopt(revision.id)} data-testid="notebook-revision-adopt">
                 <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                {t('plugin.vivy/notebook.adopt')}
+                {revision.origin === 'generated' ? t('plugin.vivy/notebook.reports.useThisVersion') : t('plugin.vivy/notebook.adopt')}
               </Button>
             ) : null}
           </div>
