@@ -169,6 +169,111 @@ func TestDiagnosticsCursorResumeAndGap(t *testing.T) {
 	}
 }
 
+// Appending to a live log must not restart pagination at the first record.
+func TestDiagnosticsCursorResumesAfterAppend(t *testing.T) {
+	d, dir := newDiagnostics(t)
+	writeLogFile(t, dir, FilePrefix, diagTestDate, []string{"one", "two"})
+	page, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Records) != 1 || page.Records[0].Message != "one" {
+		t.Fatalf("first page = %+v", page)
+	}
+	path := filepath.Join(dir, FilePrefix+"."+diagTestDate)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("three\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Force an mtime change even on filesystems with coarse timestamp precision.
+	stamp := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	next, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, Limit: 1, After: page.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Gap || len(next.Records) != 1 || next.Records[0].Message != "two" || !next.HasMore {
+		t.Fatalf("after append = %+v", next)
+	}
+	tail, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, After: next.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Gap || len(tail.Records) != 1 || tail.Records[0].Message != "three" || tail.HasMore {
+		t.Fatalf("tail = %+v", tail)
+	}
+}
+
+func TestDiagnosticsCursorDetectsTruncationAboveOffset(t *testing.T) {
+	d, dir := newDiagnostics(t)
+	writeLogFile(t, dir, FilePrefix, diagTestDate, []string{"one", "two", "three"})
+	path := filepath.Join(dir, FilePrefix+"."+diagTestDate)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, int64(len("one\ntwo\n"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	next, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, After: page.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !next.Gap || len(next.Records) != 2 || next.Records[0].Message != "one" {
+		t.Fatalf("after truncation = %+v", next)
+	}
+}
+
+func TestDiagnosticsCursorDetectsReplacementWithSameSizeAndMtime(t *testing.T) {
+	d, dir := newDiagnostics(t)
+	writeLogFile(t, dir, FilePrefix, diagTestDate, []string{"one", "two"})
+	path := filepath.Join(dir, FilePrefix+"."+diagTestDate)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(dir, "replacement.log")
+	if err := os.WriteFile(replacement, []byte("new\nlog\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(replacement, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the old file alive so its identity cannot be reused for the replacement.
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	next, err := d.Read(context.Background(), DiagnosticQuery{Source: "runtime", Date: diagTestDate, After: page.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !next.Gap || len(next.Records) != 2 || next.Records[0].Message != "new" {
+		t.Fatalf("after replacement = %+v", next)
+	}
+}
+
 func TestDiagnosticsReadFilters(t *testing.T) {
 	d, dir := newDiagnostics(t)
 	writeLogFile(t, dir, FilePrefix, diagTestDate, []string{

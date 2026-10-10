@@ -149,16 +149,20 @@ func NewDiagnostics(dir string) (*Diagnostics, error) {
 }
 
 // diagFileStat is the cursor-verifiable file identity: platform file ID
-// (inode / Windows file index) plus size and mtime, so
-// rotation/rename/truncation cannot pass as the same file.
+// (inode / Windows file index), observed size and mtime. Growth preserves
+// continuity; shrinking or same-size rewrites invalidate the cursor.
 type diagFileStat struct {
 	ino   uint64
 	size  int64
 	modNs int64
 }
 
-func statIdentity(info os.FileInfo) diagFileStat {
-	return diagFileStat{ino: fileIdentity(info), size: info.Size(), modNs: info.ModTime().UnixNano()}
+func statIdentity(info os.FileInfo, f *os.File) (diagFileStat, error) {
+	identity, err := fileIdentity(info, f)
+	if err != nil {
+		return diagFileStat{}, err
+	}
+	return diagFileStat{ino: identity, size: info.Size(), modNs: info.ModTime().UnixNano()}, nil
 }
 
 // diagCursor is the server-issued opaque token `<date>.<ino>.<modns>.<size>.<offset>`.
@@ -379,21 +383,31 @@ func (d *Diagnostics) Read(ctx context.Context, q DiagnosticQuery) (DiagnosticPa
 	if info == nil {
 		return page, nil // empty page for a date/family that does not exist
 	}
-	st := statIdentity(info)
+	f, err := os.Open(path)
+	if err != nil {
+		return page, err
+	}
+	defer func() { _ = f.Close() }()
+	// Use the opened file's identity and size: rotation between resolution and
+	// open must not issue a cursor for a different file than the one read.
+	info, err = f.Stat()
+	if err != nil {
+		return page, err
+	}
+	st, err := statIdentity(info, f)
+	if err != nil {
+		return page, err
+	}
 	var offset int64
 	if q.After != "" {
-		if cDate != date || cStat.ino != st.ino || cStat.modNs != st.modNs || cOff > st.size {
+		if cDate != date || cStat.ino != st.ino || st.size < cStat.size || cOff > st.size ||
+			(st.size == cStat.size && cStat.modNs != st.modNs) {
 			page.Gap = true
 		} else {
 			offset = cOff
 		}
 	}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return page, err
-	}
-	defer func() { _ = f.Close() }()
 	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
 			return page, err

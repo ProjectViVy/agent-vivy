@@ -442,3 +442,50 @@ func TestSessionTrajectoryRealRun(t *testing.T) {
 		t.Fatalf("requests = %+v", session.Requests)
 	}
 }
+
+func TestTrajectoryMaintenanceDoesNotInterruptChat(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	mustCreateSession(t, backend, "traj-maintenance")
+	runID := domain.RunID("traj-maintenance")
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "traj-maintenance", Status: domain.RunCompleted, CreatedAt: 100}); err != nil {
+		t.Fatal(err)
+	}
+	trajCommit(t, ctx, backend, runID,
+		trajEvent(domain.EventModelRequest, 110, payloadModelRequestV3{CallID: "main", Source: "main", Provider: "p", Model: "m", Mode: "stream"}),
+		trajEvent(domain.EventModelDelta, 120, payloadModelDelta{Delta: "visible"}),
+		trajEvent(domain.EventModelRequest, 130, payloadModelRequestV3{CallID: "warm", Source: "maintenance", Provider: "p", Model: "m", Mode: "generate"}),
+		trajEvent(domain.EventModelCallFinished, 140, payloadModelCallFinished{CallID: "warm", Source: "maintenance", Provider: "p", Model: "m", Status: "completed", ResponseComplete: true}),
+		trajEvent(domain.EventModelCallFinished, 150, payloadModelCallFinished{CallID: "main", Source: "main", Provider: "p", Model: "m", Status: "completed", ResponseComplete: true}),
+		trajCompletedV2(160, "visible"),
+	)
+	projected, err := svc.projectedMessages(ctx, "traj-maintenance", runID)
+	if err != nil {
+		t.Fatalf("maintenance erased main transcript deltas: %v", err)
+	}
+	if len(projected) != 1 || projected[0].Content != "visible" {
+		t.Fatalf("projected transcript=%+v", projected)
+	}
+
+	traj, err := svc.SessionTrajectory(ctx, "traj-maintenance", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainCount := 0
+	for _, req := range traj.Requests {
+		if req.CallID == "main" {
+			mainCount++
+			if req.CallStatus != TrajCallCompleted {
+				t.Fatalf("main interrupted by maintenance: %+v", req)
+			}
+		}
+	}
+	if mainCount != 1 {
+		t.Fatalf("main request rows=%d, want one", mainCount)
+	}
+	for _, record := range traj.Records {
+		if record.Kind == "message" && record.Text == "visible" && record.Group != "Step 1" {
+			t.Fatalf("maintenance stole message: %+v", record)
+		}
+	}
+}

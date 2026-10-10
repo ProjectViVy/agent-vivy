@@ -69,8 +69,8 @@
     },
     "source": {
       "type": "string",
-      "enum": ["main", "child", "summary"],
-      "description": "Route attribution: chat main leg, child run leg, or compaction summary call (v3)."
+      "enum": ["main", "child", "summary", "maintenance"],
+      "description": "Route attribution: chat main leg, child run leg, compaction summary, or cache maintenance call (v3)."
     }
   },
   "required": ["selected_tools", "preamble_sha256", "preamble_bytes", "messages"],

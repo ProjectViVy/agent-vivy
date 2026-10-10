@@ -18,6 +18,8 @@ var chineseCatalog = map[string]string{
 	"vivy.tui.live.cancelEmpty":                "没有可取消的任务",
 	"vivy.tui.live.cancelUnavailable":          "取消操作不可用",
 	"vivy.tui.live.queueCleared":               "已清空排队轮次",
+	"vivy.tui.live.restoreUnsupported":         "此编辑器无法完整恢复该输入，完整内容已保留。",
+	"vivy.tui.live.returnedTurns":              "已退回输入保留供编辑；使用 Alt+Up 逐条召回。",
 	"vivy.tui.live.queueEmpty":                 "队列已为空",
 	"vivy.tui.live.permissionUnavailable":      "权限更改不可用",
 	"vivy.tui.live.runIDRequired":              "需要 run_id；工作区文件属于单次运行",

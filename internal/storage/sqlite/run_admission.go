@@ -88,6 +88,12 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	if err := sqliteInsertHistoryEvent(ctx, tx, &started); err != nil {
 		return in.Started, storage.AdmissionUnavailable("insert admission start event", err)
 	}
+	for i, event := range in.Events {
+		event.Seq = domain.EventSeq(i + 2)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES (?,?,?,?,?,?)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
+			return in.Started, storage.AdmissionUnavailable("insert queue admission event", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return in.Started, storage.AdmissionUnavailable("commit run admission", err)
 	}

@@ -725,6 +725,12 @@ export interface FaceTurnSubmission {
   readonly attachments?: FaceAttachmentInput[];
   readonly thinking?: FaceThinkingMode;
   readonly continuity?: FaceTurnContinuity;
+  /** Captured snapshots retained by queue editor restoration. */
+  readonly file_contexts?: readonly { readonly path: string; readonly name: string; readonly size: number; readonly content: string }[];
+  readonly context_paths?: readonly string[];
+  readonly policy_profile?: string;
+  readonly collaboration_mode?: string;
+  readonly collaboration_version?: number;
 }
 
 export interface FaceHistorySearchRequest {
@@ -1958,11 +1964,11 @@ export interface FaceClientAPI {
   /** Kernel queue verbs (pi parity): steer injects at the next turn
    * boundary; follow_up lands after terminal settle; both fall back to a
    * fresh run on an idle session. */
-  steerTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
-  followUpTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
+  steerTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceQueueTurnResult>;
+  followUpTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceQueueTurnResult>;
   getQueueState(sessionId: string, afterRunId?: string): Promise<FaceQueueState>;
   clearSessionQueue(sessionId: string): Promise<FaceQueueClearResult>;
-  dequeueQueuedTurn(sessionId: string): Promise<FaceQueueDequeueResult>;
+  dequeueQueuedTurn(sessionId: string, queueId?: string): Promise<FaceQueueDequeueResult>;
   removeQueuedTurn(sessionId: string, queueId: string): Promise<FaceQueueRemoveResult>;
   historySearch(sessionId: string, request: FaceHistorySearchRequest): Promise<FaceHistoryPage>;
   historySessions(params: { readonly query?: string; readonly cursor?: string; readonly limit?: number }): Promise<FaceHistorySessionPage>;
@@ -2069,14 +2075,9 @@ export type FaceConnectionState = "idle" | "connecting" | "connected" | "reconne
 
 export type FacePhase = "idle" | "loading" | "refreshing" | "ready" | "empty" | "error" | "processing";
 
-export interface FaceQueuedMessage extends FaceTurnSubmission {
-  readonly id: string;
-}
-
 /** Kernel dual-track queue (pi parity): the "steer" lane injects at the
  * next turn boundary of the active run; the "follow_up" lane is admitted
- * after terminal settle. Items are text-only; attachment- or
- * reference-bearing submissions stay on the face-local FIFO. */
+ * after terminal settle. The kernel persists the complete submission. */
 export type FaceQueueTrack = "steer" | "follow_up";
 
 export interface FaceQueuedTurn {
@@ -2086,7 +2087,15 @@ export interface FaceQueuedTurn {
   readonly text: string;
   readonly thinking?: string;
   readonly mode?: string;
-  readonly created_at: number;
+  readonly attachments?: readonly FaceAttachmentInput[];
+  readonly context_paths?: readonly string[];
+  readonly file_contexts?: readonly { readonly path: string; readonly name: string; readonly size: number; readonly content: string }[];
+  readonly policy_profile?: string;
+  readonly collaboration_mode?: string;
+  readonly collaboration_version?: number;
+  readonly continuity?: FaceTurnContinuity;
+  readonly face?: string;
+  readonly created_at: number | string;
   readonly enqueued_on?: string;
 }
 
@@ -2116,6 +2125,7 @@ export interface FaceQueueDequeueResult {
   readonly queue_id?: string;
   readonly track?: string;
   readonly text?: string;
+  readonly turn?: FaceQueuedTurn;
 }
 
 export interface FaceQueueRemoveResult {
@@ -2123,11 +2133,13 @@ export interface FaceQueueRemoveResult {
   readonly queue_id?: string;
   readonly track?: string;
   readonly text?: string;
+  readonly turn?: FaceQueuedTurn;
 }
 
 export interface FaceQueueClearResult {
   readonly cleared: boolean;
   readonly texts: readonly string[];
+  readonly turns?: readonly FaceQueuedTurn[];
 }
 
 /** Complete current Zustand-backed Face state exposed to UI Modules. */
@@ -2168,13 +2180,13 @@ export interface FaceStoreState {
   readonly workPhase: FacePhase;
   readonly workError: string | null;
   readonly workBusy: boolean;
-  readonly queuedMessages: FaceQueuedMessage[];
   /** Kernel dual-track queue for the active session (pi parity), refreshed
    * on session select, queue events and queue verbs. Null until loaded. */
   readonly kernelQueue: FaceQueueState | null;
   /** Text handed back to the composer when the kernel flushes the queue
    * (abort/clear); seq dedupes consecutive restores. */
   readonly queueRestoreText: { readonly text: string; readonly seq: number } | null;
+  readonly queueRecoveryTurns: Record<string, FaceQueuedTurn[]>;
   /** Session-bound ephemeral draft: attached previews plus the optional
    * broader read scope; never an ACL and never localStorage authority. */
   readonly draftReferences: FaceReferenceDraft[];
@@ -2241,19 +2253,16 @@ export interface FaceStoreState {
   selectSession(id: string): Promise<void>;
   startRun(sessionId: string, submission: FaceTurnSubmission): Promise<void>;
   editSession(sessionId: string, messageId: string, text: string, mode?: FaceRunMode, face?: FaceName, thinking?: FaceThinkingMode): Promise<void>;
-  enqueueMessage(submission: FaceTurnSubmission): void;
-  removeQueuedMessage(id: string): void;
+  enqueueMessage(submission: FaceTurnSubmission): Promise<void>;
   clearQueue(): void;
-  /** Kernel queue verbs (pi parity): text-only submissions route onto the
-   * kernel lanes; attachment- or reference-bearing ones stay on the
-   * face-local FIFO. */
+  /** Kernel queue verbs persist complete submissions on the two lanes. */
   steerMessage(submission: FaceTurnSubmission): Promise<void>;
   followUpMessage(submission: FaceTurnSubmission): Promise<void>;
   refreshQueue(sessionId?: string): Promise<void>;
   removeKernelQueued(queueId: string): Promise<void>;
   /** Pops the newest pending follow-up back into the editor (pi Alt+Up);
    * resolves to the restored text or null when the lane is empty. */
-  dequeueQueuedTurn(): Promise<string | null>;
+  dequeueQueuedTurn(): Promise<FaceQueuedTurn | string | null>;
   addDraftReference(preview: FaceReferencePreview, selection: FaceReferenceSelection, allowFurtherReading: boolean): void;
   removeDraftReference(id: string): void;
   setDraftScope(scope: FaceHistoryScope | null): void;

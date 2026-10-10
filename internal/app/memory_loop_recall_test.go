@@ -16,7 +16,7 @@ import (
 // persona substitute. The fact must arrive through the ordinary ContextHost.
 func TestMemoryLoopRecallAfterProcessRestart(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	for i := 0; i < 3; i++ {
@@ -96,7 +96,7 @@ func TestMemoryLoopRecallAfterProcessRestart(t *testing.T) {
 
 func TestMemoryLoopRecallNegativeControls(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	for _, disabled := range []bool{false, true} {
@@ -168,7 +168,7 @@ func TestMemoryLoopRecallNegativeControls(t *testing.T) {
 // of V19.
 func TestMemoryLoopOrdinaryRecallAuthorityBoundary(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "ack"})
@@ -290,7 +290,7 @@ func assertMemoryLoopAssistantAnswer(t *testing.T, f *memoryLoopFixture, session
 // deadline. Late results must not become model authority or outlive Close.
 func TestMemoryLoopRecallDeadlineDegradesSafely(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"})

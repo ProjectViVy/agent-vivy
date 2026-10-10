@@ -1,0 +1,7 @@
+--- FAIL: TestDiagnosticsCursorResumesAfterAppend (0.00s)
+    diagnostics_test.go:204: after append = {Source:runtime Records:[{ID:2026-10-02:0 At:<nil> Level: Component: Message:one Fields:map[] Truncated:false}] NextCursor:2026-10-02.765.1791647505239385312.14.4 Gap:true HasMore:true}
+--- FAIL: TestDiagnosticsCursorDetectsTruncationAboveOffset (0.00s)
+    diagnostics_test.go:238: after truncation = {Source:runtime Records:[{ID:2026-10-02:4 At:<nil> Level: Component: Message:two Fields:map[] Truncated:false}] NextCursor:2026-10-02.768.1791643905239566741.8.8 Gap:false HasMore:false}
+FAIL
+FAIL	agent-vivy/internal/logging	0.003s
+FAIL

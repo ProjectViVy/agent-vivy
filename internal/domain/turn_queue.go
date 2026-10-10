@@ -15,13 +15,19 @@ type QueuedTurn struct {
 	ID        string    `json:"id"`
 	SessionID SessionID `json:"session_id"`
 	// Track is "steer" or "follow_up".
-	Track        string    `json:"track"`
-	Text         string    `json:"text"`
-	Thinking     string    `json:"thinking,omitempty"`
-	Mode         string    `json:"mode,omitempty"`
-	Attachments  []string  `json:"attachments,omitempty"`
-	ContextPaths []string  `json:"context_paths,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	Track                string            `json:"track"`
+	Text                 string            `json:"text"`
+	Thinking             ThinkingMode      `json:"thinking,omitempty"`
+	Mode                 RunMode           `json:"mode,omitempty"`
+	Attachments          []Attachment      `json:"attachments,omitempty"`
+	ContextPaths         []string          `json:"context_paths,omitempty"`
+	FileContexts         []FileContext     `json:"file_contexts,omitempty"`
+	Face                 Face              `json:"face,omitempty"`
+	Profile              PolicyProfile     `json:"policy_profile,omitempty"`
+	CollaborationMode    CollaborationMode `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int               `json:"collaboration_version,omitempty"`
+	Continuity           *ContinuityInput  `json:"continuity,omitempty"`
+	CreatedAt            time.Time         `json:"created_at"`
 	// EnqueuedOn is the run journal the turn.queued marker was written to.
 	// Consumption events target the same journal while it remains appendable.
 	EnqueuedOn RunID `json:"enqueued_on"`

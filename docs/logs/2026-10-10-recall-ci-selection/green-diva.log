@@ -1,0 +1,6 @@
+PASS TestMemoryLoopMemoryInjection (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallAfterProcessRestart (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallNegativeControls (SDK-generated DIVA assembly)
+PASS TestMemoryLoopOrdinaryRecallAuthorityBoundary (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallDeadlineDegradesSafely (SDK-generated DIVA assembly)
+PASS TestMemoryLoopCorrectionAndDeletionInModelInput (SDK-generated DIVA assembly)

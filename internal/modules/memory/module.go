@@ -12,18 +12,15 @@ import (
 	"sync/atomic"
 
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/modules/memory/catalog"
 	"agent-vivy/sdk/module"
 	"github.com/ProjectViVy/agent-vivy/bml"
 )
 
 const (
-	// ID is the control-action module record.
-	ID = "vivy/memory-bml"
-	// SyncID is the sync-plane module record (context-source + run-observer).
-	SyncID = "vivy/memory-bml-sync"
-	// ProviderID is the single provider identity satisfying both the
-	// ContextSources and RunObservers manifest lists.
-	ProviderID = "vivy.memory.bml"
+	ID         = catalog.ID
+	SyncID     = catalog.SyncID
+	ProviderID = catalog.ProviderID
 )
 
 // NewModule is the shared Assembly lifecycle owner for both memory records.

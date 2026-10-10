@@ -268,7 +268,7 @@ describe('composer slash commands', () => {
     await type('/plan Investigate');
     await key('Enter');
     expect(api.startTurn).toHaveBeenCalledWith('s1', { text: 'Investigate', mode: 'normal' });
-    expect(useVivyStore.getState().queuedMessages).toHaveLength(0);
+    expect(useVivyStore.getState().kernelQueue?.pending ?? 0).toBe(0);
     expect(useVivyStore.getState().currentRun?.id).toBe('plan-run');
   });
 

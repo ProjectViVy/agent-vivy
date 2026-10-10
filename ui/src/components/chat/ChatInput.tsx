@@ -13,8 +13,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { AttachmentInput, PermissionPreset, RunMode, SessionContext, ThinkingMode } from '@/lib/api';
-import { useVivyStore } from '@/lib/store';
+import type { AttachmentInput, PermissionPreset, QueuedTurn, RunMode, SessionContext, ThinkingMode } from '@/lib/api';
+import { retainReturnedTurn, restoreTurnContext, useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 import { WorkspaceSelector } from './WorkspaceSelector';
@@ -23,15 +23,15 @@ import { ContextReferenceChip } from './ContextReferenceChip';
 import { ComposerCommandControls, useComposerCommands } from './ComposerCommands';
 
 interface ChatInputProps {
-  onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => Promise<void> | void;
   /** 运行期间发送走排队（对照 Crush）：跳过 UI 预检，服务端门禁仍然生效。 */
-  onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => Promise<void> | void;
   /** pi 双轨：运行中 Enter=steer（turn/steer），Shift+Alt+Enter=follow-up
-   *  （turn/follow_up）；缺省时回退 onQueue 本地 FIFO。 */
-  onSteer?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
-  onFollowUp?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
-  /** pi Alt+Up：弹出最新 pending follow-up 文本回编辑框。 */
-  onDequeue?: () => Promise<string | null>;
+   *  （turn/follow_up）；缺省时回退 onQueue。 */
+  onSteer?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => Promise<void> | void;
+  onFollowUp?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode, restored?: QueuedTurn) => Promise<void> | void;
+  /** pi Alt+Up：弹出最新 pending follow-up 文本及完整捕获选项回编辑框。 */
+  onDequeue?: () => Promise<QueuedTurn | string | null>;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -39,7 +39,7 @@ interface ChatInputProps {
   /** 服务端 session/context 真实占用；null 时环显示 0。 */
   context?: SessionContext | null;
   /** 回退预填：seq 变化时把文本写入草稿并聚焦输入框。 */
-  draftPreset?: { text: string; seq: number } | null;
+  draftPreset?: { text: string; seq: number; turn?: QueuedTurn } | null;
 }
 
 type PermissionMode = 'cautious' | 'smart' | 'trusted';
@@ -86,6 +86,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
 export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<AttachmentInput[]>([]);
+  const [restoredTurn, setRestoredTurn] = useState<QueuedTurn | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const sendLock = useRef(false);
@@ -98,13 +99,13 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
-  const queuedMessages = useVivyStore((state) => state.queuedMessages);
   const kernelQueue = useVivyStore((state) => state.kernelQueue);
-  const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
   const removeKernelQueued = useVivyStore((state) => state.removeKernelQueued);
   const clearQueue = useVivyStore((state) => state.clearQueue);
   const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
+  const currentDraft = useRef({ value, pending, sessionId: activeSessionId });
+  currentDraft.current = { value, pending, sessionId: activeSessionId };
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
@@ -153,13 +154,21 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   }, [value]);
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
   // 切换会话时丢弃待发送附件（队列在 store 内清空，本地草稿附件保持同生命周期）。
-  useEffect(() => { setPending([]); }, [activeSessionId]);
+  const previousSession = useRef(activeSessionId);
+  useEffect(() => {
+    if (previousSession.current !== activeSessionId) { setPending([]); setRestoredTurn(undefined); }
+    previousSession.current = activeSessionId;
+  }, [activeSessionId]);
   // 回退预填：同一 seq 只应用一次（ref 防重复），写入草稿后聚焦。
   const appliedPresetSeq = useRef(0);
   useEffect(() => {
     if (!draftPreset || draftPreset.seq === appliedPresetSeq.current) return;
     appliedPresetSeq.current = draftPreset.seq;
     setValue(draftPreset.text);
+    setRestoredTurn(draftPreset.turn);
+    if (draftPreset.turn) restoreTurnContext(draftPreset.turn);
+    setPending(draftPreset.turn?.attachments?.map((item) => ({ ...item })) ?? []);
+    if (draftPreset.turn) setThinkingMode((draftPreset.turn.thinking ?? 'auto') as ThinkingMode);
     textareaRef.current?.focus();
   }, [draftPreset]);
 
@@ -188,12 +197,13 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   };
 
   // 内核双轨队列条目（steer 轨在 enqueue 即 steer，通常瞬态；follow_up
-  //  轨待 settle 准入）+ 本地 FIFO（附件/引用提交）。
+  //  轨待 settle 准入）；所有提交统一由内核持有。
   const kernelItems = [
     ...(kernelQueue?.steering ?? []).map((item) => ({ item, lane: 'steer' as const })),
     ...(kernelQueue?.follow_up ?? []).map((item) => ({ item, lane: 'follow_up' as const })),
   ];
-  const totalQueued = kernelItems.length + queuedMessages.length;
+  const recoveryCount = useVivyStore((state) => (state.queueRecoveryTurns[activeSessionId ?? ''] ?? []).length);
+  const totalQueued = kernelItems.length;
 
   const send = async (track: 'send' | 'steer' | 'follow_up' = 'send') => {
     if (disabled || sendLock.current || !activeSessionId) return;
@@ -208,15 +218,19 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       if (!commands.isCurrent()) return;
       if (prepared) {
         const outgoing = pending.length ? pending : undefined;
+        const mode = (restoredTurn?.mode ?? 'normal') as RunMode;
+        const args: [string, RunMode, AttachmentInput[] | undefined, ThinkingMode, QueuedTurn?] = [prepared.text, mode, outgoing, thinkingMode];
+        if (restoredTurn) args.push(restoredTurn);
         if (running && !prepared.forceSend) {
           const handler = track === 'follow_up' ? onFollowUp : onSteer;
           if (!handler && !onQueue) return;
-          await (handler ?? onQueue)!(prepared.text, 'normal', outgoing, thinkingMode);
-        } else await onSend(prepared.text, 'normal', outgoing, thinkingMode);
+          await (handler ?? onQueue)!(...args);
+        } else await onSend(...args);
       }
       if (!commands.isCurrent()) return;
       setValue('');
       setPending([]);
+      setRestoredTurn(undefined);
       commands.clear();
     } catch (error) {
       if (commands.isCurrent()) commands.setError(error instanceof Error ? error.message : String(error));
@@ -229,8 +243,21 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   // pi Alt+Up：pop 最新 pending follow-up 回编辑器。
   const dequeue = async () => {
     if (!onDequeue) return;
-    const text = await onDequeue();
-    if (text) { setValue(text); textareaRef.current?.focus(); }
+    if (value.trim() || pending.length || draftReferences.length) return;
+    const recalled = await onDequeue();
+    if (recalled) {
+      const turn = typeof recalled === 'string' ? undefined : recalled;
+      if (useVivyStore.getState().activeSessionId !== activeSessionId || currentDraft.current.sessionId !== activeSessionId || currentDraft.current.value.trim() || currentDraft.current.pending.length) {
+        if (turn) retainReturnedTurn(turn);
+        return;
+      }
+      if (turn) restoreTurnContext(turn);
+      setValue(typeof recalled === 'string' ? recalled : recalled.text);
+      setRestoredTurn(turn);
+      setPending(turn?.attachments?.map((item) => ({ ...item })) ?? []);
+      if (turn) setThinkingMode((turn.thinking ?? 'auto') as ThinkingMode);
+      textareaRef.current?.focus();
+    }
   };
 
   // D3: chat-level compact — popover anchored at the context meter; the
@@ -287,9 +314,14 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden" disabled={disabled} onChange={(event) => { void addFiles(event.target.files ?? []); event.target.value = ''; }} />
       </label>
 
+      {restoredTurn ? <select aria-label={t('chatInput.executionMode')} disabled={disabled} value={restoredTurn.mode ?? 'normal'} onChange={(event) => setRestoredTurn((turn) => turn && ({ ...turn, mode: event.target.value }))} className="rounded-lg bg-transparent p-1.5 text-xs">
+        <option value="normal">{t('chatInput.agentMode')}</option>
+        <option value="plan">{t('chatInput.planMode')}</option>
+      </select> : null}
+
       {/* 思考模式选择：D9 门控 — 仅当会话上下文报告活动模型支持思考时出现；
           发送链始终携带当前偏好（默认 auto），由服务端最终裁决。 */}
-      {context?.thinking_supported ? (
+      {context?.thinking_supported || restoredTurn ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.thinkingMode')} aria-label={t('chatInput.thinkingMode')}>
@@ -350,7 +382,12 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       </div>
     </div>
     {/* 队列 pill（对照 Crush + pi 双轨）：内核 steer/follow_up 与本地
-        FIFO（附件/引用）混排，可逐条移除或整体清空 */}
+        条目，可逐条移除或整体清空 */}
+    {restoredTurn?.file_contexts?.map((file, index) => <div key={`${file.path}-${index}`} className="flex items-center gap-2 px-3 text-xs text-muted-foreground">
+      <span>{t('chatInput.capturedContext', { name: file.name || file.path })}</span>
+      <button type="button" aria-label={t('chatInput.removeCapturedContext', { name: file.name || file.path })} onClick={() => setRestoredTurn((turn) => turn && ({ ...turn, file_contexts: turn.file_contexts?.filter((_, i) => i !== index), context_paths: undefined }))}><X className="h-3 w-3" /></button>
+    </div>)}
+    {recoveryCount ? <button type="button" onClick={() => void dequeue()} className="text-xs text-muted-foreground">{t('chatInput.recallReturned', { count: recoveryCount })}</button> : null}
     {totalQueued ? (
       <div className="flex items-center gap-2 border-t border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
         <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -363,12 +400,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
               <button type="button" onClick={() => void removeKernelQueued(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
             </span>
           ))}
-          {queuedMessages.map((item) => (
-            <span key={item.id} className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
-              <span className="max-w-40 truncate">{item.text}</span>
-              <button type="button" onClick={() => removeQueuedMessage(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
-            </span>
-          ))}
+
         </div>
         <button type="button" onClick={clearQueue} className="shrink-0 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t('chatInput.clearQueue')} aria-label={t('chatInput.clearQueue')}>{t('chatInput.clearQueue')}</button>
       </div>
