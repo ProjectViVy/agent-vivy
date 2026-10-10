@@ -1,16 +1,52 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"time"
 
+	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/contexthost"
+	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/port/contextsource"
 	"agent-vivy/sdk/port/pretool"
 	"agent-vivy/sdk/port/skillsource"
 )
+
+// bindCognitiveContextSources arms only manifested, generated T1 Sources.
+// The private Runtime query capability and durable session must both match.
+func bindCognitiveContextSources(assembly genassembly.RuntimeAssembly, bundle cognitivecontract.Bundle, sessions storage.SessionStore) error {
+	sources, err := generatedContextSources(assembly)
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		binder, ok := source.(interface {
+			BindCognitiveContext(cognitivecontract.Bundle, func(context.Context, contextsource.Request) error) error
+		})
+		if !ok {
+			continue
+		}
+		if bundle == nil || sessions == nil {
+			return fmt.Errorf("app: cognitive Context Source %q has no selected owner", source.ID())
+		}
+		authorize := func(ctx context.Context, request contextsource.Request) error {
+			if err := runtime.AuthorizeContextSourceRequest(ctx, request); err != nil {
+				return err
+			}
+			_, err := sessions.GetSession(ctx, domain.SessionID(request.SessionID))
+			return err
+		}
+		if err := binder.BindCognitiveContext(bundle, authorize); err != nil {
+			return fmt.Errorf("app: bind cognitive Context Source %q: %w", source.ID(), err)
+		}
+	}
+	return nil
+}
 
 func generatedPreToolMiddleware(assembly genassembly.RuntimeAssembly) ([]pretool.Provider, error) {
 	var middleware []pretool.Provider
@@ -78,6 +114,10 @@ func generatedSkillSources(assembly genassembly.RuntimeAssembly) ([]skillsource.
 }
 
 func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...contextsource.Provider) (*contexthost.Host, error) {
+	return buildGeneratedContextHostWithTimeout(assembly, 0, extra...)
+}
+
+func buildGeneratedContextHostWithTimeout(assembly genassembly.RuntimeAssembly, sourceTimeout time.Duration, extra ...contextsource.Provider) (*contexthost.Host, error) {
 	sources, err := generatedContextSources(assembly)
 	if err != nil {
 		return nil, err
@@ -110,13 +150,13 @@ func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...co
 			required = append(required, policy.ProviderID)
 		}
 	}
-	return contexthost.New(contexthost.Config{Sources: sources, RequiredSourceIDs: required})
+	return contexthost.New(contexthost.Config{Sources: sources, RequiredSourceIDs: required, SourceTimeout: sourceTimeout})
 }
 
 // contextHostForAssembly combines build-owned Context Sources with an
 // explicitly configured MCP Resource bridge. MCPResourceProvider is lazy and
 // does not connect while this composition snapshot is built.
-func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *runtime.MCPBackend) (*contexthost.Host, error) {
+func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *runtime.MCPBackend, sourceTimeout ...time.Duration) (*contexthost.Host, error) {
 	// A packed generation that omits ContextHost cannot regain that Host by
 	// selecting an MCP Resource bridge at runtime. The generated manifest is
 	// the sealed composition boundary; an absent Host means this capability is
@@ -132,5 +172,9 @@ func contextHostForAssembly(assembly genassembly.RuntimeAssembly, mcpBackend *ru
 			return nil, err
 		}
 	}
-	return buildGeneratedContextHost(assembly, extra)
+	var timeout time.Duration
+	if len(sourceTimeout) > 0 {
+		timeout = sourceTimeout[0]
+	}
+	return buildGeneratedContextHostWithTimeout(assembly, timeout, extra)
 }

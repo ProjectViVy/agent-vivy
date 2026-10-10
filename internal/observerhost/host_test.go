@@ -208,3 +208,47 @@ func TestDiagnosticOverloadIncrementsDropCounterWithoutBlocking(t *testing.T) {
 		t.Fatalf("diagnostic drops = %d, want 1", got)
 	}
 }
+
+type delayedBarrierObserver struct{ recordingRunObserver }
+
+func (p *delayedBarrierObserver) ObserveRun(ctx context.Context, event observer.RunEvent) error {
+	timer := time.NewTimer(20 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	return p.recordingRunObserver.ObserveRun(ctx, event)
+}
+
+func TestConcurrentDeliveryBarrierSharesOriginalCursor(t *testing.T) {
+	journal := &memoryJournal{}
+	_, err := journal.Append(context.Background(), storage.Commit{RunID: "run-barrier", Events: []domain.RunEvent{{Type: domain.EventRunCompleted, Payload: json.RawMessage(`{}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &delayedBarrierObserver{recordingRunObserver: recordingRunObserver{id: "barrier"}}
+	host, err := New(Config{Journal: journal, Cursors: &memorySnapshots{}, RunSubscriptions: []RunSubscription{{Provider: provider, EventTypes: []string{string(domain.EventRunCompleted)}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := make(chan struct{})
+	results := make(chan error, 32)
+	for i := 0; i < 32; i++ {
+		go func() { <-gate; results <- host.DeliverRun(context.Background(), "run-barrier") }()
+	}
+	close(gate)
+	var failures int
+	for i := 0; i < 32; i++ {
+		if err := <-results; err != nil {
+			failures++
+		}
+	}
+	provider.mu.Lock()
+	count := len(provider.events)
+	provider.mu.Unlock()
+	if failures != 0 || count != 1 {
+		t.Fatalf("concurrent barrier bypassed serialized durable delivery: failures=%d deliveries=%d", failures, count)
+	}
+}

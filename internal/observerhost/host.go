@@ -69,9 +69,10 @@ type Host struct {
 	retryDelay       time.Duration
 	maxRetryDelay    time.Duration
 
-	wake    chan struct{}
-	mu      sync.Mutex
-	pending map[domain.RunID]struct{}
+	deliveryGate chan struct{} // worker and explicit lifecycle drain share one cursor writer
+	wake         chan struct{}
+	mu           sync.Mutex
+	pending      map[domain.RunID]struct{}
 	// attempts counts consecutive failed deliveries per run; the next retry
 	// delay doubles per attempt up to maxRetryDelay and resets on success.
 	attempts map[domain.RunID]int
@@ -110,6 +111,7 @@ func New(cfg Config) (*Host, error) {
 		buffer = defaultDiagnosticBuffer
 	}
 	h := &Host{
+		deliveryGate:    make(chan struct{}, 1),
 		journal:         cfg.Journal,
 		cursors:         cfg.Cursors,
 		deliveryTimeout: deliveryTimeout,
@@ -166,9 +168,12 @@ func (h *Host) Start(parent context.Context) {
 		ctx, cancel := context.WithCancel(parent)
 		h.cancel = cancel
 		if len(h.runSubscriptions) > 0 {
+			h.mu.Lock()
+			hasPending := len(h.pending) > 0
+			h.mu.Unlock()
 			h.wg.Add(1)
 			go h.runLoop(ctx)
-			if len(h.pending) > 0 {
+			if hasPending {
 				select {
 				case h.wake <- struct{}{}:
 				default:
@@ -290,6 +295,15 @@ func (h *Host) takePending() (domain.RunID, bool) {
 // A provider success followed by cursor-write failure intentionally causes the
 // same stable event ID to be redelivered on the next attempt.
 func (h *Host) DeliverRun(ctx context.Context, runID domain.RunID) error {
+	select {
+	case h.deliveryGate <- struct{}{}:
+		defer func() { <-h.deliveryGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if h.journal == nil || h.cursors == nil {
 		return nil
 	}

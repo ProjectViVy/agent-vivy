@@ -28,3 +28,4 @@ modules:
   - vivy/provider-profiles
   - vivy/masks
   - vivy/diva-cognitive
+  - vivy/diva-memory

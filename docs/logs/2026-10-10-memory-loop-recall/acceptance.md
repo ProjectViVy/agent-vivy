@@ -1,0 +1,5 @@
+# Acceptance
+
+Developer increment verified, formal_acceptance=false and candidate_id=null. Do not mark S08/S09/S11 Done or infer a completion percentage. The positive three-profile causal matrix, six controls and one corrected/deleted later-input case use the actual App, Eino/provider HTTP, ONNX/native canonical storage, generated module and distinct process Restart.
+
+Known limits: source admits ordinary active note records only; raw source_artifact material is excluded, not deleted. Recall has bounded evidence and optional degradation. WORLD/ACTMEM explicit Agent tool reads are not proved by human UI actions. Positive cold recall under race instrumentation exceeds the unchanged Source deadline; the separate degraded case passing does not convert that positive failure into success. One earlier Close timeout and correction RPC failure remain open robustness observations despite the latest serialized green. All remaining local S03–S11 work continues; Windows/live wait only for their resources.

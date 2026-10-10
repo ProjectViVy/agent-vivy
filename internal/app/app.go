@@ -58,6 +58,7 @@ import (
 	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
+	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 // shutdownGrace bounds the whole graceful shutdown window. It stays under
@@ -102,10 +103,22 @@ type App struct {
 type AppOption func(*appOptions)
 
 type appOptions struct {
-	channels     bool
-	gateway      bool
-	sink         runtime.EventSink
-	settingsPath string
+	channels bool
+	gateway  bool
+	sink     runtime.EventSink
+	// cognitiveCaptureReceiptHook is an internal crash-test seam. It runs
+	// after a durable capture receipt and before ObserverHost receives its ACK.
+	cognitiveCaptureReceiptHook func(runtime.CognitiveCaptureReceipt)
+	// cognitiveCaptureSinkWrapper is an internal crash-test seam for pausing
+	// immediately before the durable Capture boundary.
+	cognitiveCaptureSinkWrapper func(runtime.CognitiveCaptureSink) runtime.CognitiveCaptureSink
+	// cognitiveDomainWrapper is a nil-by-default internal crash-test seam for
+	// pausing after a durable effect receipt and before its caller receives it.
+	cognitiveDomainWrapper func(laputaevolution.Domain) laputaevolution.Domain
+	// cognitiveSnapshotStoreWrapper is a nil-by-default internal crash-test
+	// seam for pausing before the processed-through watermark is persisted.
+	cognitiveSnapshotStoreWrapper func(storage.SnapshotStore) storage.SnapshotStore
+	settingsPath                  string
 	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
 	// the code project root from which a face may resolve attachments.
@@ -114,6 +127,9 @@ type appOptions struct {
 	// conventional skill packages. It is independent of projectRoot so the
 	// web sandbox can inject project instructions without exposing @file.
 	instructionRoot string
+	// contextSourceTimeout is a test seam for instrumented integration runs;
+	// production compositions retain ContextHost's own default.
+	contextSourceTimeout time.Duration
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -157,6 +173,10 @@ func WithCodeProjectRoot(path string) AppOption {
 // agentsmd / skill middlewares. It does not change the file-tool world.
 func WithInstructionRoot(path string) AppOption {
 	return func(o *appOptions) { o.instructionRoot = path }
+}
+
+func withContextSourceTimeout(timeout time.Duration) AppOption {
+	return func(o *appOptions) { o.contextSourceTimeout = timeout }
 }
 
 // developerPresentationLocale reads the development-only locale input from
@@ -657,7 +677,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 	engineCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
-	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend)
+	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend, ao.contextSourceTimeout)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err
@@ -755,8 +775,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	var cognitiveSubs []observerhost.RunSubscription
 	if cognitiveBundle != nil {
-		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, cognitiveBundle.Sink(),
+		captureSink := cognitiveBundle.Sink()
+		if ao.cognitiveCaptureSinkWrapper != nil {
+			captureSink = ao.cognitiveCaptureSinkWrapper(captureSink)
+		}
+		cognitiveSubs = append(cognitiveSubs, runtime.CognitiveCaptureSubscription(backend, captureSink,
 			func(receipt runtime.CognitiveCaptureReceipt) {
+				if ao.cognitiveCaptureReceiptHook != nil {
+					ao.cognitiveCaptureReceiptHook(receipt)
+				}
 				if svc != nil && receipt.Seq != 0 {
 					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
 				}
@@ -809,13 +836,21 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: resolve cognitive binding: %w", err)
 		}
+		var cognitiveDomain laputaevolution.Domain = &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle}
+		if ao.cognitiveDomainWrapper != nil {
+			cognitiveDomain = ao.cognitiveDomainWrapper(cognitiveDomain)
+		}
+		var cognitiveStore storage.SnapshotStore = backend.Snapshot()
+		if ao.cognitiveSnapshotStoreWrapper != nil {
+			cognitiveStore = ao.cognitiveSnapshotStoreWrapper(cognitiveStore)
+		}
 		cognitiveBinding = &runtime.CognitiveBinding{
-			Domain:   &lazyDomain{binding: resolvedBinding, bundle: cognitiveBundle},
+			Domain:   cognitiveDomain,
 			Binding:  resolvedBinding,
 			SourceID: cognitiveBundle.SourceID(),
 			Source:   cognitiveBundle.Source(),
 			Sink:     cognitiveBundle.Sink(),
-			Store:    backend.Snapshot(),
+			Store:    cognitiveStore,
 			Mission:  cognitiveBundle.Mission(),
 			Primary:  cognitiveBundle,
 			Resolve:  cognitiveBundle.ResolveBinding,
@@ -880,6 +915,13 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
+	}
+	if err := bindCognitiveContextSources(runtimeAssembly, cognitiveBundle, backend); err != nil {
+		if cognitiveBundle != nil {
+			_ = cognitiveBundle.Close()
+		}
+		_ = backend.Close()
+		return nil, err
 	}
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend)
@@ -1207,7 +1249,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			if toolsChanged || mcpChanged || compactionChanged {
 				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
 				var reloadErr error
-				reloadCfg.ContextHost, reloadErr = contextHostForAssembly(runtimeAssembly, mcpBackend)
+				reloadCfg.ContextHost, reloadErr = contextHostForAssembly(runtimeAssembly, mcpBackend, ao.contextSourceTimeout)
 				if reloadErr != nil {
 					logger.Warn("MCP context bridge reload skipped", "err", reloadErr)
 					reloadCfg.ContextHost = nil

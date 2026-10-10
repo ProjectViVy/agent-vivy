@@ -95,9 +95,17 @@ func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, chan
 	if err != nil {
 		return inofy.Receipt{}, err
 	}
+	commitID := change.CommitID
+	if ref.Epoch > 1 && change.Transition.Expected == inofy.RunRunning && change.Transition.Target == inofy.RunRecoveryRequired {
+		// The pinned engine restarts its ordinal on reopen; this transition
+		// otherwise reuses the admission commit ID with different content.
+		// Preserve ordinary IDs/receipts and namespace only classification
+		// under its writer epoch. This never authorizes effect replay.
+		commitID = fmt.Sprintf("recovery/%d/%s", ref.Epoch, commitID)
+	}
 	receipt, err := s.steps.CommitWorkflowStep(ctx, storage.WorkflowStepCommit{
 		RunID:         runID,
-		CommitID:      change.CommitID,
+		CommitID:      commitID,
 		Digest:        digest,
 		Epoch:         ref.Epoch,
 		ProgramDigest: ref.ProgramDigest,

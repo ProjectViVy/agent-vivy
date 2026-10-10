@@ -14,9 +14,9 @@ the default posture (the packed masks e2e had to use `profile: full_auto`
 for the same reason). Deployments can still deny or prompt via their own
 profile overrides; policy stays authoritative.
 
-Changes in the follow-up: `internal/runtime/policy.go` (matcher), 
-`internal/config/config.go` (Default profile rule), 
-`internal/runtime/policy_test.go` (prefix match + namespace-boundary cases), 
+Changes in the follow-up: `internal/runtime/policy.go` (matcher),
+`internal/config/config.go` (Default profile rule),
+`internal/runtime/policy_test.go` (prefix match + namespace-boundary cases),
 `internal/config/config_test.go` (Default carries the rule and validates),
 `internal/app/headless_mask_arming_test.go` (armed test now runs under the
 product-default governance).
