@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
@@ -36,6 +37,8 @@ type runCacheWarmer struct {
 	ledger    *BudgetLedger
 	minUSD    float64
 	info      domain.ModelInfo
+	mu        sync.Mutex
+	inflight  bool
 }
 
 func (s *Service) newRunCacheWarmer(runCtx context.Context, m *eventMapper, sessionID domain.SessionID, eng *Engine, ledger *BudgetLedger) *runCacheWarmer {
@@ -88,6 +91,16 @@ func (w *runCacheWarmer) settled(_ normalizedUsageSample, in modelCallInput) err
 		w.journal(diagnostic)
 		return nil
 	}
+	// End can settle different calls concurrently. Coalesce only overlapping
+	// refreshes on this warmer, without waiting or admitting duplicate work.
+	w.mu.Lock()
+	if w.inflight {
+		w.mu.Unlock()
+		return nil
+	}
+	w.inflight = true
+	w.mu.Unlock()
+	defer func() { w.mu.Lock(); w.inflight = false; w.mu.Unlock() }()
 	// Settle within the owning call before the run can seal its Journal.
 	// Opt-in maintenance adds a bounded provider round trip to this boundary.
 	return w.warm(prefix, diagnostic)

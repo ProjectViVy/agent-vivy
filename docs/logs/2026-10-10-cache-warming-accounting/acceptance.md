@@ -15,3 +15,5 @@ Use identical provider/model and `prefix_sha256` values when comparing warm atte
 At a model-call/event admission ceiling, optional warming must skip rather than fail completed foreground work. A one-call run with `MaxModelCalls: 1` completes and makes no maintenance provider request. This does not excuse persistence or quota failures after a maintenance provider call has already been admitted. When a maintenance or warming-capable route lacks cache-write presence, cost remains unknown even with declared other prices and even after session route aggregation in either order.
 
 An exhausted event budget produces no optional `cache.warmed` marker. Other warm/skip diagnostics consume available event admission normally; they cannot bypass the cap.
+
+Overlapping callbacks on the same warmer make only one maintenance provider call and produce one accounting attempt. Cancelling that refresh preserves its cancelled closure and one-call budget charge. Completing it allows a later refresh; coalescing does not permanently disable warming.

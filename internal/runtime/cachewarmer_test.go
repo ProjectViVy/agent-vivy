@@ -51,10 +51,12 @@ func warmVendor(lifetimeSeconds int) provider.Vendor {
 // release; a call whose last message is the warm marker counts itself
 // and replies immediately with usage + a cache-write extra.
 type warmSpyModel struct {
-	release     chan struct{}
-	warmErr     error
-	warmStarted chan struct{}
-	singleTurn  bool
+	release      chan struct{}
+	warmErr      error
+	warmStarted  chan struct{}
+	warmRelease  chan struct{}
+	warmAttempts chan int
+	singleTurn   bool
 
 	mu        sync.Mutex
 	calls     int
@@ -106,8 +108,19 @@ func (m *warmSpyModel) Stream(ctx context.Context, input []*schema.Message, _ ..
 		m.warmCalls++
 		idx := m.warmCalls
 		m.mu.Unlock()
-		if m.warmStarted != nil {
+		if m.warmAttempts != nil {
+			m.warmAttempts <- idx
+		}
+		if m.warmStarted != nil && idx == 1 {
 			close(m.warmStarted)
+		}
+		if m.warmRelease != nil {
+			select {
+			case <-m.warmRelease:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		} else if m.warmStarted != nil {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}
@@ -695,5 +708,97 @@ func TestCacheWarmDiagnosticsConsumeAvailableEventBudget(t *testing.T) {
 	}
 	if _, warm := m.counts(); warm != 0 {
 		t.Fatalf("skipped diagnostic work invoked provider %d times", warm)
+	}
+}
+
+func TestCacheWarmCoalescesOverlappingSettlements(t *testing.T) {
+	for _, cancelWarm := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel-%t", cancelWarm), func(t *testing.T) {
+			m := newWarmSpyModel()
+			m.warmStarted = make(chan struct{})
+			m.warmRelease = make(chan struct{})
+			m.warmAttempts = make(chan int, 2)
+			svc, backend, _ := newWarmService(t, m, "streaming", 0, 60)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sessionID := domain.SessionID("warm-coalesced")
+			runID := domain.RunID("warm-coalesced")
+			mustCreateSession(t, backend, sessionID)
+			if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			mapper := newEventMapper(runID, 64<<10)
+			mapper.setUsageRoutes("test", "test-model", "")
+			ledger, err := NewBudgetLedger(BudgetPolicy{MaxModelCalls: 2, MaxEvents: 64})
+			if err != nil {
+				t.Fatal(err)
+			}
+			warmer := svc.newRunCacheWarmer(ctx, mapper, sessionID, svc.engine, ledger)
+			in := modelCallInput{Messages: []*schema.Message{schema.SystemMessage("stable prefix")}}
+			first, second := make(chan error, 1), make(chan error, 1)
+			go func() { first <- warmer.settled(normalizedUsageSample{PromptTokens: 5000}, in) }()
+			select {
+			case <-m.warmStarted:
+			case <-time.After(10 * time.Second):
+				t.Fatal("first maintenance did not enter Generate")
+			}
+			<-m.warmAttempts
+			go func() { second <- warmer.settled(normalizedUsageSample{PromptTokens: 5000}, in) }()
+			secondReturned := false
+			select {
+			case err := <-second:
+				secondReturned = true
+				if err != nil {
+					t.Errorf("coalesced settlement failed: %v", err)
+				}
+			case idx := <-m.warmAttempts:
+				t.Errorf("overlapping settlement invoked paid maintenance call %d", idx)
+			case <-time.After(10 * time.Second):
+				t.Error("overlapping settlement failed to coalesce")
+			}
+			if cancelWarm {
+				cancel()
+			} else {
+				close(m.warmRelease)
+			}
+			if err := <-first; err != nil {
+				t.Fatal(err)
+			}
+			if !secondReturned {
+				if err := <-second; err != nil {
+					t.Error(err)
+				}
+			}
+			if _, warm := m.counts(); warm != 1 {
+				t.Fatalf("overlapping paid calls=%d, want one", warm)
+			}
+			rows, err := backend.ListModelUsage(context.Background(), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || rows[0].Source != "maintenance" {
+				t.Fatalf("coalesced accounting rows=%+v", rows)
+			}
+			expectedEvents := 3
+			if cancelWarm {
+				expectedEvents = 2
+				if rows[0].AttemptState != storage.AttemptCancelled || rows[0].HasUsage {
+					t.Fatalf("cancelled attempt=%+v", rows[0])
+				}
+			} else if rows[0].AttemptState != storage.AttemptSettled || !rows[0].HasUsage {
+				t.Fatalf("settled attempt=%+v", rows[0])
+			}
+			if usage := ledger.Snapshot().Usage; usage.ModelCalls != 1 || usage.Events != expectedEvents {
+				t.Fatalf("coalesced budget=%+v, want one call and %d events", usage, expectedEvents)
+			}
+			if !cancelWarm {
+				if err := warmer.settled(normalizedUsageSample{PromptTokens: 5000}, in); err != nil {
+					t.Fatal(err)
+				}
+				if _, warm := m.counts(); warm != 2 {
+					t.Fatalf("finished warm guard prevented later refresh: paid calls=%d", warm)
+				}
+			}
+		})
 	}
 }

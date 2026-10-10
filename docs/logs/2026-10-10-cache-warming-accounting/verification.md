@@ -44,3 +44,9 @@ Warm fixture accounting: first request reports 1,345 total prompt tokens, includ
 RED confirmed an event-admission-denied warm still appended an unbudgeted marker, and two economic skips appended two diagnostics at `MaxEvents: 1`. Every diagnostic now reserves event admission, and lack of admission omits the marker without failing the owning call or making provider work.
 
 The event-cap follow-up complete affected-package suites passed: runtime 70.795s, RPC 25.431s, storage 0.012s, config 0.031s. All warming race checks passed (27.475s); affected-package vet and `git diff --check` passed. The parent owns the integrated product gate.
+
+## In-flight coalescing restoration
+
+RED `TestCacheWarmCoalescesOverlappingSettlements` used a blocking provider and deterministic entry signals to reproduce two paid calls for overlapping callbacks, for both release/success and cancellation. The restored guard admits one call, produces one accounting attempt, preserves exact model-call/event budget charges, and clears after completion so a later refresh succeeds. The overlap returns immediately; the test needs no timing delay to infer concurrency.
+
+Focused warming/trajectory tests passed (0.767s); all warming race tests passed (15.724s); `git diff --check` passed. Per the parent integration request, the narrow guard restoration uses focused/race checks; the parent owns final `just ci` rather than rerunning unchanged package suites in this lane.
