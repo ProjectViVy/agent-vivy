@@ -3,6 +3,7 @@ package runtime
 import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"context"
 	"encoding/json"
@@ -633,5 +634,166 @@ func TestClearQueueFailureIsAtomic(t *testing.T) {
 	state := mustQueueState(t, svc, ctx, "atomic-clear", "")
 	if len(state.FollowUps) != 2 || state.FollowUps[0].ID != first.ID {
 		t.Fatalf("partial clear durable: %+v", state)
+	}
+}
+
+type rejectCancellationTerminalJournal struct{ storage.Journal }
+
+func (j rejectCancellationTerminalJournal) Append(ctx context.Context, commit storage.Commit) (domain.EventSeq, error) {
+	for _, event := range commit.Events {
+		if event.Type.Terminal() {
+			return 0, errors.New("terminal unavailable")
+		}
+	}
+	return j.Journal.Append(ctx, commit)
+}
+func TestRealParkedCancellationRetriesAfterInteractionSettlement(t *testing.T) {
+	for _, interaction := range []string{"question", "approval"} {
+		for _, failure := range []string{"replay", "terminal"} {
+			t.Run(interaction+"/"+failure, func(t *testing.T) {
+				var svc *Service
+				var backend *sqlite.Backend
+				if interaction == "question" {
+					svc, backend, _ = newQuestionService(t)
+				} else {
+					svc, backend, _ = newApprovalService(t, 5*time.Minute)
+				}
+				ctx := context.Background()
+				sid := domain.SessionID("real-cancel-" + interaction + "-" + failure)
+				mustCreateSession(t, backend, sid)
+				rid, err := svc.Run(ctx, sid, "suspend for input")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var question domain.Question
+				var approval domain.Approval
+				if interaction == "question" {
+					question = waitForPendingQuestion(t, backend, rid)
+				} else {
+					approval = waitForPendingApproval(t, backend, rid)
+				}
+				waitFor(t, "pending registration", func() bool { svc.mu.Lock(); defer svc.mu.Unlock(); _, ok := svc.pending[rid]; return ok })
+				if failure == "replay" {
+					svc.dropSessionQueue(sid)
+					svc.deps.Journal = &interruptedQueueReplay{Journal: backend}
+				} else {
+					svc.deps.Journal = rejectCancellationTerminalJournal{Journal: backend}
+				}
+				if !svc.Cancel(rid) {
+					t.Fatal("initial cancel unavailable")
+				}
+				if interaction == "question" {
+					row, err := backend.GetQuestion(ctx, question.ID)
+					if err != nil || row.Status != domain.QuestionCancelled {
+						t.Fatalf("question not cancelled: %+v %v", row, err)
+					}
+				} else {
+					row, err := backend.GetApproval(ctx, approval.ID)
+					if err != nil || row.Decision != domain.ApprovalCancelled {
+						t.Fatalf("approval not cancelled: %+v %v", row, err)
+					}
+				}
+				run, err := backend.GetRun(ctx, rid)
+				if err != nil || run.Status.Terminal() {
+					t.Fatalf("failed terminal committed: %+v %v", run, err)
+				}
+				svc.deps.Journal = backend
+				if !svc.Cancel(rid) {
+					t.Fatal("retry unavailable")
+				}
+				run, err = backend.GetRun(ctx, rid)
+				if err != nil || run.Status != domain.RunCancelled {
+					t.Fatalf("retry did not cancel real parked run: %+v %v", run, err)
+				}
+				events := replayAll(t, backend, rid)
+				if countTerminal(events) != 1 {
+					t.Fatalf("terminal count = %d", countTerminal(events))
+				}
+				cancelType := domain.EventUserQuestionCancelled
+				if interaction == "approval" {
+					cancelType = domain.EventToolApprovalCancelled
+				}
+				count := 0
+				for _, event := range events {
+					if event.Type == cancelType {
+						count++
+					}
+				}
+				if count != 1 {
+					t.Fatalf("interaction cancelled events = %d", count)
+				}
+			})
+		}
+	}
+}
+func TestParkedCancellationPreservesInteractionDecisionWinner(t *testing.T) {
+	for _, interaction := range []string{"question", "approval"} {
+		t.Run(interaction, func(t *testing.T) {
+			var svc *Service
+			var backend *sqlite.Backend
+			if interaction == "question" {
+				svc, backend, _ = newQuestionService(t)
+			} else {
+				svc, backend, _ = newApprovalService(t, 5*time.Minute)
+			}
+			ctx := context.Background()
+			sid := domain.SessionID("decision-wins-" + interaction)
+			mustCreateSession(t, backend, sid)
+			rid, err := svc.Run(ctx, sid, "suspend for input")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if interaction == "question" {
+				question := waitForPendingQuestion(t, backend, rid)
+				if _, err := backend.AnswerQuestion(ctx, question.ID, "blue"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				approval := waitForPendingApproval(t, backend, rid)
+				if _, err := backend.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitFor(t, "pending registration", func() bool { svc.mu.Lock(); defer svc.mu.Unlock(); _, ok := svc.pending[rid]; return ok })
+			if !svc.Cancel(rid) {
+				t.Fatal("cancel unavailable")
+			}
+			run, err := backend.GetRun(ctx, rid)
+			if err != nil || run.Status.Terminal() {
+				t.Fatalf("cancellation stole settled decision: %+v %v", run, err)
+			}
+		})
+	}
+}
+
+func TestQueueDequeueExpectedIDRetainsNewerTurn(t *testing.T) {
+	svc, backend := newQueueTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	mustCreateSession(t, backend, "dequeue-cas")
+	if err := backend.CreateRun(ctx, domain.Run{ID: "dequeue-carrier", SessionID: "dequeue-cas", Status: domain.RunActive}); err != nil {
+		t.Fatal(err)
+	}
+	svc.active["dequeue-carrier"] = func() {}
+	svc.runSessions["dequeue-carrier"] = "dequeue-cas"
+	inspected, err := svc.FollowUp(ctx, "dequeue-cas", "inspected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newest, err := svc.FollowUp(ctx, "dequeue-cas", "newer unseen options")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item, removed, err := svc.Dequeue(ctx, "dequeue-cas", inspected.ID); err != nil || removed {
+		t.Fatalf("stale inspection removed turn: %+v %v %v", item, removed, err)
+	}
+	if state := mustQueueState(t, svc, ctx, "dequeue-cas", ""); len(state.FollowUps) != 2 {
+		t.Fatalf("CAS mutated live queue: %+v", state)
+	}
+	svc.dropSessionQueue("dequeue-cas")
+	if state := mustQueueState(t, svc, ctx, "dequeue-cas", ""); len(state.FollowUps) != 2 {
+		t.Fatalf("CAS mutated durable queue: %+v", state)
+	}
+	if item, removed, err := svc.Dequeue(ctx, "dequeue-cas", newest.ID); err != nil || !removed || item.ID != newest.ID {
+		t.Fatalf("matched dequeue failed: %+v %v %v", item, removed, err)
 	}
 }

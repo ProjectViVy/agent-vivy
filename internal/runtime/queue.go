@@ -308,7 +308,7 @@ func (s *Service) clearQueue(ctx context.Context, sid domain.SessionID, reason s
 	}
 	return state, nil
 }
-func (s *Service) Dequeue(ctx context.Context, sid domain.SessionID) (domain.QueuedTurn, bool, error) {
+func (s *Service) Dequeue(ctx context.Context, sid domain.SessionID, expectedID ...string) (domain.QueuedTurn, bool, error) {
 	q, err := s.queueFor(ctx, sid)
 	if err != nil {
 		return domain.QueuedTurn{}, false, err
@@ -318,7 +318,11 @@ func (s *Service) Dequeue(ctx context.Context, sid domain.SessionID) (domain.Que
 	if len(q.followUp) == 0 {
 		return domain.QueuedTurn{}, false, nil
 	}
-	return s.removeQueueLocked(ctx, q, q.followUp[len(q.followUp)-1])
+	newest := q.followUp[len(q.followUp)-1]
+	if len(expectedID) > 0 && expectedID[0] != "" && newest.ID != expectedID[0] {
+		return domain.QueuedTurn{}, false, nil
+	}
+	return s.removeQueueLocked(ctx, q, newest)
 }
 func (s *Service) QueueRemove(ctx context.Context, sid domain.SessionID, id string) (domain.QueuedTurn, bool, error) {
 	q, err := s.queueFor(ctx, sid)

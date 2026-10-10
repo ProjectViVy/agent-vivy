@@ -19,3 +19,5 @@ Final checkpoint results:
 - go test -p 2 ./internal/runtime -run 'TestClearQueueFailure|TestPendingCancellationRetries|TestQueueAdmissionRejects|TestSteerResume|TestSteerMissing|TestConcurrentQueue' -count=1: PASS (0.392s).
 - go test -p 2 ./internal/runtime ./internal/rpc ./internal/storage/sqlite ./internal/storage/postgres ./sdk/tui/live ./sdk/tui/face -count=1: PASS (runtime 43.320s; RPC 14.796s; SQLite 7.427s; Postgres 0.006s; live 4.301s; face 0.023s).
 - git diff --check: PASS.
+
+Real interaction follow-up: tests reproduced RED for question cancellation retries after queue replay/terminal failure and for approval cancellation stealing an already approved durable decision. The new real question/approval tests include one cancellation lifecycle event and exactly one terminal after retry; decision-winner controls remain active. Optional dequeue-ID test reproduced stale inspection removing a newer item. Final focused command covering those cases and existing pending/question/approval cancellation behavior passed (2.678s).

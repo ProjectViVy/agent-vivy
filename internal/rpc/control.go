@@ -3811,6 +3811,7 @@ func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, 
 func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any, *Error) {
 	var params struct {
 		SessionID string `json:"session_id"`
+		QueueID   string `json:"queue_id"`
 	}
 	if rpcErr := decodeParams(request, &params); rpcErr != nil {
 		return nil, rpcErr
@@ -3818,7 +3819,7 @@ func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	item, ok, err := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	item, ok, err := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID), params.QueueID)
 	if err != nil {
 		return nil, runtimeError(err)
 	}

@@ -392,6 +392,7 @@ type pendingRun struct {
 	sandboxMode      domain.SandboxMode
 	approvalPolicy   domain.ApprovalPolicy
 	face             domain.Face
+	approvalID       string
 	questionID       string
 	ledger           *BudgetLedger
 	engine           *Engine
@@ -1612,16 +1613,26 @@ func (s *Service) hasDurableSuspension(runID domain.RunID) bool {
 func (s *Service) settlePendingCancellation(runID domain.RunID, p pendingRun) {
 	settled := true
 	if p.questionID != "" && s.deps.Questions != nil {
-		if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
+		if err := s.cancelPendingQuestion(context.Background(), runID, p.questionID); err != nil {
 			slog.Warn("cancel question failed", "question", p.questionID, "err", err)
 			settled = false
 		}
 	} else if s.deps.Approvals != nil {
-		if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
-			if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+		var approval domain.Approval
+		var err error
+		if p.approvalID != "" {
+			approval, err = s.deps.Approvals.GetApproval(context.Background(), p.approvalID)
+		} else {
+			approval, err = s.approvalForRun(context.Background(), runID)
+		}
+		if err == nil {
+			if err := s.cancelPendingApproval(context.Background(), runID, approval); err != nil {
 				slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
 				settled = false
 			}
+		} else if p.approvalID != "" || !errors.Is(err, storage.ErrNotFound) {
+			slog.Warn("load approval for cancellation failed", "run", string(runID), "err", err)
+			settled = false
 		}
 	}
 	if !settled {
@@ -2429,7 +2440,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 	}
 	s.workGates[run.ID] = &sync.Mutex{}
 	s.active[run.ID] = cancelRun
-	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, approvalID: approval.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -3980,7 +3991,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
-		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
+		approvalID: approval.ID,
+		engine:     engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -4324,6 +4336,56 @@ func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Ap
 		return err
 	}
 	slog.Info("approval auto-approved on timeout", "approval", current.ID, "run", string(current.RunID), "window", window.String())
+	return nil
+}
+
+// A parked cancellation can retry its terminal write after its interaction
+// already settled. A human answer or decision still owns its resume path.
+func (s *Service) cancelPendingQuestion(ctx context.Context, runID domain.RunID, questionID string) error {
+	question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+	if err != nil {
+		return err
+	}
+	if question.RunID != runID {
+		return ErrQuestionAlreadyAnswered
+	}
+	if question.Status == domain.QuestionCancelled {
+		return nil
+	}
+	if question.Status != domain.QuestionPending {
+		return ErrQuestionAlreadyAnswered
+	}
+	if err := s.cancelQuestion(ctx, questionID, "run cancelled"); err != nil {
+		if errors.Is(err, ErrQuestionAlreadyAnswered) {
+			current, readErr := s.deps.Questions.GetQuestion(ctx, questionID)
+			if readErr == nil && current.RunID == runID && current.Status == domain.QuestionCancelled {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) cancelPendingApproval(ctx context.Context, runID domain.RunID, approval domain.Approval) error {
+	if approval.RunID != runID {
+		return ErrApprovalAlreadyDecided
+	}
+	if approval.Decision == domain.ApprovalCancelled {
+		return nil
+	}
+	if approval.Decision != domain.ApprovalPending {
+		return ErrApprovalAlreadyDecided
+	}
+	if err := s.cancelApproval(ctx, approval, "run cancelled"); err != nil {
+		if errors.Is(err, ErrApprovalAlreadyDecided) {
+			current, readErr := s.deps.Approvals.GetApproval(ctx, approval.ID)
+			if readErr == nil && current.RunID == runID && current.Decision == domain.ApprovalCancelled {
+				return nil
+			}
+		}
+		return err
+	}
 	return nil
 }
 
