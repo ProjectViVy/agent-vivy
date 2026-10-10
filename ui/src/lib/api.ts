@@ -394,10 +394,11 @@ export const startTurn = (sessionId: string, submission: TurnSubmission) =>
     session_id: sessionId,
     text: submission.text,
       mode: submission.mode === 'plan' ? 'normal' : submission.mode,
-      collaboration_mode: submission.mode === 'plan' ? 'plan' : undefined,
-      collaboration_version: submission.mode === 'plan' ? 1 : undefined,
+      collaboration_mode: submission.collaboration_mode ?? (submission.mode === 'plan' ? 'plan' : undefined),
+      collaboration_version: submission.collaboration_version ?? (submission.mode === 'plan' ? 1 : undefined),
     face: submission.face,
     attachments: submission.attachments,
+    context_paths: submission.context_paths, file_contexts: submission.file_contexts, policy_profile: submission.policy_profile,
     thinking: submission.thinking,
     request_id: submission.continuity?.request_id,
     references: submission.continuity?.references,
@@ -405,7 +406,7 @@ export const startTurn = (sessionId: string, submission: TurnSubmission) =>
   });
 /** Kernel dual-track queue (pi parity, VCP-B3): steer injects at the next
  * turn boundary of the active run; follow_up is admitted after terminal
- * settle. Kernel items are text-only. Types owned by @vivy/ui-sdk so the
+ * settle. Kernel items carry the full submission. Types owned by @vivy/ui-sdk so the
  * Face contract and this host API share one shape (SC-D4). */
 import type {
   FaceQueuedTurn, FaceQueueState, FaceQueueTurnResult,
@@ -415,10 +416,20 @@ export type QueuedTurn = FaceQueuedTurn;
 export type QueueState = FaceQueueState;
 export type QueueTurnResult = FaceQueueTurnResult;
 
-export const steerTurn = (sessionId: string, text: string) =>
-  request<QueueTurnResult>('turn/steer', { session_id: sessionId, text });
-export const followUpTurn = (sessionId: string, text: string) =>
-  request<QueueTurnResult>('turn/follow_up', { session_id: sessionId, text });
+const queueTurnParams = (sessionId: string, submission: TurnSubmission) => ({
+  session_id: sessionId, text: submission.text,
+  mode: submission.mode === 'plan' ? 'normal' : submission.mode,
+  collaboration_mode: submission.collaboration_mode ?? (submission.mode === 'plan' ? 'plan' : undefined),
+  collaboration_version: submission.collaboration_version ?? (submission.mode === 'plan' ? 1 : undefined),
+  face: submission.face, thinking: submission.thinking, attachments: submission.attachments,
+  context_paths: submission.context_paths, file_contexts: submission.file_contexts, policy_profile: submission.policy_profile,
+  request_id: submission.continuity?.request_id, references: submission.continuity?.references,
+  history_scope: submission.continuity?.history_scope,
+});
+export const steerTurn = (sessionId: string, submission: TurnSubmission) =>
+  request<QueueTurnResult>('turn/steer', queueTurnParams(sessionId, submission));
+export const followUpTurn = (sessionId: string, submission: TurnSubmission) =>
+  request<QueueTurnResult>('turn/follow_up', queueTurnParams(sessionId, submission));
 export const getQueueState = (sessionId: string, afterRunId?: string) =>
   request<QueueState>('queue/state', { session_id: sessionId, after_run_id: afterRunId })
     // Go nil slices marshal as null; faces always want arrays.

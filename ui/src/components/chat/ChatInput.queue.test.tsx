@@ -90,14 +90,12 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     const removeKernelQueued = vi.fn(async () => undefined);
     useVivyStore.setState({
       kernelQueue: { steering: [{ id: 'q1', session_id: 's1', track: 'steer', text: 'steer text', created_at: 1 }], follow_up: [{ id: 'q2', session_id: 's1', track: 'follow_up', text: 'follow text', created_at: 2 }], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 2 },
-      queuedMessages: [{ id: 'l1', text: 'local attach' }],
       removeKernelQueued: removeKernelQueued as never,
     });
     await render(true);
-    expect(container.textContent).toContain('3 queued');
+    expect(container.textContent).toContain('2 queued');
     expect(container.textContent).toContain('steer text');
     expect(container.textContent).toContain('follow text');
-    expect(container.textContent).toContain('local attach');
     await act(async () => {
       [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.getAttribute('aria-label') === 'Remove: follow text')!.click();
     });

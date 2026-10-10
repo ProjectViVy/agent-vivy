@@ -1414,11 +1414,11 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 // queueTurnCmd issues a queued turn through the kernel dual-track queue
 // (turn/steer | turn/follow_up). The kernel degrades an idle session to a
 // fresh run — the response then carries run_id.
-func (l *Live) queueTurnCmd(track, sessionID, text, thinking, mode string) tea.Cmd {
+func (l *Live) queueTurnCmd(track, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		queued, runID, err := l.client.queueTurn(ctx, track, sessionID, text, thinking, mode)
+		queued, runID, err := l.client.queueTurn(ctx, track, sessionID, text, thinking, mode, attachments, contextPaths)
 		return liveQueuedTurnMsg{Track: track, SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Queued: queued, RunID: runID, Err: err}
 	}
 }
@@ -2099,11 +2099,11 @@ func (l *Live) SendFollowUp(text string) tea.Cmd {
 	thinking := l.thinkingMode
 	mode := l.runMode
 	sessionID := l.activeID
+	attachments := cloneAttachments(l.drafts[sessionID])
 	if (l.busy || l.gate != nil) && sessionID != "" {
 		l.mu.Unlock()
-		return l.queueTurnCmd("follow_up", sessionID, text, thinking, mode)
+		return l.queueTurnCmd("follow_up", sessionID, text, thinking, mode, attachments, nil)
 	}
-	attachments := cloneAttachments(l.drafts[sessionID])
 	l.mu.Unlock()
 	return l.sendWithAttachments(text, thinking, mode, attachments, true)
 }
@@ -2208,17 +2208,8 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 		if consumeDraft {
 			delete(l.drafts, sessionID)
 		}
-		if len(attachments) == 0 && len(contextPaths) == 0 {
-			// Kernel dual-track queue (VCP-B2): Enter steers at the next
-			// turn boundary; a gate demotes it to the follow-up lane.
-			l.mu.Unlock()
-			return l.queueTurnCmd("steer", sessionID, text, thinking, mode)
-		}
-		// Attachments/context paths cannot ride the kernel text queue yet —
-		// keep the face-local FIFO for those turns.
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		l.mu.Unlock()
-		return func() tea.Msg { return surface.RefreshMsg{} }
+		return l.queueTurnCmd("steer", sessionID, text, thinking, mode, cloneAttachments(attachments), contextPaths)
 	}
 	if consumeDraft {
 		delete(l.drafts, sessionID)

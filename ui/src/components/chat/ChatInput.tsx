@@ -98,9 +98,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
-  const queuedMessages = useVivyStore((state) => state.queuedMessages);
   const kernelQueue = useVivyStore((state) => state.kernelQueue);
-  const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
   const removeKernelQueued = useVivyStore((state) => state.removeKernelQueued);
   const clearQueue = useVivyStore((state) => state.clearQueue);
   const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
@@ -193,7 +191,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     ...(kernelQueue?.steering ?? []).map((item) => ({ item, lane: 'steer' as const })),
     ...(kernelQueue?.follow_up ?? []).map((item) => ({ item, lane: 'follow_up' as const })),
   ];
-  const totalQueued = kernelItems.length + queuedMessages.length;
+  const totalQueued = kernelItems.length;
 
   const send = async (track: 'send' | 'steer' | 'follow_up' = 'send') => {
     if (disabled || sendLock.current || !activeSessionId) return;
@@ -363,12 +361,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
               <button type="button" onClick={() => void removeKernelQueued(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
             </span>
           ))}
-          {queuedMessages.map((item) => (
-            <span key={item.id} className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
-              <span className="max-w-40 truncate">{item.text}</span>
-              <button type="button" onClick={() => removeQueuedMessage(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
-            </span>
-          ))}
+
         </div>
         <button type="button" onClick={clearQueue} className="shrink-0 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t('chatInput.clearQueue')} aria-label={t('chatInput.clearQueue')}>{t('chatInput.clearQueue')}</button>
       </div>

@@ -77,7 +77,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     clearDraftContext();
   };
   const queue = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
-    enqueueMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() });
+    return enqueueMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() });
     clearDraftContext();
   };
   // pi 双轨（VCP-B3）：steer/follow_up 由 store 分流——纯文本上内核

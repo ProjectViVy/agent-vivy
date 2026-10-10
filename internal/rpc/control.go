@@ -464,17 +464,18 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-	CollaborationMode    string           `json:"collaboration_mode,omitempty"`
-	CollaborationVersion int              `json:"collaboration_version,omitempty"`
-	SessionID            string           `json:"session_id"`
-	Text                 string           `json:"text"`
-	Mode                 string           `json:"mode,omitempty"`
-	Face                 string           `json:"face,omitempty"`
-	PolicyProfile        string           `json:"policy_profile,omitempty"`
-	Thinking             string           `json:"thinking,omitempty"`
-	Attachments          []turnAttachment `json:"attachments,omitempty"`
-	AttachmentPaths      []string         `json:"attachment_paths,omitempty"`
-	ContextPaths         []string         `json:"context_paths,omitempty"`
+	CollaborationMode    string               `json:"collaboration_mode,omitempty"`
+	CollaborationVersion int                  `json:"collaboration_version,omitempty"`
+	SessionID            string               `json:"session_id"`
+	Text                 string               `json:"text"`
+	Mode                 string               `json:"mode,omitempty"`
+	Face                 string               `json:"face,omitempty"`
+	PolicyProfile        string               `json:"policy_profile,omitempty"`
+	Thinking             string               `json:"thinking,omitempty"`
+	Attachments          []turnAttachment     `json:"attachments,omitempty"`
+	AttachmentPaths      []string             `json:"attachment_paths,omitempty"`
+	ContextPaths         []string             `json:"context_paths,omitempty"`
+	FileContexts         []domain.FileContext `json:"file_contexts,omitempty"`
 	// Continuity-bearing fields (SC-D4 §7): request_id plus optional
 	// operator-selected reference excerpts and a broader model read scope.
 	// Bodies decode raw first because each entry must satisfy a strict
@@ -2192,7 +2193,10 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	// VCP-B1: faces render the dual-track queue (steer + follow_up lanes)
 	// directly from session/get — the pi get_state surface.
 	if h.deps.Service != nil {
-		state := h.deps.Service.QueueState(ctx, session.ID, "")
+		state, queueErr := h.deps.Service.QueueState(ctx, session.ID, "")
+		if queueErr != nil {
+			return nil, runtimeError(queueErr)
+		}
 		result["queue"] = map[string]any{
 			"steering":             state.Steering,
 			"follow_up":            state.FollowUps,
@@ -3632,25 +3636,37 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	if params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "text must not be empty"}
 	}
-	attachments, rpcErr := attachmentsFromParams(params.Attachments)
+	options, rpcErr := h.turnOptions(ctx, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
+	if err != nil {
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+}
+
+func (h *controlHandler) turnOptions(ctx context.Context, params turnParams) (runtime.RunOptions, *Error) {
+	attachments, rpcErr := attachmentsFromParams(params.Attachments)
+	if rpcErr != nil {
+		return runtime.RunOptions{}, rpcErr
+	}
 	if len(params.AttachmentPaths) > 0 {
 		if len(attachments)+len(params.AttachmentPaths) > attachment.MaxCount {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
+			return runtime.RunOptions{}, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 		}
 		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
 		if err != nil {
-			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+			return runtime.RunOptions{}, &Error{Code: InvalidParams, Message: err.Error()}
 		}
 		attachments = append(attachments, projectAttachmentDomainValues(resolved)...)
 	}
-	var fileContexts []domain.FileContext
-	if len(params.ContextPaths) > 0 {
+	fileContexts := params.FileContexts
+	if len(fileContexts) == 0 && len(params.ContextPaths) > 0 {
 		resolved, err := resolveProjectContextsWithContext(ctx, h.deps.ProjectRoot, params.ContextPaths)
 		if err != nil {
-			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+			return runtime.RunOptions{}, &Error{Code: InvalidParams, Message: err.Error()}
 		}
 		fileContexts = projectContextDomainValues(resolved)
 	}
@@ -3660,19 +3676,15 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	// gating on the zero-value default would break every custom gateway.
 	if len(attachments) > 0 {
 		if info := h.deps.Service.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
+			return runtime.RunOptions{}, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
 		}
 	}
-	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
+	return runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: h.thinkingFor(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true, Continuity: params.continuity,
-	})
-	if err != nil {
-		return nil, runtimeError(err)
-	}
-	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+	}, nil
 }
 
 // Queue handlers (VCP-B1, pi parity): steer injects at the next turn
@@ -3680,26 +3692,28 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 // fall back to a fresh turn/start when the session is idle — matching pi's
 // "prompt while idle" semantics (busy rules in the B1 plan).
 
-type queueTurnParams struct {
-	SessionID string `json:"session_id"`
-	Text      string `json:"text"`
-	Mode      string `json:"mode,omitempty"`
-	Face      string `json:"face,omitempty"`
-	Thinking  string `json:"thinking,omitempty"`
-}
+type queueTurnParams = turnParams
 
 func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *Error) {
-	var params queueTurnParams
-	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+	params, rpcErr := parseTurnParams(request)
+	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	if params.SessionID == "" || params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
 	}
-	item, err := h.deps.Service.Steer(ctx, domain.SessionID(params.SessionID), params.Text)
+	options, rpcErr := h.turnOptions(ctx, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	item, err := h.deps.Service.SteerWithOptions(ctx, domain.SessionID(params.SessionID), domain.QueuedTurn{
+		Text: params.Text, Mode: options.Mode, Thinking: options.Thinking, Face: options.Face,
+		Profile: options.Profile, Attachments: options.Attachments, ContextPaths: params.ContextPaths, FileContexts: options.FileContexts,
+		CollaborationMode: options.CollaborationMode, CollaborationVersion: options.CollaborationVersion, Continuity: options.Continuity,
+	})
 	if err != nil {
 		if errors.Is(err, runtime.ErrQueueUnavailable) {
-			return h.queueStartFallback(ctx, params)
+			return h.queueStartFallback(ctx, params, options)
 		}
 		return nil, runtimeError(err)
 	}
@@ -3707,17 +3721,25 @@ func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *
 }
 
 func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any, *Error) {
-	var params queueTurnParams
-	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+	params, rpcErr := parseTurnParams(request)
+	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	if params.SessionID == "" || params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
 	}
-	item, err := h.deps.Service.FollowUp(ctx, domain.SessionID(params.SessionID), params.Text)
+	options, rpcErr := h.turnOptions(ctx, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	item, err := h.deps.Service.FollowUpWithOptions(ctx, domain.SessionID(params.SessionID), domain.QueuedTurn{
+		Text: params.Text, Mode: options.Mode, Thinking: options.Thinking, Face: options.Face,
+		Profile: options.Profile, Attachments: options.Attachments, ContextPaths: params.ContextPaths, FileContexts: options.FileContexts,
+		CollaborationMode: options.CollaborationMode, CollaborationVersion: options.CollaborationVersion, Continuity: options.Continuity,
+	})
 	if err != nil {
 		if errors.Is(err, runtime.ErrQueueUnavailable) {
-			return h.queueStartFallback(ctx, params)
+			return h.queueStartFallback(ctx, params, options)
 		}
 		return nil, runtimeError(err)
 	}
@@ -3726,11 +3748,8 @@ func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any
 
 // queueStartFallback runs a queued turn as a fresh prompt when the session
 // is idle — pi: steering/follow-up on an idle session equals prompt.
-func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams) (any, *Error) {
-	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face),
-		Thinking: h.thinkingFor(params.Thinking), HumanAdmission: true,
-	})
+func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams, options runtime.RunOptions) (any, *Error) {
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
 	if err != nil {
 		return nil, runtimeError(err)
 	}
@@ -3748,7 +3767,10 @@ func (h *controlHandler) queueState(ctx context.Context, request Request) (any, 
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	state := h.deps.Service.QueueState(ctx, domain.SessionID(params.SessionID), domain.RunID(params.AfterRunID))
+	state, err := h.deps.Service.QueueState(ctx, domain.SessionID(params.SessionID), domain.RunID(params.AfterRunID))
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	return map[string]any{
 		"steering":             state.Steering,
 		"follow_up":            state.FollowUps,
@@ -3770,7 +3792,10 @@ func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, 
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	state := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	state, err := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	texts := make([]string, 0, len(state.Steering)+len(state.FollowUps))
 	for _, item := range state.Steering {
 		texts = append(texts, item.Text)
@@ -3778,7 +3803,7 @@ func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, 
 	for _, item := range state.FollowUps {
 		texts = append(texts, item.Text)
 	}
-	return map[string]any{"cleared": true, "texts": texts}, nil
+	return map[string]any{"cleared": true, "texts": texts, "turns": append(state.Steering, state.FollowUps...)}, nil
 }
 
 // dequeueQueue pops the newest pending follow-up for editor restore
@@ -3793,11 +3818,14 @@ func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	item, ok := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	item, ok, err := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	if !ok {
 		return map[string]any{"dequeued": false}, nil
 	}
-	return map[string]any{"dequeued": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
+	return map[string]any{"dequeued": true, "queue_id": item.ID, "track": item.Track, "text": item.Text, "turn": item}, nil
 }
 
 // removeQueueItem cancels one pending item by id — the GUI's per-item
@@ -3814,11 +3842,14 @@ func (h *controlHandler) removeQueueItem(ctx context.Context, request Request) (
 	if params.SessionID == "" || params.QueueID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and queue_id are required"}
 	}
-	item, ok := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	item, ok, err := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	if !ok {
 		return map[string]any{"removed": false}, nil
 	}
-	return map[string]any{"removed": true, "queue_id": item.ID, "track": item.Track, "text": item.Text}, nil
+	return map[string]any{"removed": true, "queue_id": item.ID, "track": item.Track, "text": item.Text, "turn": item}, nil
 }
 
 func (h *controlHandler) setQueueMode(ctx context.Context, request Request) (any, *Error) {

@@ -55,8 +55,10 @@ var (
 // Commit is one atomic batch of events for a single run. Events carry no
 // Seq: the journal assigns a contiguous monotonic range on append.
 type Commit struct {
-	RunID  domain.RunID
-	Events []domain.RunEvent
+	// Messages are committed with their continuity events (steered user turns).
+	Messages []domain.Message
+	RunID    domain.RunID
+	Events   []domain.RunEvent
 }
 
 // Entry is one replayed journal record.

@@ -467,15 +467,17 @@ type payloadChildCancelled struct {
 
 // turn.* queue markers (VCP-B1): the durable queue lives on the run journal.
 type payloadTurnQueued struct {
-	QueueID string `json:"queue_id"`
-	Track   string `json:"track"`
-	Text    string `json:"text"`
+	Turn    *domain.QueuedTurn `json:"turn,omitempty"`
+	QueueID string             `json:"queue_id"`
+	Track   string             `json:"track"`
+	Text    string             `json:"text"`
 }
 
 type payloadTurnDequeued struct {
-	QueueID string `json:"queue_id"`
-	Track   string `json:"track"`
-	Reason  string `json:"reason"` // started | cleared | aborted | dequeued
+	Turn    *domain.QueuedTurn `json:"turn,omitempty"`
+	QueueID string             `json:"queue_id"`
+	Track   string             `json:"track"`
+	Reason  string             `json:"reason"` // started | cleared | aborted | dequeued
 	// Text repeats the queued turn's text so faces can restore it into the
 	// editor (abort flush / Alt+Up dequeue) without tracking queue ids.
 	Text string `json:"text,omitempty"`

@@ -417,8 +417,10 @@ type GoalRoundAdmission struct {
 
 // RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
-	Mode    domain.RunMode
-	Profile domain.PolicyProfile
+	queueItems []domain.QueuedTurn
+	queueAfter domain.RunID
+	Mode       domain.RunMode
+	Profile    domain.PolicyProfile
 	// CollaborationMode is orthogonal soft guidance. It never changes
 	// execution policy; legacy RunModePlan remains hard policy.
 	CollaborationMode    domain.CollaborationMode
@@ -922,6 +924,21 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	queue, queueErr := s.queueFor(ctx, sessionID)
+	if queueErr != nil {
+		return "", queueErr
+	}
+	queue.mu.Lock()
+	if len(options.queueItems) > 0 && !queuePrefixMatches(append(append([]domain.QueuedTurn(nil), queue.steer...), queue.followUp...), options.queueItems) {
+		queue.mu.Unlock()
+		return "", errQueueChanged
+	}
+	queueLocked := true
+	defer func() {
+		if queueLocked {
+			queue.mu.Unlock()
+		}
+	}()
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
 	// remove that run; if deletion wins, startup fails without writing.
@@ -1128,6 +1145,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 	}
 	now := time.Now().UnixMilli()
+	if now <= queue.latestCreatedAt {
+		now = queue.latestCreatedAt + 1
+	}
 
 	message := domain.Message{
 		ID:               newMessageID(),
@@ -1169,8 +1189,18 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
+	queueEvents := queueAdmissionEvents(m, queue, options.queueItems)
+	admission.Events = queueEvents
+	if len(queueEvents) > 0 && options.GoalRound != nil {
+		releaseWorkspace()
+		return "", errors.New("runtime: pending human queue must settle before Goal admission")
+	}
+	if len(queueEvents) > 0 && options.Continuity == nil && persist == nil && s.deps.PrimaryRuns == nil && s.deps.Admission == nil {
+		releaseWorkspace()
+		return "", errors.New("runtime: durable queue admission store is not wired")
+	}
 	var goalAdmissionEvent *domain.WorkEvent
-	startupEvents := []domain.RunEvent{started}
+	startupEvents := append([]domain.RunEvent{started}, queueEvents...)
 	if options.Continuity != nil {
 		// The atomic admission commits run.started alongside the run row, so
 		// the committed row is already active rather than accepted.
@@ -1314,7 +1344,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				Run:          run,
 				Started:      started,
 				Prompt:       prompt,
-				ExpectedMask: expectedMask,
+				ExpectedMask: expectedMask, Events: queueEvents,
 			})
 			return commitErr
 		})
@@ -1355,6 +1385,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", err
 		}
 	}
+	queueAdmitted(queue, options.queueItems, runID, options.queueAfter)
+	queue.latestCreatedAt = now
+	queue.runOptions = RunOptions{Mode: mode, Thinking: thinking, Face: face, Profile: profile, CollaborationMode: collaborationMode, CollaborationVersion: collaborationVersion}
+	for i := range startupEvents {
+		startupEvents[i].Seq = domain.EventSeq(i + 1)
+	}
+	queue.mu.Unlock()
+	queueLocked = false
 	startupEvents[0] = started
 	for _, committed := range startupEvents {
 		s.publish(ctx, committed)
@@ -1589,16 +1627,19 @@ func (s *Service) settlePendingCancellation(runID domain.RunID, p pendingRun) {
 	if !settled {
 		return
 	}
-	s.mu.Lock()
-	if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
-		delete(s.pending, runID)
-	}
-	s.mu.Unlock()
 	terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
 	if p.execution.child != nil {
 		terminalCtx = withChildTerminal(terminalCtx)
 	}
 	s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
+	if run, err := s.deps.Runs.GetRun(context.Background(), runID); err == nil && run.Status.Terminal() {
+		s.mu.Lock()
+		if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
+			delete(s.pending, runID)
+		}
+		s.mu.Unlock()
+	}
+
 }
 
 // cancelWorkflowChildren propagates explicit cancellation through the run
@@ -3601,7 +3642,12 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			// interrupt, not a CancelError. Consume it here: resume the
 			// checkpoint with the steered message injected via a
 			// HistoryModifier — same run, turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+			items, queueErr := s.steerPendingCancel(m.runID, sessionID)
+			if queueErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, queueErr))
+				return
+			}
+			if items != nil {
 				// The resume leg must NOT run inside the cancelled run's own
 				// consume — Runner.Resume serializes on the checkpoint while
 				// this iterator is still open (same reason approval resumes
@@ -3622,7 +3668,12 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			// VCP-B1: a steer-triggered boundary cancel is not a run failure.
 			// Resume the checkpoint with the steered message injected into
 			// history — same run, single turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+			items, queueErr := s.steerPendingCancel(m.runID, sessionID)
+			if queueErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, queueErr))
+				return
+			}
+			if items != nil {
 				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
 				return
 			}
@@ -4938,6 +4989,30 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 // replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
+	var cancelledQueue *sessionQueue
+	var cancelledMarkers []domain.RunEvent
+	if terminal.Type == domain.EventRunCancelled {
+		s.mu.Lock()
+		sid := s.runSessions[m.runID]
+		s.mu.Unlock()
+		if sid != "" {
+			var err error
+			cancelledQueue, err = s.queueFor(context.WithoutCancel(ctx), sid)
+			if err != nil {
+				slog.Error("cancel queue replay failed", "err", err)
+				return
+			}
+			cancelledQueue.mu.Lock()
+			defer func() {
+				if cancelledQueue != nil {
+					cancelledQueue.mu.Unlock()
+				}
+			}()
+			for _, item := range append(append([]domain.QueuedTurn(nil), cancelledQueue.steer...), cancelledQueue.followUp...) {
+				cancelledMarkers = append(cancelledMarkers, m.build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "aborted", Text: item.Text, Turn: &item}))
+			}
+		}
+	}
 	s.projectionMu.Lock()
 	if s.runSessionDeleted(terminal.RunID) && !s.runSessionClosing(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
@@ -4946,17 +5021,33 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: []domain.RunEvent{terminal}})
+	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: append(cancelledMarkers, terminal)})
 	if err != nil {
 		// The run already holds a terminal (concurrent close) or the
 		// backend failed; either way the stored truth wins and the row
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
-		s.cleanupRunState(terminal.RunID)
+		// A parked run has no driver to retry its terminal write. Keep its
+		// cancellation registration until storage acknowledges the terminal.
+		s.mu.Lock()
+		_, retryable := s.pending[terminal.RunID]
+		s.mu.Unlock()
+		if !retryable {
+			s.cleanupRunState(terminal.RunID)
+		}
 		s.projectionMu.Unlock()
 		return
 	}
 	terminal.Seq = seq
+	if cancelledQueue != nil {
+		cancelledQueue.steer, cancelledQueue.followUp = nil, nil
+		cancelledQueue.mu.Unlock()
+		cancelledQueue = nil
+	}
+	for i, event := range cancelledMarkers {
+		event.Seq = seq - domain.EventSeq(len(cancelledMarkers)-i)
+		s.publish(persistCtx, event)
+	}
 
 	status := domain.RunCompleted
 	if mapped, ok := terminal.Type.RunStatus(); ok {
@@ -5020,8 +5111,6 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		switch terminal.Type {
 		case domain.EventRunCompleted, domain.EventRunFailed:
 			s.drainFollowUps(runSession, terminal.RunID)
-		case domain.EventRunCancelled:
-			s.flushQueue(runSession)
 		}
 	}
 }

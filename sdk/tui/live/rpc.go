@@ -706,7 +706,7 @@ type queueStateView struct {
 // queueTurn issues one queued turn through the kernel dual-track queue
 // (turn/steer | turn/follow_up). An idle session degrades to a fresh run —
 // the response then carries run_id instead of queued:true.
-func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string) (queued bool, runID string, err error) {
+func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string) (queued bool, runID string, err error) {
 	params := map[string]any{
 		"session_id": sessionID,
 		"text":       text,
@@ -717,6 +717,18 @@ func (c *client) queueTurn(ctx context.Context, track, sessionID, text, thinking
 	}
 	if mode = strings.TrimSpace(mode); mode != "" && mode != "normal" {
 		params["mode"] = mode
+	}
+	paths := make([]string, 0, len(attachments))
+	for _, item := range attachments {
+		if item.Path != "" {
+			paths = append(paths, item.Path)
+		}
+	}
+	if len(paths) > 0 {
+		params["attachment_paths"] = paths
+	}
+	if len(contextPaths) > 0 {
+		params["context_paths"] = cloneStrings(contextPaths)
 	}
 	raw, err := c.Call(ctx, "turn/"+track, params)
 	if err != nil {

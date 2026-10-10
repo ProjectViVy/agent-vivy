@@ -1,0 +1,11 @@
+# Durable full-turn queue
+
+Queue replay now builds privately under a per-session lock and publishes only after replay and iterator close succeed. Its ordered fold preserves upsert positions, removes consumed items, and reactivates later enqueue events at the tail. Storage errors reach queue mutation callers; input and returned DTOs own their attachment, context, and continuity snapshots.
+
+Admission extends the existing SQLite/Postgres run transactions with queue events. The admitted batch's dequeue markers and the complete remaining queue commit with run.started before publication or engine driving. Contiguous compatible text submissions can batch; different preferences, multimodal submissions, captured contexts, and continuity requests remain separate FIFO admissions. A removed or cleared stale snapshot cannot drive a run. There is no new database, scheduler, schema, or dependency.
+
+Steering retains the original run context and root cancellation lifetime, installs a fresh native Eino WithCancel handle for each resumed phase, and gates checkpoint history injection until the queue markers and user transcript commit atomically. Missing resume support preserves the accepted turn for normal follow-up admission. Explicit cancellation commits its dequeue markers with the terminal. Parked cancellation remains retryable after replay or terminal persistence failure. Clearing multiple items is one atomic journal batch.
+
+Busy RPC, GUI, TUI, and JSONL routes submit complete preferences and attachment/context snapshots through the same kernel queue and RunWithOptions seam. GUI local turn FIFO scheduling was removed; the TUI direct-shell command queue remains a separate existing command flow. Queue dequeue/remove/clear responses and abort events include complete turn DTOs alongside legacy text. Captured file_contexts are accepted on resubmission without rereading files.
+
+Actual GUI/TUI dequeue and abort editor restoration is assigned to the observer integration lane; this checkpoint provides the DTO and submission contracts. Dependency pin, observer/usage, warmer, source hash, full CI, and browser acceptance are owned by root integration. This is an implementation checkpoint, not a release; no release artifact is produced here.
