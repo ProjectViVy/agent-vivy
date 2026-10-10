@@ -1,0 +1,5 @@
+# Verification
+
+chain-response-evidence-first-race.jsonl: three named App cases pass, zero skips, observed exit 0, 117.514 seconds: original inference interrupted and exposed after real process restart (65.13s), >4 KiB full response export (24.45s), actual protected Tool/capture/reflection role boundary (26.82s). 37 exported artifacts across five complete observations passed SHA256 and byte-count verification. Response evidence records tool response and all primary/cognitive responses as actual HTTP bytes.
+
+Command: task environment, existing SDK-generated activity diagnostic overlay and App source list excluding default_generation_test.go; go test -race -overlay task-overlay/overlay.json -json <App sources> -run '^(TestMemoryLoopEvidenceExportsActualLargeModelResponse|TestMemoryLoopToolAndAssistantOutputsDoNotBecomeUserSource|TestMemoryLoopInterruptedInferenceKeepsOriginalWindow)$' -count=1. This remains diagnostic development evidence: no final source pin, formal candidate, complete S03 schema or final CI/review.

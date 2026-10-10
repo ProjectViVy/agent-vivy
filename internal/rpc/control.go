@@ -1455,8 +1455,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "review/respond":
 		return h.respondReview(ctx, request)
 	case "background/recover":
-		if err := h.deps.Service.Recover(ctx); err != nil {
-			return nil, internalError(err)
+		if err := h.deps.Service.RecoverBackground(ctx); err != nil {
+			return nil, runtimeError(err)
 		}
 		return map[string]any{"recovered": true}, nil
 	case "background/list":

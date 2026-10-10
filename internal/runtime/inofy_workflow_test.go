@@ -159,8 +159,9 @@ func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 	waitForRunStatus(t, backend, child.ID, domain.RunCancelled)
-	// INOFY classifies a run cancelled mid-effect as recovery_required — the
-	// honest outcome — instead of a fabricated native cancelled terminal.
+	// Cancellation can race the durable child acknowledgement. Assert the
+	// native and engine projections against the actual unresolved ledger:
+	// known cancellation is terminal; an uncertain effect requires recovery.
 	var details WorkflowDetails
 	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -168,20 +169,42 @@ func TestINOFYWorkflowCancelPropagates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("inspect cancelled: %v", err)
 		}
-		if details.EngineStatus == string(inofy.RunRecoveryRequired) {
+		if details.EngineStatus == string(inofy.RunRecoveryRequired) || details.EngineStatus == string(inofy.RunCancelled) {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	if details.EngineStatus != string(inofy.RunRecoveryRequired) {
-		t.Fatalf("engine status = %q", details.EngineStatus)
+	engine, err := svc.inofyEngine()
+	if err != nil {
+		t.Fatal(err)
 	}
-	run, err := backend.GetRun(ctx, started.Run.ID)
-	if err != nil || run.Status.Terminal() {
-		t.Fatalf("recovery_required run must stay non-terminal: %+v err=%v", run, err)
+	state, err := engine.LoadWorkflowStep(ctx, started.Run.ID)
+	if err != nil || state.Projection == nil {
+		t.Fatalf("missing durable cancellation projection: %v", err)
 	}
-	if _, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
-		t.Fatalf("duplicate start on interrupted run = %v", err)
+	var unresolved []json.RawMessage
+	if len(state.Projection.UnresolvedJSON) > 0 {
+		if err := json.Unmarshal(state.Projection.UnresolvedJSON, &unresolved); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if details.EngineStatus == string(inofy.RunCancelled) {
+		waitForRunStatus(t, backend, started.Run.ID, domain.RunCancelled)
+		if len(unresolved) != 0 {
+			t.Fatal("terminal cancellation fabricated success over unresolved effects")
+		}
+		replayed, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition))
+		if err != nil || replayed.Created || replayed.Run.ID != started.Run.ID {
+			t.Fatalf("known cancellation was re-executed: %+v %v", replayed, err)
+		}
+	} else {
+		run, err := backend.GetRun(ctx, started.Run.ID)
+		if details.EngineStatus != string(inofy.RunRecoveryRequired) || err != nil || run.Status.Terminal() || len(unresolved) == 0 {
+			t.Fatalf("uncertain cancellation lost its recovery state: engine=%s run=%+v unresolved=%d err=%v", details.EngineStatus, run, len(unresolved), err)
+		}
+		if _, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-cancel", json.RawMessage(inofyTwoNodeDefinition)); !errors.Is(err, ErrWorkflowRecoveryRequired) {
+			t.Fatalf("duplicate start on interrupted run = %v", err)
+		}
 	}
 }
 

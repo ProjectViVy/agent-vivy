@@ -220,7 +220,11 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
 	}
-	limitsJSON, err := json.Marshal(inofyWorkflowLimits())
+	limits := inofyWorkflowLimits()
+	if trusted != nil {
+		limits = cognitiveWorkflowLimits()
+	}
+	limitsJSON, err := json.Marshal(limits)
 	if err != nil {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
@@ -446,6 +450,10 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 	if result.Run.ID == "" || program == nil {
 		return errors.New("runtime: admitted workflow Run is empty")
 	}
+	var limits inofy.Limits
+	if err := json.Unmarshal(result.Revision.EffectiveLimits, &limits); err != nil {
+		return fmt.Errorf("runtime: admitted workflow limits: %w", err)
+	}
 	engine, err := s.inofyEngine()
 	if err != nil {
 		return err
@@ -471,7 +479,7 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 		runs := newINOFYRunStore(engine)
 		runs.publish = s.publish
 		_, _ = program.Run(runCtx, inofy.RunRequest{
-			Ref: ref, Input: input, Limits: inofyWorkflowLimits(),
+			Ref: ref, Input: input, Limits: limits,
 		}, inofy.Bindings{Nodes: nodes, Runs: runs})
 		s.mu.Lock()
 		delete(s.active, result.Run.ID)

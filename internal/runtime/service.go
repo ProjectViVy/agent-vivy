@@ -282,6 +282,7 @@ type Service struct {
 	// starts, no later event or projection may resurrect that session.
 	runSessions     map[domain.RunID]domain.SessionID
 	deletedSessions map[domain.SessionID]struct{}
+	closingSessions map[domain.SessionID]struct{} // permits only terminal persistence before deletion
 	// pending tracks runs suspended on a review or question: no engine work is
 	// in flight, the checkpoint is durable, and the run row stays active until
 	// a response resumes it or Cancel closes it.
@@ -323,6 +324,9 @@ type Service struct {
 	// nil until StartCognitiveLoop starts it.
 	cogMu     sync.Mutex
 	cognitive *cognitiveRuntime
+	// cogStateMu serializes admission, policy CAS and accepted-source updates
+	// on their shared durable record. Workflow execution remains asynchronous.
+	cogStateMu sync.Mutex
 	// workBlockedCalls records the sibling tool-call IDs from a model batch
 	// interrupted by submit_plan. Fresh model calls remain eligible after the
 	// human decision, while unreviewed siblings from the original batch stay
@@ -519,6 +523,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		goalWakePending:   make(map[domain.SessionID]struct{}),
 		runSessions:       make(map[domain.RunID]domain.SessionID),
 		deletedSessions:   make(map[domain.SessionID]struct{}),
+		closingSessions:   make(map[domain.SessionID]struct{}),
 		pending:           make(map[domain.RunID]pendingRun),
 		shellPending:      make(map[domain.RunID]shellPendingRun),
 		shellStates:       make(map[string]shellState),
@@ -729,6 +734,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	s.projectionMu.Lock()
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
+	s.closingSessions[id] = struct{}{}
 	s.planTransitions[id]++
 	liveRunIDs := make([]domain.RunID, 0)
 	for runID, sessionID := range s.runSessions {
@@ -768,6 +774,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 				sessionIDs = append(sessionIDs, binding.ChildSessionID)
 				s.mu.Lock()
 				s.deletedSessions[binding.ChildSessionID] = struct{}{}
+				s.closingSessions[binding.ChildSessionID] = struct{}{}
 				s.mu.Unlock()
 			}
 		}
@@ -791,6 +798,9 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		seenRuns[run.ID] = struct{}{}
 		s.Cancel(run.ID)
 	}
+	if err := s.finalizeCognitiveSessions(ctx, sessionIDs, allRuns); err != nil {
+		return err
+	}
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	if err := s.deps.Sessions.DeleteSession(ctx, id); err != nil {
@@ -799,6 +809,11 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		// their in-memory authority has been removed; deletion may be retried.
 		return err
 	}
+	s.mu.Lock()
+	for _, sessionID := range sessionIDs {
+		delete(s.closingSessions, sessionID)
+	}
+	s.mu.Unlock()
 	if s.deps.Deliverables != nil {
 		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
@@ -819,6 +834,15 @@ func (s *Service) runSessionDeleted(runID domain.RunID) bool {
 	_, deleted := s.deletedSessions[sessionID]
 	s.mu.Unlock()
 	return ok && deleted
+}
+
+// Only the terminal event may finish while session producer admission is
+// sealed. Ordinary projections remain blocked by deletedSessions.
+func (s *Service) runSessionClosing(runID domain.RunID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, closing := s.closingSessions[s.runSessions[runID]]
+	return closing
 }
 
 // GetModelInfo returns capacity metadata for the currently configured
@@ -3348,7 +3372,8 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 			request.TokenBudget = request.ByteBudget
 			request.CandidateBytes = contextCandidateBytes
 		}
-		contextResult, contextErr := eng.cfg.ContextHost.Query(ctx, request)
+		queryCtx := withContextSourceAdmission(ctx, request.TenantID, request.SessionID, request.WorkspaceID)
+		contextResult, contextErr := eng.cfg.ContextHost.Query(queryCtx, request)
 		if contextErr != nil {
 			if ctx.Err() != nil {
 				return nil, selection, stats, ctx.Err()
@@ -4909,7 +4934,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
 	s.projectionMu.Lock()
-	if s.runSessionDeleted(terminal.RunID) {
+	if s.runSessionDeleted(terminal.RunID) && !s.runSessionClosing(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
 		s.projectionMu.Unlock()
 		return

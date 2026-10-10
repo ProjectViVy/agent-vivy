@@ -114,6 +114,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
 		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
 		boundRecord("vivy/reports", "agent-vivy/internal/modules/reports", "reports", "NewModule", source, reportProvides...),
+		boundRecord(cognitivemodule.RecallModuleID, "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewRecallModule", source, port("std/context-source@v1", cognitivemodule.RecallProviderID)),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
@@ -171,12 +172,20 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.ReportFactory = "Open"
 			records[i].Binding.ProviderConstructor = "ActionProviders"
 			records[i].Binding.ProviderCollection = true
+		case cognitivemodule.RecallModuleID:
+			records[i].Binding.ProviderConstructor = "NewRecallSource"
+			records[i].Binding.ContextSourceProvider = true
 		case "vivy/skill-source":
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
 			records[i].Binding.SkillSourceProvider = true
 		}
 		switch records[i].Descriptor.Module.ID {
+		case cognitivemodule.RecallModuleID:
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"},
+				{PortRef: module.PortRef{Port: cognitivemodule.Port}, Provider: cognitivemodule.ID},
+			}
 		case "vivy/protected-tools", "vivy/mcp-host", "vivy/memory-bml-tools":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 		case "vivy/context-source":

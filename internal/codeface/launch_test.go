@@ -116,7 +116,10 @@ func TestPrepareCanonicalizesProjectReachedThroughLinkedParent(t *testing.T) {
 		t.Skipf("directory symlink creation unavailable: %v", err)
 	}
 
-	prepared, err := Prepare(config.Default(), filepath.Join(linkedParent, "project"))
+	cfg := config.Default()
+	cfg.Storage.DataDir = t.TempDir()
+	cfg.Storage.SQLite.Path = filepath.Join(cfg.Storage.DataDir, "web.db")
+	prepared, err := Prepare(cfg, filepath.Join(linkedParent, "project"))
 	if err != nil {
 		t.Fatalf("prepare linked parent: %v", err)
 	}

@@ -228,7 +228,7 @@ func (b *bundle) BoundDomain(ctx context.Context, binding laputaevolution.RunBin
 		}
 		b.ports = &ports
 	}
-	return b.ports.Domain, nil
+	return b.ports.WithMissionRevision(binding.MissionRevision)
 }
 
 func (b *bundle) SourceID() string { return b.sourceID }
@@ -317,9 +317,14 @@ func (s boundSink) Capture(ctx context.Context, cap cognitivecontract.Capture) (
 	if err != nil {
 		return cognitivecontract.CaptureReceipt{}, err
 	}
+	var activity *agentapi.CaptureActivity
+	if strings.TrimSpace(cap.UserContent) != "" {
+		activity = &agentapi.CaptureActivity{UserText: cap.UserContent}
+	}
 	sum := sha256.Sum256([]byte(cap.Content))
 	receipt, err := bound.Capture(ctx, agentapi.CaptureRequest{
 		Phase:       phase,
+		Activity:    activity,
 		Content:     cap.Content,
 		ContentHash: "sha256:" + hex.EncodeToString(sum[:]),
 		Provenance:  provenanceOf(cap),
@@ -385,4 +390,26 @@ type boundMission struct {
 
 func (m boundMission) MissionRevision(ctx context.Context) (uint64, error) {
 	return m.revision(ctx)
+}
+
+// LookupCapture rejoins an accepted event before source-format upgrades can
+// conflict with its original hash. It does not rewrite legacy source content.
+func (s boundSink) LookupCapture(ctx context.Context, cap cognitivecontract.Capture) (cognitivecontract.CaptureReceipt, bool, error) {
+	bound, err := s.client.BindSession(cap.SessionID)
+	if err != nil {
+		return cognitivecontract.CaptureReceipt{}, false, err
+	}
+	receipt, found, err := bound.LookupCapture(ctx, provenanceOf(cap))
+	if err != nil {
+		return cognitivecontract.CaptureReceipt{}, false, err
+	}
+	return cognitivecontract.CaptureReceipt{IngestionID: receipt.IngestionID, Seq: receipt.Seq, Status: receipt.Status}, found, nil
+}
+
+func (s boundSink) FinalizeSession(ctx context.Context, sessionID string) error {
+	bound, err := s.client.BindSession(sessionID)
+	if err != nil {
+		return err
+	}
+	return bound.ArchiveCapturedSession(ctx)
 }
