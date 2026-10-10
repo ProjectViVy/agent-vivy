@@ -80,7 +80,7 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 					}
 					candidates = append(candidates, map[string]any{"kind": "memory_mutation", "memory_mutation": mutation})
 				}
-				if mode == "nochange" || len(candidates) == 0 {
+				if mode == "nochange" || mode == "busy" || len(candidates) == 0 {
 					answer = map[string]any{"no_change_reason": "no user-source evidence"}
 				} else {
 					answer = map[string]any{"candidates": candidates}

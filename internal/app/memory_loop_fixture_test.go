@@ -84,7 +84,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 	if !probe.HasCognitiveFactory() {
 		t.Fatal("DIVA generated integration overlay required")
 	}
-	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "mission-fence" {
+	if opts.ModelMode != "ack" && opts.ModelMode != "reflection" && opts.ModelMode != "recall" && opts.ModelMode != "rejected" && opts.ModelMode != "failed" && opts.ModelMode != "wait-cancel" && opts.ModelMode != "nochange" && opts.ModelMode != "persona" && opts.ModelMode != "mission-fence" && opts.ModelMode != "busy" {
 		t.Fatal("unsupported model mode; recall remains pending S08")
 	}
 	cfg, err := config.Load(opts.ConfigPath)
@@ -92,7 +92,7 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		t.Fatal(err)
 	}
 	f := &memoryLoopFixture{t: t, options: opts, dataRoot: cfg.Storage.DataDir}
-	if opts.ModelMode == "mission-fence" {
+	if opts.ModelMode == "mission-fence" || opts.ModelMode == "busy" {
 		f.modelRelease = make(chan struct{})
 		t.Cleanup(func() { f.modelReleaseOnce.Do(func() { close(f.modelRelease) }) })
 	}
@@ -121,7 +121,18 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 			<-r.Context().Done()
 			return
 		}
-		if f.modelRelease != nil {
+		if opts.ModelMode == "busy" {
+			for _, message := range req.Messages {
+				if message.Role == "user" && strings.Contains(message.Content, "[hold-foreground]") && !strings.HasPrefix(message.Content, "[cognitive-infer") {
+					select {
+					case <-f.modelRelease:
+					case <-r.Context().Done():
+						return
+					}
+				}
+			}
+		}
+		if opts.ModelMode == "mission-fence" && f.modelRelease != nil {
 			for _, message := range req.Messages {
 				if message.Role == "user" && strings.HasPrefix(message.Content, "[cognitive-infer stage=reflect]\n") {
 					select {
