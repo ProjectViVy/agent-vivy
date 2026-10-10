@@ -258,9 +258,20 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 	generatedOrder := make([]string, 0, len(providers))
 	discoveryCtx := context.Background()
 
+	generatedIDs := make(map[string]struct{}, len(providers))
+	for _, provider := range providers {
+		if provider != nil && provider.Definition().ID != "" {
+			generatedIDs[provider.Definition().ID] = struct{}{}
+		}
+	}
 	for _, spec := range registry.Specs() {
 		implementation, ok := registry.Lookup(spec.Name)
 		if !ok || implementation == nil {
+			continue
+		}
+		if _, claimed := generatedIDs[spec.Name]; claimed {
+			// A generated module provider owns this id (N2 notebook tools);
+			// the legacy builtin must not double-bind the tool name.
 			continue
 		}
 		if stage, ok := implementation.(generatedWorldStage); ok {

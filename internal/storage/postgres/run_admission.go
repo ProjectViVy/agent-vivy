@@ -87,6 +87,12 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	if err := postgresInsertAdmissionEvent(ctx, tx, &started); err != nil {
 		return in.Started, err
 	}
+	for i, event := range in.Events {
+		event.Seq = domain.EventSeq(i + 2)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES ($1,$2,$3,$4,$5,$6)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
+			return in.Started, storage.AdmissionUnavailable("insert queue admission event", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return in.Started, storage.AdmissionUnavailable("commit run admission", err)
 	}
@@ -220,9 +226,9 @@ func postgresInsertAdmissionRun(ctx context.Context, tx *Tx, r domain.Run) error
 	}
 	childMode := r.EffectiveChildMode()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth,child_mode)
-		VALUES (?,?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
-		string(kind), r.ParentID, rootID, r.Depth, string(childMode)); err != nil {
+		INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth,child_mode,purpose)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`, r.ID, r.SessionID, string(domain.RunActive), r.CreatedAt,
+		string(kind), r.ParentID, rootID, r.Depth, string(childMode), string(r.Purpose)); err != nil {
 		return storage.AdmissionUnavailable("insert admission run", err)
 	}
 	return nil

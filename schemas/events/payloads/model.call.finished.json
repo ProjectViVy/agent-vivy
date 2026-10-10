@@ -18,7 +18,7 @@
     "model": { "type": "string", "minLength": 1 },
     "source": {
       "type": "string",
-      "enum": ["main", "child", "summary"]
+      "enum": ["main", "child", "summary", "maintenance"]
     },
     "status": {
       "type": "string",
@@ -41,6 +41,7 @@
         "completion_tokens": { "type": "integer", "minimum": 0 },
         "total_tokens": { "type": "integer", "minimum": 0 },
         "reasoning_tokens": { "type": "integer", "minimum": 0 },
+        "cache_write_tokens": { "type": "integer", "minimum": 0 },
         "cached_tokens": { "type": "integer", "minimum": 0 },
         "normalization_partial": { "type": "boolean" }
       },

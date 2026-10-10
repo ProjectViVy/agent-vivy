@@ -10,14 +10,15 @@ import (
 	"unicode/utf8"
 
 	"agent-vivy/internal/cognitivecontract"
+	"agent-vivy/internal/modules/diva-cognitive/catalog"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/contextsource"
 	"github.com/ProjectViVy/laputa/garden/agentapi"
 	"github.com/ProjectViVy/laputa/garden/memory"
 )
 
-const RecallModuleID = "vivy/diva-memory"
-const RecallProviderID = "vivy.memory.mentle"
+const RecallModuleID = catalog.RecallModuleID
+const RecallProviderID = catalog.RecallProviderID
 const recallChars = 1200
 
 // The Source is a distinct optional contribution, bound to the one owner.

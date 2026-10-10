@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"agent-vivy/internal/embedded/abi"
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
@@ -65,20 +64,7 @@ func Verify(dir string) (VerifyReport, error) {
 type packOptions struct {
 	Recipe, Output string
 	Sources        []string
-	// Target selects the published artifact kind: "executable" (default),
-	// "shared" (the sealed DIVA C-ABI library, cmd/vivy-shared), or
-	// "go-host" (the sealed external Go desktop host, W3-4).
-	Target string
-	// Host* inputs are required for --target go-host and rejected on the
-	// retained targets.
-	HostDir, HostPackage, HostAssets, HostLock string
-	GoHost                                     goHostInputs
 }
-
-const (
-	packTargetExecutable = "executable"
-	packTargetShared     = "shared"
-)
 
 func parsePackArgs(args []string) (packOptions, error) {
 	var o packOptions
@@ -102,63 +88,12 @@ func parsePackArgs(args []string) (packOptions, error) {
 				return o, errors.New("--output requires a directory")
 			}
 			o.Output = args[i]
-		case "--target":
-			i++
-			if i >= len(args) {
-				return o, errors.New("--target requires a value")
-			}
-			o.Target = args[i]
-		case "--host-dir":
-			i++
-			if i >= len(args) {
-				return o, errors.New("--host-dir requires a directory")
-			}
-			o.HostDir = args[i]
-		case "--host-package":
-			i++
-			if i >= len(args) {
-				return o, errors.New("--host-package requires a package path")
-			}
-			o.HostPackage = args[i]
-		case "--host-assets":
-			i++
-			if i >= len(args) {
-				return o, errors.New("--host-assets requires a directory")
-			}
-			o.HostAssets = args[i]
-		case "--host-lock":
-			i++
-			if i >= len(args) {
-				return o, errors.New("--host-lock requires a file")
-			}
-			o.HostLock = args[i]
 		default:
 			return o, fmt.Errorf("unknown pack argument %q", args[i])
 		}
 	}
 	if o.Recipe == "" || o.Output == "" {
 		return o, errors.New("pack requires --recipe and --output")
-	}
-	if o.Target == "" {
-		o.Target = packTargetExecutable
-	}
-	switch o.Target {
-	case packTargetExecutable, packTargetShared:
-	case packTargetGoHost:
-	default:
-		return o, fmt.Errorf("unknown pack target %q", o.Target)
-	}
-	if o.HostDir != "" || o.HostPackage != "" || o.HostAssets != "" || o.HostLock != "" {
-		if o.Target != packTargetGoHost {
-			return o, errors.New("--host-* inputs are only valid with --target go-host")
-		}
-	}
-	if o.Target == packTargetGoHost {
-		inputs, err := validateGoHostArgs(o)
-		if err != nil {
-			return o, err
-		}
-		o.GoHost = inputs
 	}
 	return o, nil
 }
@@ -302,9 +237,6 @@ func copySourceTree(source, destination string) error {
 }
 
 func Pack(ctx context.Context, o packOptions) (Artifact, error) {
-	if o.Target == "" {
-		o.Target = packTargetExecutable
-	}
 	recipeRaw, err := os.ReadFile(o.Recipe)
 	if err != nil {
 		return Artifact{}, err
@@ -437,31 +369,9 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	} else if !os.IsNotExist(err) {
 		return Artifact{}, err
 	}
-	var uiBuild builtWebUI
-	if o.Target != packTargetExecutable {
-		// Non-executable Generations have no embedded Web UI — DIVA renders
-		// its own face. Seal an empty dist so the manifest's ui/dist digest
-		// and the staged artifact still verify through the same path.
-		buildRoot, mkErr := os.MkdirTemp("", "vivy-shared-ui-")
-		if mkErr != nil {
-			return Artifact{}, mkErr
-		}
-		dist := filepath.Join(buildRoot, "dist")
-		if mkErr := os.MkdirAll(dist, 0o700); mkErr != nil {
-			_ = os.RemoveAll(buildRoot)
-			return Artifact{}, mkErr
-		}
-		digest, hashErr := hashUIArtifactTree(dist)
-		if hashErr != nil {
-			_ = os.RemoveAll(buildRoot)
-			return Artifact{}, fmt.Errorf("sdk: hash empty shared-target UI artifact: %w", hashErr)
-		}
-		uiBuild = builtWebUI{Root: buildRoot, Dist: dist, Digest: digest}
-	} else {
-		uiBuild, err = buildWebUI(ctx, repoRoot, uiInput, plan, catalog, uiAssembly.Source)
-		if err != nil {
-			return Artifact{}, err
-		}
+	uiBuild, err := buildWebUI(ctx, repoRoot, uiInput, plan, catalog, uiAssembly.Source)
+	if err != nil {
+		return Artifact{}, err
 	}
 	defer os.RemoveAll(uiBuild.Root)
 	if err := rewriteUIArtifactAssetHashes(uiBuild.Dist, uiBuild.Digest); err != nil {
@@ -485,10 +395,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	if o.Target == packTargetExecutable {
-		if err := overlaySelectedUIDist(overlayFile, filepath.Join(repoRoot, "ui", "dist"), uiBuild.Dist); err != nil {
-			return Artifact{}, fmt.Errorf("sdk: bind selected UI to executable embed: %w", err)
-		}
+	if err := overlaySelectedUIDist(overlayFile, filepath.Join(repoRoot, "ui", "dist"), uiBuild.Dist); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind selected UI to executable embed: %w", err)
 	}
 	uiArtifacts := map[string]string{"ui/dist": uiBuild.Digest}
 	for id, digest := range uiAssembly.Manifest.AssetHashes {
@@ -502,9 +410,6 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	selectedConformanceResults, err := assemblyv1.ConformanceResultsForPlan(plan)
 	if err != nil {
 		return Artifact{}, err
-	}
-	if o.Target == packTargetGoHost {
-		return packGoHostArtifact(ctx, o, repoRoot, recipe, canonical, uiInput, uiAssembly, catalogs, uiBuild, plan, capabilityStates, portSupport, selectedConformanceResults, binder, runtimeSource)
 	}
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
@@ -548,15 +453,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("sdk: stage final UI artifact: %w", err)
 	}
 	binaryName := artifactBinaryName(runtime.GOOS)
-	buildPackage := "./cmd/vivy"
 	buildArgs := []string{"build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile}
-	if o.Target == packTargetShared {
-		binaryName = artifactSharedName(runtime.GOOS)
-		buildPackage = "./cmd/vivy-shared"
-		// The shared library never links the embedded Web UI; headless
-		// keeps ui/dist out of the compile closure.
-		buildArgs = append(buildArgs, "-tags", "vivy_headless", "-buildmode=c-shared")
-	}
 	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
 	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest.go"))
@@ -567,23 +464,11 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err := writeEmbeddedManifestOverlay(overlayFile, manifestValueSource, manifestValueReplacement, embedded); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: bind embedded Generation Manifest: %w", err)
 	}
-	buildArgs = append(buildArgs, "-o", binary, buildPackage)
+	buildArgs = append(buildArgs, "-o", binary, "./cmd/vivy")
 	cmd := exec.CommandContext(ctx, "go", buildArgs...)
 	cmd.Dir = repoRoot
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
-	}
-	if o.Target == packTargetShared {
-		// Ship the hand-maintained ABI constants header beside the
-		// cgo-generated prototypes header (emitted next to the library as
-		// <basename>.h). Inspect verifies the ABI identity from these.
-		abiHeader, readErr := os.ReadFile(filepath.Join(repoRoot, "cmd/vivy-shared/vivy_abi.h"))
-		if readErr != nil {
-			return Artifact{}, fmt.Errorf("sdk: stage ABI header: %w", readErr)
-		}
-		if writeErr := os.WriteFile(filepath.Join(stage, "vivy_abi.h"), abiHeader, 0o644); writeErr != nil {
-			return Artifact{}, fmt.Errorf("sdk: stage ABI header: %w", writeErr)
-		}
 	}
 	if err := catalog.VerifyUnchanged(); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: source changed during build: %w", err)
@@ -1672,17 +1557,9 @@ func InspectArtifact(dir string) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	if manifest.HostBuild != nil {
-		return inspectGoHostArtifact(dir, raw, manifest)
-	}
 	binary := filepath.Join(dir, artifactBinaryName(runtime.GOOS))
-	shared := false
 	if _, err := os.Stat(binary); err != nil {
-		binary = filepath.Join(dir, artifactSharedName(runtime.GOOS))
-		if _, sharedErr := os.Stat(binary); sharedErr != nil {
-			return Artifact{}, err
-		}
-		shared = true
+		return Artifact{}, err
 	}
 	binaryRaw, err := os.ReadFile(binary)
 	if err != nil {
@@ -1708,35 +1585,7 @@ func InspectArtifact(dir string) (Artifact, error) {
 			return Artifact{}, fmt.Errorf("UI artifact hash mismatch: got %s, want %s", actual, expected)
 		}
 	}
-	if shared {
-		if err := inspectSharedABI(dir); err != nil {
-			return Artifact{}, err
-		}
-	}
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
-}
-
-var sharedABIVersionPattern = regexp.MustCompile(`#define\s+VIVY_ABI_VERSION\s+([0-9]+)`)
-
-// inspectSharedABI verifies the two ABI headers ship with the library and
-// that the published version word matches the Go-side constant.
-func inspectSharedABI(dir string) error {
-	headerName := strings.TrimSuffix(artifactSharedName(runtime.GOOS), filepath.Ext(artifactSharedName(runtime.GOOS))) + ".h"
-	if _, err := os.Stat(filepath.Join(dir, headerName)); err != nil {
-		return fmt.Errorf("inspect generated ABI header: %w", err)
-	}
-	body, err := os.ReadFile(filepath.Join(dir, "vivy_abi.h"))
-	if err != nil {
-		return fmt.Errorf("inspect ABI constants header: %w", err)
-	}
-	match := sharedABIVersionPattern.FindSubmatch(body)
-	if match == nil {
-		return errors.New("vivy_abi.h does not define VIVY_ABI_VERSION")
-	}
-	if string(match[1]) != strconv.Itoa(abi.Version) {
-		return fmt.Errorf("VIVY_ABI_VERSION %s, want %d", match[1], abi.Version)
-	}
-	return nil
 }
 
 func artifactBinaryName(goos string) string {
@@ -1746,19 +1595,6 @@ func artifactBinaryName(goos string) string {
 	return "vivy"
 }
 
-// artifactSharedName is the published shared-library name for the frozen
-// native target (DN-0 ABI v1: the DIVA embedder links this artifact).
-func artifactSharedName(goos string) string {
-	switch goos {
-	case "windows":
-		return "vivy-shared.dll"
-	case "darwin":
-		return "vivy-shared.dylib"
-	default:
-		return "vivy-shared.so"
-	}
-}
-
 func sourceRecords(repoRoot string, sources []string, pins map[string]module.Source) ([]assemblyv1.SourceRecord, error) {
 	internal, err := defaults.Catalog(repoRoot)
 	if err != nil {
@@ -1766,7 +1602,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	}
 	records := make([]assemblyv1.SourceRecord, 0, len(internal)+len(sources)+8)
 	for _, r := range internal {
-		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, MaskFactory: r.Binding.MaskFactory, CognitiveFactory: r.Binding.CognitiveFactory, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider, RunObserverProvider: r.Binding.RunObserverProvider}})
+		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, MaskFactory: r.Binding.MaskFactory, CognitiveFactory: r.Binding.CognitiveFactory, NotebookFactory: r.Binding.NotebookFactory, ReportFactory: r.Binding.ReportFactory, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider, RunObserverProvider: r.Binding.RunObserverProvider}})
 	}
 	known := repoSourceDirs
 	seen := map[string]bool{}

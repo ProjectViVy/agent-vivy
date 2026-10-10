@@ -228,3 +228,18 @@ func TestGeneratedToolInventoryIsAuthoritative(t *testing.T) {
 		t.Fatal("kernel Tool was removed with Assembly-controlled Tools")
 	}
 }
+
+// Having the cognitive factory alone must not activate native recall fixtures.
+func TestDefaultGenerationOmitsNativeRecall(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	if !assembly.HasCognitiveFactory() {
+		t.Fatal("default must retain its cognitive owner")
+	}
+	if memoryLoopHasRecallSource(t, assembly) {
+		t.Fatal("default unexpectedly selects native recall")
+	}
+	assembly.ContextSources = nil
+	if memoryLoopHasRecallSource(t, assembly) {
+		t.Fatal("source-free assembly unexpectedly selects native recall")
+	}
+}

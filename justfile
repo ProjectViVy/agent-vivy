@@ -13,8 +13,11 @@ vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 ensure-laputa:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
 
+diva-recall-test: ensure-laputa
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-diva-recall.ps1
+
 bootstrap-test:
-    node --test scripts/ensure-laputa.test.mjs
+    node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs
 
 # Prepare sibling sources before asking Go to resolve local replacements.
 setup: ensure-laputa
@@ -45,7 +48,7 @@ vet: ensure-laputa
     & "{{go}}" vet ./...
 
 fmt-check:
-    powershell -NoProfile -Command '$files = & git ls-files -- ''*.go''; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
+    powershell -NoProfile -Command '$files = & git ls-files --cached --others --exclude-standard -- ''*.go'' | Where-Object { Test-Path -LiteralPath $_ }; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
 
 # Per-module vet+test for plugins/* and faces/* independent modules (each
 # with its own go.mod; hello-fs belongs to the main module and is covered
@@ -83,11 +86,11 @@ build-split: ensure-laputa
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test headless-compile plugin-ci
+ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci
 
 # Independent backend gate for Actions. It builds ui/dist for go:embed but
 # leaves UI typechecking and tests to ui-ci so both lanes always report.
-backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test headless-compile plugin-ci
+backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e

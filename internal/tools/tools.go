@@ -294,10 +294,17 @@ func Builtin(notes storage.NoteStore) *Registry {
 // filesystem family. The backend is deliberately injected so this package
 // stays independent of Eino and runtime workspace implementation details.
 func BuiltinWithFileOps(notes storage.NoteStore, files FileOperations) *Registry {
-	return NewRegistry(
-		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
+	registry := NewRegistry(
+		NewEchoInfo(), NewAskUser(),
 		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
 	)
+	// N2: the agent-facing note tools are an explicit binding — the notebook
+	// module contributes them through ToolHost in production. A nil store
+	// leaves the names unregistered rather than registering dead stubs.
+	if notes != nil {
+		registry = registry.WithAdditional(NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes))
+	}
+	return registry
 }
 
 // BuiltinWithCapabilities adds the Skill family while keeping the old

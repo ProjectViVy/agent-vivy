@@ -90,6 +90,7 @@ type TrajectoryUsageEvidence struct {
 	TotalTokens      int  `json:"total_tokens"`
 	ReasoningTokens  *int `json:"reasoning_tokens,omitempty"`
 	CachedTokens     *int `json:"cached_tokens,omitempty"`
+	CacheWriteTokens *int `json:"cache_write_tokens,omitempty"`
 	// Partial marks evidence the normalizer flagged as contradictory.
 	Partial bool `json:"partial,omitempty"`
 }
@@ -367,6 +368,10 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 		case domain.EventModelRequest:
 			var v3 payloadModelRequestV3
 			_ = json.Unmarshal(event.Payload, &v3)
+			if v3.Source == modelCallSourceMaintenance {
+				startCall("call/"+v3.CallID, &TrajectoryRequest{RunID: string(run.ID), Turn: &turn, Group: "Maintenance", Status: "active", CallStatus: TrajCallActive, StartedAt: event.CreatedAt, UsageState: TrajUsageActive, CallID: v3.CallID, RequestID: trajectoryRequestID(run.ID, v3.CallID), Provider: v3.Provider, Model: v3.Model, Messages: len(v3.Messages), PreambleBytes: v3.PreambleBytes})
+				continue
+			}
 			interruptOpen(event.CreatedAt)
 			step++
 			req := &TrajectoryRequest{
@@ -432,7 +437,8 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				call.evidence = &TrajectoryUsageEvidence{
 					PromptTokens: v2.PromptTokens, CompletionTokens: v2.CompletionTokens,
 					TotalTokens: v2.TotalTokens, ReasoningTokens: v2.ReasoningTokens,
-					CachedTokens: v2.CachedTokens,
+					CachedTokens:     v2.CachedTokens,
+					CacheWriteTokens: v2.CacheWriteTokens,
 				}
 				if v2.NormalizationPartial != nil && *v2.NormalizationPartial {
 					call.partial = true
@@ -482,7 +488,8 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				call.evidence = &TrajectoryUsageEvidence{
 					PromptTokens: payload.Usage.PromptTokens, CompletionTokens: payload.Usage.CompletionTokens,
 					TotalTokens: payload.Usage.TotalTokens, ReasoningTokens: payload.Usage.ReasoningTokens,
-					CachedTokens: payload.Usage.CachedTokens,
+					CachedTokens:     payload.Usage.CachedTokens,
+					CacheWriteTokens: payload.Usage.CacheWriteTokens,
 				}
 				if payload.Usage.NormalizationPartial != nil && *payload.Usage.NormalizationPartial {
 					call.partial = true
@@ -705,6 +712,9 @@ func finishTrajectoryCall(call *trajectoryCall, status string, at int64, message
 		}
 		if call.evidence.CachedTokens != nil {
 			call.request.Usage.CacheRead = *call.evidence.CachedTokens
+		}
+		if call.evidence.CacheWriteTokens != nil {
+			call.request.Usage.CacheWrite = *call.evidence.CacheWriteTokens
 		}
 	}
 }

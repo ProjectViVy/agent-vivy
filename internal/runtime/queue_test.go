@@ -109,7 +109,7 @@ func newQueueTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlit
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	return svc, backend
@@ -156,8 +156,11 @@ func journalEvents(t *testing.T, backend *sqlite.Backend, runID domain.RunID) []
 // it again — the pending boundary cancel lands at the post-tool safe point;
 // call 3+ answers with plain text. Every call's input is recorded.
 type scriptedToolModel struct {
-	entered chan struct{} // closed when call 2 starts
-	release chan struct{}
+	resumedEntered chan struct{}
+	resumedRelease chan struct{}
+	resumedContext context.Context
+	entered        chan struct{} // closed when call 2 starts
+	release        chan struct{}
 
 	mu     sync.Mutex
 	inputs [][]*schema.Message
@@ -226,6 +229,18 @@ func (m *scriptedToolModel) Stream(ctx context.Context, input []*schema.Message,
 		}
 		return oneShot(toolCallMessage("call-2", tools.EchoInfoName, `{"text":"two"}`)), nil
 	default:
+		if call == 3 && m.resumedEntered != nil {
+			m.mu.Lock()
+			m.resumedContext = ctx
+			m.mu.Unlock()
+			close(m.resumedEntered)
+			select {
+			case <-m.resumedRelease:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return oneShot(toolCallMessage("call-3", tools.EchoInfoName, `{"text":"three"}`)), nil
+		}
 		return oneShot(&schema.Message{Role: schema.Assistant, Content: "done"}), nil
 	}
 }
@@ -272,7 +287,7 @@ func newScriptedService(t *testing.T, m model.ToolCallingChatModel) (*Service, *
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	return svc, backend
@@ -391,7 +406,7 @@ func TestFollowUpAdmitsAfterSettle(t *testing.T) {
 	if !dequeued {
 		t.Fatal("turn.dequeued marker missing on admitted run journal")
 	}
-	if got := svc.QueueState(ctx, "sess-follow", ""); len(got.FollowUps)+len(got.Steering) != 0 {
+	if got := mustQueueState(t, svc, ctx, "sess-follow", ""); len(got.FollowUps)+len(got.Steering) != 0 {
 		t.Fatalf("queue not drained: %+v", got)
 	}
 }
@@ -467,10 +482,10 @@ func TestQueueRebuildsFromNewestRunJournal(t *testing.T) {
 	// the check — instead assert the queued marker is on run 1's journal and
 	// replay recovers it in a FRESH service over the same backend.
 	svc2 := NewService(svc.engine, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
-	state := svc2.QueueState(ctx, "sess-rebuild", "")
+	state := mustQueueState(t, svc2, ctx, "sess-rebuild", "")
 	if len(state.FollowUps) != 1 || state.FollowUps[0].Text != "survives restart" {
 		t.Fatalf("rebuilt queue = %+v", state)
 	}
@@ -497,11 +512,14 @@ func TestClearQueueReturnsTexts(t *testing.T) {
 	if _, err := svc.FollowUp(ctx, "sess-clear", "b"); err != nil {
 		t.Fatal(err)
 	}
-	state := svc.ClearQueue(ctx, "sess-clear")
+	state, err := svc.ClearQueue(ctx, "sess-clear")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(state.FollowUps) != 2 {
 		t.Fatalf("cleared = %+v", state)
 	}
-	if got := svc.QueueState(ctx, "sess-clear", ""); len(got.FollowUps) != 0 {
+	if got := mustQueueState(t, svc, ctx, "sess-clear", ""); len(got.FollowUps) != 0 {
 		t.Fatalf("queue not empty after clear: %+v", got)
 	}
 	close(model.release)
@@ -514,6 +532,9 @@ func TestSteerDuringSuspendedRunDemotesToFollowUp(t *testing.T) {
 	svc, backend := newQueueTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
 	mustCreateSession(t, backend, "sess-susp")
+	if err := backend.CreateRun(ctx, domain.Run{ID: "run-susp", SessionID: "sess-susp", Status: domain.RunActive}); err != nil {
+		t.Fatal(err)
+	}
 	// A suspended (approval/question) run cannot take a steer — steering
 	// mid-tool would violate the boundary rule, so the item demotes.
 	svc.mu.Lock()
@@ -528,7 +549,7 @@ func TestSteerDuringSuspendedRunDemotesToFollowUp(t *testing.T) {
 	if item.Track != domain.QueueTrackFollowUp {
 		t.Fatalf("track = %q, want follow_up demotion", item.Track)
 	}
-	state := svc.QueueState(ctx, "sess-susp", "")
+	state := mustQueueState(t, svc, ctx, "sess-susp", "")
 	if len(state.FollowUps) != 1 || len(state.Steering) != 0 {
 		t.Fatalf("queue = %+v", state)
 	}
@@ -552,19 +573,19 @@ func TestDequeuePopsNewestFollowUp(t *testing.T) {
 	if _, err := svc.FollowUp(ctx, "sess-deq", "newest"); err != nil {
 		t.Fatal(err)
 	}
-	item, ok := svc.Dequeue(ctx, "sess-deq")
-	if !ok || item.Text != "newest" {
+	item, ok, err := svc.Dequeue(ctx, "sess-deq")
+	if err != nil || !ok || item.Text != "newest" {
 		t.Fatalf("dequeue = %+v ok=%v, want newest", item, ok)
 	}
-	state := svc.QueueState(ctx, "sess-deq", "")
+	state := mustQueueState(t, svc, ctx, "sess-deq", "")
 	if len(state.FollowUps) != 1 || state.FollowUps[0].Text != "older" {
 		t.Fatalf("tail after dequeue = %+v", state.FollowUps)
 	}
 	// Second dequeue drains the lane; an empty lane reports not-found.
-	if item, ok := svc.Dequeue(ctx, "sess-deq"); !ok || item.Text != "older" {
+	if item, ok, err := svc.Dequeue(ctx, "sess-deq"); err != nil || !ok || item.Text != "older" {
 		t.Fatalf("second dequeue = %+v ok=%v", item, ok)
 	}
-	if _, ok := svc.Dequeue(ctx, "sess-deq"); ok {
+	if _, ok, err := svc.Dequeue(ctx, "sess-deq"); err != nil || ok {
 		t.Fatal("empty lane must report not-found")
 	}
 	// Journal carries turn.dequeued{reason:"dequeued", text} per item.

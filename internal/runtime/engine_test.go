@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 
 	"agent-vivy/internal/contexthost"
+	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
@@ -38,7 +40,12 @@ func newTestEngine(t *testing.T) *Engine {
 // tools from the outgoing model request.
 func TestSelectToolsBindsFullActiveSurface(t *testing.T) {
 	ctx := context.Background()
-	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName, tools.ListNotesName})
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "engine-tools.db"))
+	if err != nil {
+		t.Fatalf("open backend: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.ListNotesName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}

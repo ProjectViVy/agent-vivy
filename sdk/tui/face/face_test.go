@@ -148,3 +148,17 @@ func TestRPCModeQueuedTurnsKeepCodeFace(t *testing.T) {
 		}
 	}
 }
+
+func TestRPCQueuedTurnCarriesFullSubmission(t *testing.T) {
+	in := strings.NewReader(`{"id":"q","type":"follow_up","message":"look","thinking":"high","mode":"plan","attachment_paths":["a.png"],"context_paths":["a.txt"]}` + "\n")
+	var out bytes.Buffer
+	env := &rpcEnv{turns: map[string]map[string]any{}}
+	f := &terminalFace{opts: faceport.Options{In: in, Out: &out, Err: io.Discard, SessionID: "sess-1"}}
+	if _, err := f.runRPCMode(context.Background(), env); err != nil {
+		t.Fatal(err)
+	}
+	params := env.turns["turn/follow_up"]
+	if params["thinking"] != "high" || params["mode"] != "plan" || params["attachment_paths"] == nil || params["context_paths"] == nil {
+		t.Fatalf("lost queued options: %#v", params)
+	}
+}

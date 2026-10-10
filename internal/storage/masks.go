@@ -57,6 +57,8 @@ type RunPromptSnapshot struct {
 }
 
 type RunAdmission struct {
+	// Events follow run.started in the same admission transaction.
+	Events  []domain.RunEvent
 	Message domain.Message
 	// OmitMessage admits an internal child activation whose task is carried in
 	// its immutable prompt snapshot rather than the parent Session transcript.

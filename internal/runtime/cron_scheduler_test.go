@@ -35,7 +35,7 @@ func newCronTestService(t *testing.T) (*Service, *sqlite.Backend) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Journal: backend, Runs: backend, Messages: backend,
 		Sessions: backend, Crons: backend, Sink: newTestSink(),
 	})
 	return svc, backend

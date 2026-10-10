@@ -127,9 +127,6 @@ type ServiceDeps struct {
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
 	TenantID string
-	// Notes feeds the preamble's notebook digest (MA-3); nil leaves the
-	// digest out.
-	Notes storage.NoteStore
 	// Approvals persists the approval rows behind the effectful tool
 	// gate (C6); nil leaves interrupts unable to suspend.
 	Approvals storage.ApprovalStore
@@ -207,6 +204,10 @@ type ServiceDeps struct {
 	// product surface (drafts, publishing, product runs) stays unavailable
 	// while the core task-graph path keeps working.
 	WorkflowDefinitions storage.WorkflowDefinitionStore
+	// Report is the bounded report authority (settings, generations, source
+	// reads). NewService discovers it from Sessions; nil keeps the reports
+	// capability closed — admission and effect dispatch fail unavailable.
+	Report storage.ReportStore
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
@@ -231,12 +232,10 @@ type ServiceDeps struct {
 	// middleware; nil disables ScheduleEngineReload.
 	RebuildEngine func(ctx context.Context, cfg EngineConfig) (*Engine, error)
 	// CacheWarmingMode selects the prompt-cache warming trigger
-	// (runtime.cache_warming): "off", "streaming", or "idle". Empty keeps
-	// the "streaming" default; "off" makes the scheduler inert.
+	// (runtime.cache_warming): "off" or "streaming". Empty disables warming.
 	CacheWarmingMode string
-	// CacheWarmingMinSavingsUSD is the avoided re-read cost floor below
-	// which a warm is skipped; the token-count proxy covers unpriced
-	// models (runtime.cache_warming_min_savings).
+	// CacheWarmingMinSavingsUSD gates estimated gross savings on one
+	// future reuse of the actual system/tools prefix, excluding warm cost.
 	CacheWarmingMinSavingsUSD float64
 }
 
@@ -394,6 +393,7 @@ type pendingRun struct {
 	sandboxMode      domain.SandboxMode
 	approvalPolicy   domain.ApprovalPolicy
 	face             domain.Face
+	approvalID       string
 	questionID       string
 	ledger           *BudgetLedger
 	engine           *Engine
@@ -419,8 +419,10 @@ type GoalRoundAdmission struct {
 
 // RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
-	Mode    domain.RunMode
-	Profile domain.PolicyProfile
+	queueItems []domain.QueuedTurn
+	queueAfter domain.RunID
+	Mode       domain.RunMode
+	Profile    domain.PolicyProfile
 	// CollaborationMode is orthogonal soft guidance. It never changes
 	// execution policy; legacy RunModePlan remains hard policy.
 	CollaborationMode    domain.CollaborationMode
@@ -482,6 +484,9 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	}
 	if deps.WorkflowDefinitions == nil {
 		deps.WorkflowDefinitions, _ = deps.Sessions.(storage.WorkflowDefinitionStore)
+	}
+	if deps.Report == nil {
+		deps.Report, _ = deps.Sessions.(storage.ReportStore)
 	}
 	if strings.TrimSpace(deps.TenantID) == "" {
 		deps.TenantID = "local"
@@ -924,6 +929,21 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	queue, queueErr := s.queueFor(ctx, sessionID)
+	if queueErr != nil {
+		return "", queueErr
+	}
+	queue.mu.Lock()
+	if len(options.queueItems) > 0 && !queuePrefixMatches(append(append([]domain.QueuedTurn(nil), queue.steer...), queue.followUp...), options.queueItems) {
+		queue.mu.Unlock()
+		return "", errQueueChanged
+	}
+	queueLocked := true
+	defer func() {
+		if queueLocked {
+			queue.mu.Unlock()
+		}
+	}()
 	// Session deletion shares this lock with startup. If deletion marks the
 	// tombstone while an earlier startup owns the lock, it will subsequently
 	// remove that run; if deletion wins, startup fails without writing.
@@ -1130,6 +1150,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 	}
 	now := time.Now().UnixMilli()
+	if now <= queue.latestCreatedAt {
+		now = queue.latestCreatedAt + 1
+	}
 
 	message := domain.Message{
 		ID:               newMessageID(),
@@ -1171,8 +1194,22 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
+	queueEvents, queueErr := queueAdmissionEvents(m, queue, options.queueItems)
+	if queueErr != nil {
+		releaseWorkspace()
+		return "", queueErr
+	}
+	admission.Events = queueEvents
+	if len(queueEvents) > 0 && options.GoalRound != nil {
+		releaseWorkspace()
+		return "", errors.New("runtime: pending human queue must settle before Goal admission")
+	}
+	if len(queueEvents) > 0 && options.Continuity == nil && persist == nil && s.deps.PrimaryRuns == nil && s.deps.Admission == nil {
+		releaseWorkspace()
+		return "", errors.New("runtime: durable queue admission store is not wired")
+	}
 	var goalAdmissionEvent *domain.WorkEvent
-	startupEvents := []domain.RunEvent{started}
+	startupEvents := append([]domain.RunEvent{started}, queueEvents...)
 	if options.Continuity != nil {
 		// The atomic admission commits run.started alongside the run row, so
 		// the committed row is already active rather than accepted.
@@ -1316,7 +1353,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				Run:          run,
 				Started:      started,
 				Prompt:       prompt,
-				ExpectedMask: expectedMask,
+				ExpectedMask: expectedMask, Events: queueEvents,
 			})
 			return commitErr
 		})
@@ -1357,6 +1394,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", err
 		}
 	}
+	queueAdmitted(queue, options.queueItems, runID, options.queueAfter)
+	queue.latestCreatedAt = now
+	queue.runOptions = RunOptions{Mode: mode, Thinking: thinking, Face: face, Profile: profile, CollaborationMode: collaborationMode, CollaborationVersion: collaborationVersion}
+	for i := range startupEvents {
+		startupEvents[i].Seq = domain.EventSeq(i + 1)
+	}
+	queue.mu.Unlock()
+	queueLocked = false
 	startupEvents[0] = started
 	for _, committed := range startupEvents {
 		s.publish(ctx, committed)
@@ -1576,31 +1621,44 @@ func (s *Service) hasDurableSuspension(runID domain.RunID) bool {
 func (s *Service) settlePendingCancellation(runID domain.RunID, p pendingRun) {
 	settled := true
 	if p.questionID != "" && s.deps.Questions != nil {
-		if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
+		if err := s.cancelPendingQuestion(context.Background(), runID, p.questionID); err != nil {
 			slog.Warn("cancel question failed", "question", p.questionID, "err", err)
 			settled = false
 		}
 	} else if s.deps.Approvals != nil {
-		if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
-			if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+		var approval domain.Approval
+		var err error
+		if p.approvalID != "" {
+			approval, err = s.deps.Approvals.GetApproval(context.Background(), p.approvalID)
+		} else {
+			approval, err = s.approvalForRun(context.Background(), runID)
+		}
+		if err == nil {
+			if err := s.cancelPendingApproval(context.Background(), runID, approval); err != nil {
 				slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
 				settled = false
 			}
+		} else if p.approvalID != "" || !errors.Is(err, storage.ErrNotFound) {
+			slog.Warn("load approval for cancellation failed", "run", string(runID), "err", err)
+			settled = false
 		}
 	}
 	if !settled {
 		return
 	}
-	s.mu.Lock()
-	if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
-		delete(s.pending, runID)
-	}
-	s.mu.Unlock()
 	terminalCtx := withRunExecution(context.Background(), p.engine, p.execution)
 	if p.execution.child != nil {
 		terminalCtx = withChildTerminal(terminalCtx)
 	}
 	s.emitTerminal(terminalCtx, p.mapper, s.terminalEvent(terminalCtx, p.mapper, errRunCancelled))
+	if run, err := s.deps.Runs.GetRun(context.Background(), runID); err == nil && run.Status.Terminal() {
+		s.mu.Lock()
+		if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
+			delete(s.pending, runID)
+		}
+		s.mu.Unlock()
+	}
+
 }
 
 // cancelWorkflowChildren propagates explicit cancellation through the run
@@ -2390,7 +2448,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 	}
 	s.workGates[run.ID] = &sync.Mutex{}
 	s.active[run.ID] = cancelRun
-	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	s.pending[run.ID] = pendingRun{runCtx: runCtx, sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, approvalID: approval.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -2969,7 +3027,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	}
 	// The cache warmer (VCP F2) binds before the observer so settled
 	// calls feed it; nil when the run's model or config opts out.
-	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, selection.Names())
+	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, ledger)
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
@@ -3065,6 +3123,7 @@ type runModelCallObserver struct {
 type observedModelCall struct {
 	mode  string
 	usage usageAccumulator
+	input modelCallInput
 }
 
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -3074,7 +3133,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 		Model:    o.model,
 		Source:   o.source,
 	}
-	if o.source != modelCallSourceSummary {
+	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
 	}
 	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
@@ -3104,15 +3163,19 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
 		return meta, errors.New("runtime: model request event could not be journaled")
 	}
-	o.m.noteObservedCallStart()
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallStart()
+	}
 	o.mu.Lock()
-	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode}
+	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in}
 	o.mu.Unlock()
 	return meta, nil
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
-	o.m.noteObservedCallMaterialized(o.source)
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallMaterialized(o.source)
+	}
 }
 
 func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.Message) error {
@@ -3133,6 +3196,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 	var pendingUsageKey string
 	if state != nil {
 		if u := usageOfMessage(chunk); u != nil {
+			state.usage.recordCacheWrite(chunk)
 			state.usage.record(u)
 			if sample, ok := state.usage.sample(); ok && sample.key() != state.usage.lastEmit {
 				pendingUsageKey = sample.key()
@@ -3207,6 +3271,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 				TotalTokens:      sample.TotalTokens,
 				ReasoningTokens:  sample.ReasoningTokens,
 				CachedTokens:     sample.CachedTokens,
+				CacheWriteTokens: sample.CacheWriteTokens,
 			}
 			if sample.Partial {
 				finish.Usage.NormalizationPartial = boolTrue()
@@ -3218,7 +3283,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {
 		if sample, ok := usage.sample(); ok {
-			o.warmer.settled(sample)
+			return o.warmer.settled(sample, state.input)
 		}
 	}
 	return nil
@@ -3250,6 +3315,7 @@ func (o *runModelCallObserver) usagePayloadV2(meta modelCallMeta, sample normali
 		TotalTokens:      sample.TotalTokens,
 		ReasoningTokens:  sample.ReasoningTokens,
 		CachedTokens:     sample.CachedTokens,
+		CacheWriteTokens: sample.CacheWriteTokens,
 	}
 	if sample.Partial {
 		p.NormalizationPartial = boolTrue()
@@ -3327,10 +3393,9 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 		return nil, selection, ContextStats{}, err
 	}
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, whether active tools exist, and the
-	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
-	// official middleware.
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face, collaboration)
+	// static Instruction cannot (date and whether active tools exist).
+	// Tool discovery is owned by Eino's official middleware.
+	preamble := composeRunPreamble(time.Now(), len(selection.Specs) > 0, face, collaboration)
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
@@ -3445,12 +3510,25 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		return stored, false
 	}
 	kept := stored[idx:]
+	excluded := false
+	for _, m := range stored[:idx] {
+		if m.ExcludeAutomaticIngest {
+			excluded = true
+			break
+		}
+	}
 	summary := domain.Message{
 		ID:        newMessageID(),
 		SessionID: latest.SessionID,
 		Role:      domain.RoleUser,
 		CreatedAt: latest.TailFrom,
 		Content:   compactionSummaryPrefix + latest.Summary,
+	}
+	if excluded {
+		// A folded range containing excluded rows taints the derived summary:
+		// mixed summaries are conservatively excluded from automatic ingest.
+		summary.ExcludeAutomaticIngest = true
+		summary.ContentOrigin = domain.ContentOriginNotebook
 	}
 	out := make([]domain.Message, 0, len(kept)+1)
 	out = append(out, summary)
@@ -3460,21 +3538,6 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 
 // compactionSummaryPrefix marks a durable session summary inside the feed.
 const compactionSummaryPrefix = "【会话压缩摘要，以下为较早对话与工具调用的浓缩：】\n"
-
-// notesDigest builds the preamble's notebook section (MA-3). Any listing
-// failure degrades to no digest with a warning: the preamble stays
-// useful even when the notebook read fails.
-func (s *Service) notesDigest(ctx context.Context) string {
-	if s.deps.Notes == nil {
-		return ""
-	}
-	notes, err := s.deps.Notes.ListNotes(ctx)
-	if err != nil {
-		slog.Warn("notes digest skipped; listing failed", "err", err)
-		return ""
-	}
-	return formatNotesDigest(notes)
-}
 
 // consume maps engine events into the journal until the iterator closes,
 // then emits run.completed. Interrupts suspend the run without a terminal
@@ -3595,7 +3658,12 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			// interrupt, not a CancelError. Consume it here: resume the
 			// checkpoint with the steered message injected via a
 			// HistoryModifier — same run, turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+			items, queueErr := s.steerPendingCancel(m.runID, sessionID)
+			if queueErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, queueErr))
+				return
+			}
+			if items != nil {
 				// The resume leg must NOT run inside the cancelled run's own
 				// consume — Runner.Resume serializes on the checkpoint while
 				// this iterator is still open (same reason approval resumes
@@ -3616,7 +3684,12 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			// VCP-B1: a steer-triggered boundary cancel is not a run failure.
 			// Resume the checkpoint with the steered message injected into
 			// history — same run, single turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+			items, queueErr := s.steerPendingCancel(m.runID, sessionID)
+			if queueErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, queueErr))
+				return
+			}
+			if items != nil {
 				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
 				return
 			}
@@ -3923,7 +3996,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
-		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
+		approvalID: approval.ID,
+		engine:     engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
 }
@@ -4267,6 +4341,56 @@ func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Ap
 		return err
 	}
 	slog.Info("approval auto-approved on timeout", "approval", current.ID, "run", string(current.RunID), "window", window.String())
+	return nil
+}
+
+// A parked cancellation can retry its terminal write after its interaction
+// already settled. A human answer or decision still owns its resume path.
+func (s *Service) cancelPendingQuestion(ctx context.Context, runID domain.RunID, questionID string) error {
+	question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+	if err != nil {
+		return err
+	}
+	if question.RunID != runID {
+		return ErrQuestionAlreadyAnswered
+	}
+	if question.Status == domain.QuestionCancelled {
+		return nil
+	}
+	if question.Status != domain.QuestionPending {
+		return ErrQuestionAlreadyAnswered
+	}
+	if err := s.cancelQuestion(ctx, questionID, "run cancelled"); err != nil {
+		if errors.Is(err, ErrQuestionAlreadyAnswered) {
+			current, readErr := s.deps.Questions.GetQuestion(ctx, questionID)
+			if readErr == nil && current.RunID == runID && current.Status == domain.QuestionCancelled {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) cancelPendingApproval(ctx context.Context, runID domain.RunID, approval domain.Approval) error {
+	if approval.RunID != runID {
+		return ErrApprovalAlreadyDecided
+	}
+	if approval.Decision == domain.ApprovalCancelled {
+		return nil
+	}
+	if approval.Decision != domain.ApprovalPending {
+		return ErrApprovalAlreadyDecided
+	}
+	if err := s.cancelApproval(ctx, approval, "run cancelled"); err != nil {
+		if errors.Is(err, ErrApprovalAlreadyDecided) {
+			current, readErr := s.deps.Approvals.GetApproval(ctx, approval.ID)
+			if readErr == nil && current.RunID == runID && current.Decision == domain.ApprovalCancelled {
+				return nil
+			}
+		}
+		return err
+	}
 	return nil
 }
 
@@ -4665,7 +4789,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	}
 	// The resume leg binds its own cache warmer (VCP F2): the prior leg's
 	// scheduler died with its context.
-	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, selectedTools)
+	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, ledger)
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
@@ -4932,6 +5056,30 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 // replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
+	var cancelledQueue *sessionQueue
+	var cancelledMarkers []domain.RunEvent
+	if terminal.Type == domain.EventRunCancelled {
+		s.mu.Lock()
+		sid := s.runSessions[m.runID]
+		s.mu.Unlock()
+		if sid != "" {
+			var err error
+			cancelledQueue, err = s.queueFor(context.WithoutCancel(ctx), sid)
+			if err != nil {
+				slog.Error("cancel queue replay failed", "err", err)
+				return
+			}
+			cancelledQueue.mu.Lock()
+			defer func() {
+				if cancelledQueue != nil {
+					cancelledQueue.mu.Unlock()
+				}
+			}()
+			for _, item := range append(append([]domain.QueuedTurn(nil), cancelledQueue.steer...), cancelledQueue.followUp...) {
+				cancelledMarkers = append(cancelledMarkers, m.build(domain.EventTurnDequeued, payloadTurnDequeued{QueueID: item.ID, Track: item.Track, Reason: "aborted", Text: item.Text, Turn: &item}))
+			}
+		}
+	}
 	s.projectionMu.Lock()
 	if s.runSessionDeleted(terminal.RunID) && !s.runSessionClosing(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
@@ -4940,17 +5088,33 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: []domain.RunEvent{terminal}})
+	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: append(cancelledMarkers, terminal)})
 	if err != nil {
 		// The run already holds a terminal (concurrent close) or the
 		// backend failed; either way the stored truth wins and the row
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
-		s.cleanupRunState(terminal.RunID)
+		// A parked run has no driver to retry its terminal write. Keep its
+		// cancellation registration until storage acknowledges the terminal.
+		s.mu.Lock()
+		_, retryable := s.pending[terminal.RunID]
+		s.mu.Unlock()
+		if !retryable {
+			s.cleanupRunState(terminal.RunID)
+		}
 		s.projectionMu.Unlock()
 		return
 	}
 	terminal.Seq = seq
+	if cancelledQueue != nil {
+		cancelledQueue.steer, cancelledQueue.followUp = nil, nil
+		cancelledQueue.mu.Unlock()
+		cancelledQueue = nil
+	}
+	for i, event := range cancelledMarkers {
+		event.Seq = seq - domain.EventSeq(len(cancelledMarkers)-i)
+		s.publish(persistCtx, event)
+	}
 
 	status := domain.RunCompleted
 	if mapped, ok := terminal.Type.RunStatus(); ok {
@@ -5014,8 +5178,6 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		switch terminal.Type {
 		case domain.EventRunCompleted, domain.EventRunFailed:
 			s.drainFollowUps(runSession, terminal.RunID)
-		case domain.EventRunCancelled:
-			s.flushQueue(runSession)
 		}
 	}
 }

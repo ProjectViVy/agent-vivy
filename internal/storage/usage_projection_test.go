@@ -319,3 +319,21 @@ func TestUsageProjectionSummaryAttribution(t *testing.T) {
 		t.Fatalf("c2 = %+v, want child source", r)
 	}
 }
+
+func TestUsageProjectionPreservesMaintenanceCacheWrite(t *testing.T) {
+	run := usageRun(requestEv(t, 1, 100, "warm", "maintenance"),
+		usageEv(t, domain.EventModelUsage, 2, 110, map[string]any{
+			"call_id": "warm", "usage_kind": "cumulative", "provider": "p1", "model": "m1", "source": "maintenance",
+			"prompt_tokens": 1500, "completion_tokens": 2, "total_tokens": 1502, "cache_write_tokens": 1200,
+		}), finishEv(t, 3, 120, "warm", "completed"))
+	rows := ProjectUsageRows(run, 0)
+	if len(rows) != 1 || rows[0].Source != "maintenance" {
+		t.Fatalf("rows=%+v", rows)
+	}
+	raw, _ := json.Marshal(rows[0])
+	var got map[string]any
+	_ = json.Unmarshal(raw, &got)
+	if got["CacheWriteTokens"] != float64(1200) || got["CacheWriteKnown"] != true {
+		t.Fatalf("cache write accounting missing: %s", raw)
+	}
+}

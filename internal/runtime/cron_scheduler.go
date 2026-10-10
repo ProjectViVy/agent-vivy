@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	nb "agent-vivy/internal/notebookcontract"
+	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
 )
 
@@ -308,7 +310,12 @@ func (s *Service) TriggerCron(ctx context.Context, jobID string) (domain.CronJob
 	if err != nil {
 		return domain.CronJob{}, err
 	}
-	if job.Payload.Kind != domain.CronPayloadKindAgentTurn {
+	switch job.Payload.Kind {
+	case domain.CronPayloadKindAgentTurn:
+	case domain.CronPayloadKindReport:
+		// Typed report rows are fired through the report admission path;
+		// manual trigger is allowed and still deterministic (same op key).
+	default:
 		return domain.CronJob{}, fmt.Errorf("%w: %q", ErrCronUnsupportedKind, job.Payload.Kind)
 	}
 	return s.fireCron(ctx, job, CronTriggerManual)
@@ -377,6 +384,13 @@ func (s *Service) fireCron(ctx context.Context, job domain.CronJob, trigger stri
 // RunWithOptions, so a returning RPC or a scheduler stop cannot kill an
 // already-started run mid-flight.
 func (s *Service) startCronRun(ctx context.Context, job domain.CronJob, entry *cronActiveRun) (domain.RunID, error) {
+	switch job.Payload.Kind {
+	case domain.CronPayloadKindReport:
+		return s.startReportCron(ctx, job, entry)
+	case domain.CronPayloadKindAgentTurn:
+	default:
+		return "", fmt.Errorf("%w: %q", ErrCronUnsupportedKind, job.Payload.Kind)
+	}
 	if job.SessionID == "" {
 		session := domain.Session{
 			ID:        domain.SessionID(newPrefixedID("sess_")),
@@ -407,6 +421,44 @@ func (s *Service) startCronRun(ctx context.Context, job domain.CronJob, entry *c
 	entry.snapshot.RunID = runID
 	s.cron.mu.Unlock()
 	return runID, nil
+}
+
+// startReportCron admits one completed-period report through the same
+// Service.StartReport authority the manual action uses. The operation key
+// is canonical (job + fire instant), so a duplicated fire — manual
+// trigger racing the loop, or a restart before settle — converges on the
+// committed revision instead of opening a second Run.
+func (s *Service) startReportCron(ctx context.Context, job domain.CronJob, entry *cronActiveRun) (domain.RunID, error) {
+	p := job.Payload.Report
+	if p == nil || p.Scope == "" || !rc.Period(p.Period).Valid() {
+		return "", fmt.Errorf("runtime: cron job %s carries an invalid report payload", job.ID)
+	}
+	if s.deps.Report == nil {
+		return "", fmt.Errorf("runtime: report capability is not bound")
+	}
+	ac := rc.AdmissionContext{
+		Scope:  nb.ScopeID(p.Scope),
+		Actor:  nb.Actor{Kind: nb.ActorWorkflow, Ref: "cron:" + job.ID},
+		Origin: nb.OriginAgent,
+	}
+	res, err := s.StartReport(context.WithoutCancel(ctx), ac, rc.ReportRequest{
+		Period:       rc.Period(p.Period),
+		Window:       rc.WindowCompleted,
+		OperationKey: fmt.Sprintf("cron.report.%s.%d", job.ID, job.State.NextRunAtMs),
+		AsOfMs:       job.State.NextRunAtMs,
+	})
+	if err != nil {
+		if errors.Is(err, ErrWorkflowRecoveryRequired) {
+			// A prior writer epoch owns this admission: leave the in-flight
+			// run's terminal settlement to recovery instead of fencing here.
+			return "", err
+		}
+		return "", err
+	}
+	s.cron.mu.Lock()
+	entry.snapshot.RunID = domain.RunID(res.RunID)
+	s.cron.mu.Unlock()
+	return domain.RunID(res.RunID), nil
 }
 
 // watchCronRun polls the durable run row until a terminal status, then

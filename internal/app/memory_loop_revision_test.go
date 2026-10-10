@@ -13,7 +13,7 @@ import (
 
 func TestMemoryLoopCorrectionAndDeletionInModelInput(t *testing.T) {
 	probe := genassembly.BuildDefault()
-	if !probe.HasCognitiveFactory() {
+	if !memoryLoopHasRecallSource(t, probe) {
 		t.Skip("DIVA integration overlay required")
 	}
 	f := newMemoryLoopFixture(t, memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"})

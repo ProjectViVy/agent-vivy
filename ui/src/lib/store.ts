@@ -12,9 +12,6 @@ import { hydrateLocale, t } from '@/i18n';
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
-/** 运行期间排队等待发送的消息（对照 Crush 队列 pill 行为）。 */
-export interface QueuedMessage extends api.TurnSubmission { id: string }
-
 export interface ReferenceDraft {
   id: string;
   preview: api.ReferencePreview;
@@ -33,6 +30,8 @@ const newDraftRequestId = () =>
 const copySubmission = (submission: api.TurnSubmission): api.TurnSubmission => ({
   ...submission,
   attachments: submission.attachments?.map((item) => ({ ...item })),
+  file_contexts: submission.file_contexts?.map((item) => ({ ...item })),
+  context_paths: submission.context_paths && [...submission.context_paths],
   continuity: submission.continuity && {
     request_id: submission.continuity.request_id,
     references: submission.continuity.references?.map((reference) => ({
@@ -132,13 +131,12 @@ interface RuntimeState {
   workPhase: Phase;
   workError: string | null;
   workBusy: boolean;
-  queuedMessages: QueuedMessage[];
   /** 内核双轨队列（pi parity, VCP-B3）：steer 轨在运行中立即 steering，
-   *  follow_up 轨在终态 settle 后由内核自动准入下一条 run。仅文本；
-   *  带附件/引用的提交仍走本地 FIFO（queuedMessages）。 */
+   *  follow_up 轨在终态 settle 后由内核按完整提交准入下一条 run。 */
   kernelQueue: api.QueueState | null;
   /** 队列事件（abort-flush/clear）回填编辑器的草稿；seq 去重。 */
   queueRestoreText: { text: string; seq: number } | null;
+  queueRecoveryTurns: Record<string, api.QueuedTurn[]>;
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
   backgroundError: string | null;
@@ -190,14 +188,14 @@ interface RuntimeState {
   selectSession: (id: string) => Promise<void>;
   startRun: (sessionId: string, submission: api.TurnSubmission) => Promise<void>;
 	editSession: (sessionId: string, messageId: string, text: string, mode?: api.RunMode, face?: api.Face, thinking?: api.ThinkingMode) => Promise<void>;
-  enqueueMessage: (submission: api.TurnSubmission) => void;
-  /** 内核队列动词：纯文本走内核双轨；带附件/引用回退本地 FIFO。 */
+  enqueueMessage: (submission: api.TurnSubmission) => Promise<void>;
+  /** 内核队列动词：完整提交走持久双轨队列。 */
   steerMessage: (submission: api.TurnSubmission) => Promise<void>;
   followUpMessage: (submission: api.TurnSubmission) => Promise<void>;
   refreshQueue: (sessionId?: string) => Promise<void>;
   removeKernelQueued: (queueId: string) => Promise<void>;
   /** pi Alt+Up：弹出最新 pending follow-up 回编辑框；空轨返回 null。 */
-  dequeueQueuedTurn: () => Promise<string | null>;
+  dequeueQueuedTurn: () => Promise<api.QueuedTurn | string | null>;
   draftReferences: ReferenceDraft[];
   draftScope: api.HistoryScope | null;
   draftRequestId: string;
@@ -217,7 +215,6 @@ interface RuntimeState {
   previewDeliveryItem: (item: api.Deliverable) => Promise<void>;
   downloadDeliveryItem: (item: api.Deliverable) => Promise<void>;
   cancelDeliveryDownload: (itemId: string) => void;
-  removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
@@ -278,12 +275,7 @@ let workRead = 0;
 let workEventSeq = 0;
 let runOpen = 0;
 let reviewEpoch = 0;
-let queuedSeq = 0;
 let queueRestoreSeq = 0;
-
-/** 内核队列仅载文本（与 TUI 同规则）：附件/历史引用提交仍走本地 FIFO。 */
-const kernelEligible = (submission: api.TurnSubmission): boolean =>
-  !submission.attachments?.length && !submission.continuity?.references?.length;
 
 /** steer/follow_up 应答分流：queued=true 走内核轨（steer 补乐观 user 气泡——
  *  HistoryModifier resume 不发 user 消息事件）；idle 回退已直接开新 run，
@@ -393,22 +385,6 @@ function workRequestID(prefix: string): string {
   catch { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 }
 
-// 终态后派发队列（对照 Crush）：只在 run.completed 后自动发送；
-// 失败 / 取消保留队列由用户处置。runBusy 时短暂重试，避免与进行中的
-// startRun/editSession/cancel RPC 竞争；重试有上限，仍忙则留队。
-function drainQueueAfterCompleted(runId: string, retriesLeft = 25): void {
-  const next = useVivyStore.getState();
-  if (next.currentRun?.id !== runId || next.currentRun.status !== 'completed') return;
-  const item = next.queuedMessages[0];
-  if (!item || !next.activeSessionId) return;
-  if (next.runBusy) {
-    if (retriesLeft > 0) setTimeout(() => drainQueueAfterCompleted(runId, retriesLeft - 1), 200);
-    return;
-  }
-  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-  void next.startRun(next.activeSessionId, copySubmission(item)).catch(() => undefined);
-}
-
 async function refreshAfterTerminal(runId: string): Promise<void> {
   const state = useVivyStore.getState();
   const sessionId = state.activeSessionId;
@@ -438,15 +414,8 @@ function handleRunEvent(event: RunEvent): void {
     update.currentRun = state.currentRun ? { ...state.currentRun, status: event.type.slice(4) as api.RunStatus } : null;
     if (event.type === 'run.failed') update.runError = runFailedMessage(event.payload) ?? t('errors.runFailedTitle');
     stopSubscription();
-    // 终态后：内核可能已自动准入下一条 follow-up run（pi settle：completed
-    // 与 failed 都准入，cancelled 冲刷队列）——先短轮询 queue/state 解析
-    // admitted run 再派本地 FIFO，避免两条 run 并发。本地 FIFO 仍只在
-    // completed 后派发（对照 Crush）：失败/取消保留队列由用户处置。
-    if (event.type === 'run.completed') {
-      void refreshAfterTerminal(event.run_id).then(() => admitSettledRun(event.run_id)).then(drainQueue).then(() => state.refreshQueue());
-    } else {
-      void refreshAfterTerminal(event.run_id).then(() => admitSettledRun(event.run_id)).then(() => state.refreshQueue());
-    }
+    // Follow-up admissions are owned by the kernel; adopt its settled run.
+    void refreshAfterTerminal(event.run_id).then(() => admitSettledRun(event.run_id)).then(() => state.refreshQueue());
   } else if (event.type === 'turn.queued' || event.type === 'turn.dequeued' || event.type === 'turn.steered') {
     void state.refreshQueue();
     // abort-flush / clear 把队列文本还给用户：最新一条回填编辑框（pi）。
@@ -454,7 +423,11 @@ function handleRunEvent(event: RunEvent): void {
       const reason = String(event.payload.reason ?? '');
       const text = String(event.payload.text ?? '');
       if ((reason === 'aborted' || reason === 'cleared') && text) {
-        update.queueRestoreText = { text, seq: ++queueRestoreSeq };
+        const turn = event.payload.turn as api.QueuedTurn | undefined;
+        if (turn?.id && turn.session_id === state.activeSessionId) {
+          const existing = state.queueRecoveryTurns[turn.session_id] ?? [];
+          if (!existing.some((item) => item.id === turn.id)) update.queueRecoveryTurns = { ...state.queueRecoveryTurns, [turn.session_id]: [...existing, turn] };
+        } else update.queueRestoreText = { text, seq: ++queueRestoreSeq };
       }
     }
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
@@ -462,22 +435,6 @@ function handleRunEvent(event: RunEvent): void {
   else if (event.type === 'tool.finished' && isTaskToolName(event.payload.tool_name)) void state.loadTodos();
   else if (event.type === 'context.compacted' && state.activeSessionId) void loadContextIntoStore(state.activeSessionId);
   useVivyStore.setState(update);
-}
-
-/** 空闲时派发队首；失败（含陈旧引用冲突）把整条提交放回队头停住队列：
- *  不重排后续任务、不刷新 request_id，用户移除队首后下一条才继续。 */
-function drainQueue(): void {
-  const next = useVivyStore.getState();
-  const item = next.queuedMessages[0];
-  if (!item || !next.activeSessionId || next.runBusy || runActive(next.currentRun)) return;
-  useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-  const { id: _queuedId, ...submission } = item;
-  void next.startRun(next.activeSessionId, submission).catch(() => {
-    const state = useVivyStore.getState();
-    if (!state.queuedMessages.some((queued) => queued.id === item.id)) {
-      useVivyStore.setState({ queuedMessages: [item, ...state.queuedMessages] });
-    }
-  });
 }
 
 function startSubscription(runId: string, afterSeq: number): void {
@@ -577,7 +534,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
-  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [], kernelQueue: null, queueRestoreText: null,
+  currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, kernelQueue: null, queueRestoreText: null, queueRecoveryTurns: {},
   work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
@@ -690,7 +647,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       streamingText: '',
       streamingReasoning: '',
       runError: null,
-      queuedMessages: [],
       work: null,
       workPhase: 'idle',
       workError: null,
@@ -753,7 +709,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -763,7 +719,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const epoch = ++sessionEpoch;
     runOpen += 1;
     stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -910,7 +866,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         : previous.runLogs;
       set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
-      else if (run.status === 'completed') drainQueueAfterCompleted(runId);
+      else if (run.status === 'completed') void admitSettledRun(runId);
     } catch (error) { if (request === runOpen && epoch === sessionEpoch && get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {
@@ -928,7 +884,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       throw new Error(message);
     }
     // 运行中改为入队（对照 Crush），不再静默丢弃。
-    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(submission); return; }
+    if (runActive(get().currentRun) || get().runBusy) { await get().followUpMessage(submission); return; }
     set({ runBusy: true, runError: null });
     const { text, attachments } = submission;
     try {
@@ -967,25 +923,23 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
 		} catch (error) { set({ runError: errorMessage(error) }); throw error; }
 		finally { set({ runBusy: false }); }
 	},
-  enqueueMessage: (submission) => set((state) => ({ queuedMessages: [...state.queuedMessages, { ...copySubmission(submission), id: `queued-${++queuedSeq}` }] })),
-  // 内核双轨：纯文本 → turn/steer|turn/follow_up；带附件/引用 → 本地 FIFO。
+  enqueueMessage: (submission) => get().followUpMessage(copySubmission(submission)),
+  // 完整提交由内核统一排队。
   steerMessage: async (submission) => {
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
-    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
     try {
-      adoptQueueResult(sessionId, await api.steerTurn(sessionId, submission.text), submission);
+      adoptQueueResult(sessionId, await api.steerTurn(sessionId, copySubmission(submission)), submission);
       void get().refreshQueue();
-    } catch (error) { set({ runError: errorMessage(error) }); }
+    } catch (error) { set({ runError: errorMessage(error) }); throw error; }
   },
   followUpMessage: async (submission) => {
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
-    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
     try {
-      adoptQueueResult(sessionId, await api.followUpTurn(sessionId, submission.text), submission);
+      adoptQueueResult(sessionId, await api.followUpTurn(sessionId, copySubmission(submission)), submission);
       void get().refreshQueue();
-    } catch (error) { set({ runError: errorMessage(error) }); }
+    } catch (error) { set({ runError: errorMessage(error) }); throw error; }
   },
   refreshQueue: async (sessionId = get().activeSessionId ?? undefined) => {
     if (!sessionId) return;
@@ -997,16 +951,30 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   removeKernelQueued: async (queueId) => {
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
-    try { await api.removeQueuedTurn(sessionId, queueId); } catch { /* 已消失：仍刷新队列视图 */ }
+    try { await api.removeQueuedTurn(sessionId, queueId); } catch (error) { set({ runError: errorMessage(error) }); throw error; }
     void get().refreshQueue();
   },
   dequeueQueuedTurn: async () => {
     const sessionId = get().activeSessionId;
     if (!sessionId) return null;
     try {
-      const result = await api.dequeueQueuedTurn(sessionId);
+      const recovered = get().queueRecoveryTurns[sessionId] ?? [];
+      if (recovered.length) {
+        const turn = recovered[recovered.length - 1];
+        if (!canRestoreQueuedTurn(turn)) { set({ runError: t('chatInput.restoreUnsupported') }); return null; }
+        set({ queueRecoveryTurns: { ...get().queueRecoveryTurns, [sessionId]: recovered.slice(0, -1) } });
+        return turn;
+      }
+      // Validate the complete pending DTO before withdrawing durable work.
+      const view = await api.getQueueState(sessionId);
+      const pending = view.follow_up.at(-1);
+      if (pending && !canRestoreQueuedTurn(pending)) {
+        set({ runError: t('chatInput.restoreUnsupported') });
+        return null;
+      }
+      const result = await api.dequeueQueuedTurn(sessionId, pending?.id ?? '__empty_queue__');
       void get().refreshQueue();
-      return result.dequeued ? (result.text ?? null) : null;
+      return result.dequeued ? (result.turn ?? result.text ?? null) : null;
     } catch { return null; }
   },
   draftReferences: [],
@@ -1119,16 +1087,17 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set((state) => state.referenceViews[referenceId] === undefined ? { referenceViews: { ...state.referenceViews, [referenceId]: null } } : {});
     }
   },
-  // 移除队首（如陈旧引用冲突项）后在空闲时放行后续排队项。
-  removeQueuedMessage: (id) => {
-    set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) }));
-    drainQueue();
-  },
-  // 清空 = 本地 FIFO + 内核双轨（pi clear_queue）。
   clearQueue: () => {
-    set({ queuedMessages: [] });
     const sessionId = get().activeSessionId;
-    if (sessionId) void api.clearSessionQueue(sessionId).catch(() => undefined).then(() => get().refreshQueue());
+    if (sessionId) void api.clearSessionQueue(sessionId).then((result) => {
+      set((state) => {
+        const recovered = state.queueRecoveryTurns[sessionId] ?? [];
+        const turns = [...recovered];
+        for (const turn of result.turns ?? []) if (!turns.some((item) => item.id === turn.id)) turns.push(turn);
+        return { queueRecoveryTurns: { ...state.queueRecoveryTurns, [sessionId]: turns } };
+      });
+      return get().refreshQueue();
+    }).catch((error) => set({ runError: errorMessage(error) }));
   },
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;
@@ -1286,4 +1255,40 @@ export function resetStoreForTests(): void {
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
   workRead = 0; workEventSeq = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;
+}
+
+export function canRestoreQueuedTurn(turn: api.QueuedTurn): boolean {
+  return (!turn.mode || ['normal', 'plan'].includes(turn.mode)) &&
+    (!turn.thinking || ['auto', 'on', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(turn.thinking)) &&
+    (!turn.face || ['web', 'tui', 'code'].includes(turn.face));
+}
+
+export function restoreTurnContext(turn: api.QueuedTurn): void {
+  if (useVivyStore.getState().activeSessionId !== turn.session_id) return;
+  const continuity = turn.continuity;
+  useVivyStore.setState({
+    draftRequestId: continuity?.request_id ?? newDraftRequestId(),
+    draftScope: continuity?.history_scope ?? null,
+    draftReferences: (continuity?.references ?? []).map((selection) => ({
+      id: `ref_${++draftSeq}`,
+      selection,
+      preview: {
+        selection: selection.selection,
+        items: (selection.selection.refs ?? []).map((ref) => ({ ref, author: '', text: '', redacted: true, truncated: false })),
+        digest: selection.expected_digest,
+        captured_at: typeof turn.created_at === 'number' ? turn.created_at : Date.parse(turn.created_at),
+        byte_count: 0,
+        source_status: 'captured',
+      },
+    })),
+  });
+}
+
+export function retainReturnedTurn(turn: api.QueuedTurn): void {
+  useVivyStore.setState((state) => {
+    const turns = state.queueRecoveryTurns[turn.session_id] ?? [];
+    return turns.some((item) => item.id === turn.id) ? {} : {
+      queueRecoveryTurns: { ...state.queueRecoveryTurns, [turn.session_id]: [...turns, turn] },
+    };
+  });
 }

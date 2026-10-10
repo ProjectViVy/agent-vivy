@@ -18,6 +18,19 @@ func (r Role) Valid() bool {
 	return false
 }
 
+// SessionPurpose marks trusted non-interactive sessions that exist for
+// admission and recovery bookkeeping, not for the chat surface. Empty is
+// the normal interactive lane.
+type SessionPurpose string
+
+const (
+	// SessionPurposeReportControl is the hidden control Session that owns
+	// the report admission lock and the report workflow roots for one
+	// notebook scope. It never carries messages, never appears in
+	// ListSessions, and is never a report source.
+	SessionPurposeReportControl SessionPurpose = "report-control"
+)
+
 // Session is one conversation. Sandbox fields control the permission
 // boundary for all runs in this session (D-021).
 type Session struct {
@@ -34,6 +47,14 @@ type Session struct {
 	// WorkspacePath is an optional canonical host directory selected before
 	// the first run. Empty keeps Vivy's default private per-run workspace.
 	WorkspacePath string
+	Purpose       SessionPurpose
+}
+
+// Hidden reports whether the session is excluded from chat listings,
+// sidebars, and report-source enumeration while remaining visible to
+// recovery and administration.
+func (s Session) Hidden() bool {
+	return s.Purpose == SessionPurposeReportControl
 }
 
 // EffectiveSandbox returns the session's sandbox knobs, substituting the
@@ -92,9 +113,9 @@ type Provenance struct {
 // every boundary that admits them (RPC for the user path, the channel
 // host for the channel path), storage persists the raw bytes as given.
 type Attachment struct {
-	Name     string
-	MimeType string
-	Data     []byte
+	Name     string `json:"name"`
+	MimeType string `json:"mime_type"`
+	Data     []byte `json:"data"`
 }
 
 // FileContext is one server-resolved project file attached to a user turn.
@@ -103,10 +124,10 @@ type Attachment struct {
 // metadata fields, while runtime context construction uses the durable
 // snapshot so a later file edit cannot rewrite historical model input.
 type FileContext struct {
-	Path    string
-	Name    string
-	Size    int64
-	Content []byte
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Content []byte `json:"content"`
 }
 
 // Message is one turn in a session. Content is append-only; there is no
@@ -132,6 +153,10 @@ type Message struct {
 	Channel          string
 	ChatID           string
 	ChannelMessageID string
+	// ContentOrigin/ExcludeAutomaticIngest carry the tool-operation
+	// provenance onto projected tool-result rows and their derivatives.
+	ContentOrigin          string
+	ExcludeAutomaticIngest bool
 }
 
 // EffectiveSource returns the provenance of this message; an empty Source

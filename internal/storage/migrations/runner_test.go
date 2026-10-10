@@ -24,8 +24,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 35 {
-		t.Fatalf("migration count = %d, want 35", count)
+	if count != 40 {
+		t.Fatalf("migration count = %d, want 40", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -36,13 +36,20 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 		t.Fatalf("migration 32 metadata = %q/%q", name, checksum)
 	}
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 35`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read migration 35: %v", err)
+		`SELECT name, checksum FROM schema_migrations WHERE version = 36`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 36: %v", err)
 	}
-	if name != "workflow_definitions" || len(checksum) != 64 {
-		t.Fatalf("migration 35 metadata = %q/%q", name, checksum)
+	if name != "notebook_content" || len(checksum) != 64 {
+		t.Fatalf("migration 36 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions"} {
+	if err := db.QueryRowContext(ctx,
+		`SELECT name, checksum FROM schema_migrations WHERE version = 37`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read migration 37: %v", err)
+	}
+	if name != "notebook_provenance" || len(checksum) != 64 {
+		t.Fatalf("migration 37 metadata = %q/%q", name, checksum)
+	}
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions", "notebook_sections", "notebook_entries", "notebook_revisions", "notebook_comments", "notebook_comment_versions", "notebook_mutations"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("manifest did not create %s", table)
 		}
@@ -127,17 +134,17 @@ func assertSQLiteLatestMigrations(t *testing.T, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 35 {
-		t.Fatalf("upgraded migration count = %d, want 35", count)
+	if count != 40 {
+		t.Fatalf("upgraded migration count = %d, want 40", count)
 	}
 	var name, checksum string
-	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 35`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read upgraded migration 35 metadata: %v", err)
+	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 36`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("read upgraded migration 36 metadata: %v", err)
 	}
-	if name != "workflow_definitions" || len(checksum) != 64 {
-		t.Fatalf("upgraded migration 35 metadata = %q/%q", name, checksum)
+	if name != "notebook_content" || len(checksum) != 64 {
+		t.Fatalf("upgraded migration 36 metadata = %q/%q", name, checksum)
 	}
-	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions"} {
+	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions", "notebook_sections", "notebook_entries", "notebook_revisions", "notebook_comments", "notebook_comment_versions", "notebook_mutations"} {
 		if !tableExists(t, db, table) {
 			t.Fatalf("upgrade did not create %s", table)
 		}

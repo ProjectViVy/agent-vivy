@@ -26,6 +26,8 @@ import (
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
+	nb "agent-vivy/internal/notebookcontract"
+	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/module"
 	action "agent-vivy/sdk/port/controlaction"
@@ -400,6 +402,17 @@ type Deps struct {
 	// session registry before the cognitive dispatcher runs. storage
 	// ErrNotFound becomes a grant denial; other failures propagate.
 	CognitiveSessionCheck func(context.Context, domain.SessionID) error
+
+	// Notebook is the sealed owner bundle resolved only for actions owned by
+	// vivy/notebook-core. NotebookScopes resolves Home and authenticated
+	// session workspace scopes at the trusted boundary.
+	Notebook nb.Bundle
+	// Reports is the sealed owner bundle resolved only for actions owned
+	// by vivy/reports; ReportScopes resolves canonical scope from the
+	// authenticated session identity.
+	Reports        rc.Bundle
+	ReportScopes   rc.ScopeResolver
+	NotebookScopes nb.ScopeResolver
 
 	// GenerationAvailable is the sealed Generation readiness attestation. A
 	// zero value is unavailable (fail closed).
@@ -1076,6 +1089,12 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	}
 	if definition.Owner == cognitiveModuleOwner {
 		providerInvocationHost = newCognitiveActionHost(invocationHost, host.deps.Cognitive, host.deps.CognitiveSessionCheck)
+	}
+	if definition.Owner == notebookModuleOwner {
+		providerInvocationHost = newNotebookActionHost(invocationHost, host.deps.Notebook, host.deps.NotebookScopes)
+	}
+	if definition.Owner == reportModuleOwner {
+		providerInvocationHost = newReportActionHost(invocationHost, host.deps.Reports, host.deps.ReportScopes)
 	}
 	token, accepted := host.trackInvocation(cancel)
 	if !accepted {

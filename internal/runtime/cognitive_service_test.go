@@ -470,7 +470,7 @@ func TestCognitiveCaptureCursorFollowsAcceptance(t *testing.T) {
 	host, err := observerhost.New(observerhost.Config{
 		Journal: journal, Cursors: snapshots,
 		RunSubscriptions: []observerhost.RunSubscription{
-			CognitiveCaptureSubscription(runs, sinkErr, nil),
+			CognitiveCaptureSubscription(runs, sinkErr, nil, nil),
 		},
 	})
 	if err != nil {

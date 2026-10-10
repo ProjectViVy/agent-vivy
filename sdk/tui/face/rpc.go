@@ -190,9 +190,15 @@ func (m *rpcMode) dispatch(ctx context.Context, cmd rpcCommand) {
 	// disposition; an idle session degrades to a fresh run via the RPC
 	// fallback (run_id in the payload).
 	steerCommand := func(track, message string) {
-		raw, ok := call("turn/"+track, map[string]any{
-			"session_id": sessionID, "text": message, "face": "code",
-		})
+		params := map[string]any{"session_id": sessionID, "text": message, "face": "code"}
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(cmd.Raw, &fields)
+		for _, key := range []string{"thinking", "mode", "attachments", "attachment_paths", "context_paths", "file_contexts", "policy_profile", "collaboration_mode", "collaboration_version", "request_id", "references", "history_scope"} {
+			if value, ok := fields[key]; ok {
+				params[key] = value
+			}
+		}
+		raw, ok := call("turn/"+track, params)
 		if !ok {
 			return
 		}

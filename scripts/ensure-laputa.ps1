@@ -1,4 +1,4 @@
-# Prepare the Git source closure used by Go and sealed go-host packaging.
+# Prepare the pinned Laputa source closure required by Go builds.
 [CmdletBinding()]
 param(
     [string]$RepoRoot,
@@ -15,6 +15,18 @@ $lock = Get-Content -Raw -LiteralPath (Join-Path $root "laputa-source.lock.json"
 if (-not $lock.repository -or $lock.commit -notmatch '^[0-9a-f]{40}$') {
     throw "laputa-source.lock.json must declare a repository and a full commit SHA"
 }
+$hostMod = Get-Content -Raw -LiteralPath (Join-Path $root "go.mod")
+$revision = ([string]$lock.commit).Substring(0, 12)
+foreach ($name in @("garden", "mentle", "laputa")) {
+    $expected = [regex]::Escape("github.com/ProjectViVy/laputa/$name")
+    if ($hostMod -notmatch "(?m)^\s*$expected\s+v0\.0\.0-\d{14}-$revision(?:\s|$)") {
+        throw "Laputa $name Go revision in go.mod must match laputa-source.lock.json at $revision"
+    }
+}
+if ($hostMod -notmatch '(?m)^go\s+(\S+)\s*$') {
+    throw "go.mod must declare its Go version"
+}
+$goVersion = $Matches[1]
 $checkout = Join-Path (Split-Path -Parent $root) "laputa"
 
 function Invoke-Git([string[]]$Arguments) {
@@ -39,11 +51,11 @@ if (-not (Test-Path -LiteralPath $checkout)) {
         throw "Laputa origin is $origin; expected $expectedOrigin. Move the unrelated checkout aside, then retry just setup."
     }
     $head = Invoke-Git @("-C", $checkout, "rev-parse", "HEAD")
+    $changes = Invoke-Git @("-C", $checkout, "status", "--porcelain")
+    if ($changes) {
+        throw "Laputa module source has local changes at $head; required commit is $($lock.commit). Commit or stash local changes, then retry just setup."
+    }
     if ($head -ne $lock.commit) {
-        $changes = Invoke-Git @("-C", $checkout, "status", "--porcelain")
-        if ($changes) {
-            throw "Laputa has local changes at $head; required commit is $($lock.commit). Commit or stash local changes, then retry just setup."
-        }
         Invoke-Git @("-C", $checkout, "fetch", "origin", $lock.commit) | Out-Null
         Invoke-Git @("-C", $checkout, "checkout", "--detach", $lock.commit) | Out-Null
     }
@@ -58,6 +70,9 @@ foreach ($name in @("garden", "mentle", "laputa")) {
     $expected = [regex]::Escape("github.com/ProjectViVy/laputa/$name")
     if ($module -notmatch "(?m)^module\s+$expected\s*$") {
         throw "Laputa module identity in $modfile must be github.com/ProjectViVy/laputa/$name. Preserve local changes and restore the pinned module declaration."
+    }
+    if ($module -notmatch '(?m)^go\s+(\S+)\s*$' -or $Matches[1] -ne $goVersion) {
+        throw "Laputa Go version in $modfile must match host Go version $goVersion"
     }
 }
 if (-not $Quiet) {

@@ -349,6 +349,7 @@ export const en: Dictionary = {
   chatInput: {
     message: 'Message',
     placeholder: 'Type a message, or / for commands (Enter to send)',
+    executionMode: 'Execution mode',
     agentMode: 'Agent mode',
     planMode: 'Plan mode',
     agentModeDesc: 'Execute tasks directly',
@@ -384,6 +385,10 @@ export const en: Dictionary = {
     cancelRun: 'Cancel run',
     send: 'Send',
     queue: 'Queue message',
+    recallReturned: '{{count}} returned turn(s): recall · Alt+↑',
+    capturedContext: 'Captured context: {{name}}',
+    removeCapturedContext: 'Remove captured context {{name}}',
+    restoreUnsupported: 'This turn cannot be restored by this editor. Its complete payload is retained.',
     queuedCount: '{{count}} queued',
     clearQueue: 'Clear queue',
     removeQueued: 'Remove',

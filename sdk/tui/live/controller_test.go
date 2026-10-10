@@ -885,13 +885,13 @@ func TestPackedFaceImageCommandRoutesAndSendsRelativePath(t *testing.T) {
 func TestPackedFaceQueuedImageSendPreservesLaterDraft(t *testing.T) {
 	var gotPaths []string
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
-	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+	env.script["turn/steer"] = func(raw json.RawMessage) (any, error) {
 		var params struct {
 			AttachmentPaths []string `json:"attachment_paths"`
 		}
 		_ = json.Unmarshal(raw, &params)
 		gotPaths = append([]string(nil), params.AttachmentPaths...)
-		return map[string]string{"run_id": "run_queued_image", "status": "accepted"}, nil
+		return map[string]any{"queued": true, "queue_id": "q-image", "track": "follow_up"}, nil
 	}
 	live := newLive(context.Background(), newClient(env), Options{})
 	defer live.Close()
@@ -902,16 +902,15 @@ func TestPackedFaceQueuedImageSendPreservesLaterDraft(t *testing.T) {
 	live.drafts = map[string][]surface.Attachment{"sess_1": {{Path: "a.png", Name: "a.png", MimeType: "image/png"}}}
 	live.mu.Unlock()
 
-	_ = live.Send("queued with A")
+	queued := mustMsg[liveQueuedTurnMsg](t, live.Send("queued with A"))
+	if queued.Err != nil {
+		t.Fatal(queued.Err)
+	}
 	live.mu.Lock()
 	live.drafts["sess_1"] = []surface.Attachment{{Path: "b.png", Name: "b.png", MimeType: "image/png"}}
 	live.busy = false
 	live.mu.Unlock()
 
-	started := mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
-	if started.Err != nil {
-		t.Fatal(started.Err)
-	}
 	if len(gotPaths) != 1 || gotPaths[0] != "a.png" {
 		t.Fatalf("queued attachment paths = %v, want A snapshot", gotPaths)
 	}

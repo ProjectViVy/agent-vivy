@@ -210,7 +210,7 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
+		Journal: backend, Runs: backend, Messages: backend, Sink: sink,
 	})
 
 	mustCreateSession(t, backend, "session-context")
@@ -334,7 +334,7 @@ func TestRunMessagesFailsRequiredSourceWhenBaseInputConsumesBudget(t *testing.T)
 		t.Fatal(err)
 	}
 	const userText = "fill the base input"
-	preamble := composeRunPreamble(time.Now(), "", len(ts) > 0, domain.FaceWeb)
+	preamble := composeRunPreamble(time.Now(), len(ts) > 0, domain.FaceWeb)
 	base, _, err := buildRunContext(ContextPolicy{}, preamble, nil, userText)
 	if err != nil {
 		t.Fatal(err)

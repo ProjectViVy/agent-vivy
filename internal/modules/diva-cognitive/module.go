@@ -7,68 +7,45 @@ package divacognitive
 import (
 	"context"
 
+	"agent-vivy/internal/modules/diva-cognitive/catalog"
 	"agent-vivy/sdk/module"
 	controlaction "agent-vivy/sdk/port/controlaction"
 )
 
 const (
-	// ID is the sole Module identity allowed to provide the closed
-	// core/cognitive-factory@v1 Port.
-	ID   = "vivy/diva-cognitive"
-	Port = "core/cognitive-factory@v1"
-	// ProviderID is the factory's provided identity.
-	ProviderID = "vivy.cognitive-factory"
+	ID         = catalog.ID
+	Port       = catalog.Port
+	ProviderID = catalog.ProviderID
 )
 
 // Ledger C2-3 declares exactly these human control-plane actions. The IDs are
 // sealed into the Assembly inventory now; DN-4C owns handler dispatch. No
 // action is a model tool and none reports success while unarmed.
 const (
-	ActionStatus              = "diva.cognitive.status"
-	ActionPersonaInitialize   = "diva.cognitive.persona.initialize"
-	ActionPersonaRead         = "diva.cognitive.persona.read"
-	ActionPersonaSave         = "diva.cognitive.persona.save"
-	ActionPersonaReviewList   = "diva.cognitive.persona.reviews.list"
-	ActionPersonaReviewDecide = "diva.cognitive.persona.review.decide"
-	ActionFrozenRead          = "diva.cognitive.frozen.read"
-	ActionActmemRead          = "diva.cognitive.actmem.read"
-	ActionActmemWorkPatch     = "diva.cognitive.actmem.work.patch"
-	ActionActmemOwnerRead     = "diva.cognitive.actmem.owner.read"
-	ActionActmemOwnerSave     = "diva.cognitive.actmem.owner.save"
-	ActionMemorySearch        = "diva.cognitive.memory.search"
-	ActionMemoryExpand        = "diva.cognitive.memory.expand"
-	ActionMemoryMutate        = "diva.cognitive.memory.mutate"
-	ActionMemoryReceipt       = "diva.cognitive.memory.receipt"
-	ActionPolicyGet           = "diva.cognitive.policy.get"
-	ActionPolicySet           = "diva.cognitive.policy.set"
-	ActionTrigger             = "diva.cognitive.trigger"
-	ActionCancel              = "diva.cognitive.cancel"
-	ActionResultsList         = "diva.cognitive.results.list"
+	ActionStatus              = catalog.ActionStatus
+	ActionPersonaInitialize   = catalog.ActionPersonaInitialize
+	ActionPersonaRead         = catalog.ActionPersonaRead
+	ActionPersonaSave         = catalog.ActionPersonaSave
+	ActionPersonaReviewList   = catalog.ActionPersonaReviewList
+	ActionPersonaReviewDecide = catalog.ActionPersonaReviewDecide
+	ActionFrozenRead          = catalog.ActionFrozenRead
+	ActionActmemRead          = catalog.ActionActmemRead
+	ActionActmemWorkPatch     = catalog.ActionActmemWorkPatch
+	ActionActmemOwnerRead     = catalog.ActionActmemOwnerRead
+	ActionActmemOwnerSave     = catalog.ActionActmemOwnerSave
+	ActionMemorySearch        = catalog.ActionMemorySearch
+	ActionMemoryExpand        = catalog.ActionMemoryExpand
+	ActionMemoryMutate        = catalog.ActionMemoryMutate
+	ActionMemoryReceipt       = catalog.ActionMemoryReceipt
+	ActionPolicyGet           = catalog.ActionPolicyGet
+	ActionPolicySet           = catalog.ActionPolicySet
+	ActionTrigger             = catalog.ActionTrigger
+	ActionCancel              = catalog.ActionCancel
+	ActionResultsList         = catalog.ActionResultsList
 )
 
-// ActionIDs is the closed action inventory in ledger order.
-var ActionIDs = []string{
-	ActionStatus,
-	ActionPersonaInitialize,
-	ActionPersonaRead,
-	ActionPersonaSave,
-	ActionPersonaReviewList,
-	ActionPersonaReviewDecide,
-	ActionFrozenRead,
-	ActionActmemRead,
-	ActionActmemWorkPatch,
-	ActionActmemOwnerRead,
-	ActionActmemOwnerSave,
-	ActionMemorySearch,
-	ActionMemoryExpand,
-	ActionMemoryMutate,
-	ActionMemoryReceipt,
-	ActionPolicyGet,
-	ActionPolicySet,
-	ActionTrigger,
-	ActionCancel,
-	ActionResultsList,
-}
+// ActionIDs is the closed catalog inventory.
+var ActionIDs = catalog.ActionIDs
 
 // NewModule is the pure Assembly lifecycle owner. It is independent from the
 // factory value bound under GoBinding.CognitiveFactory.

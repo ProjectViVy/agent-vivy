@@ -75,12 +75,33 @@ type memoryLoopFixture struct {
 	peer             *controlrpc.Peer
 	dataRoot         string
 	cancel           context.CancelFunc
+	runCancel        context.CancelFunc
+	runDone          chan error
 	mu               sync.Mutex
 	requests         []json.RawMessage
 	responses        []memoryLoopModelResponse
 	recallQueries    []memoryLoopRecallQuery
 	modelRelease     chan struct{}
 	modelReleaseOnce sync.Once
+}
+
+// Recall fixtures require the optional source as well as the cognitive owner.
+// The default generation has the owner but deliberately omits native recall.
+func memoryLoopHasRecallSource(t *testing.T, assembly genassembly.RuntimeAssembly) bool {
+	t.Helper()
+	if !assembly.HasCognitiveFactory() {
+		return false
+	}
+	sources, err := generatedContextSources(assembly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range sources {
+		if source != nil && source.ID() == "vivy.memory.mentle" {
+			return true
+		}
+	}
+	return false
 }
 
 func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixture {
@@ -230,7 +251,11 @@ func newMemoryLoopFixture(t *testing.T, opts memoryLoopOptions) *memoryLoopFixtu
 		_ = f.app.Close()
 		t.Fatal(err)
 	}
-	f.app.StartEmbeddedServices()
+	runCtx, runCancel := context.WithCancel(context.Background())
+	f.runCancel = runCancel
+	f.runDone = make(chan error, 1)
+	go func() { f.runDone <- f.app.Run(runCtx) }()
+	waitFor(t, 2*time.Second, f.app.service.CognitiveLoopActive)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -518,6 +543,8 @@ func (f *memoryLoopFixture) Restart(ctx context.Context) error {
 	f.app = nil
 	f.peer = nil
 	f.cancel = nil
+	f.runCancel = nil
+	f.runDone = nil
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer startCancel()
 	f.remote, err = startMemoryLoopRemote(startCtx, f.options)
@@ -534,6 +561,15 @@ func (f *memoryLoopFixture) Close(ctx context.Context) error {
 		_ = f.peer.Close()
 	}
 	if f.app != nil {
+		if f.runCancel != nil && f.runDone != nil {
+			f.runCancel()
+			select {
+			case err := <-f.runDone:
+				return err
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		return f.app.CloseContext(ctx)
 	}
 	return nil

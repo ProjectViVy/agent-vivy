@@ -1,0 +1,3 @@
+# R3 rollback
+
+Revert the story commit `feat(reports): add scheduled generation and fenced recovery`. Safe: changes are additive — one new trusted action (`vivy.reports.settings.write`), typed dispatch branches keyed on `Payload.Kind` (agent_turn path untouched), one omission guard in `recoverWorkflowRun`, additive contract fields (`Skipped`, `AsOfMs`, settings-write DTOs), one new UI form, additive i18n keys, regenerated `zz_default.go`/baseline/digest pins. No schema or migration changes: `CommitReportSettings` reuses existing `cron_jobs` and `notebook_mutations` tables. Reverting removes the action from the allow-list and manifest; scheduled rows that already fired keep their committed Runs and receipts — no data repair needed.

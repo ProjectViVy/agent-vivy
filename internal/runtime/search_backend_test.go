@@ -293,7 +293,7 @@ func TestServiceGrepToolEndToEnd(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		Questions:          backend,
 		Sessions:           backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),

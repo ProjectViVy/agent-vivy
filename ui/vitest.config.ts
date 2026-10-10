@@ -15,6 +15,11 @@ export default defineConfig({
       '@vivy/ui-sdk': fileURLToPath(new URL('../sdk/ui/src', import.meta.url)),
       '@vivy/ui-assembly': fileURLToPath(new URL('./src/generated/assembly.ts', import.meta.url)),
       '@vivy/generated-assembly': fileURLToPath(new URL('./src/generated/assembly.ts', import.meta.url)),
+      // Module sources under ../plugins resolve bare imports from their own
+      // package.json (no installed copies). Deps that exist only for the
+      // staged UI build resolve from the ui install here, matching prod.
+      'react-markdown': fileURLToPath(new URL('./node_modules/react-markdown/index.js', import.meta.url)),
+      'remark-gfm': fileURLToPath(new URL('./node_modules/remark-gfm/index.js', import.meta.url)),
     },
     // The SDK source tree carries its own React devDependency. Without this the
     // aliased source would load a second React copy into the same test tree and
@@ -32,6 +37,8 @@ export default defineConfig({
       '../plugins/vivy-persona/ui/vivy-persona/src/**/*.test.tsx',
       '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.ts',
       '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.tsx',
+      '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.ts',
+      '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.tsx',
     ],
     exclude: [
       'node_modules/**',
@@ -39,6 +46,7 @@ export default defineConfig({
       'src/generated/ui/vivy-masks/src/**/*.test.*',
       'src/generated/ui/vivy-persona/src/**/*.test.*',
       'src/generated/ui/session-tree/src/**/*.test.*',
+      'src/generated/ui/vivy-notebook/src/**/*.test.*',
     ],
   },
 });
