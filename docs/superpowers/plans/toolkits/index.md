@@ -12,7 +12,7 @@ The user requested detailed planning with supermanagement. Confirmed direction: 
 
 Technical planning baseline: organism-wide activation; disabled install after exact native preview; separate executable consent; one coherent catalog published after all nonterminal runs drain; immediate availability-narrowing revocation; retained immutable run evidence. These are the architecture's selected proposals, carried into concrete plans for review. Their presence in this package is not evidence of user acceptance of every technical tradeoff.
 
-Implementation, product testing, deployment, merging and external publication are not authorized by this planning request. No Story is Ready or Done yet. Plans are complete for review; execution requires review of the baseline/contracts and explicit scheduling. The next candidate is TK-01 after those conditions. Existing unrelated project priorities remain unchanged.
+The user approved full implementation and planned verification on 2026-10-11. Execute TK-01–13 inline on TOOLKITS. Existing branch-push authorization remains valid; merge and deployment are not scheduled. Story acceptance still requires observed evidence.
 
 ## 2. Authoritative artifacts
 
@@ -39,7 +39,7 @@ The following table is the sole dependency/status data source. Graph and waves b
 
 | Story | Epic / requirements | Outcome | Immediate predecessors and required output | Plan | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| TK-01 | E1; B1 B2 B3 B4 B6 B11 B12 B14 | Native values, schema, identifiers and digest | None — root | [TK-01](TK-01.md) | Planned | Planning review / execution scheduling pending; predecessor evidence absent |
+| TK-01 | E1; B1 B2 B3 B4 B6 B11 B12 B14 | Native values, schema, identifiers and digest | None — root | [TK-01](TK-01.md) | Review | Focused contract/parser tests and vet pass; full CI pending. [Evidence](../../../logs/2026-10-11-toolkit-implementation/verification.md) |
 | TK-02 | E1; B4 B6 B8 B10 B11 B14 | Confined local/Git acquisition and immutable objects | TK-01: validated native values and digest | [TK-02](TK-02.md) | Planned | Planning review / execution scheduling pending; predecessor evidence absent |
 | TK-03 | E1; B4 B5 B8 B9 B10 | Paired storage, receipts, epochs, consent and evidence | TK-01: pure identity/operation/snapshot values | [TK-03](TK-03.md) | Planned | Planning review / execution scheduling pending; predecessor evidence absent |
 | TK-04 | E2; B1 B5 B6 B8 B9 B10 B11 B12 | Prepared lifecycle, publication and recovery | TK-02: verified object store; TK-03: transactional registry and receipts | [TK-04](TK-04.md) | Planned | Planning review / execution scheduling pending; predecessor evidence absent |
