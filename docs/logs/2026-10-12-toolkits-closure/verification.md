@@ -64,6 +64,15 @@ Repository: `agent-vivy`, branch `TOOLKITS`. Commands were run on macOS with `GO
 
   Result: 1 real-browser test passed. The configuration starts the packaged backend and a separate Vite server with a fresh temporary SQLite directory. The E2E verifies that installing a Toolkit does not eagerly connect to its MCP endpoint.
 
+- Passed isolated keyboard/mobile browser acceptance without an MCP fixture or MCP endpoint:
+
+  ```sh
+  VIVY_TOOLKITS_E2E_BINARY=/tmp/vivy-toolkits-closure-20261012/vivy \
+    pnpm --dir ui exec playwright test --config playwright.toolkits.config.ts e2e/toolkits-accessibility.spec.ts
+  ```
+
+  Result: 1 real-browser test passed. At a 390px viewport it opens the mobile navigation, drills into the VIVY section and opens Toolkits using keyboard focus and Enter; it also confirms the document has no horizontal overflow. This spec starts only the packaged Vivy backend and Vite UI. It does not create a mock MCP server, install an MCP Toolkit, or make an MCP connection.
+
 ## SDK artifacts and omission fixtures
 
 All artifact commands succeeded with `GOFLAGS=-tags=http2legacy`; each artifact was written to a fresh `/tmp` directory and inspected with `sdk inspect-artifact`.
@@ -91,5 +100,5 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 
 - `just ci` was not runnable: `just`, `pwsh` and `powershell` are not installed in this macOS environment. This remains a full-CI gate, not a Toolkit failure.
 - The full App package suite remains incomplete because its memory-loop crash/restart case did not finish within the observed window. It is not counted as a passing gate.
-- Keyboard-only navigation and mobile/responsive browser acceptance were not run.
+- Broader mobile/responsive acceptance of populated Toolkit details, long content and dialogs remains untested; the narrow-screen test covers the empty library and source form.
 - The local PostgreSQL container is a disposable test dependency and is stopped during cleanup.
