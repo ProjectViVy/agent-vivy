@@ -55,6 +55,21 @@ func TestBackendConformance(t *testing.T) {
 	})
 }
 
+func TestBundleStoreConformance(t *testing.T) {
+	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("VIVY_POSTGRES_TEST_DSN not set")
+	}
+	schema := fmt.Sprintf("bundle_%d", time.Now().UnixNano())
+	b, err := OpenSchema(context.Background(), dsn, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformance.RunBundles(t, conformance.BundleHarness{Setup: func(*testing.T) conformance.BundleSlot {
+		return conformance.BundleSlot{Store: b.BundleStore(), Admission: b, Engine: b, LeaseOwner: b.OrganismLeaseOwner(), Close: b.Close}
+	}})
+}
+
 func TestDeleteSessionRemovesPersistedWorkAndSubmissionRows(t *testing.T) {
 	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
 	if dsn == "" {

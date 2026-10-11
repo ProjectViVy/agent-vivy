@@ -46,6 +46,7 @@ func TestRepositoryModulePathsUseCanonicalNamespace(t *testing.T) {
 		"../../plugins/vivy-evolution/go.mod",
 		"../../plugins/vivy-memory/go.mod",
 		"../../plugins/vivy-masks-ui/go.mod",
+		"../../plugins/vivy-toolkits-ui/go.mod",
 		"../../plugins/vivy-notebook/go.mod",
 	} {
 		body, err := os.ReadFile(path)

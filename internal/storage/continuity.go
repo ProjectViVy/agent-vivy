@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 )
 
@@ -50,13 +51,17 @@ func (e SourceExpectation) validate() error {
 // scope, exact source expectations and the idempotency receipt. Everything
 // commits in one transaction or nothing does.
 type ContinuityAdmission struct {
-	SessionID    domain.SessionID
-	Message      domain.Message
-	Run          domain.Run
-	Events       []domain.RunEvent
-	Scope        domain.AcceptedHistoryScope
-	Expectations []SourceExpectation
-	Receipt      domain.ContinuityReceipt
+	SessionID      domain.SessionID
+	Message        domain.Message
+	Run            domain.Run
+	Events         []domain.RunEvent
+	Scope          domain.AcceptedHistoryScope
+	Expectations   []SourceExpectation
+	Receipt        domain.ContinuityReceipt
+	Prompt         *RunPromptSnapshot
+	ExpectedMask   *MaskCaptureCheck
+	Bundle         *RunBundleSnapshot
+	ExpectedBundle *bundlecontract.CaptureCheck
 	// TestFaultHook injects a failure immediately after the named write
 	// step inside the transaction ("message", "run", "events", "receipt").
 	// Backends invoke it only when non-nil; production callers leave it nil.
@@ -77,6 +82,12 @@ func (a ContinuityAdmission) Validate() error {
 		if e.RunID != a.Run.ID {
 			return fmt.Errorf("storage: continuity admission event %s belongs to another run", e.Type)
 		}
+	}
+	if err := ValidateRunAdmissionInput(RunAdmission{
+		Message: a.Message, Run: a.Run, Started: a.Events[0], Prompt: a.Prompt,
+		ExpectedMask: a.ExpectedMask, Bundle: a.Bundle, ExpectedBundle: a.ExpectedBundle,
+	}); err != nil {
+		return err
 	}
 	if a.Receipt.Operation != ContinuityOperationAdmission || a.Receipt.SessionID != a.SessionID || a.Receipt.RequestID == "" || a.Receipt.InputHash == "" {
 		return fmt.Errorf("storage: continuity admission receipt is invalid")

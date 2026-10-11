@@ -9,6 +9,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 var (
@@ -68,6 +69,9 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask); err != nil {
 		return result, err
 	}
+	if err := bundlesql.ValidateCapture(ctx, tx, in.Admission.ExpectedBundle); err != nil {
+		return result, err
+	}
 	if exists, err := postgresMessageExists(ctx, tx, in.Admission.Message.ID); err != nil {
 		return result, err
 	} else if exists {
@@ -82,6 +86,11 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	if in.Admission.Prompt != nil {
 		if err := postgresInsertAdmissionPrompt(ctx, tx, *in.Admission.Prompt); err != nil {
 			return result, err
+		}
+	}
+	if in.Admission.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *in.Admission.Bundle); err != nil {
+			return result, storage.AdmissionUnavailable("insert toolkit child session snapshot", err)
 		}
 	}
 	started := in.Admission.Started
@@ -213,6 +222,9 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask); err != nil {
 		return result, err
 	}
+	if err := bundlesql.ValidateCapture(ctx, tx, in.Admission.ExpectedBundle); err != nil {
+		return result, err
+	}
 	if exists, err := postgresMessageExists(ctx, tx, in.Admission.Message.ID); err != nil {
 		return result, err
 	} else if exists {
@@ -227,6 +239,11 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	if in.Admission.Prompt != nil {
 		if err := postgresInsertAdmissionPrompt(ctx, tx, *in.Admission.Prompt); err != nil {
 			return result, err
+		}
+	}
+	if in.Admission.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *in.Admission.Bundle); err != nil {
+			return result, storage.AdmissionUnavailable("insert toolkit child activation snapshot", err)
 		}
 	}
 	started := in.Admission.Started

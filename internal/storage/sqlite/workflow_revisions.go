@@ -8,6 +8,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 var _ storage.WorkflowRevisionStore = (*Backend)(nil)
@@ -41,6 +42,13 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 		stored, err := sqliteReadWorkflowAdmissionRun(ctx, tx, existing.RunID)
 		if err != nil {
 			return result, err
+		}
+		admittedRun, found, err := sqliteReadAdmissionRun(ctx, tx, existing.RunID)
+		if err != nil || !found {
+			return result, errors.Join(storage.ErrWorkflowRevisionConflict, err)
+		}
+		if (in.Bundle == nil) != (admittedRun.bundle == nil) || (in.Bundle != nil && admittedRun.bundle.PayloadSHA256 != in.Bundle.PayloadSHA256) {
+			return result, storage.WorkflowAdmissionConflict()
 		}
 		if err := tx.Commit(); err != nil {
 			return result, storage.AdmissionUnavailable("commit idempotent workflow admission", err)
@@ -81,8 +89,16 @@ func (b *Backend) CommitWorkflowAdmission(ctx context.Context, in storage.Workfl
 	} else if existing {
 		return result, storage.ErrWorkflowRevisionConflict
 	}
+	if err := bundlesql.ValidateCapture(ctx, tx, in.ExpectedBundle); err != nil {
+		return result, err
+	}
 	if err := sqliteInsertAdmissionRun(ctx, tx, in.Run); err != nil {
 		return result, err
+	}
+	if in.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *in.Bundle); err != nil {
+			return result, storage.AdmissionUnavailable("insert toolkit workflow snapshot", err)
+		}
 	}
 	started := in.Started
 	if err := sqliteInsertHistoryEvent(ctx, tx, &started); err != nil {

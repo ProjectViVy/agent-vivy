@@ -8,6 +8,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 const activeStatuses = `('accepted','queued','active')`
@@ -88,6 +89,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, admission.ExpectedMask); err != nil {
 		return domain.RunEvent{}, err
 	}
+	if err := bundlesql.ValidateCapture(ctx, &Tx{SQL: tx}, admission.ExpectedBundle); err != nil {
+		return domain.RunEvent{}, err
+	}
 	message := admission.Message
 	position, err := postgresNextMessagePosition(ctx, tx, message.SessionID)
 	if err != nil {
@@ -153,6 +157,11 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	if admission.Prompt != nil {
 		if err := postgresInsertAdmissionPrompt(ctx, &Tx{SQL: tx}, *admission.Prompt); err != nil {
 			return domain.RunEvent{}, err
+		}
+	}
+	if admission.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, &Tx{SQL: tx}, *admission.Bundle); err != nil {
+			return domain.RunEvent{}, storage.AdmissionUnavailable("insert toolkit primary run snapshot", err)
 		}
 	}
 

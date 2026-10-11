@@ -5,10 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	mask "agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 var _ storage.RunAdmissionStore = (*Backend)(nil)
@@ -42,6 +45,9 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	}
 
 	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.ExpectedMask); err != nil {
+		return in.Started, err
+	}
+	if err := bundlesql.ValidateCapture(ctx, tx, in.ExpectedBundle); err != nil {
 		return in.Started, err
 	}
 	if in.Run.Kind == domain.RunKindChild && in.Run.EffectiveChildMode() == domain.ChildModeOneShot {
@@ -80,6 +86,11 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 	if in.Prompt != nil {
 		if err := postgresInsertAdmissionPrompt(ctx, tx, *in.Prompt); err != nil {
 			return in.Started, err
+		}
+	}
+	if in.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *in.Bundle); err != nil {
+			return in.Started, storage.AdmissionUnavailable("insert toolkit run snapshot", err)
 		}
 	}
 	started := in.Started
@@ -146,14 +157,16 @@ func (b *Backend) postgresValidateAdmissionCapture(ctx context.Context, tx *Tx, 
 	if selection.Revision != expected.SelectionRevision || selection.MaskID != expected.MaskID {
 		return mask.NewRevisionError(mask.CodeRevisionConflict, selection.Revision, nil)
 	}
-	if expected.MaskID == "" || mask.IsBuiltinID(expected.MaskID) {
+	if expected.MaskID == "" || mask.IsBuiltinID(expected.MaskID) || mask.IsBundleID(expected.MaskID) {
 		return nil
 	}
 	definition, err := b.getCustomMaskForUpdate(ctx, tx, expected.MaskID)
 	if err != nil {
 		return err
 	}
-	if definition.Revision != expected.DefinitionRevision || definition.Digest != expected.DefinitionDigest {
+	if definition.Revision != expected.DefinitionRevision || definition.Digest != expected.DefinitionDigest ||
+		mask.ResolveOrigin(definition.ID, definition.Origin) != mask.ResolveOrigin(expected.MaskID, expected.Origin) ||
+		!storage.MaskBundleProvenanceEqual(definition.Bundle, expected.Bundle) || !reflect.DeepEqual(definition.RecommendedSkills, expected.RecommendedSkills) {
 		return mask.NewRevisionError(mask.CodeRevisionConflict, definition.Revision, nil)
 	}
 	return nil
@@ -260,6 +273,7 @@ type postgresAdmissionRun struct {
 	run     domain.Run
 	started domain.RunEvent
 	prompt  *storage.RunPromptSnapshot
+	bundle  *storage.RunBundleSnapshot
 	edit    *storage.SessionTruncation
 }
 
@@ -325,17 +339,35 @@ func postgresReadAdmissionRun(ctx context.Context, tx *Tx, runID domain.RunID) (
 		FROM run_prompt_snapshots WHERE run_id = ?`, runID).
 		Scan((*string)(&prompt.RunID), &prompt.SchemaVersion, &prompt.ComposerVersion,
 			&prompt.GenerationID, &payload, &prompt.PayloadSHA256)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return postgresAdmissionRun{}, false, storage.AdmissionUnavailable("read existing admission prompt", err)
+	}
+	if err == nil {
+		prompt.Payload = append([]byte(nil), payload...)
+		if _, err := storage.ValidateRunPromptSnapshot(prompt); err != nil {
+			return postgresAdmissionRun{}, false, err
+		}
+		existing.prompt = &prompt
+	}
+	var bundle storage.RunBundleSnapshot
+	err = tx.QueryRowContext(ctx, `SELECT schema_version,payload,payload_sha256 FROM run_bundle_snapshots WHERE run_id=?`, runID).
+		Scan(&bundle.SchemaVersion, &bundle.Payload, &bundle.PayloadSHA256)
 	if errors.Is(err, sql.ErrNoRows) {
 		return existing, true, nil
 	}
 	if err != nil {
-		return postgresAdmissionRun{}, false, storage.AdmissionUnavailable("read existing admission prompt", err)
+		return postgresAdmissionRun{}, false, storage.AdmissionUnavailable("read existing toolkit run snapshot", err)
 	}
-	prompt.Payload = append([]byte(nil), payload...)
-	if _, err := storage.ValidateRunPromptSnapshot(prompt); err != nil {
+	bundle.RunID = runID
+	decoded, err := bundlecontract.DecodeRunSnapshotPayload(bundle.Payload)
+	if err != nil {
 		return postgresAdmissionRun{}, false, err
 	}
-	existing.prompt = &prompt
+	bundle.Releases = decoded.Releases
+	if _, err := storage.ValidateRunBundleSnapshot(bundle); err != nil {
+		return postgresAdmissionRun{}, false, err
+	}
+	existing.bundle = &bundle
 	return existing, true, nil
 }
 
@@ -378,6 +410,13 @@ func postgresCompareAdmission(ctx context.Context, tx *Tx, in storage.RunAdmissi
 		return storage.AdmissionConflict()
 	}
 	if in.Prompt != nil && !postgresSamePrompt(*existing.prompt, *in.Prompt) {
+		return storage.AdmissionConflict()
+	}
+	if (in.Bundle == nil) != (existing.bundle == nil) {
+		return storage.AdmissionConflict()
+	}
+	if in.Bundle != nil && (existing.bundle.PayloadSHA256 != in.Bundle.PayloadSHA256 ||
+		!bytes.Equal(existing.bundle.Payload, in.Bundle.Payload) || !reflect.DeepEqual(existing.bundle.Releases, in.Bundle.Releases)) {
 		return storage.AdmissionConflict()
 	}
 	existingEdit := existing.edit

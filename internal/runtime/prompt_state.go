@@ -9,14 +9,17 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
+	"github.com/cloudwego/eino/schema"
 )
 
 const (
-	promptSchemaVersion   = 1
-	promptComposerVersion = "mask-prompt/1"
+	promptSchemaVersion         = 2
+	promptComposerVersion       = "mask-prompt/2"
+	legacyPromptComposerVersion = "mask-prompt/1"
 )
 
 // PromptInput is the complete host-owned input to the immutable prompt
@@ -36,6 +39,11 @@ type PromptInput struct {
 	// and are persisted verbatim in the payload.
 	FrozenText   string
 	FrozenDigest string
+	Rules        *storage.RunRulesSnapshot
+	// MaxContextBytes lets admission reject a Toolkit Rules projection that
+	// cannot fit beside the authoritative Vivy instruction before storage
+	// admits the run.
+	MaxContextBytes int
 }
 
 type runPromptContextKey struct{}
@@ -81,6 +89,10 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
+	if in.Capture.Mask != nil {
+		in.Capture.Mask = clonePromptMask(in.Capture.Mask)
+		in.Capture.Mask.Origin = maskcontract.ResolveOrigin(in.Capture.Mask.ID, in.Capture.Mask.Origin)
+	}
 	if err := validatePromptCapture(in.Capture, in.GenerationID); err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
@@ -110,11 +122,32 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
+	var rules *storage.RunRulesSnapshot
+	if in.Rules != nil {
+		cloned, cloneErr := cloneRunRulesSnapshot(in.Rules)
+		if cloneErr != nil {
+			return storage.RunPromptSnapshot{}, cloneErr
+		}
+		if cloned.Face != string(face) {
+			return storage.RunPromptSnapshot{}, errors.New("runtime: Toolkit Rules face does not match prompt face")
+		}
+		if err := storage.ValidateRunRulesSnapshot(cloned); err != nil {
+			return storage.RunPromptSnapshot{}, fmt.Errorf("runtime: invalid Toolkit Rules snapshot: %w", err)
+		}
+		rules = cloned
+	}
+	if in.MaxContextBytes > 0 {
+		reserved := promptSnapshotReservation(instruction, rules)
+		if reserved > in.MaxContextBytes {
+			return storage.RunPromptSnapshot{}, fmt.Errorf("%w: prompt and captured Toolkit Rules require %d bytes before admission; budget is %d", ErrContextBudgetExceeded, reserved, in.MaxContextBytes)
+		}
+	}
 	payload := storage.RunPromptPayload{
 		Persona:       persona,
 		Mask:          clonePromptMask(in.Capture.Mask),
 		Instruction:   instruction,
 		FramingDigest: in.FrameDigest,
+		Rules:         rules,
 	}
 	if in.FrozenDigest != "" {
 		payload.Frozen = &storage.PersonaSnapshot{
@@ -137,6 +170,29 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	}, nil
 }
 
+func cloneRunRulesSnapshot(in *storage.RunRulesSnapshot) (*storage.RunRulesSnapshot, error) {
+	if in == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(in)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: copy Toolkit Rules snapshot: %w", err)
+	}
+	var copied storage.RunRulesSnapshot
+	if err := json.Unmarshal(encoded, &copied); err != nil {
+		return nil, fmt.Errorf("runtime: decode copied Toolkit Rules snapshot: %w", err)
+	}
+	return &copied, nil
+}
+
+func promptSnapshotReservation(instruction string, rules *storage.RunRulesSnapshot) int {
+	messages := []*schema.Message{schema.SystemMessage(instruction)}
+	if rules != nil {
+		messages = append(messages, schema.SystemMessage(rules.Body))
+	}
+	return projectedContextBytes(messages)
+}
+
 func validatePromptCapture(capture maskcontract.Capture, generationID string) error {
 	if err := maskcontract.ValidateSelection(capture.Selection); err != nil {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, err)
@@ -153,7 +209,8 @@ func validatePromptCapture(capture maskcontract.Capture, generationID string) er
 	if capture.Mask.ID != capture.Selection.MaskID || capture.Mask.SelectionRevision != capture.Selection.Revision {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask snapshot does not match selection"))
 	}
-	if maskcontract.IsBuiltinID(capture.Mask.ID) && capture.Mask.GenerationID != generationID {
+	origin := maskcontract.ResolveOrigin(capture.Mask.ID, capture.Mask.Origin)
+	if origin == maskcontract.OriginBuiltin && capture.Mask.GenerationID != generationID {
 		return maskcontract.NewError(maskcontract.CodeMaskUnavailable, errors.New("selected built-in mask belongs to another generation"))
 	}
 	if err := maskcontract.ValidateMaskID(capture.Mask.ID); err != nil {
@@ -166,11 +223,30 @@ func validatePromptCapture(capture maskcontract.Capture, generationID string) er
 		capture.Mask.Digest != maskcontract.DefinitionDigest(capture.Mask.ID, capture.Mask.Name, capture.Mask.Body) {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask snapshot metadata does not match content"))
 	}
-	if !maskcontract.IsBuiltinID(capture.Mask.ID) && capture.Mask.GenerationID != "" {
-		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("custom mask snapshot carries a generation id"))
+	switch origin {
+	case maskcontract.OriginBuiltin:
+		if capture.Mask.DefinitionRevision != maskcontract.BuiltinRevision || capture.Mask.Bundle != nil {
+			return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("built-in mask metadata is invalid"))
+		}
+	case maskcontract.OriginBundle:
+		if capture.Mask.GenerationID != "" || capture.Mask.Bundle == nil || maskcontract.ValidateBundleProvenance(capture.Mask.ID, capture.Mask.DefinitionRevision, *capture.Mask.Bundle) != nil {
+			return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("bundle mask provenance is invalid"))
+		}
+	case maskcontract.OriginCustom:
+		if capture.Mask.GenerationID != "" {
+			return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("custom mask snapshot carries a generation id"))
+		}
+		if capture.Mask.Bundle != nil {
+			sourceID, sourceErr := bundlecontract.MaskID(capture.Mask.Bundle.Release.InstallID, capture.Mask.Bundle.LocalID)
+			if sourceErr != nil || maskcontract.ValidateBundleProvenance(sourceID, capture.Mask.Bundle.Release.ReleaseSequence, *capture.Mask.Bundle) != nil {
+				return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("custom copy provenance is invalid"))
+			}
+		}
+	default:
+		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask origin is invalid"))
 	}
-	if maskcontract.IsBuiltinID(capture.Mask.ID) && capture.Mask.DefinitionRevision != maskcontract.BuiltinRevision {
-		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("built-in mask revision is invalid"))
+	if err := maskcontract.ValidateRecommendations(capture.Mask.RecommendedSkills, capture.Mask.Bundle); err != nil {
+		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, err)
 	}
 	return nil
 }
@@ -221,7 +297,29 @@ func clonePromptMask(in *maskcontract.Snapshot) *maskcontract.Snapshot {
 	out.Body = string([]byte(in.Body))
 	out.Digest = string([]byte(in.Digest))
 	out.GenerationID = string([]byte(in.GenerationID))
+	if in.Bundle != nil {
+		bundle := *in.Bundle
+		out.Bundle = &bundle
+	}
+	if in.RecommendedSkills != nil {
+		out.RecommendedSkills = append([]maskcontract.SkillRecommendation{}, in.RecommendedSkills...)
+	}
 	return &out
+}
+
+func cloneMaskBundleProvenance(in *maskcontract.BundleProvenance) *maskcontract.BundleProvenance {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneMaskRecommendations(in []maskcontract.SkillRecommendation) []maskcontract.SkillRecommendation {
+	if in == nil {
+		return nil
+	}
+	return append([]maskcontract.SkillRecommendation{}, in...)
 }
 
 func digestText(value string) string {

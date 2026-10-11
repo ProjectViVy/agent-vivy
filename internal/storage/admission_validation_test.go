@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	mask "agent-vivy/internal/maskcontract"
 )
 
 func validAdmissionFixture(t *testing.T) RunAdmission {
@@ -58,6 +59,27 @@ func TestValidateRunAdmissionLegacyHasNoPromptMarker(t *testing.T) {
 	in.Started.Payload = []byte(`{"provider":"fixture"}`)
 	if err := ValidateRunAdmissionInput(in); err != nil {
 		t.Fatalf("legacy admission rejected: %v", err)
+	}
+}
+
+func TestValidateLegacyPromptSchemaDerivesMaskOrigin(t *testing.T) {
+	id := "custom/00000000-0000-4000-8000-000000000001"
+	definition := mask.DefinitionDigest(id, "Legacy", "legacy body")
+	payload, err := json.Marshal(RunPromptPayload{
+		Mask:        &mask.Snapshot{ID: id, Name: "Legacy", Body: "legacy body", Digest: definition, DefinitionRevision: 1},
+		Instruction: "legacy instruction",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	snapshot := RunPromptSnapshot{
+		RunID: "run-legacy-mask", SchemaVersion: 1, ComposerVersion: "mask-prompt/1", GenerationID: "generation-test",
+		Payload: payload, PayloadSHA256: hex.EncodeToString(sum[:]),
+	}
+	decoded, err := ValidateRunPromptSnapshot(snapshot)
+	if err != nil || decoded.Mask == nil || mask.ResolveOrigin(decoded.Mask.ID, decoded.Mask.Origin) != mask.OriginCustom {
+		t.Fatalf("legacy prompt schema was not readable: %+v/%v", decoded, err)
 	}
 }
 

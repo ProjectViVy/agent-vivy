@@ -39,10 +39,12 @@ modules:
   - vivy/reports
   - vivy/masks
   - vivy/masks-ui
+  - vivy/toolkits
+  - vivy/toolkits-ui
   - vivy/workflow-ui
   - vivy/session-tree
 order:
-  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook, vivy/masks-ui, vivy/workflow-ui, vivy/session-tree]
+  std/ui-extension@v1: [vivy/persona, vivy/evolution, vivy/memory, vivy/notebook, vivy/masks-ui, vivy/toolkits-ui, vivy/workflow-ui, vivy/session-tree]
 ui:
   sdkVersion: 1.0.0
   extensions:
@@ -51,6 +53,7 @@ ui:
     - {id: vivy.memory.sidebar, moduleId: vivy/memory, port: std/ui-extension@v1, entry: ./ui/vivy-memory/src/index.tsx, export: extension}
     - {id: vivy.notebook.sidebar, moduleId: vivy/notebook, port: std/ui-extension@v1, entry: ./ui/vivy-notebook/src/index.tsx, export: extension}
     - {id: vivy.masks-ui.sidebar, moduleId: vivy/masks-ui, port: std/ui-extension@v1, entry: ./ui/vivy-masks/src/index.tsx, export: extension}
+    - {id: vivy.toolkits-ui.sidebar, moduleId: vivy/toolkits-ui, port: std/ui-extension@v1, entry: ./ui/vivy-toolkits/src/index.tsx, export: extension}
     - {id: vivy.workflow-ui.sidebar, moduleId: vivy/workflow-ui, port: std/ui-extension@v1, entry: ./ui/vivy-workflow/src/index.tsx, export: extension}
     - {id: vivy.session-tree.page, moduleId: vivy/session-tree, port: std/ui-extension@v1, entry: ./ui/session-tree/src/index.tsx, export: extension}
 grantApprovals:

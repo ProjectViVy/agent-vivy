@@ -22,6 +22,9 @@ func (maskManagerFixture) GetMask(context.Context, maskcontract.GetRequest) (mas
 func (maskManagerFixture) CreateMask(context.Context, maskcontract.CreateRequest) (maskcontract.Definition, error) {
 	return maskcontract.Definition{}, nil
 }
+func (maskManagerFixture) CopyMask(context.Context, maskcontract.CopyMaskRequest) (maskcontract.Definition, error) {
+	return maskcontract.Definition{}, nil
+}
 func (maskManagerFixture) UpdateMask(context.Context, maskcontract.UpdateRequest) (maskcontract.Definition, error) {
 	return maskcontract.Definition{}, nil
 }

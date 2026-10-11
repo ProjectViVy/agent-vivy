@@ -143,6 +143,12 @@ type LeaseStore interface {
 	Release(ctx context.Context, key, owner string) error
 }
 
+// OrganismLeaseOwner exposes the process-owned lease token to coordinators
+// that commit catalog state under the same organism lock.
+type OrganismLeaseOwner interface {
+	OrganismLeaseOwner() string
+}
+
 // SessionStore persists conversations. Deleting a session removes its
 // messages, runs and journal events in one transaction.
 type SessionStore interface {

@@ -48,6 +48,7 @@ func (backend *MCPBackend) ensureMCPBridge() (*mcphost.Host, error) {
 		Instances:         mcpHostInstances(backend.ConfiguredServers()),
 		Factory:           newMCPHostSessionFactory(backend),
 		ProtectedIDs:      tools.AssemblyControlledToolNames(),
+		DiscoveryTimeout:  MCPToolDiscoveryTimeout,
 		MaxSafeRetries:    defaultMCPHostRetries,
 		MaxSafeRetriesSet: true,
 	})
@@ -101,7 +102,7 @@ func (backend *MCPBackend) MCPToolWorldProvider() toolworld.Provider {
 	}
 	backend.bridgeMu.Lock()
 	defer backend.bridgeMu.Unlock()
-	return backend.bridgeWorld
+	return &bundleGuardedMCPWorld{backend: backend, delegate: backend.bridgeWorld}
 }
 
 // MCPResourceContextHost builds the explicit Resource -> ContextHost bridge

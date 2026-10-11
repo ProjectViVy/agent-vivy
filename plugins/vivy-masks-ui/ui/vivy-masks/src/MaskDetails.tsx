@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { MaskDraft } from './mask-state';
 import { MaskIdentity } from './MaskIdentity';
-import { maskKind, type MaskChoice } from './mask-view';
+import { isCustomMask, maskKind, type MaskChoice } from './mask-view';
 
 export function MaskDetails({
   mask,
@@ -29,6 +29,10 @@ export function MaskDetails({
   readonly onDelete: () => void;
   readonly t: UITranslator;
 }) {
+  const editable = isCustomMask(mask);
+  const originHint = mask.id === '' ? 'defaultHint'
+    : mask.origin === 'bundle' ? 'bundleHint'
+      : editable ? 'customHint' : 'builtInHint';
   return (
     <section
       className="min-w-0 space-y-5"
@@ -49,6 +53,33 @@ export function MaskDetails({
           {mask.description}
         </p>
       </div>
+      {mask.bundle ? (
+        <div className="space-y-2 rounded-xl border bg-muted/25 p-3 text-sm">
+          <p className="font-medium">{t(mask.origin === 'bundle' ? 'plugin.vivy/masks-ui.bundleSource' : 'plugin.vivy/masks-ui.copiedFromToolkit')}</p>
+          <p className="break-all text-xs text-muted-foreground">
+            {mask.bundle.release.bundle_id} · {mask.bundle.local_id} · {t('plugin.vivy/masks-ui.release')} {mask.bundle.release.release_sequence}
+          </p>
+          <a className="inline-flex min-h-10 items-center text-primary underline-offset-4 hover:underline" href="/toolkits">
+            {t('plugin.vivy/masks-ui.openToolkits')}
+          </a>
+        </div>
+      ) : null}
+      {mask.recommended_skills && mask.recommended_skills.length > 0 ? (
+        <div className="rounded-xl border bg-muted/25 p-3 text-sm">
+          <p className="font-medium">{t('plugin.vivy/masks-ui.recommendedSkills')}</p>
+          <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
+            {mask.recommended_skills.map((skill) => (
+              <li key={`${skill.ref.install_id}/${skill.ref.local_id}`}>
+                {skill.name} · {skill.available ? t('plugin.vivy/masks-ui.skillAvailable') : t('plugin.vivy/masks-ui.skillUnavailable')}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-muted-foreground">{t('plugin.vivy/masks-ui.recommendationOnly')}</p>
+          <a className="inline-flex min-h-10 items-center text-primary underline-offset-4 hover:underline" href="/skills">
+            {t('plugin.vivy/masks-ui.openRecommendedSkills')}
+          </a>
+        </div>
+      ) : null}
       <div className="space-y-3 border-t pt-5">
         <h3 className="text-sm font-medium">
           {t(`plugin.vivy/masks-ui.${mask.id ? 'body' : 'defaultIdentity'}`)}
@@ -65,7 +96,7 @@ export function MaskDetails({
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t(
-            `plugin.vivy/masks-ui.${mask.id ? (mask.built_in ? 'builtInHint' : 'customHint') : 'defaultHint'}`,
+            `plugin.vivy/masks-ui.${originHint}`,
           )}
         </p>
       </div>
@@ -85,16 +116,16 @@ export function MaskDetails({
           <Button
             variant="outline"
             disabled={pending || !draft}
-            onClick={mask.built_in ? onCopy : onEdit}
+            onClick={editable ? onEdit : onCopy}
           >
-            {mask.built_in ? (
+            {!editable ? (
               <Copy className="h-4 w-4" />
             ) : (
               <Pencil className="h-4 w-4" />
             )}
-            {t(`plugin.vivy/masks-ui.${mask.built_in ? 'duplicate' : 'edit'}`)}
+            {t(`plugin.vivy/masks-ui.${editable ? 'edit' : mask.origin === 'bundle' ? 'copyToCustom' : 'duplicate'}`)}
           </Button>
-          {!mask.built_in ? (
+          {editable ? (
             <Button
               variant="ghost"
               className="text-destructive hover:text-destructive"

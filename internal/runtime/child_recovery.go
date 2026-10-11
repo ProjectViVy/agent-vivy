@@ -123,6 +123,7 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 	// Recovered pending runs receive a fresh process-owned context so the
 	// approval resume can cancel independently of the recovery caller.
 	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx = s.toolkitContext(runCtx, run.ID)
 	s.mu.Lock()
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{

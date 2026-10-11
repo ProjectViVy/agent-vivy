@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path"
@@ -33,10 +34,18 @@ type ScriptHook struct {
 	// Timeout bounds one invocation; 0 keeps the chain's bound. The
 	// effective bound is the shorter of the two.
 	Timeout time.Duration
+	// Cwd and Env are an explicit process context used by native bundle
+	// hooks. Env is a complete child environment; it is never merged with the
+	// Vivy process environment.
+	Cwd            string
+	Env            []string
+	ContextDigest  string
+	ResourceDigest string
 
 	// run is the process runner; tests inject a fake here. The default
 	// pipes stdin through the platform shell and reports the exit code.
-	run func(ctx context.Context, command string, stdin []byte) (stdout, stderr []byte, exitCode int, err error)
+	run       func(ctx context.Context, command string, stdin []byte) (stdout, stderr []byte, exitCode int, err error)
+	runScoped func(ctx context.Context, command string, stdin []byte, cwd string, env []string) (stdout, stderr []byte, exitCode int, err error)
 }
 
 // NewScriptHook builds a hook from a validated config entry.
@@ -60,7 +69,7 @@ func (h *ScriptHook) Name() string {
 // GovernanceIdentity binds approvals to the full script-hook generation
 // without exposing its command in approval metadata or logs.
 func (h *ScriptHook) GovernanceIdentity() string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", h.Command, h.Matcher, h.Timeout)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%s", h.Command, h.Matcher, h.Timeout, h.Cwd, h.ContextDigest, h.ResourceDigest)))
 	return "script:" + hex.EncodeToString(sum[:])
 }
 
@@ -106,15 +115,27 @@ func (h *ScriptHook) PreToolUse(ctx context.Context, call ToolHookCall) (PreTool
 	}
 
 	runner := h.run
-	if runner == nil {
-		runner = runHookProcess
+	scopedRunner := h.runScoped
+	if runner == nil && scopedRunner == nil {
+		if h.Cwd != "" || h.Env != nil || h.ContextDigest != "" || h.ResourceDigest != "" {
+			scopedRunner = runHookProcessScoped
+		} else {
+			runner = runHookProcess
+		}
 	}
 	if h.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, h.Timeout)
 		defer cancel()
 	}
-	stdout, stderr, exitCode, runErr := runner(ctx, h.Command, payload)
+	var stdout, stderr []byte
+	var exitCode int
+	var runErr error
+	if scopedRunner != nil {
+		stdout, stderr, exitCode, runErr = scopedRunner(ctx, h.Command, payload, h.Cwd, append([]string(nil), h.Env...))
+	} else {
+		stdout, stderr, exitCode, runErr = runner(ctx, h.Command, payload)
+	}
 	if runErr != nil {
 		// Spawn failure or context death fails closed (the chain has
 		// already attributed timeouts for us, but a shell that dies
@@ -201,6 +222,34 @@ func runHookProcess(ctx context.Context, command string, stdin []byte) (stdout, 
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
+	cmd.Stdin = bytes.NewReader(stdin)
+	var out, errBuf limitedHookBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return out.Bytes(), errBuf.Bytes(), exitErr.ExitCode(), nil
+		}
+		return out.Bytes(), errBuf.Bytes(), -1, err
+	}
+	return out.Bytes(), errBuf.Bytes(), 0, nil
+}
+
+// runHookProcessScoped runs a bundle Hook from a host-resolved directory with
+// exactly the supplied environment. It keeps the existing stdin/stdout hook
+// protocol and output bounds.
+func runHookProcessScoped(ctx context.Context, command string, stdin []byte, cwd string, env []string) (stdout, stderr []byte, exitCode int, err error) {
+	if strings.TrimSpace(cwd) == "" {
+		return nil, nil, -1, errors.New("hook execution directory is unavailable")
+	}
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+	cmd.Dir = cwd
+	cmd.Env = append([]string(nil), env...)
 	cmd.Stdin = bytes.NewReader(stdin)
 	var out, errBuf limitedHookBuffer
 	cmd.Stdout = &out

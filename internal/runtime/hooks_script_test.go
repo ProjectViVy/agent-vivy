@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +61,25 @@ func TestScriptHookAllowPassthrough(t *testing.T) {
 	var input map[string]any
 	if err := json.Unmarshal(payload.ToolInput, &input); err != nil || input["path"] != "a.ts" {
 		t.Fatalf("tool_input = %s (err=%v)", payload.ToolInput, err)
+	}
+}
+
+func TestScriptHookScopedExecutionUsesExplicitCwdAndEnvironment(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, ".hook-scope-marker"), []byte("present"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIVY_HOOK_PARENT_SECRET", "must-not-be-inherited")
+	hook := NewScriptHook("test -f .hook-scope-marker && test \"$HOOK_ALLOWED\" = allowed && test -z \"${VIVY_HOOK_PARENT_SECRET+x}\"", "*", time.Second)
+	hook.Cwd = cwd
+	hook.Env = []string{"HOOK_ALLOWED=allowed"}
+	hook.ContextDigest = strings.Repeat("a", 64)
+	hook.runScoped = runHookProcessScoped
+	if _, err := hook.PreToolUse(context.Background(), hookCall); err != nil {
+		t.Fatalf("scoped Hook failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "must-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scoped Hook unexpectedly wrote into its cwd: %v", err)
 	}
 }
 

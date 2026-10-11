@@ -461,7 +461,7 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 // re-running pre-tool hooks. A hook rewrite is part of the approved payload;
 // running the hook again could turn approved script A into unreviewed B.
 func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapter, args json.RawMessage, approvedHash, policyHash string) (json.RawMessage, error) {
-	if approvedHash == "" || shellApprovalHash(args, policyHash, adapter.hooks) != approvedHash {
+	if approvedHash == "" || shellApprovalHashContext(ctx, args, policyHash, adapter.hooks) != approvedHash {
 		return nil, fmt.Errorf("%w: approved shell arguments changed", ErrPolicyDenied)
 	}
 	if err := validateDirectShellArgs(args); err != nil {
@@ -542,7 +542,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 	proposal.RiskFindings = boundShellFindings(proposal.RiskFindings)
 	proposal = boundToolProposalReview(proposal, p.mapper.maxPayload)
 	expiresAt := s.approvalDeadline(time.Now(), s.shellApprovalExpiration()).UnixMilli()
-	approvedHash := shellApprovalHash(args, p.snapshot.Hash, s.engine.cfg.ToolHooks)
+	approvedHash := shellApprovalHashContext(p.runCtx, args, p.snapshot.Hash, s.engine.cfg.ToolHooks)
 	approval := domain.Approval{
 		ID: newPrefixedID("apr_"), RunID: p.mapper.runID, ToolCallID: p.toolCallID,
 		Decision: domain.ApprovalPending, ExpiresAt: expiresAt, TimeoutAt: expiresAt,
@@ -876,7 +876,7 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 		return fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, tools.BashName, reason)
 	}
 	profile, snapshot, mode, face, sandboxMode, approvalPolicy := s.shellRecoveryMetadata(ctx, run.ID, approval)
-	if approval.PreconditionHash == "" || shellApprovalHash(state.Args, snapshot.Hash, s.engine.cfg.ToolHooks) != approval.PreconditionHash {
+	if approval.PreconditionHash == "" || shellApprovalHashContext(ctx, state.Args, snapshot.Hash, s.engine.cfg.ToolHooks) != approval.PreconditionHash {
 		return errors.New("runtime: protected shell state or governance generation does not match approval")
 	}
 	ledger, err := s.recoverShellBudgetLedger(ctx, run.ID)
@@ -1054,6 +1054,10 @@ func shellAuditLabel(args json.RawMessage) string {
 }
 
 func shellApprovalHash(args json.RawMessage, policyHash string, hooks *ToolHookChain) string {
+	return shellApprovalHashContext(context.Background(), args, policyHash, hooks)
+}
+
+func shellApprovalHashContext(ctx context.Context, args json.RawMessage, policyHash string, hooks *ToolHookChain) string {
 	hash := sha256.New()
 	_, _ = hash.Write(args)
 	_, _ = hash.Write([]byte{0})
@@ -1063,7 +1067,9 @@ func shellApprovalHash(args json.RawMessage, policyHash string, hooks *ToolHookC
 		for _, hook := range hooks.hooks {
 			if hook != nil {
 				identity := hook.Name()
-				if versioned, ok := hook.(ToolHookIdentity); ok {
+				if contextual, ok := hook.(ContextualToolHookIdentity); ok {
+					identity = contextual.GovernanceIdentityFor(ctx)
+				} else if versioned, ok := hook.(ToolHookIdentity); ok {
 					identity = versioned.GovernanceIdentity()
 				}
 				_, _ = hash.Write([]byte("\x00" + identity))

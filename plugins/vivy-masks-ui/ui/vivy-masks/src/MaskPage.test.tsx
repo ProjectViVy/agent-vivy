@@ -70,6 +70,48 @@ describe('MaskPage', () => {
     expect(selectionSessions).toContain('session-b');
     expect(container.querySelector('[data-active-mask]')?.getAttribute('data-active-mask')).toBe('builtin/writer');
   });
+
+  it('copies a bundled mask into a custom definition without changing session selection', async () => {
+    const source = {
+      id: 'bundle/install-id/pm', name: 'Project Manager', description: 'Plans work',
+      digest: 'a'.repeat(64), generation_id: 'generation', revision: 1, built_in: false,
+      origin: 'bundle', available: true, catalog_epoch: 8,
+      bundle: { release: { install_id: 'install-id', bundle_id: 'bmad/experts', release_digest: 'b'.repeat(64), release_sequence: 2 }, local_id: 'pm' },
+      recommended_skills: [{ ref: { install_id: 'install-id', kind: 'skill', local_id: 'pm' }, skill_id: 'b_installid_pm', name: 'PM Skill', available: true }],
+    };
+    const copied = {
+      ...source, id: 'custom/copied-pm', origin: 'custom', body: 'Plan the work carefully.', built_in: false,
+    };
+    const initialCatalog = { items: [source], next_after_id: '', catalog_epoch: 8 };
+    const call = vi.fn(async (_method: string, params?: unknown) => {
+      const action = (params as { action_id?: string; input?: { id?: string } } | undefined)?.action_id;
+      if (action === 'vivy.masks.catalog.list') return initialCatalog;
+      if (action === 'vivy.masks.selection.get') return { session_id: 'session-a', mask_id: '', revision: 1, available: true, inactive_reason: '' };
+      if (action === 'vivy.masks.catalog.get') return { ...source, body: 'Plan the work carefully.' };
+      if (action === 'vivy.masks.catalog.copy') return copied;
+      return {};
+    });
+    const host = makeHost('session-a', call);
+    await act(async () => root.render(<PluginHostProvider host={host}><MaskPage /></PluginHostProvider>));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-mask-id="bundle/install-id/pm"] button')!.click();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('a[href="/toolkits"]')).not.toBeNull();
+    await act(async () => {
+      [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('copyToCustom'))!.click();
+      await Promise.resolve();
+    });
+
+    const copyCall = call.mock.calls.find(([, params]) => (params as { action_id?: string }).action_id === 'vivy.masks.catalog.copy');
+    expect(copyCall?.[1]).toEqual(expect.objectContaining({
+      module_id: 'vivy/masks',
+      input: expect.objectContaining({ source_id: source.id, expected_catalog_epoch: 8, operation_id: expect.any(String) }),
+    }));
+    expect(call.mock.calls.some(([, params]) => (params as { action_id?: string }).action_id === 'vivy.masks.selection.set')).toBe(false);
+    expect(container.textContent).toContain('bundleCopyCreated');
+    expect(document.body.querySelector('[data-mask-editor]')).not.toBeNull();
+  });
 });
 
 function makeHost(

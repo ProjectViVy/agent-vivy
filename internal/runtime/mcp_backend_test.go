@@ -1179,17 +1179,19 @@ func TestMCPBackendStdioMissingEnvIsVisibleAndFailClosed(t *testing.T) {
 	}
 }
 
-func TestMCPStatusErrorPreservesPathsAndSyntheticEnvironmentValues(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "workspace-root")
+func TestMCPStatusErrorRedactsConfiguredSecretsAndPreservesPaths(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "mcp-root")
 	command := filepath.Join(root, "trusted", "mcp-server.exe")
 	t.Setenv("VIVY_MCP_SECRET", "resolved-secret-value")
+	t.Setenv("VIVY_MCP_AUTH", "resolved-auth-value")
 	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
-		Name: "local", Command: command, Cwd: "trusted", EnvFrom: map[string]string{"TOKEN": "VIVY_MCP_SECRET"},
+		Name: "local", Command: command, Cwd: "trusted", EnvFrom: map[string]string{"TOKEN": "VIVY_MCP_SECRET"}, AuthEnv: "VIVY_MCP_AUTH",
 	}}, nil, MCPBackendOptions{ProcessRoot: root})
 	t.Cleanup(func() { _ = backend.Close() })
-	raw := fmt.Sprintf("env=resolved-secret-value open %s cwd=%s root=%s\x1b[31m\u202e", command, filepath.Join(root, "trusted"), root)
+	raw := fmt.Sprintf("env=resolved-secret-value auth=resolved-auth-value open %s cwd=%s root=%s\x1b[31m\u202e", command, filepath.Join(root, "trusted"), root)
 	got := backend.SanitizeMCPError("local", errors.New(raw))
-	if len([]rune(got)) > 160 || !strings.Contains(got, "resolved-secret-value") || !strings.Contains(got, root) || strings.ContainsAny(got, "\x1b\u202e") {
+	if len([]rune(got)) > 160 || strings.Contains(got, "resolved-secret-value") || strings.Contains(got, "resolved-auth-value") ||
+		!strings.Contains(got, "[redacted]") || !strings.Contains(got, root) || strings.ContainsAny(got, "\x1b\u202e") {
 		t.Fatalf("unsafe MCP status error=%q", got)
 	}
 }

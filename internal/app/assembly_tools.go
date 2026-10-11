@@ -8,6 +8,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
@@ -279,9 +280,14 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			if stage.ctx != nil {
 				discoveryCtx = stage.ctx
 			}
+			discoveryTimeout := time.Duration(0)
+			if stage.provider.Definition().ID == "mcp" {
+				discoveryTimeout = runtime.MCPToolDiscoveryTimeout
+			}
 			worlds = append(worlds, toolhost.WorldBinding{
-				OwnerID:  stage.provider.Definition().ID,
-				Provider: stage.provider,
+				OwnerID:          stage.provider.Definition().ID,
+				Provider:         stage.provider,
+				DiscoveryTimeout: discoveryTimeout,
 				HostFor: func(ctx context.Context) toolworldport.Host {
 					return generatedWorldHost{
 						moduleID: stage.provider.Definition().ID,

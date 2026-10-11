@@ -1,7 +1,7 @@
 # Reference Project Index — AGENT-VIVY V0
 
 > **Status:** Living index of the local `.workspace/` reference projects that inform AGENT-VIVY V0 architecture and capability choices.
-> **Updated:** 2026-08-15
+> **Updated:** 2026-10-11
 > **Owner:** 📋 John (PM) with user (mastwet)
 > **Related:** `AGENT-VIVY-DIRECTION.md`, `AGENT-VIVY-ASSEMBLY-OPTIONS.md`, `prd-agent-vivy-v0.md`, `agent-vivy/docs/architecture/VIVY-STUDIO.md`
 
@@ -47,8 +47,11 @@ Every entry has the same shape:
 | 16 | zeroclaw | Rust | Apache-2.0 + MIT (dual) | Defer (personal-assistant reference) |
 | 17 | qwenpaw | Python | Apache-2.0 (verified 2026-08-07, not vendored locally) | Defer (V1+ filesystem journal backend design reference only) |
 | 18 | deepseek-harness | TypeScript | MIT | Adapt (Studio engine only — discipline and coding-agent surface; not a species dependency) |
+| 19 | ZCode | TypeScript | Apache-2.0 | Defer (suite/plugin architecture research only; no Vivy dependency or schema adoption) |
 
 The total `find` for source files under `.workspace/` (excluding vendor / target / node_modules / dist):
+
+The following totals are a historical scan from 2026-08-15, before the ZCode checkout was added; they have not been recomputed for this index update.
 
 ```
 ~1.16M lines  (across 16 directories)
@@ -271,6 +274,18 @@ These numbers are quick scans, not authoritative totals — they exist only to c
 - **May borrow:** profile stacking shape; skill discovery ranks; tool catalog *ideas*; sealed factory profile as Studio's first shell.
 - **Must NOT borrow:** Cordis as Vivy's kernel; DSH session log as Journal; community plugin discovery; launching Studio from the species.
 - **Verification:** `README.md`, `AGENTS.md`, `docs/architecture.md`, `docs/tool-catalog.md`, `LICENSE` read 2026-08-15.
+
+
+### 3.19 ZCode  (`.workspace/ZCode/`)
+
+- **Source:** `https://github.com/zai-org/ZCode` (cloned for this research on 2026-10-11; commit `aac4755666d09fdcd70272fcf063c077a639015f`).
+- **Language / stack:** TypeScript / pnpm monorepo; CLI, desktop, and web packages.
+- **License:** Apache-2.0 (`LICENSE` — header inspected).
+- **Why on disk:** secondary upstream reference for the content-pack / suite proposal in `agent-vivy/docs/research/suite-system-upstream-research-2026-10-11.md` and issue #20.
+- **Vivy intent:** **Defer** — research evidence only. The clone does not establish approval to adopt ZCode's schema, runtime, or trust policy.
+- **May borrow:** lifecycle, component projection, namespacing, diagnostics, and hook-admission behavior as comparison evidence for a Vivy-owned design.
+- **Must NOT borrow:** ZCode source code, its product runtime, or its current permissive third-party plugin-hook admission as a default safety policy.
+- **Verification:** `LICENSE` inspected; plugin manifest, component loader, lifecycle, hook runtime, design documents, and relevant adapter test source inspected at the pinned commit. Tests were not run.
 
 ## 4. Aggregate Constraints
 

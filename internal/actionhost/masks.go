@@ -86,6 +86,15 @@ func (host *maskActionHost) CreateMask(ctx context.Context, in maskcontract.Crea
 	return host.manager.CreateMask(managed, in)
 }
 
+func (host *maskActionHost) CopyMask(ctx context.Context, in maskcontract.CopyMaskRequest) (maskcontract.Definition, error) {
+	managed, release, err := host.managerContext(ctx)
+	if err != nil {
+		return maskcontract.Definition{}, err
+	}
+	defer release()
+	return host.manager.CopyMask(managed, in)
+}
+
 func (host *maskActionHost) UpdateMask(ctx context.Context, in maskcontract.UpdateRequest) (maskcontract.Definition, error) {
 	managed, release, err := host.managerContext(ctx)
 	if err != nil {

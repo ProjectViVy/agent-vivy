@@ -303,6 +303,7 @@ func (s *Service) rebuildPendingPlanReview(ctx context.Context, run domain.Run, 
 	}
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
 	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx = s.toolkitContext(runCtx, run.ID)
 	s.mu.Lock()
 	if isGoalRun {
 		s.goalRuns[run.SessionID] = run.ID

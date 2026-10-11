@@ -113,6 +113,26 @@
       "type": "string",
       "minLength": 1,
       "description": "SHA-256 digest of the admitted prompt snapshot payload."
+    },
+    "bundle_schema": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Immutable toolkit snapshot schema admitted for this run."
+    },
+    "bundle_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the admitted toolkit snapshot payload."
+    },
+    "bundle_epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Published toolkit catalog epoch captured by this run."
+    },
+    "bundle_catalog_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Effective catalog digest captured by this run."
     }
   },
   "required": [

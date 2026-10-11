@@ -129,6 +129,9 @@ func (m *promptBudgetModel) Stream(ctx context.Context, input []*schema.Message,
 }
 
 func (m *promptBudgetModel) check(ctx context.Context, input []*schema.Message) error {
+	if err := checkBundleFence(ctx); err != nil {
+		return err
+	}
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -184,5 +187,9 @@ func promptInstructionReservation(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return projectedContextBytes([]*schema.Message{schema.SystemMessage(instruction)}), nil
+	var payload storage.RunPromptPayload
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		return 0, fmt.Errorf("runtime: decode prompt reservation: %w", err)
+	}
+	return promptSnapshotReservation(instruction, payload.Rules), nil
 }

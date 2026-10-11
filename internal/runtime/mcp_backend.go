@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/commandpolicy"
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
@@ -38,6 +39,11 @@ const (
 	maxMCPResourcePages   = 32
 )
 
+// MCPToolDiscoveryTimeout bounds lazy MCP process startup and tool discovery.
+// Tool discovery can include package-manager startup (for example, npx), so it
+// has a longer budget than ordinary MCP operations and other dynamic worlds.
+const MCPToolDiscoveryTimeout = 30 * time.Second
+
 type MCPServerConfig struct {
 	Name           string
 	Endpoint       string
@@ -56,6 +62,14 @@ type MCPServerConfig struct {
 	// ToolExposure maps glob patterns on this server's discovered tool ids
 	// to an exposure level (direct, model-only, deferred, hidden).
 	ToolExposure map[string]string
+	// Toolkit provenance is populated only by the app's prepared owner
+	// projection. These identities contain no credential values.
+	ToolkitRef               *bundlecontract.ComponentRef
+	ToolkitReleaseDigest     string
+	ToolkitDeclarationDigest string
+	ToolkitConsentDigest     string
+	ToolkitConsentRevision   int64
+	ToolkitCatalogEpoch      int64
 }
 
 // MCPServerState is the snapshot vocabulary shared by MCPHost and the RPC/UI
@@ -84,6 +98,10 @@ type MCPBackendOptions struct {
 	Logger      *slog.Logger
 }
 
+// ToolkitMCPDiscoveryValidator checks the live installed declaration before
+// the MCP ToolWorld lazily opens a Toolkit transport for schema discovery.
+type ToolkitMCPDiscoveryValidator func(context.Context, MCPServerConfig) error
+
 // MCPBackend is the configuration/control facade for MCPHost. It retains only
 // logical server settings and secret-free status records; every live
 // mcp-go client and child process is created, initialized, replaced, and
@@ -97,11 +115,12 @@ type MCPBackend struct {
 	// servers is a logical configuration/status catalog only. It never owns a
 	// live mcp-go client or child process; MCPHost owns those resources through
 	// the session factory below.
-	servers          map[string]*mcpServer
-	mu               sync.RWMutex
-	maxResponseBytes int
-	timeout          time.Duration
-	closed           bool
+	servers                   map[string]*mcpServer
+	mu                        sync.RWMutex
+	toolkitDiscoveryValidator ToolkitMCPDiscoveryValidator
+	maxResponseBytes          int
+	timeout                   time.Duration
+	closed                    bool
 	// The facade serializes legacy catalog reads so concurrent control-plane
 	// callers do not turn an otherwise identical discovery into a Host
 	// generation race. MCPHost still retains its strict stale-discovery guard
@@ -310,6 +329,10 @@ func normalizeMCPServerConfig(config MCPServerConfig) MCPServerConfig {
 		enabled := *config.Enabled
 		config.Enabled = &enabled
 	}
+	if config.ToolkitRef != nil {
+		ref := *config.ToolkitRef
+		config.ToolkitRef = &ref
+	}
 	if config.EnvFrom != nil {
 		envFrom := make(map[string]string, len(config.EnvFrom))
 		for child, host := range config.EnvFrom {
@@ -347,6 +370,18 @@ func isASCIIMCPNameDigit(value byte) bool { return value >= '0' && value <= '9' 
 
 func sameMCPServerConfig(left, right MCPServerConfig) bool {
 	return reflect.DeepEqual(left, right)
+}
+
+// sameMCPHostConfigProjection compares the fields MCPHost owns. Toolkit
+// release/consent provenance and ToolExposure remain in MCPBackend and are
+// intentionally not serialized into MCPHost's transport identity.
+func sameMCPHostConfigProjection(left, right MCPServerConfig) bool {
+	left = normalizeMCPServerConfig(left)
+	right = normalizeMCPServerConfig(right)
+	return left.Name == right.Name && left.Endpoint == right.Endpoint && left.Command == right.Command &&
+		reflect.DeepEqual(left.Args, right.Args) && reflect.DeepEqual(left.EnvFrom, right.EnvFrom) &&
+		left.Cwd == right.Cwd && left.AuthEnv == right.AuthEnv && left.ResourceBridge == right.ResourceBridge &&
+		left.DeferredReason == right.DeferredReason && reflect.DeepEqual(left.Enabled, right.Enabled)
 }
 
 func hasMCPTransport(config MCPServerConfig) bool {
@@ -423,7 +458,7 @@ func (b *MCPBackend) statusForConfig(config MCPServerConfig) *mcpServer {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	entry := b.servers[config.Name]
-	if entry == nil || !sameMCPServerConfig(entry.config, config) {
+	if entry == nil || !sameMCPHostConfigProjection(entry.config, config) {
 		return nil
 	}
 	return entry
@@ -439,6 +474,30 @@ func (b *MCPBackend) ConfiguredServers() []MCPServerConfig {
 	b.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// SetToolkitMCPDiscoveryValidator attaches the App's durable Toolkit authority
+// check. Ordinary user MCP servers do not pass through this validator.
+func (b *MCPBackend) SetToolkitMCPDiscoveryValidator(validator ToolkitMCPDiscoveryValidator) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.toolkitDiscoveryValidator = validator
+	b.mu.Unlock()
+}
+
+func (b *MCPBackend) validateToolkitMCPDiscovery(ctx context.Context, config MCPServerConfig) error {
+	if b == nil {
+		return ErrBundleMCPNotCaptured
+	}
+	b.mu.RLock()
+	validator := b.toolkitDiscoveryValidator
+	b.mu.RUnlock()
+	if validator != nil {
+		return validator(ctx, config)
+	}
+	return validateToolkitMCPInvocation(ctx, config)
 }
 
 // ServerStatuses reports the backend's current in-process MCP truth without
@@ -544,11 +603,33 @@ func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
 	return b.sanitizeMCPStatusError(entry, err)
 }
 
-func (b *MCPBackend) sanitizeMCPStatusError(_ *mcpServer, err error) string {
+func (b *MCPBackend) sanitizeMCPStatusError(entry *mcpServer, err error) string {
 	if err == nil {
 		return ""
 	}
-	return boundedMCPStatusError(err.Error())
+	message := err.Error()
+	if entry != nil {
+		secrets := make(map[string]struct{})
+		addSecret := func(envName string) {
+			if value := os.Getenv(envName); value != "" {
+				secrets[value] = struct{}{}
+			}
+		}
+		addSecret(entry.config.AuthEnv)
+		for _, envName := range entry.config.EnvFrom {
+			addSecret(envName)
+		}
+		ordered := make([]string, 0, len(secrets))
+		for secret := range secrets {
+			ordered = append(ordered, secret)
+		}
+		sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
+		for _, secret := range ordered {
+			message = strings.ReplaceAll(message, secret, "\x00mcp-secret\x00")
+		}
+		message = strings.ReplaceAll(message, "\x00mcp-secret\x00", "[redacted]")
+	}
+	return boundedMCPStatusError(message)
 }
 
 // boundedMCPStatusError strips display control characters and caps the

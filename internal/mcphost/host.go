@@ -221,6 +221,9 @@ type Config struct {
 	// values explicitly as Tool IDs.
 	ProtectedToolIDs []string
 	OperationTimeout time.Duration
+	// DiscoveryTimeout bounds lazy process startup/initialization and tools/list.
+	// It remains separate from the shorter timeout used for ordinary calls.
+	DiscoveryTimeout time.Duration
 	MaxSafeRetries   int
 	// MaxSafeRetriesSet lets a composition root explicitly select zero safe
 	// retries while preserving the historical default for zero-valued callers.
@@ -250,6 +253,7 @@ type toolBinding struct {
 type Host struct {
 	factory          SessionFactory
 	operationTimeout time.Duration
+	discoveryTimeout time.Duration
 	maxSafeRetries   int
 	circuitThreshold int
 	maxSchemaBytes   int
@@ -266,6 +270,10 @@ func New(config Config) (*Host, error) {
 	timeout := config.OperationTimeout
 	if timeout <= 0 {
 		timeout = defaultOperationTimeout
+	}
+	discoveryTimeout := config.DiscoveryTimeout
+	if discoveryTimeout <= 0 {
+		discoveryTimeout = timeout
 	}
 	maxRetries := config.MaxSafeRetries
 	if maxRetries < 0 {
@@ -290,6 +298,7 @@ func New(config Config) (*Host, error) {
 	host := &Host{
 		factory:          config.Factory,
 		operationTimeout: timeout,
+		discoveryTimeout: discoveryTimeout,
 		maxSafeRetries:   maxRetries,
 		circuitThreshold: threshold,
 		maxSchemaBytes:   maxSchema,
@@ -429,6 +438,8 @@ func (host *Host) Status() []Status {
 }
 
 func (host *Host) DiscoverTools(ctx context.Context, instanceID string) ([]ToolDefinition, error) {
+	ctx, cancel := context.WithTimeout(ctx, host.discoveryTimeout)
+	defer cancel()
 	instance, err := host.lookupInstance(instanceID)
 	if err != nil {
 		return nil, err
@@ -442,7 +453,7 @@ func (host *Host) DiscoverTools(ctx context.Context, instanceID string) ([]ToolD
 		if err := host.discoveryStateError(instance, generation); err != nil {
 			return nil, err
 		}
-		session, err := host.ensureSession(ctx, instance)
+		session, err := host.ensureSessionWithTimeout(ctx, instance, host.discoveryTimeout)
 		if err != nil {
 			last = err
 			if errors.Is(err, ErrCircuitOpen) || errors.Is(err, ErrInstanceUnconfigured) || instance.config.DeferredReason != "" {
@@ -456,9 +467,7 @@ func (host *Host) DiscoverTools(ctx context.Context, instanceID string) ([]ToolD
 			}
 			continue
 		}
-		callCtx, cancel := context.WithTimeout(ctx, host.operationTimeout)
-		remote, callErr := session.DiscoverTools(callCtx)
-		cancel()
+		remote, callErr := session.DiscoverTools(ctx)
 		if callErr != nil {
 			last = host.failSession(instance, session, callErr, generation)
 			if errors.Is(last, ErrStaleDiscovery) {
@@ -835,7 +844,11 @@ func (host *Host) LookupTool(id string) (ToolDefinition, bool) {
 }
 
 func (host *Host) ensureSession(ctx context.Context, instance *instance) (Session, error) {
-	return instance.ensureSession(ctx, host.factory, host.operationTimeout, host.circuitThreshold)
+	return host.ensureSessionWithTimeout(ctx, instance, host.operationTimeout)
+}
+
+func (host *Host) ensureSessionWithTimeout(ctx context.Context, instance *instance, timeout time.Duration) (Session, error) {
+	return instance.ensureSession(ctx, host.factory, timeout, host.circuitThreshold)
 }
 
 func instanceEnabled(config InstanceConfig) bool {

@@ -56,6 +56,21 @@ describe('MaskClient', () => {
     });
   });
 
+  it('copies a Toolkit mask through the host-owned action with its catalog epoch', async () => {
+    const definition: MaskDefinition = {
+      id: 'custom/copied', name: 'Copied PM', description: '', body: 'body', revision: 1,
+      digest: 'b'.repeat(64), built_in: false, generation_id: 'generation', origin: 'custom',
+      bundle: { release: { install_id: 'install', bundle_id: 'bmad/experts', release_digest: 'a'.repeat(64), release_sequence: 3 }, local_id: 'pm' },
+    };
+    const rpc = transport(definition);
+    const client = new MaskClient(rpc);
+    const request = { operation_id: '00000000-0000-4000-8000-000000000002', source_id: 'bundle/install/pm', expected_catalog_epoch: 9 };
+
+    await client.copy(request);
+
+    expect(rpc.invoke).toHaveBeenCalledWith({ moduleId: MASK_MODULE_ID, actionId: MASK_ACTIONS.catalogCopy, input: request });
+  });
+
   it('sends explicit revisions for selection CAS and custom mutations', async () => {
     const selection: MaskSelection = {
       session_id: 'session-b', mask_id: 'builtin/writer', revision: 7, available: true, inactive_reason: '',

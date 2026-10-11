@@ -2,10 +2,36 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	mask "agent-vivy/internal/maskcontract"
 )
+
+// DecodeMaskBundleMetadata reconstructs copy provenance stored beside a
+// mutable custom Mask. Empty installID means this is an ordinary custom Mask.
+func DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest string, releaseSequence int64, recommendationsJSON []byte) (*mask.BundleProvenance, []mask.SkillRecommendation, error) {
+	if installID == "" {
+		if bundleID != "" || localID != "" || releaseDigest != "" || releaseSequence != 0 || len(recommendationsJSON) != 0 {
+			return nil, nil, errors.New("incomplete Mask copy metadata")
+		}
+		return nil, nil, nil
+	}
+	var recommendations []mask.SkillRecommendation
+	if err := json.Unmarshal(recommendationsJSON, &recommendations); err != nil || recommendations == nil {
+		return nil, nil, errors.New("invalid copied Mask recommendation metadata")
+	}
+	provenance := &mask.BundleProvenance{Release: bundlecontract.ReleaseRef{
+		InstallID: installID, BundleID: bundleID, ReleaseDigest: releaseDigest, ReleaseSequence: releaseSequence,
+	}, LocalID: localID}
+	sourceID, err := bundlecontract.MaskID(installID, localID)
+	if err != nil || mask.ValidateBundleProvenance(sourceID, releaseSequence, *provenance) != nil || mask.ValidateRecommendations(recommendations, provenance) != nil {
+		return nil, nil, errors.New("invalid copied Mask provenance")
+	}
+	return provenance, recommendations, nil
+}
 
 // MaskStore is the focused Core Storage extension for custom definitions,
 // session selections, and atomic capture. It carries no tenant/scope input;
@@ -28,6 +54,9 @@ type MaskCaptureCheck struct {
 	MaskID             string
 	DefinitionRevision int64
 	DefinitionDigest   string
+	Origin             mask.Origin
+	Bundle             *mask.BundleProvenance
+	RecommendedSkills  []mask.SkillRecommendation
 }
 
 type PersonaSnapshot struct {
@@ -35,6 +64,26 @@ type PersonaSnapshot struct {
 	Revision string
 	Digest   string
 	Body     string
+}
+
+// RunRuleBlock stores the exact authored bytes and release identity for a
+// literal Toolkit Rule admitted into a run. Rules are guidance only; they do
+// not carry executable authority.
+type RunRuleBlock struct {
+	Ref           bundlecontract.ComponentRef `json:"ref"`
+	Release       bundlecontract.ReleaseRef   `json:"release"`
+	ContentDigest string                      `json:"content_digest"`
+	Body          string                      `json:"body"`
+}
+
+// RunRulesSnapshot is immutable prompt evidence. Body is the deterministic
+// agentsmd projection of Blocks and Digest covers the face, source refs, and
+// exact bytes. It is optional in the prompt payload for legacy runs.
+type RunRulesSnapshot struct {
+	Face   string         `json:"face"`
+	Blocks []RunRuleBlock `json:"blocks"`
+	Body   string         `json:"body"`
+	Digest string         `json:"digest"`
 }
 
 type RunPromptPayload struct {
@@ -45,6 +94,7 @@ type RunPromptPayload struct {
 	Frozen        *PersonaSnapshot
 	Instruction   string
 	FramingDigest string
+	Rules         *RunRulesSnapshot `json:",omitempty"`
 }
 
 type RunPromptSnapshot struct {
@@ -63,12 +113,14 @@ type RunAdmission struct {
 	// OmitMessage admits an internal child activation whose task is carried in
 	// its immutable prompt snapshot rather than the parent Session transcript.
 	// It is valid only for one-shot child Runs.
-	OmitMessage  bool
-	Run          domain.Run
-	Started      domain.RunEvent
-	Prompt       *RunPromptSnapshot
-	ExpectedMask *MaskCaptureCheck
-	Edit         *SessionTruncation
+	OmitMessage    bool
+	Run            domain.Run
+	Started        domain.RunEvent
+	Prompt         *RunPromptSnapshot
+	ExpectedMask   *MaskCaptureCheck
+	Bundle         *RunBundleSnapshot
+	ExpectedBundle *bundlecontract.CaptureCheck
+	Edit           *SessionTruncation
 }
 
 type RunAdmissionStore interface {

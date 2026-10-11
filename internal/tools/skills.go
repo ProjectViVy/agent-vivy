@@ -22,6 +22,7 @@ const (
 
 type SkillSummary struct {
 	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
 	Description string `json:"description"`
 	Context     string `json:"context,omitempty"`
 	Agent       string `json:"agent,omitempty"`
@@ -32,9 +33,10 @@ type SkillSummary struct {
 	// Tools lists the tool names the SKILL.md frontmatter declares. Viewing
 	// the skill mounts them for the remainder of the run (MountedTools).
 	Tools []string `json:"tools,omitempty"`
-	// Origin is "project" for launch-directory overlays and "user" for
-	// skills_root / marketplace packages.
+	// Origin is "project" for launch-directory overlays, "user" for
+	// skills_root / marketplace packages, or "bundle" for a read-only Toolkit Skill.
 	Origin   string   `json:"origin,omitempty"`
+	Source   string   `json:"source,omitempty"`
 	Enabled  bool     `json:"enabled"`
 	Hash     string   `json:"hash"`
 	Warnings []string `json:"warnings,omitempty"`

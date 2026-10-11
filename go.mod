@@ -157,6 +157,7 @@ require (
 	agent-vivy/plugins/vivy-memory v0.0.0
 	agent-vivy/plugins/vivy-notebook v0.0.0
 	agent-vivy/plugins/vivy-persona v0.0.0
+	agent-vivy/plugins/vivy-toolkits-ui v0.0.0
 	agent-vivy/plugins/vivy-workflow v0.0.0
 	github.com/ProjectViVy/agent-vivy/bml v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -249,6 +250,8 @@ replace agent-vivy/faces/headless => ./faces/headless
 replace agent-vivy/faces/tui => ./faces/tui
 
 replace agent-vivy/plugins/vivy-masks-ui => ./plugins/vivy-masks-ui
+
+replace agent-vivy/plugins/vivy-toolkits-ui => ./plugins/vivy-toolkits-ui
 
 replace agent-vivy/plugins/vivy-workflow => ./plugins/vivy-workflow
 
