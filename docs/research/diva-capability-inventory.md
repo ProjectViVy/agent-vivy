@@ -1,5 +1,7 @@
 # Diva Capability Inventory (P2-1) — Keep / Adapt / Defer / Drop
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > **Date:** 2026-09-02
 > **Closes:** TODO §0.1 row P2-1 (`AGENT-VIVY-ASSEMBLY-OPTIONS.md` §5's V0 placeholder is replaced by this document's full inventory); PRD v0 row 23's "deferred to a later artifact" refers to this document.
 > **Evidence base:** `morediva/agent-diva` (Rust workspace, 17 crates) inventoried on site on 2026-09-02—README/AGENTS-ARCH.md/LAPUTA.md, each crate directory, `agent-diva-providers/src/providers.yaml` (47 provider presets, grep `- name:`), and `agent-diva-gui/src-tauri/src/commands.rs` (grep `#[tauri::command]` = 176+1). Evidence for each item is annotated inline with a file path; entries that cannot be verified are explicitly marked "unverified".

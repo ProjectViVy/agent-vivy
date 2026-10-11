@@ -1,5 +1,7 @@
 # SCX Plugin Integration Map
 
+> **2026-10-11 policy reconciliation:** Existing capability-aware backend CRUD/search and Host scope/admission/budget ownership remain. One shared subject Recap, revision-aware UI/agent management and targeted deletion refine this contract; no backend swap, dual write or migration is authorized. See the [selected unified context memory contract](VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Date: 2026-09-13
 Status: Gates A, B, and C passed for bounded fixtures A-C and the sealed SCX candidate Generation
 

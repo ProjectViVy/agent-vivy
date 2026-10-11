@@ -1,5 +1,7 @@
 # MEM-0E tracker and architecture doc update Implementation Plan
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > **For agentic workers:** Use superpowers:executing-plans for native execution. Steps use checkbox syntax.
 
 **Goal:** Repo trackers and SCX architecture docs reflect the scheduled MEMORY track and cite the landed G0 contracts.

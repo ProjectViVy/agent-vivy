@@ -1,5 +1,7 @@
 # Memory G0 mutation authority and readiness revalidation
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 MEM-0D (G0) research note for issue #33. Closes spec gaps GAP-C (mutation
 authority under the Port + Grant model) and GAP-D (revalidation of the
 pinned upstream surfaces: Eino/EinoExt at the versions in `go.mod`, and

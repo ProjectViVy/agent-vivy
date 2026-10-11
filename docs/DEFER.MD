@@ -1,5 +1,7 @@
 # AGENT-VIVY — Deferred, Superseded, and Declined Work
 
+> **2026-10-11 policy reconciliation:** Earlier backend/evolution stages remain historical deferred scopes; the selected #58 foundation policy is tracked on the open board and does not depend on MEM-2..5 or authorize their rollout. See the [selected unified context memory contract](architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > Board for work deliberately not scheduled, moved out of `docs/TODO.md`.
 > `docs/TODO.md` §0.1 remains the living open board; completed history is `docs/COMPLETE.MD`.
 > Original IDs are retained so historical references stay stable. A deferral is not a start order.

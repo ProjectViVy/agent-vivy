@@ -1,5 +1,7 @@
 # agent-diva AGENT-LOOP and agent-vivy Loop Comparison and Porting Assessment
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > Status: **research report** (an analysis document, not a product contract; it does not add or rewrite decisions).
 > Date: 2026-08-26 (revision: the official compaction middleware, native subagents, and TurnLoop were all reclassified as
 > "adopt the complete version")

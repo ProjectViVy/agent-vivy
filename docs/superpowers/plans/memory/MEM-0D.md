@@ -1,5 +1,7 @@
 # MEM-0D mutation authority and readiness revalidation Implementation Plan
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > **For agentic workers:** Use superpowers:executing-plans for native execution. Steps use checkbox syntax.
 
 **Goal:** Resolve every mutation route under current Grant ceilings, and revalidate the two external readiness claims (Eino fit, Laputa governance) against pinned revisions.
