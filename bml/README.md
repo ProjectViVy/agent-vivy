@@ -1,5 +1,7 @@
 # bml — Basic Memory Layer
 
+> **2026-10-11 policy reconciliation:** BML is the first validation backend for #58 through the existing abstraction; one Recap and normally deferred ACTMEM management tools are requirements, not implemented by this library or its backend memory_* CRUD tools. Default ingestion is successful-completion projection, not full transcript capture. See the [selected unified context memory contract](../docs/architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 `bml` is a standalone Go port of Diva's BML (Basic Memory Layer): the
 machine-wide typed SQLite + FTS5 memory authority that lives at
 `{config_dir}/memory/memory.sqlite3` and is exposed through the `Home`
@@ -7,8 +9,8 @@ facade.
 
 It is its own Go module (`github.com/ProjectViVy/agent-vivy/bml`) so it can be
 extracted later. It does not import any `agent-vivy` root packages, and the
-root module does not import it — wiring into the Vivy runtime is a separate
-integration story.
+root module now imports it through the existing memory Module adapter. The
+original library-port scope below remains distinct from runtime integration.
 
 Source of truth for the port: `agent-diva` at `0fd005a1`
 (`agent-diva-core` + `agent-diva-laputa` crates).
@@ -54,18 +56,20 @@ Source of truth for the port: `agent-diva` at `0fd005a1`
   ported. The `memory_apply_journal` table is kept in the schema for byte
   compatibility.
 
-## Deferred (out of scope for this module)
+## Original port exclusions and current integration
 
 - **ACTMEM** — `actmem.rs` (the working-memory markdown capsule store) and
   the `MemoryHome.actmem()` accessor.
-- **Diva `MemoryProvider` trait surface** — `prefetch`, `sync_turn`,
+- **Diva `MemoryProvider` trait surface** — now declared in `provider.go`;
+  declaring an interface is not an implemented ACTMEM store/agent tool. The
+  original port excluded `prefetch`, `sync_turn`,
   `checkpoint`, `session_end`, `system_prompt`, `recall_outcome`,
   `actmem_*`. These are runtime assembly, not BML storage. Consequently the
   `checkpoint_id`/`write_checkpoint` session-checkpoint write path inside
   `MemoryHome` is also unported; only session-checkpoint GC
   (`ClearSessionCheckpoint`/`RunStartupGC`) is present.
-- **Runtime wiring** — no Vivy `Port`/`Module`/provider glue; the root module
-  does not depend on `bml` yet.
+- **Runtime wiring** — outside this library, delivered by MEM-1A/1B through
+  the existing Vivy Module/Port/tool paths; not an outstanding library task.
 
 ## Known divergences
 

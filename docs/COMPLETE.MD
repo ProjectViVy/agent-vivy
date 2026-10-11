@@ -1,5 +1,7 @@
 # AGENT-VIVY — Completed TODO Archive
 
+> **2026-10-11 policy reconciliation:** Completed outcomes below are historical evidence for their pinned policy. They do not complete #58. BML-FIRST-INIT-CANCEL is now closed by merged PR #48; current gaps remain on docs/TODO.md. See the [selected unified context memory contract](architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > Historical archive for completed, closed, and superseded work moved out of `docs/TODO.md`.
 > Keep current execution decisions and unresolved work in `docs/TODO.md`.
 > The original section numbers are retained where possible so historical references remain stable.

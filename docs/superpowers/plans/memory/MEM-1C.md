@@ -1,5 +1,7 @@
 # MEM-1B/1C — Memory UI: full management surface
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Story ID: **MEM-1C** | Depends on: MEM-1A (runtime wiring) + MEM-1B (agent tools, merged on same branch) | Req: REQ-MEM-3
 
 ## Goal

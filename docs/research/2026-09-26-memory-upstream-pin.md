@@ -1,5 +1,7 @@
 # Memory upstream pin and drift reconciliation
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 MEM-0A (G0) research note for issue #33. Pins every upstream contract the
 issue cites to an exact revision and reconciles documented drift between
 upstream docs and upstream code. Evidence = inspected file lines at the

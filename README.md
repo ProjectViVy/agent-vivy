@@ -1,5 +1,7 @@
 # agent-vivy
 
+> **2026-10-11 policy reconciliation:** The owner-decided #58 target is VIVY foundation memory; LIFE is the first default-enabled pilot and coding agents are excluded in phase one. Implementation remains open. See the [selected unified context memory contract](docs/architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 AGENT-VIVY V0 runtime — a personal gateway Agent assembled on the Eino
 execution framework with a Vivy-owned thin application shell.
 

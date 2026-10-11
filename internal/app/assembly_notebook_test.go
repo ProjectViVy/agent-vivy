@@ -1,3 +1,6 @@
+//go:build !vivy_diva_integration
+
+// These assertions require the notebook factory selected by the default recipe.
 package app
 
 import (
