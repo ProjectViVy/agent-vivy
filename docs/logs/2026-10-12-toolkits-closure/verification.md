@@ -73,6 +73,13 @@ Repository: `agent-vivy`, branch `TOOLKITS`. Commands were run on macOS with `GO
 
   Result: 2 real-browser tests passed. At 390px, one opens the mobile navigation, drills into the VIVY section and opens Toolkits using keyboard focus and Enter, then checks for horizontal overflow. The other exercises preview failure and success, installs a native Skill+Mask Toolkit, opens an 1,800-character unbroken Skill body, verifies dialog/content bounds, then closes with Escape and confirms focus returns to the opener. This spec starts only the packaged Vivy backend and Vite UI. It does not create an MCP mock, declare an MCP component, or make an MCP connection.
 
+## Live MCP stdio closure smoke
+
+- Passed a one-off macOS integration smoke using the official [`server-everything`](https://github.com/modelcontextprotocol/servers/blob/main/src/everything/README.md) test server, pinned to `@modelcontextprotocol/server-everything@2026.8.18` and started by `npx` in stdio mode. The upstream describes it as a test server for MCP client builders and documents stdio startup. The package emitted npm's deprecation notice for date-based versions; the pinned release remained installable and completed this run.
+- The harness composed the server through Vivy's `MCPBackend` → MCPHost ToolWorld → App ToolHost registry, then ran a local `ScriptedModel` against a temporary SQLite store. No external model service or Windows environment was used. The MCP echo tool was correctly treated as effectful: the run paused for approval, the test explicitly approved it, and the completed run journal contained the exact marker returned by `mcp.everything.echo`.
+- Provider shutdown closed the session; a subsequent call through the previously bound ToolHost view failed. The temporary harness source was removed after the smoke; no product code was changed for this check.
+- Cold-cache limitation found during the first attempt: ToolHost's default world-discovery deadline is 2 seconds (`internal/toolhost/host.go`), and the first `npx` install/start exceeded it. After the package was present in the local npm cache, the same governed Vivy run passed. Therefore this proves the initialized stdio discovery/call/shutdown path, but it does not prove that a first-time `npx` install can finish within Vivy's current discovery deadline.
+
 - The existing lifecycle Playwright flow passed separately with its own fresh SQLite backend:
 
   ```sh

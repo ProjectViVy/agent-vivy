@@ -6,7 +6,7 @@ This is an evidence checkpoint for TK-13. “Proven” means the stated slice ha
 
 | Requirement | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| B1 Existing owners interpret content | Real App/UI reads a captured Skill; component views and lifecycle have focused tests. | Complete all owner run branches, including Rule/Hook/MCP through an actual governed run. |
+| B1 Existing owners interpret content | Real App/UI reads a captured Skill; live `server-everything` stdio smoke completes a scripted run through MCPHost and ToolHost, including approval, result journaling and shutdown. | Complete Rule/Hook governed runs and the Toolkit-captured MCP consent/provenance run path. |
 | B2 Multiple Masks and role/procedure separation | PM and Dev Masks are present in native UI E2E; recommendations stay distinct from Skills. | Full selection/run snapshot and update race matrix. |
 | B3 Recommendation does not grant or activate | Real UI demonstrates independent Skill use while PM/Dev recommendations are shown. | Broader before/after model, grant and consent invariance evidence. |
 | B4 Unambiguous identity | Identity, digest, source and storage tests pass; artifact UI exposes release digest. | Complete cross-source/reinstall collision integration cases. |
