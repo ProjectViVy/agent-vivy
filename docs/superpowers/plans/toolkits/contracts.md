@@ -78,12 +78,13 @@ TK-03 adds `internal/storage/bundles.go`; SQL stays in paired migrations/backend
 
 Logical tables: `bundle_installations`, `bundle_releases`, `bundle_catalog_epochs`, singleton `bundle_catalog_state`, `bundle_operations`, `bundle_consents`, `bundle_revocations`, `run_bundle_snapshots`, `bundle_artifact_refs`. Store artifact-derived component bodies only in immutable files, not a second editable SQL catalog. Snapshot payloads are execution evidence. Backends share logical fields, unique live BundleID semantics, CAS and receipt behavior.
 
-The initial empty epoch is 0. Epoch increments on successful publication only; installation metadata and operation receipts can change without publishing an enabled catalog. ReleaseSequence increases per installation including rollback. OperationID is UUID; identical input hashes replay the committed receipt, different hashes return `revision_conflict`. InstallID tombstones are never reused.
+The initial empty epoch is 0. Epoch increments on successful publication only; installation metadata and operation receipts can change without publishing an enabled catalog. ReleaseSequence increases per installation including rollback; the same ReleaseDigest may recur at a later sequence. OperationID is UUID; identical input hashes replay the committed receipt, different hashes return `revision_conflict`. InstallID tombstones are never reused.
 
 Proposed Store contract implemented by both backends:
 
 ```go
 type BundleStore interface {
+    CheckBundleLease(context.Context, string) error
     ReadBundleState(context.Context) (BundleState, error)
     SaveBundleInstallation(context.Context, InstallCommit) (Operation, error)
     BeginBundleOperation(context.Context, BeginOperation) (Operation, error)
@@ -93,10 +94,13 @@ type BundleStore interface {
     CommitBundleActivation(context.Context, ActivationCommit) (Operation, error)
     CommitBundleConsent(context.Context, ConsentCommit) (Operation, error)
     CommitBundleRevocation(context.Context, RevocationCommit) (Operation, error)
+    SaveRunBundleSnapshot(context.Context, RunBundleSnapshot) error
     LoadRunBundleSnapshot(context.Context, domain.RunID) (RunBundleSnapshot, error)
     ReadBundleReachability(context.Context) (ArtifactReachability, error)
 }
 ```
+
+`SaveBundleInstallation` rechecks the expected full CatalogIdentity inside the same transaction that writes the disabled install and receipt. The explicit `CheckBundleLease` read is reserved for reference-derived GC; activation and consent still validate the lease in their mutation transaction.
 
 Mutation records contain OperationID, InputDigest, expected CatalogIdentity/config/consent revisions as applicable, authenticated audit subject, and typed payload. `ActivationCommit` additionally contains candidate View identity/release references, desired install states and operation result. It checks no nonterminal runs, Mask references, lease validity, consent and catalog CAS in one transaction. Consent commits grant only exact current/candidate declaration hashes; revocations monotonically increment the fence revision. `CancelOperation` includes the expected operation revision and cannot cancel a committed publication or erase a fence.
 

@@ -39,6 +39,8 @@
     "vivy/storage",
     "vivy/telegram",
     "vivy/tool-host",
+    "vivy/toolkits",
+    "vivy/toolkits-ui",
     "vivy/workflow-ui"
   ],
   "channels": [
@@ -94,6 +96,7 @@
     "vivy.masks.catalog.list",
     "vivy.masks.catalog.get",
     "vivy.masks.catalog.create",
+    "vivy.masks.catalog.copy",
     "vivy.masks.catalog.update",
     "vivy.masks.catalog.delete",
     "vivy.masks.selection.get",
@@ -129,7 +132,30 @@
     "vivy.reports.get",
     "vivy.reports.cancel",
     "vivy.reports.settings.read",
-    "vivy.reports.settings.write"
+    "vivy.reports.settings.write",
+    "vivy.bundles.list",
+    "vivy.bundles.get",
+    "vivy.bundles.inspect",
+    "vivy.bundles.preview",
+    "vivy.bundles.preview-git",
+    "vivy.bundles.install",
+    "vivy.bundles.prepare-update",
+    "vivy.bundles.prepare-update-git",
+    "vivy.bundles.enable",
+    "vivy.bundles.disable",
+    "vivy.bundles.uninstall",
+    "vivy.bundles.rollback",
+    "vivy.bundles.operation.get",
+    "vivy.bundles.operation.publish",
+    "vivy.bundles.operation.cancel",
+    "vivy.bundles.component.get",
+    "vivy.bundles.hook.arm",
+    "vivy.bundles.hook.disarm",
+    "vivy.bundles.mcp.authorize",
+    "vivy.bundles.mcp.revoke",
+    "vivy.bundles.bindings.set",
+    "vivy.bundles.source.rebind",
+    "vivy.bundles.source.rebind-git"
   ],
   "toolWorldProviders": [
     "mcp"

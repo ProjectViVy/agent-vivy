@@ -27,6 +27,8 @@ import (
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/bundlecontract"
+	"agent-vivy/internal/bundles"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/config"
@@ -41,6 +43,7 @@ import (
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
+	maskmodule "agent-vivy/internal/modules/masks"
 	memorymodule "agent-vivy/internal/modules/memory"
 	modelmodule "agent-vivy/internal/modules/model"
 	notebookmodule "agent-vivy/internal/modules/notebook"
@@ -52,6 +55,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
+	"agent-vivy/internal/toolkitcontract"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
@@ -74,6 +78,7 @@ type App struct {
 	logger *slog.Logger
 
 	service      *runtime.Service
+	toolkits     *bundles.Manager
 	channels     *channelhost.Host
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
@@ -304,6 +309,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, errors.New("app: storage backend does not implement primary run store")
 	}
+	bundleStore, ok := backend.(storage.BundleStore)
+	if !ok {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not implement toolkit store")
+	}
+	leaseOwner, ok := backend.(storage.OrganismLeaseOwner)
+	if !ok || leaseOwner.OrganismLeaseOwner() == "" {
+		_ = backend.Close()
+		return nil, errors.New("app: storage backend does not expose organism lease ownership")
+	}
 
 	// The memory service is composition-owned: opened once after storage when
 	// the Generation compiled the memory action module, then resolved by the
@@ -399,6 +414,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var fileRecorder tools.FileVersionRecorder
 	var skillOps tools.SkillOperations
 	var skillBackend *runtime.EinoSkillBackend
+	var toolkitManager *bundles.Manager
 	var todoOps tools.TodoOperations
 	var searchOps tools.SearchOperations
 	var httpOps tools.HTTPOperations
@@ -434,6 +450,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		skillBackend.SetSessionWorkspaceLookup(backend)
 		skillOps = built
 	}
+	// Toolkit Skills share the existing protected Skill tools while retaining
+	// a read-only, late-bound owner over the captured Toolkit View.
+	skillOps = runtime.NewBundleSkillOperations(skillOps, func() *bundles.Manager { return toolkitManager })
 	var marketplace tools.SkillsMarketplace
 	if skillBackend != nil {
 		built, err := runtime.NewMarketplaceService(skillBackend, cfg.Runtime.SkillsMarketplaceURL)
@@ -664,7 +683,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	userHooks := scriptHooksForConfig(cfg, func(format string, args ...any) {
 		logger.Warn("hook registered but not approved", "detail", fmt.Sprintf(format, args...))
 	})
-	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout, userHooks...)
+	bundleHooks := runtime.NewBundleHookDispatcher(bundleStore, runtime.BundleHookExecutionResolverFunc(
+		func(ctx context.Context, view bundlecontract.View, record bundlecontract.ComponentRecord, workspaceRoot string) (string, string, error) {
+			if toolkitManager == nil {
+				return "", "", errors.New("toolkits: Hook execution owner is unavailable")
+			}
+			return toolkitManager.ResolveHookExecution(ctx, view, record, workspaceRoot)
+		}), cfg.Governance.HookTimeout)
+	orderedHooks := append([]runtime.ToolHook(nil), userHooks...)
+	orderedHooks = append(orderedHooks, bundleHooks)
+	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout, orderedHooks...)
 	// Resolve the effective context-compression policy against the model's
 	// context window (settings overlay already folded into cfg at startup).
 	modelWindow := 0
@@ -688,6 +716,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, err
 	}
+	engineCfg.SkillSources = append(engineCfg.SkillSources, runtime.NewBundleSkillSource())
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
 	eng, err := loopDriver.Build(ctx, ts, engineCfg)
@@ -710,6 +739,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// every generated Channel Provider must carry the focused v1 Channel ABI (FR-10).
 	// The headless face composes with no ears (WithoutEars).
 	var svc *runtime.Service
+	toolkitManagerOwned := false
+	defer func() {
+		if toolkitManagerOwned && toolkitManager != nil {
+			_ = toolkitManager.Close(context.Background())
+		}
+	}()
 	var channelHost *channelhost.Host
 	if ao.channels {
 		channelPlugins, err := bindChannels(runtimeAssembly.Channels, runtimeAssembly.ChannelGrants, cfg.Channels)
@@ -910,6 +945,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Channels:        channelHost,
 		Titles:          provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		Admission:       admission,
+		Bundles:         bundleStore,
 		MaskResolver:    maskService,
 		MaskFrame:       maskFrame,
 		MaskFrameDigest: maskFrameDigest,
@@ -926,6 +962,54 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		CacheWarmingMode:          cfg.Runtime.CacheWarming,
 		CacheWarmingMinSavingsUSD: cfg.Runtime.CacheWarmingMinSavingsUSD,
 	})
+	toolkitLimits := bundlecontract.DefaultLimits()
+	toolkitOwnerCapabilities := toolkitcontract.Capabilities{Owners: map[bundlecontract.ComponentKind]bool{
+		bundlecontract.Skill: assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/skill-source"),
+		bundlecontract.Mask:  maskService != nil,
+		bundlecontract.Rule:  true,
+		bundlecontract.Hook:  true,
+		bundlecontract.MCP:   mcpBackend != nil,
+	}}
+	currentUserMCPConfigs := func() []runtime.MCPServerConfig {
+		if live, loadErr := settings.Load(liveSettingsPath); loadErr == nil {
+			return liveMCPConfigs(cfg, live)
+		}
+		return mcpRuntimeConfigs(cfg.Runtime.MCPServers)
+	}
+	toolkitManager, err = bundles.NewManager(bundles.Config{
+		StateRoot: dataRoot, Limits: toolkitLimits,
+		Capabilities: bundles.Capabilities{Owners: toolkitOwnerCapabilities.Owners, Limits: toolkitLimits},
+		Gate:         toolkitDrainGate{service: func() *runtime.Service { return svc }},
+		PrepareOwners: func(prepareCtx context.Context, view bundlecontract.View) (bundles.PreparedOwners, error) {
+			return prepareToolkitMCPOwners(prepareCtx, view, bundleStore, mcpBackend, currentUserMCPConfigs(),
+				assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host"))
+		},
+		MCPStatuses: func() []bundles.MCPRuntimeStatus {
+			if mcpBackend == nil {
+				return nil
+			}
+			statuses := mcpBackend.ServerStatuses()
+			out := make([]bundles.MCPRuntimeStatus, 0, len(statuses))
+			for _, status := range statuses {
+				out = append(out, bundles.MCPRuntimeStatus{Name: status.Name, State: string(status.State), Initialized: status.Initialized, ToolCount: status.ToolCount})
+			}
+			return out
+		},
+		LeaseOwner: leaseOwner.OrganismLeaseOwner(),
+	}, bundleStore)
+	if err != nil {
+		return nil, fmt.Errorf("app: create toolkit coordinator: %w", err)
+	}
+	toolkitManagerOwned = true
+	if err := toolkitManager.Recover(ctx); err != nil {
+		return nil, fmt.Errorf("app: recover toolkit catalog: %w", err)
+	}
+	if owner, ok := maskService.(interface {
+		SetToolkitManager(maskmodule.ToolkitViewManager)
+	}); ok {
+		owner.SetToolkitManager(toolkitManager)
+	}
+	svc.SetToolkitRuntime(toolkitRuntimeBridge{manager: toolkitManager})
 	if cognitiveBundle != nil {
 		if err := cognitiveBundle.AttachRuntime(&cognitiveControlPort{svc: svc, bundle: cognitiveBundle}); err != nil {
 			_ = cognitiveBundle.Close()
@@ -973,6 +1057,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		authenticateAction := actionAuthenticate(string(rpcToken))
 		authorizeAction := actionAuthorize(policy, liveProfile)
 		authorizeAction = withNotebookHumanOrigin(authorizeAction, policy, liveProfile)
+		authorizeAction = withToolkitHumanOrigin(authorizeAction, policy, liveProfile)
 		authorizeBridge := func(ctx context.Context, identity actionhost.Identity, request actionhost.BridgeRequest) error {
 			if identity.SessionID == "" {
 				return actionport.ErrUnauthenticated
@@ -996,13 +1081,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			cognitiveProvider = provider
 		}
 		actionHost, err = actionhost.New(actionhost.Deps{
-			ProviderSets:   runtimeAssembly.ActionSets,
-			MaskManager:    maskService,
-			Cognitive:      cognitiveProvider,
-			Notebook:       notebookBundle,
-			NotebookScopes: notebookScopeResolver{engine: backend},
-			Reports:        reportsBundle,
-			ReportScopes:   reportScopeResolver{engine: backend},
+			ProviderSets:        runtimeAssembly.ActionSets,
+			MaskManager:         maskService,
+			ToolkitManager:      toolkitManager,
+			ToolkitCapabilities: toolkitOwnerCapabilities,
+			Cognitive:           cognitiveProvider,
+			Notebook:            notebookBundle,
+			NotebookScopes:      notebookScopeResolver{engine: backend},
+			Reports:             reportsBundle,
+			ReportScopes:        reportScopeResolver{engine: backend},
 			CognitiveSessionCheck: func(ctx context.Context, sessionID domain.SessionID) error {
 				_, err := backend.GetSession(ctx, sessionID)
 				return err
@@ -1222,12 +1309,30 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			mcpChanged := false
 			if mcpBackend != nil {
 				nextMCPConfigs := liveMCPConfigs(cfg, s)
+				if toolkitManager != nil {
+					handle, pinErr := toolkitManager.PinCurrent()
+					if pinErr != nil {
+						logger.Warn("toolkit MCP view pin failed", "err", pinErr)
+						return
+					}
+					merged, mergeErr := mergeToolkitMCPConfigs(context.Background(), handle.View(), bundleStore,
+						nextMCPConfigs, assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host"))
+					handle.Release()
+					if mergeErr != nil {
+						logger.Warn("toolkit MCP settings merge failed", "err", mergeErr)
+						return
+					}
+					nextMCPConfigs = merged
+				}
 				registryMu.RLock()
 				previousMCPConfigs := append([]runtime.MCPServerConfig(nil), appliedMCPConfigs...)
 				registryMu.RUnlock()
 				mcpChanged = !sameMCPRuntimeConfigs(nextMCPConfigs, previousMCPConfigs)
 				if mcpChanged {
-					mcpBackend.ReplaceServers(nextMCPConfigs)
+					if drainErr := replaceMCPServersWithDrain(svc, mcpBackend, nextMCPConfigs); drainErr != nil {
+						logger.Warn("MCP settings publication deferred", "err", drainErr)
+						return
+					}
 					currentMCPConfigs := mcpBackend.ConfiguredServers()
 					registryMu.Lock()
 					appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), currentMCPConfigs...)
@@ -1329,6 +1434,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		cfg:          cfg,
 		logger:       logger,
 		service:      svc,
+		toolkits:     toolkitManager,
 		channels:     channelHost,
 		actionHost:   actionHost,
 		observerHost: runObserverHost,
@@ -1361,6 +1467,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// §3). A gateway-less generation reaches the identical control plane
 	// through DialControl instead.
 	if !ao.gateway {
+		toolkitManagerOwned = false
 		return app, nil
 	}
 
@@ -1394,6 +1501,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Handler:           controlrpc.AccessLogMiddleware(logger, mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	toolkitManagerOwned = false
 	return app, nil
 }
 
@@ -1473,6 +1581,10 @@ func (a *App) startClose() {
 			if a.observerHost != nil {
 				a.closeStage.Store("run observer")
 				a.observerHost.Close()
+			}
+			if a.toolkits != nil {
+				a.closeStage.Store("toolkit coordinator")
+				a.closeErr = errors.Join(a.closeErr, a.toolkits.Close(shutdownCtx))
 			}
 			// The owned Garden runtime outlives the Service and observer
 			// admission paths but closes before the storage backend.
@@ -1599,6 +1711,33 @@ func withNotebookHumanOrigin(next func(context.Context, actionhost.Identity, act
 	return func(ctx context.Context, identity actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
 		if err := next(ctx, identity, definition, input); err != nil {
 			if errors.Is(err, actionport.ErrApprovalRequired) && identity.ID != "" && identity.RunID == "" && definition.Owner == "vivy/notebook-core" {
+				if policy == nil {
+					return err
+				}
+				evaluation, evalErr := policy.Evaluate(liveProfile, actionToolSpec(definition), input)
+				if evalErr == nil && evaluation.Decision == domain.PolicyPrompt && !evaluation.Matched {
+					return nil
+				}
+			}
+			return err
+		}
+		return nil
+	}
+}
+
+// withToolkitHumanOrigin admits direct, session-bound Toolkit management
+// actions under the default profile. The UI has its own explicit prepare,
+// review, and publish steps, while ActionHost has no approval continuation
+// route for a direct control-plane call. Only the profile's default prompt is
+// relaxed; agent-bound calls, missing identities/sessions, explicit policy
+// rules, and provider approval requirements remain denied.
+func withToolkitHumanOrigin(next func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error, policy *runtime.PolicyEngine, liveProfile domain.PolicyProfile) func(context.Context, actionhost.Identity, actionport.Definition, json.RawMessage) error {
+	return func(ctx context.Context, identity actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
+		if err := next(ctx, identity, definition, input); err != nil {
+			if errors.Is(err, actionport.ErrApprovalRequired) &&
+				identity.ID != "" && identity.SessionID != "" && identity.RunID == "" &&
+				definition.Owner == "vivy/toolkits" &&
+				!definition.RequiresApproval && !definition.ApprovalRequired {
 				if policy == nil {
 					return err
 				}
@@ -2063,6 +2202,10 @@ func (a *App) Run(ctx context.Context) error {
 	if a.observerHost != nil {
 		a.observerHost.Close()
 	}
+	var toolkitCloseErr error
+	if a.toolkits != nil {
+		toolkitCloseErr = a.toolkits.Close(shutdownCtx)
+	}
 	var cognitiveCloseErr error
 	if a.cognitive != nil {
 		cognitiveCloseErr = a.cognitive.Close()
@@ -2099,6 +2242,9 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if assemblyCloseErr != nil {
 		return fmt.Errorf("close generated assembly: %w", assemblyCloseErr)
+	}
+	if toolkitCloseErr != nil {
+		return fmt.Errorf("close toolkit coordinator: %w", toolkitCloseErr)
 	}
 	if cognitiveCloseErr != nil {
 		return fmt.Errorf("close cognitive runtime: %w", cognitiveCloseErr)

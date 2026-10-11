@@ -56,6 +56,11 @@
       "placeholders": [],
       "messages": {"en": "built-in", "zh": "内置"}
     },
+    "plugin.vivy/masks-ui.bundle": {
+      "description": "Toolkit mask badge",
+      "placeholders": [],
+      "messages": {"en": "from toolkit", "zh": "来自工具包"}
+    },
     "plugin.vivy/masks-ui.loading": {
       "description": "Mask UI loading label",
       "placeholders": [],
@@ -205,6 +210,66 @@
       "description": "Mask UI duplicate",
       "placeholders": [],
       "messages": {"en": "Duplicate and edit", "zh": "复制并编辑"}
+    },
+    "plugin.vivy/masks-ui.copyToCustom": {
+      "description": "Copy a read-only toolkit mask into the custom mask library",
+      "placeholders": [],
+      "messages": {"en": "Copy to my masks", "zh": "复制到我的面具"}
+    },
+    "plugin.vivy/masks-ui.bundleSource": {
+      "description": "Source information for a toolkit mask",
+      "placeholders": [],
+      "messages": {"en": "Toolkit source", "zh": "工具包来源"}
+    },
+    "plugin.vivy/masks-ui.copiedFromToolkit": {
+      "description": "Retained provenance of a custom mask copied from a toolkit",
+      "placeholders": [],
+      "messages": {"en": "Copied from Toolkit", "zh": "复制自工具包"}
+    },
+    "plugin.vivy/masks-ui.release": {
+      "description": "Toolkit release sequence label",
+      "placeholders": [],
+      "messages": {"en": "Release", "zh": "版本"}
+    },
+    "plugin.vivy/masks-ui.openToolkits": {
+      "description": "Link to the Toolkit management page",
+      "placeholders": [],
+      "messages": {"en": "Open Toolkits", "zh": "打开工具包管理"}
+    },
+    "plugin.vivy/masks-ui.recommendedSkills": {
+      "description": "Skills recommended by this mask",
+      "placeholders": [],
+      "messages": {"en": "Recommended Skills", "zh": "推荐 Skill"}
+    },
+    "plugin.vivy/masks-ui.openRecommendedSkills": {
+      "description": "Open the Skills owner page",
+      "placeholders": [],
+      "messages": {"en": "Open Skills", "zh": "打开 Skills 管理"}
+    },
+    "plugin.vivy/masks-ui.skillAvailable": {
+      "description": "Recommended Skill is available independently",
+      "placeholders": [],
+      "messages": {"en": "available separately", "zh": "可单独使用"}
+    },
+    "plugin.vivy/masks-ui.skillUnavailable": {
+      "description": "Recommended Skill is unavailable in the current build",
+      "placeholders": [],
+      "messages": {"en": "unavailable in this build", "zh": "当前构建不可用"}
+    },
+    "plugin.vivy/masks-ui.recommendationOnly": {
+      "description": "Recommendation does not activate a Skill",
+      "placeholders": [],
+      "messages": {"en": "Recommendations do not enable Skills or change permissions.", "zh": "推荐不会启用 Skill，也不会更改权限。"}
+    },
+    "plugin.vivy/masks-ui.bundleHint": {
+      "description": "Toolkit masks are read-only until copied",
+      "placeholders": [],
+      "messages": {"en": "This mask belongs to an installed Toolkit. Copy it to your custom library before editing; Toolkit and Mask selection remain independent.", "zh": "此面具来自已安装的工具包。编辑前请复制到自定义库；工具包启用与会话面具选择相互独立。"}
+    },
+    "plugin.vivy/masks-ui.bundleCopyCreated": {
+      "description": "Toolkit mask copy created successfully",
+      "placeholders": [],
+      "messages": {"en": "A custom copy was created. Edit and save it when ready.", "zh": "已创建自定义副本。可继续编辑并保存。"}
     },
     "plugin.vivy/masks-ui.copyName": {
       "description": "Mask UI copyName",

@@ -10,6 +10,7 @@ const (
 	ActionCatalogList   = "vivy.masks.catalog.list"
 	ActionCatalogGet    = "vivy.masks.catalog.get"
 	ActionCatalogCreate = "vivy.masks.catalog.create"
+	ActionCatalogCopy   = "vivy.masks.catalog.copy"
 	ActionCatalogUpdate = "vivy.masks.catalog.update"
 	ActionCatalogDelete = "vivy.masks.catalog.delete"
 	ActionSelectionGet  = "vivy.masks.selection.get"

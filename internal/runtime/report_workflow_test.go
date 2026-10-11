@@ -76,6 +76,29 @@ func TestReportWorkflowEndToEnd(t *testing.T) {
 	_ = run
 }
 
+func TestReportWorkflowAdmissionStoresToolkitSnapshot(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	wireEmptyToolkitRuntime(t, svc, backend)
+	admission, err := svc.StartReport(ctx, reportAdmissionContext(), reportRequest("toolkit-report"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReportRun(t, svc, admission.RunID, domain.RunCompleted)
+	runID := domain.RunID(admission.RunID)
+	snapshot, err := backend.LoadRunBundleSnapshot(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marked, marker, err := svc.runBundleMarker(ctx, runID)
+	if err != nil || !marked {
+		t.Fatalf("report run.started toolkit marker = %+v, marked=%v, err=%v", marker, marked, err)
+	}
+	if marker.SchemaVersion != snapshot.SchemaVersion || marker.Digest != snapshot.PayloadSHA256 {
+		t.Fatalf("report marker = %+v, snapshot = %+v", marker, snapshot)
+	}
+}
+
 // TestReportWorkflowCancelled verifies cancellation leaves no publication
 // receipt and no fabricated success.
 func TestReportWorkflowCancelled(t *testing.T) {

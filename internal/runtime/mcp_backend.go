@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/commandpolicy"
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
@@ -56,6 +57,14 @@ type MCPServerConfig struct {
 	// ToolExposure maps glob patterns on this server's discovered tool ids
 	// to an exposure level (direct, model-only, deferred, hidden).
 	ToolExposure map[string]string
+	// Toolkit provenance is populated only by the app's prepared owner
+	// projection. These identities contain no credential values.
+	ToolkitRef               *bundlecontract.ComponentRef
+	ToolkitReleaseDigest     string
+	ToolkitDeclarationDigest string
+	ToolkitConsentDigest     string
+	ToolkitConsentRevision   int64
+	ToolkitCatalogEpoch      int64
 }
 
 // MCPServerState is the snapshot vocabulary shared by MCPHost and the RPC/UI
@@ -309,6 +318,10 @@ func normalizeMCPServerConfig(config MCPServerConfig) MCPServerConfig {
 	if config.Enabled != nil {
 		enabled := *config.Enabled
 		config.Enabled = &enabled
+	}
+	if config.ToolkitRef != nil {
+		ref := *config.ToolkitRef
+		config.ToolkitRef = &ref
 	}
 	if config.EnvFrom != nil {
 		envFrom := make(map[string]string, len(config.EnvFrom))

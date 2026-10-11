@@ -9,6 +9,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 var _ storage.ContinuityStore = (*Backend)(nil)
@@ -223,6 +224,12 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	if err := postgresCheckExpectations(ctx, tx, a.Expectations); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, a.ExpectedMask); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if err := bundlesql.ValidateCapture(ctx, &Tx{SQL: tx}, a.ExpectedBundle); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	if err := postgresInsertMessageTx(ctx, tx, a.Message); err != nil {
 		return storage.ContinuityResult{}, err
 	}
@@ -247,6 +254,19 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity run %s: %w", a.Run.ID, err)
 	}
 	if err := postgresFault(a.TestFaultHook, "run"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if a.Prompt != nil {
+		if err := postgresInsertAdmissionPrompt(ctx, &Tx{SQL: tx}, *a.Prompt); err != nil {
+			return storage.ContinuityResult{}, err
+		}
+	}
+	if a.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, &Tx{SQL: tx}, *a.Bundle); err != nil {
+			return storage.ContinuityResult{}, storage.AdmissionUnavailable("insert toolkit continuity snapshot", err)
+		}
+	}
+	if err := postgresFault(a.TestFaultHook, "capture"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
 	events := append([]domain.RunEvent(nil), a.Events...)

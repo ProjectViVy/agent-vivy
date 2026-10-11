@@ -85,6 +85,8 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 		"vivy/memory":            {"vivy/memory", "vivy.memory.sidebar", "plugins/vivy-memory"},
 		"vivy/notebook":          {"vivy/notebook", "vivy.notebook.sidebar", "plugins/vivy-notebook"},
 		"vivy/persona":           {"vivy/persona", "vivy.persona.sidebar", "plugins/vivy-persona"},
+		"vivy/toolkits":          {"vivy/toolkits", "vivy.bundles.list", "toolkits.ActionProviders"},
+		"vivy/toolkits-ui":       {"vivy/toolkits-ui", "vivy.toolkits-ui.sidebar", "plugins/vivy-toolkits-ui"},
 		"vivy/qq":                {"vivy/qq", "plugins/qq"},
 		"vivy/telegram":          {"vivy/telegram", "plugins/telegram"},
 	}

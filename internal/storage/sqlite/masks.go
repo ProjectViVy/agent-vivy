@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -24,10 +25,13 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 		return mask.Page{}, err
 	}
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, name, description, digest, revision
-		FROM mask_definitions
-		WHERE id > ?
-		ORDER BY id
+		SELECT m.id, m.name, m.description, m.digest, m.revision,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), COALESCE(bm.recommended_skills_json, X'')
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.id > ?
+		ORDER BY m.id
 		LIMIT ?`, in.AfterID, in.Limit+1)
 	if err != nil {
 		return mask.Page{}, maskStorageError("list custom masks", err)
@@ -37,10 +41,21 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 	items := make([]mask.Metadata, 0, in.Limit)
 	for rows.Next() {
 		var item mask.Metadata
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision); err != nil {
+		var installID, bundleID, localID, releaseDigest string
+		var releaseSequence int64
+		var recommendationsJSON []byte
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON); err != nil {
 			return mask.Page{}, maskStorageError("scan custom mask", err)
 		}
 		item.BuiltIn = false
+		item.Origin = mask.OriginCustom
+		item.Available = true
+		var metadataErr error
+		item.Bundle, item.RecommendedSkills, metadataErr = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+		if metadataErr != nil {
+			return mask.Page{}, maskStorageError("decode custom Mask provenance", metadataErr)
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -107,6 +122,28 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	}
 	if created.requestDigest != requestDigest {
 		return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
+	}
+	if in.Bundle != nil {
+		recommendations, marshalErr := json.Marshal(in.RecommendedSkills)
+		if marshalErr != nil {
+			return mask.Definition{}, maskStorageError("encode custom Mask recommendations", marshalErr)
+		}
+		provenance := in.Bundle
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO mask_bundle_metadata
+				(mask_id, install_id, bundle_id, local_id, release_digest, release_sequence, recommended_skills_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(mask_id) DO NOTHING`, created.definition.ID, provenance.Release.InstallID, provenance.Release.BundleID, provenance.LocalID,
+			provenance.Release.ReleaseDigest, provenance.Release.ReleaseSequence, recommendations); err != nil {
+			return mask.Definition{}, maskStorageError("persist custom Mask provenance", err)
+		}
+		created, found, err = sqliteFindMaskByOperation(ctx, tx, in.OperationID)
+		if err != nil || !found {
+			if err == nil {
+				err = errors.New("custom Mask operation row missing after provenance insert")
+			}
+			return mask.Definition{}, maskStorageError("read copied Mask provenance", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return mask.Definition{}, maskStorageError("commit create custom mask", err)
@@ -229,7 +266,7 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 		return mask.Capture{}, err
 	}
 	capture := mask.Capture{Selection: selection}
-	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) {
+	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) && !mask.IsBundleID(selection.MaskID) {
 		definition, err := b.getCustomMask(ctx, tx, selection.MaskID)
 		if err != nil {
 			return mask.Capture{}, err
@@ -238,6 +275,7 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 			ID: definition.ID, Name: definition.Name, Body: definition.Body,
 			Digest: definition.Digest, DefinitionRevision: definition.Revision,
 			SelectionRevision: selection.Revision, GenerationID: definition.GenerationID,
+			Origin: definition.Origin, Bundle: definition.Bundle, RecommendedSkills: definition.RecommendedSkills,
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -275,7 +313,15 @@ func (b *Backend) SetMaskSelection(ctx context.Context, in mask.SetSelectionRequ
 	if current.Revision != in.ExpectedRevision {
 		return mask.Selection{}, mask.NewRevisionError(mask.CodeRevisionConflict, current.Revision, nil)
 	}
-	if in.MaskID != "" && !mask.IsBuiltinID(in.MaskID) {
+	if mask.IsBundleID(in.MaskID) {
+		var currentEpoch int64
+		if err := tx.QueryRowContext(ctx, `SELECT epoch FROM bundle_catalog_state WHERE id = 1`).Scan(&currentEpoch); err != nil {
+			return mask.Selection{}, maskStorageError("read toolkit catalog epoch for mask selection", err)
+		}
+		if currentEpoch != in.ExpectedCatalogEpoch {
+			return mask.Selection{}, mask.NewRevisionError(mask.CodeRevisionConflict, currentEpoch, nil)
+		}
+	} else if in.MaskID != "" && !mask.IsBuiltinID(in.MaskID) {
 		if _, err := sqliteGetCustomMaskForUpdate(ctx, tx, in.MaskID); err != nil {
 			return mask.Selection{}, err
 		}
@@ -316,11 +362,19 @@ func sqliteFindMaskByOperation(ctx context.Context, q interface {
 }, operationID string) (sqliteOperationResult, bool, error) {
 	var result sqliteOperationResult
 	var body []byte
+	var installID, bundleID, localID, releaseDigest string
+	var releaseSequence int64
+	var recommendationsJSON []byte
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest, create_request_digest
-		FROM mask_definitions WHERE create_operation_id = ?`, operationID).
+		SELECT m.id, m.name, m.description, m.body, m.revision, m.digest, m.create_request_digest,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), COALESCE(bm.recommended_skills_json, X'')
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.create_operation_id = ?`, operationID).
 		Scan(&result.definition.ID, &result.definition.Name, &result.definition.Description, &body,
-			&result.definition.Revision, &result.definition.Digest, &result.requestDigest)
+			&result.definition.Revision, &result.definition.Digest, &result.requestDigest,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sqliteOperationResult{}, false, nil
 	}
@@ -329,6 +383,11 @@ func sqliteFindMaskByOperation(ctx context.Context, q interface {
 	}
 	result.definition.Body = string(body)
 	result.definition.BuiltIn = false
+	result.definition.Origin = mask.OriginCustom
+	result.definition.Bundle, result.definition.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+	if err != nil {
+		return sqliteOperationResult{}, false, maskStorageError("decode custom Mask provenance", err)
+	}
 	return result, true, nil
 }
 
@@ -359,10 +418,18 @@ func sqliteGetCustomMask(ctx context.Context, q interface {
 }, id string) (mask.Definition, error) {
 	var definition mask.Definition
 	var body []byte
+	var installID, bundleID, localID, releaseDigest string
+	var releaseSequence int64
+	var recommendationsJSON []byte
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest
-		FROM mask_definitions WHERE id = ?`, id).
-		Scan(&definition.ID, &definition.Name, &definition.Description, &body, &definition.Revision, &definition.Digest)
+		SELECT m.id, m.name, m.description, m.body, m.revision, m.digest,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), COALESCE(bm.recommended_skills_json, X'')
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.id = ?`, id).
+		Scan(&definition.ID, &definition.Name, &definition.Description, &body, &definition.Revision, &definition.Digest,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Definition{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -371,6 +438,11 @@ func sqliteGetCustomMask(ctx context.Context, q interface {
 	}
 	definition.Body = string(body)
 	definition.BuiltIn = false
+	definition.Origin = mask.OriginCustom
+	definition.Bundle, definition.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+	if err != nil {
+		return mask.Definition{}, maskStorageError("decode custom Mask provenance", err)
+	}
 	return definition, nil
 }
 

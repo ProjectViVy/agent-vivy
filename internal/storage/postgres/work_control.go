@@ -11,6 +11,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 type workPayload struct {
@@ -277,6 +278,7 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		}
 		if err := postgresCompareAdmission(ctx, tx, storage.RunAdmission{
 			Message: admission.Message, Run: admission.Run, Started: admission.Started, Prompt: admission.Prompt,
+			Bundle: admission.Bundle, ExpectedBundle: admission.ExpectedBundle,
 		}, existing); err != nil {
 			var conflict *maskcontract.Error
 			if errors.As(err, &conflict) && conflict.Code == maskcontract.CodeRevisionConflict {
@@ -296,6 +298,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	}
 
 	if err := b.postgresValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+		return storage.GoalRunCommitResult{}, err
+	}
+	if err := bundlesql.ValidateCapture(ctx, tx, admission.ExpectedBundle); err != nil {
 		return storage.GoalRunCommitResult{}, err
 	}
 	state := domain.WorkState{SessionID: admission.Mutation.SessionID}
@@ -388,6 +393,11 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	if admission.Prompt != nil {
 		if err := postgresInsertAdmissionPrompt(ctx, tx, *admission.Prompt); err != nil {
 			return storage.GoalRunCommitResult{}, err
+		}
+	}
+	if admission.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *admission.Bundle); err != nil {
+			return storage.GoalRunCommitResult{}, storage.AdmissionUnavailable("insert toolkit goal run snapshot", err)
 		}
 	}
 

@@ -66,7 +66,7 @@ func TestBundleStoreConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	conformance.RunBundles(t, conformance.BundleHarness{Setup: func(*testing.T) conformance.BundleSlot {
-		return conformance.BundleSlot{Store: b.BundleStore(), Close: b.Close}
+		return conformance.BundleSlot{Store: b.BundleStore(), Admission: b, Engine: b, LeaseOwner: b.OrganismLeaseOwner(), Close: b.Close}
 	}})
 }
 

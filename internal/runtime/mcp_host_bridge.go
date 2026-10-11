@@ -101,7 +101,7 @@ func (backend *MCPBackend) MCPToolWorldProvider() toolworld.Provider {
 	}
 	backend.bridgeMu.Lock()
 	defer backend.bridgeMu.Unlock()
-	return backend.bridgeWorld
+	return &bundleGuardedMCPWorld{backend: backend, delegate: backend.bridgeWorld}
 }
 
 // MCPResourceContextHost builds the explicit Resource -> ContextHost bridge

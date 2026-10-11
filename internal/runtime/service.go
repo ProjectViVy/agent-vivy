@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
@@ -185,6 +186,14 @@ type ServiceDeps struct {
 	// wiring supplies it when prompt snapshots are enabled; legacy embedders
 	// retain the existing sequential path when it is absent.
 	Admission storage.RunAdmissionStore
+	// Bundles is the shared catalog/evidence store used by the organism-wide
+	// toolkit publication drain. It is optional for services that do not expose
+	// toolkit publication; once wired, drain checks fail closed if storage is
+	// unavailable.
+	Bundles storage.BundleStore
+	// Toolkits supplies immutable captured Views and live executable fences.
+	// It is nil until the Toolkit coordinator is wired by the composition root.
+	Toolkits ToolkitRuntime
 	// Cognitive carries the bound authority ports for trusted strategy
 	// workflows (StartCognitiveWorkflow). Nil keeps trusted strategy
 	// admission unavailable; the authored workflow path is unaffected.
@@ -254,7 +263,12 @@ type Service struct {
 	defaultProfile domain.PolicyProfile
 
 	mu               sync.Mutex
+	bundleGateMu     sync.Mutex
+	bundleDrainID    string
+	bundleAdmissions int
 	active           map[domain.RunID]context.CancelFunc
+	bundleViews      map[domain.RunID]ToolkitViewHandle
+	bundleChecks     map[domain.RunID]bundlecontract.CaptureCheck
 	workflowStartMu  sync.Mutex
 	workflowNodeMu   sync.Mutex
 	operationMu      sync.Mutex
@@ -510,6 +524,8 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		defaultProfile:    deps.PolicyDefaultProfile,
 		approvalSettle:    deps.ApprovalSettleTimeout,
 		active:            make(map[domain.RunID]context.CancelFunc),
+		bundleViews:       make(map[domain.RunID]ToolkitViewHandle),
+		bundleChecks:      make(map[domain.RunID]bundlecontract.CaptureCheck),
 		operationFlights:  make(map[string]*toolOperationFlight),
 		goalStarting:      make(map[domain.SessionID]struct{}),
 		goalRuns:          make(map[domain.SessionID]domain.RunID),
@@ -606,6 +622,18 @@ func (s *Service) withAdmissionIntent(sessionID domain.SessionID, human bool, co
 // conservative defaults.
 func (s *Service) SetCatalog(catalog *provider.Catalog) {
 	s.catalog = catalog
+}
+
+// SetToolkitRuntime attaches the process-owned coordinator adapter after the
+// Service exists, allowing its publication gate to point back to this Service.
+// App calls this during startup before it exposes any admission surface.
+func (s *Service) SetToolkitRuntime(toolkits ToolkitRuntime) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.deps.Toolkits = toolkits
+	s.mu.Unlock()
 }
 
 // SetModel updates the provider/model labels used on run.started. A
@@ -901,6 +929,11 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if startupGateHeld && options.GoalRound == nil {
 		return "", errors.New("runtime: only a Goal candidate may reuse a held startup gate")
 	}
+	releaseBundleAdmission, err := s.reserveBundleAdmission()
+	if err != nil {
+		return "", err
+	}
+	defer releaseBundleAdmission()
 	if options.HumanAdmission && options.GoalRound == nil {
 		intentGate := s.humanIntentGate(sessionID)
 		intentGate.Lock()
@@ -1061,6 +1094,49 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if options.GoalRound != nil && options.GoalRound.RunID != "" {
 		runID = options.GoalRound.RunID
 	}
+	var bundleHandle ToolkitViewHandle
+	var bundleSnapshot *storage.RunBundleSnapshot
+	var expectedBundle *bundlecontract.CaptureCheck
+	bundleHandleTransferred := false
+	defer func() {
+		if bundleHandle != nil && !bundleHandleTransferred {
+			bundleHandle.Release()
+		}
+	}()
+	if s.deps.Toolkits != nil {
+		if s.deps.Bundles == nil {
+			return "", ErrBundleDrainUnavailable
+		}
+		handle, captured, check, captureErr := s.deps.Toolkits.CaptureRun(ctx, runID)
+		if captureErr != nil {
+			return "", fmt.Errorf("runtime: capture toolkit catalog: %w", captureErr)
+		}
+		if handle == nil || captured.RunID != runID || handle.View().Identity() != check.Catalog {
+			if handle != nil {
+				handle.Release()
+			}
+			return "", errors.New("runtime: toolkit capture is inconsistent")
+		}
+		if _, captureErr := storage.ValidateRunBundleSnapshot(captured); captureErr != nil {
+			handle.Release()
+			return "", fmt.Errorf("runtime: toolkit snapshot is invalid: %w", captureErr)
+		}
+		bundleHandle = handle
+		bundleSnapshot = &captured
+		expectedBundle = &check
+		if options.Continuity != nil && s.deps.Continuity == nil {
+			return "", ErrContinuityUnavailable
+		}
+		if options.GoalRound != nil && s.deps.GoalRuns == nil {
+			return "", errors.New("runtime: goal admission store is not wired")
+		}
+		if persist != nil && s.deps.Admission == nil {
+			return "", ErrToolkitAdmissionUnavailable
+		}
+		if persist == nil && options.Continuity == nil && options.GoalRound == nil && s.deps.PrimaryRuns == nil && s.deps.Admission == nil {
+			return "", ErrToolkitAdmissionUnavailable
+		}
+	}
 	if options.BeforeStart != nil {
 		if err := options.BeforeStart(runID); err != nil {
 			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
@@ -1072,7 +1148,15 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if s.deps.Admission != nil {
 		capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}}
 		if s.deps.MaskResolver != nil {
-			capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			if bundleHandle != nil {
+				if resolver, ok := s.deps.MaskResolver.(maskcontract.ViewResolver); ok {
+					capture, err = resolver.CaptureFromView(ctx, sessionID, bundleHandle.View())
+				} else {
+					capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+				}
+			} else {
+				capture, err = s.deps.MaskResolver.Capture(ctx, sessionID)
+			}
 			if err != nil {
 				return "", fmt.Errorf("runtime: capture session mask: %w", err)
 			}
@@ -1086,6 +1170,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
 				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
 				expectedMask.DefinitionDigest = capture.Mask.Digest
+				expectedMask.Origin = capture.Mask.Origin
+				expectedMask.Bundle = cloneMaskBundleProvenance(capture.Mask.Bundle)
+				expectedMask.RecommendedSkills = cloneMaskRecommendations(capture.Mask.RecommendedSkills)
 			}
 		}
 		var frozenText, frozenDigest string
@@ -1106,10 +1193,18 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 			frozenText, frozenDigest = prepared.Text, prepared.Digest
 		}
+		var rules *storage.RunRulesSnapshot
+		if bundleHandle != nil {
+			rules, err = PrepareBundleRules(bundleHandle.View(), face)
+			if err != nil {
+				return "", fmt.Errorf("runtime: prepare Toolkit Rules: %w", err)
+			}
+		}
 		built, buildErr := buildPromptSnapshot(PromptInput{
 			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
 			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
 			FrozenText: frozenText, FrozenDigest: frozenDigest,
+			Rules: rules, MaxContextBytes: s.engine.cfg.MaxContextBytes,
 		})
 		if buildErr != nil {
 			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
@@ -1192,8 +1287,35 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		HistoryScope: admittedScope,
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
+		BundleSchema: func() int {
+			if bundleSnapshot != nil {
+				return bundleSnapshot.SchemaVersion
+			}
+			return 0
+		}(),
+		BundleDigest: func() string {
+			if bundleSnapshot != nil {
+				return bundleSnapshot.PayloadSHA256
+			}
+			return ""
+		}(),
+		BundleEpoch: func() int64 {
+			if expectedBundle != nil {
+				return expectedBundle.Catalog.Epoch
+			}
+			return 0
+		}(),
+		BundleCatalogDigest: func() string {
+			if expectedBundle != nil {
+				return expectedBundle.Catalog.EffectiveDigest
+			}
+			return ""
+		}(),
 	})
-	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
+	admission := storage.RunAdmission{
+		Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask,
+		Bundle: bundleSnapshot, ExpectedBundle: expectedBundle,
+	}
 	queueEvents, queueErr := queueAdmissionEvents(m, queue, options.queueItems)
 	if queueErr != nil {
 		releaseWorkspace()
@@ -1240,12 +1362,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 		}
 		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
-			SessionID:    sessionID,
-			Message:      message,
-			Run:          run,
-			Events:       startupEvents,
-			Scope:        *continuityScope,
-			Expectations: continuityExpectations,
+			SessionID:      sessionID,
+			Message:        message,
+			Run:            run,
+			Events:         startupEvents,
+			Scope:          *continuityScope,
+			Expectations:   continuityExpectations,
+			Prompt:         prompt,
+			ExpectedMask:   expectedMask,
+			Bundle:         bundleSnapshot,
+			ExpectedBundle: expectedBundle,
 			Receipt: domain.ContinuityReceipt{
 				SessionID: sessionID,
 				Operation: storage.ContinuityOperationAdmission,
@@ -1315,12 +1441,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 			var commitErr error
 			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
-				Mutation:     mutation,
-				Message:      message,
-				Run:          run,
-				Started:      started,
-				Prompt:       prompt,
-				ExpectedMask: expectedMask,
+				Mutation:       mutation,
+				Message:        message,
+				Run:            run,
+				Started:        started,
+				Prompt:         prompt,
+				ExpectedMask:   expectedMask,
+				Bundle:         bundleSnapshot,
+				ExpectedBundle: expectedBundle,
 			})
 			return commitErr
 		})
@@ -1349,11 +1477,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
 			var commitErr error
 			started, commitErr = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
-				Message:      message,
-				Run:          run,
-				Started:      started,
-				Prompt:       prompt,
-				ExpectedMask: expectedMask, Events: queueEvents,
+				Message:        message,
+				Run:            run,
+				Started:        started,
+				Prompt:         prompt,
+				ExpectedMask:   expectedMask,
+				Bundle:         bundleSnapshot,
+				ExpectedBundle: expectedBundle,
+				Events:         queueEvents,
 			})
 			return commitErr
 		})
@@ -1412,6 +1543,18 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	runCtx = domain.WithThinkingMode(runCtx, thinking)
+	if bundleHandle != nil {
+		runCtx = withBundleView(runCtx, bundleHandle.View())
+		if expectedBundle != nil {
+			runCtx = withBundleCapture(runCtx, *expectedBundle)
+		}
+		runCtx = withBundleFence(runCtx, func(checkCtx context.Context) error {
+			return s.ensureToolkitLive(checkCtx, runID)
+		})
+	}
+	if workspace.Path != "" {
+		runCtx = withToolkitWorkspaceRoot(runCtx, workspace.Path, true, nil)
+	}
 	providerLabel, modelLabel := s.CurrentModel()
 	runCtx = domain.WithRunLabels(runCtx, domain.RunLabels{Provider: providerLabel, Model: modelLabel})
 	selectedToolSet := make(map[string]struct{})
@@ -1421,6 +1564,13 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.runSessions[runID] = sessionID
+	if bundleHandle != nil {
+		s.bundleViews[runID] = bundleHandle
+		checkCopy := *expectedBundle
+		checkCopy.Executables = append([]bundlecontract.ExecutableRef{}, expectedBundle.Executables...)
+		s.bundleChecks[runID] = checkCopy
+		bundleHandleTransferred = true
+	}
 	if options.GoalRound != nil {
 		s.goalRuns[sessionID] = runID
 		s.goalRunSessions[runID] = sessionID
@@ -1903,6 +2053,11 @@ func (s *Service) recover(ctx context.Context) error {
 	var workflowRuns []domain.Run
 	for _, run := range runs {
 		s.rememberRecoveredGoalRun(ctx, run)
+		if _, _, _, toolkitErr := s.restoreToolkitRun(ctx, run.ID); toolkitErr != nil {
+			slog.Warn("restart recovery: toolkit snapshot could not be restored", "run", string(run.ID), "err", toolkitErr)
+			s.failUnrecoverable(ctx, run.ID, "toolkit snapshot or revocation fence could not be recovered")
+			continue
+		}
 		if run.Kind == domain.RunKindWorkflow {
 			workflowRuns = append(workflowRuns, run)
 			continue
@@ -2357,7 +2512,9 @@ func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID)
 	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
 		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt belongs to another generation"))
 	}
-	if snapshot.ComposerVersion != promptComposerVersion {
+	legacyPrompt := snapshot.SchemaVersion == 1 && snapshot.ComposerVersion == legacyPromptComposerVersion
+	currentPrompt := snapshot.SchemaVersion == promptSchemaVersion && snapshot.ComposerVersion == promptComposerVersion
+	if !legacyPrompt && !currentPrompt {
 		return ctx, false, maskcontract.NewError(maskcontract.CodeIncompatiblePrompt, errors.New("run prompt was composed by an unsupported version"))
 	}
 	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
@@ -2436,6 +2593,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 	}
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
 	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx = s.toolkitContext(runCtx, run.ID)
 	m.registerOpenCall(openToolCall{
 		id:   approval.ToolCallID,
 		name: toolName,
@@ -2482,6 +2640,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	goalRef, isGoalRun := s.recoveredGoalRef(ctx, run)
 	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx = s.toolkitContext(runCtx, run.ID)
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
 	if isGoalRun {
@@ -5127,6 +5286,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 
 	s.mu.Lock()
 	var shellStateRefToDelete string
+	var bundleHandleToRelease ToolkitViewHandle
 	var goalSession domain.SessionID
 	var goalRef domain.GoalRef
 	var runSession domain.SessionID
@@ -5155,7 +5315,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.workBlockedCalls, terminal.RunID)
 	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
+	bundleHandleToRelease = s.bundleViews[terminal.RunID]
+	delete(s.bundleViews, terminal.RunID)
+	delete(s.bundleChecks, terminal.RunID)
 	s.mu.Unlock()
+	if bundleHandleToRelease != nil {
+		bundleHandleToRelease.Release()
+	}
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
 	if runSession != "" {
@@ -5184,6 +5350,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 
 func (s *Service) cleanupRunState(runID domain.RunID) {
 	var shellStateRefToDelete string
+	var bundleHandleToRelease ToolkitViewHandle
 	s.mu.Lock()
 	if c, ok := s.active[runID]; ok {
 		delete(s.active, runID)
@@ -5206,9 +5373,15 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
+	bundleHandleToRelease = s.bundleViews[runID]
+	delete(s.bundleViews, runID)
+	delete(s.bundleChecks, runID)
 	delete(s.overflowRecovered, runID)
 	delete(s.overflowAwaiting, runID)
 	s.mu.Unlock()
+	if bundleHandleToRelease != nil {
+		bundleHandleToRelease.Release()
+	}
 	s.deleteShellState(shellStateRefToDelete)
 }
 

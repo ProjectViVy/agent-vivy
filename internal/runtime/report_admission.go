@@ -13,6 +13,7 @@ import (
 
 	inofy "github.com/ProjectViVy/inofy"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
@@ -100,6 +101,11 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		s.deps.WorkflowRevisions == nil {
 		return rc.ReportAdmission{}, errors.New("runtime: report admission is not wired")
 	}
+	releaseBundleAdmission, err := s.reserveBundleAdmission()
+	if err != nil {
+		return rc.ReportAdmission{}, err
+	}
+	defer releaseBundleAdmission()
 	if _, err := s.inofyEngine(); err != nil {
 		return rc.ReportAdmission{}, err
 	}
@@ -231,6 +237,12 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		// Run accepted but never executed (post-admission crash). Rebind the
 		// committed projection and re-run the compiled program at the next
 		// writer epoch.
+		if s.deps.Toolkits != nil && !s.hasToolkitRun(existing.RunID) {
+			if _, _, _, restoreErr := s.restoreToolkitRun(ctx, existing.RunID); restoreErr != nil {
+				s.projectionMu.Unlock()
+				return rc.ReportAdmission{}, restoreErr
+			}
+		}
 		epoch, fenceErr := s.inofyResumeEpoch(ctx, existing.RunID)
 		if fenceErr != nil {
 			s.projectionMu.Unlock()
@@ -268,6 +280,39 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		ID: workflowRunID, SessionID: control.ID, Status: domain.RunAccepted, CreatedAt: now,
 		Kind: domain.RunKindWorkflow, RootID: workflowRunID, Depth: 0, Purpose: domain.RunPurposeReport,
 	}
+	var toolkitHandle ToolkitViewHandle
+	var bundleSnapshot *storage.RunBundleSnapshot
+	var expectedBundle *bundlecontract.CaptureCheck
+	toolkitTransferred := false
+	defer func() {
+		if toolkitHandle != nil && !toolkitTransferred {
+			toolkitHandle.Release()
+		}
+	}()
+	if s.deps.Toolkits != nil {
+		if s.deps.Bundles == nil {
+			s.projectionMu.Unlock()
+			return rc.ReportAdmission{}, ErrBundleDrainUnavailable
+		}
+		handle, captured, check, captureErr := s.deps.Toolkits.CaptureRun(ctx, run.ID)
+		if captureErr != nil {
+			s.projectionMu.Unlock()
+			return rc.ReportAdmission{}, fmt.Errorf("runtime: capture report toolkit snapshot: %w", captureErr)
+		}
+		if handle == nil || captured.RunID != run.ID || handle.View().Identity() != check.Catalog {
+			if handle != nil {
+				handle.Release()
+			}
+			s.projectionMu.Unlock()
+			return rc.ReportAdmission{}, errors.New("runtime: report toolkit capture is inconsistent")
+		}
+		if _, captureErr := storage.ValidateRunBundleSnapshot(captured); captureErr != nil {
+			handle.Release()
+			s.projectionMu.Unlock()
+			return rc.ReportAdmission{}, fmt.Errorf("runtime: report toolkit snapshot is invalid: %w", captureErr)
+		}
+		toolkitHandle, bundleSnapshot, expectedBundle = handle, &captured, &check
+	}
 	workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, control.ID), run.ID)
 	if err != nil {
 		s.projectionMu.Unlock()
@@ -277,10 +322,13 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 	mapper.setRunScope(s.deps.TenantID, workspace.ID, string(control.ID))
 	providerName, modelID := s.CurrentModel()
 	mapper.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	bundleSchema, bundleDigest, bundleEpoch, bundleCatalogDigest := toolkitRunMarkers(bundleSnapshot, expectedBundle)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: providerName, Model: modelID, Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
 		PolicyProfile: string(snapshot.Profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		BundleSchema: bundleSchema, BundleDigest: bundleDigest, BundleEpoch: bundleEpoch,
+		BundleCatalogDigest: bundleCatalogDigest,
 	})
 	started.CreatedAt = now
 	revision := domain.WorkflowRevision{
@@ -296,7 +344,7 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 		EffectiveLimits: limitsJSON, HostBindingID: hostBinding,
 	}
 	committed, err := s.deps.WorkflowRevisions.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
-		Revision: revision, Run: run, Started: started,
+		Revision: revision, Run: run, Started: started, Bundle: bundleSnapshot, ExpectedBundle: expectedBundle,
 	})
 	if err != nil {
 		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
@@ -319,6 +367,10 @@ func (s *Service) StartReport(ctx context.Context, ac rc.AdmissionContext, req r
 	if committed.Run.Status.Terminal() {
 		s.projectionMu.Unlock()
 		return rc.ReportAdmission{RunID: string(committed.Run.ID), Rejoined: true}, nil
+	}
+	if committed.Created && toolkitHandle != nil {
+		s.adoptToolkitRun(committed.Run.ID, toolkitHandle, expectedBundle)
+		toolkitTransferred = true
 	}
 	if committed.Run.Status == domain.RunActive && !committed.Created {
 		s.mu.Lock()

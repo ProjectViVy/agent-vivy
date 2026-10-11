@@ -11,6 +11,7 @@ import (
 	notebookmodule "agent-vivy/internal/modules/notebook"
 	"agent-vivy/internal/modules/optional"
 	reportsmodule "agent-vivy/internal/modules/reports"
+	toolkitsmodule "agent-vivy/internal/modules/toolkits"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
@@ -46,6 +47,7 @@ func Catalog(_ string) ([]Record, error) {
 		maskmodule.ActionCatalogList,
 		maskmodule.ActionCatalogGet,
 		maskmodule.ActionCatalogCreate,
+		maskmodule.ActionCatalogCopy,
 		maskmodule.ActionCatalogUpdate,
 		maskmodule.ActionCatalogDelete,
 		maskmodule.ActionSelectionGet,
@@ -90,6 +92,11 @@ func Catalog(_ string) ([]Record, error) {
 	for _, actionID := range reportsmodule.ActionIDs {
 		reportProvides = append(reportProvides, port("std/control-action@v1", actionID))
 	}
+	toolkitActionIDs := toolkitsmodule.ControlActionIDs()
+	toolkitProvides := make([]module.PortRef, 0, len(toolkitActionIDs))
+	for _, actionID := range toolkitActionIDs {
+		toolkitProvides = append(toolkitProvides, port("std/control-action@v1", actionID))
+	}
 	notebookToolProvides := make([]module.PortRef, 0, len(notebookmodule.ToolIDs))
 	for _, toolID := range notebookmodule.ToolIDs {
 		notebookToolProvides = append(notebookToolProvides, port("std/tool@v1", toolID))
@@ -109,6 +116,7 @@ func Catalog(_ string) ([]Record, error) {
 		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
 		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
 		boundRecord("vivy/reports", "agent-vivy/internal/modules/reports", "reports", "NewModule", source, reportProvides...),
+		boundRecord("vivy/toolkits", "agent-vivy/internal/modules/toolkits", "toolkits", "NewModule", source, toolkitProvides...),
 		boundRecord(cognitivemodule.RecallModuleID, "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewRecallModule", source, port("std/context-source@v1", cognitivemodule.RecallProviderID)),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
@@ -128,6 +136,9 @@ func Catalog(_ string) ([]Record, error) {
 		switch records[i].Descriptor.Module.ID {
 		case "vivy/masks":
 			records[i].Binding.MaskFactory = "Open"
+			records[i].Binding.ProviderConstructor = "ActionProviders"
+			records[i].Binding.ProviderCollection = true
+		case "vivy/toolkits":
 			records[i].Binding.ProviderConstructor = "ActionProviders"
 			records[i].Binding.ProviderCollection = true
 		case "vivy/protected-tools":
@@ -180,6 +191,11 @@ func Catalog(_ string) ([]Record, error) {
 			records[i].Descriptor.Requires = []module.Requirement{
 				{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"},
 				{PortRef: module.PortRef{Port: cognitivemodule.Port}, Provider: cognitivemodule.ID},
+			}
+		case "vivy/toolkits":
+			records[i].Descriptor.Requires = []module.Requirement{
+				{PortRef: module.PortRef{Port: "core/action-host@v1"}, Provider: "vivy/action-host"},
+				{PortRef: module.PortRef{Port: "core/storage-engine@v1"}, Provider: "vivy/storage"},
 			}
 		case "vivy/protected-tools", "vivy/mcp-host", "vivy/memory-bml-tools":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}

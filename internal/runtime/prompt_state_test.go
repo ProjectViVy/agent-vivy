@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
@@ -78,6 +79,46 @@ func TestBuildPromptSnapshotEmptyMaskHasNoMaskWrapper(t *testing.T) {
 	}
 	if !strings.Contains(payload.Instruction, "You are Vivy") {
 		t.Fatalf("default persona missing: %q", payload.Instruction)
+	}
+}
+
+func TestBuildBundleMaskSnapshotCarriesImmutableOriginAndRecommendations(t *testing.T) {
+	installID := "11111111-1111-4111-8111-111111111111"
+	release := bundlecontract.ReleaseRef{InstallID: installID, BundleID: "acme/experts", ReleaseDigest: strings.Repeat("a", 64), ReleaseSequence: 3}
+	maskID, err := bundlecontract.MaskID(installID, "pm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillID, err := bundlecontract.SkillID(installID, "prd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommendations := []maskcontract.SkillRecommendation{{
+		Ref:     bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Skill, LocalID: "prd"},
+		SkillID: skillID, Name: "PRD Author", Available: false, InactiveReason: "skill_unavailable",
+	}}
+	mask := &maskcontract.Snapshot{
+		ID: maskID, Name: "Product Manager", Body: "literal PM instructions",
+		DefinitionRevision: 3, SelectionRevision: 2, Origin: maskcontract.OriginBundle,
+		Bundle: &maskcontract.BundleProvenance{Release: release, LocalID: "pm"}, RecommendedSkills: recommendations,
+	}
+	mask.Digest = maskcontract.DefinitionDigest(mask.ID, mask.Name, mask.Body)
+	snapshot, err := buildPromptSnapshot(PromptInput{
+		RunID: "run-bundle-mask", GenerationID: "generation-1", Capture: promptCapture(mask), Face: domain.FaceWeb,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload storage.RunPromptPayload
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.SchemaVersion != 2 || payload.Mask == nil || payload.Mask.Origin != maskcontract.OriginBundle || payload.Mask.Bundle == nil || payload.Mask.Bundle.Release != release || len(payload.Mask.RecommendedSkills) != 1 || payload.Mask.RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("bundle Mask prompt snapshot lost origin/recommendation: %+v %+v", snapshot, payload.Mask)
+	}
+	recommendations[0].SkillID = "mutated"
+	if payload.Mask.RecommendedSkills[0].SkillID != skillID {
+		t.Fatal("prompt snapshot shares mutable recommendation metadata")
 	}
 }
 

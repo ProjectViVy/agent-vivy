@@ -9,6 +9,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/bundlesql"
 )
 
 var _ storage.ContinuityStore = (*Backend)(nil)
@@ -224,6 +225,12 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	if err := sqliteCheckExpectations(ctx, tx, a.Expectations); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := sqliteValidateAdmissionCapture(ctx, tx, a.ExpectedMask); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if err := bundlesql.ValidateCapture(ctx, tx, a.ExpectedBundle); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	if err := sqliteInsertMessageTx(ctx, tx, a.Message); err != nil {
 		return storage.ContinuityResult{}, err
 	}
@@ -248,6 +255,19 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity run %s: %w", a.Run.ID, err)
 	}
 	if err := sqliteFault(a.TestFaultHook, "run"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if a.Prompt != nil {
+		if err := sqliteInsertAdmissionPrompt(ctx, tx, *a.Prompt); err != nil {
+			return storage.ContinuityResult{}, err
+		}
+	}
+	if a.Bundle != nil {
+		if err := bundlesql.InsertSnapshotTx(ctx, tx, *a.Bundle); err != nil {
+			return storage.ContinuityResult{}, storage.AdmissionUnavailable("insert toolkit continuity snapshot", err)
+		}
+	}
+	if err := sqliteFault(a.TestFaultHook, "capture"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
 	events := append([]domain.RunEvent(nil), a.Events...)

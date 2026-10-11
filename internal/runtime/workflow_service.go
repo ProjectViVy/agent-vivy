@@ -264,6 +264,12 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		// Run accepted but never executed (post-admission crash). Rebind the
 		// committed projection and re-run the compiled program at the next
 		// writer epoch.
+		if s.deps.Toolkits != nil && !s.hasToolkitRun(existing.RunID) {
+			if _, _, _, restoreErr := s.restoreToolkitRun(ctx, existing.RunID); restoreErr != nil {
+				s.projectionMu.Unlock()
+				return WorkflowStartResult{}, restoreErr
+			}
+		}
 		epoch, fenceErr := s.inofyResumeEpoch(ctx, existing.RunID)
 		if fenceErr != nil {
 			s.projectionMu.Unlock()
@@ -306,6 +312,17 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		ID: workflowRunID, SessionID: parent.SessionID, Status: domain.RunAccepted, CreatedAt: now,
 		Kind: domain.RunKindWorkflow, ParentID: parent.ID, RootID: rootID, Depth: parent.Depth + 1,
 	}
+	toolkitHandle, bundleSnapshot, expectedBundle, err := s.inheritToolkitRun(ctx, parent.ID, workflowRunID)
+	if err != nil {
+		s.projectionMu.Unlock()
+		return WorkflowStartResult{}, err
+	}
+	toolkitTransferred := false
+	defer func() {
+		if toolkitHandle != nil && !toolkitTransferred {
+			toolkitHandle.Release()
+		}
+	}()
 	workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, parent.SessionID), run.ID)
 	if err != nil {
 		s.projectionMu.Unlock()
@@ -315,10 +332,13 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	mapper.setRunScope(s.deps.TenantID, workspace.ID, string(parent.SessionID))
 	providerName, modelID := s.CurrentModel()
 	mapper.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	bundleSchema, bundleDigest, bundleEpoch, bundleCatalogDigest := toolkitRunMarkers(bundleSnapshot, expectedBundle)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: providerName, Model: modelID, Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
 		PolicyProfile: string(snapshot.Profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		BundleSchema: bundleSchema, BundleDigest: bundleDigest, BundleEpoch: bundleEpoch,
+		BundleCatalogDigest: bundleCatalogDigest,
 	})
 	started.CreatedAt = now
 	revision := domain.WorkflowRevision{
@@ -333,7 +353,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		DefinitionID: definitionID, DefinitionRevision: definitionRevision,
 	}
 	committed, err := s.deps.WorkflowRevisions.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
-		Revision: revision, Run: run, Started: started,
+		Revision: revision, Run: run, Started: started, Bundle: bundleSnapshot, ExpectedBundle: expectedBundle,
 	})
 	if err != nil {
 		if releaser, ok := s.deps.Workspaces.(WorkspaceReleaser); ok {
@@ -352,6 +372,10 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	if committed.Run.Status.Terminal() {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{Run: committed.Run, Revision: committed.Revision, Created: false}, nil
+	}
+	if committed.Created && toolkitHandle != nil {
+		s.adoptToolkitRun(committed.Run.ID, toolkitHandle, expectedBundle)
+		toolkitTransferred = true
 	}
 	if committed.Run.Status == domain.RunActive && !committed.Created {
 		s.mu.Lock()
@@ -459,6 +483,7 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 		return err
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	runCtx = s.toolkitContext(runCtx, result.Run.ID)
 	s.mu.Lock()
 	if _, active := s.active[result.Run.ID]; active {
 		s.mu.Unlock()

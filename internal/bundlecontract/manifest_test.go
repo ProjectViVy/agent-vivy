@@ -97,3 +97,42 @@ func TestManifestPathsAndBounds(t *testing.T) {
 	m.Components.Masks = []MaskEntry{{ID: "pm", Name: "PM", Path: "pm.md", RecommendedSkills: []string{"missing"}}}
 	requireCode(t, ValidateManifest(m, DefaultLimits()), "invalid_manifest")
 }
+
+func TestNativeHookCwdIsExplicitAndConfined(t *testing.T) {
+	m, err := DecodeManifest([]byte(minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Components.Hooks = []HookEntry{{ID: "guard", Event: "PreToolUse", Command: "printf ok", Cwd: "bundle", TimeoutMs: 1000}}
+	if err := ValidateManifest(m, DefaultLimits()); err != nil {
+		t.Fatalf("bundle cwd rejected: %v", err)
+	}
+	m.Components.Hooks[0].Cwd = "../../workspace"
+	requireCode(t, ValidateManifest(m, DefaultLimits()), "invalid_manifest")
+}
+
+func TestNativeMCPTransportFieldsAndCwdAreExplicit(t *testing.T) {
+	m, err := DecodeManifest([]byte(minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Components.MCP = []MCPEntry{{ID: "docs", Endpoint: "https://docs.example.test/mcp", Args: []string{}, ResourceBridge: false}}
+	if err := ValidateManifest(m, DefaultLimits()); err != nil {
+		t.Fatalf("HTTP MCP declaration rejected: %v", err)
+	}
+	raw, err := CanonicalManifest(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeManifest(raw); err != nil {
+		t.Fatalf("canonical HTTP MCP declaration could not be decoded: %v; %s", err, raw)
+	}
+	m.Components.MCP[0].Cwd = "workspace"
+	requireCode(t, ValidateManifest(m, DefaultLimits()), "invalid_manifest")
+	m.Components.MCP[0] = MCPEntry{ID: "local", Command: "mcp-server", Cwd: "bundle", Args: []string{}, ResourceBridge: false}
+	if err := ValidateManifest(m, DefaultLimits()); err != nil {
+		t.Fatalf("stdio MCP bundle cwd rejected: %v", err)
+	}
+	m.Components.MCP[0].Cwd = "../../workspace"
+	requireCode(t, ValidateManifest(m, DefaultLimits()), "invalid_manifest")
+}

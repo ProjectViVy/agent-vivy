@@ -92,10 +92,8 @@ func ValidateManifest(m Manifest, l Limits) error {
 		if s.Event != "PreToolUse" || !validText(s.Command, 16<<10, true) || s.TimeoutMs <= 0 || int64(s.TimeoutMs) > l.HookTimeoutMax.Milliseconds() {
 			return Invalid("hook")
 		}
-		if s.Cwd != "" && s.Cwd != "workspace" {
-			if err := ValidateRelativePath(s.Cwd); err != nil {
-				return err
-			}
+		if s.Cwd != "" && s.Cwd != "workspace" && s.Cwd != "bundle" {
+			return Invalid("hook_cwd")
 		}
 		if err := validateEnv(s.EnvFrom); err != nil {
 			return err
@@ -113,14 +111,15 @@ func ValidateManifest(m Manifest, l Limits) error {
 			if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
 				return Invalid("mcp_endpoint")
 			}
+			if s.Cwd != "" || len(s.Args) > 0 || len(s.EnvFrom) > 0 {
+				return Invalid("mcp_http_fields")
+			}
 		}
 		if s.AuthEnv != "" && !envPattern.MatchString(s.AuthEnv) {
 			return Invalid("authEnv")
 		}
-		if s.Cwd != "" && s.Cwd != "workspace" {
-			if err := ValidateRelativePath(s.Cwd); err != nil {
-				return err
-			}
+		if s.Cwd != "" && s.Cwd != "workspace" && s.Cwd != "bundle" {
+			return Invalid("mcp_cwd")
 		}
 		if err := validateEnv(s.EnvFrom); err != nil {
 			return err

@@ -27,6 +27,10 @@ type payloadRunStarted struct {
 	// RunAdmissionStore, preserving the v1 event shape on that path.
 	PromptSchema         int    `json:"prompt_schema,omitempty"`
 	PromptDigest         string `json:"prompt_digest,omitempty"`
+	BundleSchema         int    `json:"bundle_schema,omitempty"`
+	BundleDigest         string `json:"bundle_digest,omitempty"`
+	BundleEpoch          int64  `json:"bundle_epoch,omitempty"`
+	BundleCatalogDigest  string `json:"bundle_catalog_digest,omitempty"`
 	CollaborationMode    string `json:"collaboration_mode,omitempty"`
 	CollaborationVersion int    `json:"collaboration_version,omitempty"`
 	// NoContext marks a run whose journal events project to the transcript

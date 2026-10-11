@@ -50,11 +50,23 @@ type ToolHookIdentity interface {
 	GovernanceIdentity() string
 }
 
+// ContextualToolHookIdentity binds approvals to a run-local guard projection
+// without mutating the shared Engine hook chain.
+type ContextualToolHookIdentity interface {
+	GovernanceIdentityFor(context.Context) string
+}
+
 // ToolMatcher narrows a hook to a subset of tools. Hooks implementing it
 // are skipped entirely (no events, no invocations) for tools they do not
 // match; unscoped hooks see every tool.
 type ToolMatcher interface {
 	MatchesTool(toolName string) bool
+}
+
+// ContextToolMatcher selects run-local hooks without retaining mutable
+// per-run state in a shared Engine.
+type ContextToolMatcher interface {
+	MatchesToolContext(context.Context, string) bool
 }
 
 type ToolHookChain struct {
@@ -75,6 +87,9 @@ func (c *ToolHookChain) PreToolUse(ctx context.Context, call ToolHookCall) (json
 		return args, nil
 	}
 	for _, hook := range c.hooks {
+		if m, ok := hook.(ContextToolMatcher); ok && !m.MatchesToolContext(ctx, call.ToolName) {
+			continue
+		}
 		if m, ok := hook.(ToolMatcher); ok && !m.MatchesTool(call.ToolName) {
 			continue
 		}
@@ -126,6 +141,9 @@ func (c *ToolHookChain) PostToolUse(ctx context.Context, call ToolHookCall, resu
 		return
 	}
 	for _, hook := range c.hooks {
+		if m, ok := hook.(ContextToolMatcher); ok && !m.MatchesToolContext(ctx, call.ToolName) {
+			continue
+		}
 		if m, ok := hook.(ToolMatcher); ok && !m.MatchesTool(call.ToolName) {
 			continue
 		}

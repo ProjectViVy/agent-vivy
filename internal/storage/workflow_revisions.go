@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 )
 
@@ -19,9 +20,11 @@ var ErrWorkflowRevisionConflict = errors.New("storage: workflow operation key co
 var ErrWorkflowAdmissionBusy = errors.New("storage: workflow admission target is busy")
 
 type WorkflowAdmission struct {
-	Revision domain.WorkflowRevision
-	Run      domain.Run
-	Started  domain.RunEvent
+	Revision       domain.WorkflowRevision
+	Run            domain.Run
+	Started        domain.RunEvent
+	Bundle         *RunBundleSnapshot
+	ExpectedBundle *bundlecontract.CaptureCheck
 }
 
 type WorkflowAdmissionResult struct {
@@ -128,6 +131,9 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	if in.Started.RunID != r.RunID || in.Started.Type != domain.EventRunStarted || in.Started.CreatedAt != r.CreatedAt ||
 		in.Started.PayloadVersion <= 0 || len(in.Started.Payload) == 0 {
 		return errors.New("storage: workflow admission requires its run.started event")
+	}
+	if err := ValidateRunBundleAdmission(in.Run.ID, in.Started, in.Bundle, in.ExpectedBundle); err != nil {
+		return err
 	}
 	return nil
 }

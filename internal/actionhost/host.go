@@ -29,6 +29,7 @@ import (
 	nb "agent-vivy/internal/notebookcontract"
 	rc "agent-vivy/internal/reportcontract"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/toolkitcontract"
 	"agent-vivy/sdk/module"
 	action "agent-vivy/sdk/port/controlaction"
 )
@@ -393,6 +394,10 @@ type Deps struct {
 	// exposed through the public Host interface; only sealed T1 actions owned
 	// by vivy/masks receive the named mask operations.
 	MaskManager maskcontract.Manager
+	// ToolkitManager is an internal, owner-scoped facade target. Only
+	// compiler-bound vivy/toolkits actions receive lifecycle operations.
+	ToolkitManager      toolkitcontract.Manager
+	ToolkitCapabilities toolkitcontract.Capabilities
 	// Cognitive is the sealed dispatcher provider resolved only for actions
 	// owned by vivy/diva-cognitive. It is never exposed through the public
 	// Host interface; the facade hands providers a session-guarded
@@ -1087,6 +1092,9 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 	if definition.Owner == maskModuleOwner {
 		providerInvocationHost = newMaskActionHost(invocationHost, host.deps.MaskManager)
 	}
+	if definition.Owner == toolkitModuleOwner {
+		providerInvocationHost = newToolkitActionHost(invocationHost, host.deps.ToolkitManager, host.deps.ToolkitCapabilities)
+	}
 	if definition.Owner == cognitiveModuleOwner {
 		providerInvocationHost = newCognitiveActionHost(invocationHost, host.deps.Cognitive, host.deps.CognitiveSessionCheck)
 	}
@@ -1157,6 +1165,17 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 				return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, AuditOutcomeCancelled, maskErr, started)
 			}
 			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeFailed, maskErr, started)
+		}
+		var toolkitErr *toolkitcontract.Error
+		if definition.Owner == toolkitModuleOwner && errors.As(providerOut.err, &toolkitErr) && toolkitErr != nil && toolkitcontract.IsErrorCode(toolkitErr.Code) {
+			outcome := AuditOutcomeFailed
+			if toolkitErr.Code == toolkitcontract.CodeAuthorizationDenied {
+				outcome = AuditOutcomeDenied
+			}
+			if toolkitErr.Code == toolkitcontract.CodeCancelled {
+				outcome = AuditOutcomeCancelled
+			}
+			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, outcome, toolkitErr, started)
 		}
 		if (errors.Is(providerOut.err, context.Canceled) || errors.Is(providerOut.err, context.DeadlineExceeded)) && invocationCtx.Err() != nil {
 			outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
@@ -1880,6 +1899,10 @@ func auditError(err error) string {
 	var maskErr *maskcontract.Error
 	if errors.As(err, &maskErr) && maskErr != nil && maskcontract.IsErrorCode(maskErr.Code) {
 		return maskErr.Code
+	}
+	var toolkitErr *toolkitcontract.Error
+	if errors.As(err, &toolkitErr) && toolkitErr != nil && toolkitcontract.IsErrorCode(toolkitErr.Code) {
+		return toolkitErr.Code
 	}
 	switch {
 	case errors.Is(err, action.ErrUnauthenticated):

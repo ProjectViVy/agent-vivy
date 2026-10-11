@@ -16,8 +16,7 @@ CREATE TABLE bundle_releases (
     release_digest TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     created_at BIGINT NOT NULL,
-    PRIMARY KEY (install_id, release_sequence),
-    UNIQUE (install_id, release_digest)
+    PRIMARY KEY (install_id, release_sequence)
 );
 CREATE TABLE bundle_catalog_epochs (
     epoch BIGINT PRIMARY KEY,

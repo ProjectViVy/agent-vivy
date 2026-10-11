@@ -92,6 +92,99 @@ func TestBundleActivationRequiresLeaseAndDrains(t *testing.T) {
 	}
 }
 
+func TestToolkitBindingsPersistOnlyReferencesAndAdvanceConfigRevision(t *testing.T) {
+	ctx := context.Background()
+	b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "bindings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	store := b.BundleStore()
+	const owner = "toolkit-bindings"
+	if acquired, err := b.Acquire(ctx, "vivy/organism", owner, time.Minute); err != nil || !acquired {
+		t.Fatalf("acquire lease: %v %v", acquired, err)
+	}
+	const installID = "20000000-0000-4000-8000-000000000001"
+	const releaseDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, err := store.SaveBundleInstallation(ctx, storage.InstallCommit{
+		OperationID: "20000000-0000-4000-8000-000000000002", InputDigest: strings.Repeat("b", 64),
+		Expected:     bundlecontract.CatalogIdentity{},
+		Installation: storage.BundleInstallation{InstallID: installID, BundleID: "example/bindings", ReleaseDigest: releaseDigest},
+		Release:      bundlecontract.ReleaseRef{InstallID: installID, BundleID: "example/bindings", ReleaseDigest: releaseDigest, ReleaseSequence: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.ReadBundleState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := storage.BindingCommit{
+		OperationID: "20000000-0000-4000-8000-000000000003", InputDigest: strings.Repeat("c", 64),
+		LeaseOwner: owner, Subject: "human", Expected: state.Catalog, InstallID: installID,
+		Kind: "hook", LocalID: "before-tool", EffectiveDigest: strings.Repeat("d", 64),
+		Bindings: []storage.ToolkitBinding{{InstallID: installID, Kind: "hook", LocalID: "before-tool", Name: "envFrom:API_TOKEN", Reference: "VIVY_HOOK_TOKEN"}},
+	}
+	op, err := store.CommitBundleBindings(ctx, req)
+	if err != nil || op.State != "committed" || op.Progress != "bindings_updated" {
+		t.Fatalf("binding operation = %+v, %v", op, err)
+	}
+	updated, err := store.ReadBundleState(ctx)
+	if err != nil || updated.Catalog.ConfigRevision != 1 || updated.Catalog.EffectiveDigest != req.EffectiveDigest || len(updated.Bindings) != 1 || updated.Bindings[0].Reference != "VIVY_HOOK_TOKEN" {
+		t.Fatalf("updated binding state = %+v, %v", updated, err)
+	}
+	replay, err := store.CommitBundleBindings(ctx, req)
+	if err != nil || replay.Revision != op.Revision {
+		t.Fatalf("binding retry = %+v, %v", replay, err)
+	}
+	updated, err = store.ReadBundleState(ctx)
+	if err != nil || updated.Catalog.ConfigRevision != 1 || len(updated.Bindings) != 1 {
+		t.Fatalf("retry changed configuration twice: %+v, %v", updated, err)
+	}
+	bad := req
+	bad.OperationID = "20000000-0000-4000-8000-000000000004"
+	bad.InputDigest = strings.Repeat("e", 64)
+	bad.Expected = updated.Catalog
+	bad.Bindings = []storage.ToolkitBinding{{InstallID: installID, Kind: "hook", LocalID: "before-tool", Name: "envFrom:API_TOKEN", Reference: "TOKEN=literal-secret"}}
+	if _, err := store.CommitBundleBindings(ctx, bad); err == nil {
+		t.Fatal("literal secret or assignment was accepted as a binding reference")
+	}
+}
+
+func TestBundleInstallChecksExpectedCatalogAtomically(t *testing.T) {
+	ctx := context.Background()
+	b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "install-cas.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	store := b.BundleStore()
+	owned, err := b.Acquire(ctx, "vivy/organism", "toolkit-install-cas", time.Minute)
+	if err != nil || !owned {
+		t.Fatal(owned, err)
+	}
+	activationID := "50000000-0000-4000-8000-000000000001"
+	activationDigest := strings.Repeat("a", 64)
+	if _, err := store.BeginBundleOperation(ctx, storage.BeginOperation{ID: activationID, InputDigest: activationDigest, Kind: "publish"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitBundleActivation(ctx, storage.ActivationCommit{OperationID: activationID, InputDigest: activationDigest, LeaseOwner: "toolkit-install-cas", Expected: bundlecontract.CatalogIdentity{}, EffectiveDigest: activationDigest, GenerationID: "generation"}); err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("b", 64)
+	_, err = store.SaveBundleInstallation(ctx, storage.InstallCommit{
+		OperationID: "50000000-0000-4000-8000-000000000002", InputDigest: strings.Repeat("c", 64), Expected: bundlecontract.CatalogIdentity{},
+		Installation: storage.BundleInstallation{InstallID: "50000000-0000-4000-8000-000000000003", BundleID: "example/install", State: "disabled", ReleaseDigest: digest},
+		Release:      bundlecontract.ReleaseRef{InstallID: "50000000-0000-4000-8000-000000000003", BundleID: "example/install", ReleaseDigest: digest, ReleaseSequence: 1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "revision_conflict") {
+		t.Fatalf("stale install = %v, want revision_conflict", err)
+	}
+	state, err := store.ReadBundleState(ctx)
+	if err != nil || state.Catalog.Epoch != 1 || len(state.Installations) != 0 {
+		t.Fatalf("stale install partially committed: %+v, %v", state, err)
+	}
+}
+
 func TestBundleConsentRevocationAndSnapshotRetention(t *testing.T) {
 	ctx := context.Background()
 	b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "consent.db"))
@@ -122,14 +215,21 @@ func TestBundleConsentRevocationAndSnapshotRetention(t *testing.T) {
 	if _, err := store.CommitBundleRevocation(ctx, storage.RevocationCommit{OperationID: operation(), InputDigest: strings.Repeat("e", 64), LeaseOwner: "toolkit-consent", InstallID: install, Kind: "hook", LocalID: "before-tool", DeclarationDigest: allow.DeclarationDigest, Subject: "human", ExpectedEpoch: 0, ExpectedRevision: 0}); err == nil {
 		t.Fatal("stale revocation revision accepted")
 	}
-	payload := []byte("immutable snapshot")
+	view, err := bundlecontract.NewView(bundlecontract.CatalogIdentity{Epoch: 1, EffectiveDigest: strings.Repeat("d", 64), GenerationID: "generation"}, []bundlecontract.ReleaseRef{release}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := bundlecontract.EncodeRunSnapshotPayload(bundlecontract.SnapshotPayload(view, state.RevocationRevision))
+	if err != nil {
+		t.Fatal(err)
+	}
 	h := sha256.Sum256(payload)
 	snapshot := storage.RunBundleSnapshot{RunID: domain.RunID("toolkit-old-run"), SchemaVersion: 1, Payload: payload, PayloadSHA256: hex.EncodeToString(h[:]), Releases: []bundlecontract.ReleaseRef{release}}
 	if err := store.SaveRunBundleSnapshot(ctx, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.LoadRunBundleSnapshot(ctx, snapshot.RunID)
-	if err != nil || string(loaded.Payload) != string(payload) {
+	if err != nil || string(loaded.Payload) != string(payload) || len(loaded.Releases) != 1 || loaded.Releases[0] != release {
 		t.Fatal(loaded, err)
 	}
 	reachable, err := store.ReadBundleReachability(ctx)

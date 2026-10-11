@@ -63,13 +63,18 @@ func TestDefaultCatalogBindsOptionalMaskFactoryWithoutSelectingIt(t *testing.T) 
 		if !record.Binding.ProviderCollection {
 			t.Fatal("mask action provider binding must be a collection")
 		}
-		if len(record.Descriptor.Provides) != 8 || record.Descriptor.Provides[0].Port != "core/mask-service@v1" {
+		if len(record.Descriptor.Provides) != 9 || record.Descriptor.Provides[0].Port != "core/mask-service@v1" {
 			t.Fatalf("mask descriptor provides = %#v", record.Descriptor.Provides)
 		}
+		copyDeclared := false
 		for _, provided := range record.Descriptor.Provides {
+			copyDeclared = copyDeclared || provided.Port == "std/control-action@v1" && provided.ID == "vivy.masks.catalog.copy"
 			if provided.Port == "std/ui-extension@v1" || provided.Port == "std/ui-root@v1" {
 				t.Fatalf("mask backend unexpectedly provides UI Port %s", provided.Port)
 			}
+		}
+		if !copyDeclared {
+			t.Fatal("mask catalog does not declare its Toolkit Mask copy action")
 		}
 		return
 	}

@@ -272,7 +272,7 @@ func (c serviceToolOperationCoordinator) ensureRunCanExecute(ctx context.Context
 	if run.Status.Terminal() {
 		return storage.ErrRunClosed
 	}
-	return nil
+	return c.service.ensureToolkitLive(ctx, c.runID)
 }
 
 func (c serviceToolOperationCoordinator) checkOperationEventSize(op domain.ToolOperation) error {

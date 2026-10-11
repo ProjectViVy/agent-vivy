@@ -1,6 +1,6 @@
 # Toolkit acceptance and evidence matrix
 
-**Revision:** TK-P1. **Status:** Future implementation requirements; no product result is claimed.\
+**Revision:** TK-P1. **Status:** Requirements and exit criteria; observed implementation evidence and open gates are recorded in the [TK-13 closure log](../../../logs/2026-10-12-toolkits-closure/acceptance.md).\
 **Authority:** [architecture](../../../architecture/VIVY-CONTENT-BUNDLES.md), [TK-C1](contracts.md), and [index status/DAG](index.md).
 
 ## Requirement ownership

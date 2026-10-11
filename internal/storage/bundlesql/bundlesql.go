@@ -4,7 +4,6 @@ package bundlesql
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -82,7 +81,7 @@ func begin(ctx context.Context, tx Transaction, r storage.BeginOperation, now in
 	if _, err := hex.DecodeString(r.InputDigest); err != nil {
 		return bundlecontract.Operation{}, code("invalid_operation")
 	}
-	op := bundlecontract.Operation{ID: r.ID, Kind: r.Kind, State: "pending", Revision: 1, ExpectedEpoch: r.ExpectedEpoch, Blockers: []bundlecontract.Blocker{}}
+	op := bundlecontract.Operation{ID: r.ID, Kind: r.Kind, State: "pending", Revision: 1, ExpectedEpoch: r.ExpectedEpoch, Blockers: []bundlecontract.Blocker{}, Prepared: clonePreparedOperation(r.Prepared)}
 	_, err := tx.ExecContext(ctx, `INSERT INTO bundle_operations(operation_id,input_digest,kind,state,revision,expected_epoch,payload_json,created_at,updated_at) VALUES(?,?,?,'pending',1,?,?,?,?) ON CONFLICT(operation_id) DO NOTHING`, r.ID, r.InputDigest, r.Kind, r.ExpectedEpoch, marshal(op), now, now)
 	if err != nil {
 		return op, err
@@ -98,6 +97,18 @@ func begin(ctx context.Context, tx Transaction, r storage.BeginOperation, now in
 		return op, code("revision_conflict")
 	}
 	return prior, nil
+}
+
+func clonePreparedOperation(value *bundlecontract.PreparedOperation) *bundlecontract.PreparedOperation {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	out.Releases = append([]bundlecontract.ReleaseRef(nil), value.Releases...)
+	out.NewReleases = append([]bundlecontract.ReleaseRef(nil), value.NewReleases...)
+	out.Installations = append([]bundlecontract.InstallationChange(nil), value.Installations...)
+	out.Changes = append([]bundlecontract.ComponentChange(nil), value.Changes...)
+	return &out
 }
 func Begin(ctx context.Context, db DB, r storage.BeginOperation) (bundlecontract.Operation, error) {
 	tx, e := db.BeginBundleTx(ctx)
@@ -167,6 +178,24 @@ func ReadState(ctx context.Context, db Executor) (storage.BundleState, error) {
 	if err != nil {
 		return out, err
 	}
+	out.Bindings = []storage.ToolkitBinding{}
+	rows, err = db.QueryContext(ctx, `SELECT install_id,kind,local_id,name,reference FROM bundle_bindings ORDER BY install_id,kind,local_id,name`)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		var binding storage.ToolkitBinding
+		if err := rows.Scan(&binding.InstallID, &binding.Kind, &binding.LocalID, &binding.Name, &binding.Reference); err != nil {
+			rows.Close()
+			return out, err
+		}
+		out.Bindings = append(out.Bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return out, err
+	}
+	rows.Close()
 	var raw []byte
 	err = scanOne(ctx, db, `SELECT payload_json FROM bundle_operations WHERE state='pending' ORDER BY created_at,operation_id LIMIT 1`, nil, &raw)
 	if err == nil {
@@ -190,12 +219,20 @@ func SaveInstall(ctx context.Context, db DB, r storage.InstallCommit) (bundlecon
 	if now == 0 {
 		now = time.Now().UnixMilli()
 	}
-	op, e := begin(ctx, tx, storage.BeginOperation{ID: r.OperationID, InputDigest: r.InputDigest, Kind: "install", ExpectedEpoch: 0}, now)
+	op, e := begin(ctx, tx, storage.BeginOperation{ID: r.OperationID, InputDigest: r.InputDigest, Kind: "install", ExpectedEpoch: r.Expected.Epoch}, now)
 	if e != nil {
 		return op, e
 	}
 	if op.State != "pending" {
 		return op, nil
+	}
+	var epoch, config int64
+	var effective, generation string
+	if e = scanOne(ctx, tx, `SELECT epoch,config_revision,effective_digest,generation_id FROM bundle_catalog_state WHERE id=1`, nil, &epoch, &config, &effective, &generation); e != nil {
+		return op, e
+	}
+	if epoch != r.Expected.Epoch || config != r.Expected.ConfigRevision || effective != r.Expected.EffectiveDigest || generation != r.Expected.GenerationID {
+		return op, code("revision_conflict")
 	}
 	var oldID string
 	err := scanOne(ctx, tx, `SELECT install_id FROM bundle_installations WHERE bundle_id=? AND tombstone=0`, []any{r.Installation.BundleID}, &oldID)
@@ -312,6 +349,79 @@ func Blockers(ctx context.Context, db Executor, q storage.BlockerQuery) (storage
 	return out, nil
 }
 
+// ValidateCapture compares a pending run's immutable catalog token while its
+// admission transaction owns the session write lock. The exact executable
+// references make a newer unrelated revocation harmless to this run.
+func ValidateCapture(ctx context.Context, q Executor, expected *bundlecontract.CaptureCheck) error {
+	if expected == nil {
+		return nil
+	}
+	if err := storage.ValidateCaptureCheck(expected); err != nil {
+		return err
+	}
+	var epoch, config, revocation int64
+	var effective, generation string
+	if err := scanOne(ctx, q, `SELECT epoch,config_revision,effective_digest,generation_id,revocation_revision FROM bundle_catalog_state WHERE id=1`, nil,
+		&epoch, &config, &effective, &generation, &revocation); err != nil {
+		return storage.AdmissionUnavailable("read toolkit capture state", err)
+	}
+	identity := bundlecontract.CatalogIdentity{Epoch: epoch, ConfigRevision: config, EffectiveDigest: effective, GenerationID: generation}
+	if identity != expected.Catalog || revocation != expected.RevocationRevision {
+		return storage.ErrBundleCaptureConflict
+	}
+	for _, expectedConsent := range expected.Consents {
+		currentConsent, found, err := ReadConsent(ctx, q, expectedConsent.InstallID, expectedConsent.Kind, expectedConsent.LocalID)
+		if err != nil {
+			return storage.AdmissionUnavailable("read toolkit executable consent", err)
+		}
+		if found != expectedConsent.Present || (found && (currentConsent.DeclarationDigest != expectedConsent.DeclarationDigest ||
+			currentConsent.Allowed != expectedConsent.Allowed || currentConsent.Revision != expectedConsent.Revision)) {
+			return storage.ErrBundleCaptureConflict
+		}
+	}
+	for _, ref := range expected.Executables {
+		var revokedAt int64
+		err := scanOne(ctx, q, `SELECT revocation_revision FROM bundle_revocations WHERE install_id=? AND kind=? AND local_id=? AND declaration_digest=?`,
+			[]any{ref.InstallID, string(ref.Kind), ref.LocalID, ref.DeclarationDigest}, &revokedAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return storage.AdmissionUnavailable("read toolkit revocation fence", err)
+		}
+		if revokedAt > expected.RevocationRevision {
+			return storage.ErrBundleRevoked
+		}
+	}
+	return nil
+}
+
+// InsertSnapshotTx stores run evidence and artifact reachability inside the
+// caller's admission transaction; it never repairs an already committed run.
+func InsertSnapshotTx(ctx context.Context, q Executor, snapshot storage.RunBundleSnapshot) error {
+	if _, err := storage.ValidateRunBundleSnapshot(snapshot); err != nil {
+		return code("invalid_snapshot")
+	}
+	_, err := q.ExecContext(ctx, `INSERT INTO run_bundle_snapshots(run_id,schema_version,payload,payload_sha256,created_at) VALUES(?,?,?,?,?) ON CONFLICT(run_id) DO NOTHING`,
+		snapshot.RunID, snapshot.SchemaVersion, snapshot.Payload, snapshot.PayloadSHA256, time.Now().UnixMilli())
+	if err != nil {
+		return err
+	}
+	var priorDigest string
+	if err := scanOne(ctx, q, `SELECT payload_sha256 FROM run_bundle_snapshots WHERE run_id=?`, []any{snapshot.RunID}, &priorDigest); err != nil {
+		return err
+	}
+	if priorDigest != snapshot.PayloadSHA256 {
+		return code("revision_conflict")
+	}
+	for _, release := range snapshot.Releases {
+		if _, err := q.ExecContext(ctx, `INSERT INTO bundle_artifact_refs(owner_kind,owner_id,digest) VALUES('run',?,?) ON CONFLICT DO NOTHING`, string(snapshot.RunID), release.ReleaseDigest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Activation(ctx context.Context, db DB, r storage.ActivationCommit) (bundlecontract.Operation, error) {
 	tx, e := db.BeginBundleTx(ctx)
 	if e != nil {
@@ -407,9 +517,127 @@ func Activation(ctx context.Context, db DB, r storage.ActivationCommit) (bundlec
 	return finishOperation(ctx, tx, op, digest, now)
 }
 
+// CommitBindings replaces one component's reference map and advances the
+// catalog configuration revision in the same transaction as its durable
+// operation receipt. References are environment-variable names only.
+func CommitBindings(ctx context.Context, db DB, r storage.BindingCommit) (bundlecontract.Operation, error) {
+	if !bundlecontract.ValidInstallID(r.OperationID) || !bundlecontract.ValidInstallID(r.InstallID) ||
+		(r.Kind != string(bundlecontract.Hook) && r.Kind != string(bundlecontract.MCP)) || !bundlecontract.ValidLocalID(r.LocalID) ||
+		!bundlecontract.ValidDigest(r.InputDigest) || !bundlecontract.ValidDigest(r.EffectiveDigest) || strings.TrimSpace(r.Subject) == "" {
+		return bundlecontract.Operation{}, code("invalid_bindings")
+	}
+	seen := map[string]bool{}
+	for _, binding := range r.Bindings {
+		if binding.InstallID != r.InstallID || binding.Kind != r.Kind || binding.LocalID != r.LocalID ||
+			!bundlecontract.ValidBindingName(binding.Name) || !bundlecontract.ValidBindingReference(binding.Reference) || seen[binding.Name] {
+			return bundlecontract.Operation{}, code("invalid_bindings")
+		}
+		seen[binding.Name] = true
+	}
+	tx, err := db.BeginBundleTx(ctx)
+	if err != nil {
+		return bundlecontract.Operation{}, err
+	}
+	defer tx.Rollback()
+	now := r.NowMS
+	if now == 0 {
+		now = time.Now().UnixMilli()
+	}
+	op, digest, err := opReceipt(ctx, tx, r.OperationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		op, err = begin(ctx, tx, storage.BeginOperation{ID: r.OperationID, InputDigest: r.InputDigest, Kind: "bindings", ExpectedEpoch: r.Expected.Epoch}, now)
+		digest = r.InputDigest
+	}
+	if err != nil {
+		return op, err
+	}
+	if digest != r.InputDigest || op.Kind != "bindings" || op.ExpectedEpoch != r.Expected.Epoch {
+		return op, code("revision_conflict")
+	}
+	if op.State == "committed" {
+		return op, nil
+	}
+	if op.State != "pending" {
+		return op, code("revision_conflict")
+	}
+	var epoch, config int64
+	var effective, generation string
+	if err := scanOne(ctx, tx, `SELECT epoch,config_revision,effective_digest,generation_id FROM bundle_catalog_state WHERE id=1`, nil,
+		&epoch, &config, &effective, &generation); err != nil {
+		return op, err
+	}
+	if (bundlecontract.CatalogIdentity{Epoch: epoch, ConfigRevision: config, EffectiveDigest: effective, GenerationID: generation}) != r.Expected {
+		return op, code("revision_conflict")
+	}
+	if !ownsLease(ctx, tx, r.LeaseOwner) {
+		return op, code("lease_lost")
+	}
+	var active int
+	if err := scanOne(ctx, tx, `SELECT COUNT(*) FROM runs WHERE status IN ('accepted','queued','active')`, nil, &active); err != nil {
+		return op, err
+	}
+	if active > 0 {
+		return op, code("catalog_update_pending")
+	}
+	var tombstone bool
+	if err := scanOne(ctx, tx, `SELECT tombstone FROM bundle_installations WHERE install_id=?`, []any{r.InstallID}, &tombstone); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return op, code("not_found")
+		}
+		return op, err
+	}
+	if tombstone {
+		return op, code("not_found")
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bundle_bindings WHERE install_id=? AND kind=? AND local_id=?`, r.InstallID, r.Kind, r.LocalID); err != nil {
+		return op, err
+	}
+	for _, binding := range r.Bindings {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO bundle_bindings(install_id,kind,local_id,name,reference) VALUES(?,?,?,?,?)`, binding.InstallID, binding.Kind, binding.LocalID, binding.Name, binding.Reference); err != nil {
+			return op, err
+		}
+	}
+	nextConfig := config + 1
+	res, err := tx.ExecContext(ctx, `UPDATE bundle_catalog_state SET config_revision=?,effective_digest=? WHERE id=1 AND epoch=? AND config_revision=? AND effective_digest=? AND generation_id=?`, nextConfig, r.EffectiveDigest, epoch, config, effective, generation)
+	if err != nil {
+		return op, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return op, code("revision_conflict")
+	}
+	op.State = "committed"
+	op.Revision++
+	op.CommittedEpoch = epoch
+	op.Progress = "bindings_updated"
+	return finishOperation(ctx, tx, op, r.InputDigest, now)
+}
+
 func Consent(ctx context.Context, db DB, r storage.ConsentCommit) (bundlecontract.Operation, error) {
 	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, r.ExpectedRevision, r.Allowed, false, r.NowMS)
 }
+
+func ReadConsent(ctx context.Context, q Executor, installID string, kind bundlecontract.ComponentKind, localID string) (storage.BundleConsent, bool, error) {
+	if !bundlecontract.ValidInstallID(installID) || !bundlecontract.ValidLocalID(localID) || (kind != bundlecontract.Hook && kind != bundlecontract.MCP) {
+		return storage.BundleConsent{}, false, code("invalid_consent_identity")
+	}
+	var row storage.BundleConsent
+	var allowed bool
+	err := scanOne(ctx, q, `SELECT declaration_digest,allowed,revision,subject,updated_at FROM bundle_consents WHERE install_id=? AND kind=? AND local_id=?`,
+		[]any{installID, string(kind), localID}, &row.DeclarationDigest, &allowed, &row.Revision, &row.Subject, &row.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.BundleConsent{}, false, nil
+	}
+	if err != nil {
+		return storage.BundleConsent{}, false, err
+	}
+	row.InstallID, row.Kind, row.LocalID = installID, string(kind), localID
+	row.Allowed = allowed
+	if !bundlecontract.ValidDigest(row.DeclarationDigest) || row.Revision <= 0 || strings.TrimSpace(row.Subject) == "" || row.UpdatedAt < 0 {
+		return storage.BundleConsent{}, false, code("corrupt_consent")
+	}
+	return row, true, nil
+}
+
 func Revoke(ctx context.Context, db DB, r storage.RevocationCommit) (bundlecontract.Operation, error) {
 	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, r.ExpectedRevision, false, true, r.NowMS)
 }
@@ -480,12 +708,7 @@ func consent(ctx context.Context, db DB, operationID, inputDigest, leaseOwner, i
 }
 
 func SaveSnapshot(ctx context.Context, db DB, s storage.RunBundleSnapshot) error {
-	if s.RunID == "" || s.SchemaVersion != 1 {
-		return code("invalid_snapshot")
-	}
-	h := sha256.Sum256(s.Payload)
-	digest := hex.EncodeToString(h[:])
-	if digest != s.PayloadSHA256 {
+	if _, err := storage.ValidateRunBundleSnapshot(s); err != nil {
 		return code("invalid_snapshot")
 	}
 	tx, e := db.BeginBundleTx(ctx)
@@ -493,26 +716,8 @@ func SaveSnapshot(ctx context.Context, db DB, s storage.RunBundleSnapshot) error
 		return e
 	}
 	defer tx.Rollback()
-	_, e = tx.ExecContext(ctx, `INSERT INTO run_bundle_snapshots(run_id,schema_version,payload,payload_sha256,created_at) VALUES(?,?,?,?,?) ON CONFLICT(run_id) DO NOTHING`, s.RunID, s.SchemaVersion, s.Payload, digest, time.Now().UnixMilli())
-	if e != nil {
-		return e
-	}
-	var prior string
-	if e = scanOne(ctx, tx, `SELECT payload_sha256 FROM run_bundle_snapshots WHERE run_id=?`, []any{s.RunID}, &prior); e != nil {
-		return e
-	}
-	if prior != digest {
-		return code("revision_conflict")
-	}
-	for _, r := range s.Releases {
-		if !bundlecontract.ValidInstallID(r.InstallID) || r.ReleaseDigest == "" {
-			return code("invalid_snapshot")
-		}
-		owner := string(s.RunID)
-		_, e = tx.ExecContext(ctx, `INSERT INTO bundle_artifact_refs(owner_kind,owner_id,digest) VALUES('run',?,?) ON CONFLICT DO NOTHING`, owner, r.ReleaseDigest)
-		if e != nil {
-			return e
-		}
+	if err := InsertSnapshotTx(ctx, tx, s); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -521,10 +726,17 @@ func LoadSnapshot(ctx context.Context, db Executor, id domain.RunID) (storage.Ru
 	s.RunID = id
 	err := scanOne(ctx, db, `SELECT schema_version,payload,payload_sha256 FROM run_bundle_snapshots WHERE run_id=?`, []any{id}, &s.SchemaVersion, &s.Payload, &s.PayloadSHA256)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return s, storage.ErrNotFound
+		}
 		return s, err
 	}
-	h := sha256.Sum256(s.Payload)
-	if hex.EncodeToString(h[:]) != s.PayloadSHA256 {
+	payload, err := bundlecontract.DecodeRunSnapshotPayload(s.Payload)
+	if err != nil {
+		return storage.RunBundleSnapshot{}, code("artifact_corrupt")
+	}
+	s.Releases = payload.Releases
+	if _, err := storage.ValidateRunBundleSnapshot(s); err != nil {
 		return storage.RunBundleSnapshot{}, code("artifact_corrupt")
 	}
 	return s, nil
@@ -546,12 +758,70 @@ func Reachability(ctx context.Context, db Executor) (storage.ArtifactReachabilit
 	return out, rows.Err()
 }
 
+func CheckLease(ctx context.Context, db Executor, owner string) error {
+	if owner == "" {
+		return code("lease_lost")
+	}
+	var current string
+	var expiry int64
+	if err := scanOne(ctx, db, `SELECT owner,expires_at FROM leases WHERE key='vivy/organism'`, nil, &current, &expiry); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return code("lease_lost")
+		}
+		return err
+	}
+	if current != owner || expiry <= time.Now().UnixMilli() {
+		return code("lease_lost")
+	}
+	return nil
+}
+
+func CheckRevocations(ctx context.Context, db Executor, check bundlecontract.CaptureCheck) error {
+	if err := storage.ValidateCaptureCheck(&check); err != nil {
+		return err
+	}
+	var current int64
+	if err := scanOne(ctx, db, `SELECT revocation_revision FROM bundle_catalog_state WHERE id=1`, nil, &current); err != nil {
+		return storage.AdmissionUnavailable("read toolkit revocation revision", err)
+	}
+	if current < check.RevocationRevision {
+		return code("snapshot_corrupt")
+	}
+	for _, ref := range check.Executables {
+		if (ref.Kind == bundlecontract.Hook || ref.Kind == bundlecontract.MCP) && ref.ConsentDigest != "" {
+			consent, found, err := ReadConsent(ctx, db, ref.InstallID, ref.Kind, ref.LocalID)
+			if err != nil {
+				return storage.AdmissionUnavailable("read captured executable consent", err)
+			}
+			if !found || !consent.Allowed || consent.DeclarationDigest != ref.ConsentDigest || consent.Revision != ref.ConsentRevision {
+				return storage.ErrBundleRevoked
+			}
+		}
+		var revision int64
+		err := scanOne(ctx, db, `SELECT revocation_revision FROM bundle_revocations WHERE install_id=? AND kind=? AND local_id=? AND declaration_digest=?`,
+			[]any{ref.InstallID, string(ref.Kind), ref.LocalID, ref.DeclarationDigest}, &revision)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return storage.AdmissionUnavailable("read toolkit revocation fence", err)
+		}
+		if revision > check.RevocationRevision {
+			return storage.ErrBundleRevoked
+		}
+	}
+	return nil
+}
+
 var _ storage.BundleStore = (*Store)(nil)
 
 type Store struct{ DB DB }
 
 func (s Store) ReadBundleState(c context.Context) (storage.BundleState, error) {
 	return ReadState(c, s.DB)
+}
+func (s Store) CheckBundleLease(c context.Context, owner string) error {
+	return CheckLease(c, s.DB, owner)
 }
 func (s Store) SaveBundleInstallation(c context.Context, r storage.InstallCommit) (bundlecontract.Operation, error) {
 	return SaveInstall(c, s.DB, r)
@@ -571,8 +841,14 @@ func (s Store) ListBundleBlockers(c context.Context, r storage.BlockerQuery) (st
 func (s Store) CommitBundleActivation(c context.Context, r storage.ActivationCommit) (bundlecontract.Operation, error) {
 	return Activation(c, s.DB, r)
 }
+func (s Store) CommitBundleBindings(c context.Context, r storage.BindingCommit) (bundlecontract.Operation, error) {
+	return CommitBindings(c, s.DB, r)
+}
 func (s Store) CommitBundleConsent(c context.Context, r storage.ConsentCommit) (bundlecontract.Operation, error) {
 	return Consent(c, s.DB, r)
+}
+func (s Store) ReadBundleConsent(c context.Context, installID string, kind bundlecontract.ComponentKind, localID string) (storage.BundleConsent, bool, error) {
+	return ReadConsent(c, s.DB, installID, kind, localID)
 }
 func (s Store) CommitBundleRevocation(c context.Context, r storage.RevocationCommit) (bundlecontract.Operation, error) {
 	return Revoke(c, s.DB, r)
@@ -585,6 +861,9 @@ func (s Store) LoadRunBundleSnapshot(c context.Context, id domain.RunID) (storag
 }
 func (s Store) ReadBundleReachability(c context.Context) (storage.ArtifactReachability, error) {
 	return Reachability(c, s.DB)
+}
+func (s Store) CheckBundleRevocations(c context.Context, check bundlecontract.CaptureCheck) error {
+	return CheckRevocations(c, s.DB, check)
 }
 
 var _ = strings.Builder{}

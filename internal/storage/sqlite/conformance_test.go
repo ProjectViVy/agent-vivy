@@ -50,7 +50,11 @@ func TestBundleStoreConformance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return conformance.BundleSlot{Store: b.BundleStore(), Close: b.Close}
+		if err := b.TakeOrganismLease(context.Background()); err != nil {
+			_ = b.Close()
+			t.Fatalf("TakeOrganismLease: %v", err)
+		}
+		return conformance.BundleSlot{Store: b.BundleStore(), Admission: b, Engine: b, LeaseOwner: b.OrganismLeaseOwner(), Close: b.Close}
 	}})
 }
 

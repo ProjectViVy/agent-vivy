@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 )
 
 type serviceStore struct {
 	custom         []maskcontract.Definition
+	createdRequest *maskcontract.CreateRequest
 	captures       map[domain.SessionID]maskcontract.Capture
 	selection      map[domain.SessionID]maskcontract.Selection
 	postSetCapture *maskcontract.Capture
@@ -38,8 +41,14 @@ func (store *serviceStore) GetCustomMask(_ context.Context, id string) (maskcont
 	return maskcontract.Definition{}, maskcontract.NewError(maskcontract.CodeNotFound, errors.New("missing"))
 }
 
-func (store *serviceStore) CreateCustomMask(context.Context, maskcontract.CreateRequest) (maskcontract.Definition, error) {
-	return maskcontract.Definition{}, maskcontract.NewError(maskcontract.CodeUnavailable, errors.New("fixture"))
+func (store *serviceStore) CreateCustomMask(_ context.Context, in maskcontract.CreateRequest) (maskcontract.Definition, error) {
+	copy := in
+	store.createdRequest = &copy
+	return maskcontract.Definition{
+		ID: "custom/00000000-0000-4000-8000-000000000099", Name: in.Name, Description: in.Description, Body: in.Body,
+		Revision: 1, Digest: maskcontract.DefinitionDigest("custom/00000000-0000-4000-8000-000000000099", in.Name, in.Body), Origin: maskcontract.OriginCustom,
+		Bundle: in.Bundle, RecommendedSkills: in.RecommendedSkills,
+	}, nil
 }
 
 func (store *serviceStore) UpdateCustomMask(context.Context, maskcontract.UpdateRequest) (maskcontract.Definition, error) {
@@ -77,6 +86,240 @@ func customFixture(id string) maskcontract.Definition {
 	return maskcontract.Definition{
 		ID: id, Name: "Custom", Description: "fixture", Body: "custom body",
 		Revision: 1, Digest: maskcontract.DefinitionDigest(id, "Custom", "custom body"),
+	}
+}
+
+type fixtureToolkitViewManager struct{ view bundlecontract.View }
+
+func (manager fixtureToolkitViewManager) CurrentView(context.Context) (bundlecontract.View, func(), error) {
+	return manager.view, func() {}, nil
+}
+
+func toolkitMaskView(t *testing.T, includeMask, skillAvailable bool) (bundlecontract.View, string, string) {
+	return toolkitMaskViewVersion(t, includeMask, skillAvailable, "literal PM guide", 7, strings.Repeat("a", 64), strings.Repeat("b", 64))
+}
+
+func toolkitMaskViewVersion(t *testing.T, includeMask, skillAvailable bool, body string, sequence int64, releaseDigest, catalogDigest string) (bundlecontract.View, string, string) {
+	t.Helper()
+	installID := "11111111-1111-4111-8111-111111111111"
+	release := bundlecontract.ReleaseRef{InstallID: installID, BundleID: "acme/experts", ReleaseDigest: releaseDigest, ReleaseSequence: sequence}
+	skillID, _ := bundlecontract.SkillID(installID, "prd")
+	maskID, _ := bundlecontract.MaskID(installID, "pm")
+	components := []bundlecontract.ComponentRecord{{
+		Ref:         bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Skill, LocalID: "prd"},
+		ProjectedID: skillID, Release: release, ContentDigest: release.ReleaseDigest, Name: "PRD Author", Description: "Writes PRDs", Body: "write a PRD", Available: skillAvailable,
+	}}
+	if includeMask {
+		components = append(components, bundlecontract.ComponentRecord{
+			Ref:         bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Mask, LocalID: "pm"},
+			ProjectedID: maskID, Release: release, ContentDigest: release.ReleaseDigest,
+			Name: "Product Manager", Description: "Plans product work", Body: body,
+			RecommendedSkills: []bundlecontract.ComponentRef{{InstallID: installID, Kind: bundlecontract.Skill, LocalID: "prd"}}, Available: true,
+		})
+		devID, _ := bundlecontract.MaskID(installID, "dev")
+		components = append(components, bundlecontract.ComponentRecord{
+			Ref:         bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Mask, LocalID: "dev"},
+			ProjectedID: devID, Release: release, ContentDigest: release.ReleaseDigest,
+			Name: "Developer", Description: "Implements approved plans", Body: "literal developer guide", Available: true,
+		})
+	}
+	view, err := bundlecontract.NewView(bundlecontract.CatalogIdentity{Epoch: sequence, EffectiveDigest: catalogDigest}, []bundlecontract.ReleaseRef{release}, components, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view, maskID, skillID
+}
+
+func TestBundleMasksCatalogAndAdmissionCapture(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, maskID, skillID := toolkitMaskView(t, true, true)
+	store := &serviceStore{captures: map[domain.SessionID]maskcontract.Capture{
+		"bundle-session": {Selection: maskcontract.Selection{SessionID: "bundle-session", MaskID: maskID, Revision: 4}},
+	}, selection: map[domain.SessionID]maskcontract.Selection{"bundle-session": {SessionID: "bundle-session", MaskID: maskID, Revision: 4}}}
+	service, err := NewService(store, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetToolkitManager(fixtureToolkitViewManager{view: view})
+	page, err := service.ListMasksFromView(context.Background(), maskcontract.ListRequest{Limit: 100}, view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed *maskcontract.Metadata
+	for i := range page.Items {
+		if page.Items[i].ID == maskID {
+			listed = &page.Items[i]
+		}
+	}
+	if listed == nil || listed.Origin != maskcontract.OriginBundle || !listed.Available || listed.Bundle == nil || listed.Revision != 7 || len(listed.RecommendedSkills) != 1 {
+		t.Fatalf("bundle Mask metadata = %+v", listed)
+	}
+	if listed.RecommendedSkills[0].SkillID != skillID || !listed.RecommendedSkills[0].Available {
+		t.Fatalf("recommendation did not resolve as display metadata: %+v", listed.RecommendedSkills)
+	}
+	bundleMasks := 0
+	for _, item := range page.Items {
+		if item.Origin == maskcontract.OriginBundle {
+			bundleMasks++
+		}
+	}
+	if bundleMasks != 2 {
+		t.Fatalf("bundle Mask catalog contains %d entries, want PM and Dev", bundleMasks)
+	}
+	definition, err := service.GetMask(context.Background(), maskcontract.GetRequest{ID: maskID})
+	if err != nil || definition.Origin != maskcontract.OriginBundle || definition.Body != "literal PM guide" {
+		t.Fatalf("bundle Mask definition = %+v, err=%v", definition, err)
+	}
+	capture, err := service.CaptureFromView(context.Background(), "bundle-session", view)
+	if err != nil || capture.Mask == nil {
+		t.Fatalf("bundle Mask capture = %+v, err=%v", capture, err)
+	}
+	if capture.Mask.Body != definition.Body || capture.Mask.Origin != maskcontract.OriginBundle || capture.Mask.Bundle == nil || capture.Mask.Bundle.Release != definition.Bundle.Release {
+		t.Fatalf("captured prompt Mask lost immutable provenance: %+v", capture.Mask)
+	}
+	if _, err := service.SetMaskSelection(context.Background(), maskcontract.SetSelectionRequest{SessionID: "bundle-session", MaskID: maskID, ExpectedRevision: 4, ExpectedCatalogEpoch: 6}); err == nil {
+		t.Fatal("selection accepted a stale Toolkit catalog epoch")
+	}
+	selected, err := service.SetMaskSelection(context.Background(), maskcontract.SetSelectionRequest{SessionID: "bundle-session", MaskID: maskID, ExpectedRevision: 4, ExpectedCatalogEpoch: 7})
+	if err != nil || selected.Selection.MaskID != maskID || !selected.Available {
+		t.Fatalf("bundle Mask selection = %+v, err=%v", selected, err)
+	}
+	currentSelection, err := service.GetMaskSelection(context.Background(), maskcontract.SelectionRequest{SessionID: "bundle-session"})
+	if err != nil || !currentSelection.Available || currentSelection.Selection.MaskID != maskID {
+		t.Fatalf("selected bundle Mask inspection = %+v, err=%v", currentSelection, err)
+	}
+}
+
+func TestBundleMaskDisabledSelectionRemainsVisibleAndUnavailable(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, maskID, _ := toolkitMaskView(t, true, true)
+	store := &serviceStore{captures: map[domain.SessionID]maskcontract.Capture{
+		"bundle-disabled": {Selection: maskcontract.Selection{SessionID: "bundle-disabled", MaskID: maskID, Revision: 2}},
+	}, selection: map[domain.SessionID]maskcontract.Selection{}}
+	service, err := NewService(store, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, _, _ := toolkitMaskView(t, false, true)
+	service.SetToolkitManager(fixtureToolkitViewManager{view: disabled})
+	selection, err := service.GetMaskSelection(context.Background(), maskcontract.SelectionRequest{SessionID: "bundle-disabled"})
+	if err != nil || selection.Available || selection.InactiveReason != "toolkit_disabled" || selection.Selection.MaskID != maskID {
+		t.Fatalf("disabled bundle Mask selection = %+v, err=%v", selection, err)
+	}
+	if _, err := service.CaptureFromView(context.Background(), "bundle-disabled", disabled); err == nil {
+		t.Fatal("disabled current selection was silently replaced")
+	}
+}
+
+func TestBundleMaskUpdateKeepsSelectionAndChangesOnlyNextCapture(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldView, maskID, _ := toolkitMaskViewVersion(t, true, true, "old PM guide", 7, strings.Repeat("a", 64), strings.Repeat("b", 64))
+	newView, updatedID, _ := toolkitMaskViewVersion(t, true, true, "updated PM guide", 8, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if updatedID != maskID {
+		t.Fatalf("stable local Mask ID changed across releases: %q != %q", updatedID, maskID)
+	}
+	store := &serviceStore{captures: map[domain.SessionID]maskcontract.Capture{
+		"mask-update": {Selection: maskcontract.Selection{SessionID: "mask-update", MaskID: maskID, Revision: 9}},
+	}}
+	service, err := NewService(store, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCapture, err := service.CaptureFromView(context.Background(), "mask-update", oldView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCapture, err := service.CaptureFromView(context.Background(), "mask-update", newView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldCapture.Mask == nil || oldCapture.Mask.Body != "old PM guide" || oldCapture.Mask.DefinitionRevision != 7 {
+		t.Fatalf("old captured Mask changed after update: %+v", oldCapture.Mask)
+	}
+	if newCapture.Mask == nil || newCapture.Mask.Body != "updated PM guide" || newCapture.Mask.DefinitionRevision != 8 || newCapture.Selection.MaskID != maskID || newCapture.Selection.Revision != 9 {
+		t.Fatalf("next Mask capture did not retain stable selection and new definition: %+v", newCapture)
+	}
+}
+
+func TestCopyBundleMaskCapturesPinnedSourceAndRecommendationMetadata(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, maskID, skillID := toolkitMaskView(t, true, true)
+	store := &serviceStore{}
+	service, err := NewService(store, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetToolkitManager(fixtureToolkitViewManager{view: view})
+	request := maskcontract.CopyMaskRequest{
+		OperationID: "00000000-0000-4000-8000-000000000098", SourceID: maskID, ExpectedCatalogEpoch: 6,
+	}
+	if _, err := service.CopyMask(context.Background(), request); err == nil {
+		t.Fatal("copy accepted a stale catalog epoch")
+	}
+	if store.createdRequest != nil {
+		t.Fatal("stale copy wrote a custom Mask")
+	}
+	request.ExpectedCatalogEpoch = 7
+	copied, err := service.CopyMask(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.ID != "custom/00000000-0000-4000-8000-000000000099" || copied.Origin != maskcontract.OriginCustom || copied.Body != "literal PM guide" || copied.Bundle == nil || copied.Bundle.LocalID != "pm" {
+		t.Fatalf("copied definition = %+v", copied)
+	}
+	if store.createdRequest == nil || store.createdRequest.OperationID != request.OperationID || len(store.createdRequest.RecommendedSkills) != 1 || store.createdRequest.RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("copy request did not preserve source recommendations: %+v", store.createdRequest)
+	}
+}
+
+func TestUnavailableBundleSkillRecommendationStaysInformational(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, maskID, _ := toolkitMaskView(t, true, false)
+	service, err := NewService(&serviceStore{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetToolkitManager(fixtureToolkitViewManager{view: view})
+	definition, err := service.GetMask(context.Background(), maskcontract.GetRequest{ID: maskID})
+	if err != nil || len(definition.RecommendedSkills) != 1 || definition.RecommendedSkills[0].Available || definition.RecommendedSkills[0].InactiveReason != "skill_unavailable" {
+		t.Fatalf("unavailable recommendation state = %+v/%v", definition.RecommendedSkills, err)
+	}
+}
+
+func TestBundleMaskDefinitionsAreReadOnlyUntilCopied(t *testing.T) {
+	catalog, err := NewCatalog("test-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, maskID, _ := toolkitMaskView(t, true, true)
+	service, err := NewService(&serviceStore{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetToolkitManager(fixtureToolkitViewManager{view: view})
+	_, updateErr := service.UpdateMask(context.Background(), maskcontract.UpdateRequest{ID: maskID, ExpectedRevision: 7, Name: "Edited", Body: "changed"})
+	var typed *maskcontract.Error
+	if !errors.As(updateErr, &typed) || typed.Code != maskcontract.CodeReadOnlyComponent {
+		t.Fatalf("bundle Mask update error = %v, want read_only_component", updateErr)
+	}
+	_, deleteErr := service.DeleteMask(context.Background(), maskcontract.DeleteRequest{ID: maskID, ExpectedRevision: 7})
+	if !errors.As(deleteErr, &typed) || typed.Code != maskcontract.CodeReadOnlyComponent {
+		t.Fatalf("bundle Mask delete error = %v, want read_only_component", deleteErr)
 	}
 }
 

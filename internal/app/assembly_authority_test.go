@@ -84,3 +84,10 @@ func TestValidateRuntimeAssemblyRejectsControlActionIdentityDrift(t *testing.T) 
 		t.Fatal("runtime assembly accepted a Control Action identity outside its sealed allow-list")
 	}
 }
+
+func TestDefaultRuntimeAssemblyValidatesEveryActionProvider(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	if err := validateRuntimeAssembly(assembly); err != nil {
+		t.Fatalf("default generated runtime assembly: %v", err)
+	}
+}

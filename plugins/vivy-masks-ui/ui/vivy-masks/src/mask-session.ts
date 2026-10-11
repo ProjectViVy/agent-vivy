@@ -6,6 +6,7 @@ import type { MaskUIError } from './mask-state';
 interface SessionState {
   readonly sessionId: string | null;
   readonly catalog: readonly MaskMetadata[];
+  readonly catalogEpoch: number;
   readonly catalogPending: boolean;
   readonly selection: MaskSelection | null;
   readonly selectionPending: boolean;
@@ -13,7 +14,7 @@ interface SessionState {
   readonly catalogError: MaskUIError | null;
   readonly selectionError: MaskUIError | null;
 }
-const EMPTY: SessionState = { sessionId: null, catalog: [], catalogPending: false, selection: null, selectionPending: false, error: null, catalogError: null, selectionError: null };
+const EMPTY: SessionState = { sessionId: null, catalog: [], catalogEpoch: 0, catalogPending: false, selection: null, selectionPending: false, error: null, catalogError: null, selectionError: null };
 
 /** One extension-owned projection of backend state for the page and quick menu. */
 export class MaskSession {
@@ -66,13 +67,18 @@ export class MaskSession {
     try {
       const items: MaskMetadata[] = [];
       let afterId = '';
+      let catalogEpoch = 0;
       for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
         const page = await this.client.list({ after_id: afterId, limit: 100 });
+        if (pageIndex === 0) catalogEpoch = page.catalog_epoch ?? 0;
+        else if (catalogEpoch > 0 && page.catalog_epoch !== catalogEpoch) {
+          throw new Error('Mask catalog changed while reading pages.');
+        }
         items.push(...page.items);
         if (!page.next_after_id || page.next_after_id === afterId) break;
         afterId = page.next_after_id;
       }
-      if (epoch === this.catalogEpoch) this.update({ catalog: items, catalogPending: false, catalogError: null });
+      if (epoch === this.catalogEpoch) this.update({ catalog: items, catalogEpoch, catalogPending: false, catalogError: null });
     } catch (cause) {
       if (epoch === this.catalogEpoch) this.update({ catalogPending: false, catalogError: toMaskError(cause) });
     }
@@ -102,7 +108,12 @@ export class MaskSession {
     this.write = write;
     this.update({ selectionPending: true, selectionError: null });
     try {
-      const next = await this.client.setSelection({ session_id: sessionId, mask_id: maskId, expected_revision: selection.revision });
+      const next = await this.client.setSelection({
+        session_id: sessionId,
+        mask_id: maskId,
+        expected_revision: selection.revision,
+        ...(maskId.startsWith('bundle/') ? { expected_catalog_epoch: this.state.catalogEpoch } : {}),
+      });
       if (epoch !== this.epoch || next.session_id !== this.state.sessionId) return false;
       this.update({ selection: next, selectionPending: false });
       return true;

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/bundlecontract"
 )
 
 const testOperationID = "00000000-0000-4000-8000-000000000001"
@@ -115,6 +117,46 @@ func TestMaskNormalizeSelectionAndList(t *testing.T) {
 	}
 	if _, err := NormalizeSelection(SetSelectionRequest{SessionID: "session", MaskID: "", ExpectedRevision: 0}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBundleMaskIdentityProvenanceAndRecommendationContract(t *testing.T) {
+	installID := "11111111-1111-4111-8111-111111111111"
+	release := bundlecontract.ReleaseRef{InstallID: installID, BundleID: "acme/experts", ReleaseDigest: strings.Repeat("a", 64), ReleaseSequence: 7}
+	maskID, err := bundlecontract.MaskID(installID, "pm")
+	if err != nil || !IsBundleID(maskID) || ValidateMaskID(maskID) != nil {
+		t.Fatalf("canonical bundle Mask ID %q rejected: %v", maskID, err)
+	}
+	if IsBundleID("bundle/not-an-uuid/pm") || ValidateMaskID("bundle/not-an-uuid/pm") == nil {
+		t.Fatal("malformed bundle Mask ID was accepted")
+	}
+	if _, err := NormalizeSelection(SetSelectionRequest{SessionID: "session", MaskID: maskID, ExpectedRevision: 2}); err == nil {
+		t.Fatal("bundle Mask selection without expected catalog epoch was accepted")
+	}
+	if _, err := NormalizeSelection(SetSelectionRequest{SessionID: "session", MaskID: maskID, ExpectedRevision: 2, ExpectedCatalogEpoch: 7}); err != nil {
+		t.Fatalf("bundle Mask selection with epoch was rejected: %v", err)
+	}
+	skillID, _ := bundlecontract.SkillID(installID, "prd")
+	provenance := &BundleProvenance{Release: release, LocalID: "pm"}
+	definition := Definition{
+		ID: maskID, Name: "Product Manager", Description: "Plans product work", Body: "Guide PM work",
+		Revision: 7, Digest: DefinitionDigest(maskID, "Product Manager", "Guide PM work"), Origin: OriginBundle,
+		Bundle: provenance, RecommendedSkills: []SkillRecommendation{{Ref: bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Skill, LocalID: "prd"}, SkillID: skillID, Name: "PRD Author", Available: false, InactiveReason: "skill_unavailable"}},
+	}
+	if err := ValidateDefinition(definition); err != nil {
+		t.Fatalf("bundle Mask metadata rejected: %v", err)
+	}
+	copy := definition
+	copy.ID = "custom/00000000-0000-4000-8000-000000000001"
+	copy.Origin = OriginCustom
+	copy.Revision = 1
+	copy.Digest = DefinitionDigest(copy.ID, copy.Name, copy.Body)
+	if err := ValidateDefinition(copy); err != nil {
+		t.Fatalf("custom copy metadata rejected: %v", err)
+	}
+	copy.RecommendedSkills[0].SkillID = "b_wrong"
+	if err := ValidateDefinition(copy); err == nil {
+		t.Fatal("mismatched recommended Skill ID was accepted")
 	}
 }
 

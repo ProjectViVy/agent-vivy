@@ -204,7 +204,7 @@ func normalize(m Manifest) Manifest {
 		}
 	}
 	for i := range m.Components.MCP {
-		if m.Components.MCP[i].Cwd == "" {
+		if m.Components.MCP[i].Cwd == "" && m.Components.MCP[i].Command != "" {
 			m.Components.MCP[i].Cwd = "workspace"
 		}
 		if m.Components.MCP[i].Args == nil {

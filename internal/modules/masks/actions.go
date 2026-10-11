@@ -17,6 +17,7 @@ const (
 	ActionCatalogList   = catalog.ActionCatalogList
 	ActionCatalogGet    = catalog.ActionCatalogGet
 	ActionCatalogCreate = catalog.ActionCatalogCreate
+	ActionCatalogCopy   = catalog.ActionCatalogCopy
 	ActionCatalogUpdate = catalog.ActionCatalogUpdate
 	ActionCatalogDelete = catalog.ActionCatalogDelete
 	ActionSelectionGet  = catalog.ActionSelectionGet
@@ -54,6 +55,7 @@ func ActionProviders() []controlaction.Provider {
 		maskAction{definition: actionDefinition(ActionCatalogList, "List mask metadata", controlaction.EffectRead, listInputSchema, pageSchema), invoke: invokeList},
 		maskAction{definition: actionDefinition(ActionCatalogGet, "Get one mask definition", controlaction.EffectRead, getInputSchema, definitionSchema), invoke: invokeGet},
 		maskAction{definition: actionDefinition(ActionCatalogCreate, "Create a custom mask", controlaction.EffectWrite, createInputSchema, definitionSchema), invoke: invokeCreate},
+		maskAction{definition: actionDefinition(ActionCatalogCopy, "Copy a Toolkit Mask into a custom mask", controlaction.EffectWrite, copyInputSchema, definitionSchema), invoke: invokeCopy},
 		maskAction{definition: actionDefinition(ActionCatalogUpdate, "Update a custom mask", controlaction.EffectWrite, updateInputSchema, definitionSchema), invoke: invokeUpdate},
 		maskAction{definition: actionDefinition(ActionCatalogDelete, "Delete a custom mask", controlaction.EffectWrite, deleteInputSchema, deleteSchema), invoke: invokeDelete},
 		maskAction{definition: actionDefinition(ActionSelectionGet, "Get the bound session mask", controlaction.EffectRead, selectionGetInputSchema, selectionSchema), invoke: invokeSelectionGet},
@@ -77,14 +79,21 @@ type getInput struct {
 	ID string `json:"id"`
 }
 
+type copyInput struct {
+	OperationID          string `json:"operation_id"`
+	SourceID             string `json:"source_id"`
+	ExpectedCatalogEpoch int64  `json:"expected_catalog_epoch"`
+}
+
 type selectionInput struct {
 	SessionID string `json:"session_id"`
 }
 
 type selectionSetInput struct {
-	SessionID        string `json:"session_id"`
-	MaskID           string `json:"mask_id"`
-	ExpectedRevision int64  `json:"expected_revision"`
+	SessionID            string `json:"session_id"`
+	MaskID               string `json:"mask_id"`
+	ExpectedRevision     int64  `json:"expected_revision"`
+	ExpectedCatalogEpoch int64  `json:"expected_catalog_epoch"`
 }
 
 func decodeAction[T any](raw json.RawMessage, dst *T) error {
@@ -150,6 +159,18 @@ func invokeCreate(ctx context.Context, host maskcontract.ActionHost, raw json.Ra
 	return marshalAction(definition)
 }
 
+func invokeCopy(ctx context.Context, host maskcontract.ActionHost, raw json.RawMessage) (json.RawMessage, error) {
+	var in copyInput
+	if err := decodeAction(raw, &in); err != nil {
+		return nil, err
+	}
+	definition, err := host.CopyMask(ctx, maskcontract.CopyMaskRequest{OperationID: in.OperationID, SourceID: in.SourceID, ExpectedCatalogEpoch: in.ExpectedCatalogEpoch})
+	if err != nil {
+		return nil, err
+	}
+	return marshalAction(definition)
+}
+
 func invokeUpdate(ctx context.Context, host maskcontract.ActionHost, raw json.RawMessage) (json.RawMessage, error) {
 	var in maskcontract.UpdateRequest
 	if err := decodeAction(raw, &in); err != nil {
@@ -191,7 +212,7 @@ func invokeSelectionSet(ctx context.Context, host maskcontract.ActionHost, raw j
 	if err := decodeAction(raw, &in); err != nil {
 		return nil, err
 	}
-	view, err := host.SetMaskSelection(ctx, maskcontract.SetSelectionRequest{SessionID: domain.SessionID(in.SessionID), MaskID: in.MaskID, ExpectedRevision: in.ExpectedRevision})
+	view, err := host.SetMaskSelection(ctx, maskcontract.SetSelectionRequest{SessionID: domain.SessionID(in.SessionID), MaskID: in.MaskID, ExpectedRevision: in.ExpectedRevision, ExpectedCatalogEpoch: in.ExpectedCatalogEpoch})
 	if err != nil {
 		return nil, err
 	}
@@ -223,12 +244,13 @@ var (
 	listInputSchema         = json.RawMessage(`{"type":"object","properties":{"after_id":{"type":"string","maxLength":128},"limit":{"type":"integer","minimum":0,"maximum":100}},"additionalProperties":false}`)
 	getInputSchema          = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128}},"required":["id"],"additionalProperties":false}`)
 	createInputSchema       = json.RawMessage(`{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string","maxLength":1024},"body":{"type":"string","minLength":1,"maxLength":16384}},"required":["operation_id","name","description","body"],"additionalProperties":false}`)
+	copyInputSchema         = json.RawMessage(`{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"},"source_id":{"type":"string","maxLength":128},"expected_catalog_epoch":{"type":"integer","minimum":1,"maximum":9007199254740991}},"required":["operation_id","source_id","expected_catalog_epoch"],"additionalProperties":false}`)
 	updateInputSchema       = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"expected_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string","maxLength":1024},"body":{"type":"string","minLength":1,"maxLength":16384}},"required":["id","expected_revision","name","description","body"],"additionalProperties":false}`)
 	deleteInputSchema       = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"expected_revision":{"type":"integer","minimum":1,"maximum":9007199254740991}},"required":["id","expected_revision"],"additionalProperties":false}`)
 	selectionGetInputSchema = json.RawMessage(`{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":128}},"required":["session_id"],"additionalProperties":false}`)
-	selectionSetInputSchema = json.RawMessage(`{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":128},"mask_id":{"type":"string","maxLength":128},"expected_revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["session_id","mask_id","expected_revision"],"additionalProperties":false}`)
-	definitionSchema        = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"body":{"type":"string"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"digest":{"type":"string"},"built_in":{"type":"boolean"},"generation_id":{"type":"string"}},"required":["id","name","description","body","revision","digest","built_in","generation_id"],"additionalProperties":false}`)
-	pageSchema              = json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"digest":{"type":"string"},"generation_id":{"type":"string"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"built_in":{"type":"boolean"}},"required":["id","name","description","digest","generation_id","revision","built_in"],"additionalProperties":false}},"next_after_id":{"type":"string"}},"required":["items","next_after_id"],"additionalProperties":false}`)
+	selectionSetInputSchema = json.RawMessage(`{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":128},"mask_id":{"type":"string","maxLength":128},"expected_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"expected_catalog_epoch":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["session_id","mask_id","expected_revision"],"additionalProperties":false}`)
+	definitionSchema        = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"body":{"type":"string"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"digest":{"type":"string"},"built_in":{"type":"boolean"},"generation_id":{"type":"string"},"origin":{"type":"string","enum":["builtin","custom","bundle"]},"bundle":{"type":"object","properties":{"release":{"type":"object","properties":{"install_id":{"type":"string"},"bundle_id":{"type":"string"},"release_digest":{"type":"string"},"release_sequence":{"type":"integer"}},"required":["install_id","bundle_id","release_digest","release_sequence"],"additionalProperties":false},"local_id":{"type":"string"}},"required":["release","local_id"],"additionalProperties":false},"recommended_skills":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"object","properties":{"install_id":{"type":"string"},"kind":{"type":"string","enum":["skill"]},"local_id":{"type":"string"}},"required":["install_id","kind","local_id"],"additionalProperties":false},"skill_id":{"type":"string"},"name":{"type":"string"},"available":{"type":"boolean"},"inactive_reason":{"type":"string"}},"required":["ref","skill_id","name","available"],"additionalProperties":false}}},"required":["id","name","description","body","revision","digest","built_in","generation_id"],"additionalProperties":false}`)
+	pageSchema              = json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"digest":{"type":"string"},"generation_id":{"type":"string"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"built_in":{"type":"boolean"},"origin":{"type":"string","enum":["builtin","custom","bundle"]},"bundle":{"type":"object"},"recommended_skills":{"type":"array","items":{"type":"object"}},"available":{"type":"boolean"},"inactive_reason":{"type":"string"}},"required":["id","name","description","digest","generation_id","revision","built_in","available"],"additionalProperties":false}},"next_after_id":{"type":"string"}},"required":["items","next_after_id"],"additionalProperties":false}`)
 	deleteSchema            = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`)
-	selectionSchema         = json.RawMessage(`{"type":"object","properties":{"session_id":{"type":"string"},"mask_id":{"type":"string"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"available":{"type":"boolean"},"inactive_reason":{"type":"string","enum":["","not_compiled"]}},"required":["session_id","mask_id","revision","available","inactive_reason"],"additionalProperties":false}`)
+	selectionSchema         = json.RawMessage(`{"type":"object","properties":{"session_id":{"type":"string"},"mask_id":{"type":"string"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"available":{"type":"boolean"},"inactive_reason":{"type":"string","enum":["","not_compiled","toolkit_disabled"]}},"required":["session_id","mask_id","revision","available","inactive_reason"],"additionalProperties":false}`)
 )

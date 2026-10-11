@@ -22,6 +22,7 @@ type ComponentRecord struct {
 	Hook              *HookEntry     `json:"hook,omitempty"`
 	MCP               *MCPEntry      `json:"mcp,omitempty"`
 	ExecutableDigest  string         `json:"executable_digest,omitempty"`
+	Bindings          []BindingRef   `json:"bindings,omitempty"`
 	Available         bool           `json:"available"`
 	Status            string         `json:"status"`
 }

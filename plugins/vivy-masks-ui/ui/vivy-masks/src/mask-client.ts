@@ -10,6 +10,7 @@ export const MASK_ACTIONS = Object.freeze({
   catalogList: 'vivy.masks.catalog.list',
   catalogGet: 'vivy.masks.catalog.get',
   catalogCreate: 'vivy.masks.catalog.create',
+  catalogCopy: 'vivy.masks.catalog.copy',
   catalogUpdate: 'vivy.masks.catalog.update',
   catalogDelete: 'vivy.masks.catalog.delete',
   selectionGet: 'vivy.masks.selection.get',
@@ -24,6 +25,25 @@ export interface MaskMetadata {
   readonly generation_id: string;
   readonly revision: number;
   readonly built_in: boolean;
+  readonly origin?: 'builtin' | 'custom' | 'bundle';
+  readonly bundle?: {
+    readonly release: {
+      readonly install_id: string;
+      readonly bundle_id: string;
+      readonly release_digest: string;
+      readonly release_sequence: number;
+    };
+    readonly local_id: string;
+  };
+  readonly recommended_skills?: readonly {
+    readonly ref: { readonly install_id: string; readonly kind: 'skill'; readonly local_id: string };
+    readonly skill_id: string;
+    readonly name: string;
+    readonly available: boolean;
+    readonly inactive_reason?: string;
+  }[];
+  readonly available?: boolean;
+  readonly inactive_reason?: string;
 }
 
 export interface MaskDefinition extends MaskMetadata {
@@ -33,6 +53,7 @@ export interface MaskDefinition extends MaskMetadata {
 export interface MaskPageResult {
   readonly items: readonly MaskMetadata[];
   readonly next_after_id: string;
+  readonly catalog_epoch?: number;
 }
 
 export interface MaskSelection {
@@ -53,6 +74,12 @@ export interface MaskCreateInput {
   readonly name: string;
   readonly description: string;
   readonly body: string;
+}
+
+export interface MaskCopyInput {
+  readonly operation_id: string;
+  readonly source_id: string;
+  readonly expected_catalog_epoch: number;
 }
 
 export interface MaskUpdateInput {
@@ -76,6 +103,7 @@ export interface MaskSelectionSetInput {
   readonly session_id: string;
   readonly mask_id: string;
   readonly expected_revision: number;
+  readonly expected_catalog_epoch?: number;
 }
 
 /** The narrow transport seam makes the UI client independently testable. */
@@ -107,6 +135,10 @@ export class MaskClient {
 
   create(input: MaskCreateInput): Promise<MaskDefinition> {
     return this.invoke<MaskCreateInput, MaskDefinition>(MASK_ACTIONS.catalogCreate, input);
+  }
+
+  copy(input: MaskCopyInput): Promise<MaskDefinition> {
+    return this.invoke<MaskCopyInput, MaskDefinition>(MASK_ACTIONS.catalogCopy, input);
   }
 
   update(input: MaskUpdateInput): Promise<MaskDefinition> {

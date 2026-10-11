@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -68,7 +69,7 @@ func TestMaskCatalogResolverAndOwnedReturns(t *testing.T) {
 		t.Fatalf("caller mutation changed catalog: got %+v want %+v", got, original)
 	}
 	resolved, err := catalog.Resolve(context.Background(), original.ID)
-	if err != nil || resolved != original {
+	if err != nil || !reflect.DeepEqual(resolved, original) {
 		t.Fatalf("resolve = %+v, %v; want %+v", resolved, err, original)
 	}
 	if _, err := catalog.Resolve(context.Background(), "custom/00000000-0000-4000-8000-000000000001"); err == nil {
