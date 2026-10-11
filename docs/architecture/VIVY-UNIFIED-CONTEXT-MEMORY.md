@@ -53,7 +53,8 @@ reviewed interaction flows/wireframes are a required design deliverable.
 A hidden parallel summary or partial view is insufficient. Headless operations use
 the same governed API, with the UI as a consumer.
 
-Retain raw evidence through its existing legitimate persistence owners. Consolidate
+Persist original raw evidence continuously through its existing legitimate owners,
+rather than waiting until a context threshold. Retain it after context retirement. Consolidate
 previous committed Recap plus a retiring complete raw interaction segment into the
 next Recap. Only after that revision and its continuation position commit may the
 old raw segment unload from model context. On model/save/conflict/cancellation
