@@ -15,3 +15,7 @@ Acquisition copies only declared regular files into private staging, produces
 the independently calculated digest, resolves Git refs to commits, and never
 executes repository hooks or scripts. Reopening and reading detects mutated
 bytes. Product lifecycle and persistence acceptance remain pending TK-03–13.
+
+SQLite fresh migration, operation replay/conflict, lease-gated publication,
+active-run blockers, revocation revision and snapshot retention checks pass.
+PostgreSQL parity is implemented but not live-verified in this environment.

@@ -22,3 +22,13 @@
 - GREEN: Windows cross compilation of the `bundles` and `bundlecontract` test binaries passed with `GOOS=windows GOARCH=amd64 go test -c`.
 - Local and pinned Git fixtures verify declared-file-only copies, source immutability, no repository-hook execution, cancellation, owner availability, and stored-byte tamper detection.
 - Full Windows CI pending.
+
+## TK-03
+
+- RED: migration-count and backend contract tests failed before schema/store implementation: SQLite backend did not expose `BundleStore`; migration count was 40.
+- GREEN: `go test ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/storage/postgres -run 'Test(Bundle|EmbeddedManifestHasCanonicalPairs|ApplyFreshAndReapplyIsNoOp)' -count=1` passed. The PostgreSQL bundle conformance case is skipped because `VIVY_POSTGRES_TEST_DSN` is unset.
+- GREEN: full `go test ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite -count=1` passed.
+- GREEN: `go vet ./internal/bundlecontract ./internal/bundles ./internal/storage ./internal/storage/bundlesql ./internal/storage/sqlite ./internal/storage/postgres` passed.
+- GREEN: Windows cross compilation of storage and bundle test binaries passed.
+- GREEN: `git diff --check` passed.
+- PostgreSQL live transaction conformance remains blocked: no configured DSN, PostgreSQL executable or running Docker daemon is available in this environment.

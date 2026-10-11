@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -164,6 +165,10 @@ func OpenArtifact(ctx context.Context, stateRoot, digest string) (Artifact, erro
 	if err != nil {
 		return a, err
 	}
+	canonicalManifest, err := bundlecontract.CanonicalManifest(a.manifest)
+	if err != nil || !bytes.Equal(canonicalManifest, b) {
+		return Artifact{}, artifactError("artifact_corrupt", "manifest_canonical", err)
+	}
 	b, err = readRegular(ctx, root, "inventory.json", 2<<20)
 	if err != nil {
 		return a, err
@@ -172,6 +177,13 @@ func OpenArtifact(ctx context.Context, stateRoot, digest string) (Artifact, erro
 	d.DisallowUnknownFields()
 	if err := d.Decode(&a.inventory); err != nil {
 		return a, artifactError("artifact_corrupt", "inventory", err)
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return a, artifactError("artifact_corrupt", "inventory_trailing", err)
+	}
+	canonicalInventory, err := bundlecontract.CanonicalJSON(a.inventory)
+	if err != nil || !bytes.Equal(canonicalInventory, b) {
+		return Artifact{}, artifactError("artifact_corrupt", "inventory_canonical", err)
 	}
 	a.digest, err = bundlecontract.ArtifactDigest(a.manifest, a.inventory)
 	if err != nil || a.digest != digest {

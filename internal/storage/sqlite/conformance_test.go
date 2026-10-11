@@ -44,6 +44,16 @@ func TestBackendConformance(t *testing.T) {
 	})
 }
 
+func TestBundleStoreConformance(t *testing.T) {
+	conformance.RunBundles(t, conformance.BundleHarness{Setup: func(t *testing.T) conformance.BundleSlot {
+		b, err := Open(context.Background(), filepath.Join(t.TempDir(), "bundles.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conformance.BundleSlot{Store: b.BundleStore(), Close: b.Close}
+	}})
+}
+
 func TestHistoryConformance(t *testing.T) {
 	b := openBackend(t)
 	conformance.RunHistoryQuerySuite(t, b)

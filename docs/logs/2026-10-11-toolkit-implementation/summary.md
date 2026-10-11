@@ -7,3 +7,7 @@ No runtime owner has been connected yet. Subsequent Stories remain required.
 
 TK-02 adds bounded local and pinned Git acquisition, immutable digest-addressed
 objects, confined/hash-checked reads, staged promotion and recovery validation.
+
+TK-03 adds paired schema migration 041 and a shared Core Storage contract for
+install receipts, catalog epochs, consent, revocation, snapshots and artifact
+reachability. The PostgreSQL live suite still needs a configured server.
