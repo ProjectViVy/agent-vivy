@@ -244,3 +244,15 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 - Recomputed the SDK internal source hash with `go run ./sdk/internal/cmd/source-hash internal eba914561ec043b74bd56e00236fc7a48df2e20dbc8956fca39cf033288a94fe`; it matches the five updated conformance pins: `aea33bd278880e519754504b1d3fe20a7bf645a60d5210396580f4d4e3e57abc`.
 - `git diff --check` and `gofmt -l` over all changed Go files are clean.
 - The full `just ci` recipe remains unrun because this host has no `just` or PowerShell, and the recipe invokes `powershell.exe`. Windows smoke is excluded by instruction. The broad crash/CAS/admission matrix and wider responsive UI states listed above also remain open; no upstream architecture change is needed for the fixes in this batch.
+
+## PR base synchronization
+
+- Merged the current `origin/main` (`3ff6e4cf`) into `TOOLKITS` before opening the PR. The sole content conflict was the open-work table in `docs/TODO.md`; resolved it by retaining both the Toolkit and Memory rows.
+- Re-ran the stable repository Go suite on the merged tree; it passed with the same explicit `TestMemoryLoop*` exclusion:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
+  GOFLAGS=-tags=http2legacy go vet ./...
+  ```
+
+- Both commands passed. The repository CI recipe, Windows smoke, and the previously listed broader acceptance matrices remain outside this verification.
