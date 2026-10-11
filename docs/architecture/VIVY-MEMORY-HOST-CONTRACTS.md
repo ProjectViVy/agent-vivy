@@ -1,5 +1,7 @@
 # Vivy Memory Host Contracts — Persona Projection and Session Export
 
+> **2026-10-11 policy reconciliation:** Existing capability-aware backend CRUD/search and Host scope/admission/budget ownership remain. One shared subject Recap, revision-aware UI/agent management and targeted deletion refine this contract; no backend swap, dual write or migration is authorized. See the [selected unified context memory contract](VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Status: G0 contract freeze (MEM-0C). Docs-only; no code changes are implied by
 or authorized by this document.
 Issue: https://github.com/ProjectViVy/agent-vivy/issues/33

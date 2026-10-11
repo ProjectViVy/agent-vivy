@@ -1,5 +1,7 @@
 # MEM-1A Vivy runtime wiring for BML Implementation Plan
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > **For agentic workers:** Use superpowers:executing-plans for native execution, or superpowers:subagent-driven-development when that method is selected. Steps use checkbox syntax.
 
 **Goal:** Wire the `bml/` library into the Vivy runtime as a T1 module: bounded recall via `std/context-source@v1`, committed-experience ingestion via `std/observer/run@v1` (receipt-aware), explicit memory CRUD via `std/control-action@v1`, and a status action; rewire the `vivy/memory` UI view from demo stubs to `module.action.invoke`.

@@ -1,7 +1,9 @@
 # AGENT-VIVY V0 — Open Items Index
 
+> **2026-10-11 policy reconciliation:** Current memory policy and implementation gaps are tracked in docs/TODO.md and the linked contract; the dated inventory below is not evidence that the new policy is delivered. See the [selected unified context memory contract](../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 > **Status:** Living index. V0 is closed; remaining work matches `docs/TODO.md` §0.1.
-> **Updated:** 2026-09-26
+> **Updated:** 2026-10-11
 > **Owner:** 📋 John (PM) + user (mastwet)
 > **Purpose:** Single place to see "what still needs doing" without re-reading every sibling document.
 > **Archive:** `docs/logs/2026-08-25-todo-board-archive/summary.md`
@@ -22,6 +24,7 @@ Canonical table: `docs/TODO.md` §0.1.
 | HITL-P1-1..7 | OPEN / DEFERRED |
 | MEM-1 Memory / BML track | BML library LANDED 2026-09-26 (PR #62, `bml/`); runtime wiring MEM-1A LANDED 2026-09-26 (`docs/logs/2026-09-26-memory-1a-wiring/`), MEM-2..5 deferred — stage rows in `docs/TODO.md` §0.1 |
 | MEM-CAP AutoDream / Evolution / RAG | DEFERRED |
+| MEM-58 unified context / shared subject Recap / editable UI and agent tools | REQUIREMENTS ALIGNED · IMPLEMENTATION/VALIDATION OPEN |
 | P2-1 Diva inventory | OPEN |
 | P2-3 / SR-4 QwenPaw fsjournal | DEFERRED / OPEN |
 | P2-4 V3 module map | DEFERRED |

@@ -1,5 +1,7 @@
 # MEMORY implementation package
 
+> **2026-10-11 policy reconciliation:** The Story table retains its original delivery/deferred history. MEM-2..5 are not prerequisites or authorization for backend replacement under #58; select BML first and validate Mentle through DIVA. Current implementation/verification gaps are tracked separately. See the [selected unified context memory contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Epic: pluggable memory providers, independent Laputa governance, optional
 Garden — issue #33, stage G0 first.
 Code baseline: `f6fb11bc` (branch `feat/memory`, worktree `agent-vivy-memory`).
@@ -64,3 +66,7 @@ Iteration-log rule applies: each landed Story files `docs/logs/<date>-<slug>/`
   to executable plan (new `bml/` Go module, own `go.mod`, no Vivy Port wiring);
   adapter wiring split into future MEM-1A which does need the G0 contracts.
   Execution method: superpowers:subagent-driven-development.
+
+## Selected #58 policy follow-up (2026-10-11)
+
+The [unified context contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md) owns the new requirements and unchecked validation scenarios. One subject-level Recap, UI/agent management, conflict/delete lifecycle and Work/reconcile/capture compatibility remain planned. No completed Story in the table establishes their delivery.

@@ -1,0 +1,3 @@
+# Documentation review acceptance
+
+Follow README/AGENTS through the unified contract and memory profile/Host/SCX contracts. Verify one shared subject Recap, worker denial, LIFE-first/coding exclusion, BML-first and owner Mentle validation through the same abstraction, commit-before-unload, full editable UI, deferred explicitly activated tools, targeted delete scope and human-controlled frozen-layer guidance agree. Review unchecked scenarios and exact open design items. Check the earlier plans/research and historical log pointers retain their pins and pass/fail history. Confirm the diff contains Markdown only and no implementation or data operation. Review the documentation branch as a draft PR, never merge automatically.

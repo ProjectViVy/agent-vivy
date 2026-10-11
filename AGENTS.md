@@ -101,6 +101,10 @@ Replace or remove rules before appending more. Add rules for recurring decisions
   Superpowers for complex work, not routine edits; do not load workflows just
   because they are available. Follow applicable project-specific skills below.
 
+## Current memory policy
+
+The owner-decided [unified context memory contract](docs/architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md) refines earlier memory plans for #58. Preserve its shared subject Recap, #57 worker permission boundaries, backend capability abstraction, targeted deletion and human-controlled frozen layer. LIFE is the first default-enabled pilot; coding is excluded in phase one. Requirements are not implementation evidence.
+
 ## Architecture decision order (mandatory)
 
 Vivy implementation decisions follow this order. A lower priority must not

@@ -1,5 +1,7 @@
 # SCX Architecture Design v0.1
 
+> **2026-10-11 policy reconciliation:** Existing capability-aware backend CRUD/search and Host scope/admission/budget ownership remain. One shared subject Recap, revision-aware UI/agent management and targeted deletion refine this contract; no backend swap, dual write or migration is authorized. See the [selected unified context memory contract](VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Date: 2026-09-12
 Project: ProjectViVy/agent-vivy
 Status: architecture direction recorded from owner decisions; interface details remain under review; implementation and release are not scheduled by this document

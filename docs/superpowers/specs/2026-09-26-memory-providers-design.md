@@ -1,5 +1,7 @@
 # Pluggable memory providers — design
 
+> **2026-10-11 policy reconciliation:** The dated scope, source pins and outcomes below describe the earlier memory work. Its ACTMEM exclusions/deferrals, backend rollout order and Pulse/Recap/Work references do not govern the selected #58 policy. Existing results remain evidence; new Recap/UI/agent-tool/compatibility work is unimplemented. See the [selected unified context memory contract](../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md).
+
 Status: planning baseline for issue #33 (PROPOSAL/UNSCHEDULED → G0 contract freeze).
 Issue: https://github.com/ProjectViVy/agent-vivy/issues/33
 Code baseline: `f6fb11bc` (main, worktree `agent-vivy-memory`, branch `feat/memory`).
