@@ -84,6 +84,55 @@ func TestHostDiscoveryHonorsTimeout(t *testing.T) {
 	}
 }
 
+type delayedWorldProvider struct {
+	id    string
+	delay time.Duration
+}
+
+func (provider *delayedWorldProvider) Definition() toolworld.Definition {
+	return toolworld.Definition{ID: provider.id}
+}
+
+func (provider *delayedWorldProvider) Discover(ctx context.Context, _ toolworld.Host) ([]toolworld.ToolDefinition, error) {
+	timer := time.NewTimer(provider.delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return []toolworld.ToolDefinition{{ID: provider.id + ".tool"}}, nil
+	}
+}
+
+func (provider *delayedWorldProvider) Invoke(context.Context, toolworld.Host, string, json.RawMessage) (toolworld.Result, error) {
+	return toolworld.Result{}, nil
+}
+
+func (*delayedWorldProvider) Close(context.Context) error { return nil }
+
+func TestHostWorldDiscoveryTimeoutOverridesHostDefault(t *testing.T) {
+	world := &delayedWorldProvider{id: "fixture.slow", delay: 25 * time.Millisecond}
+	host, err := New(Config{
+		DiscoveryTimeout: 5 * time.Millisecond,
+		Worlds: []WorldBinding{{
+			OwnerID:          "fixture.slow",
+			Provider:         world,
+			Host:             testWorldHost{id: "fixture.slow"},
+			DiscoveryTimeout: 100 * time.Millisecond,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := host.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover with world-specific budget: %v", err)
+	}
+	if len(definitions) != 1 || definitions[0].ID != "fixture.slow.tool" {
+		t.Fatalf("definitions = %#v, want delayed world tool", definitions)
+	}
+}
+
 func TestHostInvalidatesDynamicSchemaHashOnRediscovery(t *testing.T) {
 	world := &testWorldProvider{id: "fixture.world", discoveries: [][]toolworld.ToolDefinition{
 		{{ID: "remote.echo", Schema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)}},

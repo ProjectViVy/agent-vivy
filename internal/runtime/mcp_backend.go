@@ -39,6 +39,11 @@ const (
 	maxMCPResourcePages   = 32
 )
 
+// MCPToolDiscoveryTimeout bounds lazy MCP process startup and tool discovery.
+// Tool discovery can include package-manager startup (for example, npx), so it
+// has a longer budget than ordinary MCP operations and other dynamic worlds.
+const MCPToolDiscoveryTimeout = 30 * time.Second
+
 type MCPServerConfig struct {
 	Name           string
 	Endpoint       string
@@ -557,11 +562,33 @@ func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
 	return b.sanitizeMCPStatusError(entry, err)
 }
 
-func (b *MCPBackend) sanitizeMCPStatusError(_ *mcpServer, err error) string {
+func (b *MCPBackend) sanitizeMCPStatusError(entry *mcpServer, err error) string {
 	if err == nil {
 		return ""
 	}
-	return boundedMCPStatusError(err.Error())
+	message := err.Error()
+	if entry != nil {
+		secrets := make(map[string]struct{})
+		addSecret := func(envName string) {
+			if value := os.Getenv(envName); value != "" {
+				secrets[value] = struct{}{}
+			}
+		}
+		addSecret(entry.config.AuthEnv)
+		for _, envName := range entry.config.EnvFrom {
+			addSecret(envName)
+		}
+		ordered := make([]string, 0, len(secrets))
+		for secret := range secrets {
+			ordered = append(ordered, secret)
+		}
+		sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
+		for _, secret := range ordered {
+			message = strings.ReplaceAll(message, secret, "\x00mcp-secret\x00")
+		}
+		message = strings.ReplaceAll(message, "\x00mcp-secret\x00", "[redacted]")
+	}
+	return boundedMCPStatusError(message)
 }
 
 // boundedMCPStatusError strips display control characters and caps the

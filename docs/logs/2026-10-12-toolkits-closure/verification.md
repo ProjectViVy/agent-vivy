@@ -132,3 +132,12 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 - Broader responsive acceptance outside 390px, populated blocker states, and the remaining UI error/recovery matrix remain untested.
 - An early exploratory sweep ran `internal/mcphost` tests using only in-memory fake sessions; no network or stdio MCP transport was opened. The completed sweep above excludes that package entirely.
 - The local PostgreSQL container is a disposable test dependency and is stopped during cleanup.
+
+## MCP discovery deadline and status-error follow-up
+
+- Added an optional per-ToolWorld discovery deadline. The generated MCP world receives a 30-second budget; all other worlds continue to inherit ToolHost's existing 2-second default.
+- Added an independent MCPHost discovery timeout covering lazy session/process startup, initialization and `tools/list`. MCPHost's ordinary operation timeout remains 8 seconds. Focused ToolHost and MCPHost package tests passed, including the per-world override, default timeout, and discovery-vs-operation timeout cases.
+- Passed App composition test `TestGeneratedMCPWorldHasLongerDiscoveryBudgetThanOtherWorlds`, which delays MCP discovery beyond the normal 2-second world deadline.
+- Passed a one-off live cold-cache stdio smoke with the official `@modelcontextprotocol/server-everything@2026.8.18`. The test used a fresh temporary npm cache and explicitly mapped `PATH` and `NPM_CONFIG_CACHE` into the stdio process. ToolHost discovery, the `mcp.everything.echo` call and cleanup passed in 10.89 seconds, inside the 30-second discovery budget. The temporary harness and cache were removed. This was a direct ToolHost discovery/call smoke; the separately recorded warm-cache live service test remains the evidence for approval and Journal ordering.
+- A broader Runtime MCP selection initially exposed `TestMCPStatusErrorPreservesPathsAndSyntheticEnvironmentValues` requiring resolved credentials in display errors. Replaced that expectation with a regression asserting `EnvFrom` and `AuthEnv` values are redacted while paths remain and control/bidi characters are removed. The new test failed before the sanitizer fix and passed afterward; the full selected Runtime MCP/Toolkit test set then passed.
+- No Windows smoke was run. No Eino/EinoExt change was needed: pinned EinoExt MCP `GetTools` provides schema conversion, while process startup and Vivy discovery deadlines are owned by MCPHost/ToolHost.

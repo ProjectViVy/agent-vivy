@@ -57,10 +57,11 @@ type StaticBinding struct {
 }
 
 type WorldBinding struct {
-	OwnerID  string
-	Provider toolworld.Provider
-	Host     toolworld.Host
-	HostFor  func(context.Context) toolworld.Host
+	OwnerID          string
+	Provider         toolworld.Provider
+	Host             toolworld.Host
+	HostFor          func(context.Context) toolworld.Host
+	DiscoveryTimeout time.Duration
 }
 
 func (binding WorldBinding) host(ctx context.Context) toolworld.Host {
@@ -294,7 +295,11 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 	}
 	for _, world := range h.worlds {
 		worldID := strings.TrimSpace(world.Provider.Definition().ID)
-		discoveryCtx, cancel := context.WithTimeout(ctx, h.discoveryTimeout)
+		timeout := world.DiscoveryTimeout
+		if timeout <= 0 {
+			timeout = h.discoveryTimeout
+		}
+		discoveryCtx, cancel := context.WithTimeout(ctx, timeout)
 		worldHost := world.host(discoveryCtx)
 		if worldHost == nil {
 			cancel()
