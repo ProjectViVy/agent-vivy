@@ -149,8 +149,10 @@ func addPath(paths map[string]string, p string) error {
 		return Invalid("reserved_path")
 	}
 	fold := strings.ToLower(p)
-	if prev, ok := paths[fold]; ok && prev != p {
-		return Invalid("path_collision")
+	for prev := range paths {
+		if strings.EqualFold(prev, p) && prev != p {
+			return Invalid("path_collision")
+		}
 	}
 	// A file must not also be the directory of another declared file.
 	for other := range paths {

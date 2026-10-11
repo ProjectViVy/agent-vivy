@@ -10,3 +10,8 @@ Catalog accessors do not expose mutable collections.
 Complete product acceptance remains pending TK-02–13, both databases, Windows
 CI, the real split UI and artifact inspection. This enabling increment adds
 no visible installation feature yet.
+
+Acquisition copies only declared regular files into private staging, produces
+the independently calculated digest, resolves Git refs to commits, and never
+executes repository hooks or scripts. Reopening and reading detects mutated
+bytes. Product lifecycle and persistence acceptance remain pending TK-03–13.
