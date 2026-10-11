@@ -128,7 +128,7 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 - Passed headless compile: `go test -run '^$' -tags=http2legacy,vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui`. The first attempt supplied two `-tags` flags, so the later flag replaced `http2legacy` and failed in gRPC; the combined-tag invocation passed.
 - Passed dependency-closure tests: `node --test scripts/dependency-closure.test.mjs` (2/2). The combined Laputa bootstrap test command could not run its PowerShell-backed cases: 2 passed and 9 failed to spawn `powershell.exe`, which is absent from this macOS host.
 - Passed `GOFLAGS=-tags=http2legacy go run ./sdk verify plugins/vivy-toolkits-ui` after the UI source change.
-- The full App package suite remains incomplete because its memory-loop crash/restart case did not finish within the observed window. It is not counted as a passing gate.
+- The full App package suite was rerun with `GOFLAGS=-tags=http2legacy go test ./internal/app -count=1 -timeout=10m`; it failed at the 10-minute Go timeout during `TestMemoryLoopAutomaticReflection`, with the stack in its `diva.cognitive.status` RPC and roughly 724,000 goroutines present. This is a suite-order/resource leak outside the Toolkit code. The same test passes in isolation in 10.19 seconds, and `TestMemoryLoopCrashC05EffectsDoneBeforeWatermark` passes in isolation in 57.886 seconds, including its observed 29.88-second real SQLite lease expiry. These results do not make the full App package gate pass.
 - Broader responsive acceptance outside 390px, populated blocker states, and the remaining UI error/recovery matrix remain untested.
 - An early exploratory sweep ran `internal/mcphost` tests using only in-memory fake sessions; no network or stdio MCP transport was opened. The completed sweep above excludes that package entirely.
 - The local PostgreSQL container is a disposable test dependency and is stopped during cleanup.
@@ -165,6 +165,16 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 
   ```sh
   GOFLAGS=-tags=http2legacy go test ./internal/app -run '^TestToolkitMCPConsentCaptureGovernsRealServiceRun$' -count=1 -v -timeout=2m
+  ```
+
+- Hardened consent updates to require the live Manager view to match durable catalog state and to reject updates while catalog recovery is required. The regression extends the disabled-install consent flow: after simulating recovery-required state, a revoke attempt returns `catalog_recovery_required` and leaves the durable allowed consent at the same revision.
+- Passed the focused regression, complete `internal/bundles` package, selected Runtime MCP/Toolkit cases, and App Toolkit lifecycle/owner-omission/Hook/real-Service consent cases after this guard:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -run '^TestToolkitExecutableConsentCanBeGrantedBeforeInstallIsEnabled$' -count=1 -v -timeout=2m
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/runtime -run '^(Test.*MCP.*|Test.*BundleMCP.*|TestToolkit.*)$' -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitLifecycle|TestToolkitOwnerOmissionIsReflectedByApp|TestScriptHooksArmingGate|TestToolkitMCPConsentCaptureGovernsRealServiceRun)$' -count=1 -timeout=180s
   ```
 
 - Settings/publication races, unreachable-server behavior and the broader MCP consent/schema matrix remain open; this closes the allowed-consent real-Service path only.

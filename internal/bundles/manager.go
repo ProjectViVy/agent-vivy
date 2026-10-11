@@ -1842,7 +1842,7 @@ func (m *Manager) SetHookConsent(ctx context.Context, request HookConsentRequest
 // stored digest binds installation, release, declaration, and local config
 // revision; changing any of them requires a new human action.
 func (m *Manager) SetExecutableConsent(ctx context.Context, request ExecutableConsentRequest) (bundlecontract.Operation, error) {
-	if m == nil || (request.Ref.Kind != bundlecontract.Hook && request.Ref.Kind != bundlecontract.MCP) ||
+	if m == nil || m.cfg.Store == nil || (request.Ref.Kind != bundlecontract.Hook && request.Ref.Kind != bundlecontract.MCP) ||
 		request.Ref.InstallID == "" || request.Ref.LocalID == "" || strings.TrimSpace(request.Subject) == "" {
 		return bundlecontract.Operation{}, errors.New("toolkits: invalid executable consent request")
 	}
@@ -1865,6 +1865,20 @@ func (m *Manager) SetExecutableConsent(ctx context.Context, request ExecutableCo
 	}
 	if request.Expected != state.Catalog {
 		return bundlecontract.Operation{}, errors.New("toolkits: revision_conflict")
+	}
+	m.mu.Lock()
+	managerClosed := m.closed || m.current == nil || m.current.closed
+	recoveryRequired := m.recoveryRequired
+	var publishedIdentity bundlecontract.CatalogIdentity
+	if m.current != nil {
+		publishedIdentity = m.current.view.Identity()
+	}
+	m.mu.Unlock()
+	if managerClosed {
+		return bundlecontract.Operation{}, errors.New("toolkits: manager unavailable")
+	}
+	if recoveryRequired || publishedIdentity != state.Catalog {
+		return bundlecontract.Operation{}, errors.New("toolkits: catalog_recovery_required")
 	}
 	var installed storage.BundleInstallation
 	installedFound := false

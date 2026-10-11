@@ -838,6 +838,7 @@ func TestToolkitExecutableConsentCanBeGrantedBeforeInstallIsEnabled(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	captured := false
 	for _, component := range payload.Components {
 		if component.Ref != (bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"}) {
 			continue
@@ -845,9 +846,28 @@ func TestToolkitExecutableConsentCanBeGrantedBeforeInstallIsEnabled(t *testing.T
 		if !component.ConsentPresent || !component.ConsentAllowed || component.ConsentDigest == "" || component.ConsentRevision != 1 {
 			t.Fatalf("enabled MCP lost pre-authorized consent: %+v", component)
 		}
-		return
+		captured = true
+		break
 	}
-	t.Fatal("enabled MCP missing from captured run snapshot")
+	if !captured {
+		t.Fatal("enabled MCP missing from captured run snapshot")
+	}
+	manager.mu.Lock()
+	manager.recoveryRequired = true
+	manager.mu.Unlock()
+	_, err = manager.SetExecutableConsent(ctx, ExecutableConsentRequest{
+		OperationID: "41000000-0000-4000-8000-000000000005", Expected: mustCurrentIdentity(t, manager),
+		Ref:              bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"},
+		ExpectedRevision: 1, ExpectedReleaseDigest: inspection.Executables[0].ReleaseDigest,
+		ExpectedDeclarationDigest: inspection.Executables[0].DeclarationDigest, Subject: "human", Allowed: false,
+	})
+	if err == nil || err.Error() != "toolkits: catalog_recovery_required" {
+		t.Fatalf("consent during recovery-required state = %v, want catalog_recovery_required", err)
+	}
+	storedConsent, found, err := b.BundleStore().ReadBundleConsent(ctx, preview.InstallID, bundlecontract.MCP, "docs")
+	if err != nil || !found || !storedConsent.Allowed || storedConsent.Revision != 1 {
+		t.Fatalf("recovery-required consent request changed durable consent: %+v, found=%v, err=%v", storedConsent, found, err)
+	}
 }
 
 func TestToolkitInspectionIncludesSecretFreeMCPRuntimeStatus(t *testing.T) {
