@@ -78,6 +78,17 @@ The `vivy/protected-tools` export list is identical in all three inspected artif
 
 ## Full-suite and environment gates
 
+After the closure commit, a second focused rerun exercised Toolkit paths that do not require an MCP server or transport:
+
+```sh
+GOFLAGS=-tags=http2legacy go test ./internal/bundles -run '^(TestToolkitPublishOrder|TestToolkitRestoreRunUsesCapturedReleaseAfterDisable|TestToolkitRollbackCreatesNewReleaseSequenceForRepeatedDigest|TestToolkitUpdateOnlyBlocksRemovedMaskIdentities|TestToolkitGarbageCollectionRespectsInstallRunAndPreviewReferences|TestToolkitRecoveryRestoresCommittedEpochAndRejectsMissingArtifact|TestBundleSkillResources|TestAcquireNativeDirectory|TestAcquireRejectsEscapes|TestObjectRecoveryRejectsTampering|TestGitAcquisitionHasNoExecution)$' -count=1 -timeout=180s
+GOFLAGS=-tags=http2legacy go test ./internal/runtime -run '^(TestToolkitRule.*|TestBundleSkill.*|TestHostedBundleSkill.*|TestBundleMaskRecommendationDoesNotGrantSkillActivation|TestScriptHook.*|TestToolHookChain.*|TestToolkitDrain.*|TestToolkitRootAdmissionStoresSnapshotAndMarker|TestToolkitChildAdmissionInheritsParentCapture|TestToolkitRevocationStopsModelAndToolBoundaries|TestReportWorkflowAdmissionStoresToolkitSnapshot)$' -count=1 -timeout=180s
+GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitLifecycle|TestToolkitOwnerOmissionIsReflectedByApp|TestScriptHooksArmingGate)$' -count=1 -timeout=180s
+GOFLAGS=-tags=http2legacy go test ./internal/modules/masks -count=1 -timeout=180s
+```
+
+All four commands passed. They cover lifecycle publication/recovery/retention, captured Skills, Rules, local Hook script decisions and failure modes, Mask selection/recommendations, admission drain/child/queue/revocation, report snapshots, App lifecycle and Mask APIs. No MCP server was started and no MCP transport call was made. The App omission test only checks that a build without the MCP owner advertises that capability as absent and rejects an MCP component preview; it does not exercise MCP execution or connection setup.
+
 - `just ci` was not runnable: `just`, `pwsh` and `powershell` are not installed in this macOS environment. This remains a full-CI gate, not a Toolkit failure.
 - The full App package suite remains incomplete because its memory-loop crash/restart case did not finish within the observed window. It is not counted as a passing gate.
 - Keyboard-only navigation and mobile/responsive browser acceptance were not run.
