@@ -237,3 +237,59 @@ func TestBundleConsentRevocationAndSnapshotRetention(t *testing.T) {
 		t.Fatal(reachable, err)
 	}
 }
+
+func TestBundleConsentChecksConfigRevisionInCommitTransaction(t *testing.T) {
+	ctx := context.Background()
+	b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "consent-config-revision.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	store := b.BundleStore()
+	owned, err := b.Acquire(ctx, "vivy/organism", "toolkit-consent-cas", time.Minute)
+	if err != nil || !owned {
+		t.Fatal(owned, err)
+	}
+	state, err := store.ReadBundleState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const install = "01234567-89ab-4def-8123-456789abcdef"
+	const releaseDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, err := store.SaveBundleInstallation(ctx, storage.InstallCommit{
+		OperationID: "11000000-0000-4000-8000-000000000001", InputDigest: strings.Repeat("b", 64), Expected: state.Catalog,
+		Installation: storage.BundleInstallation{InstallID: install, BundleID: "example/mcp", ReleaseDigest: releaseDigest},
+		Release:      bundlecontract.ReleaseRef{InstallID: install, BundleID: "example/mcp", ReleaseDigest: releaseDigest, ReleaseSequence: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitBundleBindings(ctx, storage.BindingCommit{
+		OperationID: "11000000-0000-4000-8000-000000000002", InputDigest: strings.Repeat("c", 64), LeaseOwner: "toolkit-consent-cas",
+		Expected: state.Catalog, InstallID: install, Kind: string(bundlecontract.MCP), LocalID: "docs",
+		EffectiveDigest: strings.Repeat("d", 64), Subject: "human",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale := storage.ConsentCommit{
+		OperationID: "11000000-0000-4000-8000-000000000003", InputDigest: strings.Repeat("e", 64), LeaseOwner: "toolkit-consent-cas",
+		InstallID: install, Kind: string(bundlecontract.MCP), LocalID: "docs", DeclarationDigest: strings.Repeat("f", 64),
+		Subject: "human", ExpectedEpoch: state.Catalog.Epoch, ExpectedConfigRevision: state.Catalog.ConfigRevision, ExpectedRevision: 0, Allowed: true,
+	}
+	if _, err := store.CommitBundleConsent(ctx, stale); err == nil {
+		t.Fatal("consent accepted a config revision changed after declaration inspection")
+	}
+	current, err := store.ReadBundleState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.OperationID = "11000000-0000-4000-8000-000000000004"
+	stale.InputDigest = strings.Repeat("1", 64)
+	stale.ExpectedConfigRevision = current.Catalog.ConfigRevision
+	if _, err := store.CommitBundleConsent(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	consent, found, err := store.ReadBundleConsent(ctx, install, bundlecontract.MCP, "docs")
+	if err != nil || !found || !consent.Allowed || consent.Revision != 1 {
+		t.Fatalf("fresh consent = %+v, found=%v, err=%v", consent, found, err)
+	}
+}

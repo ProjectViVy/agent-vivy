@@ -141,3 +141,30 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
 - Passed a one-off live cold-cache stdio smoke with the official `@modelcontextprotocol/server-everything@2026.8.18`. The test used a fresh temporary npm cache and explicitly mapped `PATH` and `NPM_CONFIG_CACHE` into the stdio process. ToolHost discovery, the `mcp.everything.echo` call and cleanup passed in 10.89 seconds, inside the 30-second discovery budget. The temporary harness and cache were removed. This was a direct ToolHost discovery/call smoke; the separately recorded warm-cache live service test remains the evidence for approval and Journal ordering.
 - A broader Runtime MCP selection initially exposed `TestMCPStatusErrorPreservesPathsAndSyntheticEnvironmentValues` requiring resolved credentials in display errors. Replaced that expectation with a regression asserting `EnvFrom` and `AuthEnv` values are redacted while paths remain and control/bidi characters are removed. The new test failed before the sanitizer fix and passed afterward; the full selected Runtime MCP/Toolkit test set then passed.
 - No Windows smoke was run. No Eino/EinoExt change was needed: pinned EinoExt MCP `GetTools` provides schema conversion, while process startup and Vivy discovery deadlines are owned by MCPHost/ToolHost.
+
+## Toolkit MCP pre-authorization and Service path
+
+- Added `TestToolkitExecutableConsentCanBeGrantedBeforeInstallIsEnabled`. It first reproduced `toolkits: executable declaration unavailable`: `SetExecutableConsent` only searched the active View, while a newly installed Toolkit is intentionally disabled and absent from that View.
+- Updated consent lookup to verify the exact Hook/MCP declaration from the currently installed immutable release, so an installed disabled candidate can receive consent before enable. The operation still checks the whole catalog identity and exact expected release/declaration digests.
+- Added an in-transaction config-revision compare to `CommitBundleConsent`. This prevents binding/settings changes between declaration inspection and consent commit from persisting consent for a stale configuration; revocation continues to use its independent monotonic revision.
+- Passed focused storage CAS test, the complete `internal/bundles` package, and all `internal/storage/...` package tests on this host:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/storage -run '^TestBundleConsentChecksConfigRevisionInCommitTransaction$' -count=1 -v -timeout=2m
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/storage/... -count=1 -timeout=10m
+  ```
+
+- Re-ran the complete storage tree against SQLite and a disposable local PostgreSQL 16 container after adding the consent config-revision CAS. The container used trust auth, bound only to `127.0.0.1:55432`, and was stopped after the run:
+
+  ```sh
+  VIVY_POSTGRES_TEST_DSN='postgres://postgres@127.0.0.1:55432/vivy_test?sslmode=disable' GOFLAGS=-tags=http2legacy go test -p 1 ./internal/storage/... -count=1 -timeout=10m
+  ```
+
+- Passed App test `TestToolkitMCPConsentCaptureGovernsRealServiceRun`: a local Streamable HTTP MCP endpoint is installed disabled, consented against its exact declaration, enabled and called through MCPBackend, MCPHost, ToolHost and Runtime Service. The test asserts durable consent digest/revision in the run snapshot, effect approval and Journal order, and one remote `tools/call`.
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^TestToolkitMCPConsentCaptureGovernsRealServiceRun$' -count=1 -v -timeout=2m
+  ```
+
+- Settings/publication races, unreachable-server behavior and the broader MCP consent/schema matrix remain open; this closes the allowed-consent real-Service path only.

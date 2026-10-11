@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/bundlecontract"
+	"agent-vivy/internal/bundles"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/internal/runtime"
@@ -880,6 +884,213 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 	}
 	if len(finishedPayload.Result) > 128 {
 		t.Fatalf("real MCP finished result bytes = %d, want <= 128", len(finishedPayload.Result))
+	}
+}
+
+type immediateToolkitGate struct{}
+
+func (immediateToolkitGate) BeginDrain(context.Context, string) error { return nil }
+func (immediateToolkitGate) WaitIdle(context.Context, string) error   { return nil }
+func (immediateToolkitGate) EndDrain(string)                          {}
+
+func TestToolkitMCPConsentCaptureGovernsRealServiceRun(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	backend, err := sqlite.Open(ctx, filepath.Join(root, "toolkit-mcp-consent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	const leaseOwner = "toolkit-mcp-consent-owner"
+	if owned, err := backend.Acquire(ctx, "vivy/organism", leaseOwner, time.Minute); err != nil || !owned {
+		t.Fatalf("acquire Toolkit lease: owned=%v err=%v", owned, err)
+	}
+	remote := newProductionMCPGovernanceServer(t)
+	mcpBackend := runtime.NewMCPBackend(nil, nil)
+	t.Cleanup(func() { _ = mcpBackend.Close() })
+	store := backend.BundleStore()
+	manager, err := bundles.NewManager(bundles.Config{
+		StateRoot: root, Limits: bundlecontract.DefaultLimits(), Store: store, LeaseOwner: leaseOwner,
+		Capabilities: bundles.Capabilities{
+			Owners: map[bundlecontract.ComponentKind]bool{bundlecontract.MCP: true},
+			Limits: bundlecontract.DefaultLimits(),
+		},
+		Gate: immediateToolkitGate{},
+		PrepareOwners: func(prepareCtx context.Context, view bundlecontract.View) (bundles.PreparedOwners, error) {
+			return prepareToolkitMCPOwners(prepareCtx, view, store, mcpBackend, nil, false)
+		},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close(ctx) })
+	if err := manager.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf(`{"apiVersion":"vivy.bundle/v1","id":"example/mcp","version":"1","name":"MCP","components":{"mcp":[{"id":"docs","endpoint":%q,"args":[],"resourceBridge":false}]}}`, remote.http.URL)
+	if err := os.WriteFile(filepath.Join(source, bundlecontract.ManifestFile), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := manager.Preview(ctx, bundles.PreviewRequest{
+		OperationID: "51000000-0000-4000-8000-000000000001",
+		Source:      bundlecontract.SourceSpec{Kind: "local", Location: source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Install(ctx, bundles.InstallRequest{
+		OperationID: "51000000-0000-4000-8000-000000000002", PreviewOperationID: preview.OperationID,
+		ExpectedReleaseDigest: preview.ReleaseDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := manager.InspectInstallation(ctx, preview.InstallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var declaration bundles.ExecutableInspection
+	for _, item := range inspection.Executables {
+		if item.Kind == bundlecontract.MCP && item.LocalID == "docs" {
+			declaration = item
+		}
+	}
+	handle, err := manager.AcquireView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewIdentity := handle.View().Identity()
+	handle.Release()
+	componentRef := bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"}
+	if declaration.LocalID != "docs" || declaration.DeclarationDigest == "" {
+		t.Fatalf("installed MCP declaration = %+v", declaration)
+	}
+	if _, err := manager.SetExecutableConsent(ctx, bundles.ExecutableConsentRequest{
+		OperationID: "51000000-0000-4000-8000-000000000003", Expected: viewIdentity,
+		Ref: componentRef, ExpectedRevision: 0, ExpectedReleaseDigest: declaration.ReleaseDigest,
+		ExpectedDeclarationDigest: declaration.DeclarationDigest, Subject: "human", Allowed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.ReadBundleState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := manager.Prepare(ctx, bundles.PrepareRequest{
+		OperationID: "51000000-0000-4000-8000-000000000004", Expected: state.Catalog,
+		Mutation: bundles.CatalogMutation{Kind: "enable", InstallID: preview.InstallID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Publish(ctx, prepared.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	mcpConfigs := mcpBackend.ConfiguredServers()
+	if len(mcpConfigs) != 1 || mcpConfigs[0].ToolkitRef == nil || *mcpConfigs[0].ToolkitRef != componentRef ||
+		mcpConfigs[0].Enabled == nil || !*mcpConfigs[0].Enabled || mcpConfigs[0].ToolkitConsentDigest == "" ||
+		mcpConfigs[0].ToolkitConsentRevision != 1 {
+		t.Fatalf("published MCP projection lost consent/provenance: %+v", mcpConfigs)
+	}
+	provider := mcpBackend.MCPToolWorldProvider()
+	staged, err := bindToolWorlds(ctx, []toolworldport.Provider{provider}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolName := ""
+	callables := make([]tools.Tool, 0, len(registry.Specs()))
+	for _, spec := range registry.Specs() {
+		callable, ok := registry.Lookup(spec.Name)
+		if !ok {
+			t.Fatalf("missing callable %s", spec.Name)
+		}
+		callables = append(callables, callable)
+		if strings.HasPrefix(spec.Name, "mcp.") && strings.HasSuffix(spec.Name, ".write") {
+			toolName = spec.Name
+		}
+	}
+	if toolName == "" {
+		t.Fatalf("captured MCP tool missing from registry: %#v", registry.Specs())
+	}
+	model := runtime.NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID: "call-toolkit-mcp", Function: schema.FunctionCall{Name: toolName, Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
+		}}),
+		schema.AssistantMessage("toolkit MCP call complete", nil),
+	)
+	checkpoints, err := runtime.NewVersionedCheckpointStore(backend.Blobs(), "toolkit-mcp-consent-e2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, model, callables, runtime.EngineConfig{Checkpoints: checkpoints, MaxToolResultBytes: 128, StreamBuffer: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &appEventSink{}
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Admission: backend,
+		Bundles: store, Toolkits: toolkitRuntimeBridge{manager}, GenerationID: "toolkit-mcp-consent-generation",
+		ApprovalExpiration: 5 * time.Minute, Sink: sink,
+	})
+	t.Cleanup(func() { service.CancelAll(); _ = service.WaitIdle(context.Background()) })
+	const sessionID domain.SessionID = "session-toolkit-mcp-consent"
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "Toolkit MCP consent", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := service.Run(ctx, sessionID, "call the authorized bundled server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitGovernanceApproval(t, backend, runID)
+	decisionDeadline := time.Now().Add(5 * time.Second)
+	for {
+		err = service.DecideApproval(ctx, approval.ID, domain.ApprovalApproved)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "approval is not durable yet") || time.Now().After(decisionDeadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitGovernanceRun(t, backend, runID, domain.RunCompleted)
+	if calls := remote.toolCalls(); len(calls) != 1 {
+		t.Fatalf("authorized toolkit MCP tools/call count = %d, want 1", len(calls))
+	}
+	snapshot, err := backend.LoadRunBundleSnapshot(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := storage.ValidateRunBundleSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured *bundlecontract.CapturedComponent
+	for index := range payload.Components {
+		item := &payload.Components[index]
+		if item.Ref == componentRef {
+			captured = item
+			break
+		}
+	}
+	if captured == nil || !captured.ConsentPresent || !captured.ConsentAllowed ||
+		captured.ConsentDigest != mcpConfigs[0].ToolkitConsentDigest || captured.ConsentRevision != mcpConfigs[0].ToolkitConsentRevision {
+		t.Fatalf("run snapshot omitted exact MCP consent provenance: %+v", payload.Components)
+	}
+	events := replayGovernanceEvents(t, backend, runID)
+	started := eventGovernanceIndex(events, domain.EventRunStarted, 0)
+	required := eventGovernanceIndex(events, domain.EventToolApprovalRequired, 0)
+	decided := eventGovernanceIndex(events, domain.EventToolApprovalDecided, 0)
+	finished := eventGovernanceIndex(events, domain.EventToolFinished, 0)
+	if started < 0 || required < 0 || decided < 0 || finished < 0 || !(started < required && required < decided && decided < finished) {
+		t.Fatalf("Toolkit MCP governed run Journal order invalid: %v", events)
 	}
 }
 

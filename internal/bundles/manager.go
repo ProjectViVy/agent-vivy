@@ -1846,6 +1846,9 @@ func (m *Manager) SetExecutableConsent(ctx context.Context, request ExecutableCo
 		request.Ref.InstallID == "" || request.Ref.LocalID == "" || strings.TrimSpace(request.Subject) == "" {
 		return bundlecontract.Operation{}, errors.New("toolkits: invalid executable consent request")
 	}
+	if !m.cfg.Capabilities.Owners[request.Ref.Kind] {
+		return bundlecontract.Operation{}, errors.New("toolkits: executable capability unavailable")
+	}
 	if request.OperationID == "" {
 		id, err := newID()
 		if err != nil {
@@ -1863,30 +1866,54 @@ func (m *Manager) SetExecutableConsent(ctx context.Context, request ExecutableCo
 	if request.Expected != state.Catalog {
 		return bundlecontract.Operation{}, errors.New("toolkits: revision_conflict")
 	}
-	handle, err := m.PinCurrent()
+	var installed storage.BundleInstallation
+	installedFound := false
+	for _, candidate := range state.Installations {
+		if candidate.InstallID == request.Ref.InstallID {
+			installed, installedFound = candidate, true
+			break
+		}
+	}
+	if !installedFound || installed.Tombstone {
+		return bundlecontract.Operation{}, errors.New("toolkits: not_found")
+	}
+	inspection, err := m.InspectInstallation(ctx, request.Ref.InstallID)
 	if err != nil {
 		return bundlecontract.Operation{}, err
 	}
-	defer handle.Release()
-	view := handle.View()
-	if view.Identity() != request.Expected {
+	if inspection.Installation.Tombstone || inspection.Installation.ReleaseDigest != installed.ReleaseDigest {
 		return bundlecontract.Operation{}, errors.New("toolkits: revision_conflict")
 	}
-	projectedID, err := bundlecontract.SkillID(request.Ref.InstallID, request.Ref.LocalID)
-	if err != nil {
-		return bundlecontract.Operation{}, err
+	var executable *ExecutableInspection
+	for index := range inspection.Executables {
+		candidate := &inspection.Executables[index]
+		if candidate.Kind == request.Ref.Kind && candidate.LocalID == request.Ref.LocalID {
+			executable = candidate
+			break
+		}
 	}
-	record, ok := view.Lookup(request.Ref.Kind, projectedID)
-	if !ok || record.ExecutableDigest == "" ||
-		(request.Ref.Kind == bundlecontract.Hook && (record.Hook == nil || record.Hook.Event != "PreToolUse")) ||
-		(request.Ref.Kind == bundlecontract.MCP && record.MCP == nil) {
+	if executable == nil || executable.DeclarationDigest == "" {
 		return bundlecontract.Operation{}, errors.New("toolkits: executable declaration unavailable")
 	}
-	if (request.ExpectedReleaseDigest != "" && request.ExpectedReleaseDigest != record.Release.ReleaseDigest) ||
-		(request.ExpectedDeclarationDigest != "" && request.ExpectedDeclarationDigest != record.ExecutableDigest) {
+	if request.Ref.Kind == bundlecontract.Hook {
+		isPreToolUse := false
+		if inspection.Manifest != nil {
+			for _, hook := range inspection.Manifest.Components.Hooks {
+				if hook.ID == request.Ref.LocalID && hook.Event == "PreToolUse" {
+					isPreToolUse = true
+					break
+				}
+			}
+		}
+		if !isPreToolUse {
+			return bundlecontract.Operation{}, errors.New("toolkits: executable declaration unavailable")
+		}
+	}
+	if (request.ExpectedReleaseDigest != "" && request.ExpectedReleaseDigest != executable.ReleaseDigest) ||
+		(request.ExpectedDeclarationDigest != "" && request.ExpectedDeclarationDigest != executable.DeclarationDigest) {
 		return bundlecontract.Operation{}, errors.New("toolkits: revision_conflict")
 	}
-	consentDigest, err := bundlecontract.ExecutableConsentDigest(request.Ref.InstallID, record.Release.ReleaseDigest, record.ExecutableDigest, view.Identity().ConfigRevision)
+	consentDigest, err := bundlecontract.ExecutableConsentDigest(request.Ref.InstallID, executable.ReleaseDigest, executable.DeclarationDigest, state.Catalog.ConfigRevision)
 	if err != nil {
 		return bundlecontract.Operation{}, err
 	}
@@ -1916,7 +1943,7 @@ func (m *Manager) SetExecutableConsent(ctx context.Context, request ExecutableCo
 		OperationID: request.OperationID, InputDigest: inputDigest, LeaseOwner: m.cfg.LeaseOwner,
 		InstallID: request.Ref.InstallID, Kind: string(request.Ref.Kind), LocalID: request.Ref.LocalID,
 		DeclarationDigest: consentDigest, Subject: request.Subject,
-		ExpectedEpoch: request.Expected.Epoch, ExpectedRevision: request.ExpectedRevision,
+		ExpectedEpoch: request.Expected.Epoch, ExpectedConfigRevision: request.Expected.ConfigRevision, ExpectedRevision: request.ExpectedRevision,
 		Allowed: request.Allowed, NowMS: time.Now().UnixMilli(),
 	})
 }

@@ -759,6 +759,97 @@ func TestToolkitBindingRevisionPublishesReferencesAndInvalidatesConsent(t *testi
 	}
 }
 
+func TestToolkitExecutableConsentCanBeGrantedBeforeInstallIsEnabled(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	source := filepath.Join(root, "mcp-toolkit")
+	writeMCPBundle(t, source)
+	b, err := sqlite.Open(ctx, filepath.Join(root, "mcp-consent.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if acquired, err := b.Acquire(ctx, "vivy/organism", "mcp-consent-owner", time.Minute); err != nil || !acquired {
+		t.Fatal(acquired, err)
+	}
+	gateEvents := []string{}
+	manager, err := NewManager(Config{
+		StateRoot: root, Store: b.BundleStore(), LeaseOwner: "mcp-consent-owner", Gate: testGate{log: &gateEvents},
+		Limits:       bundlecontract.DefaultLimits(),
+		Capabilities: Capabilities{Owners: map[bundlecontract.ComponentKind]bool{bundlecontract.MCP: true}, Limits: bundlecontract.DefaultLimits()},
+	}, b.BundleStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close(ctx)
+	if err := manager.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := manager.Preview(ctx, PreviewRequest{
+		OperationID: "41000000-0000-4000-8000-000000000001",
+		Source:      bundlecontract.SourceSpec{Kind: "local", Location: source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Install(ctx, InstallRequest{
+		OperationID: "41000000-0000-4000-8000-000000000002", PreviewOperationID: preview.OperationID,
+		ExpectedReleaseDigest: preview.ReleaseDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := manager.InspectInstallation(ctx, preview.InstallID)
+	if err != nil || len(inspection.Executables) != 1 || inspection.Executables[0].Kind != bundlecontract.MCP {
+		t.Fatalf("installed MCP inspection = %+v, %v", inspection, err)
+	}
+	if inspection.Installation.State != "disabled" {
+		t.Fatalf("fresh installation state = %q, want disabled", inspection.Installation.State)
+	}
+	identity := mustCurrentIdentity(t, manager)
+	consent, err := manager.SetExecutableConsent(ctx, ExecutableConsentRequest{
+		OperationID: "41000000-0000-4000-8000-000000000003", Expected: identity,
+		Ref:              bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"},
+		ExpectedRevision: 0, ExpectedReleaseDigest: inspection.Executables[0].ReleaseDigest,
+		ExpectedDeclarationDigest: inspection.Executables[0].DeclarationDigest, Subject: "human", Allowed: true,
+	})
+	if err != nil || consent.State != "committed" {
+		t.Fatalf("consent for installed disabled MCP = %+v, %v", consent, err)
+	}
+	inspection, err = manager.InspectInstallation(ctx, preview.InstallID)
+	if err != nil || !inspection.Executables[0].ConsentAllowed || !inspection.Executables[0].ConsentCurrent {
+		t.Fatalf("pre-enable consent inspection = %+v, %v", inspection.Executables, err)
+	}
+	prepared, err := manager.Prepare(ctx, PrepareRequest{
+		OperationID: "41000000-0000-4000-8000-000000000004", Expected: mustCurrentIdentity(t, manager),
+		Mutation: CatalogMutation{Kind: "enable", InstallID: preview.InstallID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Publish(ctx, prepared.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	handle, snapshot, _, err := manager.CaptureRun(ctx, domain.RunID("mcp-consent-captured-run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Release()
+	payload, err := bundlecontract.DecodeRunSnapshotPayload(snapshot.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, component := range payload.Components {
+		if component.Ref != (bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"}) {
+			continue
+		}
+		if !component.ConsentPresent || !component.ConsentAllowed || component.ConsentDigest == "" || component.ConsentRevision != 1 {
+			t.Fatalf("enabled MCP lost pre-authorized consent: %+v", component)
+		}
+		return
+	}
+	t.Fatal("enabled MCP missing from captured run snapshot")
+}
+
 func TestToolkitInspectionIncludesSecretFreeMCPRuntimeStatus(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

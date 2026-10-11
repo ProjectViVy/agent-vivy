@@ -86,7 +86,7 @@ type ActivationCommit struct {
 }
 type ConsentCommit struct {
 	OperationID, InputDigest, LeaseOwner, InstallID, Kind, LocalID, DeclarationDigest, Subject string
-	ExpectedEpoch, ExpectedRevision                                                            int64
+	ExpectedEpoch, ExpectedConfigRevision, ExpectedRevision                                    int64
 	Allowed                                                                                    bool
 	NowMS                                                                                      int64
 }

@@ -613,7 +613,7 @@ func CommitBindings(ctx context.Context, db DB, r storage.BindingCommit) (bundle
 }
 
 func Consent(ctx context.Context, db DB, r storage.ConsentCommit) (bundlecontract.Operation, error) {
-	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, r.ExpectedRevision, r.Allowed, false, r.NowMS)
+	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, &r.ExpectedConfigRevision, r.ExpectedRevision, r.Allowed, false, r.NowMS)
 }
 
 func ReadConsent(ctx context.Context, q Executor, installID string, kind bundlecontract.ComponentKind, localID string) (storage.BundleConsent, bool, error) {
@@ -639,9 +639,9 @@ func ReadConsent(ctx context.Context, q Executor, installID string, kind bundlec
 }
 
 func Revoke(ctx context.Context, db DB, r storage.RevocationCommit) (bundlecontract.Operation, error) {
-	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, r.ExpectedRevision, false, true, r.NowMS)
+	return consent(ctx, db, r.OperationID, r.InputDigest, r.LeaseOwner, r.InstallID, r.Kind, r.LocalID, r.DeclarationDigest, r.Subject, r.ExpectedEpoch, nil, r.ExpectedRevision, false, true, r.NowMS)
 }
-func consent(ctx context.Context, db DB, operationID, inputDigest, leaseOwner, installID, kind, localID, decl, subject string, expectedEpoch, expectedRev int64, allowed, revoke bool, now int64) (bundlecontract.Operation, error) {
+func consent(ctx context.Context, db DB, operationID, inputDigest, leaseOwner, installID, kind, localID, decl, subject string, expectedEpoch int64, expectedConfigRevision *int64, expectedRev int64, allowed, revoke bool, now int64) (bundlecontract.Operation, error) {
 	tx, e := db.BeginBundleTx(ctx)
 	if e != nil {
 		return bundlecontract.Operation{}, e
@@ -661,11 +661,11 @@ func consent(ctx context.Context, db DB, operationID, inputDigest, leaseOwner, i
 	if op.State != "pending" {
 		return op, nil
 	}
-	var epoch, revision int64
-	if e = scanOne(ctx, tx, `SELECT epoch,revocation_revision FROM bundle_catalog_state WHERE id=1`, nil, &epoch, &revision); e != nil {
+	var epoch, configRevision, revision int64
+	if e = scanOne(ctx, tx, `SELECT epoch,config_revision,revocation_revision FROM bundle_catalog_state WHERE id=1`, nil, &epoch, &configRevision, &revision); e != nil {
 		return op, e
 	}
-	if epoch != expectedEpoch || subject == "" || decl == "" || !ownsLease(ctx, tx, leaseOwner) {
+	if epoch != expectedEpoch || (expectedConfigRevision != nil && configRevision != *expectedConfigRevision) || subject == "" || decl == "" || !ownsLease(ctx, tx, leaseOwner) {
 		return op, code("revision_conflict")
 	}
 	if revoke {
