@@ -105,6 +105,7 @@ func TestBuildBundleMaskSnapshotCarriesImmutableOriginAndRecommendations(t *test
 	mask.Digest = maskcontract.DefinitionDigest(mask.ID, mask.Name, mask.Body)
 	snapshot, err := buildPromptSnapshot(PromptInput{
 		RunID: "run-bundle-mask", GenerationID: "generation-1", Capture: promptCapture(mask), Face: domain.FaceWeb,
+		Frame: "Mask rules: style only.", FrameDigest: "frame-digest",
 	})
 	if err != nil {
 		t.Fatal(err)

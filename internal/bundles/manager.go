@@ -31,6 +31,16 @@ type PreparedOwners interface {
 	Publish()
 	Close(context.Context) error
 }
+
+// preparedOwnersCommitRefresher lets an owner refresh projections derived from
+// mutable app settings after admission has drained and before durable commit.
+type preparedOwnersCommitRefresher interface {
+	BeforeCommit(context.Context) error
+}
+
+type preparedOwnersAfterPublisher interface {
+	AfterPublish(context.Context) error
+}
 type PrepareOwners func(context.Context, bundlecontract.View) (PreparedOwners, error)
 type MCPRuntimeStatus struct {
 	Name        string
@@ -1410,6 +1420,14 @@ func (m *Manager) Publish(ctx context.Context, id string) (bundlecontract.Operat
 		m.discardPrepared(ctx, id, p)
 		return bundlecontract.Operation{}, err
 	}
+	// Owner preparation can wait for user confirmation while app settings
+	// continue to change. Refresh those projections at the publication boundary.
+	if refresher, ok := p.owners.(preparedOwnersCommitRefresher); ok {
+		if err := refresher.BeforeCommit(ctx); err != nil {
+			m.discardPrepared(ctx, id, p)
+			return bundlecontract.Operation{}, err
+		}
+	}
 	state, err := m.cfg.Store.ReadBundleState(ctx)
 	if err != nil {
 		m.discardPrepared(ctx, id, p)
@@ -1465,6 +1483,16 @@ func (m *Manager) Publish(ctx context.Context, id string) (bundlecontract.Operat
 	m.recoveryDrainID = ""
 	m.mu.Unlock()
 	m.retire(ctx, old)
+	if publisher, ok := p.owners.(preparedOwnersAfterPublisher); ok {
+		if err := publisher.AfterPublish(ctx); err != nil {
+			m.mu.Lock()
+			m.recoveryRequired = true
+			m.recoveryDrainID = id
+			m.mu.Unlock()
+			draining = false // Recover must finish the owner projection before admission resumes.
+			return op, errors.Join(errors.New("toolkits: publication_recovery_required"), err)
+		}
+	}
 	gate.EndDrain(id)
 	draining = false
 	return op, nil
@@ -2135,6 +2163,15 @@ func (m *Manager) Recover(ctx context.Context) error {
 	for _, candidate := range prepared {
 		if closeErr := candidate.owners.Close(ctx); closeErr != nil {
 			cleanupErrs = append(cleanupErrs, closeErr)
+		}
+	}
+	if publisher, ok := owners.(preparedOwnersAfterPublisher); ok {
+		if publishErr := publisher.AfterPublish(ctx); publishErr != nil {
+			m.mu.Lock()
+			m.recoveryRequired = true
+			m.recoveryDrainID = drainID
+			m.mu.Unlock()
+			return errors.Join(errors.Join(cleanupErrs...), errors.New("toolkits: recovery_owner_publish_required"), publishErr)
 		}
 	}
 	if drainID != "" && m.cfg.Gate != nil {

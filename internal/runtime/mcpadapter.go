@@ -72,6 +72,11 @@ func (factory *MCPHostSessionFactory) Open(ctx context.Context, config mcphost.I
 	if factory.status != nil {
 		record = factory.status(serverConfig)
 	}
+	if record != nil && record.config.ToolkitRef != nil && MCPServerConfigEnabled(record.config) {
+		if err := factory.builder.validateToolkitMCPDiscovery(ctx, record.config); err != nil {
+			return nil, err
+		}
+	}
 	transport, err := factory.builder.newServerWithStatus(serverConfig, record)
 	if err != nil {
 		return nil, err

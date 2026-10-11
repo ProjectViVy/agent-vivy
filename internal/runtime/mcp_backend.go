@@ -98,6 +98,10 @@ type MCPBackendOptions struct {
 	Logger      *slog.Logger
 }
 
+// ToolkitMCPDiscoveryValidator checks the live installed declaration before
+// the MCP ToolWorld lazily opens a Toolkit transport for schema discovery.
+type ToolkitMCPDiscoveryValidator func(context.Context, MCPServerConfig) error
+
 // MCPBackend is the configuration/control facade for MCPHost. It retains only
 // logical server settings and secret-free status records; every live
 // mcp-go client and child process is created, initialized, replaced, and
@@ -111,11 +115,12 @@ type MCPBackend struct {
 	// servers is a logical configuration/status catalog only. It never owns a
 	// live mcp-go client or child process; MCPHost owns those resources through
 	// the session factory below.
-	servers          map[string]*mcpServer
-	mu               sync.RWMutex
-	maxResponseBytes int
-	timeout          time.Duration
-	closed           bool
+	servers                   map[string]*mcpServer
+	mu                        sync.RWMutex
+	toolkitDiscoveryValidator ToolkitMCPDiscoveryValidator
+	maxResponseBytes          int
+	timeout                   time.Duration
+	closed                    bool
 	// The facade serializes legacy catalog reads so concurrent control-plane
 	// callers do not turn an otherwise identical discovery into a Host
 	// generation race. MCPHost still retains its strict stale-discovery guard
@@ -367,6 +372,18 @@ func sameMCPServerConfig(left, right MCPServerConfig) bool {
 	return reflect.DeepEqual(left, right)
 }
 
+// sameMCPHostConfigProjection compares the fields MCPHost owns. Toolkit
+// release/consent provenance and ToolExposure remain in MCPBackend and are
+// intentionally not serialized into MCPHost's transport identity.
+func sameMCPHostConfigProjection(left, right MCPServerConfig) bool {
+	left = normalizeMCPServerConfig(left)
+	right = normalizeMCPServerConfig(right)
+	return left.Name == right.Name && left.Endpoint == right.Endpoint && left.Command == right.Command &&
+		reflect.DeepEqual(left.Args, right.Args) && reflect.DeepEqual(left.EnvFrom, right.EnvFrom) &&
+		left.Cwd == right.Cwd && left.AuthEnv == right.AuthEnv && left.ResourceBridge == right.ResourceBridge &&
+		left.DeferredReason == right.DeferredReason && reflect.DeepEqual(left.Enabled, right.Enabled)
+}
+
 func hasMCPTransport(config MCPServerConfig) bool {
 	return strings.TrimSpace(config.Endpoint) != "" || strings.TrimSpace(config.Command) != ""
 }
@@ -441,7 +458,7 @@ func (b *MCPBackend) statusForConfig(config MCPServerConfig) *mcpServer {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	entry := b.servers[config.Name]
-	if entry == nil || !sameMCPServerConfig(entry.config, config) {
+	if entry == nil || !sameMCPHostConfigProjection(entry.config, config) {
 		return nil
 	}
 	return entry
@@ -457,6 +474,30 @@ func (b *MCPBackend) ConfiguredServers() []MCPServerConfig {
 	b.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// SetToolkitMCPDiscoveryValidator attaches the App's durable Toolkit authority
+// check. Ordinary user MCP servers do not pass through this validator.
+func (b *MCPBackend) SetToolkitMCPDiscoveryValidator(validator ToolkitMCPDiscoveryValidator) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.toolkitDiscoveryValidator = validator
+	b.mu.Unlock()
+}
+
+func (b *MCPBackend) validateToolkitMCPDiscovery(ctx context.Context, config MCPServerConfig) error {
+	if b == nil {
+		return ErrBundleMCPNotCaptured
+	}
+	b.mu.RLock()
+	validator := b.toolkitDiscoveryValidator
+	b.mu.RUnlock()
+	if validator != nil {
+		return validator(ctx, config)
+	}
+	return validateToolkitMCPInvocation(ctx, config)
 }
 
 // ServerStatuses reports the backend's current in-process MCP truth without

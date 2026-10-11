@@ -170,11 +170,24 @@ func (g testGate) WaitIdle(context.Context, string) error {
 func (g testGate) EndDrain(string) { *g.log = append(*g.log, "end") }
 
 type testOwners struct {
-	log  *[]string
-	view bundlecontract.View
+	log              *[]string
+	view             bundlecontract.View
+	failAfterPublish *bool
 }
 
-func (o *testOwners) View() bundlecontract.View   { return o.view }
+func (o *testOwners) View() bundlecontract.View { return o.view }
+func (o *testOwners) BeforeCommit(context.Context) error {
+	*o.log = append(*o.log, "before-commit")
+	return nil
+}
+func (o *testOwners) AfterPublish(context.Context) error {
+	*o.log = append(*o.log, "after-publish")
+	if o.failAfterPublish != nil && *o.failAfterPublish {
+		*o.failAfterPublish = false
+		return errors.New("owner projection failed")
+	}
+	return nil
+}
 func (o *testOwners) Publish()                    { *o.log = append(*o.log, "publish") }
 func (o *testOwners) Close(context.Context) error { return nil }
 func TestToolkitPublishOrder(t *testing.T) {
@@ -200,9 +213,10 @@ func TestToolkitPublishOrder(t *testing.T) {
 	}
 	log := []string{}
 	fail := false
+	failAfterPublish := false
 	manager, err := NewManager(Config{StateRoot: root, Limits: bundlecontract.DefaultLimits(), Capabilities: Capabilities{Owners: map[bundlecontract.ComponentKind]bool{bundlecontract.Skill: true}, Limits: bundlecontract.DefaultLimits()}, Store: b.BundleStore(), Gate: testGate{log: &log, fail: &fail}, LeaseOwner: "owner", PrepareOwners: func(_ context.Context, v bundlecontract.View) (PreparedOwners, error) {
 		log = append(log, "prepare")
-		return &testOwners{log: &log, view: v}, nil
+		return &testOwners{log: &log, view: v, failAfterPublish: &failAfterPublish}, nil
 	}}, b.BundleStore())
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +240,7 @@ func TestToolkitPublishOrder(t *testing.T) {
 	if err != nil || op.CommittedEpoch != 1 {
 		t.Fatal(op, err)
 	}
-	want := []string{"prepare", "drain", "idle", "publish", "end"}
+	want := []string{"prepare", "drain", "idle", "before-commit", "publish", "after-publish", "end"}
 	if len(log) != len(want) {
 		t.Fatal(log)
 	}
@@ -268,8 +282,18 @@ func TestToolkitPublishOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op, err = manager.Publish(ctx, retry.OperationID); err != nil || op.CommittedEpoch != 2 {
-		t.Fatal(op, err)
+	failAfterPublish = true
+	if op, err = manager.Publish(ctx, retry.OperationID); err == nil || op.CommittedEpoch != 2 || !strings.Contains(err.Error(), "publication_recovery_required") {
+		t.Fatalf("post-commit projection failure = (%+v, %v), want committed epoch 2 and recovery-required error", op, err)
+	}
+	if got := log[len(log)-1]; got != "after-publish" {
+		t.Fatalf("drain gate released before post-commit recovery: %v", log)
+	}
+	if err := manager.Recover(ctx); err != nil {
+		t.Fatalf("recover post-commit owner projection: %v", err)
+	}
+	if got := log[len(log)-1]; got != "end" {
+		t.Fatalf("recovery did not release the retained drain gate: %v", log)
 	}
 	if h.View().Identity().Epoch != 1 || len(h.View().Components()) != 1 {
 		t.Fatal("pinned reader lost its original View", h.View().Identity(), h.View().Components())

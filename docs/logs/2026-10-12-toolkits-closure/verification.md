@@ -177,4 +177,70 @@ All four commands passed. They cover lifecycle publication/recovery/retention, c
   GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitLifecycle|TestToolkitOwnerOmissionIsReflectedByApp|TestScriptHooksArmingGate|TestToolkitMCPConsentCaptureGovernsRealServiceRun)$' -count=1 -timeout=180s
   ```
 
-- Settings/publication races, unreachable-server behavior and the broader MCP consent/schema matrix remain open; this closes the allowed-consent real-Service path only.
+- Unreachable-server behavior and the broader active-run/CAS/schema/revocation matrix remain open; this closes the allowed-consent real-Service path only.
+
+## MCP settings and Toolkit publication race
+
+- Extended `TestToolkitMCPConsentCaptureGovernsRealServiceRun` to reproduce a Settings update that replaces a user MCP config after a Toolkit candidate is prepared but before it is published. Before the fix, the prepared owner restored the stale `user-old` entry; the regression failed with that stale config in the final server list.
+- Added an optional `BeforeCommit` owner hook. `Manager.Publish` invokes it after drain/idle and before durable activation commit. The App MCP owner re-merges its candidate against the latest user MCP settings, so a confirmation-time settings change is reflected in the committed owner projection.
+- Settings MCP updates now retry the shared exclusive Runtime drain gate while a Toolkit publication is active. Once admitted, they reload settings and pin the current Toolkit view, then replace MCP servers, refresh the generated tool registry and apply the engine reload before releasing the gate. This prevents the losing callback from silently dropping its update and keeps catalog, server and engine projections aligned during live runs.
+- Added deterministic helper coverage for gate contention/retry, context cancellation and rebuilding from settings changed before gate acquisition. The publication-order test also asserts `BeforeCommit` runs after `WaitIdle` and before owner publication.
+- Passed the following focused verification after the fix:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/runtime -run '^(Test.*MCP.*|Test.*BundleMCP.*|TestToolkit.*)$' -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitLifecycle|TestToolkitOwnerOmissionIsReflectedByApp|TestScriptHooksArmingGate|TestToolkitMCPConsentCaptureGovernsRealServiceRun|TestBeginToolkitDrainRetriesWhileAnotherPublicationIsActive|TestReplaceMCPServersWithDrainBuildsLatestSettingsAfterAcquiringGate|TestBeginToolkitDrainStopsRetryWhenContextExpires)$' -count=1 -timeout=180s
+  ```
+
+- This closes the reproduced stale-settings overwrite and drain-contention retry cases. It does not yet prove every active-run/update interleaving, durable CAS race or the complete schema/revocation matrix.
+
+## MCP discovery fences and unreachable endpoint
+
+- A real App-side discovery validator now checks the current published Toolkit view against durable catalog state, the exact release/declaration, allowed consent digest/revision and live revocation fence. `bundleGuardedMCPWorld.Discover` checks before discovery, and `MCPHostSessionFactory.Open` checks again immediately before creating a transport for an active Toolkit MCP entry. Runtime run discovery and invocation still require the exact captured consent and live fence.
+- Before the status fix, the unreachable endpoint test returned a connection-refused discovery error but `MCPBackend.ServerStatuses` stayed `inactive`, because MCPHost's transport projection omits Toolkit provenance and no longer matched the richer backend config. Status association now compares the exact MCPHost-owned transport projection while retaining the current backend status record. The endpoint then reports `unavailable` and the configured Toolkit declaration remains present.
+- Added/updated tests: `TestToolkitMCPDiscoveryRequiresExactCapturedConsentAndLiveFence`, `TestToolkitMCPDiscoveryValidatorRunsBeforeTransportOpen`, and `TestToolkitMCPUnreachableServerKeepsConfiguredDeclaration`. Existing `TestToolkitMCPInvocationRequiresExactCapturedConsentAndLiveFence`, `TestSchemaChangeMarksBindingUnavailable`, `TestProjectedSchemaAndIdentityHashesAreDeterministic`, `TestUnsafeNamespacesFailClosedWithoutSanitizing` and `TestProtectedProjectedIDFailsClosed` provide the focused revoke, schema, identity, invalid-name and protected-name evidence.
+- The real App Service consent test still passes with the discovery validator enabled. It installs the local Streamable HTTP server disabled, grants exact consent, enables it, captures the consent provenance, performs one approved remote call and verifies Journal ordering.
+- Focused commands passed:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/runtime -run '^(TestToolkitMCP.*|TestSchemaChangeMarksBindingUnavailable|TestProjectedSchemaAndIdentityHashesAreDeterministic)$' -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/mcphost -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^TestToolkitMCPConsentCaptureGovernsRealServiceRun$' -count=1 -timeout=180s
+  ```
+
+- These close the targeted discovery, unreachable-status, exact-consent, revoke and schema-change cases. The larger concurrent active-run/catalog-CAS matrix remains open; there is no upstream MCP/Eino change required for the completed cases.
+
+## App MCP publication and startup recovery
+
+- Added `TestToolkitMCPPublicationRefreshesAppToolHostAndRecovery` around the real App, durable Toolkit Manager, MCPBackend, MCPHost and local Streamable HTTP server. It installs the MCP declaration disabled, grants exact consent, enables it, then proves the published App discovers the declared tool. After closing and reopening the same App database, startup recovery performs discovery again and restores the enabled Toolkit MCP config.
+- The regression failed before the fix: live activation caused zero `tools/list` calls because replacing MCP server configs did not rebuild the App ToolHost/Engine.
+- Added an optional post-publication owner hook. Manager calls it after swapping its current View and releasing its mutex, but before opening the drain gate. App rebuilds MCP ToolHost, updates ContextHost, resolves active tools and synchronously reloads Engine. If discovery of a new MCP config fails, the registry closes the MCP world fail-closed while preserving the declaration as unavailable.
+- A post-commit hook failure returns `publication_recovery_required` and leaves the drain active. `TestToolkitPublishOrder` injects that failure and proves `Recover` reruns the owner projection before ending the drain.
+- Passed focused checks:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -run '^TestToolkitPublishOrder$' -count=1 -timeout=3m
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitMCPPublicationRefreshesAppToolHostAndRecovery|TestToolkitMCPConsentCaptureGovernsRealServiceRun)$' -count=1 -timeout=180s
+  GOFLAGS=-tags=http2legacy go test ./internal/bundles -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/runtime -run '^(TestToolkitMCP.*|TestSchemaChangeMarksBindingUnavailable|TestProjectedSchemaAndIdentityHashesAreDeterministic|TestMCPStatusErrorPreservesPathsAndSyntheticEnvironmentValues|TestMCPToolWorldProviderTracksLiveBackendReplacement)$' -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/mcphost -count=1 -timeout=5m
+  GOFLAGS=-tags=http2legacy go test ./internal/app -run '^(TestToolkitLifecycle|TestToolkitOwnerOmissionIsReflectedByApp|TestScriptHooksArmingGate|TestToolkitMCPConsentCaptureGovernsRealServiceRun|TestToolkitMCPPublicationRefreshesAppToolHostAndRecovery|TestBeginToolkitDrainRetriesWhileAnotherPublicationIsActive|TestReplaceMCPServersWithDrainBuildsLatestSettingsAfterAcquiringGate|TestBeginToolkitDrainStopsRetryWhenContextExpires)$' -count=1 -timeout=180s
+  ```
+
+- An unrelated existing prompt snapshot test was red in isolation because it constructed a selected Mask without the host-generated Frame; the App always supplies this frame. Adding the required frame to the test fixture made `TestBuildBundleMaskSnapshotCarriesImmutableOriginAndRecommendations` pass without changing runtime behavior.
+- The edited `internal/` source tree changes the source identity pinned by the SDK conformance artifact. Recomputed the internal source digest as `aea33bd278880e519754504b1d3fe20a7bf645a60d5210396580f4d4e3e57abc` and updated the five corresponding first-party records in `sdk/internal/assembly/conformance_results.json`; the stable-tree suite run below verifies this pin.
+
+## Stable-tree repository verification
+
+- Passed the repository Go suite on the stable final source tree, excluding the separately slow `TestMemoryLoop*` tests:
+
+  ```sh
+  GOFLAGS=-tags=http2legacy go test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
+  ```
+
+  This includes `internal/app`, `internal/runtime`, all storage packages, SDK internals and conformance, TUI and UI packages. The exclusion is explicit; this result is not a claim that the `TestMemoryLoop*` suite passed as part of the repository sweep.
+- Passed `GOFLAGS=-tags=http2legacy go vet ./...`.
+- Recomputed the SDK internal source hash with `go run ./sdk/internal/cmd/source-hash internal eba914561ec043b74bd56e00236fc7a48df2e20dbc8956fca39cf033288a94fe`; it matches the five updated conformance pins: `aea33bd278880e519754504b1d3fe20a7bf645a60d5210396580f4d4e3e57abc`.
+- `git diff --check` and `gofmt -l` over all changed Go files are clean.
+- The full `just ci` recipe remains unrun because this host has no `just` or PowerShell, and the recipe invokes `powershell.exe`. Windows smoke is excluded by instruction. The broad crash/CAS/admission matrix and wider responsive UI states listed above also remain open; no upstream architecture change is needed for the fixes in this batch.

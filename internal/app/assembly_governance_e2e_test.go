@@ -19,6 +19,7 @@ import (
 	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/bundles"
 	"agent-vivy/internal/domain"
+	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -909,6 +910,7 @@ func TestToolkitMCPConsentCaptureGovernsRealServiceRun(t *testing.T) {
 	mcpBackend := runtime.NewMCPBackend(nil, nil)
 	t.Cleanup(func() { _ = mcpBackend.Close() })
 	store := backend.BundleStore()
+	userMCPConfigs := []runtime.MCPServerConfig{{Name: "user-old", Endpoint: "https://old.example.invalid/mcp"}}
 	manager, err := bundles.NewManager(bundles.Config{
 		StateRoot: root, Limits: bundlecontract.DefaultLimits(), Store: store, LeaseOwner: leaseOwner,
 		Capabilities: bundles.Capabilities{
@@ -917,13 +919,18 @@ func TestToolkitMCPConsentCaptureGovernsRealServiceRun(t *testing.T) {
 		},
 		Gate: immediateToolkitGate{},
 		PrepareOwners: func(prepareCtx context.Context, view bundlecontract.View) (bundles.PreparedOwners, error) {
-			return prepareToolkitMCPOwners(prepareCtx, view, store, mcpBackend, nil, false)
+			return prepareToolkitMCPOwners(prepareCtx, view, store, mcpBackend, func(context.Context) ([]runtime.MCPServerConfig, error) {
+				return userMCPConfigs, nil
+			}, false)
 		},
 	}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close(ctx) })
+	mcpBackend.SetToolkitMCPDiscoveryValidator(func(discoveryCtx context.Context, config runtime.MCPServerConfig) error {
+		return validateToolkitMCPDiscovery(discoveryCtx, manager, store, config)
+	})
 	if err := manager.Recover(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -986,14 +993,43 @@ func TestToolkitMCPConsentCaptureGovernsRealServiceRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A settings update can publish while a Toolkit candidate is waiting for
+	// confirmation. Simulate its completed settings-side replace before the
+	// Toolkit candidate reaches publication.
+	userMCPConfigs = []runtime.MCPServerConfig{{Name: "user-new", Endpoint: "https://new.example.invalid/mcp"}}
+	currentHandle, err := manager.PinCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsProjection, err := mergeToolkitMCPConfigs(ctx, currentHandle.View(), store, userMCPConfigs, false)
+	currentHandle.Release()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpBackend.ReplaceServers(settingsProjection)
 	if _, err := manager.Publish(ctx, prepared.OperationID); err != nil {
 		t.Fatal(err)
 	}
 	mcpConfigs := mcpBackend.ConfiguredServers()
-	if len(mcpConfigs) != 1 || mcpConfigs[0].ToolkitRef == nil || *mcpConfigs[0].ToolkitRef != componentRef ||
-		mcpConfigs[0].Enabled == nil || !*mcpConfigs[0].Enabled || mcpConfigs[0].ToolkitConsentDigest == "" ||
-		mcpConfigs[0].ToolkitConsentRevision != 1 {
-		t.Fatalf("published MCP projection lost consent/provenance: %+v", mcpConfigs)
+	if len(mcpConfigs) != 2 {
+		t.Fatalf("published MCP projection = %+v, want the latest user entry plus one Toolkit declaration", mcpConfigs)
+	}
+	userFound := false
+	toolkitFound := false
+	for _, mcpConfig := range mcpConfigs {
+		if mcpConfig.Name == "user-old" {
+			t.Fatalf("stale prepared Toolkit projection restored superseded user MCP config: %+v", mcpConfigs)
+		}
+		if mcpConfig.Name == "user-new" {
+			userFound = mcpConfig.Endpoint == "https://new.example.invalid/mcp"
+		}
+		if mcpConfig.ToolkitRef != nil && *mcpConfig.ToolkitRef == componentRef && mcpConfig.Enabled != nil && *mcpConfig.Enabled &&
+			mcpConfig.ToolkitConsentDigest != "" && mcpConfig.ToolkitConsentRevision == 1 {
+			toolkitFound = true
+		}
+	}
+	if !userFound || !toolkitFound {
+		t.Fatalf("published MCP projection lost current settings or exact consent provenance: %+v", mcpConfigs)
 	}
 	provider := mcpBackend.MCPToolWorldProvider()
 	staged, err := bindToolWorlds(ctx, []toolworldport.Provider{provider}, nil, nil, nil)
@@ -1091,6 +1127,124 @@ func TestToolkitMCPConsentCaptureGovernsRealServiceRun(t *testing.T) {
 	finished := eventGovernanceIndex(events, domain.EventToolFinished, 0)
 	if started < 0 || required < 0 || decided < 0 || finished < 0 || !(started < required && required < decided && decided < finished) {
 		t.Fatalf("Toolkit MCP governed run Journal order invalid: %v", events)
+	}
+}
+
+func TestToolkitMCPPublicationRefreshesAppToolHostAndRecovery(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	t.Setenv("DEEPSEEK_API_KEY", "toolkit-mcp-publication-test-key")
+	t.Setenv("VIVY_PROVIDER", "deepseek")
+	ctx := context.Background()
+	root := t.TempDir()
+	cfg := newDeepSeekTestConfig(t)
+	cfg.Storage.DataDir = root
+	cfg.Storage.SQLite.Path = filepath.Join(root, "toolkit-mcp-publication.db")
+	initializeTestPersona(t, cfg)
+	remote := newProductionMCPGovernanceServer(t)
+	assembly := genassembly.BuildDefault()
+
+	app, err := NewWithAssembly(ctx, cfg, assembly, WithoutEars(), WithoutGateway())
+	if err != nil {
+		t.Fatalf("compose app: %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+	source := filepath.Join(root, "mcp-source")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf(`{"apiVersion":"vivy.bundle/v1","id":"example/app-mcp","version":"1","name":"App MCP","components":{"mcp":[{"id":"docs","endpoint":%q,"args":[],"resourceBridge":false}]}}`, remote.http.URL)
+	if err := os.WriteFile(filepath.Join(source, bundlecontract.ManifestFile), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := app.toolkits.Preview(ctx, bundles.PreviewRequest{
+		OperationID: "52000000-0000-4000-8000-000000000002",
+		Source:      bundlecontract.SourceSpec{Kind: "local", Location: source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.toolkits.Install(ctx, bundles.InstallRequest{
+		OperationID: "52000000-0000-4000-8000-000000000003", PreviewOperationID: preview.OperationID,
+		ExpectedReleaseDigest: preview.ReleaseDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := app.toolkits.InspectInstallation(ctx, preview.InstallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var declaration bundles.ExecutableInspection
+	for _, executable := range inspection.Executables {
+		if executable.Kind == bundlecontract.MCP && executable.LocalID == "docs" {
+			declaration = executable
+		}
+	}
+	if declaration.DeclarationDigest == "" {
+		t.Fatalf("missing MCP declaration inspection: %+v", inspection.Executables)
+	}
+	handle, err := app.toolkits.PinCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := handle.View().Identity()
+	handle.Release()
+	if _, err := app.toolkits.SetExecutableConsent(ctx, bundles.ExecutableConsentRequest{
+		OperationID: "52000000-0000-4000-8000-000000000004", Expected: identity,
+		Ref:              bundlecontract.ComponentRef{InstallID: preview.InstallID, Kind: bundlecontract.MCP, LocalID: "docs"},
+		ExpectedRevision: 0, ExpectedReleaseDigest: declaration.ReleaseDigest,
+		ExpectedDeclarationDigest: declaration.DeclarationDigest, Subject: "human", Allowed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := app.backend.(storage.BundleStore)
+	state, err := store.ReadBundleState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := app.toolkits.Prepare(ctx, bundles.PrepareRequest{
+		OperationID: "52000000-0000-4000-8000-000000000005", Expected: state.Catalog,
+		Mutation: bundles.CatalogMutation{Kind: "enable", InstallID: preview.InstallID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.toolkits.Publish(ctx, prepared.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	countToolDiscoveryCalls := func() int {
+		t.Helper()
+		count := 0
+		for _, method := range remote.methodNames() {
+			if method == "tools/list" {
+				count++
+			}
+		}
+		return count
+	}
+	if got := countToolDiscoveryCalls(); got != 1 {
+		t.Fatalf("live Toolkit MCP publication performed %d tool discoveries, want 1", got)
+	}
+	if err := app.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := NewWithAssembly(ctx, cfg, assembly, WithoutEars(), WithoutGateway())
+	if err != nil {
+		t.Fatalf("reopen app with active Toolkit MCP: %v", err)
+	}
+	defer recovered.Close()
+	if got := countToolDiscoveryCalls(); got != 2 {
+		t.Fatalf("Toolkit MCP recovery performed %d cumulative tool discoveries, want 2", got)
+	}
+	var recoveredToolkitServer bool
+	for _, configured := range recovered.mcpBackend.ConfiguredServers() {
+		if configured.ToolkitRef != nil && configured.ToolkitRef.InstallID == preview.InstallID && configured.Enabled != nil && *configured.Enabled {
+			recoveredToolkitServer = true
+		}
+	}
+	if !recoveredToolkitServer {
+		t.Fatalf("active Toolkit MCP declaration was not recovered: %+v", recovered.mcpBackend.ConfiguredServers())
 	}
 }
 

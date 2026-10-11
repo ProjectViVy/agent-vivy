@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -139,12 +140,16 @@ func TestToolkitMCPMergeRejectsDuplicateOrUnsafeNames(t *testing.T) {
 	}
 }
 
-type bundleMCPTestWorld struct{ invokes int }
+type bundleMCPTestWorld struct {
+	discoveries int
+	invokes     int
+}
 
 func (*bundleMCPTestWorld) Definition() toolworldport.Definition {
 	return toolworldport.Definition{ID: "mcp"}
 }
-func (*bundleMCPTestWorld) Discover(context.Context, toolworldport.Host) ([]toolworldport.ToolDefinition, error) {
+func (world *bundleMCPTestWorld) Discover(context.Context, toolworldport.Host) ([]toolworldport.ToolDefinition, error) {
+	world.discoveries++
 	return nil, nil
 }
 func (world *bundleMCPTestWorld) Invoke(context.Context, toolworldport.Host, string, json.RawMessage) (toolworldport.Result, error) {
@@ -205,6 +210,120 @@ func TestToolkitMCPInvocationRequiresExactCapturedConsentAndLiveFence(t *testing
 	}
 	if provider.invokes != 1 {
 		t.Fatalf("revoked call reached MCP owner %d times", provider.invokes)
+	}
+}
+
+func TestToolkitMCPDiscoveryRequiresExactCapturedConsentAndLiveFence(t *testing.T) {
+	const installID = "81000000-0000-4000-8000-000000000001"
+	entry := bundlecontract.MCPEntry{ID: "remote", Endpoint: "https://mcp.example.test/mcp", Args: []string{}, ResourceBridge: false}
+	view := toolkitMCPTestView(t, entry)
+	record, _ := view.Lookup(bundlecontract.MCP, "b_81000000000040008000000000000001_remote")
+	consentDigest, err := bundlecontract.ExecutableConsentDigest(installID, record.Release.ReleaseDigest, record.ExecutableDigest, view.Identity().ConfigRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs, err := PrepareBundleMCPConfigs(view, map[bundlecontract.ComponentRef]BundleMCPConsent{
+		record.Ref: {Allowed: true, Digest: consentDigest, Revision: 1},
+	}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := configs[0]
+	provider := &bundleMCPTestWorld{}
+	backend := &MCPBackend{servers: map[string]*mcpServer{config.Name: {config: config}}}
+	guarded := &bundleGuardedMCPWorld{backend: backend, delegate: provider}
+	discover := func(ctx context.Context) error {
+		_, err := guarded.Discover(ctx, nil)
+		return err
+	}
+
+	if err := discover(context.Background()); !errors.Is(err, ErrBundleMCPNotCaptured) {
+		t.Fatalf("MCP discovery without run evidence = %v", err)
+	}
+	if provider.discoveries != 0 {
+		t.Fatalf("uncaptured discovery entered MCP owner %d times", provider.discoveries)
+	}
+
+	check := bundlecontract.CaptureCheck{Catalog: view.Identity(), Executables: []bundlecontract.ExecutableRef{{
+		ComponentRef: record.Ref, DeclarationDigest: record.ExecutableDigest,
+		ConsentDigest: config.ToolkitConsentDigest, ConsentRevision: config.ToolkitConsentRevision,
+	}}}
+	ctx := withBundleFence(withBundleCapture(withBundleView(context.Background(), view), check), func(context.Context) error { return nil })
+	if err := discover(ctx); err != nil {
+		t.Fatalf("exact captured MCP discovery = %v", err)
+	}
+	if provider.discoveries != 1 {
+		t.Fatalf("captured discovery reached MCP owner %d times", provider.discoveries)
+	}
+
+	revoked := withBundleFence(ctx, func(context.Context) error { return storage.ErrBundleRevoked })
+	if err := discover(revoked); !errors.Is(err, storage.ErrBundleRevoked) {
+		t.Fatalf("revoked MCP discovery = %v", err)
+	}
+	if provider.discoveries != 1 {
+		t.Fatalf("revoked discovery entered MCP owner %d times", provider.discoveries)
+	}
+}
+
+func TestToolkitMCPUnreachableServerKeepsConfiguredDeclaration(t *testing.T) {
+	listener := httptest.NewServer(nil)
+	endpoint := listener.URL
+	listener.Close()
+	ref := bundlecontract.ComponentRef{
+		InstallID: "81000000-0000-4000-8000-000000000001", Kind: bundlecontract.MCP, LocalID: "remote",
+	}
+	backend := NewMCPBackend([]MCPServerConfig{{
+		Name: "toolkit_remote", Endpoint: endpoint, Enabled: boolPointer(true), ToolkitRef: &ref,
+		ToolkitReleaseDigest: strings.Repeat("a", 64), ToolkitDeclarationDigest: strings.Repeat("b", 64),
+		ToolkitConsentDigest: strings.Repeat("c", 64), ToolkitConsentRevision: 1,
+	}}, nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	backend.SetToolkitMCPDiscoveryValidator(func(context.Context, MCPServerConfig) error { return nil })
+	_, operationErr := backend.ListTools(context.Background(), "", "toolkit_remote")
+	if operationErr == nil {
+		t.Fatal("unreachable MCP endpoint unexpectedly returned tools")
+	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || statuses[0].Name != "toolkit_remote" || statuses[0].State != MCPStateUnavailable ||
+		statuses[0].Initialized || statuses[0].Error == "" {
+		t.Fatalf("unreachable Toolkit MCP status = %+v, discovery error = %v", statuses, operationErr)
+	}
+	configured := backend.ConfiguredServers()
+	if len(configured) != 1 || configured[0].ToolkitRef == nil || *configured[0].ToolkitRef != ref || configured[0].Endpoint != endpoint {
+		t.Fatalf("unreachable server removed or changed its configured declaration: %+v", configured)
+	}
+}
+
+func TestToolkitMCPDiscoveryValidatorRunsBeforeTransportOpen(t *testing.T) {
+	listener := httptest.NewServer(nil)
+	endpoint := listener.URL
+	listener.Close()
+	ref := bundlecontract.ComponentRef{
+		InstallID: "81000000-0000-4000-8000-000000000001", Kind: bundlecontract.MCP, LocalID: "remote",
+	}
+	backend := NewMCPBackend([]MCPServerConfig{{
+		Name: "toolkit_remote", Endpoint: endpoint, Enabled: boolPointer(true), ToolkitRef: &ref,
+		ToolkitReleaseDigest: strings.Repeat("a", 64), ToolkitDeclarationDigest: strings.Repeat("b", 64),
+		ToolkitConsentDigest: strings.Repeat("c", 64), ToolkitConsentRevision: 1,
+	}}, nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	validatorCalls := 0
+	backend.SetToolkitMCPDiscoveryValidator(func(_ context.Context, config MCPServerConfig) error {
+		validatorCalls++
+		if config.ToolkitRef == nil || *config.ToolkitRef != ref || config.ToolkitConsentRevision != 1 {
+			t.Errorf("discovery validator received incomplete Toolkit provenance: %+v", config)
+		}
+		return ErrBundleMCPNotCaptured
+	})
+	if _, err := backend.ListTools(context.Background(), "", "toolkit_remote"); !errors.Is(err, ErrBundleMCPNotCaptured) {
+		t.Fatalf("MCP discovery with denied lazy connection = %v", err)
+	}
+	if validatorCalls == 0 {
+		t.Fatal("MCPHost attempted transport setup without checking current Toolkit authority")
+	}
+	status := backend.ServerStatuses()
+	if len(status) != 1 || status[0].State != MCPStateInactive || status[0].Error != "" {
+		t.Fatalf("denied discovery contacted the remote transport: %+v", status)
 	}
 }
 

@@ -174,6 +174,16 @@ func (world *bundleGuardedMCPWorld) Definition() toolworldport.Definition {
 	return world.delegate.Definition()
 }
 func (world *bundleGuardedMCPWorld) Discover(ctx context.Context, host toolworldport.Host) ([]toolworldport.ToolDefinition, error) {
+	if world.backend != nil {
+		for _, config := range world.backend.ConfiguredServers() {
+			if config.ToolkitRef == nil || config.Enabled == nil || !*config.Enabled {
+				continue
+			}
+			if err := world.backend.validateToolkitMCPDiscovery(ctx, config); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return world.delegate.Discover(ctx, host)
 }
 func (world *bundleGuardedMCPWorld) Invoke(ctx context.Context, host toolworldport.Host, id string, args json.RawMessage) (toolworldport.Result, error) {

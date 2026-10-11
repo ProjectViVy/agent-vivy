@@ -970,19 +970,75 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		bundlecontract.Hook:  true,
 		bundlecontract.MCP:   mcpBackend != nil,
 	}}
-	currentUserMCPConfigs := func() []runtime.MCPServerConfig {
-		if live, loadErr := settings.Load(liveSettingsPath); loadErr == nil {
-			return liveMCPConfigs(cfg, live)
+	currentUserMCPConfigs := func(_ context.Context) ([]runtime.MCPServerConfig, error) {
+		live, loadErr := settings.Load(liveSettingsPath)
+		if loadErr != nil {
+			return nil, loadErr
 		}
-		return mcpRuntimeConfigs(cfg.Runtime.MCPServers)
+		return liveMCPConfigs(cfg, live), nil
+	}
+	refreshToolkitMCPProjection := func(_ context.Context, configs []runtime.MCPServerConfig) error {
+		if mcpBackend == nil {
+			return nil
+		}
+		registryMu.RLock()
+		previous := append([]runtime.MCPServerConfig(nil), appliedMCPConfigs...)
+		registryMu.RUnlock()
+		if sameMCPRuntimeConfigs(configs, previous) {
+			return nil
+		}
+		mcpToolsAvailable := true
+		if rebuildErr := rebuildToolRegistry(runtimeAssembly.Worlds); rebuildErr != nil {
+			logger.Warn("Toolkit MCP tool registry rebuild failed; closing the MCP ToolWorld catalog", "err", rebuildErr)
+			withoutMCP := make([]toolworldport.Provider, 0, len(runtimeAssembly.Worlds))
+			for _, provider := range runtimeAssembly.Worlds {
+				if provider != nil && provider.Definition().ID == "mcp" {
+					continue
+				}
+				withoutMCP = append(withoutMCP, provider)
+			}
+			if fallbackErr := rebuildToolRegistry(withoutMCP); fallbackErr != nil {
+				return fmt.Errorf("app: fail-closed Toolkit MCP tool registry rebuild: %w", fallbackErr)
+			}
+			mcpToolsAvailable = false
+		}
+		if mcpToolsAvailable {
+			if contextHost, contextErr := contextHostForAssembly(runtimeAssembly, mcpBackend, ao.contextSourceTimeout); contextErr != nil {
+				logger.Warn("Toolkit MCP context bridge unavailable", "err", contextErr)
+				engineCfg.ContextHost = nil
+			} else {
+				engineCfg.ContextHost = contextHost
+			}
+		} else {
+			engineCfg.ContextHost = nil
+		}
+		_, hidden, resolveErr := resolveActiveTools()
+		if resolveErr != nil {
+			return fmt.Errorf("app: resolve Toolkit MCP tools: %w", resolveErr)
+		}
+		engineCfg.HiddenTools = hidden
+		if reloadErr := svc.ScheduleEngineReload(engineCfg); reloadErr != nil {
+			return fmt.Errorf("app: reload Toolkit MCP tools: %w", reloadErr)
+		}
+		registryMu.Lock()
+		appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), configs...)
+		registryMu.Unlock()
+		return nil
 	}
 	toolkitManager, err = bundles.NewManager(bundles.Config{
 		StateRoot: dataRoot, Limits: toolkitLimits,
 		Capabilities: bundles.Capabilities{Owners: toolkitOwnerCapabilities.Owners, Limits: toolkitLimits},
 		Gate:         toolkitDrainGate{service: func() *runtime.Service { return svc }},
 		PrepareOwners: func(prepareCtx context.Context, view bundlecontract.View) (bundles.PreparedOwners, error) {
-			return prepareToolkitMCPOwners(prepareCtx, view, bundleStore, mcpBackend, currentUserMCPConfigs(),
+			owners, prepareErr := prepareToolkitMCPOwners(prepareCtx, view, bundleStore, mcpBackend, currentUserMCPConfigs,
 				assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host"))
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			if prepared, ok := owners.(*toolkitMCPPreparedOwners); ok {
+				prepared.afterPublish = refreshToolkitMCPProjection
+			}
+			return owners, nil
 		},
 		MCPStatuses: func() []bundles.MCPRuntimeStatus {
 			if mcpBackend == nil {
@@ -1001,6 +1057,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: create toolkit coordinator: %w", err)
 	}
 	toolkitManagerOwned = true
+	if mcpBackend != nil {
+		mcpBackend.SetToolkitMCPDiscoveryValidator(func(discoveryCtx context.Context, config runtime.MCPServerConfig) error {
+			return validateToolkitMCPDiscovery(discoveryCtx, toolkitManager, bundleStore, config)
+		})
+	}
 	if err := toolkitManager.Recover(ctx); err != nil {
 		return nil, fmt.Errorf("app: recover toolkit catalog: %w", err)
 	}
@@ -1329,31 +1390,51 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				registryMu.RUnlock()
 				mcpChanged = !sameMCPRuntimeConfigs(nextMCPConfigs, previousMCPConfigs)
 				if mcpChanged {
-					if drainErr := replaceMCPServersWithDrain(svc, mcpBackend, nextMCPConfigs); drainErr != nil {
+					buildLatestMCPConfigs := func(drainCtx context.Context) ([]runtime.MCPServerConfig, error) {
+						latestSettings, loadErr := settings.Load(liveSettingsPath)
+						if loadErr != nil {
+							return nil, loadErr
+						}
+						configs := liveMCPConfigs(cfg, latestSettings)
+						if toolkitManager == nil {
+							return configs, nil
+						}
+						handle, pinErr := toolkitManager.PinCurrent()
+						if pinErr != nil {
+							return nil, pinErr
+						}
+						defer handle.Release()
+						return mergeToolkitMCPConfigs(drainCtx, handle.View(), bundleStore, configs,
+							assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host"))
+					}
+					refreshMCPRegistry := func(currentMCPConfigs []runtime.MCPServerConfig) {
+						registryMu.Lock()
+						appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), currentMCPConfigs...)
+						registryMu.Unlock()
+						if rebuildErr := rebuildToolRegistry(runtimeAssembly.Worlds); rebuildErr != nil {
+							// A removed or replaced MCP instance must not remain in
+							// the model catalog when discovery of its replacement
+							// fails. Keep other generated worlds live, but fail closed
+							// for MCP until the next successful settings rebuild.
+							logger.Warn("MCP tool registry rebuild failed", "err", rebuildErr)
+							withoutMCP := make([]toolworldport.Provider, 0, len(runtimeAssembly.Worlds))
+							for _, provider := range runtimeAssembly.Worlds {
+								if provider != nil && provider.Definition().ID == "mcp" {
+									continue
+								}
+								withoutMCP = append(withoutMCP, provider)
+							}
+							if fallbackErr := rebuildToolRegistry(withoutMCP); fallbackErr != nil {
+								logger.Warn("MCP tool registry fail-closed rebuild failed", "err", fallbackErr)
+							}
+						}
+					}
+					releaseSettingsMCPDrain, drainErr := replaceMCPServersWithDrain(svc, mcpBackend, buildLatestMCPConfigs, refreshMCPRegistry)
+					if drainErr != nil {
 						logger.Warn("MCP settings publication deferred", "err", drainErr)
 						return
 					}
-					currentMCPConfigs := mcpBackend.ConfiguredServers()
-					registryMu.Lock()
-					appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), currentMCPConfigs...)
-					registryMu.Unlock()
-					if rebuildErr := rebuildToolRegistry(runtimeAssembly.Worlds); rebuildErr != nil {
-						// A removed or replaced MCP instance must not remain in
-						// the model catalog when discovery of its replacement
-						// fails. Keep other generated worlds live, but fail closed
-						// for MCP until the next successful settings rebuild.
-						logger.Warn("MCP tool registry rebuild failed", "err", rebuildErr)
-						withoutMCP := make([]toolworldport.Provider, 0, len(runtimeAssembly.Worlds))
-						for _, provider := range runtimeAssembly.Worlds {
-							if provider != nil && provider.Definition().ID == "mcp" {
-								continue
-							}
-							withoutMCP = append(withoutMCP, provider)
-						}
-						if fallbackErr := rebuildToolRegistry(withoutMCP); fallbackErr != nil {
-							logger.Warn("MCP tool registry fail-closed rebuild failed", "err", fallbackErr)
-						}
-					}
+					defer releaseSettingsMCPDrain()
 				}
 			}
 			// Tools live-apply: an active/hidden change rebuilds the engine
