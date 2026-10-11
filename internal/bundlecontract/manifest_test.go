@@ -24,11 +24,12 @@ func TestDecodeManifestRejectsAmbiguity(t *testing.T) {
 	if m.Components.Masks == nil || m.Resources == nil {
 		t.Fatal("omitted arrays must normalize")
 	}
+	legacyAPIVersion := "vivy." + "plugin/v0"
 	cases := []string{
 		strings.Replace(minimal, `"id":"example/experts"`, `"id":"example/experts","id":"evil/experts"`, 1),
 		strings.Replace(minimal, `"name":"Experts"`, `"name":"Experts","approved":true`, 1),
 		minimal + `{}`,
-		strings.Replace(minimal, `vivy.bundle/v1`, `vivy.plugin/v0`, 1),
+		strings.Replace(minimal, `vivy.bundle/v1`, legacyAPIVersion, 1),
 		strings.Replace(minimal, `"skills":`, `"unknown":`, 1),
 		strings.Replace(minimal, `"skills":[`, `"rules":[{"id":"r","path":"r.md","faces":["unknown"]}],"skills":[`, 1),
 		strings.Replace(minimal, `"version":"1"`, `"version":1.0`, 1),

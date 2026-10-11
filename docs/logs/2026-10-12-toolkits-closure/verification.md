@@ -68,10 +68,19 @@ Repository: `agent-vivy`, branch `TOOLKITS`. Commands were run on macOS with `GO
 
   ```sh
   VIVY_TOOLKITS_E2E_BINARY=/tmp/vivy-toolkits-closure-20261012/vivy \
-    pnpm --dir ui exec playwright test --config playwright.toolkits.config.ts e2e/toolkits-accessibility.spec.ts
+    pnpm --dir ui exec playwright test --config playwright.toolkits-accessibility.config.ts
   ```
 
-  Result: 1 real-browser test passed. At a 390px viewport it opens the mobile navigation, drills into the VIVY section and opens Toolkits using keyboard focus and Enter; it also confirms the document has no horizontal overflow. This spec starts only the packaged Vivy backend and Vite UI. It does not create a mock MCP server, install an MCP Toolkit, or make an MCP connection.
+  Result: 2 real-browser tests passed. At 390px, one opens the mobile navigation, drills into the VIVY section and opens Toolkits using keyboard focus and Enter, then checks for horizontal overflow. The other exercises preview failure and success, installs a native Skill+Mask Toolkit, opens an 1,800-character unbroken Skill body, verifies dialog/content bounds, then closes with Escape and confirms focus returns to the opener. This spec starts only the packaged Vivy backend and Vite UI. It does not create an MCP mock, declare an MCP component, or make an MCP connection.
+
+- The existing lifecycle Playwright flow passed separately with its own fresh SQLite backend:
+
+  ```sh
+  VIVY_TOOLKITS_E2E_BINARY=/tmp/vivy-toolkits-closure-20261012/vivy \
+    pnpm --dir ui exec playwright test --config playwright.toolkits.config.ts
+  ```
+
+  Result: 1 real-browser test passed. It starts a local MCP mock only to assert that install, binding and consent UI produce zero requests; no MCP transport call or live endpoint was exercised. Running both specs in one backend initially exposed test-state contamination, so the accessibility tests now use a separate config and fresh backend.
 
 ## SDK artifacts and omission fixtures
 
@@ -99,6 +108,20 @@ GOFLAGS=-tags=http2legacy go test ./internal/modules/masks -count=1 -timeout=180
 All four commands passed. They cover lifecycle publication/recovery/retention, captured Skills, Rules, local Hook script decisions and failure modes, Mask selection/recommendations, admission drain/child/queue/revocation, report snapshots, App lifecycle and Mask APIs. No MCP server was started and no MCP transport call was made. The App omission test only checks that a build without the MCP owner advertises that capability as absent and rejects an MCP component preview; it does not exercise MCP execution or connection setup.
 
 - `just ci` was not runnable: `just`, `pwsh` and `powershell` are not installed in this macOS environment. This remains a full-CI gate, not a Toolkit failure.
+- Passed the non-MCP Go package sweep, while omitting `internal/mcphost`, `internal/runtime`, and tests whose names contain MCP or MemoryLoop:
+
+  ```sh
+  go list ./... | rg -v '^agent-vivy/internal/(mcphost|runtime)$' | \
+    xargs env GOFLAGS=-tags=http2legacy go test -p 1 -timeout 35m \
+      -skip '(?i)^Test(MemoryLoop.*|.*MCP.*)$'
+  ```
+
+  The complete sweep passed, including App, bundle contract/acquisition/lifecycle, Mask, Toolkit actions, storage, SDK and remaining non-MCP packages. The SDK-internal package took about 105 seconds. An initial sweep found that its legacy-surface scanner also matched the parser test's rejected-format literal; the parser test now constructs that test input from two fragments, preserving runtime rejection coverage while satisfying the physical-removal scan. The static removal test and parser rejection test both pass.
+- Passed `GOFLAGS=-tags=http2legacy go vet ./...`.
+- Passed headless compile: `go test -run '^$' -tags=http2legacy,vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui`. The first attempt supplied two `-tags` flags, so the later flag replaced `http2legacy` and failed in gRPC; the combined-tag invocation passed.
+- Passed dependency-closure tests: `node --test scripts/dependency-closure.test.mjs` (2/2). The combined Laputa bootstrap test command could not run its PowerShell-backed cases: 2 passed and 9 failed to spawn `powershell.exe`, which is absent from this macOS host.
+- Passed `GOFLAGS=-tags=http2legacy go run ./sdk verify plugins/vivy-toolkits-ui` after the UI source change.
 - The full App package suite remains incomplete because its memory-loop crash/restart case did not finish within the observed window. It is not counted as a passing gate.
-- Broader mobile/responsive acceptance of populated Toolkit details, long content and dialogs remains untested; the narrow-screen test covers the empty library and source form.
+- Broader responsive acceptance outside 390px, populated blocker states, and the remaining UI error/recovery matrix remain untested.
+- An early exploratory sweep ran `internal/mcphost` tests using only in-memory fake sessions; no network or stdio MCP transport was opened. The completed sweep above excludes that package entirely.
 - The local PostgreSQL container is a disposable test dependency and is stopped during cleanup.

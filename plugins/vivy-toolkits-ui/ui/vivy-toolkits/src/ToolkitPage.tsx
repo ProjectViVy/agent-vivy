@@ -14,6 +14,7 @@ export function ToolkitPage({ client }: { readonly client: ToolkitClient }) {
   const [selected, setSelected] = useState<ToolkitInspection | null>(null);
   const [preview, setPreview] = useState<ToolkitPreview | null>(null);
   const [body, setBody] = useState<{ readonly title: string; readonly content: string; readonly digest: string } | null>(null);
+  const bodyTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [candidate, setCandidate] = useState<PreparedCandidate | null>(null);
   const [operation, setOperation] = useState<ToolkitOperation | null>(null);
   const [sourceKind, setSourceKind] = useState<SourceKind>('local');
@@ -303,8 +304,9 @@ export function ToolkitPage({ client }: { readonly client: ToolkitClient }) {
     } finally { setWorking(false); }
   }
 
-  async function readBody(kind: string, id: string) {
+  async function readBody(kind: string, id: string, trigger: HTMLButtonElement) {
     if (!selected?.manifest || !selected.release.release_digest) return;
+    bodyTriggerRef.current = trigger;
     try {
       const result = await client.componentContent({ install_id: selected.installation.install_id, kind, local_id: id, expected_release_digest: selected.release.release_digest });
       setBody({ title: `${kind}/${id}`, content: result.content, digest: result.digest });
@@ -401,14 +403,14 @@ export function ToolkitPage({ client }: { readonly client: ToolkitClient }) {
         {selected.manifest && <div className="space-y-4">
           <ComponentSection title={tx('skills','Skills')} available={page?.capabilities.owners.skill !== false} empty={tx('emptySkills','没有 Skill。')} count={selected.manifest.components.skills.length}>
             <p className="text-xs"><a className="text-primary underline-offset-4 hover:underline" href="/skills">{tx('openSkills','在 Skills 管理中查看和使用')}</a></p>
-            {selected.manifest.components.skills.map((entry) => <ComponentRow key={entry.id} id={entry.id} kind="skill" onRead={() => void readBody('skill',entry.id)} />)}
+            {selected.manifest.components.skills.map((entry) => <ComponentRow key={entry.id} id={entry.id} kind="skill" onRead={(trigger) => void readBody('skill',entry.id,trigger)} />)}
           </ComponentSection>
           <ComponentSection title={tx('masks','面具')} available={page?.capabilities.owners.mask !== false} empty={tx('emptyMasks','没有面具。')} count={selected.manifest.components.masks.length}>
             <p className="text-xs"><a className="text-primary underline-offset-4 hover:underline" href="/masks">{tx('openMasks', '在面具管理中查看来源、复制和使用')}</a></p>
-            {selected.manifest.components.masks.map((entry) => <div key={entry.id} className="space-y-1"><ComponentRow id={entry.id} label={entry.name} kind="mask" onRead={() => void readBody('mask',entry.id)} />{entry.description && <p className="pl-3 text-xs text-muted-foreground">{entry.description}</p>}{entry.recommendedSkills.length > 0 && <p className="pl-3 text-xs">{tx('recommendedSkills', '推荐 Skill')}：{entry.recommendedSkills.join(', ')}（{tx('recommendationOnly', '不会自动启用')}）</p>}</div>)}
+            {selected.manifest.components.masks.map((entry) => <div key={entry.id} className="space-y-1"><ComponentRow id={entry.id} label={entry.name} kind="mask" onRead={(trigger) => void readBody('mask',entry.id,trigger)} />{entry.description && <p className="pl-3 text-xs text-muted-foreground">{entry.description}</p>}{entry.recommendedSkills.length > 0 && <p className="pl-3 text-xs">{tx('recommendedSkills', '推荐 Skill')}：{entry.recommendedSkills.join(', ')}（{tx('recommendationOnly', '不会自动启用')}）</p>}</div>)}
           </ComponentSection>
           <ComponentSection title={tx('rules','Rules')} available={page?.capabilities.owners.rule !== false} empty={tx('emptyRules','没有规则。')} count={selected.manifest.components.rules.length}>
-            {selected.manifest.components.rules.map((entry) => <ComponentRow key={entry.id} id={entry.id} kind="rule" onRead={() => void readBody('rule',entry.id)} />)}
+            {selected.manifest.components.rules.map((entry) => <ComponentRow key={entry.id} id={entry.id} kind="rule" onRead={(trigger) => void readBody('rule',entry.id,trigger)} />)}
           </ComponentSection>
           <ComponentSection title={tx('hooks','Hooks')} available={page?.capabilities.owners.hook !== false} empty={tx('emptyHooks','没有 Hook。')} count={selected.manifest.components.hooks.length}>
             {selected.manifest.components.hooks.map((entry) => <ExecutableRow key={entry.id} kind="hook" id={entry.id} detail={entry.event} item={selected.installation} inspection={selected} working={working||Boolean(candidate)} available={page?.capabilities.owners.hook !== false} onConsent={(allow) => void changeConsent('hook',allow,selected.installation,entry.id)} onSaveBindings={(bindings) => void saveBindings('hook',entry.id,bindings)} slots={Object.keys(entry.envFrom ?? {}).map((target) => `envFrom:${target}`)} />)}
@@ -420,7 +422,7 @@ export function ToolkitPage({ client }: { readonly client: ToolkitClient }) {
       </>}
     </section>
     {body && <Dialog open onOpenChange={(open)=>{if(!open)setBody(null);}}>
-      <DialogContent className="max-h-[85vh] max-w-3xl">
+      <DialogContent className="max-h-[85vh] max-w-3xl" onCloseAutoFocus={(event) => { event.preventDefault(); bodyTriggerRef.current?.focus(); }}>
         <DialogHeader><DialogTitle>{tx('componentContent', '组件内容')}: {body.title}</DialogTitle><DialogDescription className="break-all">SHA-256 {body.digest}</DialogDescription></DialogHeader>
         <DialogBody><pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs">{body.content}</pre></DialogBody>
       </DialogContent>
@@ -436,9 +438,9 @@ function ComponentSection({ title, count, empty, available, children }: { readon
   const { t } = usePluginTranslation();
   return <section className="space-y-2 rounded-xl border p-4"><div className="flex justify-between gap-2"><h3 className="font-semibold">{title}</h3><span className="text-xs text-muted-foreground">{available?`${count} ${toolkitText(t,'items','项')}`:toolkitText(t,'ownerUnavailable','当前构建未包含此组件能力')}</span></div>{!available?<p className="text-sm text-muted-foreground">{toolkitText(t,'stagedComponent','组件会保留在工具包中，但当前构建暂不可用。')}</p>:count===0?<p className="text-sm text-muted-foreground">{empty}</p>:<div className="space-y-2">{children}</div>}</section>;
 }
-function ComponentRow({ id, kind, label, onRead }: { readonly id:string;readonly kind:string;readonly label?:string;readonly onRead:()=>void }) {
+function ComponentRow({ id, kind, label, onRead }: { readonly id:string;readonly kind:string;readonly label?:string;readonly onRead:(trigger:HTMLButtonElement)=>void }) {
   const { t } = usePluginTranslation();
-  return <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2"><span className="min-w-0 truncate text-sm">{label??id} <span className="text-xs text-muted-foreground">{kind}/{id}</span></span><button type="button" className="min-h-10 shrink-0 rounded-md border px-2 py-1 text-xs" onClick={onRead}>{toolkitText(t,'readContent','查看内容')}</button></div>;
+  return <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2"><span className="min-w-0 truncate text-sm">{label??id} <span className="text-xs text-muted-foreground">{kind}/{id}</span></span><button type="button" className="min-h-10 shrink-0 rounded-md border px-2 py-1 text-xs" onClick={(event) => onRead(event.currentTarget)}>{toolkitText(t,'readContent','查看内容')}</button></div>;
 }
 function ExecutableRow({ kind,id,detail,item,inspection,working,available,onConsent,onSaveBindings,slots }: { readonly kind:'hook'|'mcp';readonly id:string;readonly detail:string;readonly item:ToolkitInstallation;readonly inspection:ToolkitInspection;readonly working:boolean;readonly available:boolean;readonly onConsent:(allow:boolean)=>void;readonly onSaveBindings:(bindings:readonly {readonly name:string;readonly reference:string}[])=>void;readonly slots:readonly string[] }) {
   const { t } = usePluginTranslation();
