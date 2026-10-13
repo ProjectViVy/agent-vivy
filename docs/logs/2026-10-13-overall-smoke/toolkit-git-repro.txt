@@ -1,0 +1,5 @@
+--- FAIL: TestGitAcquisitionHasNoExecution (3.51s)
+    acquire_test.go:177: toolkits: invalid_manifest (git_origin)
+FAIL
+FAIL	agent-vivy/internal/bundles	3.577s
+FAIL

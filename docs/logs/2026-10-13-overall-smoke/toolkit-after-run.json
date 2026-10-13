@@ -1,0 +1,5 @@
+{
+  "before": "Preview failed. Check the host path or Git source and retry.",
+  "afterSessionRebind": "preview succeeded",
+  "sessionId": "sess_3f1809bff5080b1a"
+}

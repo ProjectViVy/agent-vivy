@@ -1,0 +1,52 @@
+[WebServer] {"time":"2026-10-13T20:53:52.7504526+08:00","level":"INFO","source":{"function":"main.main","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/cmd/vivy/main.go","line":77},"msg":"logging initialized","level":"info","format":"json","console_format":"json","dir":"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\2\\vivy-toolkits-e2e-runtime-1uCNWN\\state\\logs","stdout":true}
+[WebServer] {"time":"2026-10-13T20:53:53.6834842+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.projectInstructionBackends","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/app/compaction.go","line":156},"msg":"project instructions discovered","root":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy","agents_md":["AGENTS.md"],"skill_roots":1}
+[WebServer] {"time":"2026-10-13T20:53:53.7918916+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"dingtalk"}
+[WebServer] {"time":"2026-10-13T20:53:53.792207+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"discord"}
+[WebServer] {"time":"2026-10-13T20:53:53.792207+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"feishu"}
+[WebServer] {"time":"2026-10-13T20:53:53.792207+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"qq"}
+[WebServer] {"time":"2026-10-13T20:53:53.792207+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"telegram"}
+[WebServer] {"time":"2026-10-13T20:53:53.792207+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.(*App).Run.func1","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/app/app.go","line":2236},"msg":"vivy starting","addr":"127.0.0.1:18787"}
+[WebServer] (node:24460) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:24352) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:14620) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] {"time":"2026-10-13T20:54:10.4069141+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc/bootstrap","status":200,"duration_ms":0}
+[WebServer] {"time":"2026-10-13T20:54:16.6562212+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc","status":101,"duration_ms":6244}
+  ✘  1 e2e\toolkits.spec.ts:110:1 › installs native PM and Dev Masks, keeps Skills independent, and updates with separate consent (6.6s)
+
+
+  1) e2e\toolkits.spec.ts:110:1 › installs native PM and Dev Masks, keeps Skills independent, and updates with separate consent
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('status')
+    Expected substring: "Host environment references saved"
+    Error: strict mode violation: getByRole('status') resolved to 2 elements:
+        1) <pre role="status" class="whitespace-pre-wrap rounded-md border p-3 text-sm">Host environment references saved. Related Hook/M…</pre> aka getByText('Host environment references')
+        2) <p role="status">Loading Toolkits…</p> aka getByText('Loading Toolkits…')
+
+    Call log:
+      - Expect "toContainText" with timeout 5000ms
+      - waiting for getByRole('status')
+
+
+      158 |   await mcpBindings.getByLabel('authEnv').fill('VIVY_TOOLKIT_E2E_DOCS_TOKEN');
+      159 |   await mcpBindings.getByRole('button', { name: 'Save bindings', exact: true }).click();
+    > 160 |   await expect(page.getByRole('status')).toContainText('Host environment references saved');
+          |                                          ^
+      161 |   await mcp.getByRole('button', { name: 'Confirm authorization', exact: true }).click();
+      162 |   await expect(mcp).toContainText('authorized for current declaration');
+      163 |   const hook = componentSection(page, 'Hooks');
+        at C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\ui\e2e\toolkits.spec.ts:160:42
+
+    Error Context: test-results\toolkits-installs-native-P-66599-dates-with-separate-consent\error-context.md
+
+    Error Context: test-results\toolkits-installs-native-P-66599-dates-with-separate-consent\error-context.md
+
+  1 failed
+    e2e\toolkits.spec.ts:110:1 › installs native PM and Dev Masks, keeps Skills independent, and updates with separate consent

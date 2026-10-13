@@ -1,0 +1,32 @@
+[
+  {
+    "Phase": "decision",
+    "Event": "action.external-effect",
+    "ModuleID": "vivy/toolkits",
+    "ActionID": "vivy.bundles.preview",
+    "CallerID": "face/connection",
+    "Outcome": "denied",
+    "Error": "controlaction: authorization is unavailable",
+    "DurationMS": 0
+  },
+  {
+    "Phase": "pre",
+    "Event": "action.external-effect",
+    "ModuleID": "vivy/toolkits",
+    "ActionID": "vivy.bundles.preview",
+    "CallerID": "face/connection",
+    "Outcome": "started",
+    "Error": "",
+    "DurationMS": 0
+  },
+  {
+    "Phase": "completion",
+    "Event": "action.external-effect",
+    "ModuleID": "vivy/toolkits",
+    "ActionID": "vivy.bundles.preview",
+    "CallerID": "face/connection",
+    "Outcome": "succeeded",
+    "Error": "",
+    "DurationMS": 389
+  }
+]

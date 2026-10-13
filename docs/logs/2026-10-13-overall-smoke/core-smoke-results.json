@@ -1,0 +1,77 @@
+{
+  "source": "65b561f6",
+  "checks": [
+    {
+      "name": "First-run wizard and split WebSocket connection",
+      "status": "passed",
+      "seconds": 0.545
+    },
+    {
+      "name": "Persona initialization through the browser",
+      "status": "passed",
+      "seconds": 3.116
+    },
+    {
+      "name": "Chat streaming, Journal transcript and reload",
+      "status": "passed",
+      "seconds": 2.391
+    },
+    {
+      "name": "Composer slash Plan enter and leave",
+      "status": "passed",
+      "seconds": 0.995
+    },
+    {
+      "name": "Session fork and history projection",
+      "status": "passed",
+      "seconds": 0.032
+    },
+    {
+      "name": "Primary navigation and Settings tabs",
+      "status": "passed",
+      "seconds": 6.921
+    },
+    {
+      "name": "Mobile chat and navigation fit 390px",
+      "status": "passed",
+      "seconds": 0.511
+    },
+    {
+      "name": "Tool approval and resumed write through Service",
+      "status": "passed",
+      "seconds": 4.557
+    },
+    {
+      "name": "Active run cancellation",
+      "status": "passed",
+      "seconds": 0.944
+    },
+    {
+      "name": "Provider failure is terminal and visible",
+      "status": "passed",
+      "seconds": 1.805
+    },
+    {
+      "name": "Backend restart preserves completed transcript",
+      "status": "passed",
+      "seconds": 34.785
+    },
+    {
+      "name": "Embedded production UI and CLI builds",
+      "status": "passed",
+      "seconds": 5.838
+    },
+    {
+      "name": "VIVY CODE help, version and one-shot mock reply",
+      "status": "passed",
+      "seconds": 2.667
+    },
+    {
+      "name": "No browser uncaught exceptions or Vite overlays",
+      "status": "passed",
+      "seconds": 0.005
+    }
+  ],
+  "pageErrors": [],
+  "provider": "loopback mock; raw deepseek-flash"
+}

@@ -1,0 +1,14 @@
+{
+  "approved_file_contents": [
+    {
+      "path": "workspace\\run_857db028d8f81759\\smoke.txt",
+      "content": "verified-smoke-file"
+    }
+  ],
+  "provider_failure_runs": [
+    {
+      "id": "run_fe84e57ed8d81a0d",
+      "status": "failed"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+--- FAIL: TestToolkitLifecycle (3.68s)
+    toolkit_lifecycle_test.go:24: compose app: app: eino engine version unavailable; checkpoint store cannot be anchored
+--- FAIL: TestToolkitOwnerOmissionIsReflectedByApp (3.02s)
+    toolkit_lifecycle_test.go:154: compose app without optional owners: app: eino engine version unavailable; checkpoint store cannot be anchored
+FAIL
+FAIL	agent-vivy/internal/app	7.041s
+FAIL

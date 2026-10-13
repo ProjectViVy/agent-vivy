@@ -1,0 +1,13 @@
+--- FAIL: TestBundleHookDispatcherRequiresCapturedArmingAndCurrentConsent (5.21s)
+    bundle_hooks_test.go:262: armed Hook execution = {Decision: UpdatedArgs:[] Reason:}, runtime: tool hook blocked execution: script:test: runtime: tool hook blocked execution: script:test: 'test' is not recognized as an internal or external command,
+        operable program or batch file.
+--- FAIL: TestBashBackendQuotedRedirectsAndHeredocsWriteWorkspaceFiles (0.41s)
+    command_backend_bash_test.go:100: probe.txt = "", want benchmark payload
+--- FAIL: TestShellPrefixBashAndCommandline (0.02s)
+    command_backend_e1_test.go:81: execute: command: executable "echo" is unavailable: exec: "echo": executable file not found in %PATH%
+--- FAIL: TestScriptHookScopedExecutionUsesExplicitCwdAndEnvironment (0.02s)
+    hooks_script_test.go:79: scoped Hook failed: runtime: tool hook blocked execution: script:test: 'test' is not recognized as an internal or external command,
+        operable program or batch file.
+FAIL
+FAIL	agent-vivy/internal/runtime	5.869s
+FAIL

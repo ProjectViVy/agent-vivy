@@ -1,0 +1,142 @@
+HEAD is now at 4b2bec2 Merge pull request #5 from ProjectViVy/test/diva-memory-loop-20261009
+ℹ tests 11
+ℹ pass 11
+ℹ fail 0
+ Test Files  86 passed (86)
+      Tests  639 passed (639)
+PASS: en=1569 keys / 163 placeholders; zh=1569 keys / 163 placeholders; runtime copy audit clean.
+ℹ tests 8
+ℹ pass 8
+ℹ fail 0
+PASS: 14 shared semantic units; Web and TUI en/zh projections and arguments conform.
+& "go" vet ./...
+& "go" test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
+ok  	agent-vivy/cmd/vivy	1.763s
+ok  	agent-vivy/cmd/vivy-code	0.744s
+?   	agent-vivy/cmd/vivy-studio	[no test files]
+ok  	agent-vivy/internal/actionhost	5.016s
+--- FAIL: TestToolkitLifecycle (0.65s)
+    toolkit_lifecycle_test.go:24: compose app: app: eino engine version unavailable; checkpoint store cannot be anchored
+--- FAIL: TestToolkitOwnerOmissionIsReflectedByApp (0.93s)
+    toolkit_lifecycle_test.go:154: compose app without optional owners: app: eino engine version unavailable; checkpoint store cannot be anchored
+FAIL
+FAIL	agent-vivy/internal/app	150.825s
+ok  	agent-vivy/internal/app/settings	2.773s
+ok  	agent-vivy/internal/attachment	0.593s
+?   	agent-vivy/internal/buildinfo	[no test files]
+ok  	agent-vivy/internal/bundlecontract	1.163s
+--- FAIL: TestGitAcquisitionHasNoExecution (0.30s)
+    acquire_test.go:177: toolkits: invalid_manifest (git_origin)
+FAIL
+FAIL	agent-vivy/internal/bundles	15.257s
+ok  	agent-vivy/internal/channelhost	71.783s
+?   	agent-vivy/internal/channelhost/fake	[no test files]
+ok  	agent-vivy/internal/codeface	4.112s
+?   	agent-vivy/internal/cognitivecontract	[no test files]
+ok  	agent-vivy/internal/commandpolicy	0.424s
+ok  	agent-vivy/internal/config	0.905s
+ok  	agent-vivy/internal/contexthost	1.268s
+ok  	agent-vivy/internal/domain	0.949s
+ok  	agent-vivy/internal/eval	22.696s
+ok  	agent-vivy/internal/events	0.465s
+?   	agent-vivy/internal/generated/assembly	[no test files]
+?   	agent-vivy/internal/generated/presentation	[no test files]
+ok  	agent-vivy/internal/i18n	0.548s
+ok  	agent-vivy/internal/logging	0.902s
+ok  	agent-vivy/internal/maskcontract	0.565s
+ok  	agent-vivy/internal/mcphost	2.330s
+ok  	agent-vivy/internal/modelhost	0.453s
+ok  	agent-vivy/internal/modulehost	0.584s
+ok  	agent-vivy/internal/moduleport	0.525s
+ok  	agent-vivy/internal/modules	0.519s
+ok  	agent-vivy/internal/modules/checkpoint	1.556s
+ok  	agent-vivy/internal/modules/credential	0.496s
+ok  	agent-vivy/internal/modules/defaults	0.572s
+ok  	agent-vivy/internal/modules/diva-cognitive	1.091s
+?   	agent-vivy/internal/modules/diva-cognitive/catalog	[no test files]
+ok  	agent-vivy/internal/modules/loop	0.538s
+ok  	agent-vivy/internal/modules/masks	1.351s
+?   	agent-vivy/internal/modules/masks/catalog	[no test files]
+ok  	agent-vivy/internal/modules/memory	1.834s
+?   	agent-vivy/internal/modules/memory/catalog	[no test files]
+ok  	agent-vivy/internal/modules/model	0.463s
+ok  	agent-vivy/internal/modules/notebook	0.546s
+ok  	agent-vivy/internal/modules/optional	0.404s
+ok  	agent-vivy/internal/modules/reports	0.445s
+ok  	agent-vivy/internal/modules/sandbox	0.849s
+ok  	agent-vivy/internal/modules/storage	1.972s
+ok  	agent-vivy/internal/modules/toolkits	0.983s
+ok  	agent-vivy/internal/notebookcontract	0.461s
+ok  	agent-vivy/internal/observerhost	1.624s
+?   	agent-vivy/internal/orchestration	[no test files]
+ok  	agent-vivy/internal/provider	1.097s
+?   	agent-vivy/internal/reportcontract	[no test files]
+ok  	agent-vivy/internal/rpc	212.400s
+--- FAIL: TestBundleHookDispatcherRequiresCapturedArmingAndCurrentConsent (3.98s)
+    bundle_hooks_test.go:262: armed Hook execution = {Decision: UpdatedArgs:[] Reason:}, runtime: tool hook blocked execution: script:test: runtime: tool hook blocked execution: script:test: 'test' is not recognized as an internal or external command,
+        operable program or batch file.
+--- FAIL: TestBashBackendQuotedRedirectsAndHeredocsWriteWorkspaceFiles (0.01s)
+    command_backend_bash_test.go:100: probe.txt = "", want benchmark payload
+--- FAIL: TestShellPrefixBashAndCommandline (0.02s)
+    command_backend_e1_test.go:81: execute: command: executable "echo" is unavailable: exec: "echo": executable file not found in %PATH%
+2026/10/13 20:53:08 WARN run failed: context budget exceeded run=run_894087450797392a err="runtime: context budget exceeded: preamble and current request require 1055 bytes; budget is 64"
+--- FAIL: TestScriptHookScopedExecutionUsesExplicitCwdAndEnvironment (0.02s)
+    hooks_script_test.go:79: scoped Hook failed: runtime: tool hook blocked execution: script:test: 'test' is not recognized as an internal or external command,
+        operable program or batch file.
+FAIL
+FAIL	agent-vivy/internal/runtime	947.190s
+ok  	agent-vivy/internal/runtime/compaction	0.458s
+ok  	agent-vivy/internal/skillhost	1.251s
+?   	agent-vivy/internal/sourcehash	[no test files]
+ok  	agent-vivy/internal/statushost	1.244s
+ok  	agent-vivy/internal/storage	6.644s
+?   	agent-vivy/internal/storage/bundlesql	[no test files]
+?   	agent-vivy/internal/storage/conformance	[no test files]
+ok  	agent-vivy/internal/storage/migrations	9.340s
+ok  	agent-vivy/internal/storage/postgres	0.583s
+ok  	agent-vivy/internal/storage/sqlite	333.493s
+ok  	agent-vivy/internal/studio	12.550s
+ok  	agent-vivy/internal/studiocore	11.459s
+?   	agent-vivy/internal/testsupport	[no test files]
+ok  	agent-vivy/internal/toolhost	2.127s
+?   	agent-vivy/internal/toolkitcontract	[no test files]
+ok  	agent-vivy/internal/tools	3.563s
+?   	agent-vivy/internal/tui	[no test files]
+ok  	agent-vivy/plugins/hello-fs	0.466s
+?   	agent-vivy/sdk	[no test files]
+ok  	agent-vivy/sdk/codeclient	9.193s
+ok  	agent-vivy/sdk/conformance	0.459s
+ok  	agent-vivy/sdk/facerun	0.565s
+ok  	agent-vivy/sdk/generation	0.543s
+ok  	agent-vivy/sdk/internal	499.577s
+ok  	agent-vivy/sdk/internal/assembly	7.909s
+?   	agent-vivy/sdk/internal/cmd/generate-default	[no test files]
+?   	agent-vivy/sdk/internal/cmd/source-hash	[no test files]
+ok  	agent-vivy/sdk/internal/conformance	122.041s
+ok  	agent-vivy/sdk/module	0.526s
+ok  	agent-vivy/sdk/port	0.448s
+ok  	agent-vivy/sdk/port/channel	0.509s
+ok  	agent-vivy/sdk/port/contextsource	0.408s
+ok  	agent-vivy/sdk/port/controlaction	0.528s
+ok  	agent-vivy/sdk/port/face	0.449s
+ok  	agent-vivy/sdk/port/observer	0.424s
+ok  	agent-vivy/sdk/port/pretool	0.417s
+ok  	agent-vivy/sdk/port/providerprofile	0.502s
+ok  	agent-vivy/sdk/port/skillsource	0.423s
+ok  	agent-vivy/sdk/port/status	0.404s
+ok  	agent-vivy/sdk/port/tool	0.429s
+ok  	agent-vivy/sdk/port/toolworld	0.423s
+ok  	agent-vivy/sdk/tui/command	0.631s
+ok  	agent-vivy/sdk/tui/face	2.160s
+ok  	agent-vivy/sdk/tui/i18n	0.508s
+?   	agent-vivy/sdk/tui/internal/textsafe	[no test files]
+ok  	agent-vivy/sdk/tui/live	6.612s
+ok  	agent-vivy/sdk/tui/stream	0.791s
+?   	agent-vivy/sdk/tui/surface	[no test files]
+ok  	agent-vivy/sdk/tui/theme	0.566s
+ok  	agent-vivy/sdk/tui/view	3.201s
+ok  	agent-vivy/sdk/ui	0.413s
+?   	agent-vivy/spike/einoverify	[no test files]
+ok  	agent-vivy/ui	0.654s
+FAIL
+error: Recipe `test` failed on line 39 with exit code 1

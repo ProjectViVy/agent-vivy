@@ -1,0 +1,57 @@
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
+& "go" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
+ok  	agent-vivy/cmd/vivy	1.406s [no tests to run]
+ok  	agent-vivy/cmd/vivy-code	1.406s [no tests to run]
+ok  	agent-vivy/ui	0.061s [no tests to run]
+powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Recurse -Filter go.mod -File | ForEach-Object { $_.Directory }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $m.FullName); Push-Location $m.FullName; & ''go'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''go'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\coding\lsp
+ok  	agent-vivy/plugins/coding/lsp	0.861s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\coding\session-tree
+ok  	agent-vivy/plugins/coding/session-tree	1.380s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\dingtalk
+ok  	agent-vivy/plugins/dingtalk	1.779s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\discord
+ok  	agent-vivy/plugins/discord	1.001s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\exp\argument-guard
+ok  	agent-vivy/plugins/exp/argument-guard	1.098s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\exp\loop-detection
+ok  	agent-vivy/plugins/exp/loop-detection	0.637s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\exp\redaction
+ok  	agent-vivy/plugins/exp/redaction	0.616s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\feishu
+ok  	agent-vivy/plugins/feishu	4.291s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\governance
+ok  	agent-vivy/plugins/governance	0.498s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\infra\llm
+ok  	agent-vivy/plugins/infra/llm	0.241s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\qq
+ok  	agent-vivy/plugins/qq	1.838s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\scx-reference
+ok  	agent-vivy/plugins/scxreference	0.821s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\telegram
+ok  	agent-vivy/plugins/telegram	7.190s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-evolution
+ok  	agent-vivy/plugins/vivy-evolution	0.501s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-masks-ui
+?   	agent-vivy/plugins/vivy-masks-ui	[no test files]
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-memory
+ok  	agent-vivy/plugins/vivy-memory	1.583s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-notebook
+ok  	agent-vivy/plugins/vivy-notebook	1.078s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-persona
+ok  	agent-vivy/plugins/vivy-persona	0.450s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-toolkits-ui
+ok  	agent-vivy/plugins/vivy-toolkits-ui	0.835s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\plugins\vivy-workflow
+?   	agent-vivy/plugins/vivy-workflow	[no test files]
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\faces\headless
+ok  	agent-vivy/faces/headless	1.200s
+== plugin-ci: C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\faces\tui
+ok  	agent-vivy/faces/tui	2.998s
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-diva-recall.ps1
+PASS TestMemoryLoopMemoryInjection (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallAfterProcessRestart (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallNegativeControls (SDK-generated DIVA assembly)
+PASS TestMemoryLoopOrdinaryRecallAuthorityBoundary (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallDeadlineDegradesSafely (SDK-generated DIVA assembly)
+PASS TestMemoryLoopCorrectionAndDeletionInModelInput (SDK-generated DIVA assembly)

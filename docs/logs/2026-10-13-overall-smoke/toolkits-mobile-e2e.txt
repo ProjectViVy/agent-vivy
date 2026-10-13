@@ -1,0 +1,25 @@
+[WebServer] {"time":"2026-10-13T21:01:21.4303436+08:00","level":"INFO","source":{"function":"main.main","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/cmd/vivy/main.go","line":77},"msg":"logging initialized","level":"info","format":"json","console_format":"json","dir":"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\2\\vivy-toolkits-e2e-runtime-5Dovts\\state\\logs","stdout":true}
+[WebServer] {"time":"2026-10-13T21:01:22.7214015+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.projectInstructionBackends","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/app/compaction.go","line":156},"msg":"project instructions discovered","root":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy","agents_md":["AGENTS.md"],"skill_roots":1}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"dingtalk"}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"discord"}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"feishu"}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"qq"}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/channelhost.(*Host).StartAll","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/channelhost/host.go","line":156},"msg":"channelhost: channel compiled-in but not configured; not started","channel":"telegram"}
+[WebServer] {"time":"2026-10-13T21:01:22.7596497+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.(*App).Run.func1","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/app/app.go","line":2236},"msg":"vivy starting","addr":"127.0.0.1:18787"}
+[WebServer] (node:22436) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:22992) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 1 worker
+
+(node:9580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] {"time":"2026-10-13T21:01:30.3742605+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc/bootstrap","status":200,"duration_ms":0}
+  ✓  1 e2e\toolkits-accessibility.spec.ts:6:1 › opens Toolkits with the keyboard and fits a narrow viewport (1.4s)
+[WebServer] {"time":"2026-10-13T21:01:31.3496168+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc","status":101,"duration_ms":968}
+[WebServer] {"time":"2026-10-13T21:01:32.6366294+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc/bootstrap","status":200,"duration_ms":0}
+[WebServer] {"time":"2026-10-13T21:01:35.4049425+08:00","level":"INFO","source":{"function":"agent-vivy/internal/app.NewWithAssembly.AccessLogMiddleware.func41","file":"C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/internal/rpc/accesslog.go","line":74},"msg":"http request","method":"GET","path":"/rpc","status":101,"duration_ms":2421}
+  ✓  2 e2e\toolkits-accessibility.spec.ts:37:1 › reads a populated Toolkit on mobile and keeps long content inside its keyboard-dismissible dialog (4.1s)
+
+  2 passed (19.2s)
