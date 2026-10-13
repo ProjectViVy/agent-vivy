@@ -222,7 +222,7 @@ func TestBundleHookDispatcherRequiresCapturedArmingAndCurrentConsent(t *testing.
 	ctx := context.Background()
 	t.Setenv("VIVY_TOOLKIT_HOOK_TEST_BINDING", "allowed")
 	t.Setenv("VIVY_HOOK_PARENT_SECRET", "must-not-be-inherited")
-	manager, backend, view, hook := newBundleHookFixture(t, "test \"$HOOK_ALLOWED\" = allowed && test -z \"${VIVY_HOOK_PARENT_SECRET+x}\" && test -d .")
+	manager, backend, view, hook := newBundleHookFixture(t, scopedHookTestCommand(filepath.Join("resources", "policy.txt")))
 	resolver := BundleHookExecutionResolverFunc(manager.ResolveHookExecution)
 	dispatcher := NewBundleHookDispatcher(backend.BundleStore(), resolver, time.Second)
 	workspace := t.TempDir()

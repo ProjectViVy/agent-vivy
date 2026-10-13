@@ -11,11 +11,14 @@ import (
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/runtime"
 	actionport "agent-vivy/sdk/port/controlaction"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 )
 
 func TestToolkitLifecycle(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	cfg := newDeepSeekTestConfig(t)
 	cfg.Governance = config.Default().Governance
 	assembly := genassembly.BuildDefault()
@@ -130,6 +133,8 @@ func TestToolkitLifecycle(t *testing.T) {
 }
 
 func TestToolkitOwnerOmissionIsReflectedByApp(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	cfg := newDeepSeekTestConfig(t)
 	cfg.Governance = config.Default().Governance
 	assembly := genassembly.BuildDefault()

@@ -21,15 +21,20 @@ var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$`)
 type GitEnvironment func(context.Context, string) ([]string, error)
 
 func safeOrigin(s string) (string, error) {
+	if s == "" || strings.HasPrefix(s, "-") || strings.ContainsAny(s, "\x00\n\r") {
+		return "", bundlecontract.Invalid("git_origin")
+	}
+	// A native absolute path can contain a Windows drive colon, which URL
+	// parsing would mistake for a scheme. Keep local provenance to the basename.
+	if filepath.IsAbs(s) {
+		return filepath.Base(filepath.Clean(s)), nil
+	}
 	u, err := url.Parse(s)
 	if err == nil && u.Scheme != "" {
 		if (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return "", bundlecontract.Invalid("git_origin")
 		}
 		return u.Scheme + "://" + u.Host + u.EscapedPath(), nil
-	}
-	if s == "" || strings.HasPrefix(s, "-") || strings.ContainsAny(s, "\x00\n\r") {
-		return "", bundlecontract.Invalid("git_origin")
 	}
 	return filepath.Base(filepath.Clean(s)), nil
 }

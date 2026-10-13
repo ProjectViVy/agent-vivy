@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,15 @@ func TestCommandEnvInjection(t *testing.T) {
 }
 
 func TestShellPrefixBashAndCommandline(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reuse the test binary as a real argv consumer, without requiring a
+	// separately installed echo executable on Windows.
+	t.Setenv("PATH", filepath.Dir(executable)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	command := filepath.Base(executable)
+	helperArgs := []string{"-test.run=^TestCommandArgvHelperProcess$", "--"}
 	backend, _ := newE1Backend(t, CommandBackendOptions{ShellPrefix: "printf 'PRE\\n';"})
 	ctx := context.Background()
 
@@ -66,23 +76,35 @@ func TestShellPrefixBashAndCommandline(t *testing.T) {
 	}
 
 	wrapped, err := backend.Execute(ctx, "run-prefix-cli", tools.CommandRequest{
-		Command: "echo", Args: []string{"a b", "c"}, ApplyShellPrefix: true,
+		Command: command, Args: append(helperArgs, "a b", "c", "", "  keep  "), ApplyShellPrefix: true,
 	})
 	if err != nil {
 		t.Fatalf("commandline execute: %v", err)
 	}
-	if wrapped.Stdout != "PRE\na b c\n" {
+	if wrapped.Stdout != "PRE\n[\"a b\",\"c\",\"\",\"  keep  \"]\n" {
 		t.Fatalf("prefixed commandline stdout = %q, argv must survive verbatim", wrapped.Stdout)
 	}
 
 	// The plain execute path never picks up the prefix.
-	plain, err := backend.Execute(ctx, "run-prefix-exec", tools.CommandRequest{Command: "echo", Args: []string{"hi"}})
+	plain, err := backend.Execute(ctx, "run-prefix-exec", tools.CommandRequest{Command: command, Args: append(helperArgs, "hi")})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if plain.Stdout != "hi\n" {
+	if plain.Stdout != "[\"hi\"]\n" {
 		t.Fatalf("unprefixed stdout = %q", plain.Stdout)
 	}
+}
+
+// TestCommandArgvHelperProcess is launched only as the current test binary.
+// JSON preserves argument boundaries, empty values and surrounding whitespace.
+func TestCommandArgvHelperProcess(t *testing.T) {
+	if len(os.Args) < 3 || os.Args[1] != "-test.run=^TestCommandArgvHelperProcess$" || os.Args[2] != "--" {
+		return
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(os.Args[3:]); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 func TestCommandOutputSpillsToWorkspace(t *testing.T) {

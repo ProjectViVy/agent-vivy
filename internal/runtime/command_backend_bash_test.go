@@ -82,7 +82,7 @@ func TestBashBackendQuotedRedirectsAndHeredocsWriteWorkspaceFiles(t *testing.T) 
 	}
 	backend, root := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
 	runID := domain.RunID("run_bash_redirects")
-	script := "cat > probe.txt <<'EOF'\nbenchmark payload\nEOF\nprintf 'benchmark payload\\n' > 'quoted.txt'\n"
+	script := "while IFS= read -r line; do printf '%s\\n' \"$line\"; done > probe.txt <<'EOF'\nbenchmark payload\nEOF\nprintf 'benchmark payload\\n' > 'quoted.txt'\n"
 	result, err := backend.Execute(withRunID(context.Background(), runID), runID, tools.CommandRequest{Command: "bash", Args: []string{"-c", script}})
 	if err != nil {
 		t.Fatalf("bash execute: %v", err)

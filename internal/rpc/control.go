@@ -1124,6 +1124,10 @@ func (h *controlHandler) bindPeerRunResult(ctx context.Context, peer *Peer, resu
 	if lookupErr != nil || strings.TrimSpace(string(run.SessionID)) == "" {
 		return
 	}
+	if run.Status.Terminal() {
+		peer.bindSession(string(run.SessionID))
+		return
+	}
 	peer.bindRun(string(run.SessionID), runID)
 }
 

@@ -127,7 +127,7 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   expect(firstDigest).toBeTruthy();
   await preview.getByRole('button', { name: 'Install disabled', exact: true }).click();
 
-  await expect(page.getByRole('status')).toContainText('Toolkit installed disabled');
+  await expect(page.getByRole('status').filter({ hasText: 'Toolkit installed disabled' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'BMAD Experts', exact: true })).toBeVisible();
   for (const heading of ['Skills', 'Masks', 'Rules', 'Hooks', 'MCP']) {
     await expect(componentSection(page, heading)).toBeVisible();
@@ -157,7 +157,7 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   const mcpBindings = mcp.getByRole('form', { name: /Environment bindings.*mcp\/docs/ });
   await mcpBindings.getByLabel('authEnv').fill('VIVY_TOOLKIT_E2E_DOCS_TOKEN');
   await mcpBindings.getByRole('button', { name: 'Save bindings', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Host environment references saved');
+  await expect(page.getByRole('status').filter({ hasText: 'Host environment references saved' })).toBeVisible();
   await mcp.getByRole('button', { name: 'Confirm authorization', exact: true }).click();
   await expect(mcp).toContainText('authorized for current declaration');
   const hook = componentSection(page, 'Hooks');
