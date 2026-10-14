@@ -86,14 +86,20 @@ func TestGatewaylessRunExpiresApprovals(t *testing.T) {
 	turn := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "needs approval"})
 	runID, _ := turn["run_id"].(string)
 
-	var approvalID string
+	// A short-lived approval can expire before the first list call returns
+	// on a busy Windows runner. Its durable events prove both transitions
+	// without requiring the poller to catch that transient pending state.
 	waitFor(t, 10*time.Second, func() bool {
-		list := callControl(t, client, "approval/list", nil)
-		for _, item := range list["approvals"].([]any) {
-			m, _ := item.(map[string]any)
-			approvalID, _ = m["id"].(string)
+		required, expired := false, false
+		for _, event := range runEvents(t, client, runID) {
+			switch event["type"] {
+			case "tool.approval_required":
+				required = true
+			case "tool.approval_expired":
+				expired = true
+			}
 		}
-		return approvalID != ""
+		return required && expired
 	})
 
 	// The approval must expire on its own — no respond call.

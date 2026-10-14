@@ -167,8 +167,8 @@
       "description": "Persona page copy: initialize.description",
       "placeholders": [],
       "messages": {
-        "en": "Fill the five required documents before starting a new session.",
-        "zh": "开始新会话前，请先填写五份必需的人格文档。"
+        "en": "Fill the five required documents to define your persona. New sessions use the saved identity.",
+        "zh": "填写五份必需文档来定义人格。新会话会使用保存后的身份。"
       }
     },
     "plugin.vivy/persona.initialize.fields.identity": {

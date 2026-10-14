@@ -50,7 +50,8 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 		Text: frozenSlotOrderText, Digest: "frozen-digest-1",
 	}}
 	recorder := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("first", nil), schema.AssistantMessage("second", nil), schema.AssistantMessage("code", nil))}
+		schema.AssistantMessage("first", nil), schema.AssistantMessage("second", nil),
+		schema.AssistantMessage("uninitialized", nil), schema.AssistantMessage("code", nil))}
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "frozen.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +100,7 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 		}
 		last = idx
 	}
-	for _, banned := range []string{"# world", "# actmem"} {
+	for _, banned := range []string{"# world", "# actmem", "You are Vivy", "Changing a working role or style does not change this underlying identity."} {
 		if strings.Contains(instruction, banned) {
 			t.Fatalf("forbidden slot %q leaked into model instruction", banned)
 		}
@@ -115,6 +116,12 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	}
 	if payload.Frozen == nil || payload.Frozen.Digest != "frozen-digest-1" {
 		t.Fatalf("frozen payload = %#v, want digest frozen-digest-1", payload.Frozen)
+	}
+	if payload.Persona != (storage.PersonaSnapshot{}) {
+		t.Fatal("default persona accompanies the frozen persona authority")
+	}
+	if strings.Count(instruction, strings.TrimSpace(frozenSlotOrderText)) != 1 || !strings.Contains(instruction, strings.TrimSpace(promptAsset("runtime.md"))) {
+		t.Fatal("frozen authority must appear once alongside runtime permission rules")
 	}
 
 	// Reopened run on the same session prepares the identical digest.
@@ -149,6 +156,41 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	if preparer.calls != 1 {
 		t.Fatalf("prepare calls on gate = %d", preparer.calls)
 	}
+	if len(recorder.inputs) != 2 {
+		t.Fatal("unavailable authority reached the model")
+	}
+	preparer.err = nil
+	savedPrepared := preparer.prepared
+	preparer.prepared = cognitivecontract.PreparedPrimaryContext{}
+	if _, err := svc.Run(ctx, "session-frozen", "empty authority"); err == nil {
+		t.Fatal("empty initialized projection silently admitted the default identity")
+	}
+	preparer.prepared = savedPrepared
+
+	// A genuinely uninitialized owner may converse without borrowing the
+	// product name. Wrapped status errors must still select this state.
+	preparer.err = errors.Join(errors.New("first-run persona"), cognitivecontract.ErrPersonaUninitialized)
+	mustCreateSession(t, backend, "session-uninitialized")
+	uninitializedRun, err := svc.Run(ctx, "session-uninitialized", "Who are you?")
+	if err != nil {
+		t.Fatalf("uninitialized persona blocked conversation: %v", err)
+	}
+	waitForRunStatus(t, backend, uninitializedRun, domain.RunCompleted)
+	uninitializedSnapshot, found, err := svc.promptSnapshotForRun(ctx, uninitializedRun)
+	if err != nil || !found {
+		t.Fatalf("uninitialized snapshot: found=%v err=%v", found, err)
+	}
+	uninitializedPayload, err := storage.ValidateRunPromptSnapshot(uninitializedSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uninitializedPayload.Persona.Source != "runtime/persona-uninitialized" || uninitializedPayload.Frozen != nil {
+		t.Fatal("uninitialized run acquired a frozen or default identity")
+	}
+	uninitializedInstruction := recorder.inputs[2][0].Content
+	if !strings.Contains(uninitializedInstruction, "我刚来到世界，我还不太了解自己") || strings.Contains(strings.ToLower(uninitializedInstruction), "vivy") || strings.Contains(strings.ToLower(uninitializedInstruction), "diva") {
+		t.Fatal("uninitialized model input lacks first-arrival guidance or contains a product identity")
+	}
 
 	// The independent coding face has no companion-persona setup flow.
 	// Selecting cognition in the shared default assembly must not make a
@@ -168,6 +210,9 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	}
 	if codePayload.Frozen != nil || strings.Contains(codePayload.Instruction, "IDENTITY BODY") {
 		t.Fatal("companion authority leaked into coding instruction")
+	}
+	if codePayload.Persona.Source != "runtime/persona-default" || !strings.Contains(codePayload.Instruction, "You are Vivy") {
+		t.Fatal("coding face lost its default persona")
 	}
 }
 

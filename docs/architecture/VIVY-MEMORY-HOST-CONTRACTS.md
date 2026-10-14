@@ -138,6 +138,20 @@ Resume replays the committed snapshot, never re-resolves:
 
 ### 1.6 Failure policy — required identity
 
+- **2026-10-14 owner clarification:** For a selected LAPUTA authority, a
+  genuinely uninitialized persona permits ordinary conversation with unnamed
+  first-arrival guidance (Chinese: "我刚来到世界，我还不太了解自己。").
+  It does not create a FrozenCore or adopt an application, framework, model,
+  or vendor name as personal identity. This state is explicit and distinct
+  from unavailable or corrupt initialized authority. Initialization is still
+  an explicit human action through the Persona controls.
+- Once initialized, the session's LAPUTA FrozenCore is the sole persona
+  instruction. Do not also inject `persona-default.md`, a Vivy/Diva identity,
+  or first-arrival guidance. Runtime permission rules remain authoritative.
+  Runs persist the admitted instruction verbatim; existing frozen sessions
+  and resumed runs retain their committed authority. The independent coding
+  face and compositions without a selected persona authority retain their
+  existing default instruction contract.
 - If the session's binding is satisfied: the resolved `PersonaSnapshot` is
   embedded as in §1.2. If the binding is *absent* (no persona selected), the
   existing default fallback applies unchanged (`prompt_state.go:82-87`).

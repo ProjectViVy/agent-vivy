@@ -1176,6 +1176,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 		}
 		var frozenText, frozenDigest string
+		var persona storage.PersonaSnapshot
 		if b := s.deps.Cognitive; face != domain.FaceCode && b != nil && b.Primary != nil {
 			// The coding face keeps its project instruction contract and
 			// does not require companion-persona onboarding.
@@ -1188,10 +1189,25 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				WorkspaceID: b.Binding.WorkspaceID,
 				BudgetBytes: s.engine.cfg.MaxContextBytes,
 			})
-			if prepareErr != nil {
+			if errors.Is(prepareErr, cognitivecontract.ErrPersonaUninitialized) {
+				// First-arrival guidance is an explicit state, not a fallback
+				// identity. Only initialized authority creates a FrozenCore.
+				body := promptAsset("persona-uninitialized.md")
+				if body == "" {
+					return "", errors.New("runtime: uninitialized persona asset is empty")
+				}
+				persona = storage.PersonaSnapshot{
+					Source: "runtime/persona-uninitialized", Revision: "1",
+					Body: body,
+				}
+			} else if prepareErr != nil {
 				return "", fmt.Errorf("runtime: prepare session authority: %w", prepareErr)
+			} else {
+				if strings.TrimSpace(prepared.Text) == "" {
+					return "", errors.New("runtime: initialized session authority projection is empty")
+				}
+				frozenText, frozenDigest = prepared.Text, prepared.Digest
 			}
-			frozenText, frozenDigest = prepared.Text, prepared.Digest
 		}
 		var rules *storage.RunRulesSnapshot
 		if bundleHandle != nil {
@@ -1202,7 +1218,8 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		built, buildErr := buildPromptSnapshot(PromptInput{
 			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
-			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
+			Persona: persona,
+			Face:    face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
 			FrozenText: frozenText, FrozenDigest: frozenDigest,
 			Rules: rules, MaxContextBytes: s.engine.cfg.MaxContextBytes,
 		})

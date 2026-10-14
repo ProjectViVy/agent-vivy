@@ -23,6 +23,37 @@ func promptCapture(mask *maskcontract.Snapshot) maskcontract.Capture {
 	return maskcontract.Capture{Selection: selection, Mask: mask}
 }
 
+func TestBuildPromptSnapshotFrozenPersonaIsExclusive(t *testing.T) {
+	input := PromptInput{
+		RunID: "run-frozen-persona", GenerationID: "generation-1",
+		Capture: promptCapture(nil), Face: domain.FaceWeb,
+		FrozenText: "# identity\nYou are Rowan.\n", FrozenDigest: "frozen-digest",
+	}
+	snapshot, err := buildPromptSnapshot(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Persona != (storage.PersonaSnapshot{}) || payload.Frozen == nil || payload.Frozen.Body != input.FrozenText {
+		t.Fatal("frozen persona must be the sole recorded identity authority")
+	}
+	if strings.Contains(payload.Instruction, strings.TrimSpace(promptAsset("persona-default.md"))) || strings.Count(payload.Instruction, strings.TrimSpace(input.FrozenText)) != 1 {
+		t.Fatal("frozen persona must replace the default instruction exactly once")
+	}
+	input.Persona = storage.PersonaSnapshot{Body: "A second identity"}
+	if _, err := buildPromptSnapshot(input); err == nil {
+		t.Fatal("two explicit persona authorities were admitted")
+	}
+	input.Persona = storage.PersonaSnapshot{}
+	input.FrozenText = " \n"
+	if _, err := buildPromptSnapshot(input); err == nil {
+		t.Fatal("empty frozen authority silently fell back to the default persona")
+	}
+}
+
 func TestBuildPromptSnapshotUsesOnePersonaAndLiteralMaskData(t *testing.T) {
 	mask := &maskcontract.Snapshot{
 		ID: "custom/00000000-0000-4000-8000-000000000001", Name: "quoted \"mask\"",

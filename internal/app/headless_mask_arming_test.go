@@ -28,8 +28,15 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	var once sync.Once
 	entered := make(chan struct{})
 	modelInput := make(chan string, 1)
+	uninitializedInput := make(chan string, 1)
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(raw), "Your personal identity has not been initialized.") {
+			uninitializedInput <- string(raw)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"id\":\"first-arrival\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"我刚来到世界，我还不太了解自己。\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"first-arrival\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
 		once.Do(func() { modelInput <- string(raw); close(entered) })
 		<-r.Context().Done()
 	}))
@@ -82,9 +89,15 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	if sessionID == "" {
 		t.Fatalf("session/create result = %v", session)
 	}
-	_, uninitializedErr := client.Call(context.Background(), "turn/start", map[string]any{"session_id": sessionID, "text": "not initialized"})
-	if uninitializedErr == nil || !strings.Contains(uninitializedErr.Error(), "open Persona") {
-		t.Fatalf("fresh install did not explain persona initialization: %v", uninitializedErr)
+	uninitializedTurn := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "Who are you?"})
+	waitForAppRun(t, client, uninitializedTurn)
+	select {
+	case input := <-uninitializedInput:
+		if strings.Contains(input, "You are Vivy") || !strings.Contains(input, "我刚来到世界，我还不太了解自己") {
+			t.Fatal("fresh install used the default identity instead of first-arrival guidance")
+		}
+	default:
+		t.Fatal("uninitialized conversation never reached the model")
 	}
 	initialized := callControl(t, client, "module.action.invoke", map[string]any{
 		"module_id": "vivy/diva-cognitive",
@@ -141,7 +154,7 @@ func TestHeadlessFormArmsMasksAndAdmissionWithoutInjectedIdentity(t *testing.T) 
 	select {
 	case <-entered:
 		input := <-modelInput
-		if !strings.Contains(input, "HEADLESS_PERSONA_SENTINEL") || strings.Contains(input, "WORLD_EXCLUDED_SENTINEL") {
+		if !strings.Contains(input, "HEADLESS_PERSONA_SENTINEL") || strings.Contains(input, "WORLD_EXCLUDED_SENTINEL") || strings.Contains(input, "You are Vivy") || strings.Contains(input, "Your personal identity has not been initialized.") {
 			t.Fatalf("model request did not use the real persona projection: %s", input)
 		}
 	case <-time.After(30 * time.Second):

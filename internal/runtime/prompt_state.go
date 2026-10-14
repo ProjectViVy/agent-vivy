@@ -96,27 +96,36 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if err := validatePromptCapture(in.Capture, in.GenerationID); err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
-	persona := in.Persona
-	if strings.TrimSpace(persona.Body) == "" {
-		persona.Body = promptAsset("persona-default.md")
-		persona.Source = "runtime/persona-default"
-		persona.Revision = "1"
-		persona.Digest = digestText(persona.Body)
-	}
-	if strings.TrimSpace(persona.Body) == "" {
-		return storage.RunPromptSnapshot{}, errors.New("runtime: default persona asset is empty")
-	}
-	if persona.Digest == "" {
-		persona.Digest = digestText(persona.Body)
-	}
-	if persona.Source == "" {
-		persona.Source = "runtime/persona"
-	}
-	if persona.Revision == "" {
-		persona.Revision = "1"
-	}
-	if (in.FrozenText == "") != (in.FrozenDigest == "") {
+	hasFrozen := strings.TrimSpace(in.FrozenText) != ""
+	if hasFrozen != (strings.TrimSpace(in.FrozenDigest) != "") {
 		return storage.RunPromptSnapshot{}, errors.New("runtime: frozen core text and digest must travel together")
+	}
+	persona := in.Persona
+	if hasFrozen {
+		// The bound session's FrozenCore already owns identity. Installing
+		// the default persona as well would contradict that authority.
+		if persona != (storage.PersonaSnapshot{}) {
+			return storage.RunPromptSnapshot{}, errors.New("runtime: persona and frozen core authorities are mutually exclusive")
+		}
+	} else {
+		if strings.TrimSpace(persona.Body) == "" {
+			persona.Body = promptAsset("persona-default.md")
+			persona.Source = "runtime/persona-default"
+			persona.Revision = "1"
+			persona.Digest = digestText(persona.Body)
+		}
+		if strings.TrimSpace(persona.Body) == "" {
+			return storage.RunPromptSnapshot{}, errors.New("runtime: default persona asset is empty")
+		}
+		if persona.Digest == "" {
+			persona.Digest = digestText(persona.Body)
+		}
+		if persona.Source == "" {
+			persona.Source = "runtime/persona"
+		}
+		if persona.Revision == "" {
+			persona.Revision = "1"
+		}
 	}
 	instruction, err := composeAuthoritativeInstruction(persona.Body, in.FrozenText, in.Capture.Mask, face, in.Frame)
 	if err != nil {
@@ -254,8 +263,8 @@ func validatePromptCapture(capture maskcontract.Capture, generationID string) er
 func composeAuthoritativeInstruction(persona, frozen string, selected *maskcontract.Snapshot, face domain.Face, frame string) (string, error) {
 	sections := []string{promptAsset("runtime.md"), promptAsset("configuration.md"), persona}
 	if strings.TrimSpace(frozen) != "" {
-		// FrozenCore v2 slots render verbatim after the persona body;
-		// they are session-frozen authority, not optional evidence.
+		// FrozenCore v2 slots render verbatim as the session's persona
+		// authority, not optional evidence or an additional identity.
 		sections = append(sections, frozen)
 	}
 	if face == domain.FaceCode {

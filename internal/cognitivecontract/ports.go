@@ -43,8 +43,9 @@ type FactoryInput struct {
 // callback is attached or after the owner is closed.
 var ErrUnarmed = errors.New("cognitivecontract: binding is not armed")
 
-// ErrPersonaUninitialized gates primary admission until the owner completes
-// first-run setup; transports expose a safe, actionable message.
+// ErrPersonaUninitialized identifies first-arrival state. Runtime admits
+// conversation with unnamed guidance until the owner initializes authority;
+// other preparation failures remain admission errors.
 var ErrPersonaUninitialized = errors.New("cognitivecontract: persona is not initialized")
 
 // Capture is the host-owned capture request for one terminal primary run.
