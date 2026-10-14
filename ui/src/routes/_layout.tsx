@@ -8,14 +8,17 @@ import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { ApprovalsView } from '@/components/approvals/ApprovalsView';
 import { FilesPanel } from '@/components/files/FilesPanel';
 import { WelcomeWizard } from '@/components/layout/WelcomeWizard';
+import { CompanionAvatarFace, CompanionAvatarPicker } from '@/components/layout/CompanionAvatar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { isWelcomeCompleted, openWelcome } from '@/hooks/use-welcome';
+import { isWelcomeCompleted, openWelcome, useWelcomeOpen } from '@/hooks/use-welcome';
 import { ModelSwitcher } from '@/components/chat/ModelSwitcher';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { usePluginHost } from '@vivy/ui-sdk';
-import { ChatHeaderSlot } from '@/plugins/presentation-host';
+import { ChatHeaderSlot, ShellOnboardingSlot } from '@/plugins/presentation-host';
+import { useCompanionAvatar } from '@/hooks/use-companion-avatar';
 import { ConversationModePlaceholder } from '@/components/chat/ConversationModePlaceholder';
 
 export const Route = createFileRoute('/_layout')({ component: Layout });
@@ -47,6 +50,10 @@ function Layout() {
   const reviewResponding = useVivyStore((state) => state.reviewBusyIds.length > 0);
   const initialized = useVivyStore((state) => state.initialized);
   const initializationError = useVivyStore((state) => state.initializationError);
+  // 首次使用引导之后的模块门禁：欢迎向导一关闭，槽位即可挂载；是否显示
+  // 由贡献它的模块自己决定（shell 不持有任何模块的状态）。
+  const welcomeOpen = useWelcomeOpen();
+  const { avatar } = useCompanionAvatar();
 
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
   // 首次使用（完成标记未写入）且后端初始化成功时，自动弹出欢迎向导。
@@ -112,7 +119,21 @@ function Layout() {
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex min-w-0 items-center gap-2 max-[359px]:hidden">
-              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-lg sm:flex">😊</div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('companionAvatar.replace')}
+                    title={t('companionAvatar.replace')}
+                    className="hidden shrink-0 cursor-pointer rounded-full transition-opacity duration-150 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:flex"
+                  >
+                    <CompanionAvatarFace avatar={avatar} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72">
+                  <CompanionAvatarPicker />
+                </PopoverContent>
+              </Popover>
               <div className="min-w-0 max-[359px]:hidden">
                 <div className="truncate text-sm font-semibold leading-tight">Vivy</div>
                 <div className="hidden truncate text-xs leading-tight text-muted-foreground sm:block">{run ? run.status : t('layout.idleMood')}</div>
@@ -210,6 +231,7 @@ function Layout() {
         </SheetContent>
       </Sheet>
       <WelcomeWizard />
+      {host && initialized && !welcomeOpen ? <ShellOnboardingSlot host={host} /> : null}
     </div>
   );
 }

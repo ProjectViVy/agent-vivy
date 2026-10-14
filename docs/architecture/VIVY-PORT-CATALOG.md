@@ -278,7 +278,7 @@ receives for one group as a single ordered surface (today the VIVY sidebar
 group) rather than one global nav list, which is how a Module entry lands
 beside the Host's own entries without owning the group.
 
-Two presentation standards keep assembled Module UI coherent. Both make the
+Three presentation standards keep assembled Module UI coherent. Each makes the
 Host the owner and the Module a declarer.
 
 - **Entry icons are names, not implementations.** `UINavigationItem.icon` is a
@@ -293,6 +293,17 @@ Host the owner and the Module a declarer.
   page therefore fills its frame and owns only its internal scrolling, and every
   plugin page looks the same no matter who wrote it. A page never draws its own
   page header, banner, or window-level frame.
+- **Shell-owned slots are declared, never claimed.** `chat.header` and
+  `shell.onboarding` are typed values a Module registers in the existing
+  `components` registry. The Host renders them (the header toolbar; the
+  first-run gate once its own welcome flow is closed) and narrows that
+  intentionally broad registry with the SDK's shape guards, so a value that is
+  empty or unknown is ignored instead of becoming React content by accident.
+  The Host owns the slot and its timing; the Module owns whether it appears and
+  reads its own state, so the shell holds no other Module's status and a
+  contribution needs no host context. These slots are extensions of
+  `std/ui-extension@v1`, not separate Ports: they add no Definition, Host
+  consumer, Grant, or conformance suite.
 
 A Module names one icon: the one on its navigation contribution. The page
 surface reads it back for the header, so the sidebar entry and the page can

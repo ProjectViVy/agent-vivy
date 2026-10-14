@@ -31,6 +31,7 @@ export default defineConfig({
     // staged mask tests below.
     include: [
       'src/**/*.test.ts', 'src/**/*.test.tsx',
+      '../sdk/ui/src/**/*.test.ts', '../sdk/ui/src/**/*.test.tsx',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.ts',
       '../plugins/vivy-masks-ui/ui/vivy-masks/src/**/*.test.tsx',
       '../plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/**/*.test.ts',

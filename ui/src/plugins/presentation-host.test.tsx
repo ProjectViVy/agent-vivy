@@ -28,6 +28,7 @@ import {
   ChatHeaderSlot,
   PRESENTATION_COMMAND_EVENT,
   PresentationHost,
+  ShellOnboardingSlot,
   useActivePresentationRoute,
   type PresentationProvenance,
 } from './presentation-host';
@@ -219,6 +220,59 @@ describe('PresentationHost', () => {
     });
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture header failed');
+    expect(events).toEqual(['cleanup']);
+  });
+
+  it('renders no first-run gate when the typed components slot is empty', async () => {
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={host()} extensions={[]} />);
+    });
+
+    expect(container.querySelector('[data-testid^="gate-"]')).toBeNull();
+  });
+
+  it('renders only ordered typed first-run gate contributions', async () => {
+    const selectedHost = host();
+    const selectedExtension = extension('fixture/shell-gate', (receivedHost) => {
+      receivedHost.composition.components.register('gate-unknown', { render: () => <span data-testid="unknown-gate">Unknown</span> });
+      receivedHost.composition.components.register('gate-header', { slot: 'chat.header', render: () => <span data-testid="header-not-gate">Header</span> });
+      receivedHost.composition.components.register('gate-empty', null);
+      receivedHost.composition.components.register('gate-first', {
+        slot: 'shell.onboarding',
+        render: () => <span data-testid="gate-first">First</span>,
+      });
+      receivedHost.composition.components.register('gate-second', {
+        slot: 'shell.onboarding',
+        render: () => <span data-testid="gate-second">Second</span>,
+      });
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]}><ShellOnboardingSlot host={selectedHost} /></PresentationHost>);
+    });
+
+    const rendered = [...container.querySelectorAll('[data-testid^="gate-"]')].map((node) => node.textContent);
+    expect(rendered).toEqual(['First', 'Second']);
+    expect(container.querySelector('[data-testid="unknown-gate"]')).toBeNull();
+    expect(container.querySelector('[data-testid="header-not-gate"]')).toBeNull();
+  });
+
+  it('keeps first-run gate render failures inside the existing error boundary and cleans owners', async () => {
+    const events: string[] = [];
+    const selectedHost = host();
+    const selectedExtension = extension('fixture/shell-gate-failing', (receivedHost) => {
+      receivedHost.composition.components.register('gate', {
+        slot: 'shell.onboarding',
+        render: () => { throw new Error('fixture gate failed'); },
+      });
+      return () => events.push('cleanup');
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]}><ShellOnboardingSlot host={selectedHost} /></PresentationHost>);
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture gate failed');
     expect(events).toEqual(['cleanup']);
   });
 

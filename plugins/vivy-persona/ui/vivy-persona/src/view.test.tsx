@@ -61,24 +61,99 @@ describe('PersonaMemoryView', () => {
     expect(host.rpc.call).not.toHaveBeenCalled();
   });
 
-  it('shows an explicit five-field initialization form for an uninitialized session', async () => {
+  it('walks an uninitialized session through the guided steps and submits all five documents', async () => {
     const host = makeHost(async (_method, params) => {
-      expect(params).toEqual({
-        module_id: 'vivy/diva-cognitive',
-        action_id: 'diva.cognitive.status',
-        input: { session_id: 'session-1' },
-      });
-      return { status: 'ok', value: { persona: { state: 'uninitialized', current_revisions: {} } } };
+      const actionId = (params as { action_id?: string }).action_id;
+      if (actionId === 'diva.cognitive.status') return { status: 'ok', value: { persona: { state: 'uninitialized', current_revisions: {} } } };
+      if (actionId === 'diva.cognitive.persona.initialize') return { status: 'ok', value: { changed: true, document: IDENTITY } };
+      throw new Error(`unexpected action ${actionId}`);
     }, 'session-1');
 
     await act(async () => root.render(<PluginHostProvider host={host}><PersonaMemoryView /></PluginHostProvider>));
 
-    expect(container.textContent).toContain('plugin.vivy/persona.initialize.title');
-    for (const key of ['identity', 'relationship', 'redline', 'user', 'world']) {
-      expect(container.querySelector(`textarea[name="${key}"]`)).not.toBeNull();
+    // The panel opens on the philosophy, not on a form.
+    expect(container.textContent).toContain('plugin.vivy/persona.onboarding.philosophy.title');
+    expect(container.querySelector('textarea')).toBeNull();
+
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    expect(container.textContent).toContain('plugin.vivy/persona.onboarding.face.title');
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+
+    const kinds = ['identity', 'relationship', 'user', 'world', 'redline'] as const;
+    for (const [index, kind] of kinds.entries()) {
+      expect(container.querySelector(`textarea[name="${kind}"]`)).not.toBeNull();
+      await typeInto(container, kind, `answer for ${kind}`);
+      await clickKey(container, index === kinds.length - 1 ? 'plugin.vivy/persona.onboarding.commit' : 'plugin.vivy/persona.onboarding.next');
     }
+
+    expect(container.textContent).toContain('plugin.vivy/persona.onboarding.done.title');
+    expect(host.rpc.call).toHaveBeenCalledWith('module.action.invoke', {
+      module_id: 'vivy/diva-cognitive',
+      action_id: 'diva.cognitive.persona.initialize',
+      input: {
+        session_id: 'session-1',
+        initialization: {
+          identity: 'answer for identity',
+          relationship: 'answer for relationship',
+          redline: 'answer for redline',
+          user: 'answer for user',
+          world: 'answer for world',
+        },
+        reason: 'Initialize persona from first-run onboarding',
+      },
+    });
     expect(container.textContent).not.toContain('plugin.vivy/persona.history');
     expect(container.textContent).not.toContain('demo.personaDocs');
+  });
+
+  it('returns to the first empty page instead of asking the authority to reject it', async () => {
+    const host = makeHost(async (_method, params) => {
+      const actionId = (params as { action_id?: string }).action_id;
+      if (actionId === 'diva.cognitive.status') return { status: 'ok', value: { persona: { state: 'uninitialized', current_revisions: {} } } };
+      throw new Error(`unexpected action ${actionId}`);
+    }, 'session-1');
+
+    await act(async () => root.render(<PluginHostProvider host={host}><PersonaMemoryView /></PluginHostProvider>));
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    for (let index = 0; index < 4; index += 1) await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    await clickKey(container, 'plugin.vivy/persona.onboarding.commit');
+
+    expect(container.textContent).toContain('plugin.vivy/persona.onboarding.required');
+    expect(container.querySelector('textarea[name="identity"]')).not.toBeNull();
+    expect(host.rpc.call).not.toHaveBeenCalledWith('module.action.invoke', expect.objectContaining({ action_id: 'diva.cognitive.persona.initialize' }));
+  });
+
+  it('keeps every answer and shows the authority message when a document is rejected', async () => {
+    const host = makeHost(async (_method, params) => {
+      const actionId = (params as { action_id?: string }).action_id;
+      if (actionId === 'diva.cognitive.status') return { status: 'ok', value: { persona: { state: 'uninitialized', current_revisions: {} } } };
+      if (actionId === 'diva.cognitive.persona.initialize') {
+        return {
+          status: 'failed',
+          error: { code: 'persona_cap_exceeded', message: 'laputa/persona: content exceeds the 800 character cap for IDENTITY.MD', retryable: false },
+        };
+      }
+      throw new Error(`unexpected action ${actionId}`);
+    }, 'session-1');
+
+    await act(async () => root.render(<PluginHostProvider host={host}><PersonaMemoryView /></PluginHostProvider>));
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    const kinds = ['identity', 'relationship', 'user', 'world', 'redline'] as const;
+    for (const [index, kind] of kinds.entries()) {
+      await typeInto(container, kind, `answer for ${kind}`);
+      await clickKey(container, index === kinds.length - 1 ? 'plugin.vivy/persona.onboarding.commit' : 'plugin.vivy/persona.onboarding.next');
+    }
+
+    // The authority's message is what the user sees, and the page it names is
+    // the one they land on, with nothing they wrote thrown away.
+    expect(container.textContent).toContain('content exceeds the 800 character cap for IDENTITY.MD');
+    const identity = container.querySelector('textarea[name="identity"]') as HTMLTextAreaElement;
+    expect(identity.value).toBe('answer for identity');
+    // Nothing written was thrown away: stepping forward shows it all again.
+    await clickKey(container, 'plugin.vivy/persona.onboarding.next');
+    expect((container.querySelector('textarea[name="relationship"]') as HTMLTextAreaElement).value).toBe('answer for relationship');
   });
 
   it('reads the real document and review list through the live action plane', async () => {
@@ -275,6 +350,22 @@ describe('PersonaMemoryView', () => {
     expect((container.querySelector('textarea[name="document"]') as HTMLTextAreaElement).disabled).toBe(false);
   });
 });
+
+async function clickKey(container: HTMLElement, key: string): Promise<void> {
+  const button = [...container.querySelectorAll('button')].find((candidate) => candidate.textContent === key);
+  if (!button) throw new Error(`missing button ${key} in ${container.textContent}`);
+  await act(async () => (button as HTMLButtonElement).click());
+}
+
+async function typeInto(container: HTMLElement, name: string, value: string): Promise<void> {
+  const textarea = container.querySelector(`textarea[name="${name}"]`) as HTMLTextAreaElement | null;
+  if (!textarea) throw new Error(`missing textarea ${name}`);
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(textarea, value);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
