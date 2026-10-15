@@ -83,13 +83,25 @@ mingw-w64 install. The publication is done; the mingw install is not.
   helper, because Windows holds it under an exclusive byte-range lock. That makes the
   suite runnable; it does not add durability coverage.
 
-- **The mingw install did not succeed.** `choco install mingw -y` fails because this
-  shell is not elevated and cannot write `C:\ProgramData\chocolatey\lib`. `-race` is
-  therefore still unverified on this machine.
+- **The mingw install succeeded through a different route.** `choco install mingw`
+  fails without elevation, so the portable WinLibs mingw-w64 was installed with
+  `winget install BrechtSanders.WinLibs.POSIX.UCRT` (GCC 16.2.0, UCRT). A human can
+  confirm the race gates directly:
+
+  ```powershell
+  $mg = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin"
+  $env:PATH = "$mg;$env:PATH"; $env:CGO_ENABLED = '1'; $env:CC = "$mg\x86_64-w64-mingw32-gcc.exe"
+  go test -race -count=1 ./internal/domain        # expect ok
+  go test -race -p 1 -count=1 -run '^TestIssue58' ./internal/storage/... ./internal/app ./internal/rpc
+  # expect exit 0 and no "WARNING: DATA RACE"
+  ```
+
+  Caveat: this environment is per-command. `just ci` does not set it, so a plain
+  `just ci` still runs without `-race`.
 
 ## Decisions this step still needs from the owner
 
-1. How to complete the `-race` toolchain: run an elevated `choco install mingw`,
-   install a portable user-space mingw-w64, or provide a WSL/Linux race lane. The
-   concurrency gates in `S3`–`S4` depend on it.
+1. Whether the `-race` environment should be wired into the `just` recipes (and with
+   which toolchain expectation), or stay a documented manual step. The concurrency
+   gates in `S3`–`S4` depend on the answer for reproducible CI.
 2. Whether a PostgreSQL DSN can be supplied for the migration-parity rows.

@@ -222,20 +222,60 @@ ownership artifact adds no coverage.
 
 | Gate | Evidence it cannot run here |
 |---|---|
-| `go test -race ./...` (Laputa and Vivy) | `go: -race requires cgo`. With `CGO_ENABLED=1 CC=clang`: `clang: error: unsupported option '-mthreads' for target 'x86_64-pc-windows-msvc'`. With `CGO_ENABLED=1 CC="zig cc"`: `lld-link: error: undefined symbol: WakeByAddressSingle` / `WakeByAddressAll`. No `gcc.exe` exists anywhere under the usual toolchain roots. The owner authorized a local mingw-w64 install; `choco install mingw -y` **failed** because this shell is not elevated (`IsInRole(Administrator)` = `False`): `Unable to obtain lock file access on 'C:\ProgramData\chocolatey\lib\...'`, then `Access to the path 'C:\ProgramData\chocolatey\lib-bad' is denied`, `Cannot create directory`, `Chocolatey installed 0/0 packages`. Still needs an elevated install or a portable user-space toolchain. |
 | Garden `go test ./agentapi ./internal/runtimecore/...` | build failure: `github.com/coder/hnsw@v0.6.1/encode.go:304:23: undefined: renameio.TempFile` — upstream `renameio` ships only `!windows` files; Vivy carries a vendored replacement in `go.mod` only, so Garden cannot build natively as its own module. Pre-existing, unrelated to #58. |
 | Real PostgreSQL parity / snapshot isolation | No `VIVY_POSTGRES_TEST_DSN`, no `psql`, no Docker. |
 | `just ci` full recipe | Not run in this step; the focused, broad, vet, build and fmt gates above were run instead. |
 | UI gates | Not touched in this step (no UI change yet); T2 runs them with the `main` merge. |
 
+## T1c — `-race` resolved locally and executed
+
+`-race` was previously unavailable; it is now executable on this machine and the
+relevant gates have been run.
+
+What failed before (recorded so the constraint is not re-discovered):
+
+- `go test -race` → `go: -race requires cgo`.
+- `CGO_ENABLED=1 CC=clang` → `clang: error: unsupported option '-mthreads' for target 'x86_64-pc-windows-msvc'`.
+- `CGO_ENABLED=1 CC="zig cc"` → `lld-link: error: undefined symbol: WakeByAddressSingle` / `WakeByAddressAll`.
+- `choco install mingw -y` → **failed**, this shell is not elevated
+  (`IsInRole(Administrator)` = `False`): `Unable to obtain lock file access on
+  'C:\ProgramData\chocolatey\lib\...'`, `Access to the path
+  'C:\ProgramData\chocolatey\lib-bad' is denied`, `Chocolatey installed 0/0 packages`.
+
+Resolution (no elevation, no repository change):
+
+```powershell
+winget install --id BrechtSanders.WinLibs.POSIX.UCRT --accept-package-agreements --accept-source-agreements --disable-interactivity
+# -> gcc.exe (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r2) 16.2.0
+$mg = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin"
+$env:PATH = "$mg;$env:PATH"; $env:CGO_ENABLED = '1'; $env:CC = "$mg\x86_64-w64-mingw32-gcc.exe"
+```
+
+Race results with that toolchain:
+
+| Command | Result |
+|---|---|
+| `go test -race -count=1 ./internal/domain` (toolchain smoke test) | exit 0, `ok 3.621s` |
+| `go test -race -p 1 -count=1 -run '^TestIssue58' ./internal/storage/... ./internal/app ./internal/rpc` | exit 0 — **0 occurrences of `WARNING: DATA RACE`**; storage ok 1.184s, migrations ok 8.129s, postgres ok 2.400s, sqlite ok 77.776s, app ok 42.649s, rpc ok 6.858s |
+| `go test -race -count=1 ./actmem` (Laputa, pinned `8c5328da`) | exit 0 — `ok 15.278s`, **0 occurrences of `WARNING: DATA RACE`** |
+
+Limitations of this evidence, stated plainly:
+
+- The toolchain is a per-command `PATH`/`CC` environment, **not wired into the
+  `just` recipes**. A plain `just ci` still runs without `-race`; a future agent must
+  set the same environment to reproduce these runs.
+- These are the C2 concurrency suites and the owner's own `actmem` suite. The
+  S3/S4 recap-context and compaction race gates do not exist yet, so nothing here
+  substitutes for them.
+- `-race` covers detected data races only. It is not durability or crash evidence.
+
 ## Not verified here
 
-`just ci` at a frozen candidate, `-race` on this machine, real PostgreSQL migration
-and isolation parity, real-model quality, installed-artifact behaviour, DIVA/Mentle
-acceptance, the `#66` sidebar producer, and all of S3–S6. No product acceptance is
-claimed by this step.
+`just ci` at a frozen candidate, real PostgreSQL migration and isolation parity,
+real-model quality, installed-artifact behaviour, DIVA/Mentle acceptance, the `#66`
+sidebar producer, and all of S3–S6. No product acceptance is claimed by this step.
 
 Windows durability for the pinned Laputa owner is now **runnable and passing**
-(`actmem` Issue58 pass=29 fail=0 skip=1 at `8c5328daa7a4`), but see the scope note in
-T1b: a helper that skips an unreadable ownership artifact enables the suite, it does
-not add durability coverage.
+(`actmem` Issue58 pass=29 fail=0 skip=1 at `8c5328daa7a4`), including under `-race`,
+but see the scope note in T1b: a helper that skips an unreadable ownership artifact
+enables the suite, it does not add durability coverage.

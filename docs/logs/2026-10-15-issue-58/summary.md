@@ -50,7 +50,7 @@ run, which this lane does not do.
 | Gap | Status |
 |---|---|
 | Real PostgreSQL migration parity and snapshot isolation | Pending — no DSN, docker or psql locally; skips never counted as pass |
-| `-race` concurrency/durability gates | Blocked — no mingw-w64 C toolchain on this machine; `choco` install needs elevation |
+| `-race` concurrency/durability gates | Verified locally on Windows — portable WinLibs mingw-w64 (GCC 16.2.0 UCRT) via `winget`; focused `TestIssue58` and Laputa `actmem` ran with zero data races. Not yet wired into the `just` recipes |
 | Native Windows durability for the pinned Laputa owner | Verified on Windows at the published pin; see `verification.md` |
 | Garden module tests | Unavailable natively on Windows (`renameio` is `!windows` upstream) |
 | `just ci` on a frozen candidate | Open — this step ran focused and broad gates instead |

@@ -76,7 +76,7 @@ the affected gates.
 
 ## T1b — Laputa Windows test-helper fix published; pin advanced
 
-HEAD: T1b content commit (see below)
+HEAD: T1b content commit `1266de6996582e37fee02e7e1774376992a10cf6`
 Laputa pin: `8c5328daa7a4e9cdd089d78858de087a36fb0843` (parent `bb57e93…`),
 published on `refs/heads/feat/issue-58-recap`, tree clean
 
@@ -132,10 +132,38 @@ affected gates.
    authorized publication; the fix is now Laputa `8c5328daa7a4` on
    `feat/issue-58-recap` and all three pins were advanced together. Native Windows
    durability evidence is no longer blocked on this.
-2. **`-race` toolchain.** Still blocked. Not executable here: `-race requires cgo`;
-   `clang` rejects Go's `-mthreads`; `zig cc` links with
-   `undefined symbol: WakeByAddressSingle`. The owner authorized a local mingw-w64
-   install, but `choco install mingw` fails because this shell is not elevated
-   (`Unable to obtain lock file access on C:\ProgramData\chocolatey\lib\...`,
-   `Access to C:\ProgramData\chocolatey\lib-bad is denied`). Needs an elevated
-   install, a portable user-space toolchain, or a Linux/WSL race lane.
+2. ~~**`-race` toolchain.**~~ **RESOLVED in T1c.** `choco install mingw` fails
+   without elevation, so the portable, admin-free WinLibs UCRT mingw-w64 was
+   installed with `winget` instead. `-race` now runs on this machine and both
+   relevant gates were executed with zero data races.
+
+## T1c — `-race` resolved locally; concurrency gates executed
+
+HEAD: T1c content commit — this docs commit. The toolchain change is outside this
+repository, so this entry is the record; its SHA is written at the start of the next
+step, since a commit cannot name itself.
+
+Done:
+- Diagnosed why every earlier attempt failed: `-race requires cgo`; `clang` rejects
+  Go's `-mthreads`; `zig cc` links with `undefined symbol: WakeByAddressSingle`; and
+  `choco install mingw -y` fails because this shell is not elevated and cannot write
+  `C:\ProgramData\chocolatey\lib`.
+- Installed the portable, admin-free WinLibs mingw-w64 (GCC 16.2.0, UCRT) with
+  `winget install BrechtSanders.WinLibs.POSIX.UCRT`. No repository or recipe change.
+- Ran the gates: focused `TestIssue58` under `-race` (storage/app/rpc, `-p 1`) and
+  the pinned Laputa `actmem` suite under `-race`. Both exit 0 with **zero
+  `WARNING: DATA RACE`**.
+
+Tests: `go test -race -count=1 ./internal/domain` ok 3.621s (toolchain smoke);
+`go test -race -p 1 -count=1 -run '^TestIssue58' ./internal/storage/... ./internal/app ./internal/rpc`
+exit 0, 0 races (sqlite 77.8s, app 42.6s); `go test -race -count=1 ./actmem`
+(Laputa) exit 0, ok 15.278s, 0 races.
+
+Remaining risk:
+- The toolchain is a per-command `PATH`/`CC` environment and is **not wired into the
+  `just` recipes**, so a plain `just ci` still runs without `-race`. The S3/S4
+  recap-context and compaction race gates do not exist yet, so they remain owed.
+- `-race` detects data races only; it is not durability or crash evidence.
+
+Next: T2 — merge `main` into this lane, resolve the 8 overlapping files, rerun the
+affected gates.
