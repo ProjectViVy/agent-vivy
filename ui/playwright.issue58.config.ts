@@ -24,8 +24,9 @@ function executable(value: string): string {
 export default defineConfig({
  globalTeardown:'./e2e/issue58-global-teardown.ts',
  testDir: './e2e', testMatch: 'issue58-recap.spec.ts', timeout: 90_000,
+ outputDir: './test-results/issue58-recap',
  workers: 1, retries: 0, reporter: 'list',
- use: { baseURL: 'http://127.0.0.1:3015', locale: 'en-US', screenshot: 'only-on-failure', trace: 'retain-on-failure' },
+ use: { baseURL: 'http://127.0.0.1:3015', locale: 'en-US', screenshot: 'on', trace: 'retain-on-failure' },
  webServer: [
   {command: `${executable(go)} test -p=1 ./internal/app -run "^TestIssue58RecapSplitFixture$" -count=1 -v -timeout=18m`, cwd: repoRoot, url: 'http://127.0.0.1:8787/healthz', env: {...process.env, VIVY_ISSUE58_SPLIT_TEST:'1', VIVY_ISSUE58_SPLIT_SECONDS:'900'}, reuseExistingServer:false, timeout:120_000},
   {command: `${executable(pnpm)} --dir ui dev --host 127.0.0.1`, cwd: repoRoot, url: 'http://127.0.0.1:3015', env:{...process.env,VIVY_BACKEND_ADDR:'http://127.0.0.1:8787'}, reuseExistingServer:false, timeout:120_000},

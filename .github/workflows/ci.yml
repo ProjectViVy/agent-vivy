@@ -106,6 +106,99 @@ jobs:
           TMP: ${{ runner.temp }}
         run: just backend-ci
 
+  native:
+    name: native Windows memory owners
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare pinned Laputa sources through the developer bootstrap
+        run: ./scripts/ensure-laputa.ps1
+
+      - name: Execute native BML and ACTMEM Garden suites
+        shell: pwsh
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'test-evidence/native'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          $go = (Get-Command go).Source
+          $lock = Get-Content laputa-source.lock.json -Raw | ConvertFrom-Json
+          $nativeHead = (& git -C ../laputa rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $nativeHead -ne $lock.commit) { throw 'native checkout does not match the published source lock' }
+          $identity = [ordered]@{
+            vivy_commit = (& git rev-parse HEAD).Trim()
+            laputa_lock = $lock
+            laputa_head = $nativeHead
+            go_version = (& $go version) -join "`n"
+            go_os = (& $go env GOOS).Trim()
+            go_arch = (& $go env GOARCH).Trim()
+            runner_os = $env:RUNNER_OS
+            host_os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            qualification = 'Native Windows tests; no PostgreSQL DSN or live-provider acceptance claim'
+          }
+          $identity | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $evidence 'identity.json') -Encoding utf8
+          if ($identity.go_os -ne 'windows') { throw 'native Windows lane must execute on Windows, not cross-compile' }
+          $lanes = @(
+            @{ name = 'bml'; root = 'bml'; packages = @('./...') },
+            @{ name = 'actmem'; root = '../laputa/laputa'; packages = @('./actmem') },
+            @{ name = 'garden'; root = '../laputa/garden'; packages = @('./internal/ingest', './internal/runtimecore', './agentapi') }
+          )
+          $results = @()
+          $failed = $false
+          foreach ($lane in $lanes) {
+            Push-Location $lane.root
+            try {
+              & $go mod edit -json 1> (Join-Path $evidence "$($lane.name)-declared-module.json") 2> (Join-Path $evidence "$($lane.name)-module.stderr.log")
+              if ($LASTEXITCODE -ne 0) { throw "cannot record declared module for $($lane.name)" }
+              $arguments = @('test', '-json', '-p=1', '-count=1', '-timeout=5m') + $lane.packages
+              @{ lane = $lane.name; module_root = $lane.root; command = @($go) + $arguments } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $evidence "$($lane.name)-command.json") -Encoding utf8
+              Write-Host "Native $($lane.name): $go $($arguments -join ' ')"
+              $started = Get-Date
+              & $go @arguments 1> (Join-Path $evidence "$($lane.name).jsonl") 2> (Join-Path $evidence "$($lane.name).stderr.log")
+              $code = $LASTEXITCODE
+              $counts = [ordered]@{ tests_passed = 0; tests_failed = 0; tests_skipped = 0; packages_passed = 0; packages_failed = 0; packages_skipped = 0 }
+              foreach ($line in Get-Content (Join-Path $evidence "$($lane.name).jsonl")) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $event = $line | ConvertFrom-Json
+                $kind = if ($event.Test) { 'tests' } else { 'packages' }
+                switch ($event.Action) {
+                  'pass' { $counts["${kind}_passed"]++ }
+                  'fail' { $counts["${kind}_failed"]++ }
+                  'skip' { $counts["${kind}_skipped"]++ }
+                }
+              }
+              $results += [ordered]@{ lane = $lane.name; module_root = $lane.root; command = @($go) + $arguments; exit_code = $code; elapsed_seconds = ((Get-Date) - $started).TotalSeconds; counts = $counts }
+              $results | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $evidence 'results.json') -Encoding utf8
+              Write-Host "$($lane.name): exit=$code $($counts | ConvertTo-Json -Compress)"
+              if ($code -ne 0 -or $counts.tests_failed -gt 0 -or $counts.packages_failed -gt 0) { $failed = $true }
+            } finally {
+              Pop-Location
+            }
+          }
+          if ($failed) { throw 'a required native memory-owner suite failed; see preserved test-evidence/native' }
+
+      - name: Preserve native test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-memory-test-evidence
+          path: test-evidence/native/
+          if-no-files-found: warn
+
   ui:
     name: ui ci
     runs-on: windows-latest
@@ -251,8 +344,27 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path '.workspace/p9-full-ui.pid') {
-            Stop-Process -Id (Get-Content '.workspace/p9-full-ui.pid') -Force -ErrorAction SilentlyContinue
+            $selected = Get-Process -Id (Get-Content '.workspace/p9-full-ui.pid') -ErrorAction SilentlyContinue
+            if ($selected) {
+              $selected | Stop-Process -Force -ErrorAction Stop
+              $selected | Wait-Process -Timeout 30 -ErrorAction Stop
+            }
           }
+
+      - name: Run actual Recap split browser test
+        shell: pwsh
+        run: |
+          $env:GO_EXE = (Get-Command go).Source
+          pnpm --dir ui exec playwright test --config playwright.issue58.config.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Preserve browser screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-results
+          path: ui/test-results/
+          if-no-files-found: warn
 
   aggregate:
     name: just ci
@@ -260,6 +372,7 @@ jobs:
     needs:
       - backend
       - browser
+      - native
       - ui
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -269,11 +382,14 @@ jobs:
         env:
           BACKEND_RESULT: ${{ needs.backend.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
           UI_RESULT: ${{ needs.ui.result }}
         run: |
           echo "backend ci: $BACKEND_RESULT"
           echo "browser smoke: $BROWSER_RESULT"
+          echo "native Windows memory owners: $NATIVE_RESULT"
           echo "ui ci: $UI_RESULT"
           test "$BACKEND_RESULT" = "success"
           test "$BROWSER_RESULT" = "success"
+          test "$NATIVE_RESULT" = "success"
           test "$UI_RESULT" = "success"
