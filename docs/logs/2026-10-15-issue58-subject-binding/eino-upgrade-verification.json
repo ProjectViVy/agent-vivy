@@ -1,0 +1,589 @@
+{
+  "base": "4a914f531b341202211e8df8764060190a16ae29",
+  "source_commit": "d0f1e487baa3ba74d4b0ec7471a7547592b2809c",
+  "toolchain": "go1.26.4 linux/amd64",
+  "eino": {
+    "Path": "github.com/cloudwego/eino",
+    "Version": "v0.9.20",
+    "Info": "/root/go/pkg/mod/cache/download/github.com/cloudwego/eino/@v/v0.9.20.info",
+    "GoMod": "/root/go/pkg/mod/cache/download/github.com/cloudwego/eino/@v/v0.9.20.mod",
+    "Zip": "/root/go/pkg/mod/cache/download/github.com/cloudwego/eino/@v/v0.9.20.zip",
+    "Dir": "/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.20",
+    "Sum": "h1:Qini5wHK2gI+QfQb4QuO2IKnvS5LpUc+CctPjZ1euNA=",
+    "GoModSum": "h1:OBD1mrkfkt/pJa4rkg1P0VnaMeOVl7l8IAdEqY//3IQ=",
+    "Origin": {
+      "VCS": "git",
+      "URL": "https://github.com/cloudwego/eino",
+      "Hash": "b9539ec114a14c32aa568f05eda5cde1e83fcfc1",
+      "Ref": "refs/tags/v0.9.20"
+    }
+  },
+  "eino_source_sha256": {
+    "compose/tool_node.go": "9ad538059f4ecc81137dbb045829d95792dfdf3fa3905b322f4152d4b6c131bd",
+    "compose/checkpoint.go": "503045562c7e9c2af94faac90e878adf200e31b6d3c58a766f99d9a8b76516ad",
+    "compose/pregel.go": "b1e9d77fbfecb763dee70ed18f8e408dea45dc3d6c2429cd4ef75cc0e856bcaa",
+    "adk/runner.go": "68667d6e57a496a0374517b30f2b637846a517e7f370e21c56439842a50b24b6",
+    "adk/chatmodel.go": "674dc19ca9a41406d5fc68848355eb9199c39be8f3b4a2a01527e1dc41ce61a5",
+    "adk/handler.go": "c880d5981e0f5d9961f557899b7efb71b7250d80b68db6465497292bdf53b02b",
+    "adk/middlewares/summarization/summarization.go": "597cd74e17ee3659a8c79e66029947f823b61b0fb50c2dfa7790054b4b1eeef0",
+    "components/tool/interface.go": "d10e710bb80923427b68fb58b90737299e7aa98b75819f4d1c46df1bde1b712e",
+    "schema/stream.go": "b7b154c587960d9db504dfc83bf95929dfc7aa4bf8ebd2a4ba3203b0c77a15a4",
+    "compose/utils.go": "90c8be4b3bc066d17327dea620180baa38a1478ac45c0cc38e35fda976329ee0"
+  },
+  "laputa_commit": "4c7c6b20859375d0d764d3ba2a0188926cf73c9e",
+  "GOPROXY": "https://proxy.golang.org,direct",
+  "GOSUMDB": "sum.golang.org",
+  "tests": {
+    "cancel-isolated": {
+      "command": "go test -race ./internal/app -run '^TestMemoryLoopActivityDeleteDrainsLiveCancellation$' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "6e7279edbf5426b39ea939eca23402d63d3702ccb395fc789d7f83176563577a",
+      "scratch_output": "/tmp/issue58-eino-upgrade/cancel-isolated.jsonl",
+      "first_event": "2026-10-15T20:13:42.43322568+08:00",
+      "last_event": "2026-10-15T20:13:54.345900972+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-cancel-isolated.jsonl"
+    },
+    "required-race": {
+      "command": "go test -race ./internal/runtime ./internal/storage/sqlite -run '^(TestIssue58|TestMessageProjector|TestToolOperationCrashMatrix|TestApprovalResumeReusesPreparedToolOperation|TestServiceCancelConcurrentIdempotent)' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/storage/sqlite": {
+          "pass_count": 24,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/runtime": {
+          "pass_count": 55,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "092fcda5ef6bdfc46743de0758fb41246c24393d99dfbf14c6583b419c615478",
+      "scratch_output": "/tmp/issue58-eino-upgrade/required-race.jsonl",
+      "first_event": "2026-10-15T20:03:26.506192411+08:00",
+      "last_event": "2026-10-15T20:04:59.299138347+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-required-race.jsonl"
+    },
+    "baseline-race": {
+      "command": "go test -race ./internal/runtime -run '^TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch$' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "3eeca1f4b600261f6b181d1e01e76c7f2a5f21de24304916493c3ed25fd0ae92",
+      "scratch_output": "/tmp/issue58-eino-upgrade/baseline-race.jsonl",
+      "first_event": "2026-10-15T20:03:26.543138721+08:00",
+      "last_event": "2026-10-15T20:03:29.711296819+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-baseline-race.jsonl"
+    },
+    "full": {
+      "command": "go test ./internal/runtime ./internal/storage/... -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/storage": {
+          "pass_count": 21,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/storage/migrations": {
+          "pass_count": 40,
+          "fail_count": 0,
+          "skip_count": 5
+        },
+        "agent-vivy/internal/storage/postgres": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 36
+        },
+        "agent-vivy/internal/runtime": {
+          "pass_count": 1130,
+          "fail_count": 0,
+          "skip_count": 1
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass_count": 209,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-16"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-17"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-23"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-35"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronRepairUpgrade"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestBackendConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestBundleStoreConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestDeleteSessionRemovesPersistedWorkAndSubmissionRows"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestHistoryConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityAtomic"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityRetry"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityExpectations"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestFileVersionChainSemantics"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskStoreCRUDAndSelection"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskSelectionRevisionZeroSerializesOnDedicatedConnections"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskSelectionSerializesAfterDedicatedDelete"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReadMaskCaptureSeesOneCommittedDefinitionVersion"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestCommitSessionForkRollsBackCopiedMaskSelectionAfterLaterFailure"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookContract"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookLegacyImport"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookMissingScopeIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportRootAdmission"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportRootAdmissionParallel"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSettingsEnsureReadAndCAS"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportPublicationFirstPromotedReplayAndCandidate"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSourcesBounded"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSettingsCommitReceiptReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReviewProjectionPreservesArgumentsAndKeepsMetadata"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58InteractionOrderAndDedup"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58AdmissionBoundaries"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58ContinuityReplayBinding"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58FormattedGrantReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectRetention"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58MissingEvidenceBlocksNewSeal"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58CopySources"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMigrateUpgradesV14InPlace"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowDefinitionContractPostgres"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowStepContractPostgres"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowStepUpgradeFrom033Postgres"
+        },
+        {
+          "package": "agent-vivy/internal/runtime",
+          "test": "TestReportFeedbackSnapshot"
+        }
+      ],
+      "sha256": "42fff95420fba7c95c6495518769d922d1052b1cc48a5cc9d196e9fce9197dfc",
+      "scratch_output": "/tmp/issue58-eino-upgrade/full.jsonl",
+      "first_event": "2026-10-15T20:04:05.992733135+08:00",
+      "last_event": "2026-10-15T20:05:20.400636954+08:00",
+      "non_json_lines": []
+    },
+    "focused": {
+      "command": "go test ./internal/runtime ./internal/storage/... ./internal/app ./internal/rpc -run '^TestIssue58' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/storage/postgres": {
+          "pass_count": 0,
+          "fail_count": 0,
+          "skip_count": 8
+        },
+        "agent-vivy/internal/storage": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/rpc": {
+          "pass_count": 10,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/storage/migrations": {
+          "pass_count": 2,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass_count": 24,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/app": {
+          "pass_count": 14,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/runtime": {
+          "pass_count": 39,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58InteractionOrderAndDedup"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58AdmissionBoundaries"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58ContinuityReplayBinding"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58FormattedGrantReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectRetention"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58MissingEvidenceBlocksNewSeal"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58CopySources"
+        }
+      ],
+      "sha256": "c6b5a20163fe7b3836a1af36ce41c80e68ea0d724ba76c00353dff76527fa133",
+      "scratch_output": "/tmp/issue58-eino-upgrade/focused.jsonl",
+      "first_event": "2026-10-15T20:04:28.421447914+08:00",
+      "last_event": "2026-10-15T20:04:32.035293845+08:00",
+      "non_json_lines": []
+    },
+    "compatibility": {
+      "command": "go test -race ./internal/runtime ./internal/app -run '^Test.*(Plan|Interrupt|Cancel|Checkpoint|Child|Persona|Coding|Compaction|ApprovalResume|EinoImportsQuarantined)' -count=1 -json",
+      "exit": 1,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "pass_count": 128,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/app": {
+          "pass_count": 31,
+          "fail_count": 1,
+          "skip_count": 0
+        }
+      },
+      "failures": [
+        {
+          "package": "agent-vivy/internal/app",
+          "test": "TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"
+        }
+      ],
+      "skips": [],
+      "sha256": "0f66d61c431bda50ab0bd8da00dc2c7df215e4b6bf245aa46f67aadc70f2ed86",
+      "scratch_output": "/tmp/issue58-eino-upgrade/compatibility.jsonl",
+      "first_event": "2026-10-15T20:04:28.7049215+08:00",
+      "last_event": "2026-10-15T20:10:04.298832968+08:00",
+      "non_json_lines": []
+    },
+    "persona-isolated": {
+      "command": "go test -race ./internal/app -run '^TestDefaultPersonaAuthorityPersistsAndFreezesPerSession$' -count=1 -json",
+      "exit": 1,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass_count": 0,
+          "fail_count": 1,
+          "skip_count": 0
+        }
+      },
+      "failures": [
+        {
+          "package": "agent-vivy/internal/app",
+          "test": "TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"
+        }
+      ],
+      "skips": [],
+      "sha256": "3df07a2c23e18afd399ace9fb87695a6223be262654211cd29f1563eafdec06f",
+      "scratch_output": "/tmp/issue58-eino-upgrade/persona-isolated.jsonl",
+      "first_event": "2026-10-15T20:05:38.453130908+08:00",
+      "last_event": "2026-10-15T20:05:38.683162735+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-persona-isolated.jsonl"
+    },
+    "persona-baseline": {
+      "command": "go test -modfile=.superpowers/sdd/EINO/baseline.mod -race ./internal/app -run '^TestDefaultPersonaAuthorityPersistsAndFreezesPerSession$' -count=1 -json",
+      "exit": 1,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass_count": 0,
+          "fail_count": 1,
+          "skip_count": 0
+        }
+      },
+      "failures": [
+        {
+          "package": "agent-vivy/internal/app",
+          "test": "TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"
+        }
+      ],
+      "skips": [],
+      "sha256": "c52f0894361d33fae12d42ef916699331da80ab44cf97cb5b062ea081a49fee5",
+      "scratch_output": "/tmp/issue58-eino-upgrade/persona-baseline.jsonl",
+      "first_event": "2026-10-15T20:06:07.040757525+08:00",
+      "last_event": "2026-10-15T20:06:07.279326246+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-persona-baseline.jsonl"
+    },
+    "final-app-compatibility": {
+      "command": "go test -race ./internal/app ./internal/codeface -run '^Test.*(Plan|Interrupt|Cancel|Checkpoint|Child|Persona|Coding|Compaction|ApprovalResume|EinoImportsQuarantined|Launch)' -count=1 -json",
+      "exit": 1,
+      "counts": {
+        "agent-vivy/internal/codeface": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 0
+        },
+        "agent-vivy/internal/app": {
+          "pass_count": 31,
+          "fail_count": 1,
+          "skip_count": 0
+        }
+      },
+      "failures": [
+        {
+          "package": "agent-vivy/internal/app",
+          "test": "TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"
+        }
+      ],
+      "skips": [],
+      "sha256": "fbdd0c795e994d0c8432952d59c8bf848194fa88a475d7c140bd857708465b22",
+      "scratch_output": "/tmp/issue58-eino-upgrade/final-app-compatibility.jsonl",
+      "first_event": "2026-10-15T20:06:59.989287034+08:00",
+      "last_event": "2026-10-15T20:12:06.067786607+08:00",
+      "non_json_lines": []
+    },
+    "codeface-pin": {
+      "command": "go test -race ./internal/codeface -run '^Test(Prepare|Prepared)' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/codeface": {
+          "pass_count": 3,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "197d9b5133f8c991e6285a32d0d1addec8985f98076ac5ded747269d365cb466",
+      "scratch_output": "/tmp/issue58-eino-upgrade/codeface-pin.jsonl",
+      "first_event": "2026-10-15T20:07:09.621105044+08:00",
+      "last_event": "2026-10-15T20:07:13.715669963+08:00",
+      "non_json_lines": []
+    },
+    "persona-corrected": {
+      "command": "go test -race ./internal/app -run '^TestDefaultPersonaAuthorityPersistsAndFreezesPerSession$' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass_count": 1,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "b98c2f512e8e405aa77ae5634d5bc5667c2a6c594060c33958f16466b8bf201d",
+      "scratch_output": "/tmp/issue58-eino-upgrade/persona-corrected.jsonl",
+      "first_event": "2026-10-15T20:08:17.51602266+08:00",
+      "last_event": "2026-10-15T20:08:20.252774068+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-persona-corrected.jsonl"
+    },
+    "app-compatibility-corrected": {
+      "command": "go test -race ./internal/app -run '^Test.*(Plan|Interrupt|Cancel|Checkpoint|Child|Persona|Coding|Compaction|ApprovalResume|EinoImportsQuarantined)' -count=1 -json",
+      "exit": 1,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass_count": 31,
+          "fail_count": 1,
+          "skip_count": 0
+        }
+      },
+      "failures": [
+        {
+          "package": "agent-vivy/internal/app",
+          "test": "TestMemoryLoopActivityDeleteDrainsLiveCancellation"
+        }
+      ],
+      "skips": [],
+      "sha256": "0a5e6ee934491b962728a3c00fa6128f4a1a96320b924cb18d43a6f81fb8d6ca",
+      "scratch_output": "/tmp/issue58-eino-upgrade/app-compatibility-corrected.jsonl",
+      "first_event": "2026-10-15T20:08:18.972367465+08:00",
+      "last_event": "2026-10-15T20:13:25.493611138+08:00",
+      "non_json_lines": [],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-app-compatibility-corrected.jsonl"
+    },
+    "native-cancel-checkpoint": {
+      "command": "go test -modfile=.superpowers/sdd/EINO/upstream-tests.mod -race github.com/cloudwego/eino/compose -run '^(TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls|TestCheckpointToolStreamCancellationRerunsProducerOnce)$' -count=1 -json",
+      "exit": 0,
+      "counts": {
+        "github.com/cloudwego/eino/compose": {
+          "pass_count": 2,
+          "fail_count": 0,
+          "skip_count": 0
+        }
+      },
+      "failures": [],
+      "skips": [],
+      "sha256": "c9031101a6bc25ad9f06aed187a49388cd47b3a6c5bbf7f7f9bc7c0cbe4c7722",
+      "scratch_output": "/tmp/issue58-eino-upgrade/native-cancel-checkpoint.jsonl",
+      "first_event": "2026-10-15T20:10:44.99717696+08:00",
+      "last_event": "2026-10-15T20:10:46.042895195+08:00",
+      "non_json_lines": [
+        "go: downloading github.com/stretchr/testify v1.11.1",
+        "go: downloading go.uber.org/mock v0.6.0",
+        "go: downloading github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc",
+        "go: downloading github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2"
+      ],
+      "durable_output": "docs/logs/2026-10-15-issue58-subject-binding/eino-native-cancel-checkpoint.jsonl"
+    }
+  },
+  "verification_scope": "Local pin/native compatibility evidence; not S6 product acceptance",
+  "graph-before.txt_sha256": "47545ea903718d9ecb58d7379f10fd4a7f8830207b17ac3b226c140aae48a2e2",
+  "graph-after.txt_sha256": "6308a8346c80a3c246afc3f645495f39dde089c7396bf2566bf95ed16a60ea70",
+  "modules-before.json_sha256": "9a8d2bf710982eadf33a21a28a4249def79904416b9d07819725e5ba36b505d5",
+  "modules-after.json_sha256": "4a99bc7ab5717c89619c7ae578c61c5ea80c09b4b02776d10cf45d84afabeaec",
+  "changed_source_sha256": {
+    "go.mod": "a9a4501a892560520d2a9224180690a72639ba6c6760528645268da819e35b0a",
+    "go.sum": "15ddb05d09c2187560b640be4550f6f22c47dd02f8b5c90d6c2d974bc02adcb4",
+    "internal/app/default_persona_test.go": "56df7f85c9cdb5ed67ad4ce9750569a8782f91c62baa3eb9f4493f89ac0017d5",
+    "internal/app/realsmoke_test.go": "4fbb1c0c7272cd646e719841581cbb89a28e3caedaed99d1772db619a16c2bbc",
+    "internal/codeface/launch_test.go": "e54f517ff44581e59f1ccb3ff22c8fc64ad18f1d55e0dcbd818516ceb7675ce0"
+  }
+}

@@ -122,11 +122,13 @@ type ServiceDeps struct {
 	// tool calls. NewService discovers it from Journal when the backend also
 	// implements storage.ToolOperationStore.
 	ToolOperations storage.ToolOperationStore
-	Runs           storage.RunStore
-	Messages       storage.MessageStore
-	Work           storage.WorkStore
-	GoalRuns       storage.GoalRunStore
-	PrimaryRuns    storage.PrimaryRunStore
+	// ToolEvidence is the existing backend BlobStore for authorized exact originals.
+	ToolEvidence storage.BlobStore
+	Runs         storage.RunStore
+	Messages     storage.MessageStore
+	Work         storage.WorkStore
+	GoalRuns     storage.GoalRunStore
+	PrimaryRuns  storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -5374,6 +5376,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		bundleHandleToRelease.Release()
 	}
 	s.deleteShellState(shellStateRefToDelete)
+	if s.deps.MainConversation != nil || s.deps.SubjectSources != nil {
+		if run, err := s.deps.Runs.GetRun(persistCtx, terminal.RunID); err == nil {
+			if err := s.sealSubjectRunLocked(persistCtx, run.SessionID, run.ID); err != nil {
+				slog.Error("retain subject interaction remains unsealed", "run", string(run.ID), "err", err)
+			}
+		}
+	}
 	s.projectionMu.Unlock()
 	if runSession != "" {
 		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)

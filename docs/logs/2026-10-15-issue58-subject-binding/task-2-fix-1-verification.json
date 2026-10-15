@@ -1,0 +1,334 @@
+{
+  "base": "15e79419ccfa302ad3f8330fe72448c88796a5fb",
+  "eino": "v0.9.20",
+  "laputa_published": "4c7c6b20859375d0d764d3ba2a0188926cf73c9e",
+  "toolchain": "go1.26.4 linux/amd64",
+  "source_sha256": {
+    "internal/runtime/tooladapter.go": "ff843369763de0df4cc9badc9cbab542c8444f7dcf5553f7f2ac870047269a8e",
+    "internal/runtime/subject_question_test.go": "e1dbdcd991d258f9b2ba43650d30cfdbfdd5effc0869a9c4e410d033df28696e",
+    "internal/storage/postgres/history_mutations.go": "5923b13c601e3204e2b5ae4aebbaa87f309429ff6b0376e556c6f6eb169108f1"
+  },
+  "eino_capability_sources_sha256": {
+    "/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.20/components/tool/interrupt.go": "5939a961e46f474230dcb4cd06591fcbda450704d938c4cecb2098cb6e2dbba4",
+    "/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.20/compose/tool_node.go": "9ad538059f4ecc81137dbb045829d95792dfdf3fa3905b322f4152d4b6c131bd"
+  },
+  "verification": {
+    "red": {
+      "command": "go test ./internal/runtime -run '^TestIssue58RetainedQuestionRestartKeepsExactAnswer$' -count=1 -json",
+      "exit_code": 1,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "fail": 2,
+          "pass": 1
+        }
+      },
+      "skips": [],
+      "failures": [
+        "TestIssue58RetainedQuestionRestartKeepsExactAnswer/retained",
+        "TestIssue58RetainedQuestionRestartKeepsExactAnswer"
+      ],
+      "raw_output_sha256": "539d9063f245c050adda5b822e92f20006433b094c36a71f2394ebecf2263762"
+    },
+    "green": {
+      "command": "go test ./internal/runtime -run '^TestIssue58RetainedQuestionRestartKeepsExactAnswer$' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "pass": 3
+        }
+      },
+      "skips": [],
+      "failures": [],
+      "raw_output_sha256": "8b4be5a86fa7d3e0019020d712df388afac3506fee7c83e73d6649dcd18188cd"
+    },
+    "focused": {
+      "command": "go test ./internal/runtime ./internal/storage/... ./internal/app ./internal/rpc -run '^TestIssue58' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage": {
+          "pass": 1
+        },
+        "agent-vivy/internal/storage/postgres": {
+          "skip": 8
+        },
+        "agent-vivy/internal/storage/migrations": {
+          "pass": 2
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 24
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 42
+        },
+        "agent-vivy/internal/rpc": {
+          "pass": 10
+        },
+        "agent-vivy/internal/app": {
+          "pass": 14
+        }
+      },
+      "skips": [
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58InteractionOrderAndDedup"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58AdmissionBoundaries"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58ContinuityReplayBinding"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58FormattedGrantReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectRetention"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58MissingEvidenceBlocksNewSeal"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58CopySources"
+        }
+      ],
+      "failures": [],
+      "raw_output_sha256": "53f6a0e29c177415311d93e55ef3bc388fcac1e049b839abc5a5f075e011e20e"
+    },
+    "required-race": {
+      "command": "go test -race ./internal/runtime ./internal/storage/sqlite -run '^(TestIssue58|TestMessageProjector|TestToolOperationCrashMatrix|TestApprovalResumeReusesPreparedToolOperation|TestServiceCancelConcurrentIdempotent)' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 24
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 58
+        }
+      },
+      "skips": [],
+      "failures": [],
+      "raw_output_sha256": "7733751f15794561b70e13941a957a170a89641aceea0547a8a30df882a30ebe"
+    },
+    "full": {
+      "command": "go test ./internal/runtime ./internal/storage/... -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage": {
+          "pass": 21
+        },
+        "agent-vivy/internal/storage/migrations": {
+          "pass": 40,
+          "skip": 5
+        },
+        "agent-vivy/internal/storage/postgres": {
+          "skip": 36,
+          "pass": 1
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 209
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 1133,
+          "skip": 1
+        }
+      },
+      "skips": [
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-16"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-17"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-23"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronUpgradePreservesRows/head-35"
+        },
+        {
+          "package": "agent-vivy/internal/storage/migrations",
+          "test": "TestPostgresReleasedCronRepairUpgrade"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestBackendConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestBundleStoreConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestDeleteSessionRemovesPersistedWorkAndSubmissionRows"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestHistoryConformance"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityAtomic"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityRetry"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestContinuityExpectations"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestFileVersionChainSemantics"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskStoreCRUDAndSelection"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskSelectionRevisionZeroSerializesOnDedicatedConnections"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMaskSelectionSerializesAfterDedicatedDelete"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReadMaskCaptureSeesOneCommittedDefinitionVersion"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestCommitSessionForkRollsBackCopiedMaskSelectionAfterLaterFailure"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookContract"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookLegacyImport"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestNotebookMissingScopeIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportRootAdmission"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportRootAdmissionParallel"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSettingsEnsureReadAndCAS"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportPublicationFirstPromotedReplayAndCandidate"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSourcesBounded"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReportSettingsCommitReceiptReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestReviewProjectionPreservesArgumentsAndKeepsMetadata"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58InteractionOrderAndDedup"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectIsolation"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58AdmissionBoundaries"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58ContinuityReplayBinding"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58FormattedGrantReplay"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58SubjectRetention"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58MissingEvidenceBlocksNewSeal"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestIssue58CopySources"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestMigrateUpgradesV14InPlace"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowDefinitionContractPostgres"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowStepContractPostgres"
+        },
+        {
+          "package": "agent-vivy/internal/storage/postgres",
+          "test": "TestWorkflowStepUpgradeFrom033Postgres"
+        },
+        {
+          "package": "agent-vivy/internal/runtime",
+          "test": "TestReportFeedbackSnapshot"
+        }
+      ],
+      "failures": [],
+      "raw_output_sha256": "3e654b64c551029dda22d79a207290c714c7739bd117b93c5cb1061af2667313"
+    },
+    "native-regressions": {
+      "command": "go test -race ./internal/runtime -run '^(TestServiceQuestion|TestGoalRecovery.*Question|TestPendingGoalQuestion|TestCancelResumedGoalQuestion|TestServiceRecoverRestoresSkillMountedTools|TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch|TestMapperInterruptDetails|TestRealParkedCancellation|TestParkedCancellation|TestServiceCancelPendingRun)' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "pass": 19
+        }
+      },
+      "skips": [],
+      "failures": [],
+      "raw_output_sha256": "39e8500d5eda7848ec68225182daf39c474d36a07489daddcc118600c0b432b4"
+    }
+  },
+  "fixture_manifests": [
+    "subject_question_test.go:150: manifest resumed question run_7cb79a90ce7ea547:18 bbf95078951186b04bad400543e6d0964f2cb581caa0526cb54798c6bf3868f0 answer 0047201c5c5c653f027ff4641940a4fc750ea8f2014e056952a27cfb93e5a1ac bytes 38043"
+  ]
+}

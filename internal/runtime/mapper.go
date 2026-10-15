@@ -567,9 +567,10 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 		// reordered keys still count as a repeat for Nudge.
 		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
-			ToolCallID: tc.ID,
-			ToolName:   tc.Function.Name,
-			Args:       args,
+			ToolCallID:        tc.ID,
+			OriginalArguments: tc.Function.Arguments,
+			ToolName:          tc.Function.Name,
+			Args:              args,
 		}))
 		call := openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)}
 		m.toolBatch = append(m.toolBatch, call)

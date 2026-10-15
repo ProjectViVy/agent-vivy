@@ -132,6 +132,15 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 	}); err != nil {
 		return domain.ToolOperation{}, err
 	}
+	retained, err := c.retained(ctx)
+	if err != nil {
+		return domain.ToolOperation{}, err
+	}
+	if retained {
+		if err := c.retainArguments(ctx, op, request); err != nil {
+			return domain.ToolOperation{}, err
+		}
+	}
 	eventOp := op
 	eventOp.State = domain.ToolOperationAdmitted
 	if err := c.checkOperationEventSize(eventOp); err != nil {
@@ -162,7 +171,7 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		return "", storage.ErrToolOperationConflict
 	}
 	if stored.State == domain.ToolOperationCompleted {
-		return toolOperationResolution(stored)
+		return c.resolve(ctx, stored)
 	}
 	key := string(c.runID) + "\x00" + op.OperationID
 	service := c.service
@@ -201,7 +210,7 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	}
 	if !acquired {
 		if claimed.State == domain.ToolOperationCompleted {
-			result, resolveErr := toolOperationResolution(claimed)
+			result, resolveErr := c.resolve(ctx, claimed)
 			return finish(result, resolveErr)
 		}
 		return finish("", fmt.Errorf("%w: %s", ErrToolOperationUnknown, op.OperationID))
@@ -212,14 +221,31 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		// not prove that no external effect happened during an interruption.
 		return finish("", err)
 	}
-	result, invokeErr := invoke(ctx)
+	retained, err := c.retained(ctx)
+	if err != nil {
+		return finish("", err)
+	}
+	var original originalToolOutcome
+	invokeCtx := ctx
+	if retained {
+		invokeCtx = context.WithValue(ctx, originalToolOutcomeKey{}, &original)
+	}
+	result, invokeErr := invoke(invokeCtx)
 	var surfacedRefusal error
+	var surfacedInterrupt error
 	if invokeErr != nil {
 		// A tool interrupt (approval, question, plan review) suspends the run;
 		// it is not an operation outcome and must keep its signal type so the
 		// ToolsNode can surface it as an interrupt instead of a failure.
 		if _, interrupted := compose.IsInterruptRerunError(invokeErr); interrupted {
-			return finish("", invokeErr)
+			if !retained || !original.captured || original.failure != nil {
+				return finish("", invokeErr)
+			}
+			// The tool already produced a known result; the runtime's post-invoke
+			// control interrupt remains an interrupt after durable evidence completion.
+			surfacedInterrupt = invokeErr
+			result = untrustedToolResultHeader + original.result
+			invokeErr = nil
 		}
 		// A governance refusal is a model-visible outcome, not an operation
 		// failure: record the refusal text as the result so the run continues
@@ -231,15 +257,19 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		}
 	}
 	failure := ""
-	if invokeErr != nil {
-		failure = boundToolOperationFailure(invokeErr.Error())
-		result = ""
+	if retained {
+		result, failure, err = c.retainResult(context.WithoutCancel(ctx), op, result, invokeErr, original)
+	} else {
+		if invokeErr != nil {
+			failure = boundToolOperationFailure(invokeErr.Error())
+			result = ""
+		}
+		result, failure, err = fitToolOperationResolution(op, result, failure, service.engine)
 	}
-	result, failure, err = fitToolOperationResolution(op, result, failure, service.engine)
 	if err != nil {
-		return finish("", err)
+		return finish("", fmt.Errorf("%w: %w", ErrToolOperationUnknown, err))
 	}
-	completed, completeEvent, err := service.deps.ToolOperations.CompleteToolOperation(ctx, c.runID, op.OperationID, owner, result, failure)
+	completed, completeEvent, err := service.deps.ToolOperations.CompleteToolOperation(context.WithoutCancel(ctx), c.runID, op.OperationID, owner, result, failure)
 	if err != nil {
 		// Keep the durable claim unresolved. Returning an ordinary result here
 		// would let Eino advance past an outcome the Journal cannot recover.
@@ -248,13 +278,16 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	if completeEvent.Seq != 0 {
 		c.publish(completeEvent)
 	}
+	if surfacedInterrupt != nil {
+		return finish("", surfacedInterrupt)
+	}
 	if surfacedRefusal != nil && completed.State == domain.ToolOperationCompleted && completed.Failure == "" {
 		// The refusal text is durable as the operation result; still surface
 		// the typed refusal so the caller runs invocation-failure marking and
 		// governance journaling for this attempt.
 		return finish("", surfacedRefusal)
 	}
-	resolved, resolveErr := toolOperationResolution(completed)
+	resolved, resolveErr := c.resolve(ctx, completed)
 	return finish(resolved, resolveErr)
 }
 

@@ -118,7 +118,7 @@ func TestIssue58SingletonAdmission(t *testing.T) {
 	}
 }
 
-func TestIssue58ShellFirstEligibleFailsBeforeSideEffects(t *testing.T) {
+func TestIssue58ShellFirstEligibleUnsupportedToolFailsBeforeSideEffects(t *testing.T) {
 	ctx := context.Background()
 	b, err := sqlite.Open(ctx, t.TempDir()+"/core.db")
 	if err != nil {
@@ -132,8 +132,8 @@ func TestIssue58ShellFirstEligibleFailsBeforeSideEffects(t *testing.T) {
 	}
 	resolver := &issue58Main{binding: cognitivecontract.MainConversationBinding{SubjectID: s.SubjectID, DomainID: s.DomainID, ConversationID: s.ConversationID, ActiveSessionID: s.SessionID, PolicyID: s.PolicyID, ToolPolicyRef: s.ToolPolicyRef, SchemaVersion: s.SchemaVersion, Grant: s.Grant}}
 	svc := issue58Service(t, b, resolver, nil)
-	if _, err := svc.RunShell(ctx, s.SessionID, "echo never"); !errors.Is(err, runtime.ErrSubjectShellAdmissionUnavailable) {
-		t.Fatalf("eligible shell did not fail at source admission: %v", err)
+	if _, err := svc.RunShell(ctx, s.SessionID, "echo never"); !errors.Is(err, runtime.ErrShellUnavailable) {
+		t.Fatalf("unsupported eligible shell did not fail before admission: %v", err)
 	}
 	runs, err := b.ListRunsBySession(ctx, s.SessionID)
 	if err != nil || len(runs) != 0 {

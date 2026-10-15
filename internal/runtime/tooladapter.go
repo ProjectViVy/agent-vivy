@@ -568,8 +568,18 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
 	}
 	coordinator := toolOperationCoordinatorFromContext(ctx)
+	durableOperation := !isModelWorkTool(spec.Name)
+	if retained, ok := coordinator.(interface {
+		RetainsEvidence(context.Context) (bool, error)
+	}); ok && !durableOperation {
+		keep, err := retained.RetainsEvidence(ctx)
+		if err != nil {
+			return "", err
+		}
+		durableOperation = keep
+	}
 	var operation *domain.ToolOperation
-	if coordinator != nil && !isModelWorkTool(spec.Name) {
+	if coordinator != nil && durableOperation {
 		loaded, found, err := coordinator.Lookup(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON))
 		if err != nil {
 			return "", err
@@ -712,7 +722,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
 			})
-			if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
+			if operation == nil && coordinator != nil && durableOperation {
 				admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
 				if err != nil {
 					return "", err
@@ -725,11 +735,36 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	if spec.Interaction == domain.ToolInteractionQuestion {
 		isTarget, hasData, answer := einotool.GetResumeContext[string](ctx)
 		if isTarget && hasData {
+			if retained, ok := coordinator.(interface {
+				RetainsEvidence(context.Context) (bool, error)
+			}); ok {
+				keep, err := retained.RetainsEvidence(ctx)
+				if err != nil {
+					return "", err
+				}
+				if keep {
+					if operation == nil {
+						admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
+						if err != nil {
+							return "", err
+						}
+						operation = &admitted
+					}
+					// The Question authority has already committed this answer.
+					// Retain that native resume outcome, never invoke ask_user.
+					return coordinator.Execute(ctx, *operation, func(ctx context.Context) (string, error) {
+						if original, ok := ctx.Value(originalToolOutcomeKey{}).(*originalToolOutcome); ok {
+							*original = originalToolOutcome{result: answer, captured: true}
+						}
+						return answer, nil
+					})
+				}
+			}
 			return answer, nil
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
+	if operation == nil && coordinator != nil && durableOperation {
 		admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
 		if err != nil {
 			return "", err
@@ -809,7 +844,7 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation
 	execute := func(ctx context.Context) (string, error) {
 		result, err := a.invoke(ctx, argumentsInJSON)
 		if err != nil {
-			return "", err
+			return result, err
 		}
 		if err := interruptPlanSubmission(ctx, a.t.Spec().Name, result); err != nil {
 			return "", err
@@ -824,6 +859,19 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation
 		// at their source (e.g. the read_file image cap).
 		if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
 			return result, nil
+		}
+		if coordinator := toolOperationCoordinatorFromContext(ctx); len(operation) > 0 && operation[0] != nil && coordinator != nil {
+			if retained, ok := coordinator.(interface {
+				RetainsEvidence(context.Context) (bool, error)
+			}); ok {
+				keep, err := retained.RetainsEvidence(ctx)
+				if err != nil {
+					return "", err
+				}
+				if keep {
+					return result, nil
+				}
+			}
 		}
 		return compactToolResult(result, a.maxResultBytes), nil
 	}
@@ -856,6 +904,11 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	}
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
+	if original, ok := ctx.Value(originalToolOutcomeKey{}).(*originalToolOutcome); ok {
+		original.result = result
+		original.failure = err
+		original.captured = true
+	}
 	if a.hooks != nil {
 		a.hooks.PostToolUse(ctx, ToolHookCall{
 			RunID: contextRunID(ctx), ToolName: a.t.Spec().Name, Arguments: json.RawMessage(argumentsInJSON), Profile: policyProfile(ctx),

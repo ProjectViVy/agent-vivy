@@ -40,3 +40,13 @@ func TestIssue58ContinuityReplayBinding(t *testing.T) {
 func TestIssue58FormattedGrantReplay(t *testing.T) {
 	conformance.RunIssue58FormattedGrantReplay(t, issue58Backend(t))
 }
+
+func TestIssue58SubjectRetention(t *testing.T) {
+	conformance.RunIssue58SubjectRetention(t, issue58Backend(t))
+}
+
+func TestIssue58MissingEvidenceBlocksNewSeal(t *testing.T) {
+	conformance.RunIssue58MissingEvidenceBlocksNewSeal(t, issue58Backend(t))
+}
+
+func TestIssue58CopySources(t *testing.T) { conformance.RunIssue58CopySources(t, issue58Backend(t)) }

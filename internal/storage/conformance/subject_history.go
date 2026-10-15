@@ -182,7 +182,7 @@ func RunIssue58AdmissionBoundaries(t *testing.T, b storage.Engine) {
 	}
 	Issue58Identity(t, b)
 	admission := b.(storage.RunAdmissionStore)
-	for _, test := range []string{"child", "restricted", "foreign", "read-escalation", "strategy"} {
+	for _, test := range []string{"child", "restricted", "foreign", "read-escalation", "strategy", "no-context"} {
 		t.Run(test, func(t *testing.T) {
 			s := Issue58Source(domain.SessionID("denied-"+test), false)
 			if err := b.CreateSession(ctx, domain.Session{ID: s.SessionID}); err != nil {
@@ -201,6 +201,8 @@ func RunIssue58AdmissionBoundaries(t *testing.T, b storage.Engine) {
 				a.Subject.Grant.WholeDomainRead = true
 			case "strategy":
 				a.Run.Kind = domain.RunKindWorkflow
+			case "no-context":
+				a.Started.Payload = []byte(`{"no_context":true}`)
 			}
 			if _, err := admission.CommitRunAdmission(ctx, a); !errors.Is(err, storage.ErrSubjectBinding) {
 				t.Fatalf("invalid authority accepted: %v", err)

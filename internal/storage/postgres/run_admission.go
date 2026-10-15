@@ -71,7 +71,7 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 			return in.Started, storage.AdmissionConflict()
 		}
 	}
-	in.Message.WorkSeq, err = currentMessageWorkSeq(ctx, tx.SQL, in.Message.SessionID)
+	in.Message.WorkSeq, err = currentMessageWorkSeq(ctx, tx.SQL, in.Run.SessionID)
 	if err != nil {
 		return in.Started, err
 	}

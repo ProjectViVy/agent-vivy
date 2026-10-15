@@ -122,14 +122,20 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	sessionAdmission := s.sessionAdmission(sessionID)
 	sessionAdmission.Lock()
 	defer sessionAdmission.Unlock()
-	// Until Task2 integrates exact shell evidence into an atomic admission,
-	// eligible shell-first sources must not create an unprotected shared run.
+	// Recheck the trusted source decision before selecting atomic admission.
 	source, err := s.resolveSubjectAdmission(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}
-	if source != nil {
-		return "", ErrSubjectShellAdmissionUnavailable
+	if noContext {
+		source = nil
+	}
+	shellAdmission := s.deps.Admission
+	if shellAdmission == nil {
+		shellAdmission, _ = s.deps.Runs.(storage.RunAdmissionStore)
+	}
+	if source != nil && shellAdmission == nil {
+		return "", storage.ErrSubjectBinding
 	}
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
 		return "", err
@@ -246,16 +252,24 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		NoContext: noContext,
 	})
-	if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
-		return "", fmt.Errorf("runtime: create shell run: %w", err)
-	}
-	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
-	if err != nil {
-		return "", fmt.Errorf("runtime: persist shell run.started: %w", err)
-	}
-	started.Seq = seq
-	if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
-		return "", fmt.Errorf("runtime: activate shell run: %w", err)
+	if source != nil {
+		run.Status = domain.RunActive
+		started, err = shellAdmission.CommitRunAdmission(ctx, storage.RunAdmission{Subject: source, OmitMessage: true, Run: run, Started: started})
+		if err != nil {
+			return "", fmt.Errorf("runtime: admit retained shell: %w", err)
+		}
+	} else {
+		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			return "", fmt.Errorf("runtime: create shell run: %w", err)
+		}
+		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
+		if appendErr != nil {
+			return "", fmt.Errorf("runtime: persist shell run.started: %w", appendErr)
+		}
+		started.Seq = seq
+		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
+			return "", fmt.Errorf("runtime: activate shell run: %w", err)
+		}
 	}
 	s.publish(ctx, started)
 
@@ -302,9 +316,25 @@ func (s *Service) shellContext(ctx context.Context, p shellPendingRun) context.C
 // before that point.
 func (s *Service) runShell(ctx context.Context, p shellPendingRun, approved bool) {
 	ctx = s.shellContext(ctx, p)
+	coordinator := serviceToolOperationCoordinator{service: s, runID: p.mapper.runID, sessionID: p.sessionID}
+	retained, retainErr := coordinator.retained(ctx)
+	if retainErr != nil {
+		s.failShell(ctx, p, retainErr)
+		return
+	}
+	var argumentsReference *storage.ToolArgumentsReference
+	if retained {
+		op := domain.ToolOperation{RunID: p.mapper.runID, OperationID: p.toolCallID, RequestDigest: operationDigest(p.args)}
+		if err := coordinator.retainArguments(context.WithoutCancel(ctx), op, p.args); err != nil {
+			s.failShell(ctx, p, err)
+			return
+		}
+		ref := storage.NewToolArgumentsReference(op, p.args)
+		argumentsReference = &ref
+	}
 	if !p.requested {
 		if !s.persistShellEvent(ctx, p, p.mapper.build(domain.EventToolRequested, payloadToolRequested{
-			ToolCallID: p.toolCallID, ToolName: tools.BashName, Args: shellAuditArgs(p.args),
+			ToolCallID: p.toolCallID, ToolName: tools.BashName, Args: shellAuditArgs(p.args), ArgumentsReference: argumentsReference,
 		}), true) {
 			return
 		}
@@ -348,10 +378,25 @@ func (s *Service) runShell(ctx context.Context, p shellPendingRun, approved bool
 	}), false) {
 		return
 	}
-	rawResult, execErr := adapter.invoke(ctx, string(finalArgs))
+	var rawResult string
+	var execErr error
+	if retained {
+		op, err := coordinator.Admit(ctx, p.toolCallID, tools.BashName, p.args, p.args, finalArgs)
+		if err != nil {
+			s.failShell(ctx, p, err)
+			return
+		}
+		rawResult, execErr = coordinator.Execute(ctx, op, func(callCtx context.Context) (string, error) { return adapter.invoke(callCtx, string(finalArgs)) })
+	} else {
+		rawResult, execErr = adapter.invoke(ctx, string(finalArgs))
+	}
 	result := ""
 	if rawResult != "" {
-		result = s.sanitizeShellResult(rawResult)
+		if retained {
+			result = rawResult
+		} else {
+			result = s.sanitizeShellResult(rawResult)
+		}
 	}
 	finished := payloadToolFinished{ToolCallID: p.toolCallID, ToolName: tools.BashName, Result: result}
 	if execErr != nil {

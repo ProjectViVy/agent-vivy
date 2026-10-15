@@ -149,3 +149,59 @@ published commit `4c7c6b20859375d0d764d3ba2a0188926cf73c9e`; both commits have
 that identical source tree. Final focused/conformance runs used the latter.
 No ensure-laputa/bootstrap/just ci or source-owner operation was run. Parent owns
 normal pin coordination, independent scoped re-review and final exact-pin CI.
+
+
+## Task2 verification (BASE 4e57f3ea0954ef20ad598b33245c06cc7fa1f119)
+
+Go 1.26.4 and normal checksums; Eino remains v0.9.13 and published Laputa remains 4c7c6b20859375d0d764d3ba2a0188926cf73c9e. Counts are terminal Go JSON test entries, including subtests/group entries. The exact commands, source hashes, actual before/after manifests, all skip names and output hashes are in `task-2-verification.json`.
+
+| Final command | Actual result |
+|---|---|
+| `go test ./internal/runtime ./internal/storage/... -run '^TestIssue58' -count=1 -json` | Exit 0: Runtime 39, Storage 1, migrations 2, SQLite 24 passed; PostgreSQL 8 skipped |
+| `go test ./internal/runtime ./internal/storage/... -count=1 -json` | Exit 0: Runtime 1130 passed/1 skipped, Storage 21 passed, migrations 40 passed/5 skipped, SQLite 209 passed, PostgreSQL 1 passed/36 skipped |
+| `go test ./internal/app -run '^TestIssue58' -count=1 -json` | Exit 0: 14 passed |
+| Required race/concurrency subset including all Issue58 and existing projector/operation/cancel coverage | Exit 1: pinned Eino converter data race in retained Plan review; exact output in `task-2-required-race.jsonl` |
+| Existing unretained `TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch` under `-race` | Exit 1: same upstream data race; exact output in `task-2-upstream-baseline-race.jsonl` |
+| Diagnostic race subset with only that Plan scenario excluded, plus all relevant new source/copy tests, existing projector/crash/approval/cancel checks | Exit 0: Runtime 52, SQLite 24 passed. Diagnosis only; does not substitute for the failed required race gate |
+| `git diff --check` | Passed |
+
+The full final gate ran after the prefix-gap guard, exact copy metadata and ordinary terminal cleanup adjustment. Fresh install, populated-044 upgrade to 045, restrictive child FKs, rollback after real DDL, `foreign_key_check`, reopen/reapply, exact source archive and ordinary parent deletion all ran in SQLite. Paired PostgreSQL code and conformance compile; real PostgreSQL execution is SKIPPED without VIVY_POSTGRES_TEST_DSN, not a parity pass. The sole runtime skip is `TestReportFeedbackSnapshot` (its external GitHub gating remains unchanged).
+
+Meaningful RED assertions preceded the corresponding fixes: full output disappeared before compaction (3 initial required-gate failures including shell and NoContext); populated044 could not admit a shell without a fake user; raw partial result was discarded on tool error; invalid UTF8 became replacement text; completed receipt without tool.finished omitted known terminal output; enhanced media lost its image/reference; post-invoke Plan interrupt stranded a claimed operation; excluded shell disabled first singleton use; later seal advanced past missing evidence; NoContext source admission was accepted; missing original-argument artifact allowed replay continuation; and missing exact copy writer returned no parent identity. The exact-copy RED armed the new read/schema seam with its producer absent, then restored the atomic producer. A mistaken equal-time cutoff/count and test API typos were corrected and are not counted as behavioral RED evidence.
+
+A pending-shell test also exposed a connection-pool deadlock: eligibility lookup occurred after opening the one-connection Journal iterator. The lookup now precedes Replay and the original cancellation test is green. A diagnostic ordinary-cancel failure exposed seal I/O between terminal status and active cleanup; sealing moved after existing cleanup (still under projection lock) and unshared runs without trusted subject resolvers bypass it. The final diagnostic cancel/concurrency gate passes.
+
+Pinned Eino source evidence: compose/tool_node.go:1253 writes captured outer `err` from two enhanced stream converters (`ret[index].UserInputMultiContent, err = tr.ToMessageInputParts()`). Both race reports identify only upstream writes at that line. No dependency patch/vendor, serialization restriction, race suppression or capability removal was made. The controller owns a separately scoped official native-fix pin review. No unrelated root `go test ./...`, `just ci`, live model call, browser/tenant smoke, push or deployment ran; centralized candidate CI remains S6 per dispatch.
+
+## Official v0.9.20 final-pin amendment
+
+The historical Task2 v0.9.13 failures above remain accurate for their tested pin.
+At official v0.9.20, the exact required race gate passes with retained Plan review
+intact; the same unretained Plan submission baseline passes. Final runtime/storage
+non-race coverage is 1401 pass / 42 skip, with real PostgreSQL and the existing
+external GitHub prerequisite still unavailable. Focused Issue58 runtime/storage/app/
+RPC coverage also passes. The broader app/persona compatibility check initially
+exposed an unchanged old/new-pin nil SnapshotStore fixture failure; the authorized
+real-store fixture correction preserves product behavior and original assertions.
+All exact commands, raw-output hashes/counts/skips, final corrected compatibility
+results, official module provenance and limits are in
+[eino-upgrade-report.md](eino-upgrade-report.md) and `eino-upgrade-verification.json`.
+No raw root `go test ./...`, just ci, installed product/provider/Windows acceptance,
+push, merge, deployment or tenant journal operation was performed by this increment.
+
+The corrected broad app race diagnosis returns exit 1 (31 pass / 1 fail): the
+existing MemoryLoop live-delete RPC deadline expired once during overlapping
+runs. The exact case passes when rerun alone after the runs drain; the failed
+command remains failed. Final corrected persona authority, native cancellation/
+checkpoint and codeface consumer checks pass. Timing cause is unproven; the
+separate candidate-bound DIVA Recipe gate remains pending, with the open
+`TFLAKE-MEMORYLOOP-LIVE-DELETE` record in docs/TODO.md.
+
+
+## Task2 fix round1 verification (BASE 15e79419ccfa302ad3f8330fe72448c88796a5fb)
+
+Meaningful Question RED: real suspend, DB reopen, native recovery and successful answer reached terminal with no completed exact receipt; ordinary control passed. The early test fixture omitted the existing five-minute interaction expiry and failed at recovery; that setup failure was corrected and is not counted as behavioral RED. The narrow retained-only answer receipt then made the exact same regression green (3 test entries). Complete RED/GREEN outputs are task-2-fix-1-red.jsonl and task-2-fix-1-green.jsonl.
+
+Final unchanged required race regex passes at Eino v0.9.20: Runtime58 and SQLite24 entries (82 total), including retained Plan plus the new Question. Exact output: task-2-fix-1-required-race.jsonl. Targeted existing native Question/Plan/interrupt/cancellation race regressions pass19 entries, including the former unretained Plan race baseline. Focused Issue58 runtime/storage/App/RPC passes93 entries (Runtime42, storage1, migrations2, SQLite24, App14, RPC10) with8 PostgreSQL skips. Full runtime/storage passes1404 entries (Runtime1133, storage21, migrations40, SQLite209, PG1) with42 skips: Runtime1 external GitHub, migrations5 PostgreSQL, PostgreSQL36. git diff --check passes. Exact commands, output hashes, fixture manifest and all skip names are task-2-fix-1-verification.json.
+
+The two raw PostgreSQL statements use $1/$2 and $1/$2/$3; existing shared backend copy provenance/rollback conformance remains registered. No real PostgreSQL DSN is present, so PG compilation/skips are not parity acceptance. Native Windows, live provider/product acceptance, #66, HTTP/UI integration and final just ci stay pending at S6 per dispatch. No dependency pin, current snapshot constants/Persona fixture, parent plan/index, tool capability or Eino converter was changed by this fix.

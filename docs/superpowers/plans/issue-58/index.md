@@ -2,7 +2,7 @@
 
 **Implementation in progress, authorized by the owner on 2026-10-15.** Baseline main `8088f5bcf0c034ea5a4ae6df83e497430d6cec94`;
 Laputa `4b2bec2cc2ab3374b7ec1ab8d448e612c1e4db24`.
-Authoritative [design revision 2](../../specs/2026-10-15-issue-58-unified-context-design.md).
+Authoritative [design revision 3](../../specs/2026-10-15-issue-58-unified-context-design.md).
 Reuse the [memory delivery history](../memory/index.md); do not reopen or duplicate
 its completed Stories. This index alone owns status/dependencies.
 
@@ -17,10 +17,10 @@ and acceptance below must still derive from actual evidence.
 | Story | Epic / requirements | Outcome | Immediate predecessors / accepted output | Plan | State | Evidence / blocker |
 |---|---|---|---|---|---|---|
 | S0 | Foundation / R1–R7 | Baseline, design, contracts, executable package | None | [S0](S0.md) | Done | Corrected plan independently reviewed; owner authorized development on 2026-10-15 |
-| S1 | Durable authority / R1,R6 | Existing Laputa owner supports free-text atomic Recap | S0: accepted C1 and policy/identity decisions | [S1](S1.md) | Implemented; scoped review passed | Owner recovery and coordinated pin independently approved; published Laputa4c7c6b2, root49fe1e8. Normal module verification, bootstrap11 and focused consumers passed. Full candidate CI/native Windows remain S6 gates |
-| S2 | Retained experience / R2,R6 | Trusted identity, complete ordered original-evidence index and retention | S0: accepted C2 and singleton consumer seam | [S2](S2.md) | In progress | Task 1 e1732e1 plus fix d54fa92 independently approved: grant replay and selected atomic admission repaired. Task 2 lossless tool/shell evidence now entering implementation. External #66 production binding remains an integration gate |
-| S3 | Unified continuity / R3,R6 | Real admission and commit-before-retirement | S1: tested C1 owner; S2: tested C2 source/index | [S3](S3.md) | Planned | Both producer implementations required |
-| S4 | Governed management / R4,R6 | Full memory UI/headless/deferred tools | S1: accepted stable C1 API | [S4](S4.md) | Planned | Can implement owner UI after S1; exact sources/LIFE binding integrate at S5 with S2 |
+| S1 | Durable authority / R1,R6 | Existing Laputa owner supports free-text atomic Recap | S0: accepted C1 and policy/identity decisions | [S1](S1.md) | In progress: narrow reconciliation amendment | Tasks 1–2 and recovery/pin independently approved (Laputa4c7c6b2, root49fe1e8). Task 3 same-owner reconcile implementation active; Task 4 reviewed publication/facade/pin follows. Native Windows/final candidate remain S6 gates |
+| S2 | Retained experience / R2,R6 | Trusted identity, complete ordered original-evidence index and retention | S0: accepted C2 and singleton consumer seam | [S2](S2.md) | In progress | Tasks 1–2 independently approved, including Task 2 fix333a0bf/evidence d1a7c32 (I1/I2 addressed). Official Eino v0.9.20 remediation independently approved; required race82, full1404 pass/42 skips at fix candidate. Task 3 complete disposition snapshot producer is Ready next. Real PostgreSQL and external #66 binding remain gates |
+| S3 | Unified continuity / R3,R6 | Real admission and commit-before-retirement | S1: tested C1 owner; S2: tested C2 source/index | [S3](S3.md) | Blocked on revision 3 producers | S1 Task 3/4 compatible owner+pin and S2 Task 3 atomic disposition capture must clear first. Admission also requires archived-inclusive pending-domain repair and reconciliation before provider invocation |
+| S4 | Governed management / R4,R6 | Full memory UI/headless/deferred tools | S1: accepted stable C1 API | [S4](S4.md) | Planned | Wait for S1 Task 4 compatible bound facade/pin; history includes reconcile. Exact sources/LIFE binding integrate at S5 with S2 |
 | S5 | Composition closure / R5,R6 | BML first, selected sink, legacy writers disabled, full integration | S3: admission+source behavior; S4: management consumer | [S5](S5.md) | Planned | Composition/provider and source-action acceptance required |
 | S6 | Central product acceptance / R7 | One exact candidate reviewed and accepted | S5: integrated candidate and dependency/artifact pins | [S6](S6.md) | Planned | Real-model/install/UI/Windows and DIVA/Mentle evidence pending |
 
@@ -45,7 +45,7 @@ cycles when this table changes. No redundant transitive edges are present.
 ## Write lanes and handoff
 
 S1 owns the Laputa Store contract and narrow Garden facade; only that lane changes
-C1. S2 owns core identity/index/migrations. Both consume frozen design revision 2;
+C1. S2 owns core identity/index/migrations. Current producer amendments consume frozen design revision 3;
 neither invents a competing owner. S3 owns runtime adaptation. S4 owns UI/actions and
 tool adapters. `internal/cognitivecontract`, `internal/modules/diva-cognitive`,
 `internal/app`, catalog/Recipe metadata are integration hot spots: serialize edits
@@ -68,7 +68,7 @@ conversation, with no visible session create/switch/convert flow. Its permanent
 sidebar entry above Sessions shows the current persona avatar/name. Remove residual
 Coding/LIFE toggle/select controls; ordinary sessions cannot opt into LIFE. LIFE
 retains governed tool execution and coding ability. This is confirmed intent, not a
-question to ask again. Design revision 2 supersedes revision 1's selector proposal.
+question to ask again. Design revision 2 superseded revision 1's selector proposal; revision 3 preserves that confirmed product intent.
 
 **External dependency EXT-66:** #66 owns the singleton main-conversation producer,
 sidebar and trusted policy hook. #58 consumes MainConversationResolver; S2/S3 may
@@ -80,6 +80,24 @@ additional gate. S1 owner work does not require sidebar completion. No Story is
 Ready until its own prerequisites are met. Overall corrected-package execution was
 authorized by the owner on 2026-10-15.
 Budgets remain tunable seeds; nonempty legacy replacement requires separate review.
+
+**Revision 3 producer refinement:** an already-covered source can be edited or
+rewound with no new terminal interaction. The complete authorized-domain disposition
+snapshot and same-owner zero-range `reconcile` receipt close this gap without
+rewinding coverage or introducing a second acknowledgement cursor. S1 Tasks 3–4
+and S2 Task 3 supply reviewed contracts before S3; S3 admission may not transmit
+stale affected Recap while its compaction consumer is unfinished. Edit/restore
+reset the certificate; clear cannot resurrect covered originals. Source mutations
+after the admitted cut take effect at next admission, with clear epoch checked on
+every provider leg/resume. These task gates refine the existing Story DAG, which
+remains acyclic and unchanged.
+
+Independent implementation reviews are preserved in
+[the delivery review directory](../../../logs/2026-10-15-issue58-subject-binding/reviews/).
+Earlier successful package evidence is historical, not centralized acceptance.
+The corrected broad Eino app diagnostic still has one MemoryLoop live-delete
+timeout despite an isolated pass; candidate-bound DIVA Recipe/S6 remains required.
+
 
 The owner also requested removal of existing visible Coding/LIFE buttons. That
 narrow, separately authorized [UI cleanup](../../../logs/2026-10-15-remove-conversation-mode-placeholder/summary.md)

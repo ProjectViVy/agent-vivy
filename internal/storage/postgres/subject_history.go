@@ -55,3 +55,10 @@ func (b *Backend) CaptureSubjectHistory(ctx context.Context, bnd storage.Subject
 }
 
 var _ storage.SubjectSourceStore = (*Backend)(nil)
+
+func (b *Backend) ReadSubjectRunEvidence(ctx context.Context, bnd storage.SubjectHistoryBinding, rid domain.RunID) ([]domain.Message, storage.SubjectInteraction, error) {
+	if err := b.db.guard(); err != nil {
+		return nil, storage.SubjectInteraction{}, err
+	}
+	return b.subjectStore().ReadSubjectRunEvidence(ctx, bnd, rid)
+}

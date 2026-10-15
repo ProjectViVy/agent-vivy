@@ -71,8 +71,6 @@ func (s *Service) AuthorizeSubjectHistory(ctx context.Context, sid domain.Sessio
 	return source.SubjectHistoryBinding, nil
 }
 
-var ErrSubjectShellAdmissionUnavailable = errors.New("runtime: retained subject shell admission unavailable pending exact evidence integration")
-
 // retainedSubjectSource checks durable protection even when a restarted Host
 // has no resolver. Callers holding projectionMu close the race with admission.
 func (s *Service) retainedSubjectSource(ctx context.Context, sid domain.SessionID) error {

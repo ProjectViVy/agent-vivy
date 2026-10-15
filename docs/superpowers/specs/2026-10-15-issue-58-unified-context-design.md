@@ -1,7 +1,8 @@
 # Issue #58: unified subject continuity design
 
-Status: **planning proposal for review; no implementation or product acceptance**.
-Revision: `issue58-design-2`, 2026-10-15. Parent requirements:
+Status: **development design; revision 3 supersession amendment adopted by controller;
+no implementation or product acceptance implied**.
+Revision: `issue58-design-3`, 2026-10-15. Parent requirements:
 [unified context contract](../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md),
 [Issue #58](https://github.com/ProjectViVy/agent-vivy/issues/58), and #57's worker boundaries.
 [Execution index](../plans/issue-58/index.md) owns readiness and dependencies.
@@ -79,11 +80,25 @@ loop. A second transcript store would duplicate evidence and deletion semantics;
 putting Recap in BML would create a second authority and couple continuity to search.
 Neither alternative meets the contract.
 
-The hot path reads one Recap head plus a bounded indexed suffix; it does not scan all
-sessions on every turn. Revision history grows with commits, originals with events;
-there is no default expiry under this proposal. Index repair is paged and resumes
-from durable coordinates. No latency or cost improvement is claimed without S6
-measurements. Model calls occur only at admission pressure or explicit compact.
+The hot path reads one Recap head, a bounded indexed suffix, and a complete
+authorized-domain disposition metadata snapshot. It does not replay covered bodies
+as new experience. Revision history grows with commits, originals with events;
+there is no default expiry. Pending projection repair precedes capture. Model calls
+occur at admission pressure, explicit compact, or required covered-source
+reconciliation. No latency or cost improvement is claimed without S6 measurements.
+
+Revision 3 resolves covered-source supersession with the smallest coherent extension:
+core Storage captures the complete disposition set; the SAME ACTMEM owner commits
+its host fingerprint atomically with corrected text using a coverage-preserving
+`reconcile` transition. Typed disposition events in the existing C2 sequence are a
+material alternative, but would redefine terminal-interaction ordering, extend all
+marker producers and require backfill while still needing a restore/edit policy.
+The chosen approach costs a complete metadata scan and sometimes correction inference;
+it avoids a second cursor, authority, scheduler, or synthetic interaction. This is a
+controller architecture ruling implementing existing supersession requirements, not
+a new user product choice. The focused investigation is
+[supersession design check](../../../.superpowers/sdd/S3/supersession-design-check.md);
+the contracts below, rather than that investigation, govern implementation.
 
 ### Eino capability check
 
@@ -106,7 +121,22 @@ retention, which Eino does not supply. It is not another summarizer or agent loo
 Keep all Eino imports inside runtime/provider. Re-evaluate this adapter if upstream
 adds a durable authorized subject handoff; do not duplicate that capability.
 
-## Shared contracts (proposed, authoritative revision 2)
+### 2026-10-15 native-fix capability amendment
+
+The inspected design baseline above remains Eino v0.9.13. The current dependency
+pin is official v0.9.20 (`b9539ec114a14c32aa568f05eda5cde1e83fcfc1`), selected
+for the native enhanced-stream converter race fix, with EinoExt and published
+Laputa 4c7 pins unchanged. Reinspection confirms `summarization.New`, `Summarize`,
+`GenModelInput`, `Finalize`, `Callback`, `BeforeModelRewriteState`,
+`WithHistoryModifier` and runner checkpoint/resume remain available. Finalize
+still precedes Callback and after-summary events; message replacement follows
+successful Summarize. The durable CAS/receipt recovery obligation above is unchanged.
+Native canceled tool streams now checkpoint completed output and rerun unfinished
+tools through the existing compose/ADK path. Do not add another scheduler or
+checkpoint mechanism. Exact source/API and final gate evidence is in
+[the remediation report](../../logs/2026-10-15-issue58-subject-binding/eino-upgrade-report.md).
+
+## Shared contracts (authoritative revision 3; implementation status is in the index)
 
 ### Identity and the trusted singleton LIFE binding
 
@@ -229,7 +259,7 @@ type RecapHead struct {
     CoveredThrough uint64
     InvalidationEpoch uint64
     OperationID, OperationDigest, PreviousDigest, Digest string
-    Cause string // summary | edit | clear | restore
+    Cause string // summary | reconcile | edit | clear | restore
     Sources SourceRange
     RestoredFrom uint64
     UpdatedAt time.Time
@@ -254,7 +284,7 @@ range and verified host range digest; `Through` becomes the next cursor. Every
 other cause preserves current coverage. `restore` reads the selected historical
 text inside the owner and creates a new version, preserving current coverage;
 caller text is forbidden. `clear` produces empty text and increments
-InvalidationEpoch. Edit/restore/summary preserve that epoch. `edit` may be empty
+InvalidationEpoch. Edit/restore/summary/reconcile preserve that epoch. `edit` may be empty
 but does not acquire clear's admitted-context invalidation semantics; UI uses clear
 for that explicit action. Same OperationID and canonical request digest returns the
 original committed receipt even if later heads exist; a different digest conflicts.
@@ -262,6 +292,42 @@ Idempotency lookup precedes stale-base rejection, but never serves uncommitted f
 Errors: `recap_conflict`, `recap_operation_conflict`, `recap_scope_denied`,
 `recap_legacy_nonempty`, `recap_invalid_range`, `recap_unavailable`,
 `recap_owner_busy`, `recap_too_large`, `recap_commit_unknown`.
+
+`reconcile` requires `Sources.After == Sources.Through == current.CoveredThrough`,
+nonempty opaque host receipt, and `RestoredFrom == 0`. It corrects covered-source
+supersession without advancing coverage or epoch. Ordinary `summary` still requires
+a nonempty contiguous interaction range. Edit/clear/restore still require empty
+Sources; no reconciliation may masquerade as a user edit or fake completed run.
+
+For new summary/reconcile commits the trusted host encodes a canonical versioned
+envelope in the existing opaque `Sources.Digest` string:
+
+```text
+{v:1, binding, range:{after,through,exact_originals_digest},
+ dispositions:{digest}, correction_evidence_digest}
+```
+
+The outer range fields are the real interaction coordinates. The host verifies
+the original-range digest, complete C2 disposition snapshot and exact correction
+references; Laputa does not parse or independently verify source evidence. The
+whole string participates in existing request/head digests, CAS and durable replay.
+It is provenance attached to the current text, not a second progress cursor: no
+numeric marker coverage or SQL acknowledgement is introduced. Historical plain
+receipts remain valid owner data but cannot certify the current disposition set.
+Edit/restore/clear reset the certificate through their existing empty Sources;
+never inherit it from an older revision after such a mutation. Empty cleared text
+must not be reconstructed from correction references.
+
+This is a semantic C1 contract extension using unchanged Go DTOs/port signatures,
+not a proposed public RPC/schema expansion or new ACTMEM format number. Existing
+`laputa/actmem/{recap,recap_format,recap_history}.go` must all validate the new cause
+and its transition. Strict older decoders reject unknown causes: preserve that
+fail-closed behavior, publish/pin a compatible owner before S3 activation, and never
+roll back an extended head to an incompatible reader/writer. Existing Garden
+`agentapi/recap.go`, Vivy `internal/cognitivecontract/recap.go` aliases and bound
+`internal/modules/diva-cognitive/recap.go` must pass through the same contract and
+failures with no second DTO/owner. Receipt-envelope version 1 is host-defined;
+unknown envelope versions cannot authorize S3 retirement/reconciliation skipping.
 
 Persistence stays under existing `actmem/`: immutable Markdown revisions in
 `recap-history/` hold full text, metadata and previous digest; `ACTMEM.MD` is the
@@ -342,6 +408,80 @@ immutable admission snapshots for authorization comparison and observer routing.
 signatures. Its `SubjectSourceBinding` contains the subject/domain, Session,
 conversation identity (empty for ordinary contribution), schema version,
 PolicyID/ToolPolicyRef, personal scope and the actual grant snapshot above.
+
+Revision 3 adds a complete disposition capture to this SAME `SubjectSourceStore`;
+the original four signatures, `CaptureSubjectHistory`, and terminal sequence meaning
+remain unchanged:
+
+```go
+CaptureSubjectContext(context.Context, SubjectHistoryBinding) (SubjectContextSnapshot, error)
+type SubjectContextSnapshot struct {
+    Through uint64 // existing terminal-interaction ceiling
+    Dispositions []SubjectDisposition
+    DispositionDigest string
+}
+type SubjectDisposition struct {
+    SessionID domain.SessionID
+    MarkerID uint64 // existing SQL row identity, never a progress cursor
+    Marker SessionTruncation
+    Targets []SubjectDispositionTarget
+}
+type SubjectDispositionTarget struct {
+    InteractionID string
+    Sequence uint64
+    SourceSessionID domain.SessionID // canonical original's session
+    RunID domain.RunID
+    SourceDigest string
+    MessageIDs []string // affected canonical messages; no copied bodies
+    ViewMessageIDs []string // same-length exact mapping in the marker's Session
+}
+```
+
+Capture reads the ceiling, persisted eligible source/run pins, rewind/edit markers
+affecting indexed originals through that ceiling, and exact target identities in
+ONE consistent SQL snapshot. SQLite and Postgres must each qualify their isolation;
+multiple Postgres READ COMMITTED queries are not a coherent capture. The complete
+authorized domain includes archived ordinary A while main reader B has another
+Session. Admission-edit markers count even while their replacement run is unsealed.
+An active/unpinned/NoContext/private run does not thereby become an eligible target.
+
+Resolve closed cutoff/tail ranges against durable message order and exact fork-copy
+metadata. Missing anchors or inconsistent canonical target mapping fail closed;
+do not inherit `ApplySessionTruncations`' stale-anchor fail-open behavior. Fork
+provenance markers never supersede. A rewind/edit belongs to its marker Session's
+view. `ViewMessageIDs[i]` identifies that view's affected row and `MessageIDs[i]`
+its exact canonical original. Rewinding an inherited copy supersedes its use in
+the copied view only; it cannot globally retract the parent's historical occurrence
+or change the parent's disposition. Authorize both view source and canonical source
+pins before returning this mapping. A private/unbound fork cannot invalidate an
+authorized parent. No content matching, duplicate experience, or parent mutation
+is inferred from copy provenance. Union semantics apply within the scoped view.
+The digest is
+versioned canonical serialization of binding, marker identities/exact fields,
+target interaction identities/digests and affected message IDs. Stable sorting
+defines serialization only, not chronology. Neither CreatedAt, per-run Journal Seq,
+nor MAX(marker.id) proves cross-session order or committed-prefix visibility. The
+ceiling is not itself hashed unless its change changes the affected target set.
+
+The Service wrapper `CaptureSubjectContext(ctx, readerSessionID)` first calls
+`AuthorizeSubjectHistory`, then compares participating source/run pins with the
+current trusted Host resolver, including archived sources, before returning the
+authorized snapshot or expanding bodies. Denial/error blocks the domain capture;
+do not omit a denied source and claim a complete fingerprint. A later recapture
+compares the whole digest and grants. No snapshot/acknowledgement is persisted in
+SQL. Use `ReadSubjectOriginal` for immutable originals, but derive disposition from
+this capture's target IDs instead of mixing its newer mutable marker fields.
+
+Before capture, close the separate pending-repair gap on the same core store:
+enumerate terminal unsealed run/session coordinates across the authorized domain,
+including archived and pinned-main sources, through a minimal metadata query.
+Under the existing projection lock, repair all selected terminal projections before
+attempting their idempotent seals; the existing prefix guard rejects advancement
+while terminal evidence is incomplete. Reauthorize every source/run pin. Propagate
+failure before provider invocation; do not skip incomplete sources or use wall-clock
+order. Preserve actual durable seal order. Per-session `RepairSubjectHistory(B)`
+alone cannot discover archived A. Repair/capture remain separate phases; no SQL
+coverage cursor, second body store, or moving-head fallback is introduced.
 
 Until S2 Task2 connects lossless tool/steering/interrupted-delta evidence repair,
 Task1 returns `ErrSubjectEvidenceIncomplete` for those runs and retains their
@@ -428,8 +568,10 @@ raw target. The exact summarizer request must fit its real model capacity; subdi
 the prefix at complete-interaction boundaries. Never use the existing 200 KiB break.
 
 ```text
-load authorized head and durable index watermark
-assemble all uncovered complete interactions + current interaction
+authorize reader; repair domain terminal projections then seal
+capture complete disposition snapshot and its interaction ceiling; load owner head
+assemble all uncovered complete interactions + current interaction from that capture
+if covered targets changed or head certificate reset: reconcile before admission
 if pressure: select oldest complete prefix; summarize(head.text, exact prefix)
 validate free text, output budget and unchanged scope
 commit owner(base revision, operation ID, contiguous range+digest)
@@ -441,6 +583,51 @@ commit owner(base revision, operation ID, contiguous range+digest)
 reload committed head; assemble its remaining exact suffix + current once
 admit only after final capacity, permission and clear-epoch checks
 ```
+
+For that flow, capture the C2 ceiling and disposition set together after repair;
+all suffix pages use its immutable ceiling. If the head's certificate is absent,
+old or different, text is nonempty, and any target sequence is at/below coverage,
+reconcile before the ordinary provider call regardless of pressure. Do not guess
+from keywords that an affected covered claim is absent. Explicit compact follows
+this rule even with zero new completed interactions. Empty set needs no rewrite;
+empty head with no new range remains empty without model-driven historical replay.
+
+The same native `summarization.New` adapter handles correction and normal folds.
+`GenModelInput` supplies exact head, typed disposition metadata and only the exact
+affected originals needed to identify withdrawn claims. Covered originals are
+correction references, never newly folded experience or grounds to advance coverage.
+Keep historical occurrence/actual terminal outcome; mark the claim no longer current
+in the affected source view without inventing an opposite or replacement. Copied-view
+supersession must not remove a still-valid parent-view assertion from Recap merely
+because both refer to one canonical original. Only new admitted evidence supplies
+a replacement. A nonempty contiguous fold may incorporate correction and commit
+`summary`; a correction with no new range commits `reconcile` in custom Finalize.
+No independent summarizer, fake user turn or fake tool result is allowed.
+
+Recheck grants and recapture disposition digest before Finalize. A change discards
+the uncommitted candidate and consumes the same bounded fresh retry budget as CAS
+conflict. Owner CAS binds it to the original base revision. No inference runs under
+owner locks; a later SQL mutation creates a newer snapshot, not a cross-database
+transaction. Recapture before admission after any commit: reconcile the newer set
+or pause, never send an unqualified stale head. The admission cut pins head, exact
+suffix, disposition snapshot and epoch together. Uncovered superseded originals
+carry delimited non-authoritative disposition annotations; count all correction and
+annotation text/references in both actual request budgets. If exact correction cannot
+fit, pause explicitly; never replay the full covered transcript or silently trim.
+
+Keep the exact pending operation, canonical receipt envelope, captured markers and
+correction references through uncertain commit/Callback/after-summary failures.
+Resolve the same operation under C1 recovery before retrying; a confirmed receipt
+and the current head are distinct if a later edit/clear intervened. Manual edit or
+restore invalidates the certificate, so reread/regenerate once after CAS conflict.
+Clear wins by epoch/revision and cannot cause reconstruction from covered references.
+Repeated unchanged explicit compact is a no-op. After a crash, complete capture
+rediscovers committed markers even on archived A without an observer queue/cursor.
+
+S3 Task 1 cannot expose a working resident provider path while mandatory
+reconciliation is deferred to Task 2. Until the shared adapter is integrated and
+reviewed, a required reconciliation returns explicit unavailable before provider
+invocation. Tasks 1 and 2 form one activation/acceptance cut for covered supersession.
 
 One retry is a cost bound, not a forced success. Further conflict pauses explicitly.
 Eino can fail in Callback or after-summary event emission after Finalize committed.
@@ -462,6 +649,8 @@ positive receipt. Recovery uses the same owner lifecycle, never a second Store t
 bypass uncertainty or a busy lock.
 
 Ordinary edit/restore/other-session consolidation affects the next run admission.
+Source rewind/edit after the admitted cut also takes effect at the next admission;
+do not splice its new marker set into an already-admitted pinned head/suffix.
 Clear also invalidates already-admitted snapshots at the next safe model boundary:
 compare epoch, full request capacity and permission before every model call/resume
 using the existing Eino middleware. An oversized unsealed current interaction pauses
@@ -484,6 +673,12 @@ explicit denied/unavailable/partial outcomes. History cursor is revision-based.
 Wire result: `{status: applied|listed|conflict|failed, head?, revisions?, sources?,
 reason?, activation: next_run|next_safe_boundary}`. Conflict includes latest authorized
 head and preserves caller draft. Do not silently retry a human's edit against a new base.
+
+History must render the owner cause `reconcile` distinctly and preserve its exact
+text and unchanged coverage/epoch. Edit/restore/clear reset the host certificate;
+the next S3 admission performs required reconciliation. This adds no public mutate
+action or caller-supplied receipt/cause/schema field: management actions retain
+their fixed edit/clear/restore causes, and only the trusted runtime emits reconcile.
 
 Deferred `actmem_read`, `actmem_update`, `actmem_clear`, `actmem_history`,
 `actmem_restore` call the same governed owner methods through ToolHost. `tool_search`

@@ -1,0 +1,10 @@
+{"Time":"2026-10-15T20:13:42.43322568+08:00","Action":"start","Package":"agent-vivy/internal/app"}
+{"Time":"2026-10-15T20:13:42.598088221+08:00","Action":"run","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation"}
+{"Time":"2026-10-15T20:13:42.598168963+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation","Output":"=== RUN   TestMemoryLoopActivityDeleteDrainsLiveCancellation\n"}
+{"Time":"2026-10-15T20:13:44.198501747+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation","Output":"2026/10/15 20:13:44 INFO project instructions discovered root=/tmp/TestMemoryLoopActivityDeleteDrainsLiveCancellation189895114/001/workspace agents_md=[AGENTS.md] skill_roots=0\n"}
+{"Time":"2026-10-15T20:13:53.287842468+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation","Output":"2026/10/15 20:13:53 INFO vivy shutting down\n"}
+{"Time":"2026-10-15T20:13:53.294717915+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation","Output":"--- PASS: TestMemoryLoopActivityDeleteDrainsLiveCancellation (10.70s)\n"}
+{"Time":"2026-10-15T20:13:53.294745416+08:00","Action":"pass","Package":"agent-vivy/internal/app","Test":"TestMemoryLoopActivityDeleteDrainsLiveCancellation","Elapsed":10.7}
+{"Time":"2026-10-15T20:13:53.294891196+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"PASS\n"}
+{"Time":"2026-10-15T20:13:54.345789654+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"ok  \tagent-vivy/internal/app\t11.912s\n"}
+{"Time":"2026-10-15T20:13:54.345900972+08:00","Action":"pass","Package":"agent-vivy/internal/app","Elapsed":11.913}

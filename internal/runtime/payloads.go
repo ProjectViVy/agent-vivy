@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // Event payload structs. Field names and shapes mirror
@@ -243,9 +244,11 @@ type payloadModelCallFinished struct {
 }
 
 type payloadToolRequested struct {
-	ToolCallID string         `json:"tool_call_id"`
-	ToolName   string         `json:"tool_name"`
-	Args       map[string]any `json:"args"`
+	ArgumentsReference *storage.ToolArgumentsReference `json:"arguments_reference,omitempty"`
+	OriginalArguments  string                          `json:"original_arguments,omitempty"`
+	ToolCallID         string                          `json:"tool_call_id"`
+	ToolName           string                          `json:"tool_name"`
+	Args               map[string]any                  `json:"args"`
 }
 
 type payloadToolStarted struct {

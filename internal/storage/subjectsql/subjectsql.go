@@ -108,7 +108,13 @@ func (s Store) RegisterAdmissionTx(ctx context.Context, tx *sql.Tx, run domain.R
 			return err
 		}
 		if count != 0 {
-			return storage.ErrSubjectBinding
+			allowed, err := s.onlyExcludedShellRuns(ctx, tx, run.SessionID)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return storage.ErrSubjectBinding
+			}
 		}
 		policy := *source
 		policy.SessionID = ""
@@ -138,7 +144,7 @@ func (s Store) PinRunTx(ctx context.Context, tx *sql.Tx, run domain.Run, source 
 	if err != nil {
 		return err
 	}
-	if err := s.exec(ctx, tx, `INSERT INTO run_subject_sources(run_id,session_id,binding_json,admitted_message_id) VALUES(?,?,?,?) ON CONFLICT(run_id) DO NOTHING`, run.ID, run.SessionID, raw, messageID); err != nil {
+	if err := s.exec(ctx, tx, `INSERT INTO run_subject_sources(run_id,session_id,binding_json,admitted_message_id) VALUES(?,?,?,?) ON CONFLICT(run_id) DO NOTHING`, run.ID, run.SessionID, raw, nullableMessageID(messageID)); err != nil {
 		return err
 	}
 	var stored []byte
@@ -255,6 +261,9 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 	}
 	if digest != in.SourceDigest {
 		return storage.SubjectInteraction{}, storage.ErrSubjectEvidenceIncomplete
+	}
+	if err := s.completeTerminalEvidence(ctx, tx, b, in.RunID); err != nil {
+		return storage.SubjectInteraction{}, err
 	}
 	var next int64
 	if err := s.one(ctx, tx, `SELECT next_sequence FROM subject_history_heads WHERE subject_id=? AND domain_id=?`, []any{b.SubjectID, b.DomainID}, &next); err != nil {
@@ -389,3 +398,104 @@ func (s Store) ProtectDeleteTx(ctx context.Context, tx *sql.Tx, sid domain.Sessi
 }
 
 var _ storage.SubjectSourceStore = Store{}
+
+func nullableMessageID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
+}
+
+func (s Store) ReadSubjectRunEvidence(ctx context.Context, b storage.SubjectHistoryBinding, rid domain.RunID) ([]domain.Message, storage.SubjectInteraction, error) {
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return nil, storage.SubjectInteraction{}, err
+	}
+	defer tx.Rollback()
+	if err := s.identity(ctx, tx, b); err != nil {
+		return nil, storage.SubjectInteraction{}, err
+	}
+	in := storage.SubjectInteraction{RunID: rid}
+	if err := s.one(ctx, tx, `SELECT session_id FROM runs WHERE id=?`, []any{rid}, &in.SessionID); err != nil {
+		return nil, in, err
+	}
+	if err := s.one(ctx, tx, `SELECT seq FROM run_events WHERE run_id=? AND type IN ('run.completed','run.failed','run.cancelled') ORDER BY seq DESC LIMIT 1`, []any{rid}, &in.TerminalSeq); err != nil {
+		if err == sql.ErrNoRows {
+			err = storage.ErrSubjectEvidenceIncomplete
+		}
+		return nil, in, err
+	}
+	in.ID = storage.SubjectInteractionID(rid, in.TerminalSeq)
+	messages, _, err := s.evidence(ctx, tx, b, in)
+	if err != nil {
+		return nil, in, err
+	}
+	in.SourceDigest, err = storage.SubjectEvidenceDigest(messages)
+	return messages, in, err
+}
+
+// onlyExcludedShellRuns never converts an existing conversation. An already
+// trusted singleton may first be used through !! before its first shared turn.
+func (s Store) onlyExcludedShellRuns(ctx context.Context, tx *sql.Tx, sid domain.SessionID) (bool, error) {
+	rows, err := tx.QueryContext(ctx, s.query(`SELECT r.id,r.kind,r.status,r.purpose,r.depth,r.parent_run_id,e.type,e.payload,
+ (SELECT COUNT(*) FROM messages m WHERE m.session_id=r.session_id),
+ (SELECT COUNT(*) FROM run_events x WHERE x.run_id=r.id AND x.type IN ('model.request','model.delta','model.completed'))
+ FROM runs r LEFT JOIN run_events e ON e.run_id=r.id AND e.seq=1 WHERE r.session_id=?`), sid)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var rid, kind, status, purpose, parent string
+		var depth, messages, models int
+		var typ sql.NullString
+		var raw []byte
+		if err := rows.Scan(&rid, &kind, &status, &purpose, &depth, &parent, &typ, &raw, &messages, &models); err != nil {
+			return false, err
+		}
+		var p struct {
+			NoContext bool `json:"no_context"`
+		}
+		if (kind != "" && kind != string(domain.RunKindPrimary)) || !domain.RunStatus(status).Terminal() || purpose != "" || depth != 0 || parent != "" || typ.String != string(domain.EventRunStarted) || messages != 0 || models != 0 || json.Unmarshal(raw, &p) != nil || !p.NoContext || !storage.IsGovernedShellStart(raw) {
+			return false, nil
+		}
+		found = true
+	}
+	return found, rows.Err()
+}
+
+// completeTerminalEvidence uses the same head transaction as allocation. A
+// known terminal gap cannot be skipped; active and unpinned runs do not enter
+// this cut. Complete sources keep durable seal order, independent of clocks.
+func (s Store) completeTerminalEvidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistoryBinding, current domain.RunID) error {
+	rows, err := tx.QueryContext(ctx, s.query(`SELECT p.run_id,p.session_id,e.seq
+ FROM run_subject_sources p JOIN subject_sources h ON h.session_id=p.session_id
+ JOIN run_events e ON e.run_id=p.run_id AND e.type IN ('run.completed','run.failed','run.cancelled')
+ LEFT JOIN subject_interactions i ON i.run_id=p.run_id
+ WHERE h.subject_id=? AND h.domain_id=? AND i.run_id IS NULL AND p.run_id<>? ORDER BY p.run_id`), b.SubjectID, b.DomainID, current)
+	if err != nil {
+		return err
+	}
+	var pending []storage.SubjectInteraction
+	for rows.Next() {
+		var in storage.SubjectInteraction
+		if err := rows.Scan(&in.RunID, &in.SessionID, &in.TerminalSeq); err != nil {
+			rows.Close()
+			return err
+		}
+		in.ID = storage.SubjectInteractionID(in.RunID, in.TerminalSeq)
+		pending = append(pending, in)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, in := range pending {
+		if _, _, err := s.evidence(ctx, tx, b, in); err != nil {
+			return err
+		}
+	}
+	return nil
+}

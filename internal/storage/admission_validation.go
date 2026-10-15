@@ -20,6 +20,12 @@ import (
 // selection and definition while holding its session/definition locks.
 func ValidateRunAdmissionInput(in RunAdmission) error {
 	if in.Subject != nil {
+		var exclusion struct {
+			NoContext bool `json:"no_context"`
+		}
+		if json.Unmarshal(in.Started.Payload, &exclusion) == nil && exclusion.NoContext {
+			return ErrSubjectBinding
+		}
 		if err := in.Subject.Validate(); err != nil {
 			return err
 		}
@@ -43,7 +49,7 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 		return admissionInvalid("run kind is invalid")
 	}
 	if in.OmitMessage {
-		if in.Run.Kind != domain.RunKindChild || in.Run.EffectiveChildMode() != domain.ChildModeOneShot {
+		if !IsSubjectShellAdmission(in) && (in.Run.Kind != domain.RunKindChild || in.Run.EffectiveChildMode() != domain.ChildModeOneShot) {
 			return admissionInvalid("only one-shot child admission may omit its transcript message")
 		}
 		if in.Message.ID != "" || in.Message.SessionID != "" || in.Message.RunID != "" || in.Message.Role != "" ||
@@ -558,4 +564,30 @@ func AdmissionUnavailable(operation string, err error) error {
 		err = errors.New("unknown storage failure")
 	}
 	return mask.NewError(mask.CodeUnavailable, fmt.Errorf("storage: %s: %w", operation, err))
+}
+
+// IsSubjectShellAdmission recognizes the existing governed direct-shell start
+// shape. Ordinary primary admissions still require their actual user message.
+func IsSubjectShellAdmission(in RunAdmission) bool {
+	if !in.OmitMessage || in.Subject == nil || in.Prompt != nil || in.Edit != nil || len(in.Events) != 0 ||
+		(in.Run.Kind != "" && in.Run.Kind != domain.RunKindPrimary) || in.Run.ParentID != "" || in.Run.Depth != 0 || in.Run.Purpose != "" {
+		return false
+	}
+	var p struct {
+		NoContext bool `json:"no_context"`
+	}
+	return json.Unmarshal(in.Started.Payload, &p) == nil && !p.NoContext && IsGovernedShellStart(in.Started.Payload)
+}
+
+// IsGovernedShellStart checks the existing shell-origin boundary. Source
+// membership additionally requires the current trusted Host singleton binding.
+func IsGovernedShellStart(raw []byte) bool {
+	var p struct {
+		Provider, Model, Mode, Face string
+		PolicyProfile               string                `json:"policy_profile"`
+		PolicyHash                  string                `json:"policy_hash"`
+		SandboxMode                 domain.SandboxMode    `json:"sandbox_mode"`
+		ApprovalPolicy              domain.ApprovalPolicy `json:"approval_policy"`
+	}
+	return json.Unmarshal(raw, &p) == nil && p.Provider == "" && p.Model == "" && p.Mode == string(domain.RunModeNormal) && p.Face == string(domain.FaceTui) && domain.PolicyProfile(p.PolicyProfile).Valid() && p.PolicyHash != "" && p.SandboxMode.Valid() && p.ApprovalPolicy.Valid()
 }

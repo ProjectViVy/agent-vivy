@@ -3,12 +3,12 @@ name: vivy-eino
 description: 'Complete Eino framework usage guide for Vivy development — components (ChatModel, Prompt, Retriever, Embedding, Document, Indexer, Tool), orchestration (Chain / Graph / Workflow / Parallel / Branch), Runnable modes (Invoke/Stream/Collect/Transform), callbacks/observability, and the ADK agent layer (ChatModelAgent, Runner, events, middlewares). Use whenever code touches github.com/cloudwego/eino* (inside internal/runtime or internal/provider), or when the user asks how to build/design an LLM pipeline in Vivy, how to chain models+tools+retrieval, how to stream, how to add agents, or references the Eino quick start (快速开始 / chapter_01 / ChatModel 与 Message). Triggers: eino / chain / graph / workflow / compose / adk / agent / retriever / rag / embedding / prompt template / tools node / callbacks / stream / Invoke / Stream / Collect / Transform / 编排 / 流程图 / 智能体 / 工具调用.'
 ---
 
-# Vivy × Eino — framework usage guide (v0.9.13)
+# Vivy × Eino — framework usage guide (v0.9.20)
 
 Official docs: <https://www.cloudwego.io/zh/docs/eino/> — **do not fetch over the network**; the sandbox blocks outbound TLS (`SEC_E_NO_CREDENTIALS`). Canonical reference is the local module source, which matches the repo pin in `go.mod`:
 
 ```
-%USERPROFILE%\go\pkg\mod\github.com\cloudwego\eino@v0.9.13\
+%USERPROFILE%\go\pkg\mod\github.com\cloudwego\eino@v0.9.20\
     components\model\        # ChatModel
     components\prompt\       # chat templates
     components\tool\         # tool interfaces + utils (InferTool)
@@ -23,6 +23,8 @@ Official docs: <https://www.cloudwego.io/zh/docs/eino/> — **do not fetch over 
     schema\                  # Message, Document, ToolInfo, StreamReader
 %USERPROFILE%\go\pkg\mod\github.com\cloudwego\eino-ext\components\model\openai@v0.1.13\
 ```
+
+Current native-fix baseline: official Eino `v0.9.20` (`b9539ec114a14c32aa568f05eda5cde1e83fcfc1`). On Linux, derive the same source path from `go env GOMODCACHE` (this environment: `/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.20`). The enhanced ToolsNode stream converter uses a local `convertErr`; native canceled streams retain completed outputs and rerun state through existing checkpoint APIs. Preserve concurrent tools and typed interrupts; do not add a local converter patch or tool serialization. EinoExt pins remain unchanged. Current compatibility and test evidence: `docs/logs/2026-10-15-issue58-subject-binding/eino-upgrade-report.md`; historical baseline records remain at their actually inspected versions.
 
 ## Eino in one paragraph
 

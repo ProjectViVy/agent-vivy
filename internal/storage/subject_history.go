@@ -93,6 +93,7 @@ func SameSubjectSourceBinding(a, b SubjectSourceBinding) bool {
 
 type SubjectSourceStore interface {
 	SubjectHistoryStore
+	ReadSubjectRunEvidence(context.Context, SubjectHistoryBinding, domain.RunID) ([]domain.Message, SubjectInteraction, error)
 	GetSubjectSource(context.Context, domain.SessionID) (SubjectSourceBinding, error)
 	GetRunSubjectSource(context.Context, domain.RunID) (SubjectSourceBinding, error)
 	CaptureSubjectHistory(context.Context, SubjectHistoryBinding) (uint64, error)
@@ -108,7 +109,10 @@ func SubjectEvidenceDigest(messages []domain.Message) (string, error) {
 	// JSON cannot represent invalid UTF-8 without replacing bytes. Refuse such
 	// evidence rather than committing a digest of silently changed originals.
 	for _, m := range messages {
-		fields := []string{m.ID, string(m.SessionID), string(m.RunID), string(m.Role), m.Content, m.ToolCallID, m.ToolName, m.Source, m.Channel, m.ChatID, m.ChannelMessageID, m.ContentOrigin}
+		fields := []string{m.ID, string(m.SessionID), string(m.RunID), string(m.Role), m.Content, m.ToolCallID, m.ToolName, m.ToolError, m.Source, m.Channel, m.ChatID, m.ChannelMessageID, m.ContentOrigin}
+		if m.CopySource != nil {
+			fields = append(fields, string(m.CopySource.SessionID), m.CopySource.MessageID)
+		}
 		for _, a := range m.Attachments {
 			fields = append(fields, a.Name, a.MimeType)
 		}
