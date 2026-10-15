@@ -70,3 +70,8 @@ Iteration-log rule applies: each landed Story files `docs/logs/<date>-<slug>/`
 ## Selected #58 policy follow-up (2026-10-11)
 
 The [unified context contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md) owns the new requirements and unchecked validation scenarios. One subject-level Recap, UI/agent management, conflict/delete lifecycle and Work/reconcile/capture compatibility remain planned. No completed Story in the table establishes their delivery.
+
+The [Issue #58 execution package](../issue-58/index.md) now records the 2026-10-15
+source baseline, proposed design and S0–S6 executable plans. It is in plan review,
+with LIFE-selector approval and product verification still pending; it does not
+change the historical completion states above.
