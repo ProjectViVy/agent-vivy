@@ -33,6 +33,7 @@ type ContextPolicy struct {
 
 // ContextStats describes how the policy shaped one run's context.
 type ContextStats struct {
+	recap                   *RecapContext
 	OriginalHistoryMessages int
 	IncludedHistoryMessages int
 	DroppedHistoryMessages  int

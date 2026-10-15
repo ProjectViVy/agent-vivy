@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"agent-vivy/internal/cognitivecontract"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/tools"
 	"context"
 	"encoding/json"
@@ -368,6 +369,12 @@ func TestIssue58AuthorizedOrdinaryAndLifeKeepTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			svc.engine = engine
+			if main {
+				svc.deps.Recap = issue58Owner(t)
+				// This producer capability fixture intentionally emits a 220KiB result;
+				// give its declared model enough capacity for exact selected-policy input.
+				svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "test", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "test-model", Models: []provider.Model{{ID: "test-model", ContextWindow: 1 << 20}}}}}))
+			}
 			rid, err := svc.Run(ctx, source.SessionID, "authorized actual tool request")
 			if err != nil {
 				t.Fatal(err)
@@ -396,13 +403,13 @@ func TestIssue58AuthorizedOrdinaryAndLifeKeepTools(t *testing.T) {
 			for _, msg := range recorder.lastInput() {
 				if msg.Role == schema.Tool {
 					encoded, _ := json.Marshal(msg)
-					if strings.Contains(string(encoded), "exact tool result:") {
+					if (!main && strings.Contains(string(encoded), "exact tool result:")) || (main && strings.Contains(string(encoded), tool.result)) {
 						visibleRef = true
 					}
 				}
 			}
 			if !visibleRef {
-				t.Fatal("enhanced normalization dropped exact result reference before model continuation")
+				t.Fatal("enhanced normalization lost the ordinary exact reference or resident complete tool output")
 			}
 			pin, err := b.GetRunSubjectSource(ctx, rid)
 			if err != nil || pin.PolicyID != source.PolicyID {

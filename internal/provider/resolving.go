@@ -68,11 +68,12 @@ type resolvingChatModel struct {
 }
 
 func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	inner, err := m.inner(ctx)
+	live := m.src.Live()
+	inner, err := m.innerForSpec(ctx, live)
 	if err != nil {
 		return nil, err
 	}
-	options, err := m.requestOptions(ctx, opts)
+	options, err := m.requestOptionsForSpec(ctx, opts, live)
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +81,12 @@ func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message,
 }
 
 func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	inner, err := m.inner(ctx)
+	live := m.src.Live()
+	inner, err := m.innerForSpec(ctx, live)
 	if err != nil {
 		return nil, err
 	}
-	options, err := m.requestOptions(ctx, opts)
+	options, err := m.requestOptionsForSpec(ctx, opts, live)
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +97,10 @@ func (m *resolvingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCall
 	return &resolvingChatModelWithTools{parent: m, tools: tools}, nil
 }
 
-func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatModel, error) {
+func (m *resolvingChatModel) innerForSpec(ctx context.Context, live LiveSpec) (model.ToolCallingChatModel, error) {
 	if m.host == nil {
 		return nil, fmt.Errorf("provider: %w", modelhost.ErrHostRequired)
 	}
-	live := m.src.Live()
 	if live.Provider == "" {
 		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 	}
@@ -335,8 +336,7 @@ func (s thinkingShape) options() []model.Option {
 // thinkingOptions translates the run's thinking preference (domain context)
 // into provider-native per-call options through the adapter, the endpoint's
 // declared capabilities and the model's declared metadata.
-func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
-	live := m.src.Live()
+func (m *resolvingChatModel) thinkingOptionsForSpec(ctx context.Context, live LiveSpec) []model.Option {
 	// A user-registered endpoint declares no capability and no model metadata,
 	// and the embedded data does not describe it, so there is nothing to key
 	// the rule on. Sending a reasoning field to an upstream that never
@@ -361,11 +361,12 @@ func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option
 }
 
 func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	inner, err := m.bound(ctx)
+	live := m.parent.src.Live()
+	inner, err := m.boundForSpec(ctx, live)
 	if err != nil {
 		return nil, err
 	}
-	options, err := m.parent.requestOptions(ctx, opts)
+	options, err := m.parent.requestOptionsForSpec(ctx, opts, live)
 	if err != nil {
 		return nil, err
 	}
@@ -373,11 +374,12 @@ func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema
 }
 
 func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	inner, err := m.bound(ctx)
+	live := m.parent.src.Live()
+	inner, err := m.boundForSpec(ctx, live)
 	if err != nil {
 		return nil, err
 	}
-	options, err := m.parent.requestOptions(ctx, opts)
+	options, err := m.parent.requestOptionsForSpec(ctx, opts, live)
 	if err != nil {
 		return nil, err
 	}
@@ -388,8 +390,8 @@ func (m *resolvingChatModelWithTools) WithTools(tools []*schema.ToolInfo) (model
 	return &resolvingChatModelWithTools{parent: m.parent, tools: tools}, nil
 }
 
-func (m *resolvingChatModelWithTools) bound(ctx context.Context) (model.ToolCallingChatModel, error) {
-	inner, err := m.parent.inner(ctx)
+func (m *resolvingChatModelWithTools) boundForSpec(ctx context.Context, live LiveSpec) (model.ToolCallingChatModel, error) {
+	inner, err := m.parent.innerForSpec(ctx, live)
 	if err != nil {
 		return nil, err
 	}
@@ -399,13 +401,15 @@ func (m *resolvingChatModelWithTools) bound(ctx context.Context) (model.ToolCall
 // requestOptions preserves the selected thinking shape and applies a trusted
 // runtime output cap last. An incompatible thinking budget is unavailable,
 // never silently disabled or shrunk to make a capacity check pass.
-func (m *resolvingChatModel) requestOptions(ctx context.Context, opts []model.Option) ([]model.Option, error) {
-	options := append(append([]model.Option(nil), opts...), m.thinkingOptions(ctx)...)
+func (m *resolvingChatModel) requestOptionsForSpec(ctx context.Context, opts []model.Option, live LiveSpec) ([]model.Option, error) {
+	if pin, ok := domain.ModelRequestScopeFromContext(ctx); ok && (pin.Provider == "" || pin.Model == "" || pin.Provider != live.Provider || pin.Model != live.Model) {
+		return nil, fmt.Errorf("provider: admitted model route changed before invocation")
+	}
+	options := append(append([]model.Option(nil), opts...), m.thinkingOptionsForSpec(ctx, live)...)
 	limit := domain.ModelOutputLimitFromContext(ctx)
 	if limit <= 0 {
 		return options, nil
 	}
-	live := m.src.Live()
 	endpoint := live.Endpoint
 	if endpoint.Adapter == "" {
 		var err error

@@ -2,87 +2,66 @@ package runtime
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/conformance"
-	"agent-vivy/internal/testsupport"
 	"github.com/ProjectViVy/laputa/laputa/actmem"
 )
 
 func TestIssue58SharedRecentActualRequest(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var mu sync.Mutex
-	var requests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		requests = append(requests, string(raw))
-		mu.Unlock()
-		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"complete\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
-	}))
-	defer server.Close()
-	ref, err := provider.NewCatalog().RefForSelection("fixture", provider.Endpoint{Adapter: provider.AdapterOpenAICompletions, BaseURL: server.URL, DefaultModel: "fixture"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	model, err := ref.Model(ctx, provider.ModelSpec{ID: "fixture", APIKey: "fixture", BaseURL: server.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc, b, _ := newTestService(t, testsupport.NewEchoModel())
-	eng, err := NewEngine(ctx, model, nil, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc.engine = eng
-	svc.deps.Recap = issue58Owner(t)
-	svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "test", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "test-model", Models: []provider.Model{{ID: "test-model", ContextWindow: 128000}}}}}))
-	conformance.Issue58Identity(t, b)
-	mustCreateSession(t, b, "main-reader")
-	sources := map[domain.SessionID]storage.SubjectSourceBinding{}
-	for _, id := range []string{"source-A", "source-B"} {
-		source := conformance.Issue58Source(domain.SessionID(id), false)
-		sources[source.SessionID] = source
-		mustCreateSession(t, b, source.SessionID)
-		in := conformance.Issue58Completed(t, b, source, id+"-original")
-		if _, err := b.SealSubjectInteraction(ctx, source.SubjectHistoryBinding, in); err != nil {
+	f := newIssue58Wire(t)
+	ctx := context.Background()
+	for _, sid := range []string{"source-A", "source-B"} {
+		source := conformance.Issue58Source(domain.SessionID(sid), false)
+		f.sources[source.SessionID] = source
+		mustCreateSession(t, f.b, source.SessionID)
+		admission := conformance.Issue58Admission(source, sid+"-equal-original")
+		admission.Message.Content = "equal original text"
+		if _, err := f.b.CommitRunAdmission(ctx, admission); err != nil {
+			t.Fatal(err)
+		}
+		seq, err := f.b.Append(ctx, storage.Commit{RunID: admission.Run.ID, Events: []domain.RunEvent{{RunID: admission.Run.ID, Type: domain.EventRunCompleted, PayloadVersion: 1, Payload: []byte(`{}`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = f.b.SetRunStatus(ctx, admission.Run.ID, domain.RunCompleted); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := storage.SubjectEvidenceDigest([]domain.Message{admission.Message})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.b.SealSubjectInteraction(ctx, source.SubjectHistoryBinding, storage.SubjectInteraction{Sequence: 0, ID: storage.SubjectInteractionID(admission.Run.ID, seq), SessionID: source.SessionID, RunID: admission.Run.ID, TerminalSeq: seq, SourceDigest: digest}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	issue58Sources(svc, sources)
-	rid, err := svc.Run(ctx, "main-reader", "current once")
-	if err != nil {
+	if _, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{OperationID: "explicit-recap", Cause: "edit", Text: "shared resident recap"}); err != nil {
 		t.Fatal(err)
 	}
-	if !svc.WaitIdle(ctx) {
-		t.Fatal("run did not settle")
+	first := f.run(t, "current once")
+	if first.Status != domain.RunCompleted {
+		t.Fatalf("first %+v", first)
 	}
-	run, err := b.GetRun(ctx, rid)
-	if err != nil || run.Status != domain.RunCompleted {
-		t.Fatalf("run %+v %v events=%+v", run, err, replayAll(t, b, rid))
+	f.restart(t)
+	second := f.run(t, "after restart current")
+	if second.Status != domain.RunCompleted {
+		t.Fatalf("second %+v", second)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(requests) != 1 {
+	requests := f.capture()
+	if len(requests) != 2 {
 		t.Fatalf("requests=%d", len(requests))
 	}
-	wire := requests[0]
-	t.Logf("HTTP_CAPTURE %s", wire)
-	// Both originals have the same text, but distinct canonical identities.
-	if strings.Count(wire, "exact source source-A-original") != 1 || strings.Count(wire, "exact source source-B-original") != 1 || strings.Count(wire, "current once") != 1 {
-		t.Fatalf("shared originals/current lost or duplicated: %s", wire)
+	for _, wire := range requests {
+		if strings.Count(wire, "equal original text") != 2 || strings.Count(wire, "current once") != 1 || strings.Count(wire, "shared resident recap") != 1 {
+			t.Fatalf("canonical identity dedup/restart lost exact context: %s", wire)
+		}
+	}
+	if strings.Count(requests[1], "after restart current") != 1 {
+		t.Fatal("current ID duplicated on restart")
 	}
 }
 
@@ -91,17 +70,19 @@ func TestIssue58SharedRecentActualRequest(t *testing.T) {
 type issue58BoundOwner struct {
 	store   *actmem.Store
 	binding cognitivecontract.RecapBinding
+	root    string
 }
 
 func issue58Owner(t *testing.T) *issue58BoundOwner {
 	t.Helper()
-	store, err := actmem.Open(t.TempDir())
+	root := t.TempDir()
+	store, err := actmem.Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
 	source := conformance.Issue58Source("main-reader", true)
-	return &issue58BoundOwner{store: store, binding: cognitivecontract.RecapBinding{SubjectID: source.SubjectID, DomainID: source.DomainID}}
+	return &issue58BoundOwner{root: root, store: store, binding: cognitivecontract.RecapBinding{SubjectID: source.SubjectID, DomainID: source.DomainID}}
 }
 func (o *issue58BoundOwner) ReadRecap(ctx context.Context) (cognitivecontract.RecapHead, error) {
 	return o.store.ReadRecap(ctx, o.binding)

@@ -143,3 +143,48 @@ func validateRecapReceipt(r recapReceipt) error {
 	}
 	return nil
 }
+
+// validateRecapCorrectionReferences accepts only exact captured metadata and
+// aligned message pairs actually selected for the summarizer. A later capture
+// may contain more targets; historical receipts never expand to that larger set.
+func validateRecapCorrectionReferences(refs []storage.SubjectDisposition, snapshot storage.SubjectContextSnapshot) error {
+	for _, used := range refs {
+		var captured *storage.SubjectDisposition
+		for i := range snapshot.Dispositions {
+			candidate := &snapshot.Dispositions[i]
+			if candidate.SessionID == used.SessionID && candidate.MarkerID == used.MarkerID {
+				captured = candidate
+				break
+			}
+		}
+		if captured == nil || captured.Marker != used.Marker {
+			return ErrRecapUnavailable
+		}
+		for _, target := range used.Targets {
+			var found *storage.SubjectDispositionTarget
+			for i := range captured.Targets {
+				candidate := &captured.Targets[i]
+				if candidate.InteractionID == target.InteractionID {
+					found = candidate
+					break
+				}
+			}
+			if found == nil || target.Sequence != found.Sequence || target.SourceSessionID != found.SourceSessionID || target.RunID != found.RunID || target.SourceDigest != found.SourceDigest || len(target.MessageIDs) != len(target.ViewMessageIDs) {
+				return ErrRecapUnavailable
+			}
+			for i, id := range target.MessageIDs {
+				matched := false
+				for j, original := range found.MessageIDs {
+					if original == id && j < len(found.ViewMessageIDs) && found.ViewMessageIDs[j] == target.ViewMessageIDs[i] {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return ErrRecapUnavailable
+				}
+			}
+		}
+	}
+	return nil
+}

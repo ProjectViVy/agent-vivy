@@ -18,6 +18,7 @@ type issue58CallbackTool struct {
 	run    func()
 	result string
 	name   string
+	schema string
 }
 
 func (t *issue58CallbackTool) Spec() domain.ToolSpec {
@@ -25,7 +26,11 @@ func (t *issue58CallbackTool) Spec() domain.ToolSpec {
 	if name == "" {
 		name = "issue58_callback"
 	}
-	return domain.ToolSpec{Name: name, Readonly: true, Exposure: domain.ToolExposureDirect, Schema: json.RawMessage(`{"type":"object","properties":{"number":{"type":"number"}},"additionalProperties":false}`)}
+	body := t.schema
+	if body == "" {
+		body = `{"type":"object","properties":{"number":{"type":"number"}},"additionalProperties":false}`
+	}
+	return domain.ToolSpec{Name: name, Readonly: true, Exposure: domain.ToolExposureDirect, Schema: json.RawMessage(body)}
 }
 func (t *issue58CallbackTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
 	if t.run != nil {
@@ -50,6 +55,10 @@ func TestIssue58CapacityPauses(t *testing.T) {
 	for _, kind := range []string{"oversized-current", "unknown-window", "unknown-image-charge", "large-full-schema"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newIssue58Wire(t)
+			if kind == "large-full-schema" {
+				large := &issue58CallbackTool{schema: `{"type":"object","properties":{"payload":{"type":"string","description":"` + strings.Repeat("schema", 1000) + `"}}}`}
+				f = newIssue58Wire(t, large)
+			}
 			text := "current retained"
 			opts := RunOptions{}
 			switch kind {
@@ -69,7 +78,6 @@ func TestIssue58CapacityPauses(t *testing.T) {
 				if !errors.Is(err, ErrContextCapacityRequired) || usage.TextualTokenUpperBound < 5000 {
 					t.Fatalf("schema not budgeted: %+v %v", usage, err)
 				}
-				return
 			}
 			id, err := f.svc.RunWithOptions(context.Background(), "main-reader", text, opts)
 			if err != nil {
@@ -128,6 +136,7 @@ func TestIssue58NoSilentHistoryFallback(t *testing.T) {
 func TestIssue58CoveredSourceGrantBoundary(t *testing.T) {
 	f := newIssue58Wire(t)
 	row := f.completed(t, "archived-A", "grant-A")
+	issue58SeedSummary(t, f, row, "")
 	if err := f.b.ArchiveRetainedSession(context.Background(), row.SessionID); err != nil {
 		t.Fatal(err)
 	}
@@ -239,4 +248,194 @@ func TestIssue58NotebookAutomaticExclusionActualRequest(t *testing.T) {
 }
 func conformanceBinding() storage.SubjectHistoryBinding {
 	return storage.SubjectHistoryBinding{SubjectID: "11111111-1111-4111-8111-111111111111", DomainID: "subject-personal-v1"}
+}
+
+func issue58SeedSummary(t *testing.T, f *issue58Wire, row storage.SubjectInteraction, digestOverride string) cognitivecontract.RecapHead {
+	t.Helper()
+	ctx := context.Background()
+	binding, err := f.svc.AuthorizeSubjectHistory(ctx, "main-reader")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.svc.CaptureSubjectContext(ctx, "main-reader")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := encodeRecapReceipt(recapReceipt{Version: 1, ProjectionPolicy: 1, Binding: binding, Range: recapReceiptRange{Through: row.Sequence, ExactOriginalsDigest: row.SourceDigest}, Dispositions: recapReceiptDispositions{Digest: snapshot.DispositionDigest}, CorrectionRefs: []storage.SubjectDisposition{}, CorrectionEvidenceDigest: sha256Hex(nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digestOverride != "" {
+		digest = digestOverride
+	}
+	head, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{OperationID: "seed-summary", Cause: "summary", Text: "source-certified fact", Sources: cognitivecontract.SourceRange{Through: row.Sequence, Digest: digest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return head
+}
+
+func TestIssue58ProjectionPolicyCertificateActualRequest(t *testing.T) {
+	for _, kind := range []string{"supported", "legacy", "unknown-policy", "missing-policy", "malformed", "manual-edit", "manual-restore", "clear"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newIssue58Wire(t)
+			row := f.completed(t, "source-A", "certificate-A")
+			head := issue58SeedSummary(t, f, row, "")
+			ctx := context.Background()
+			allowed := true
+			switch kind {
+			case "legacy", "unknown-policy", "missing-policy", "malformed":
+				digest := head.Sources.Digest
+				switch kind {
+				case "legacy":
+					digest = "historical-fingerprint-only"
+				case "unknown-policy":
+					digest = strings.Replace(digest, `"projection_policy":1`, `"projection_policy":2`, 1)
+				case "missing-policy":
+					digest = strings.Replace(digest, `"projection_policy":1,`, "", 1)
+				case "malformed":
+					digest = strings.Replace(digest, `"projection_policy":1`, `"projection_policy":null`, 1)
+				}
+				_, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{BaseRevision: head.Revision, OperationID: "unsupported-reconcile", Cause: "reconcile", Text: head.Text, Sources: cognitivecontract.SourceRange{After: row.Sequence, Through: row.Sequence, Digest: digest}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				allowed = false
+			case "manual-edit":
+				_, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{BaseRevision: head.Revision, OperationID: "manual", Cause: "edit", Text: "explicit human text"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "manual-restore":
+				cleared, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{BaseRevision: head.Revision, OperationID: "clear", Cause: "clear"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{BaseRevision: cleared.Revision, OperationID: "restore", Cause: "restore", RestoredFrom: head.Revision})
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "clear":
+				_, err := f.owner.CommitRecap(ctx, cognitivecontract.RecapCommit{BaseRevision: head.Revision, OperationID: "clear", Cause: "clear"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := f.owner.ReadRecap(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run := f.run(t, "certificate current")
+			after, err := f.owner.ReadRecap(ctx)
+			if err != nil || after != before {
+				t.Fatal("admission rewrote/recertified head")
+			}
+			requests := f.capture()
+			if allowed {
+				if run.Status != domain.RunCompleted || len(requests) != 1 {
+					t.Fatalf("valid/manual/clear admission failed %+v", run)
+				}
+				if strings.Contains(requests[0], "exact source certificate-A") {
+					t.Fatal("covered original replayed")
+				}
+			} else {
+				if run.Status != domain.RunFailed || len(requests) != 0 || !strings.Contains(issue58FailurePayload(t, f, run), "recap_unavailable") {
+					t.Fatalf("unsupported certificate reached HTTP %+v", run)
+				}
+			}
+		})
+	}
+}
+
+func TestIssue58TruthfulPreexecutionRefusalActualRequest(t *testing.T) {
+	tool := &classifierStubTool{class: tools.InvocationDenied, findings: []string{"denied synthetic command"}}
+	f := newIssue58Wire(t, tool)
+	f.reply = func(i int) *schema.Message {
+		if i == 0 {
+			return issue58ToolReply(tool.Spec().Name, `{"command":"synthetic"}`)
+		}
+		return schema.AssistantMessage("refusal acknowledged", nil)
+	}
+	run := f.run(t, "attempt governed tool")
+	if run.Status != domain.RunCompleted || tool.calls != 0 || len(f.capture()) != 2 {
+		t.Fatalf("refusal misreported %+v calls=%d", run, tool.calls)
+	}
+	events := replayAll(t, f.b, run.ID)
+	metadata := false
+	for _, event := range events {
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var outcome struct{ Outcome, Effects string }
+		if json.Unmarshal(event.Payload, &outcome) == nil && outcome.Outcome == toolFailureStatusRefused && outcome.Effects == toolEffectsNotExecuted {
+			metadata = true
+		}
+	}
+	if !metadata {
+		t.Fatal("refusal missing explicit refused/not_executed metadata")
+	}
+	wire := f.capture()[1]
+	if !strings.Contains(wire, "did not run: denied synthetic command") {
+		t.Fatalf("actual provider lacks truthful refusal: %s", wire)
+	}
+	f.restart(t)
+	rows, _, err := f.b.ReadSubjectRunEvidence(context.Background(), conformanceBinding(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range rows {
+		if row.Role == domain.RoleTool && strings.Contains(row.Content, "denied synthetic command") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("retained refusal changed to execution")
+	}
+	run = f.run(t, "fresh after refusal")
+	if run.Status != domain.RunCompleted || len(f.capture()) != 3 {
+		t.Fatalf("fresh admitted recovery failed %+v", run)
+	}
+}
+
+func TestIssue58AdmittedModelCapacityIgnoresMutableLabels(t *testing.T) {
+	tool := &issue58CallbackTool{result: "exact tool"}
+	f := newIssue58Wire(t, tool)
+	tool.run = func() { f.svc.SetModel("changed-after-admission", "unknown-model") }
+	f.reply = func(i int) *schema.Message {
+		if i == 0 {
+			return issue58ToolReply(tool.Spec().Name, `{"number":1}`)
+		}
+		return schema.AssistantMessage("done", nil)
+	}
+	run := f.run(t, "pinned admitted model")
+	if run.Status != domain.RunCompleted || len(f.capture()) != 2 {
+		t.Fatalf("capacity used mutable labels instead of admitted route %+v", run)
+	}
+	next := f.run(t, "new unknown model")
+	if next.Status != domain.RunFailed || len(f.capture()) != 2 {
+		t.Fatal("unknown current route reused earlier capacity")
+	}
+}
+
+type issue58RunPinFailure struct {
+	storage.SessionStore
+	storage.SubjectSourceStore
+}
+
+func (issue58RunPinFailure) GetRunSubjectSource(context.Context, domain.RunID) (storage.SubjectSourceBinding, error) {
+	return storage.SubjectSourceBinding{}, errors.New("fixture run pin read unavailable")
+}
+func TestIssue58RunPinFailureCannotSelectLegacyCompaction(t *testing.T) {
+	f := newIssue58Wire(t)
+	f.svc.deps.Sessions = issue58RunPinFailure{f.b, f.b}
+	run := f.run(t, strings.Repeat("large unsealed current ", 500))
+	if run.Status != domain.RunFailed || len(f.capture()) != 0 {
+		t.Fatal("run pin lookup failure reached provider")
+	}
+	for _, event := range replayAll(t, f.b, run.ID) {
+		if event.Type == domain.EventContextCompacted {
+			t.Fatal("run pin read failure silently selected legacy compaction")
+		}
+	}
 }

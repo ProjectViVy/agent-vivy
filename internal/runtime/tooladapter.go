@@ -528,7 +528,20 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			Profile: policyProfile(ctx), PolicyHash: policyHash, Reason: reason,
 		})
 	}
-	return refusalToolResult(spec.Name, reason), nil
+	result = refusalToolResult(spec.Name, reason)
+	if residentRecap(ctx) {
+		if coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator); ok {
+			// Completion means a durable logical outcome, never tool execution.
+			// refused/not_executed is already recorded above and remains on the
+			// native tool.finished event. This closure cannot call the tool.
+			operation, admitErr := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(argumentsInJSON), []byte(argumentsInJSON))
+			if admitErr != nil {
+				return "", admitErr
+			}
+			return coordinator.Execute(ctx, operation, func(context.Context) (string, error) { return result, nil })
+		}
+	}
+	return result, nil
 }
 
 func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/cognitivecontract"
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"github.com/cloudwego/eino/schema"
@@ -124,6 +125,11 @@ func validateRecapHeadCertificate(head cognitivecontract.RecapHead, snapshot sto
 		if decoded.Binding != binding || decoded.Range.After != head.Sources.After || decoded.Range.Through != head.Sources.Through || decoded.Range.Through != head.CoveredThrough {
 			return ErrRecapUnavailable
 		}
+		if decoded.Dispositions.Digest == snapshot.DispositionDigest {
+			if err := validateRecapCorrectionReferences(decoded.CorrectionRefs, snapshot); err != nil {
+				return err
+			}
+		}
 		receipt = &decoded
 	case "edit", "restore":
 		if head.Sources != (cognitivecontract.SourceRange{}) {
@@ -185,18 +191,61 @@ func (s *Service) runRecapMessages(ctx context.Context, sid domain.SessionID, us
 	for _, notice := range cut.Notices {
 		messages = append(messages, schema.SystemMessage(notice))
 	}
-	references, err := s.sessionAttachedReferences(ctx, sid)
-	if err != nil {
-		return nil, ContextStats{}, err
+	references := map[domain.RunID][]domain.ContextReference{}
+	referenceSessions := map[domain.SessionID]bool{sid: true}
+	for _, row := range cut.Interactions {
+		referenceSessions[row.SessionID] = true
+	}
+	for source := range referenceSessions {
+		attached, err := s.sessionAttachedReferences(ctx, source)
+		if err != nil {
+			return nil, ContextStats{}, err
+		}
+		for rid, refs := range attached {
+			references[rid] = refs
+		}
 	}
 	feed, err := projectFeedWithContextBudget(ctx, eng.cfg.ContextHost, cut.Messages, nil, references)
 	if err != nil {
 		return nil, ContextStats{}, err
 	}
 	messages = append(messages, feed...)
+	instruction := eng.instruction
+	if prompt, ok := runPrompt(ctx); ok {
+		instruction, err = promptInstruction(prompt)
+		if err != nil {
+			return nil, ContextStats{}, err
+		}
+	}
+	allTools := make([]*schema.ToolInfo, 0, len(eng.activeTools))
+	for _, tool := range eng.activeTools {
+		if info := eng.toolInfos[tool.Spec().Name]; info != nil {
+			allTools = append(allTools, info)
+		}
+	}
+	mandatory := append([]*schema.Message{schema.SystemMessage(instruction)}, messages...)
+	cut.Usage, err = s.measureRecapRequest(ctx, mandatory, allTools)
+	if err != nil {
+		return nil, ContextStats{}, err
+	}
+	if eng.cfg.ContextHost != nil && len(messages) > 0 {
+		remaining := cut.Usage.Window - cut.Usage.OutputReserve - cut.Usage.TextualTokenUpperBound
+		if eng.cfg.MaxContextBytes > 0 {
+			remaining = min(remaining, eng.cfg.MaxContextBytes-cut.Usage.TextualTokenUpperBound)
+		}
+		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sid), WorkspaceID: contextWorkspaceID(ctx), EnforceByteBudget: true, ByteBudget: max(0, remaining), TokenBudget: max(0, remaining), CandidateBytes: contextCandidateBytes}
+		queryCtx := withContextSourceAdmission(ctx, request.TenantID, request.SessionID, request.WorkspaceID)
+		selected, err := eng.cfg.ContextHost.Query(queryCtx, request)
+		if err != nil {
+			return nil, ContextStats{}, err
+		}
+		if parts := contextCandidatesToUserParts(selected.Candidates); len(parts) > 0 {
+			appendContextParts(messages[len(messages)-1], parts)
+		}
+	}
 	// Exact original expansion and mandatory Recap precede optional ContextHost
 	// retrieval. Required source failures remain visible through the same Host.
-	stats := ContextStats{OriginalHistoryMessages: len(cut.Messages) - len(current), IncludedHistoryMessages: len(cut.Messages) - len(current), Bytes: projectedContextBytes(messages)}
+	stats := ContextStats{recap: &cut, OriginalHistoryMessages: len(cut.Messages) - len(current), IncludedHistoryMessages: len(cut.Messages) - len(current), Bytes: projectedContextBytes(messages)}
 	return messages, stats, nil
 }
 

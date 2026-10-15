@@ -35,3 +35,24 @@ func TestIssue58RecapReceiptCodec(t *testing.T) {
 		t.Fatal("accepted unaligned pairs")
 	}
 }
+
+func TestIssue58RecapReceiptActualUsedSubset(t *testing.T) {
+	d := storage.SubjectDisposition{SessionID: "view", MarkerID: 1, Marker: storage.SessionTruncation{SessionID: "view", Reason: storage.TruncationRewind}, Targets: []storage.SubjectDispositionTarget{{InteractionID: "run:1", Sequence: 1, RunID: "run", SourceSessionID: "source", SourceDigest: strings.Repeat("a", 64), MessageIDs: []string{"a", "b"}, ViewMessageIDs: []string{"va", "vb"}}}}
+	snapshot := storage.SubjectContextSnapshot{Dispositions: []storage.SubjectDisposition{d}}
+	used := d
+	used.Targets = append([]storage.SubjectDispositionTarget(nil), d.Targets...)
+	used.Targets[0].MessageIDs = []string{"b"}
+	used.Targets[0].ViewMessageIDs = []string{"vb"}
+	if err := validateRecapCorrectionReferences([]storage.SubjectDisposition{used}, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	used.Targets[0].ViewMessageIDs = []string{"va"}
+	if err := validateRecapCorrectionReferences([]storage.SubjectDisposition{used}, snapshot); err == nil {
+		t.Fatal("accepted crossed canonical/view pair")
+	}
+	used.Targets[0].ViewMessageIDs = []string{"vb"}
+	used.Marker.WorkSeq++
+	if err := validateRecapCorrectionReferences([]storage.SubjectDisposition{used}, snapshot); err == nil {
+		t.Fatal("accepted marker metadata not actually captured")
+	}
+}

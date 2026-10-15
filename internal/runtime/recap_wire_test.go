@@ -18,9 +18,10 @@ import (
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/conformance"
 	"agent-vivy/internal/storage/sqlite"
-	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
+	"github.com/ProjectViVy/laputa/laputa/actmem"
 	"github.com/cloudwego/eino/schema"
+	"path/filepath"
 )
 
 type issue58Wire struct {
@@ -31,6 +32,7 @@ type issue58Wire struct {
 	requests []string
 	sources  map[domain.SessionID]storage.SubjectSourceBinding
 	reply    func(int) *schema.Message
+	path     string
 }
 
 func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
@@ -62,19 +64,27 @@ func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.svc, f.b, _ = newTestService(t, testsupport.NewEchoModel())
-	eng, err := NewEngine(context.Background(), model, availableTools, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolResultBytes: 128, Compaction: &CompactionPolicy{Enabled: true, MaxTokens: 128000, TriggerPercent: 1, KeepRecent: 1}})
+	f.path = filepath.Join(t.TempDir(), "wire.db")
+	f.b, err = sqlite.Open(context.Background(), f.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.svc.engine = eng
-	f.svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "test", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "test-model", Models: []provider.Model{{ID: "test-model", ContextWindow: 128000}}}}}))
+	checkpoints, err := NewVersionedCheckpointStore(f.b.Blobs(), "issue58-wire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(context.Background(), model, availableTools, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolResultBytes: 128, Checkpoints: checkpoints, Compaction: &CompactionPolicy{Enabled: true, MaxTokens: 128000, TriggerPercent: 1, KeepRecent: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()})
+	f.svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "fixture", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "fixture", Models: []provider.Model{{ID: "fixture", ContextWindow: 128000}}}}}))
 	conformance.Issue58Identity(t, f.b)
 	mustCreateSession(t, f.b, "main-reader")
 	issue58Sources(f.svc, f.sources)
 	f.owner = issue58Owner(t)
 	f.svc.deps.Recap = f.owner
-	t.Cleanup(func() { f.svc.CancelAll(); f.svc.WaitIdle(context.Background()) })
+	t.Cleanup(func() { f.svc.CancelAll(); f.svc.WaitIdle(context.Background()); f.b.Close() })
 	return f
 }
 func (f *issue58Wire) run(t *testing.T, text string) domain.Run {
@@ -133,6 +143,35 @@ func TestIssue58SameRunCompleteToolOutputActualRequest(t *testing.T) {
 	if !strings.Contains(requests[1], exact) {
 		t.Fatalf("same-run tool output compacted before actual provider: %s", requests[1])
 	}
+	f.restart(t)
+	rows, interaction, err := f.b.ReadSubjectRunEvidence(context.Background(), conformanceBinding(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	through, err := f.b.CaptureSubjectHistory(context.Background(), conformanceBinding())
+	if err != nil || through != 1 {
+		t.Fatalf("full tool run did not seal once through=%d err=%v", through, err)
+	}
+	digest, err := storage.SubjectEvidenceDigest(rows)
+	if err != nil || digest != interaction.SourceDigest {
+		t.Fatal("reopened full original digest changed")
+	}
+	found := false
+	for _, row := range rows {
+		if row.Role == domain.RoleTool && row.Content == exact {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("HTTP passed while retained full tool bytes were lost")
+	}
+	if _, err = f.b.SealSubjectInteraction(context.Background(), conformanceBinding(), interaction); err != nil {
+		t.Fatal(err)
+	}
+	again, err := f.b.CaptureSubjectHistory(context.Background(), conformanceBinding())
+	if err != nil || again != through {
+		t.Fatal("reopened seal allocated duplicate sequence")
+	}
 }
 
 func TestIssue58CoveredSupersessionAdmission(t *testing.T) {
@@ -176,5 +215,46 @@ func TestIssue58CoveredSupersessionAdmission(t *testing.T) {
 	after, err := f.owner.ReadRecap(context.Background())
 	if err != nil || after != head {
 		t.Fatal("Task1 changed owner/coverage")
+	}
+}
+
+func (f *issue58Wire) restart(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	if !f.svc.WaitIdle(ctx) {
+		t.Fatal("old service still running")
+	}
+	old := f.svc
+	cfg := old.engine.cfg
+	catalog := old.catalog
+	if err := f.b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	f.b, err = sqlite.Open(ctx, f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Checkpoints, err = NewVersionedCheckpointStore(f.b.Blobs(), "issue58-wire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(ctx, old.engine.chatModel, old.engine.activeTools, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.owner.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.owner.store, err = actmem.Open(f.owner.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.owner.store.Close() })
+	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(), Recap: f.owner})
+	f.svc.SetCatalog(catalog)
+	issue58Sources(f.svc, f.sources)
+	if err = f.svc.Recover(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

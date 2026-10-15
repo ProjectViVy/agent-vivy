@@ -25,13 +25,13 @@ type recapRequestUsage struct {
 
 func (s *Service) recapOutputLimit(ctx context.Context) int {
 	n := recapOutputTokens
-	if maximum := s.GetModelInfo(ctx).MaxOutputTokens; maximum > 0 && maximum < n {
+	if maximum := s.recapModelInfo(ctx).MaxOutputTokens; maximum > 0 && maximum < n {
 		n = maximum
 	}
 	return n
 }
 func (s *Service) measureRecapRequest(ctx context.Context, messages []*schema.Message, tools []*schema.ToolInfo) (recapRequestUsage, error) {
-	info := s.GetModelInfo(ctx)
+	info := s.recapModelInfo(ctx)
 	usage := recapRequestUsage{OutputReserve: s.recapOutputLimit(ctx), Window: info.ContextWindow, Estimated: true}
 	if usage.Window <= 0 {
 		return usage, fmt.Errorf("%w: model context window unavailable", ErrContextCapacityRequired)
@@ -109,16 +109,26 @@ func residentRecap(ctx context.Context) bool {
 	enabled, _ := ctx.Value(residentRecapKey{}).(bool)
 	return enabled
 }
-func (s *Service) withRecapRunPolicy(ctx context.Context, rid domain.RunID) context.Context {
+func (s *Service) withRecapRunPolicy(ctx context.Context, rid domain.RunID, sid domain.SessionID, providerName, modelID string) context.Context {
 	sources, ok := s.deps.Sessions.(storage.SubjectSourceStore)
 	if !ok {
 		return ctx
 	}
 	pin, err := sources.GetRunSubjectSource(ctx, rid)
-	if err != nil || pin.ConversationID == "" {
+	if err == storage.ErrNotFound {
+		// An ordinary unshared run legitimately has no source pin. A current
+		// selected source or unavailable authorization must never choose Coding.
+		current, resolveErr := s.resolveSubjectAdmission(ctx, sid)
+		if resolveErr == nil && (current == nil || current.ConversationID == "") {
+			return ctx
+		}
+	} else if err == nil && pin.ConversationID == "" {
 		return ctx
 	}
+	// Any other lookup failure fences legacy native compression. The final
+	// observer propagates the actual read error before provider invocation.
 	ctx = context.WithValue(ctx, residentRecapKey{}, true)
+	ctx = domain.WithModelRequestScope(ctx, providerName, modelID)
 	return domain.WithModelOutputLimit(ctx, s.recapOutputLimit(ctx))
 }
 
@@ -131,4 +141,22 @@ func (m codingCompactionMiddleware) BeforeModelRewriteState(ctx context.Context,
 		return ctx, state, nil
 	}
 	return m.ChatModelAgentMiddleware.BeforeModelRewriteState(ctx, state, mc)
+}
+
+func (s *Service) recapModelInfo(ctx context.Context) domain.ModelInfo {
+	pin, ok := domain.ModelRequestScopeFromContext(ctx)
+	if !ok {
+		return s.GetModelInfo(ctx)
+	}
+	s.mu.Lock()
+	catalog := s.catalog
+	s.mu.Unlock()
+	if catalog == nil || pin.Provider == "" || pin.Model == "" {
+		return domain.ModelInfo{}
+	}
+	info, err := catalog.ResolveModelInfo(ctx, pin.Provider, pin.Model)
+	if err != nil {
+		return domain.ModelInfo{}
+	}
+	return info
 }

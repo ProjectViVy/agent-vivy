@@ -3162,6 +3162,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	if eng == nil {
 		eng = s.engine
 	}
+	ctx = s.withRecapRunPolicy(ctx, m.runID, sessionID, m.runProvider, m.runModel)
 	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
 	if promptErr != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
@@ -3285,7 +3286,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 // "main" or "child" from the execution context; the summary routes are
 // claimed by the wrapped summarizer models in compaction_middleware.go.
 func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
-	ctx = s.withRecapRunPolicy(ctx, m.runID)
+	ctx = s.withRecapRunPolicy(ctx, m.runID, sessionID, m.runProvider, m.runModel)
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
