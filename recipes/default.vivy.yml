@@ -19,6 +19,7 @@ modules:
   - vivy/presentation-host
   - vivy/action-host
   - vivy/diva-cognitive
+  - vivy/recap-tools
   - vivy/channel-host
   - vivy/face-host
   - vivy/provider-profiles

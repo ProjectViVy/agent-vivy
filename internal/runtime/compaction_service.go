@@ -37,7 +37,12 @@ type LastCompaction struct {
 // ContextStatusResult is the wire shape of session/context — the real
 // pressure meter for the chat input ring and the settings compaction card.
 type ContextStatusResult struct {
-	SessionID domain.SessionID `json:"session_id"`
+	// False marks selected shared context whose next/pinned request has not been
+	// measured by this read-only endpoint. Legacy per-session estimates do not apply.
+	ContextPressureAvailable *bool            `json:"context_pressure_available,omitempty"`
+	ContextReason            string           `json:"context_reason,omitempty"`
+	RecapRevision            *uint64          `json:"recap_revision,omitempty"`
+	SessionID                domain.SessionID `json:"session_id"`
 	// TotalMessages is the full stored history count; FeedMessages is what
 	// the next run would actually feed after compaction folding.
 	TotalMessages int `json:"total_messages"`
@@ -77,10 +82,11 @@ type ContextStatusResult struct {
 
 // CompactionResult is the outcome of one manual context/compact call.
 type CompactionResult struct {
-	BeforeTokens int  `json:"before_tokens"`
-	AfterTokens  int  `json:"after_tokens"`
-	Folded       int  `json:"folded_messages"`
-	Skipped      bool `json:"skipped"`
+	TokenCountsAvailable *bool `json:"token_counts_available,omitempty"`
+	BeforeTokens         int   `json:"before_tokens"`
+	AfterTokens          int   `json:"after_tokens"`
+	Folded               int   `json:"folded_messages"`
+	Skipped              bool  `json:"skipped"`
 }
 
 // ContextStatus reports the real context pressure of a session: what the
@@ -90,6 +96,39 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 		return ContextStatusResult{}, errors.New("runtime: service not wired")
 	}
 	out := ContextStatusResult{SessionID: sessionID, LimitBytes: s.engine.cfg.MaxContextBytes}
+
+	info := s.GetModelInfo(ctx)
+	out.ThinkingSupported = info.SupportsThinking
+	out.ImageSupportKnown = info.ContextWindow > 0
+	out.ImageSupported = info.SupportsImages
+	if info.ContextWindow > 0 {
+		out.ModelLimitTokens = info.ContextWindow
+		out.ModelLimitKnown = true
+	} else {
+		out.ModelLimitTokens = fallbackContextWindowTokens
+	}
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return out, err
+	}
+	if source != nil && source.ConversationID != "" {
+		available := false
+		out.ContextPressureAvailable = &available
+		out.ContextReason = "recap_context_measurement_unavailable"
+		if s.deps.Recap == nil {
+			return out, ErrRecapUnavailable
+		}
+		head, err := s.deps.Recap.ReadRecap(ctx)
+		if err != nil {
+			return out, err
+		}
+		if head.Binding.SubjectID != source.SubjectID || head.Binding.DomainID != source.DomainID {
+			return out, ErrRecapUnavailable
+		}
+		out.RecapRevision = &head.Revision
+		out.CompactionEnabled = s.engine.cfg.Compaction != nil && s.engine.cfg.Compaction.Enabled
+		return out, nil
+	}
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		return out, fmt.Errorf("runtime: list session messages: %w", err)
@@ -102,16 +141,6 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	out.TokenCountsEstimated = true
 	out.HasCompactionSummary = foldedOK
 
-	info := s.GetModelInfo(ctx)
-	out.ThinkingSupported = info.SupportsThinking
-	out.ImageSupportKnown = info.ContextWindow > 0
-	out.ImageSupported = info.SupportsImages
-	if info.ContextWindow > 0 {
-		out.ModelLimitTokens = info.ContextWindow
-		out.ModelLimitKnown = true
-	} else {
-		out.ModelLimitTokens = fallbackContextWindowTokens
-	}
 	if s.engine.cfg.Compaction != nil && s.engine.cfg.Compaction.Enabled {
 		out.CompactionEnabled = true
 		out.TriggerTokens = s.engine.cfg.Compaction.TriggerTokens(bytesToTokens(s.engine.cfg.MaxContextBytes))
@@ -161,7 +190,8 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		if compactErr != nil {
 			return CompactionResult{}, compactErr
 		}
-		return CompactionResult{Folded: int(head.CoveredThrough - before.CoveredThrough), Skipped: head.Revision == before.Revision}, nil
+		available := false
+		return CompactionResult{TokenCountsAvailable: &available, Folded: int(head.CoveredThrough - before.CoveredThrough), Skipped: head.Revision == before.Revision}, nil
 	}
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")

@@ -55,8 +55,13 @@ var ActionIDs = []string{
 	ActionTrigger,
 	ActionCancel,
 	ActionResultsList,
+	"vivy.recap.read", "vivy.recap.edit", "vivy.recap.clear", "vivy.recap.history", "vivy.recap.revision", "vivy.recap.restore", "vivy.recap.sources",
 }
 
 const RecallModuleID = "vivy/diva-memory"
 
 const RecallProviderID = "vivy.memory.mentle"
+
+const RecapToolsModuleID = "vivy/recap-tools"
+
+var RecapToolIDs = []string{"actmem_read", "actmem_update", "actmem_clear", "actmem_history", "actmem_restore"}

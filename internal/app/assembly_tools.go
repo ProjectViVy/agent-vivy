@@ -107,9 +107,21 @@ func schemaFromToolSpec(spec domain.ToolSpec) json.RawMessage {
 }
 
 type governedTool struct {
-	host *toolhost.Host
-	id   string
-	spec domain.ToolSpec
+	host     *toolhost.Host
+	id       string
+	spec     domain.ToolSpec
+	behavior tools.Tool
+}
+
+func (tool governedTool) AuthorizeTool(ctx context.Context) error {
+	_, ok := tool.host.Lookup(tool.id)
+	if !ok {
+		return toolhost.ErrToolNotActive
+	}
+	if check, ok := tool.behavior.(tools.ContextAuthorizer); ok {
+		return check.AuthorizeTool(ctx)
+	}
+	return nil
 }
 
 func (tool governedTool) GovernedToolID() string { return tool.id }
@@ -123,6 +135,9 @@ func (tool governedTool) InvokableRun(ctx context.Context, args json.RawMessage)
 	// without the marker are internal and stay unrestricted.
 	if tools.ToolCallIDFromContext(ctx) != "" && tools.ResolveToolExposure(tool.spec) == domain.ToolExposureHidden {
 		return "", toolhost.ErrToolNotActive
+	}
+	if err := tool.AuthorizeTool(ctx); err != nil {
+		return "", err
 	}
 	result, err := tool.host.Invoke(ctx, toolhost.Request{ID: tool.id, Args: args})
 	return result.Text, err
@@ -161,7 +176,7 @@ func (tool governedClassifiedProposalTool) PrepareProposal(ctx context.Context, 
 }
 
 func newGovernedRuntimeTool(host *toolhost.Host, id string, spec domain.ToolSpec, behavior tools.Tool) tools.Tool {
-	base := governedTool{host: host, id: id, spec: spec}
+	base := governedTool{host: host, id: id, spec: spec, behavior: behavior}
 	classifier, classified := behavior.(tools.InvocationClassifier)
 	proposal, proposed := behavior.(tools.ProposalProvider)
 	switch {

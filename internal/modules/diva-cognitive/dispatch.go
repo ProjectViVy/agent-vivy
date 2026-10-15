@@ -54,6 +54,9 @@ type sessionHead struct {
 }
 
 func (d dispatch) Invoke(ctx context.Context, actionID string, input json.RawMessage) (json.RawMessage, error) {
+	if strings.HasPrefix(actionID, "vivy.recap.") {
+		return d.invokeRecap(ctx, actionID, input, "")
+	}
 	if d.bundle == nil || d.bundle.owner == nil {
 		return nil, cognitivecontract.ErrUnarmed
 	}

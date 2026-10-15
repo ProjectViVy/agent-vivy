@@ -188,3 +188,11 @@ func (c *cognitiveControlPort) Cancel(ctx context.Context, runID domain.RunID) (
 // generated providers lands with DN-4C (same pattern as actionhost's
 // newMaskActionHost); until then every cognitive action fails closed at its
 // cognitivecontract.ActionHost type assertion.
+
+// AuthorizeRecap shares the already attached runtime cell and the same C1 owner.
+func (c *cognitiveControlPort) AuthorizeRecap(ctx context.Context, sid domain.SessionID, rid domain.RunID, name string) (cognitivecontract.RecapBinding, error) {
+	if c.svc == nil {
+		return cognitivecontract.RecapBinding{}, cognitivecontract.ErrUnarmed
+	}
+	return c.svc.AuthorizeRecap(ctx, sid, rid, name)
+}

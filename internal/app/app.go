@@ -42,6 +42,7 @@ import (
 	"agent-vivy/internal/modelhost"
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
+	divacognitive "agent-vivy/internal/modules/diva-cognitive"
 	loopmodule "agent-vivy/internal/modules/loop"
 	maskmodule "agent-vivy/internal/modules/masks"
 	memorymodule "agent-vivy/internal/modules/memory"
@@ -571,6 +572,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	agentOps := &agentToolRef{}
 	workflowOps := &workflowToolRef{}
 	replyMessageOps := &replyParentToolRef{}
+	var cognitiveBundle cognitivecontract.Bundle
 	var builtinRegistry *tools.Registry
 	var registryMu sync.RWMutex
 	var liveApplyMu sync.Mutex
@@ -581,6 +583,14 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		next := tools.BuiltinWithChildInbox(nil, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
+		for _, implementation := range divacognitive.NewRecapRuntimeTools(func() cognitivecontract.Bundle { return cognitiveBundle }) {
+			for _, provider := range runtimeAssembly.Tools {
+				if divacognitive.IsRecapToolProvider(provider) && provider.Definition().ID == implementation.Spec().Name {
+					next = next.WithAdditional(implementation)
+					break
+				}
+			}
+		}
 		var mcpCfgs []runtime.MCPServerConfig
 		if s, err := settings.Load(liveSettingsPath); err == nil {
 			mcpCfgs = liveMCPConfigs(cfg, s)
@@ -638,7 +648,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		filtered := make([]string, 0, len(enabled))
 		for _, name := range enabled {
-			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
+			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call" || divacognitive.IsRecapTool(name)) {
 				continue
 			}
 			if _, compiled := registry.Lookup(name); !compiled {
@@ -819,7 +829,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// DN-LC: the one cognitive owner binds through the same sealed accessor
 	// pattern as the mask factory. A selected-but-unarmed binding fails the
 	// composition; an omitted module changes nothing.
-	cognitiveBundle, err := cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
+	cognitiveBundle, err = cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
 	if err != nil {
 		_ = backend.Close()
 		return nil, err

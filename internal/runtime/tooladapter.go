@@ -579,6 +579,9 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 
 func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
+	if check, ok := a.t.(tools.ContextAuthorizer); ok && check.AuthorizeTool(toolAuthorizationContext(ctx)) != nil {
+		return "", refuseCall("tool is unavailable for this run", ErrPolicyDenied, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+	}
 	if result, handled, err := resumePlanReview(ctx, spec.Name, a.maxResultBytes); handled || err != nil {
 		return result, err
 	}

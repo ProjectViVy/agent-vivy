@@ -1,6 +1,7 @@
 package cognitivecontract
 
 import (
+	"agent-vivy/internal/domain"
 	"context"
 
 	"github.com/ProjectViVy/laputa/laputa/actmem"
@@ -29,3 +30,11 @@ type RecapPort interface {
 // need to implement Recap. Without the trusted factory resolver, calls fail
 // unavailable and ordinary persona/chat preparation remains unchanged.
 type RecapProvider interface{ Recap() RecapPort }
+
+// RecapManagementPort is an optional private extension of the already attached
+// runtime control cell. Authorization rechecks the trusted singleton and, for
+// tools, the persisted run pins and actual selected tool policy. Empty tool/run
+// identifies a human ActionHost request; it never authorizes a model call.
+type RecapManagementPort interface {
+	AuthorizeRecap(context.Context, domain.SessionID, domain.RunID, string) (RecapBinding, error)
+}
