@@ -371,6 +371,7 @@ func TestIssue58AuthorizedOrdinaryAndLifeKeepTools(t *testing.T) {
 			svc.engine = engine
 			if main {
 				svc.deps.Recap = issue58Owner(t)
+				svc.deps.ToolEvidence = b.Blobs()
 				// This producer capability fixture intentionally emits a 220KiB result;
 				// give its declared model enough capacity for exact selected-policy input.
 				svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "test", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "test-model", Models: []provider.Model{{ID: "test-model", ContextWindow: 1 << 20}}}}}))
