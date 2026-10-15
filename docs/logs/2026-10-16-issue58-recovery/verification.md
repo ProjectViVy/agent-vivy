@@ -666,3 +666,12 @@ s5-windows-ui-fixture-fixed.*. Existing browser smoke also passed separately;
 it did not invoke the new Recap E2E. Backend was still running at observation.
 Later native-BML checkpoint pushes can cancel intermediate runs; cancellation
 never establishes backend success or final Windows qualification.
+
+## CI wiring fixed checkpoint2e6273d8
+
+Root clean-checkout config, actual `just bml-ci`, strict TypeScript, one-test
+Playwright collection and all17 PowerShell blocks PASS. Source/raw hash checks
+and archive hashes are recorded in [s6-ci-wiring.md](s6-ci-wiring.md). Preserved
+author baseline formatter failures are not final CI execution. Published run
+38824982363 is pending; native Windows, new browser rendering/manual screenshot
+QA and final full `just ci` remain unqualified.

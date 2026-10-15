@@ -68,3 +68,39 @@ live provider, installed #66 producer, deployment or tenant activation is claime
 Root owns fixed-candidate checks, publication, actual CI observation and later
 whole-candidate acceptance. This delivery leaves the existing product acceptance
 and unavailable S5 integration states explicit.
+
+## Root fixed-candidate checkpoint
+
+Published source `2e6273d8b4a6a58d5154633b1805137a633a59b9` maps to remote
+`f1d651622bf91b6aabdfc408964850eea3980ea8`, exact tree
+`89dbbe29a3fd08f7d116ff44b7e0a7c8c11e4093`. Root verified all four source
+hashes and all 37 author raw artifacts. Local and remote commit metadata differ;
+the published tree was independently read back and verified.
+
+Root executed the following on the actual clean detached source checkpoint,
+with a real .git directory and the unchanged local-only runner:
+
+| Check | Fixed-candidate result | Seconds |
+|---|---|---|
+| Config/earlier recipe preservation | PASS | 0.114 |
+| Actual `just bml-ci` | PASS, vet + uncached full module tests | 2.641 |
+| Dedicated Playwright `--list` | PASS, one test collected only | 5.207 |
+| Strict config/spec/teardown TypeScript | PASS | 5.458 |
+| Workflow PowerShell parser | PASS, all 17 blocks | 0.365 |
+
+All five executions returned zero and recorded zero rejected/forwarded external
+requests. The root config validator uses the explicit previous Justfile rather
+than the now-fixed HEAD as its preservation baseline. Its source, extracted
+PowerShell, original logs and metadata are retained separately from author logs.
+
+Author archive: `evidence/s6-ci-wiring-author.tar.gz`, SHA256
+`6386960a61b258cf4e26c354a80e11bf8551cfa0af0bacdf617aa4abc5a3b1e9`.
+Root fixed archive: `evidence/s6-ci-wiring-root-fixed.tar.gz`, SHA256
+`d225cc4189e9fd044722e1af3b884b03c2fa5455c801d6b593c761e08c108baf`
+(29 hashed raw/helper artifacts). Original baseline formatter failures remain
+inside the author archive.
+
+Actual Windows run 38824982363 was pending at publication. Native Windows, new
+rendered Recap E2E, screenshot review and full final-candidate `just ci` remain
+PENDING/NOT RUN, never inferred from collection or parser checks. S5 consumer
+source remains unfinished. Later source edits require a new fixed candidate.

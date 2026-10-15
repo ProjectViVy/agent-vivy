@@ -111,3 +111,14 @@ S6 justci/one-candidate native Windows/browser/installed/live quality and Postgr
 execution remain unaccepted. The first released S5 source increment is the minimal
 native C5 queue/v3 compatibility fix; its producer review/publication/pin precede
 all BML consumer activation. No main merge, deployment or tenant migration.
+
+## Required CI wiring checkpoint
+
+Source2e6273d8 / remotef1d65162 / tree89dbbe29 adds nested BML, pinned native
+Windows and the existing Recap browser E2E as required gates, with immutable
+artifact uploads. Root fixed config/BML-task/PowerShell17/collection1/strict-TS
+checks pass; actual Windows/browser execution remains pending. See
+[s6-ci-wiring.md](s6-ci-wiring.md). S5's inspected routing ruling now explicitly
+preserves the old profile/raw route, selects one App-owned C2 projection adapter
+and requires pre-read qualification of legacy recall/tools. No consumer
+activation or installed DIVA acceptance is implied.
