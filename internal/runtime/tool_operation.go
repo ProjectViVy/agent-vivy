@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/compose"
 
@@ -112,6 +113,13 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 	if err := c.ensureRunCanExecute(ctx); err != nil {
 		return domain.ToolOperation{}, err
 	}
+	if !utf8.Valid(request) || !utf8.Valid(middlewareInput) || !utf8.Valid(effective) {
+		return domain.ToolOperation{}, storage.ErrSubjectEvidenceIncomplete
+	}
+	provenance, err := c.service.latestModelInputProvenance(ctx, c.runID)
+	if err != nil {
+		return domain.ToolOperation{}, err
+	}
 	now := time.Now().UnixMilli()
 	op := domain.ToolOperation{
 		RunID: c.runID, OperationID: operationID, ToolName: toolName,
@@ -119,11 +127,14 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 		ArgumentsDigest: operationDigest(effective), EffectiveArguments: append([]byte(nil), effective...),
 		CreatedAt: now, UpdatedAt: now,
 	}
+	op.ContentOrigin = provenance.ContentOrigin
+	op.ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
 	if isNotebookTool(toolName) {
+		provenance = storage.MergeInputProvenance(provenance, storage.InputProvenance{ContentOrigin: domain.ContentOriginNotebook, ExcludeAutomaticIngest: true})
 		// N2: notebook-owned tool results are excluded from automatic
 		// BML/cognitive ingestion and compaction summaries.
-		op.ContentOrigin = domain.ContentOriginNotebook
-		op.ExcludeAutomaticIngest = true
+		op.ContentOrigin = provenance.ContentOrigin
+		op.ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
 	}
 	if err := storage.ValidateToolOperationAdmission(domain.ToolOperation{
 		RunID: op.RunID, OperationID: op.OperationID, ToolName: op.ToolName,
@@ -332,6 +343,7 @@ func (c serviceToolOperationCoordinator) publish(event domain.RunEvent) {
 func sameRuntimeToolOperationBinding(a, b domain.ToolOperation) bool {
 	return a.RunID == b.RunID && a.OperationID == b.OperationID && a.ToolName == b.ToolName &&
 		a.RequestDigest == b.RequestDigest && a.ArgumentsDigest == b.ArgumentsDigest &&
+		a.ContentOrigin == b.ContentOrigin && a.ExcludeAutomaticIngest == b.ExcludeAutomaticIngest &&
 		string(a.MiddlewareInputArguments) == string(b.MiddlewareInputArguments) &&
 		string(a.EffectiveArguments) == string(b.EffectiveArguments)
 }

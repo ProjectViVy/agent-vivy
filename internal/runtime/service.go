@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -3333,9 +3334,11 @@ type runModelCallObserver struct {
 }
 
 type observedModelCall struct {
-	mode  string
-	usage usageAccumulator
-	input modelCallInput
+	mode              string
+	usage             usageAccumulator
+	input             modelCallInput
+	provenance        storage.InputProvenance
+	provenanceStamped bool
 }
 
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -3348,17 +3351,24 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
 	}
+	provenance, err := o.svc.modelInputProvenance(ctx, o.m.runID, in.Messages)
+	if err != nil {
+		return meta, err
+	}
 	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
 	if meta.ContextViewID != "" {
 		request.ContextView = meta.ContextViewID
 	}
-	event := o.m.build(domain.EventModelRequest, payloadModelRequestV3{
-		payloadModelRequest: request,
-		CallID:              meta.CallID,
-		Mode:                in.Mode,
-		Provider:            o.provider,
-		Model:               o.model,
-		Source:              o.source,
+	event := o.m.build(domain.EventModelRequest, payloadModelRequestV4{
+		InputProvenance: provenance,
+		payloadModelRequestV3: payloadModelRequestV3{
+			payloadModelRequest: request,
+			CallID:              meta.CallID,
+			Mode:                in.Mode,
+			Provider:            o.provider,
+			Model:               o.model,
+			Source:              o.source,
+		},
 	})
 	// The v3 request consumes the event quota and carries the run's
 	// model-call charge up front; the mapped model.completed/
@@ -3379,7 +3389,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 		o.m.noteObservedCallStart()
 	}
 	o.mu.Lock()
-	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in}
+	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in, provenance: provenance}
 	o.mu.Unlock()
 	return meta, nil
 }
@@ -3395,6 +3405,18 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return nil
 	}
 	state := o.call(meta.CallID)
+	for _, call := range chunk.ToolCalls {
+		if !utf8.ValidString(call.Function.Arguments) {
+			return storage.ErrSubjectEvidenceIncomplete
+		}
+	}
+	// Provider metadata cannot certify its own provenance. Tag only one chunk:
+	// Eino ConcatMessages preserves it without concatenating duplicate metadata.
+	delete(chunk.Extra, inputProvenanceExtra)
+	if state != nil && !state.provenanceStamped {
+		stampInputProvenance(chunk, state.provenance)
+		state.provenanceStamped = true
+	}
 	var events []domain.RunEvent
 	if state != nil && state.mode == "stream" {
 		if o.onDelta != nil {
@@ -3722,13 +3744,7 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		return stored, false
 	}
 	kept := stored[idx:]
-	excluded := false
-	for _, m := range stored[:idx] {
-		if m.ExcludeAutomaticIngest {
-			excluded = true
-			break
-		}
-	}
+	provenance := projectedInputProvenance(stored[:idx])
 	summary := domain.Message{
 		ID:        newMessageID(),
 		SessionID: latest.SessionID,
@@ -3736,12 +3752,8 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		CreatedAt: latest.TailFrom,
 		Content:   compactionSummaryPrefix + latest.Summary,
 	}
-	if excluded {
-		// A folded range containing excluded rows taints the derived summary:
-		// mixed summaries are conservatively excluded from automatic ingest.
-		summary.ExcludeAutomaticIngest = true
-		summary.ContentOrigin = domain.ContentOriginNotebook
-	}
+	summary.ContentOrigin = provenance.ContentOrigin
+	summary.ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
 	out := make([]domain.Message, 0, len(kept)+1)
 	out = append(out, summary)
 	out = append(out, kept...)

@@ -166,6 +166,12 @@ type payloadModelRequestV3 struct {
 	Source   string `json:"source"`
 }
 
+// payloadModelRequestV4 pins provenance of every inseparable derivative.
+type payloadModelRequestV4 struct {
+	payloadModelRequestV3
+	InputProvenance storage.InputProvenance `json:"input_provenance"`
+}
+
 // payloadModelUsageV2 attributes a cumulative usage sample to one model
 // call. Reasoning/Cached are presence pointers: the wire shape cannot
 // distinguish "provider reported zero" from "provider reported nothing",

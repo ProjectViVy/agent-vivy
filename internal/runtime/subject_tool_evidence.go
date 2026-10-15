@@ -60,6 +60,9 @@ func (c serviceToolOperationCoordinator) RetainsEvidence(ctx context.Context) (b
 }
 
 func (c serviceToolOperationCoordinator) retainArguments(ctx context.Context, op domain.ToolOperation, request []byte) error {
+	if !utf8.Valid(request) || !json.Valid(request) {
+		return storage.ErrSubjectEvidenceIncomplete
+	}
 	id := storage.ToolEvidenceArgumentsID(op)
 	blobs := c.service.toolEvidenceBlobs()
 	prior, found, err := blobs.Get(ctx, id)

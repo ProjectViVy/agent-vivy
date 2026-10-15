@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 )
@@ -75,7 +76,7 @@ func VerifyToolEvidence(ref ToolEvidenceReference, raw []byte) (ToolEvidence, er
 	return evidence, nil
 }
 func VerifyToolEvidenceArguments(op domain.ToolOperation, raw []byte) error {
-	if digestToolOperationBytes(raw) != op.RequestDigest || !json.Valid(raw) {
+	if digestToolOperationBytes(raw) != op.RequestDigest || !utf8.Valid(raw) || !json.Valid(raw) {
 		return ErrSubjectEvidenceIncomplete
 	}
 	return nil

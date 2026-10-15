@@ -41,9 +41,6 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 	}
 	byID := make(map[string]int, len(messages))
 	for i, m := range messages {
-		if m.ExcludeAutomaticIngest || m.ContentOrigin != "" {
-			return nil, "", storage.ErrSubjectEvidenceIncomplete
-		}
 		byID[m.ID] = i
 	}
 	var admitted sql.NullString
@@ -76,6 +73,7 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 		return nil, "", err
 	}
 	var pending strings.Builder
+	var provenance *storage.InputProvenance
 	var last domain.EventSeq
 	terminal := ""
 	started := false
@@ -89,6 +87,15 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 		i, ok := byID[id]
 		if !ok || messages[i].Role != role || messages[i].Content != content {
 			return 0, storage.ErrSubjectEvidenceIncomplete
+		}
+		if role == domain.RoleAssistant {
+			if provenance != nil {
+				if messages[i].ContentOrigin != provenance.ContentOrigin || messages[i].ExcludeAutomaticIngest != provenance.ExcludeAutomaticIngest {
+					return 0, storage.ErrSubjectEvidenceIncomplete
+				}
+			} else if messages[i].ContentOrigin != "" || messages[i].ExcludeAutomaticIngest {
+				return 0, storage.ErrSubjectEvidenceIncomplete
+			}
 		}
 		delete(byID, id)
 		return i, nil
@@ -142,6 +149,15 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 				if err := flush(e, true); err != nil {
 					return nil, "", err
 				}
+			}
+			if e.PayloadVersion >= 4 {
+				p, err := storage.DecodeModelInputProvenance(e)
+				if err != nil {
+					return nil, "", err
+				}
+				provenance = &p
+			} else {
+				provenance = nil
 			}
 		case domain.EventModelDelta:
 			var p struct {
@@ -249,7 +265,7 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 				return nil, "", err
 			}
 			if found {
-				if op.State != domain.ToolOperationCompleted || op.ToolName != p.ToolName || completedOps[op.OperationID].result != op.Result || op.ExcludeAutomaticIngest || op.ContentOrigin != "" {
+				if op.State != domain.ToolOperationCompleted || op.ToolName != p.ToolName || completedOps[op.OperationID].result != op.Result {
 					return nil, "", storage.ErrSubjectEvidenceIncomplete
 				}
 				if err := s.expandToolMessage(ctx, tx, messages, i, op); err != nil {
@@ -320,7 +336,7 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 		return nil, "", storage.ErrSubjectEvidenceIncomplete
 	}
 	var unresolved int
-	if err := s.one(ctx, tx, `SELECT COUNT(*) FROM tool_operations WHERE run_id=? AND (state<>? OR exclude_automatic_ingest=TRUE)`, []any{in.RunID, domain.ToolOperationCompleted}, &unresolved); err != nil {
+	if err := s.one(ctx, tx, `SELECT COUNT(*) FROM tool_operations WHERE run_id=? AND state<>?`, []any{in.RunID, domain.ToolOperationCompleted}, &unresolved); err != nil {
 		return nil, "", err
 	}
 	if unresolved > 0 {
@@ -404,7 +420,7 @@ func (s Store) messages(ctx context.Context, tx *sql.Tx, in storage.SubjectInter
 }
 
 func (s Store) expandToolMessage(ctx context.Context, tx *sql.Tx, messages []domain.Message, i int, op domain.ToolOperation) error {
-	if op.ContentOrigin != "" || op.ExcludeAutomaticIngest {
+	if messages[i].ContentOrigin != op.ContentOrigin || messages[i].ExcludeAutomaticIngest != op.ExcludeAutomaticIngest {
 		return storage.ErrSubjectEvidenceIncomplete
 	}
 	ref, err := storage.DecodeToolEvidenceReference(op)

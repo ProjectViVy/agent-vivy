@@ -549,6 +549,9 @@ func workToolCallFenced(ctx context.Context) bool {
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
+	if !utf8.ValidString(argumentsInJSON) {
+		return "", storage.ErrSubjectEvidenceIncomplete
+	}
 	if operations := tools.WorkControlFromContext(ctx); operations != nil {
 		if gate, ok := operations.(interface {
 			WorkToolCall(context.Context, func() (string, error)) (string, error)

@@ -72,3 +72,7 @@ func TestIssue58SubjectContextInvalidMapping(t *testing.T) {
 		return err
 	})
 }
+
+func TestIssue58OperationProvenanceImmutable(t *testing.T) {
+	conformance.RunIssue58OperationProvenanceImmutable(t, issue58Backend(t))
+}

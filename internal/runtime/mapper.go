@@ -867,6 +867,8 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		terminal.Outcome = "cancelled"
 		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
 		payload = terminal
+	case payloadModelRequestV4:
+		payloadVersion = 4
 	case payloadModelRequestV3:
 		payloadVersion = 3
 	case payloadModelUsageV2:

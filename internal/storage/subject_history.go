@@ -111,6 +111,9 @@ func SubjectEvidenceDigest(messages []domain.Message) (string, error) {
 	// JSON cannot represent invalid UTF-8 without replacing bytes. Refuse such
 	// evidence rather than committing a digest of silently changed originals.
 	for _, m := range messages {
+		if !utf8.Valid(m.ToolArgs) {
+			return "", ErrSubjectEvidenceIncomplete
+		}
 		fields := []string{m.ID, string(m.SessionID), string(m.RunID), string(m.Role), m.Content, m.ToolCallID, m.ToolName, m.ToolError, m.Source, m.Channel, m.ChatID, m.ChannelMessageID, m.ContentOrigin}
 		if m.CopySource != nil {
 			fields = append(fields, string(m.CopySource.SessionID), m.CopySource.MessageID)
