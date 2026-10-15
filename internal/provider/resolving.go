@@ -72,7 +72,11 @@ func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message,
 	if err != nil {
 		return nil, err
 	}
-	return inner.Generate(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
+	options, err := m.requestOptions(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return inner.Generate(ctx, in, options...)
 }
 
 func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -80,7 +84,11 @@ func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, o
 	if err != nil {
 		return nil, err
 	}
-	return inner.Stream(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
+	options, err := m.requestOptions(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return inner.Stream(ctx, in, options...)
 }
 
 func (m *resolvingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -357,7 +365,11 @@ func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema
 	if err != nil {
 		return nil, err
 	}
-	return inner.Generate(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
+	options, err := m.parent.requestOptions(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return inner.Generate(ctx, in, options...)
 }
 
 func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -365,7 +377,11 @@ func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.M
 	if err != nil {
 		return nil, err
 	}
-	return inner.Stream(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
+	options, err := m.parent.requestOptions(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return inner.Stream(ctx, in, options...)
 }
 
 func (m *resolvingChatModelWithTools) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -378,4 +394,38 @@ func (m *resolvingChatModelWithTools) bound(ctx context.Context) (model.ToolCall
 		return nil, err
 	}
 	return inner.WithTools(m.tools)
+}
+
+// requestOptions preserves the selected thinking shape and applies a trusted
+// runtime output cap last. An incompatible thinking budget is unavailable,
+// never silently disabled or shrunk to make a capacity check pass.
+func (m *resolvingChatModel) requestOptions(ctx context.Context, opts []model.Option) ([]model.Option, error) {
+	options := append(append([]model.Option(nil), opts...), m.thinkingOptions(ctx)...)
+	limit := domain.ModelOutputLimitFromContext(ctx)
+	if limit <= 0 {
+		return options, nil
+	}
+	live := m.src.Live()
+	endpoint := live.Endpoint
+	if endpoint.Adapter == "" {
+		var err error
+		endpoint, _, err = m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if endpoint.Adapter != AdapterOpenAICompletions && endpoint.Adapter != AdapterAnthropicMessages {
+		return nil, ErrAdapterDeferred
+	}
+	if endpoint.Adapter == AdapterAnthropicMessages && live.Endpoint.Adapter == "" {
+		info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
+		if err != nil {
+			return nil, err
+		}
+		shape := decideThinking(endpoint.Adapter, false, info, domain.ThinkingModeFromContext(ctx))
+		if shape.claudeBudget >= limit {
+			return nil, fmt.Errorf("provider: requested output limit %d is incompatible with selected thinking budget %d", limit, shape.claudeBudget)
+		}
+	}
+	return append(options, model.WithMaxTokens(limit)), nil
 }
