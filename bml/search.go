@@ -97,7 +97,12 @@ func (s *Store) search(ctx context.Context, q SearchQuery, querySQL string, sess
 	}
 	querySQL = strings.Replace(querySQL, "ORDER BY", "AND "+predicate+" ORDER BY", 1)
 	args = append(args, int64(limit))
-	rows, err := s.db.QueryContext(ctx, querySQL, args...)
+	reader, release, err := s.legacyRead(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	rows, err := reader.QueryContext(ctx, querySQL, args...)
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}

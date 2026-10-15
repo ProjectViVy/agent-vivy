@@ -131,6 +131,9 @@ func (s *Store) MutateBound(ctx context.Context, binding OwnershipBinding, m Bou
 		if m.ExpectedRecordRevision != nil || m.ExpectedTargetRevision == nil || *m.ExpectedTargetRevision <= 0 || m.Record.Tombstone == nil {
 			return MutationOutcome{}, boundError("invalid_mutation", "tombstone requires native marker and exact target revision")
 		}
+		if len(m.Record.Supersedes) != 1 || m.Record.Supersedes[0] != m.Record.Tombstone.TargetRecordID {
+			return MutationOutcome{}, boundError("invalid_mutation", "bound tombstone requires only its guarded target")
+		}
 		target = &targetRevisionGuard{id: m.Record.Tombstone.TargetRecordID, revision: *m.ExpectedTargetRevision}
 	default:
 		return MutationOutcome{}, boundError("invalid_mutation", "unknown native mutation operation")

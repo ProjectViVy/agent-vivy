@@ -26,6 +26,39 @@ func (s *Store) legacyPredicate(alias string) string {
 	return `NOT EXISTS (SELECT 1 FROM memory_ownership own WHERE own.memory_id=` + alias + `.memory_id)`
 }
 
+type legacyReader interface {
+	rowQuerier
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+// A schema-1 handle cannot use its cached version as a data visibility grant:
+// another supported writer may have upgraded the database since open. Pin the
+// version check and legacy query to one SQLite snapshot, or require reopening.
+func (s *Store) legacyRead(ctx context.Context) (legacyReader, func(), error) {
+	if s.schema != 1 {
+		return s.db, func() {}, nil
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, nil, persistenceErr(s.path, err)
+	}
+	var version, revision int64
+	var workspace string
+	if err := tx.QueryRowContext(ctx, selectMetaSQL, component).Scan(&version, &revision, &workspace); err != nil {
+		tx.Rollback()
+		return nil, nil, persistenceErr(s.path, err)
+	}
+	if err := checkMetaRow(version, workspace, s.workspaceID); err != nil {
+		tx.Rollback()
+		return nil, nil, err
+	}
+	if version != 1 {
+		tx.Rollback()
+		return nil, nil, boundError("schema_changed", "legacy read-only schema changed; reopen store")
+	}
+	return tx, func() { tx.Rollback() }, nil
+}
+
 // GetBound returns the visible exact native row version under its stored
 // ownership. Neither an unknown legacy row nor a newer revision is substituted.
 func (s *Store) GetBound(ctx context.Context, binding OwnershipBinding, id string, expectedRevision int64) (StoredRecord, error) {

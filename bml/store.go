@@ -499,9 +499,14 @@ const (
 // records are returned like any other row; read-side visibility rules are a
 // search/list concern.
 func (s *Store) Get(ctx context.Context, id string) (*StoredRecord, error) {
+	reader, release, err := s.legacyRead(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	var revision int64
 	var recordJSON string
-	err := s.db.QueryRowContext(ctx, selectStoredSQL+` AND `+s.legacyPredicate("memory_records"), id).Scan(&revision, &recordJSON)
+	err = reader.QueryRowContext(ctx, selectStoredSQL+` AND `+s.legacyPredicate("memory_records"), id).Scan(&revision, &recordJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -518,11 +523,16 @@ func (s *Store) Get(ctx context.Context, id string) (*StoredRecord, error) {
 // List returns records in deterministic memory_id order, capped at limit and
 // at the bounded-store capacity.
 func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) {
+	reader, release, err := s.legacyRead(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if int64(limit) > MaxMemoryRecords {
 		limit = uint32(MaxMemoryRecords)
 	}
 	query := strings.Replace(listStoredSQL, "ORDER BY", "WHERE "+s.legacyPredicate("memory_records")+" ORDER BY", 1)
-	rows, err := s.db.QueryContext(ctx, query, limit)
+	rows, err := reader.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}
@@ -551,7 +561,12 @@ func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) 
 // deposed by a later tombstone even when the target row has no tombstone
 // flag set.
 func (s *Store) SupersededTargetIDs(ctx context.Context) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, selectSupersededTargetsSQL+` AND `+s.legacyPredicate("r"))
+	reader, release, err := s.legacyRead(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	rows, err := reader.QueryContext(ctx, selectSupersededTargetsSQL+` AND `+s.legacyPredicate("r"))
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}

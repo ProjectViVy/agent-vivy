@@ -31,6 +31,9 @@ complete canonical Record and optional store/record/target CAS. Nil store CAS me
 use the actual revision within the transaction; explicit zero is a distinct request.
 Nil record CAS means absent for create. Update requires a positive record revision.
 Tombstone requires an absent new native marker and positive target revision.
+Its Supersedes list must contain exactly that one guarded TargetRecordID; an
+extra target is rejected before persistence. Legacy unbound multi-target
+tombstones retain their existing behavior.
 Record/evidence/provenance fields are preserved. All raw Go strings are checked for
 valid UTF-8 before fingerprint marshaling, including nested optional source fields.
 Direct Go enum values that would decode differently are rejected.
@@ -88,6 +91,12 @@ OpenExisting is read-only: schema 1 can serve its existing legacy reads but all
 new bound capabilities are unavailable. Read-only schema 2 can search/export/look
 up bound outcomes, but cannot mutate or restore over the database. No read-only
 open upgrades schema or creates native data. Read-only snapshots remain unchanged.
+A schema-1 handle checks the actual schema and reads legacy data in the same
+SQLite read transaction. If a supported writer has already upgraded that
+snapshot to schema 2, Get/List/Search/SearchVisible/SupersededTargetIDs return
+`schema_changed`; callers must close and reopen the handle. An in-flight schema-1
+snapshot can finish reading its original legacy data. Cached capabilities stay
+conservative until reopen; they never grant access to newly owned rows.
 OpenExistingCanonical retains its documented mutable identity-upgrade behavior;
 it is distinct from OpenExisting.
 
