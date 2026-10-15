@@ -40,7 +40,7 @@ func issue58Service(t *testing.T, b *sqlite.Backend, main cognitivecontract.Main
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	svc := runtime.NewService(eng, "test", "test", runtime.ServiceDeps{Journal: b, Runs: b, Messages: b, Sessions: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main, SubjectSources: sources, Recap: issue58FixtureRecap(t, main)})
+	svc := runtime.NewService(eng, "test", "test", runtime.ServiceDeps{ToolEvidence: b.Blobs(), Journal: b, Runs: b, Messages: b, Sessions: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main, SubjectSources: sources, Recap: issue58FixtureRecap(t, main)})
 	svc.SetCatalog(issue58FixtureCatalog())
 	return svc
 }

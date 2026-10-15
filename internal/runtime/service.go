@@ -269,33 +269,35 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu               sync.Mutex
-	bundleGateMu     sync.Mutex
-	bundleDrainID    string
-	bundleAdmissions int
-	active           map[domain.RunID]context.CancelFunc
-	bundleViews      map[domain.RunID]ToolkitViewHandle
-	bundleChecks     map[domain.RunID]bundlecontract.CaptureCheck
-	workflowStartMu  sync.Mutex
-	workflowNodeMu   sync.Mutex
-	recapCommitMu    sync.Mutex
-	operationMu      sync.Mutex
-	operationFlights map[string]*toolOperationFlight
-	goalStarting     map[domain.SessionID]struct{}
-	goalRuns         map[domain.SessionID]domain.RunID
-	goalDisarmed     map[domain.SessionID]struct{}
-	planTransitions  map[domain.SessionID]uint64
-	planCancelling   map[domain.SessionID]uint64
-	goalRunSessions  map[domain.RunID]domain.SessionID
-	goalRunRefs      map[domain.RunID]domain.GoalRef
-	admissionLocksMu sync.Mutex
-	admissionLocks   map[domain.SessionID]*sync.Mutex
-	humanIntentLocks map[domain.SessionID]*sync.Mutex
-	goalWakeRunning  map[domain.SessionID]struct{}
-	goalWakePending  map[domain.SessionID]struct{}
-	goalWG           sync.WaitGroup
-	stopping         bool
-	humanPending     map[domain.SessionID]int
+	mu                  sync.Mutex
+	bundleGateMu        sync.Mutex
+	bundleDrainID       string
+	bundleAdmissions    int
+	active              map[domain.RunID]context.CancelFunc
+	bundleViews         map[domain.RunID]ToolkitViewHandle
+	bundleChecks        map[domain.RunID]bundlecontract.CaptureCheck
+	workflowStartMu     sync.Mutex
+	workflowNodeMu      sync.Mutex
+	recapCommitMu       sync.Mutex
+	sessionControls     map[domain.RunID]context.CancelFunc
+	sessionControlsIdle chan struct{}
+	operationMu         sync.Mutex
+	operationFlights    map[string]*toolOperationFlight
+	goalStarting        map[domain.SessionID]struct{}
+	goalRuns            map[domain.SessionID]domain.RunID
+	goalDisarmed        map[domain.SessionID]struct{}
+	planTransitions     map[domain.SessionID]uint64
+	planCancelling      map[domain.SessionID]uint64
+	goalRunSessions     map[domain.RunID]domain.SessionID
+	goalRunRefs         map[domain.RunID]domain.GoalRef
+	admissionLocksMu    sync.Mutex
+	admissionLocks      map[domain.SessionID]*sync.Mutex
+	humanIntentLocks    map[domain.SessionID]*sync.Mutex
+	goalWakeRunning     map[domain.SessionID]struct{}
+	goalWakePending     map[domain.SessionID]struct{}
+	goalWG              sync.WaitGroup
+	stopping            bool
+	humanPending        map[domain.SessionID]int
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -729,7 +731,7 @@ func (s *Service) ChangeModelWhenIdle(providerName, modelID string, persist func
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	s.mu.Lock()
-	busy := len(s.active) != 0 || len(s.pending) != 0 || len(s.shellPending) != 0 || len(s.snapshots) != 0
+	busy := len(s.active) != 0 || len(s.pending) != 0 || len(s.shellPending) != 0 || len(s.snapshots) != 0 || len(s.sessionControls) != 0
 	s.mu.Unlock()
 	if busy {
 		return ErrModelChangeBusy
@@ -1894,8 +1896,11 @@ func (s *Service) cancelWorkflowChildren(parentID domain.RunID) {
 // approvals close the same way.
 func (s *Service) CancelAll() {
 	s.mu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(s.active))
+	cancels := make([]context.CancelFunc, 0, len(s.active)+len(s.sessionControls))
 	for _, c := range s.active {
+		cancels = append(cancels, c)
+	}
+	for _, c := range s.sessionControls {
 		cancels = append(cancels, c)
 	}
 	pendingIDs := make([]domain.RunID, 0, len(s.pending)+len(s.shellPending))
@@ -1919,10 +1924,16 @@ func (s *Service) CancelAll() {
 // storage is never closed underneath a run still persisting its terminal
 // event (E4).
 func (s *Service) WaitIdle(ctx context.Context) bool {
+	s.mu.Lock()
+	controlsIdle := s.sessionControlsIdle
+	s.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		s.goalWG.Wait()
+		if controlsIdle != nil {
+			<-controlsIdle
+		}
 		close(done)
 	}()
 	select {
@@ -2042,7 +2053,7 @@ func (s *Service) RecoverBackground(ctx context.Context) error {
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
 	s.mu.Lock()
-	busy := len(s.active) > 0 || len(s.pending) > 0
+	busy := len(s.active) > 0 || len(s.pending) > 0 || len(s.sessionControls) > 0
 	s.mu.Unlock()
 	if busy {
 		return ErrRecoveryBusy
@@ -3361,7 +3372,7 @@ type observedModelCall struct {
 // never create/project/terminate a conversation Run on observer persistence failure.
 func (o *runModelCallObserver) persistModelEvent(ctx context.Context, event domain.RunEvent) bool {
 	if o.syntheticSessionControl {
-		_, err := o.svc.recordSyntheticSessionEventVersion(ctx, o.sessionID, event.RunID, event.Type, event.PayloadVersion, event.Payload)
+		_, err := o.svc.recordSyntheticSessionEventVersion(ctx, o.sessionID, event.RunID, event.Type, event.PayloadVersion, json.RawMessage(event.Payload))
 		return err == nil
 	}
 	return o.svc.persistAndPublish(ctx, o.sessionID, event)

@@ -54,8 +54,30 @@ func encodeRecapReceipt(receipt recapReceipt) (string, error) {
 	if err = validateRecapReceipt(r); err != nil {
 		return "", err
 	}
-	for i := range r.CorrectionRefs {
-		d := &r.CorrectionRefs[i]
+	r.CorrectionRefs, err = canonicalRecapCorrectionReferences(r.CorrectionRefs)
+	if err != nil {
+		return "", err
+	}
+	raw, err = json.Marshal(r)
+	if err != nil {
+		return "", ErrRecapUnavailable
+	}
+	return string(raw), nil
+}
+
+// canonicalRecapCorrectionReferences is shared by inference construction and
+// committed receipt encoding, so a historical envelope fixes expansion order.
+func canonicalRecapCorrectionReferences(input []storage.SubjectDisposition) ([]storage.SubjectDisposition, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, ErrRecapUnavailable
+	}
+	var refs []storage.SubjectDisposition
+	if json.Unmarshal(raw, &refs) != nil {
+		return nil, ErrRecapUnavailable
+	}
+	for i := range refs {
+		d := &refs[i]
 		for j := range d.Targets {
 			t := &d.Targets[j]
 			type pair struct{ canonical, view string }
@@ -75,18 +97,15 @@ func encodeRecapReceipt(receipt recapReceipt) (string, error) {
 		}
 		sort.Slice(d.Targets, func(a, b int) bool { return d.Targets[a].InteractionID < d.Targets[b].InteractionID })
 	}
-	sort.Slice(r.CorrectionRefs, func(a, b int) bool {
-		if r.CorrectionRefs[a].SessionID != r.CorrectionRefs[b].SessionID {
-			return r.CorrectionRefs[a].SessionID < r.CorrectionRefs[b].SessionID
+	sort.Slice(refs, func(a, b int) bool {
+		if refs[a].SessionID != refs[b].SessionID {
+			return refs[a].SessionID < refs[b].SessionID
 		}
-		return r.CorrectionRefs[a].MarkerID < r.CorrectionRefs[b].MarkerID
+		return refs[a].MarkerID < refs[b].MarkerID
 	})
-	raw, err = json.Marshal(r)
-	if err != nil {
-		return "", ErrRecapUnavailable
-	}
-	return string(raw), nil
+	return refs, nil
 }
+
 func decodeRecapReceipt(encoded string) (recapReceipt, error) {
 	var r recapReceipt
 	decoder := json.NewDecoder(bytes.NewBufferString(encoded))

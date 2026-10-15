@@ -147,12 +147,12 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		if s.deps.Recap == nil {
 			return CompactionResult{}, ErrRecapUnavailable
 		}
-		s.mu.Lock()
-		busy := len(s.active) > 0 || len(s.pending) > 0
-		s.mu.Unlock()
-		if busy {
-			return CompactionResult{}, ErrCompactionBusy
+		controlCtx, finish, startErr := s.beginRecapSessionControl(ctx, sessionID)
+		if startErr != nil {
+			return CompactionResult{}, startErr
 		}
+		defer finish()
+		ctx = controlCtx
 		before, readErr := s.deps.Recap.ReadRecap(ctx)
 		if readErr != nil {
 			return CompactionResult{}, readErr
@@ -500,8 +500,10 @@ func (s *Service) ScheduleEngineReload(next EngineConfig) error {
 	if s.deps.RebuildEngine == nil {
 		return errors.New("runtime: engine reload not wired")
 	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
 	s.mu.Lock()
-	idle := len(s.active) == 0 && len(s.pending) == 0
+	idle := len(s.active) == 0 && len(s.pending) == 0 && len(s.sessionControls) == 0
 	if !idle {
 		next := next
 		s.pendingEngine = &next
@@ -525,7 +527,7 @@ func (s *Service) applyPendingEngineReload(ctx context.Context, explicit *Engine
 		s.mu.Unlock()
 		return nil
 	}
-	if len(s.active) > 0 || len(s.pending) > 0 {
+	if len(s.active) > 0 || len(s.pending) > 0 || len(s.sessionControls) > 0 {
 		s.mu.Unlock()
 		return nil
 	}

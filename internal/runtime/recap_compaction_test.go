@@ -27,6 +27,12 @@ func issue58CompletedText(t *testing.T, f *issue58Wire, sid, id, text string) st
 	}
 	f.sources[source.SessionID] = source
 	a := conformance.Issue58Admission(source, id)
+	prior, err := f.b.ListRunsBySession(ctx, source.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Run.CreatedAt = int64(len(prior) + 1)
+	a.Message.CreatedAt = a.Run.CreatedAt
 	a.Message.Content = text
 	if _, err := f.b.CommitRunAdmission(ctx, a); err != nil {
 		t.Fatal(err)
@@ -611,6 +617,12 @@ func TestIssue58ExplicitCompactionControlLane(t *testing.T) {
 				for _, event := range events {
 					if _, terminal := event.Type.RunStatus(); terminal {
 						t.Fatal("synthetic control acquired terminal")
+					}
+					if event.Type == domain.EventModelRequest || event.Type == domain.EventModelCallFinished || event.Type == domain.EventModelUsage {
+						var payload map[string]json.RawMessage
+						if err := json.Unmarshal(event.Payload, &payload); err != nil || payload["call_id"] == nil {
+							t.Fatalf("synthetic model event lost object payload: %s", event.Payload)
+						}
 					}
 					if event.Type == domain.EventModelRequest {
 						requests++
