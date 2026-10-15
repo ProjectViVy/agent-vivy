@@ -76,7 +76,8 @@ func TestIssue58ContinuityOnlyCompositionUsesSelectedAdmission(t *testing.T) {
 			}
 			journal := &issue58ObservedJournal{Journal: b}
 			var out, errw bytes.Buffer
-			svc := runtime.NewService(eng, "test", "test", runtime.ServiceDeps{Journal: journal, Runs: issue58NarrowRuns{RunStore: b}, Messages: b, Sessions: b, Continuity: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main})
+			svc := runtime.NewService(eng, "test", "test", runtime.ServiceDeps{Journal: journal, Runs: issue58NarrowRuns{RunStore: b}, Messages: b, Sessions: b, Continuity: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main, Recap: issue58FixtureRecap(t, main)})
+			svc.SetCatalog(issue58FixtureCatalog())
 			defer func() { svc.CancelAll(); svc.WaitIdle(context.Background()) }()
 			var rid domain.RunID
 			var runErr error

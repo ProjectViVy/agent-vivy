@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"agent-vivy/internal/cognitivecontract"
+	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
+	divacognitive "agent-vivy/internal/modules/diva-cognitive"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/conformance"
@@ -37,8 +40,39 @@ func issue58Service(t *testing.T, b *sqlite.Backend, main cognitivecontract.Main
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	return runtime.NewService(eng, "test", "test", runtime.ServiceDeps{Journal: b, Runs: b, Messages: b, Sessions: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main, SubjectSources: sources})
+	svc := runtime.NewService(eng, "test", "test", runtime.ServiceDeps{Journal: b, Runs: b, Messages: b, Sessions: b, Sink: newHeadlessSink(&out, &errw), MainConversation: main, SubjectSources: sources, Recap: issue58FixtureRecap(t, main)})
+	svc.SetCatalog(issue58FixtureCatalog())
+	return svc
 }
+
+// These headless producer fixtures use the same bound bundle port consumed by
+// app.New. They do not relax production refusal when Recap/capacity is absent.
+func issue58FixtureRecap(t *testing.T, main cognitivecontract.MainConversationResolver) cognitivecontract.RecapPort {
+	t.Helper()
+	if main == nil {
+		return nil
+	}
+	binding, err := main.ResolveMainConversation(context.Background())
+	if err != nil {
+		return nil
+	}
+	bundle, err := divacognitive.Open(context.Background(), cognitivecontract.FactoryInput{Config: config.Config{Storage: config.Storage{DataDir: t.TempDir()}}, GenerationID: "issue58-fixture", ResolveRecapBinding: func(context.Context, string) (cognitivecontract.RecapBinding, error) {
+		return cognitivecontract.RecapBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { bundle.Close() })
+	port, ok := bundle.(cognitivecontract.RecapProvider)
+	if !ok {
+		t.Fatal("bundle has no bound Recap port")
+	}
+	return port.Recap()
+}
+func issue58FixtureCatalog() *provider.Catalog {
+	return provider.NewCatalog(provider.Vendor{Name: "test", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "test", Models: []provider.Model{{ID: "test", ContextWindow: 128000}}}}})
+}
+
 func TestIssue58SingletonAdmission(t *testing.T) {
 	ctx := context.Background()
 	b, err := sqlite.Open(ctx, t.TempDir()+"/core.db")
