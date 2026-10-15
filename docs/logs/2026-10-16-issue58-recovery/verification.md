@@ -336,3 +336,127 @@ because it requires all3 successful lanes. It did not run a local `just ci` comm
 This is the oldered9d20d2/tree796f5883 WIP, not new Recap UI or final backend
 acceptance. See evidence/windows-ci132-terminal.json for exact job IDs/times.
 Main was re-fetched again and remains5715950; no newer main source was overwritten.
+
+## Fixed S4 backend race completion
+
+Exact local94bff801/tree7678864b completes root's full Issue58 race selection
+across cognitive module/runtime/App/ActionHost/config: PASS255 test/subtest
+events plus5 package passes,0fail/0skip, exit0,344.460s; no race diagnostics,
+external rejected0/forwarded0. This completes the earlier RUNNING race state and
+does not qualify the subsequently edited UI source or independent review. Raw
+log/runner metadata and parsed package/event results are losslessly archived in
+s4-backend-fixed-race.tar.gz with its manifest. Whole S4 and S6 remain open.
+
+## Fixed S4 UI checkpoint — independent review running
+
+UI source168393b0a70d2406de01c2307091c3c4c67fce3c, exact tree
+372d9ff3f2e66eadb60310877616a83107d5d3d0, is published as tree-equivalent
+remote0a762f25a75bfee1a7cbb3ad7bcda346e6f18f2e. Root prepared a separate
+clean local clone and reran normal pnpm hooks, not just author working-source
+checks:707 tests/93 files PASS, typecheck PASS, build PASS, final git diff clean.
+Phase times19.982s/12.112s/8.487s/0.143s; whole safe runner exit0 in40.807s,
+external rejected0/forwarded0. Existing large-chunk build advisory is retained.
+The dedicated Playwright config/spec collects one browser test; browser execution
+remains NOT RUN because the supported browser dependency could not be installed.
+
+The actual split HTTP/WebSocket smoke uses only opt-in Go test code, a temporary
+root and a trusted fixture resolver; it proves real Vite3015 proxy -> authenticated
+ActionHost -> C1 read/edit/conflict/history/source-unavailable/clear/restore and
+ordinary-session refusal. It explicitly records browser_rendered=false. Source
+continues to delegate installed singleton/sidebar production to #66. No production
+test endpoint, activation option or backend mock was added to the shipped UI.
+
+All author attempts, including missing-component/concurrency REDs, type/compile
+failures, partial/interrupted runs and actual smoke scripts are losslessly retained
+with root's fixed-source raw results and18-file source manifest in
+s4-ui-completed-attempts.tar.gz and its SHA manifest. The copied implementation
+report includes supported reproduction commands. Full S4 independent review is
+running on fixed168 in another isolated clean clone. Its findings/probes are not
+replaced by these greens, and no S4 whole-Story or S6 product acceptance is claimed.
+
+## S4 independent review: actual App integration blocker
+
+Fixed candidate168393b0/tree372d9ff3 has one independently reproduced Important
+inherited blocker: actual NewWithAssembly omits ServiceDeps.ToolEvidence, so the
+trusted resident main conversation fails recap_unavailable before its first HTTP
+request. The final probe uses catalog deepseek-flash, a known1,000,000-token window,
+and successful current authorization/ContextStatus prechecks. Subsequent edit,
+C2 seal and host reopen assertions were not reached. S3's earlier implementation
+report claiming production App already wires the BlobStore is incorrect. Its
+scoped injected-fixture/interface greens remain historical evidence; they never
+established actual App admission or whole S3 acceptance.
+
+Independent S4 review found no other substantiated finding: focused Go34 pass
+events/one opt-in fixture skip; runtime probes6 pass events; ordinary discovery/
+lifecycle8 passes; normal staged focused UI22 passes and independent async UI3
+passes. These do not override the assembled App RED. Raw probes, all attempts,
+source integrity and34 verified file hashes are losslessly archived in
+s4-independent-review.tar.gz. See s4-independent-review.md. One consolidated author
+TDD fix is in progress; root must rerun the unchanged original assembly probe and
+affected fixed-candidate gates. S4 remains unaccepted; source for S5 remains frozen.
+
+Exact3e130 unmodified MemoryLoop and DIVA recall scripts have since completed PASS;
+the earlier RUNNING statements above are chronological history. No installed/live
+quality or final justci claim follows. Main re-fetch still resolves5715950.
+
+## S5 dependency preflight (read-only)
+
+Vivy main remains5715950. Laputa main re-fetch resolves
+f44ba00eb6ab5aa6ab9a2f5c09868373e36679f5; its three main-only commits since
+common4b2bec2 contain policy documentation/AGENTS alignment, no Go source change.
+Reviewed feature pinbb57 remains checked out, clean and unchanged while S4 tests
+run. A new native compatibility branch must preserve both histories and apply
+current policy instructions before fixing the actual legacy queue/v3 gap.
+No unpublished sibling implementation or new dependency pin is active here.
+
+Read-only native inspection confirms queued legacy activity can retry/fence after
+v3 activation; archive-only native proof currently cannot be read through
+LookupCaptured once the head is v3. The minimal producer change remains pending.
+Any policy closure must positively verify the trusted v3 owner, preserve original
+unknown effect/Before/source evidence, and never advance C1 coverage or fabricate
+an applied/negative receipt. Logical ReadRecap may perform its existing same-byte
+recovery publication; content/revision/coverage immutability is the correct test
+boundary, not a claim that no filesystem operation occurs.
+
+## S4 assembled App fix: fixed-candidate verification
+
+Local7ab14d5dd0653c5dd7f0498013f2f61021d5add2/tree
+5d4e0a7997d0dda654aecf1ca37bd51e8e00e03e is published as remote
+4c7a9ebced190be74175c87de418e86394632b19, with the exact remote tree verified.
+Production change is one dependency injection to the existing backend.Blobs();
+no pending/evidence/seal guard changed. New actual Assembly regression exercises
+known-capacity authenticated admission, deferred search, same-owner native edit,
+exact argument/full-result blobs, one C2 seal and actual App close/reopen followed
+by successful next admission and the next seal. Author RED and two intermediate
+fixture failures are preserved separately from the final author GREEN.
+
+Root reran original unchanged independent App/runtime probes in a separate clean
+clone of exact7ab14d5: PASS7 test/subtest events plus2 package passes,0fail/skip,
+exit0,37.729s; external rejected0/forwarded0. Only the overlay target paths changed;
+original App probe SHA256f002f3d21d5ef5a5bee96511aa3c17d36539dd0c846bf847b7a7e800b26458ae
+was checked before execution. Previously unexecuted real App HTTP/seal/reopen
+assertions now pass. This resolves the original reproduced integration RED.
+
+Root's same fixed candidate affected five-package normal selection PASS318
+test/subtest events plus5 packages,0fail,2explicit opt-in skips
+(TestCognitiveActionFixtureCapture and TestIssue58RecapSplitFixture), exit0,
+36.374s; external rejected0/forwarded0. Full Issue58 race is RUNNING separately.
+These qualified greens do not accept S5 sources/loaded status/BML or S6 product
+behavior, browser execution, actual PostgreSQL or installed #66.
+
+### Fixed S4 race and scoped acceptance
+
+The root exact7ab14d5 full Issue58 race has completed PASS256 test/subtest events
+plus5 packages,0fail,1explicit opt-in SplitFixture SKIP, no race diagnostics,
+exit0,333.276s; external rejected0/forwarded0. Config has no matching race tests;
+its package success is not invented test coverage. Source/normal/original-probe/
+race raw logs, commands, full metadata and source hashes are archived in
+s4-app-fix-root-fixed.tar.gz. This supersedes RUNNING immediately above.
+
+Independent S4 review plus one consolidated TDD fix and root unchanged original
+probes accept the scoped management/native-tool/App integration interface at7ab.
+The actual missing production dependency is resolved, not suppressed. S4 Story
+and product acceptance still await S5 exact sources/loaded composition and S6
+browser/full CI/installed quality. S5 source release is now bounded to the native
+legacy-consumer compatibility producer first; no BML consumer is activated before
+that producer's independent review/publication/new pin.

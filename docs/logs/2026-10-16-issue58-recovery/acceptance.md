@@ -38,3 +38,44 @@ push, UI CI PASS and existing full-UI browser smoke PASS. Its aggregate just-ci
 job FAILs because all lanes are required; it is not an executed local `just ci`
 command or final native backend qualification. Final candidate needs its own run.
 No main merge, deployment or actual tenant-data migration has occurred.
+
+## S4 independent review: actual App integration blocker
+
+Fixed candidate168393b0/tree372d9ff3 has one independently reproduced Important
+inherited blocker: actual NewWithAssembly omits ServiceDeps.ToolEvidence, so the
+trusted resident main conversation fails recap_unavailable before its first HTTP
+request. The final probe uses catalog deepseek-flash, a known1,000,000-token window,
+and successful current authorization/ContextStatus prechecks. Subsequent edit,
+C2 seal and host reopen assertions were not reached. S3's earlier implementation
+report claiming production App already wires the BlobStore is incorrect. Its
+scoped injected-fixture/interface greens remain historical evidence; they never
+established actual App admission or whole S3 acceptance.
+
+Independent S4 review found no other substantiated finding: focused Go34 pass
+events/one opt-in fixture skip; runtime probes6 pass events; ordinary discovery/
+lifecycle8 passes; normal staged focused UI22 passes and independent async UI3
+passes. These do not override the assembled App RED. Raw probes, all attempts,
+source integrity and34 verified file hashes are losslessly archived in
+s4-independent-review.tar.gz. See s4-independent-review.md. One consolidated author
+TDD fix is in progress; root must rerun the unchanged original assembly probe and
+affected fixed-candidate gates. S4 remains unaccepted; source for S5 remains frozen.
+
+Exact3e130 unmodified MemoryLoop and DIVA recall scripts have since completed PASS;
+the earlier RUNNING statements above are chronological history. No installed/live
+quality or final justci claim follows. Main re-fetch still resolves5715950.
+
+## Current scoped handoff after S4 fix
+
+Fixed7ab14d5/tree5d4e0a7 (remote4c7a9ebc) resolves the independently reproduced
+actual App ToolEvidence omission. Root unchanged original App/runtime probes PASS7
+plus2 packages; normal PASS318 plus5 packages/2opt-in skips; full Issue58 race
+PASS256 plus5 packages/1opt-in split-fixture skip, no failures/races. See the
+fixed-source manifest, original RED and unchanged-probe archive. S4's scoped
+interface is accepted for S5 implementation, not whole Story or product acceptance.
+UI707-test/typecheck/build evidence remains explicitly fixed168; no later full
+candidate UI/browser execution is invented. S5 exact historical source expansion,
+loaded status, BML native receipts/selection/single sink and legacy exit remain.
+S6 justci/one-candidate native Windows/browser/installed/live quality and PostgreSQL
+execution remain unaccepted. The first released S5 source increment is the minimal
+native C5 queue/v3 compatibility fix; its producer review/publication/pin precede
+all BML consumer activation. No main merge, deployment or tenant migration.

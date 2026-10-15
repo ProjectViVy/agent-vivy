@@ -1,0 +1,162 @@
+{
+  "candidate": "7ab14d5dd0653c5dd7f0498013f2f61021d5add2",
+  "tree": "5d4e0a7997d0dda654aecf1ca37bd51e8e00e03e",
+  "remote_equivalent": "4c7a9ebced190be74175c87de418e86394632b19",
+  "laputa_during_execution": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7",
+  "eino": "v0.9.20",
+  "source_sha256": {
+    "internal/app/app.go": "ef80124b83635b973617108ba42a7ac2269ab54f169ee1064f6310edb3721f58",
+    "internal/app/issue58_recap_native_test.go": "ceaa67565bee513d63d7601e42b2a882c619cb7a9ef844b20d53615249673abd"
+  },
+  "results": [
+    {
+      "candidate": "7ab14d5dd0653c5dd7f0498013f2f61021d5add2",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "-overlay",
+        "/tmp/issue58-s4-root-fix-overlay.json",
+        "./internal/app",
+        "./internal/runtime",
+        "-run",
+        "^TestReviewS4",
+        "-count=1",
+        "-timeout=5m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 37.729,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 7,
+        "package_pass": 2
+      },
+      "skips": []
+    },
+    {
+      "candidate": "7ab14d5dd0653c5dd7f0498013f2f61021d5add2",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "./internal/modules/diva-cognitive",
+        "./internal/runtime",
+        "./internal/app",
+        "./internal/actionhost",
+        "./internal/config",
+        "-run",
+        "Issue58|Cognitive|GeneratedTool|ToolSearch|DefaultGenerated|EveryContract|StrictInput|ServiceContextStatusAndCompactSession",
+        "-count=1",
+        "-timeout=8m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 36.374,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 318,
+        "package_pass": 5,
+        "test_skip": 2
+      },
+      "skips": [
+        "TestCognitiveActionFixtureCapture",
+        "TestIssue58RecapSplitFixture"
+      ]
+    },
+    {
+      "candidate": "7ab14d5dd0653c5dd7f0498013f2f61021d5add2",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-race",
+        "-p=1",
+        "./internal/modules/diva-cognitive",
+        "./internal/runtime",
+        "./internal/app",
+        "./internal/actionhost",
+        "./internal/config",
+        "-run",
+        "Issue58",
+        "-count=1",
+        "-timeout=12m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 333.276,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 256,
+        "package_pass": 5,
+        "test_skip": 1
+      },
+      "skips": [
+        "TestIssue58RecapSplitFixture"
+      ]
+    }
+  ],
+  "qualification": "Scoped S4 integration interface accepted after independent review and one consolidated TDD fix. Browser, exact sources/loaded status, BML and whole S6 product gates remain open. Config package has no matching Issue58 race tests.",
+  "files": [
+    {
+      "name": "/tmp/issue58-root-s4-fix-original-probes.log",
+      "bytes": 187392,
+      "sha256": "0b3fef60e368cfab8b5039b4675652c24a1514aa9837339ee7ec91aee0cbea02"
+    },
+    {
+      "name": "/tmp/issue58-root-s4-fix-original-probes.json",
+      "bytes": 516,
+      "sha256": "009d1e7b4417d14cf5cd9f73e20dfc3fbf3264bd91403c64f0ed7dd128c41970"
+    },
+    {
+      "name": "/tmp/issue58-root-s4-fix-focused.log",
+      "bytes": 562637,
+      "sha256": "8bbeb7eeb2ad1ed767b507a963311b8b4a8f0011967035ff5e5330194ccc276a"
+    },
+    {
+      "name": "/tmp/issue58-root-s4-fix-focused.json",
+      "bytes": 660,
+      "sha256": "d06e14074b0c620ca18adf51e53462d4139a69166cbd42589cba095f019570df"
+    },
+    {
+      "name": "/tmp/issue58-root-s4-fix-race.log",
+      "bytes": 513054,
+      "sha256": "4ab1f5411861c4275878c62f0b05ce7458ed4530ee3dbb3b5f7063bb7fd2f0de"
+    },
+    {
+      "name": "/tmp/issue58-root-s4-fix-race.json",
+      "bytes": 559,
+      "sha256": "c6abb8abbd331e1ae9be68f0e52461525893216035b14ab9e063a5d3004b6d2d"
+    },
+    {
+      "name": "/tmp/issue58-s4-root-fix-overlay.json",
+      "bytes": 503,
+      "sha256": "4465caae896155b01b0b9174f84453274f5341452563c92d6190a58791967dab"
+    },
+    {
+      "name": "/tmp/issue58-localonly-runner.py",
+      "bytes": 1763,
+      "sha256": "32a769519c98bd700e884b638cdf11e33c02c5fe7a2e105ebc431ff87b97b29e"
+    },
+    {
+      "name": ".superpowers/sdd/S4-review/probes/app_native_probe_test.go",
+      "bytes": 5104,
+      "sha256": "f002f3d21d5ef5a5bee96511aa3c17d36539dd0c846bf847b7a7e800b26458ae"
+    },
+    {
+      "name": ".superpowers/sdd/S4-review/probes/native_search_probe_test.go",
+      "bytes": 3669,
+      "sha256": "0c0a57dca7eda4ca96b670f909366fa63d59c8d7284c94cf1a7639aff2f9c717"
+    }
+  ],
+  "archive_sha256": "32bcb4baca71fe4e4de4aaf838817fcdec11bf25d1d9ad814c5a428c1ef1df2d",
+  "archive_bytes": 106337
+}

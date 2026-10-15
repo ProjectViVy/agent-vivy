@@ -1,0 +1,53 @@
+{
+  "candidate": "94bff8014525a22ed647b23453d3b57fb9115f12",
+  "tree": "7678864b43badef22a603c38b2d67e67303003d2",
+  "archive": "s4-backend-fixed-race.tar.gz",
+  "archive_sha256": "b4dde111bff62d4b0f711216534a8acc3eadf0c663376f8fedcdb2f4c821e00e",
+  "events": {
+    "start": 5,
+    "run": 255,
+    "output": 768,
+    "pass": 260
+  },
+  "failures": [],
+  "skips": [],
+  "packages": [
+    {
+      "Package": "agent-vivy/internal/modules/diva-cognitive",
+      "Action": "pass",
+      "Elapsed": 1.88
+    },
+    {
+      "Package": "agent-vivy/internal/runtime",
+      "Action": "pass",
+      "Elapsed": 232.23
+    },
+    {
+      "Package": "agent-vivy/internal/app",
+      "Action": "pass",
+      "Elapsed": 30.325
+    },
+    {
+      "Package": "agent-vivy/internal/actionhost",
+      "Action": "pass",
+      "Elapsed": 1.032
+    },
+    {
+      "Package": "agent-vivy/internal/config",
+      "Action": "pass",
+      "Elapsed": 1.012
+    }
+  ],
+  "files": [
+    {
+      "path": "issue58-root-s4-backend94-race.json",
+      "size": 563,
+      "sha256": "68f59a003b0c0035b8263447a7339c927396ea73970c61f577ba097770756483"
+    },
+    {
+      "path": "issue58-root-s4-backend94-race.log",
+      "size": 452106,
+      "sha256": "eab80d4ac708db966e409e7d1619177954efdd44b90ff00e92b915363a27553b"
+    }
+  ]
+}

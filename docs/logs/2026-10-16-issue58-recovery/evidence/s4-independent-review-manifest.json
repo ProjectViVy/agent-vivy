@@ -1,0 +1,11 @@
+{
+  "candidate": "168393b0a70d2406de01c2307091c3c4c67fce3c",
+  "tree": "372d9ff3f2e66eadb60310877616a83107d5d3d0",
+  "archive": "s4-independent-review.tar.gz",
+  "bytes": 30648,
+  "sha256": "f3b303ea084afae7855ed0a9ac63268f07dd40800df3bbea752d4f11e5c88c4a",
+  "review_verified_files": 34,
+  "disposition": "Important I1 inherited actual App ToolEvidence injection blocker. Author fix and unchanged reviewer repro rerun pending. No whole S4/S3/product acceptance.",
+  "browser": "NOT RUN",
+  "postgresql": "NOT RUN"
+}
