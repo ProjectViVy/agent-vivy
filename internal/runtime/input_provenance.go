@@ -15,8 +15,9 @@ func stampInputProvenance(msg *schema.Message, p storage.InputProvenance) {
 		msg.Extra = map[string]any{}
 	}
 	// Eino checkpoint serializers only accept registered or primitive values.
-	// A plain map survives both native checkpoint copies and JSON round trips.
-	msg.Extra[inputProvenanceExtra] = map[string]any{"content_origin": p.ContentOrigin, "exclude_automatic_ingest": p.ExcludeAutomaticIngest}
+	// A JSON string survives native Eino and existing gob checkpoint copies.
+	raw, _ := json.Marshal(p)
+	msg.Extra[inputProvenanceExtra] = string(raw)
 }
 
 func projectedInputProvenance(rows []domain.Message) storage.InputProvenance {
@@ -37,17 +38,11 @@ func (s *Service) modelInputProvenance(ctx context.Context, runID domain.RunID, 
 		if msg == nil {
 			continue
 		}
-		if extra, present := msg.Extra[inputProvenanceExtra]; present {
-			raw, err := json.Marshal(map[string]any{"input_provenance": extra})
-			p := storage.UnknownInputProvenance()
-			if err == nil {
-				if decoded, decodeErr := storage.DecodeModelInputProvenance(domain.RunEvent{PayloadVersion: 4, Payload: raw}); decodeErr == nil {
-					p = decoded
-				}
-			}
+		if p, present := schemaInputProvenance(msg); present {
 			inputs = append(inputs, p)
 			continue
 		}
+
 		if msg.Role == schema.User || msg.Role == schema.System {
 			inputs = append(inputs, storage.InputProvenance{ContentOrigin: storage.ContentOriginOriginal})
 			continue
@@ -104,4 +99,24 @@ func (s *Service) latestModelInputProvenance(ctx context.Context, runID domain.R
 func AutomaticInputProvenance(messages []domain.Message) (knownExcluded, available bool) {
 	p := projectedInputProvenance(messages)
 	return storage.ClassifyInputProvenance(p.ContentOrigin, p.ExcludeAutomaticIngest)
+}
+
+func schemaInputProvenance(msg *schema.Message) (storage.InputProvenance, bool) {
+	extra, present := msg.Extra[inputProvenanceExtra]
+	if !present {
+		return storage.UnknownInputProvenance(), false
+	}
+	value := extra
+	if encoded, ok := extra.(string); ok {
+		value = json.RawMessage(encoded)
+	}
+	raw, err := json.Marshal(map[string]any{"input_provenance": value})
+	if err != nil {
+		return storage.UnknownInputProvenance(), true
+	}
+	p, err := storage.DecodeModelInputProvenance(domain.RunEvent{PayloadVersion: 4, Payload: raw})
+	if err != nil {
+		return storage.UnknownInputProvenance(), true
+	}
+	return p, true
 }

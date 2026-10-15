@@ -3407,6 +3407,13 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 	state := o.call(meta.CallID)
 	for _, call := range chunk.ToolCalls {
 		if !utf8.ValidString(call.Function.Arguments) {
+			// Preserve a durable unavailable marker before either JSON encoding or
+			// Eino can normalize the invalid provider bytes into a valid string.
+			for _, event := range o.m.toolCallEvents(chunk) {
+				if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+					return errors.New("runtime: invalid tool argument marker could not be journaled")
+				}
+			}
 			return storage.ErrSubjectEvidenceIncomplete
 		}
 	}

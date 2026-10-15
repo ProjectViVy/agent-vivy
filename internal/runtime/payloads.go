@@ -250,11 +250,15 @@ type payloadModelCallFinished struct {
 }
 
 type payloadToolRequested struct {
-	ArgumentsReference *storage.ToolArgumentsReference `json:"arguments_reference,omitempty"`
-	OriginalArguments  string                          `json:"original_arguments,omitempty"`
-	ToolCallID         string                          `json:"tool_call_id"`
-	ToolName           string                          `json:"tool_name"`
-	Args               map[string]any                  `json:"args"`
+	// Invalid bytes cannot be represented by a JSON string. Persist explicit
+	// unavailability before serialization instead of certifying U+FFFD as original.
+	OriginalArgumentsBytes       []byte                          `json:"original_arguments_bytes,omitempty"`
+	OriginalArgumentsInvalidUTF8 bool                            `json:"original_arguments_invalid_utf8,omitempty"`
+	ArgumentsReference           *storage.ToolArgumentsReference `json:"arguments_reference,omitempty"`
+	OriginalArguments            string                          `json:"original_arguments,omitempty"`
+	ToolCallID                   string                          `json:"tool_call_id"`
+	ToolName                     string                          `json:"tool_name"`
+	Args                         map[string]any                  `json:"args"`
 }
 
 type payloadToolStarted struct {

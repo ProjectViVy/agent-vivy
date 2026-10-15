@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/summarization"
@@ -555,7 +556,14 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 	m.toolBatch = m.toolBatch[:0]
 	for _, tc := range msg.ToolCalls {
 		args := map[string]any{}
-		if tc.Function.Arguments != "" {
+		invalidUTF8 := !utf8.ValidString(tc.Function.Arguments)
+		original := tc.Function.Arguments
+		var originalBytes []byte
+		if invalidUTF8 {
+			originalBytes = []byte(tc.Function.Arguments)
+			original = ""
+		}
+		if !invalidUTF8 && tc.Function.Arguments != "" {
 			value, err := decodeJSONWithNumbers(json.RawMessage(tc.Function.Arguments))
 			if err != nil {
 				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Function.Name, "err", err)
@@ -567,10 +575,12 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 		// reordered keys still count as a repeat for Nudge.
 		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
-			ToolCallID:        tc.ID,
-			OriginalArguments: tc.Function.Arguments,
-			ToolName:          tc.Function.Name,
-			Args:              args,
+			ToolCallID:                   tc.ID,
+			OriginalArguments:            original,
+			OriginalArgumentsInvalidUTF8: invalidUTF8,
+			OriginalArgumentsBytes:       originalBytes,
+			ToolName:                     tc.Function.Name,
+			Args:                         args,
 		}))
 		call := openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)}
 		m.toolBatch = append(m.toolBatch, call)
@@ -867,6 +877,10 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		terminal.Outcome = "cancelled"
 		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
 		payload = terminal
+	case payloadToolRequested:
+		if terminal.OriginalArgumentsInvalidUTF8 {
+			payloadVersion = 2
+		}
 	case payloadModelRequestV4:
 		payloadVersion = 4
 	case payloadModelRequestV3:

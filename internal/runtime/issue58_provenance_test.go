@@ -315,3 +315,85 @@ func TestIssue58LegacySummaryCannotRecertifyUnknown(t *testing.T) {
 		})
 	}
 }
+
+func TestIssue58RawInvalidUTF8CannotBeRecertifiedByJournal(t *testing.T) {
+	for _, native := range []bool{false, true} {
+		t.Run(map[bool]string{false: "mapper", true: "native-generate"}[native], func(t *testing.T) {
+			ctx := context.Background()
+			svc, b, _ := newTestService(t, testsupport.NewEchoModel())
+			conformance.Issue58Identity(t, b)
+			source := conformance.Issue58Source("raw-invalid", false)
+			mustCreateSession(t, b, source.SessionID)
+			svc.deps.SubjectSources = func(context.Context, domain.SessionID) (*storage.SubjectSourceBinding, error) { return &source, nil }
+			a := conformance.Issue58Admission(source, "raw-invalid-run")
+			if _, err := b.CommitRunAdmission(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+			raw := append([]byte(`{"value":"`), 0xff)
+			raw = append(raw, []byte(`"}`)...)
+			msg := schema.AssistantMessage("", []schema.ToolCall{{ID: "invalid-raw", Function: schema.FunctionCall{Name: "issue58_exact", Arguments: string(raw)}}})
+			m := newEventMapper(a.Run.ID, 64<<10)
+			m.runProvider = "fixture"
+			m.runModel = "fixture"
+			if native {
+				observed := svc.withLiveModelStreamObserver(ctx, m, source.SessionID, nil, nil, false, nil)
+				response, err := observeGenerate(observed, &observedModelCallCore{}, NewScriptedModel(msg), []*schema.Message{schema.UserMessage("test")})
+				if !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) || response != nil {
+					t.Fatalf("invalid native output forwarded %v %v", response, err)
+				}
+			} else {
+				for _, event := range m.toolCallEvents(msg) {
+					if !svc.persistAndPublish(ctx, source.SessionID, event) {
+						t.Fatal("invalidity marker must persist")
+					}
+				}
+			}
+			found := false
+			for _, event := range replayAll(t, b, a.Run.ID) {
+				if event.Type == domain.EventToolRequested {
+					var marker struct {
+						Invalid  bool   `json:"original_arguments_invalid_utf8"`
+						Original string `json:"original_arguments"`
+						Raw      []byte `json:"original_arguments_bytes"`
+					}
+					if err := json.Unmarshal(event.Payload, &marker); err != nil {
+						t.Fatal(err)
+					}
+					if !marker.Invalid || marker.Original != "" || string(marker.Raw) != string(raw) {
+						t.Fatalf("serialization recertified invalid bytes: %s", event.Payload)
+					}
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("missing durable evidence-unavailable marker")
+			}
+			svc.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{}))
+			if _, _, err := b.ReadSubjectRunEvidence(ctx, source.SubjectHistoryBinding, a.Run.ID); !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+				t.Fatalf("invalid raw arguments sealed as original: %v", err)
+			}
+			if _, err := svc.projectedMessages(ctx, source.SessionID, a.Run.ID); !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+				t.Fatalf("projection recertified invalidity: %v", err)
+			}
+			if _, err := b.GetToolOperation(ctx, a.Run.ID, "invalid-raw"); !errors.Is(err, storage.ErrNotFound) {
+				t.Fatalf("invalid raw model tool executed/admitted: %v", err)
+			}
+		})
+	}
+}
+
+func TestIssue58NativeFinalizeRetainsProvenance(t *testing.T) {
+	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
+	for _, origin := range []string{"notebook", "unknown"} {
+		rawSummary := schema.AssistantMessage("generated summary", nil)
+		stampInputProvenance(rawSummary, storage.InputProvenance{ContentOrigin: origin, ExcludeAutomaticIngest: origin == "notebook"})
+		finalized, err := preserveProjectFileContextsFinalize(context.Background(), []*schema.Message{schema.SystemMessage("trusted instructions"), schema.UserMessage("original input")}, rawSummary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := svc.modelInputProvenance(context.Background(), "native-finalize", finalized)
+		if err != nil || p.ContentOrigin != origin {
+			t.Fatalf("native DefaultFinalize recertified %s: %+v %v", origin, p, err)
+		}
+	}
+}
