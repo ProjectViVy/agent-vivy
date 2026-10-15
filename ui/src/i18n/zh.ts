@@ -383,6 +383,8 @@ export const zh = {
     trustedConfirmDescription: '信任模式会放宽命令白名单，并自动批准只读和白名单工具。仍无法写出本次运行的工作区。',
     trustedConfirm: '确认切换',
     reviewCenter: '审批中心',
+    contextUnavailable: '共享上下文用量暂不可用。',
+    compactUnmeasured: '回顾已更新，token 用量暂不可用。',
     contextTitle: '上下文占用：{{percent}}% · {{used}} / {{limit}} tokens',
     contextLabel: '上下文占用',
     contextValueText: '已使用约 {{used}} tokens，模型窗口 {{limit}} tokens',

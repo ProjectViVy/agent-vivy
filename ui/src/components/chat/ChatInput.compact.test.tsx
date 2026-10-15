@@ -103,4 +103,18 @@ describe('chat-level compact control (VCP-D3)', () => {
     expect(api.compactSession).toHaveBeenCalledWith('s1', undefined);
     expect(container.textContent).toContain('session is busy');
   });
+  it('does not display a measured percentage for unavailable shared context', async () => {
+    await render(false, { ...contextWithCompaction, context_pressure_available: false, context_reason: 'recap_context_measurement_unavailable' } as api.SessionContext);
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+    expect(container.textContent).not.toContain('0%');
+    expect(container.querySelector('[title="Shared context usage is unavailable."]')).not.toBeNull();
+  });
+  it('does not announce zero token savings when Recap compaction has no measurements', async () => {
+    vi.mocked(api.compactSession).mockResolvedValue({ before_tokens: 0, after_tokens: 0, folded_messages: 2, skipped: false, token_counts_available: false } as api.CompactResult);
+    await render(false); await click(compactButton()!);
+    await click([...document.body.querySelectorAll('button')].find(b => b.textContent === 'Compact now')!);
+    expect(container.textContent).toContain('Recap updated. Token totals are unavailable.');
+    expect(container.textContent).not.toContain('0 → 0');
+  });
+
 });
