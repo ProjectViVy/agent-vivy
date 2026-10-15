@@ -36,7 +36,7 @@ One implementation writer, GPT-6.1 Sol High, rebuilds missing S2 provenance. Roo
 S2 provenance was reimplemented, independently reviewed and fixed at8ae1db9d;
 focused producer/race gates pass without inheriting old local GREEN. Broader
 regression failures and the safer-run boundary are recorded in verification.md.
-S3 Task1 is in progress at locale69e9d59 (exact remote treebea63855), not accepted.
+Historical intermediate: S3 Task1 was in progress at locale69e9d59 (exact remote treebea63855), not accepted at that cut. The latest accepted cut is recorded below.
 Task2 fold/reconcile/CAS/receipt and all S4–S6 delivery remain outstanding. The
 initial findings above describe the recovered baseline, not current completion.
 
@@ -50,3 +50,11 @@ The input acceptance/report contains full commands and retained failed attempts.
 Task2 native fold/reconcile/CAS/pending-receipt recovery now owns the sole source
 write lane. Mandatory correction remains unavailable before HTTP until that adapter
 exists. No combined S3 activation, S4/S5 work or centralized product pass is claimed.
+
+
+Task2 WIP checkpoint local340bc959 / remoteee053ead (exact tree1eb88a3f)
+preserves the first native adapter and pending-intent implementation. It is not an
+accepted Task2 cut. Subsequent tests exposed real bound-port CAS error translation
+and explicit-summary observation on a closed source run; both remain qualification
+work. The integration rulings in S3.md bind pending recovery and synthetic control
+Journal use without introducing another owner or fake conversation lifecycle.
