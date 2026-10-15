@@ -21,6 +21,8 @@ import {
   type UIRoot,
   type ChatHeaderContext,
   type ChatHeaderContribution,
+  type ShellOnboardingContribution,
+  isShellOnboardingContribution,
   UI_EXTENSION_PORT,
   UI_ROOT_PORT,
 } from "./module";
@@ -104,7 +106,6 @@ const emptyFaceStoreState: FaceStoreState = {
   loadSessions: unavailableFaceOperation,
   chooseWorkspace: unavailableFaceOperation,
   createSession: unavailableFaceOperation,
-  chooseWorkspace: unavailableFaceOperation,
   renameSession: unavailableFaceOperation,
   setSessionPermission: unavailableFaceOperation,
   deleteSession: unavailableFaceOperation,
@@ -191,6 +192,29 @@ describe("full-code UI composition", () => {
     const wrongRenderer: ChatHeaderContribution = { slot: "chat.header", render: () => ({}) };
     expect(wrongSlot).toBeDefined();
     expect(wrongRenderer).toBeDefined();
+  });
+
+  it("exposes the typed shell onboarding gate contract", () => {
+    const contribution: ShellOnboardingContribution = { slot: "shell.onboarding", render: () => null };
+
+    expect(contribution.slot).toBe("shell.onboarding");
+    expect(contribution.render()).toBeNull();
+    expect(isShellOnboardingContribution(contribution)).toBe(true);
+
+    // @ts-expect-error the slot is intentionally closed to typed consumers.
+    const wrongSlot: ShellOnboardingContribution = { slot: "shell.welcome", render: () => null };
+    // @ts-expect-error a gate renderer must return renderable content.
+    const wrongRenderer: ShellOnboardingContribution = { slot: "shell.onboarding", render: () => ({}) };
+    expect(wrongSlot).toBeDefined();
+    expect(wrongRenderer).toBeDefined();
+  });
+
+  it("narrows registry values to the shell onboarding gate shape", () => {
+    expect(isShellOnboardingContribution({ slot: "shell.onboarding", render: () => null })).toBe(true);
+    expect(isShellOnboardingContribution({ slot: "chat.header", render: () => null })).toBe(false);
+    expect(isShellOnboardingContribution({ slot: "shell.onboarding" })).toBe(false);
+    expect(isShellOnboardingContribution(null)).toBe(false);
+    expect(isShellOnboardingContribution("shell.onboarding")).toBe(false);
   });
 
   it("rejects duplicate root providers", () => {
@@ -334,7 +358,6 @@ describe("full-code UI composition", () => {
         readWorkspaceFile: unavailableFaceOperation,
         browseWorkspace: unavailableFaceOperation,
         listSessions: async () => ({ sessions: [] }),
-        browseWorkspace: unavailableFaceOperation,
         setSessionWorkspace: unavailableFaceOperation,
         getSession: async () => ({
           session: { id: "fixture/session", title: "Fixture", created_at: 0 },
@@ -343,7 +366,6 @@ describe("full-code UI composition", () => {
         createSession: async () => ({ id: "fixture/session", title: "Fixture", created_at: 0 }),
         renameSession: async () => ({ id: "fixture/session", title: "Renamed", created_at: 0 }),
         setSessionPermission: unavailableFaceOperation,
-        setSessionWorkspace: unavailableFaceOperation,
         deleteSession: unavailableFaceOperation,
         listMessages: async () => ({ messages: [] }),
         getSessionWork: unavailableFaceOperation,

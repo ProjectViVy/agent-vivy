@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/modelhost"
+	"agent-vivy/sdk/port/providerprofile"
 )
 
 func TestOpenAIRefKeyMissing(t *testing.T) {
@@ -174,6 +176,81 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("OPENAI_API_KEY")
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	os.Exit(m.Run())
+}
+
+// A user-registered provider is an endpoint the embedded catalog does not
+// describe. The selection carries that endpoint itself, so the model must be
+// built for the registered address without the catalog holding an entry for the
+// name — and a deferred adapter must still fail closed.
+func TestResolvingChatModelRunsARegisteredEndpoint(t *testing.T) {
+	t.Run("requests reach the registered address", func(t *testing.T) {
+		var path string
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			path = request.URL.Path
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"id":"chatcmpl-test","object":"chat.completion","created":1,"model":"gw-chat","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		}))
+		defer server.Close()
+
+		endpoint := Endpoint{Adapter: AdapterOpenAICompletions, BaseURL: server.URL, DefaultModel: "gw-chat", Models: []Model{{ID: "gw-chat"}}}
+		chatModel := NewResolvingChatModel(
+			routedHost(t, testRegisteredEndpointProfile(t, AdapterOpenAICompletions)),
+			// The catalog knows no "WXYG": before this path existed, every call
+			// failed with `provider "WXYG": no embedded vendor data`.
+			NewCatalog(),
+			staticSpecSource{live: LiveSpec{
+				Provider: "WXYG", Adapter: AdapterOpenAICompletions, Model: "gw-chat",
+				BaseURL: server.URL, APIKey: "secret", Ready: true, Endpoint: endpoint,
+			}},
+		)
+		if _, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err != nil {
+			t.Fatalf("registered endpoint generate: %v", err)
+		}
+		if path != "/chat/completions" {
+			t.Fatalf("outbound path = %q, want /chat/completions", path)
+		}
+	})
+
+	t.Run("a deferred adapter still fails closed", func(t *testing.T) {
+		endpoint := Endpoint{Adapter: AdapterOpenAIResponses, BaseURL: "https://network-must-not-run.invalid/v1", DefaultModel: "r-1", Models: []Model{{ID: "r-1"}}}
+		// The compiled Generation seals adapters, so the ModelHost refuses the
+		// deferred family before any credential or address is considered. The
+		// Ref constructor refuses it too, whether or not a host is compiled
+		// (see TestCatalogRefForSelectionFailsClosed).
+		if _, err := NewCatalog().RefForSelection("WXYG", endpoint); !errors.Is(err, ErrAdapterDeferred) {
+			t.Fatalf("RefForSelection error = %v, want ErrAdapterDeferred", err)
+		}
+		chatModel := NewResolvingChatModel(
+			routedHost(t, testRegisteredEndpointProfile(t, AdapterOpenAICompletions)),
+			NewCatalog(),
+			staticSpecSource{live: LiveSpec{
+				Provider: "WXYG", Adapter: AdapterOpenAIResponses, Model: "r-1",
+				BaseURL: endpoint.BaseURL, APIKey: "secret", Ready: true, Endpoint: endpoint,
+			}},
+		)
+		_, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+		if !errors.Is(err, modelhost.ErrProfileNotFound) {
+			t.Fatalf("deferred registered endpoint error = %v, want ErrProfileNotFound", err)
+		}
+	})
+}
+
+// testRegisteredEndpointProfile is the adapter Profile a user-registered
+// endpoint compiles to: the registry declares an adapter, never a vendor, so the
+// Profile identity is that adapter.
+func testRegisteredEndpointProfile(t *testing.T, adapter string) providerprofile.Profile {
+	t.Helper()
+	profiles, err := AdapterProfiles()
+	if err != nil {
+		t.Fatalf("AdapterProfiles: %v", err)
+	}
+	for _, profile := range profiles {
+		if profile.AdapterFamily == adapter {
+			return profile
+		}
+	}
+	t.Fatalf("no sealed Profile for adapter %q", adapter)
+	return providerprofile.Profile{}
 }
 
 // TestOpenAIRefModelInfoMetadata covers the metadata path: known ids resolve

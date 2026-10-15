@@ -568,6 +568,24 @@ export function isChatHeaderContribution(value: unknown): value is ChatHeaderCon
 }
 
 /**
+ * A first-run gate contributed through the same components registry. The host
+ * owns the slot and its timing (it renders the slot once the built-in welcome
+ * flow is closed); the contributing Module owns the decision to appear, so the
+ * host never learns another Module's state and needs no context to pass.
+ */
+export interface ShellOnboardingContribution {
+  readonly slot: "shell.onboarding";
+  readonly render: () => React.ReactNode;
+}
+
+/** Runtime shape guard used by the host before rendering a registry value. */
+export function isShellOnboardingContribution(value: unknown): value is ShellOnboardingContribution {
+  if (!value || typeof value !== "object") return false;
+  const contribution = value as Partial<ShellOnboardingContribution>;
+  return contribution.slot === "shell.onboarding" && typeof contribution.render === "function";
+}
+
+/**
  * The broad, host-owned composition surface. Concrete Web Face registries can
  * specialize these values without changing the public Module ABI.
  */

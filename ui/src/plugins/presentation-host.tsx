@@ -21,8 +21,10 @@ import {
   createCleanupHandle,
   isChatHeaderContribution,
   isHostIconName,
+  isShellOnboardingContribution,
   type ChatHeaderContext,
   type ChatHeaderContribution,
+  type ShellOnboardingContribution,
   type CleanupHandle,
   type FaceClient,
   type FaceClientAPI,
@@ -918,6 +920,39 @@ export function ChatHeaderSlot({ host, runtime: suppliedRuntime }: {
     Fragment,
     { key: `${entry.id}-${index}` },
     contribution.render(context),
+  )));
+}
+
+/**
+ * Renders the host-owned first-run slot from the typed components registry.
+ *
+ * The shell owns the slot and its timing (it renders this node once its own
+ * welcome flow is closed); the contributing Module owns whether anything shows
+ * and reads its own state, so no host context is passed. Like the chat header
+ * slot, values are narrowed at this boundary and the node renders below
+ * PresentationErrorBoundary, so a Module render failure takes the same
+ * diagnostic and owner cleanup path.
+ */
+export function ShellOnboardingSlot({ host, runtime: suppliedRuntime }: {
+  readonly host: FullUIHost;
+  readonly runtime?: LiveCompositionRuntime;
+}): ReactNode {
+  const inheritedRuntime = useContext(ChatCompositionContext);
+  const runtime = suppliedRuntime ?? inheritedRuntime ?? compositionRuntimeOf(host);
+  useSyncExternalStore(
+    runtime ? runtime.subscribe : noopSubscribe,
+    runtime ? runtime.getSnapshot : noopSnapshot,
+    runtime ? runtime.getSnapshot : noopSnapshot,
+  );
+  const entries = runtime?.getEntries('components') ?? [];
+  const contributions = entries
+    .map((entry) => ({ entry, contribution: isShellOnboardingContribution(entry.value) ? entry.value : undefined }))
+    .filter((item): item is { readonly entry: CompositionEntry; readonly contribution: ShellOnboardingContribution } => Boolean(item.contribution));
+  if (contributions.length === 0) return null;
+  return createElement(Fragment, null, contributions.map(({ entry, contribution }, index) => createElement(
+    Fragment,
+    { key: `${entry.id}-${index}` },
+    contribution.render(),
   )));
 }
 

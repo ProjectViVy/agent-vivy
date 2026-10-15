@@ -301,8 +301,28 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 			}
 		}
 		info.ParamsOneOf = schema.NewParamsOneOfByParams(params)
+		return info, nil
 	}
+	// A tool that takes no arguments still declares the argument object. Eino
+	// treats a nil ParamsOneOf as "no input parameters" and serializes
+	// `"parameters": null` (the wire field has no omitempty), which a strict
+	// OpenAI-compatible endpoint answers with 422 for the whole request — every
+	// tool in the request is rejected because one of them is malformed. The
+	// empty closed object is the truthful schema as well: emptyToolArgs rejects
+	// any argument.
+	info.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(noArgumentToolSchema())
 	return info, nil
+}
+
+// noArgumentToolSchema is the argument schema every Vivy tool that takes no
+// arguments declares on the wire: an empty closed object. It is deliberately
+// built per call so no caller can mutate a shared schema.
+func noArgumentToolSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		Properties:           orderedmap.New[string, *jsonschema.Schema](),
+		AdditionalProperties: jsonschema.FalseSchema,
+	}
 }
 
 // decodeToolJSONSchema uses Eino's official JSON Schema type while filling its

@@ -1,56 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Code2, Eye, GitPullRequest, Loader2, RefreshCw, Save, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { dateTimeLocale } from '@/i18n';
-import { usePluginHost, usePluginTranslation, type FaceStoreState, type FullUIHost } from '@vivy/ui-sdk';
+import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
+import { KIND_LABELS } from './kinds';
+import { useFaceState } from './face-state';
+import { PersonaOnboarding } from './onboarding';
 import {
   PERSONA_KINDS,
   PersonaClient,
   type PersonaDocument,
-  type PersonaInitialization,
   type PersonaKind,
   type PersonaOutcome,
   type PersonaReview,
   type PersonaStatus,
 } from './persona-client';
-
-const REQUIRED_KINDS = ['identity', 'relationship', 'redline', 'user', 'world'] as const;
-
-const KIND_LABELS: Record<PersonaKind, string> = {
-  identity: 'IDENTITY.MD',
-  relationship: 'RELATIONSHIP.MD',
-  redline: 'REDLINE.MD',
-  user: 'USER.MD',
-  world: 'WORLD.MD',
-  dream: 'DREAM.MD',
-  dark: 'DARK.MD',
-  mission: 'MISSION.MD',
-};
-
-const EMPTY_INITIALIZATION: PersonaInitialization = {
-  identity: '',
-  relationship: '',
-  redline: '',
-  user: '',
-  world: '',
-};
-
-const EMPTY_FACE_STATE = {
-  activeSessionId: null,
-  connection: 'idle',
-  currentRun: null,
-} as unknown as FaceStoreState;
-
-/** The host store is the only source of the active, authenticated session. */
-function useFaceState(host?: FullUIHost): FaceStoreState {
-  const subscribe = useCallback((listener: () => void) => host?.store.subscribe(listener) ?? (() => undefined), [host]);
-  const getSnapshot = useCallback(() => host?.store.getState() ?? EMPTY_FACE_STATE, [host]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
 
 export function PersonaMemoryView() {
   const host = usePluginHost();
@@ -66,7 +34,6 @@ export function PersonaMemoryView() {
   const [draft, setDraft] = useState('');
   const [reviews, setReviews] = useState<PersonaReview[] | null>(null);
   const [reviewsNextCursor, setReviewsNextCursor] = useState<string | null>(null);
-  const [initialization, setInitialization] = useState<PersonaInitialization>(EMPTY_INITIALIZATION);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sessionCreating, setSessionCreating] = useState(false);
@@ -148,7 +115,6 @@ export function PersonaMemoryView() {
     setLoading(Boolean(sessionId && client));
     setSaving(false);
     setDecidingId(null);
-    setInitialization(EMPTY_INITIALIZATION);
     if (sessionId && client) void load(sessionId, selectedKind);
   }, [client, load, selectedKind, sessionId]);
 
@@ -159,33 +125,6 @@ export function PersonaMemoryView() {
     if (dirty && !window.confirm(t('plugin.vivy/persona.dirtyConfirm'))) return;
     void load(sessionId, selectedKind);
   }, [decidingId, dirty, load, loading, saving, selectedKind, sessionId, t]);
-
-  const handleInitialize = useCallback(async () => {
-    if (!client || !sessionId || saving) return;
-    if (REQUIRED_KINDS.some((kind) => !initialization[kind].trim())) {
-      setError(t('plugin.vivy/persona.initialize.required'));
-      return;
-    }
-    const wantedSession = sessionId;
-    const seq = ++requestSeq.current;
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const outcome = await client.initialize(wantedSession, initialization, 'Initialize persona from the Persona page');
-      if (!isCurrentSession(wantedSession)) return;
-      if (outcome.status !== 'ok') {
-        setError(outcomeMessage(outcome, t('plugin.vivy/persona.errors.initializeFailed')));
-        return;
-      }
-      setNotice(t('plugin.vivy/persona.initialize.saved'));
-      await load(wantedSession, selectedKind);
-    } catch (cause) {
-      if (isCurrentSession(wantedSession)) setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      if (isCurrentSession(wantedSession) && (seq === requestSeq.current || status?.persona.state === 'uninitialized')) setSaving(false);
-    }
-  }, [client, initialization, isCurrentSession, load, outcomeMessage, saving, selectedKind, sessionId, status?.persona.state, t]);
 
   const handleSave = useCallback(async () => {
     if (!client || !sessionId || !personaDocument || !dirty || saving || decidingId) return;
@@ -289,15 +228,17 @@ export function PersonaMemoryView() {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
   if (status?.persona.state === 'uninitialized') {
+    // One guided implementation, two mounts: the first-run gate and this page.
     return (
-      <InitializationPanel
-        values={initialization}
-        saving={saving}
-        error={error}
-        onChange={(kind, value) => setInitialization((current) => ({ ...current, [kind]: value }))}
-        onSubmit={() => void handleInitialize()}
-        t={t}
-      />
+      <div className="h-full min-h-0 p-4 sm:p-6">
+        <PersonaOnboarding
+          client={client}
+          sessionId={sessionId}
+          className="mx-auto h-full max-w-3xl"
+          finishLabelKey="plugin.vivy/persona.onboarding.openPersona"
+          onFinish={() => void load(sessionId, selectedKind)}
+        />
+      </div>
     );
   }
 
@@ -433,52 +374,6 @@ function Unavailable({
           </Button>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-function InitializationPanel({
-  values,
-  saving,
-  error,
-  onChange,
-  onSubmit,
-  t,
-}: {
-  readonly values: PersonaInitialization;
-  readonly saving: boolean;
-  readonly error: string | null;
-  readonly onChange: (kind: keyof PersonaInitialization, value: string) => void;
-  readonly onSubmit: () => void;
-  readonly t: (key: string, args?: Record<string, string | number>) => string;
-}) {
-  return (
-    <div className="h-full overflow-auto p-4 sm:p-6">
-      <Card className="mx-auto max-w-3xl">
-        <CardHeader>
-          <CardTitle>{t('plugin.vivy/persona.initialize.title')}</CardTitle>
-          <p className="text-sm text-muted-foreground">{t('plugin.vivy/persona.initialize.description')}</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error ? <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</div> : null}
-          {REQUIRED_KINDS.map((kind) => (
-            <label key={kind} className="block space-y-1.5">
-              <span className="text-sm font-medium">{t(`plugin.vivy/persona.initialize.fields.${kind}`)} <span className="text-destructive">*</span></span>
-              <textarea
-                name={kind}
-                required
-                value={values[kind]}
-                onChange={(event) => onChange(kind, event.target.value)}
-                className="min-h-24 w-full resize-y rounded-lg border bg-background p-3 font-mono text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-          ))}
-          <Button onClick={onSubmit} disabled={saving}>
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            {t('plugin.vivy/persona.initialize.submit')}
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 }

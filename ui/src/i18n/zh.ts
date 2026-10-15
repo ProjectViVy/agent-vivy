@@ -214,6 +214,14 @@ export const zh = {
 		selectError: '无法选择此工作区。',
 		truncated: '当前仅显示前几个文件夹，请输入更具体的路径继续浏览。',
 	},
+  companionAvatar: {
+    emojiLabel: '从表情里挑一个',
+    photoAction: '用一张照片',
+    photoHint: '照片会被缩到 256×256 保存在本机，不会上传，也不会发送给模型。',
+    photoTooLarge: '这张图太大了，换一张 5 MB 以内的吧。',
+    photoFailed: '这张图片读不出来，换一张试试。',
+    replace: '更换头像',
+  },
   layout: {
     openNav: '打开导航',
     closeNav: '收起导航',

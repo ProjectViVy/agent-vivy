@@ -216,6 +216,14 @@ export const en: Dictionary = {
 		selectError: 'Could not select this workspace.',
 		truncated: 'Only the first folders are shown. Enter a more specific path to continue.',
 	},
+  companionAvatar: {
+    emojiLabel: 'Pick a face from the emoji',
+    photoAction: 'Use a photo',
+    photoHint: 'The photo is scaled to 256x256 and kept on this device. It is never uploaded and never sent to the model.',
+    photoTooLarge: 'That image is too large. Try one under 5 MB.',
+    photoFailed: 'That image could not be read. Try another one.',
+    replace: 'Change the face',
+  },
   layout: {
     openNav: 'Open navigation',
     closeNav: 'Collapse navigation',
