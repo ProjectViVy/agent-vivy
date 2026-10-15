@@ -15,5 +15,7 @@ implicit complete-domain grant. Runtime and governed tool admission remain their
 own responsibility. Garden drains ingestion before closing the same ACTMEM Store.
 
 No UI/actions, #66 producer, summarizer, subject registry, backend projection or
-legacy conversion is included. Upstream publication, coordinated module/lock
-update, and final `just ci` belong to the parent integration step after review.
+legacy conversion is included. Source review is clean and parent published the exact reviewed upstream tree.
+The coordinated module/lock increment pins all three modules to
+`v0.0.0-20261015094757-5f26de678a99` with normal verified checksums. Final `just ci`
+remains the parent integration gate in a clean independent validation clone.

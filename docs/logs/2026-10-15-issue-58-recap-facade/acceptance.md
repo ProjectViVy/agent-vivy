@@ -13,4 +13,5 @@ initialized persona preparation; its Recap calls report `recap_unavailable`.
 Nonempty legacy ACTMEM is preserved and reports `recap_legacy_nonempty`.
 
 Native Windows durability acceptance, actual S2 registration, S3 admission, S4
-management, the #66 producer, upstream pin integration, and final CI are pending.
+management, the #66 producer, and final CI are pending. Published upstream pin
+integration and focused closure checks pass; full candidate CI remains parent-owned.
