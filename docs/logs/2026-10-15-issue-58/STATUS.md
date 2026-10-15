@@ -18,7 +18,8 @@ Lane work happens in the root checkout, `main` is never moved, nothing is pushed
 
 ## T1 — Laputa pinned source recovered; local Windows baseline established
 
-HEAD: `66fabfd2` + one local commit (this step)
+HEAD: T1 content commit `3777cf59d114df34f71125e6dd21120e9b7bc35f`
+(lane parent before it: `66fabfd2`; board updated in the following docs commit)
 Laputa pin: `bb57e93a61cfb41460524d00a557a3a9f2cce1e7` (parent `4c7c6b2…`), tree clean
 
 Done:
