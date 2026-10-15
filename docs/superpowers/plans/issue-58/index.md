@@ -1,24 +1,24 @@
 # Issue #58 planning package
 
-**Plan phase only.** Baseline main `8088f5bcf0c034ea5a4ae6df83e497430d6cec94`;
+**Implementation in progress, authorized by the owner on 2026-10-15.** Baseline main `8088f5bcf0c034ea5a4ae6df83e497430d6cec94`;
 Laputa `4b2bec2cc2ab3374b7ec1ab8d448e612c1e4db24`.
 Authoritative [design revision 2](../../specs/2026-10-15-issue-58-unified-context-design.md).
 Reuse the [memory delivery history](../memory/index.md); do not reopen or duplicate
 its completed Stories. This index alone owns status/dependencies.
 
-Planning by GPT-6 Astra High using Superpowers and Supermanagement. Future
-implementation: **GPT-6.1 Sol High**, with a single owner/interface writer and
-independent review. No production implementation, deployment, migration or tenant
-data mutation is authorized by this package. Approval of this package is a future
-execution gate, not a claim that acceptance already passed.
+Planning by GPT-6 Astra High using Superpowers and Supermanagement. Implementation:
+**GPT-6.1 Sol High**, with a single owner/interface writer and independent review.
+The owner's explicit development instruction accepts the corrected execution plan;
+it does not authorize deployment, mainline merge or switching tenant data. Progress
+and acceptance below must still derive from actual evidence.
 
 ## Epics, dependencies and readiness
 
 | Story | Epic / requirements | Outcome | Immediate predecessors / accepted output | Plan | State | Evidence / blocker |
 |---|---|---|---|---|---|---|
-| S0 | Foundation / R1–R7 | Baseline, design, contracts, executable package | None | [S0](S0.md) | Review | Owner correction incorporated; revision-2 independent review passed; D1 withdrawn; overall execution approval pending |
-| S1 | Durable authority / R1,R6 | Existing Laputa owner supports free-text atomic Recap | S0: accepted C1 and policy/identity decisions | [S1](S1.md) | Planned | Design not approved; Laputa implementation/pin not yet present |
-| S2 | Retained experience / R2,R6 | Trusted identity, complete ordered original-evidence index and retention | S0: accepted C2 and singleton consumer seam | [S2](S2.md) | Planned | Core producer absent; consumes external #66 binding or governed headless/test equivalent |
+| S0 | Foundation / R1–R7 | Baseline, design, contracts, executable package | None | [S0](S0.md) | Done | Corrected plan independently reviewed; owner authorized development on 2026-10-15 |
+| S1 | Durable authority / R1,R6 | Existing Laputa owner supports free-text atomic Recap | S0: accepted C1 and policy/identity decisions | [S1](S1.md) | Implemented; acceptance pending | Owner/facade and exact published pins independently reviewed; focused/race/crash/Linux suites and 11 bootstrap checks pass. Full candidate CI/native Windows remain S6 gates |
+| S2 | Retained experience / R2,R6 | Trusted identity, complete ordered original-evidence index and retention | S0: accepted C2 and singleton consumer seam | [S2](S2.md) | In progress | Task 1 identity/index implementation started after reviewed C1 handoff; external #66 production binding remains an integration gate |
 | S3 | Unified continuity / R3,R6 | Real admission and commit-before-retirement | S1: tested C1 owner; S2: tested C2 source/index | [S3](S3.md) | Planned | Both producer implementations required |
 | S4 | Governed management / R4,R6 | Full memory UI/headless/deferred tools | S1: accepted stable C1 API | [S4](S4.md) | Planned | Can implement owner UI after S1; exact sources/LIFE binding integrate at S5 with S2 |
 | S5 | Composition closure / R5,R6 | BML first, selected sink, legacy writers disabled, full integration | S3: admission+source behavior; S4: management consumer | [S5](S5.md) | Planned | Composition/provider and source-action acceptance required |
@@ -77,7 +77,8 @@ installed integration cannot be accepted without the real producer and agreed se
 This external producer is not an extra #58 Story or permission to implement #66.
 The internal seven-Story DAG/waves above are unchanged; external readiness is an
 additional gate. S1 owner work does not require sidebar completion. No Story is
-Ready until overall corrected-package approval and its own prerequisites are met.
+Ready until its own prerequisites are met. Overall corrected-package execution was
+authorized by the owner on 2026-10-15.
 Budgets remain tunable seeds; nonempty legacy replacement requires separate review.
 
 The owner also requested removal of existing visible Coding/LIFE buttons. That
