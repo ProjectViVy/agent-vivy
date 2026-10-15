@@ -279,3 +279,186 @@ Windows durability for the pinned Laputa owner is now **runnable and passing**
 (`actmem` Issue58 pass=29 fail=0 skip=1 at `8c5328daa7a4`), including under `-race`,
 but see the scope note in T1b: a helper that skips an unreadable ownership artifact
 enables the suite, it does not add durability coverage.
+
+---
+
+## T2 — merge of `main` into `feat/issue-58-life-continuity`
+
+Candidate: merge commit `0c6bdc74c024cc06d2bbbb0d17d27e4eeeeb9278`
+(parents `a3c8ee25` = lane, `5715950d` = `main`). Working tree clean before each
+gate; Laputa clean at `8c5328daa7a4`.
+
+### Merge surface
+
+```text
+git merge main --no-edit            # conflicts: docs/TODO.md, ui/src/routes/_layout.tsx
+git diff --cached --shortstat       # 59 files changed, 3106 insertions(+), 268 deletions(-)
+git diff --cached --check           # exit 0
+git status --porcelain --diff-filter=U   # empty after staging both resolutions
+git grep -nE '^(<<<<<<< |=======$|>>>>>>> )'   # no matches
+```
+
+### Conflict resolutions
+
+- `docs/TODO.md`: kept main's five `PERSONA-*` / `SKILL-OIL-AUTO-SYNC` rows, dropped
+  main's `EINO-TOOLSNODE-ERR-RACE` open row. Verified the id exists exactly once
+  afterwards, as a DONE row in the Eino remediation completion record.
+- `ui/src/routes/_layout.tsx`: main's body (`useCompanionAvatar`,
+  `ShellOnboardingSlot`) + this lane's deletion of `ConversationModePlaceholder`.
+
+### Run 1 — `just ci`, default `TEMP` (FAILED, environment)
+
+```text
+just ensure-laputa                  ok
+just bootstrap-test                 11 pass / 0 fail
+fmt-check                           exit 0
+ui-ci -> ui-core -> pnpm typecheck  ok
+ui-ci -> ui-core -> pnpm test       92 files, 692 tests, all passed
+ui-ci -> ui-core -> pnpm build      FAILED
+```
+
+```text
+✗ Build failed in 17.11s
+[vite:esbuild-transpile] remove C:\Users\com01\AppData\Local\Temp\esbuild-147f2226…: Access is denied.
+error: Recipe `ui-core` failed on line 66 with exit code 1
+JUST_CI_EXIT=1
+```
+
+The build had already transformed 2596 modules. Reproduction and isolation:
+
+```text
+pnpm build                              # same failure, twice, new temp name each run
+ESBUILD_BINARY_PATH=<node_modules esbuild.exe> pnpm build   # same failure
+ESBUILD_WORKER_THREADS=0 pnpm build     # same failure
+Remove-Item $env:TEMP\esbuild-*         # pwsh CAN delete these files (full control ACL)
+```
+
+A stale `esbuild.exe` service (started 2026-10-15 20:07) was still running and five
+orphaned `esbuild-*` temp binaries from 2026-10-15 remained, so the unlink failure is
+a standing property of this machine's `%TEMP%`, not of the merged source.
+
+### Run 2 — `just ci` with `TEMP`/`TMP` redirected to a workspace scratch dir
+
+```text
+just ensure-laputa                  ok   (all Laputa Go revisions match the source lock)
+just bootstrap-test                 11 pass / 0 fail  (65.6s)
+fmt-check                           exit 0
+ui-ci -> ui-core                    ok   (pnpm install --frozen-lockfile, tsc --noEmit,
+                                          692 vitest tests / 92 files, vite build ok)
+i18n checks                         ok
+go vet ./...                        exit 0
+go test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...   FAILED (see below)
+```
+
+Go packages that passed in that run, with the gate's own timings:
+
+```text
+internal/runtime            ok 416.950s
+internal/runtime/compaction ok   1.652s
+internal/rpc                ok 137.347s
+internal/storage            ok   3.660s
+internal/storage/sqlite     ok 134.017s
+internal/storage/migrations ok   6.235s
+internal/storage/postgres   ok   0.171s
+internal/modules/diva-cognitive ok 8.487s
+internal/provider           ok   7.520s
+ui                          ok   2.456s
+```
+
+Failures in that run, both traced to causes outside the merge:
+
+1. Symlink capability — 34 occurrences of `A required privilege is not held by the
+   client`, all inside the workspace tree:
+   - `internal/app/subject_binding_test.go:85` (`os.Symlink` for the owner alias);
+   - `sdk/internal/assembly/failure_matrix_execution_test.go:63` (`catalog-symlink-escape`);
+   - `sdk/internal/frontend_v1_test.go` (`link checked-in Web UI dependencies into
+     isolated build boundary`), several subtests of
+     `TestGenerationFailureMatrixExecutesEveryCase`,
+     `TestPackAndInspectEveryRecipe`, `TestV1PackAndInspectProveRecipeRemoval`.
+   - One additional `open C:\Users\com01\AppData\Local\go-build\33\33ec…-d: Access is
+     denied`, the same permission class on the Go build cache.
+2. Contract conflict — `internal/app/codeface_modes_test.go:213`, from main:
+   `app: cognitive factory: diva-cognitive: open garden owner: recap binding:
+   storage: subject binding mismatch` (see below).
+
+### Isolating the symlink failure (environment, not source)
+
+A throwaway module under the gitignored scratch dir (since removed) called
+`CreateSymbolicLinkW` directly and `os.Symlink`, from a normal binary and from a test
+binary, in the system temp dir, the workspace scratch dir, the package directory and
+the repo root:
+
+```text
+normal binary, raw CreateSymbolicLinkW flags 0x3 (unprivileged+directory)   OK
+normal binary, raw CreateSymbolicLinkW flags 0x1 (privileged)               OK
+normal binary, os.Symlink                                                   denied (in some runs), OK in others
+go test binary, os.Symlink (cwd, t.TempDir(), os.TempDir())                 denied in every directory
+```
+
+`os.Symlink` is the only failing call, and it fails inside test binaries
+deterministically while the raw API with the same flags succeeds in the same process.
+Go's own implementation passes `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE` and,
+on any error, **retries without it**
+(`$GOROOT/src/os/file_windows.go:371-384`), so the reported
+`ERROR_PRIVILEGE_NOT_HELD` is the masked second attempt. Developer Mode is enabled
+(`AllowDevelopmentWithoutDevLicense=1`) and the token is a plain medium-integrity
+`mastwet-think\com01` with no AppContainer or restricting SIDs. This is recorded as
+an unresolved environment defect of this session; it needs an owner decision.
+
+Consequence: `internal/app/subject_binding_test.go` now probes host symlink support
+and skips instead of failing. The `sdk/internal*` suites were **not** modified — they
+remain red on this machine and their failure is not attributed to the merge.
+
+### Contract conflict fixed (`TestCodeFaceJSONModeContinuesNewestSession`)
+
+```text
+go test ./internal/app -run 'TestCodeFaceJSONModeContinuesNewestSession' -count=1
+# before: codeface_modes_test.go:213: continue run: status="" err=app: cognitive
+#         factory: diva-cognitive: open garden owner: recap binding: storage:
+#         subject binding mismatch
+```
+
+Root cause: the test gave the second invocation `Storage.DataDir = t.TempDir()` while
+both shared one `SQLite.Path`. `Config.DataDirectory()` (`internal/config/config.go:1219`)
+returns `Storage.DataDir` when set, else the journal's directory, else the user data
+root, so an explicit override is the only way to diverge — and design revision 3
+(`docs/superpowers/specs/2026-10-15-issue-58-unified-context-design.md:143-151`)
+requires exactly that divergence to fail closed. The test now uses one data root for
+both invocations, keeping its assertion that `--continue` reuses the newest journal
+session:
+
+```text
+go test ./internal/app -run 'TestCodeFace' -count=1 -v
+--- PASS: TestCodeFacePrintModeStreamsAssistantText
+--- PASS: TestCodeFaceJSONModeEmitsOrderedRecords
+--- PASS: TestCodeFacePrintModeCancelsBlockedRunLoudly
+--- PASS: TestCodeFaceJSONModeContinuesNewestSession
+--- PASS: TestCodeFaceRPCModeGoldenTranscript
+--- PASS: TestCodeFaceRPCModeQueuesFollowUpWhileRunning
+```
+
+No production code was changed for this.
+
+### Post-fix focused evidence
+
+```text
+go build ./...                                                        exit 0
+gofmt -l internal/app/codeface_modes_test.go internal/app/subject_binding_test.go   (no output)
+go test ./internal/storage/... ./internal/app ./internal/rpc -run '^TestIssue58' -count=1 -v
+  exit 0   pass=30 (top level)  fail=0  skip=14
+  --- SKIP: TestIssue58SubjectOwnerPathMismatch  (host does not permit symbolic links …)
+  ok  internal/storage, storage/migrations, storage/postgres, storage/sqlite,
+      internal/app, internal/rpc
+```
+
+The 13 other skips are the PostgreSQL-server suites that need
+`VIVY_POSTGRES_TEST_DSN`; skips are never counted as passes.
+
+### Not verified in this step
+
+A full green `just ci` on this machine (blocked by the symlink defect above), the
+`scripts/test-memory-loop.ps1` second pass, `diva-recall-test`, `headless-compile`,
+`plugin-ci`, and the UI end-to-end browser smoke — `just test` aborted at the symlink
+and build-cache failures before those recipes ran. Real PostgreSQL parity,
+`-race` on the merged tree, real-model quality, and all of S3–S6 also remain
+unverified at this candidate.

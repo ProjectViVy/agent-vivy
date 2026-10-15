@@ -165,5 +165,71 @@ Remaining risk:
   recap-context and compaction race gates do not exist yet, so they remain owed.
 - `-race` detects data races only; it is not durability or crash evidence.
 
-Next: T2 — merge `main` into this lane, resolve the 8 overlapping files, rerun the
-affected gates.
+---
+
+## T2 — `main` merged into the lane, gates rerun, environment limits recorded
+
+HEAD: merge commit `0c6bdc74c024cc06d2bbbb0d17d27e4eeeeb9278`
+(parents `a3c8ee25` lane `feat/issue-58-life-continuity`, `5715950d` `main`).
+Laputa pin unchanged: `8c5328daa7a4e9cdd089d78858de087a36fb0843`.
+
+Done:
+- Merged `main` **into** the lane, preserving all 8 lane commits (no rebase, no
+  push, `main` not moved). 59 files changed, +3106/-268.
+- The prediction of "8 overlapping files" was wrong: only **2** files conflicted,
+  the rest auto-merged. Both kept main's newer behaviour where it mattered:
+  - `ui/src/routes/_layout.tsx` — kept main's `useCompanionAvatar` and
+    `ShellOnboardingSlot`; dropped the `ConversationModePlaceholder` import whose
+    component this lane already deleted, so the old Coding/LIFE placeholder stays
+    removed.
+  - `docs/TODO.md` — took main's five new `PERSONA-*`/`SKILL-OIL-AUTO-SYNC` rows and
+    **dropped** main's `EINO-TOOLSNODE-ERR-RACE` open row, because the lane had
+    already moved that id into the Eino remediation completion record (fixed by the
+    pinned v0.9.20). No conflict marker remains anywhere in the tree.
+- `.agents/skills/oil-frontend` takes main's newer gitlink
+  `07a3c73001b061b7b90caba42767194205f917a8`, matching the on-disk submodule
+  checkout and unblocking `just ci`.
+- Found and fixed one genuine **cross-branch semantic conflict** that neither parent
+  could see alone: main's `TestCodeFaceJSONModeContinuesNewestSession` gave the
+  second `vivy-code` invocation a private `Storage.DataDir` while sharing the
+  journal. Revision 3 pins one canonical ACTMEM owner directory to the subject and
+  requires a binding mismatch when a changed path would open a second stream, so
+  that premise now fails closed (`app: cognitive factory: diva-cognitive: open
+  garden owner: recap binding: storage: subject binding mismatch`). The test keeps
+  its real assertion — `--continue` reuses the newest session from the shared
+  journal — with one shared data root, which is what `Config.DataDirectory()`
+  already derives from the journal location when `Storage.DataDir` is unset. No
+  production code changed for this.
+- Made the lane's `TestIssue58SubjectOwnerPathMismatch` probe the host for symbolic
+  link support and `t.Skip` when it is absent, instead of failing on an OS
+  capability. The canonical-alias assertion still runs wherever links are
+  permitted, and a skip is never counted as pass.
+
+Tests: `go build ./...` and `go vet ./...` exit 0. Focused `TestIssue58`
+(storage/app/rpc) exit 0 with 30 top-level pass / 0 fail / 14 skip (13
+PostgreSQL-server suites plus the new symlink-capability skip); all six code-face
+mode tests pass. Inside the full `just ci` run the Go half passed for
+`internal/runtime` (416.9s), `internal/storage` (3.7s), `sqlite` (134.0s),
+`migrations` (6.2s), `rpc` (137.3s), `postgres` (0.2s) and, after the fix,
+`internal/app`. UI: `pnpm install --frozen-lockfile`, `tsc --noEmit`, **692 vitest
+tests across 92 files**, `vite build`, and the three i18n checks all passed.
+`just ensure-laputa` and `just bootstrap-test` (11 pass / 0 fail) passed.
+
+Remaining risk:
+- **A full `just ci` is not green on this machine, and the merge is not the cause.**
+  This session refuses `os.Symlink` with `A required privilege is not held by the
+  client` in every directory and from both normal and test binaries, while a raw
+  `CreateSymbolicLinkW` call with the unprivileged flag succeeds in the same process.
+  Every symlink-dependent suite therefore fails here: `internal/app` (now an
+  explicit skip) and the `sdk/internal*` pack/UI-link suites. This needs an owner
+  decision; it is not evidence of a source regression.
+- `vite build` fails when esbuild unlinks its own temp file under the system `%TEMP%`
+  (`Access is denied`), and succeeds when `TEMP`/`TMP` point at a workspace-local
+  scratch directory. Both `just ci` attempts are recorded in `verification.md`.
+- **Correction to T1:** the T1 figure "focused `TestIssue58` exit 0 including
+  `internal/app`" is not reproducible on this machine — the symlink test fails
+  before any product code runs. It is recorded here as unsupported rather than as
+  evidence.
+
+Next: T3 — S3 Task 1 (`prepareRecapContext`, `RecapContext`, host receipt codec),
+with LIFE activation still closed until Task 2 lands and both actual-wire gates pass.
