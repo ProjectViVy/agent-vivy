@@ -481,3 +481,18 @@ relabeling merge-HEAD working-source logs as fixed-candidate execution. Independ
 Astra review is running on a clean fixed3c clone; its findings/fixed repro gates
 are not replaced by author greens. Native Windows is NOT RUN. Vivy still pinsbb57;
 no BML schema/adapter/consumer, new module sum or selected activation is claimed.
+
+## Native producer independent review: two Important blockers
+
+Fixed native3c36520/tree1ca98be9 has0Critical/2Important/0Minor findings.
+I1: missing or null before.revision is silently decoded as zero; real archived
+native revision3 can be reported applied revision1, clearing uncertain source/error.
+Complete explicit zero and nonzero controls pass. I2: the newly reused strict JSON
+helper uses Decoder.More instead of proving EOF, so trailing } or ] is accepted
+by projection/Start/archive/watermark. Both original RED suites are preserved.
+Independent focused Garden36+ACTMEM14 tests/3 packages pass; no other substantiated
+finding. These greens do not override either RED. All19 artifact hashes verified;
+27 supporting/increment source hashes match fixed committed HEAD. Candidate stays
+unaccepted. One consolidated author native TDD fix is released; root will rerun
+unchanged probes and affected fixed normal/race before publication/pin activation.
+Vivy still pinsbb57 and no BML consumer is active. See independent report/archive.
