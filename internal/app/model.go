@@ -24,6 +24,10 @@ const (
 // Provider is the vendor the selection resolves to (the credential owner and
 // the default address); Adapter is the sealed protocol it speaks, which is what
 // the compiled Generation and the availability surface key on.
+//
+// Endpoint is set when the selection is a user-registered provider, whose
+// endpoint the embedded catalog does not describe: the registry entry carries
+// the whole wire identity, and Provider is only its alias.
 type ResolvedModel struct {
 	Provider string
 	Adapter  string
@@ -32,6 +36,7 @@ type ResolvedModel struct {
 	APIKey   string
 	Frozen   bool
 	Ready    bool
+	Endpoint provider.Endpoint
 }
 
 // ModelResolver chooses the active ModelSpec: a frozen ENV session wins,
@@ -201,6 +206,7 @@ func (r *ModelResolver) currentLocked() ResolvedModel {
 		APIKey:   key,
 		Frozen:   false,
 		Ready:    key != "",
+		Endpoint: selection.endpoint,
 	}
 }
 
@@ -229,5 +235,6 @@ func (r *ModelResolver) Live() provider.LiveSpec {
 		BaseURL:  cur.BaseURL,
 		APIKey:   cur.APIKey,
 		Ready:    cur.Ready,
+		Endpoint: cur.Endpoint,
 	}
 }

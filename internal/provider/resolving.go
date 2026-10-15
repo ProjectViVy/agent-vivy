@@ -31,6 +31,11 @@ var ErrModelNotConfigured = errors.New("model provider is not configured")
 // capability gate, the availability mark and the thinking rule key on. A
 // selection with no stored adapter (an empty Adapter) is resolved from the
 // endpoint's data instead.
+//
+// Endpoint is the endpoint a user-registered provider declared, in which case
+// Provider is that registry's alias and only labels events and errors: the
+// embedded catalog holds no entry for it, so Endpoint is the whole wire
+// identity and the run path must not look the name up.
 type LiveSpec struct {
 	Provider string
 	Adapter  string
@@ -38,6 +43,7 @@ type LiveSpec struct {
 	BaseURL  string
 	APIKey   string
 	Ready    bool
+	Endpoint Endpoint
 }
 
 // SpecSource supplies the live ModelSpec. Implementations must be
@@ -89,7 +95,15 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if live.Provider == "" {
 		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 	}
+	// A user-registered provider carries its own endpoint: the registry entry
+	// declares the protocol, the address and the model list, and names no
+	// embedded vendor at all. An embedded selection resolves its endpoint
+	// variant — and the vendor that owns its credential error — from the data.
 	endpoint, vendor, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
+	custom := live.Endpoint.Adapter != ""
+	if custom {
+		endpoint, vendor, err = live.Endpoint, Vendor{Name: live.Provider}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -110,10 +124,13 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if m.cached != nil && m.cacheKey == key {
 		return m.cached, nil
 	}
-	ref, err := m.catalog.RefForEndpoint(vendor.Name, endpoint)
-	if err != nil {
+	ref, refErr := m.catalog.RefForEndpoint(vendor.Name, endpoint)
+	if custom {
+		ref, refErr = m.catalog.RefForSelection(vendor.Name, endpoint)
+	}
+	if refErr != nil {
 		m.host.MarkUnavailable(adapter)
-		return nil, err
+		return nil, refErr
 	}
 	cm, err := ref.Model(ctx, ModelSpec{ID: live.Model, APIKey: live.APIKey, BaseURL: live.BaseURL})
 	if err != nil {
@@ -312,6 +329,13 @@ func (s thinkingShape) options() []model.Option {
 // declared capabilities and the model's declared metadata.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
 	live := m.src.Live()
+	// A user-registered endpoint declares no capability and no model metadata,
+	// and the embedded data does not describe it, so there is nothing to key
+	// the rule on. Sending a reasoning field to an upstream that never
+	// advertised one is the failure this leaves out.
+	if live.Endpoint.Adapter != "" {
+		return nil
+	}
 	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
 	if err != nil {
 		return nil

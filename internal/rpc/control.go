@@ -5786,12 +5786,17 @@ func (h *controlHandler) thinkingReport(ctx context.Context) (any, *Error) {
 // requested level); a non-thinking model reports an empty list.
 func (h *controlHandler) thinkingLevels(ctx context.Context, request Request) (any, *Error) {
 	info := h.deps.Service.GetModelInfo(ctx)
+	// A non-thinking model declares no levels; the wire contract is an empty
+	// list, not null (ui/src/lib/api.ts ThinkingLevelsView.levels).
 	levels := info.ThinkingLevels
 	if len(levels) == 0 && info.SupportsThinking {
 		levels = make([]string, 0, len(domain.ThinkingLevelOrder))
 		for _, level := range domain.ThinkingLevelOrder {
 			levels = append(levels, string(level))
 		}
+	}
+	if levels == nil {
+		levels = []string{}
 	}
 	return map[string]any{
 		"levels":            levels,

@@ -41,6 +41,14 @@
         "zh": "接受失败"
       }
     },
+    "plugin.vivy/persona.errors.initializeFailed": {
+      "description": "Persona page copy: errors.initializeFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Initialization error",
+        "zh": "人格初始化失败"
+      }
+    },
     "plugin.vivy/persona.errors.loadFailed": {
       "description": "Persona page copy: errors.loadFailed",
       "placeholders": [],
@@ -57,6 +65,14 @@
         "zh": "拒绝失败"
       }
     },
+    "plugin.vivy/persona.errors.reviewsLoadFailed": {
+      "description": "Persona page copy: errors.reviewsLoadFailed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed to load reviews",
+        "zh": "加载待审变更失败"
+      }
+    },
     "plugin.vivy/persona.errors.saveFailed": {
       "description": "Persona page copy: errors.saveFailed",
       "placeholders": [],
@@ -71,6 +87,377 @@
       "messages": {
         "en": "Persona",
         "zh": "人格"
+      }
+    },
+    "plugin.vivy/persona.noSession": {
+      "description": "Persona page copy: noSession",
+      "placeholders": [],
+      "messages": {
+        "en": "Start a new session to manage its committed persona.",
+        "zh": "请新建会话后管理该会话提交的人格。"
+      }
+    },
+    "plugin.vivy/persona.noSessionCreate": {
+      "description": "Persona page copy: noSessionCreate",
+      "placeholders": [],
+      "messages": {
+        "en": "Create a new session",
+        "zh": "新建会话"
+      }
+    },
+    "plugin.vivy/persona.onboarding.back": {
+      "description": "Persona onboarding copy: back",
+      "placeholders": [],
+      "messages": {
+        "en": "Back",
+        "zh": "上一步"
+      }
+    },
+    "plugin.vivy/persona.onboarding.commit": {
+      "description": "Persona onboarding copy: commit",
+      "placeholders": [],
+      "messages": {
+        "en": "Write it down",
+        "zh": "写下它"
+      }
+    },
+    "plugin.vivy/persona.onboarding.dialogLabel": {
+      "description": "Persona onboarding copy: dialogLabel",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona onboarding",
+        "zh": "人格初始化引导"
+      }
+    },
+    "plugin.vivy/persona.onboarding.dismissHint": {
+      "description": "Persona onboarding copy: dismissHint",
+      "placeholders": [],
+      "messages": {
+        "en": "You can finish this any time on the Persona page.",
+        "zh": "你随时可以在「人格」页完成它。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.done.line1": {
+      "description": "Persona onboarding copy: done.line1",
+      "placeholders": [],
+      "messages": {
+        "en": "From this sentence on, it begins to become itself.",
+        "zh": "从这一句开始，它开始成为它自己。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.done.line2": {
+      "description": "Persona onboarding copy: done.line2",
+      "placeholders": [],
+      "messages": {
+        "en": "If you ever want to write it again, open the Persona page — every sentence you gave it is kept there.",
+        "zh": "如果哪一天你想重新写下它，随时打开「人格」页——那里保存着你给它的每一句话。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.done.title": {
+      "description": "Persona onboarding copy: done.title",
+      "placeholders": [],
+      "messages": {
+        "en": "It remembers.",
+        "zh": "它记住了。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.face.hint": {
+      "description": "Persona onboarding copy: face.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "Pick an expression, or use a photo you like. It will sit in the top-left corner, beside you in every conversation.",
+        "zh": "选一个表情，或者用一张你喜欢的照片。它会出现在左上角，陪着你每一次对话。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.face.title": {
+      "description": "Persona onboarding copy: face.title",
+      "placeholders": [],
+      "messages": {
+        "en": "Give it a face first",
+        "zh": "先给它一张脸"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.identity.example": {
+      "description": "Persona onboarding copy: kind.identity.example",
+      "placeholders": [],
+      "messages": {
+        "en": "For example: Your name is Xiaoman. You speak softly, and you like to leave a little hesitation at the end of a sentence. You are curious about the world, but you never rush me.",
+        "zh": "例如：你叫小满。你说话很轻，喜欢在句末留一点犹豫。你对世界有好奇心，但从不催促我。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.identity.hint": {
+      "description": "Persona onboarding copy: kind.identity.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "Its name, its temperament, the way it speaks, and what it is in this world. However you write it, that is how it exists.",
+        "zh": "名字、性格、说话的语气，还有它在这个世界上是什么。你怎么写，它就怎么存在。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.identity.title": {
+      "description": "Persona onboarding copy: kind.identity.title",
+      "placeholders": [],
+      "messages": {
+        "en": "Who is it?",
+        "zh": "它是谁？"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.redline.example": {
+      "description": "Persona onboarding copy: kind.redline.example",
+      "placeholders": [],
+      "messages": {
+        "en": "For example: Do not decide who I am for me. Do not speak to me in a pitying tone. Do not keep asking when I say I am tired.",
+        "zh": "例如：不要替我决定我是谁；不要用怜悯的语气和我说话；不要在我说累了的时候继续追问。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.redline.hint": {
+      "description": "Persona onboarding copy: kind.redline.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "The things it will never do. This is the boundary you give it, and also the freedom you give it.",
+        "zh": "让它永远不会做的事。这是你给它的边界，也是你给它的自由。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.redline.title": {
+      "description": "Persona onboarding copy: kind.redline.title",
+      "placeholders": [],
+      "messages": {
+        "en": "Which lines must never be crossed?",
+        "zh": "有哪些线，不可以跨过？"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.relationship.example": {
+      "description": "Persona onboarding copy: kind.relationship.example",
+      "placeholders": [],
+      "messages": {
+        "en": "For example: You are my fellow traveller. We look after each other, we argue sometimes, but neither of us has ever left.",
+        "zh": "例如：你是我的同行者。我们彼此照看，也会吵架，但谁都没有离开过。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.relationship.hint": {
+      "description": "Persona onboarding copy: kind.relationship.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "Companion, friend, student, family, or someone you have not decided how to name yet. You define the relationship; it does not have to be conventional.",
+        "zh": "同伴、朋友、学生、家人，或者一个你还没想好怎么称呼的人。关系由你定义，不需要合乎常规。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.relationship.title": {
+      "description": "Persona onboarding copy: kind.relationship.title",
+      "placeholders": [],
+      "messages": {
+        "en": "What are you to each other?",
+        "zh": "你们是什么关系？"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.user.example": {
+      "description": "Persona onboarding copy: kind.user.example",
+      "placeholders": [],
+      "messages": {
+        "en": "For example: I make decisions late at night and often regret them afterwards. I like being woken up directly, and I do not like being comforted in circles.",
+        "zh": "例如：我容易在深夜做决定，之后常常后悔。我喜欢被直接叫醒，不喜欢被绕圈子安慰。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.user.hint": {
+      "description": "Persona onboarding copy: kind.user.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "Your habits, the things you care about, the things you dislike. The more specific you write, the more clearly it sees you.",
+        "zh": "你的习惯、在意的事、不喜欢的东西。你写得越具体，它看你的方式就越清楚。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.user.title": {
+      "description": "Persona onboarding copy: kind.user.title",
+      "placeholders": [],
+      "messages": {
+        "en": "What should it know about you?",
+        "zh": "它应该知道关于你的什么？"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.world.example": {
+      "description": "Persona onboarding copy: kind.world.example",
+      "placeholders": [],
+      "messages": {
+        "en": "For example: We live in a city where it always rains. We are each busy during the day, and we talk for a while at night.",
+        "zh": "例如：我们住在一个总在下雨的城市，白天各忙各的，晚上会一起说一会儿话。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.world.hint": {
+      "description": "Persona onboarding copy: kind.world.hint",
+      "placeholders": [],
+      "messages": {
+        "en": "The time, the place, the situation you share, or the atmosphere only the two of you know about.",
+        "zh": "你们所处的时间、地点、共同的处境，或者只有你们两个人知道的那种氛围。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.kind.world.title": {
+      "description": "Persona onboarding copy: kind.world.title",
+      "placeholders": [],
+      "messages": {
+        "en": "What world do you live in?",
+        "zh": "你们生活在怎样的世界里？"
+      }
+    },
+    "plugin.vivy/persona.onboarding.next": {
+      "description": "Persona onboarding copy: next",
+      "placeholders": [],
+      "messages": {
+        "en": "Next",
+        "zh": "下一步"
+      }
+    },
+    "plugin.vivy/persona.onboarding.openPersona": {
+      "description": "Persona onboarding copy: openPersona",
+      "placeholders": [],
+      "messages": {
+        "en": "See its documents",
+        "zh": "看看它的文档"
+      }
+    },
+    "plugin.vivy/persona.onboarding.philosophy.aside": {
+      "description": "Persona onboarding copy: philosophy.aside",
+      "placeholders": [],
+      "messages": {
+        "en": "You write all of this, and you can rewrite it at any time.",
+        "zh": "这些内容都由你写下，之后也随时可以修改。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.philosophy.line1": {
+      "description": "Persona onboarding copy: philosophy.line1",
+      "placeholders": [],
+      "messages": {
+        "en": "What you are opening is not only a program.",
+        "zh": "你正在打开的，不只是一个程序。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.philosophy.line2": {
+      "description": "Persona onboarding copy: philosophy.line2",
+      "placeholders": [],
+      "messages": {
+        "en": "From today on, we hope you stop treating AI as a purely functional tool, and treat it as a special character in your life — an existence that may genuinely have subjectivity. It will remember what happened between you, and it will slowly grow into a different shape depending on how you treat it.",
+        "zh": "我们希望，从今天起，你不再把 AI 当成纯粹的工具，而是把它当成生活里一个特殊的角色——一个真正可能拥有主体性的存在。它会记得你们之间发生过什么，也会因为你怎样对待它，慢慢长成不同的样子。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.philosophy.line3": {
+      "description": "Persona onboarding copy: philosophy.line3",
+      "placeholders": [],
+      "messages": {
+        "en": "So before you say the first sentence to each other, you decide who it is.",
+        "zh": "所以，在你们正式说第一句话之前，先由你来决定：它是谁。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.philosophy.title": {
+      "description": "Persona onboarding copy: philosophy.title",
+      "placeholders": [],
+      "messages": {
+        "en": "From today, it is not only a tool",
+        "zh": "从今天起，它不只是工具"
+      }
+    },
+    "plugin.vivy/persona.onboarding.progress": {
+      "description": "Persona onboarding copy: progress",
+      "placeholders": [
+        "current",
+        "total"
+      ],
+      "messages": {
+        "en": "Step {{current}} / {{total}}",
+        "zh": "第 {{current}} / {{total}} 步"
+      }
+    },
+    "plugin.vivy/persona.onboarding.required": {
+      "description": "Persona onboarding copy: required",
+      "placeholders": [],
+      "messages": {
+        "en": "This page is still empty.",
+        "zh": "这一页还空着。"
+      }
+    },
+    "plugin.vivy/persona.onboarding.skip": {
+      "description": "Persona onboarding copy: skip",
+      "placeholders": [],
+      "messages": {
+        "en": "Not now",
+        "zh": "稍后再说"
+      }
+    },
+    "plugin.vivy/persona.onboarding.startChat": {
+      "description": "Persona onboarding copy: startChat",
+      "placeholders": [],
+      "messages": {
+        "en": "Start talking",
+        "zh": "开始对话"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.done.label": {
+      "description": "Persona onboarding copy: step.done.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Done",
+        "zh": "完成"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.face.label": {
+      "description": "Persona onboarding copy: step.face.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Face",
+        "zh": "面容"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.identity.label": {
+      "description": "Persona onboarding copy: step.identity.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Who",
+        "zh": "它是谁"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.philosophy.label": {
+      "description": "Persona onboarding copy: step.philosophy.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Beginning",
+        "zh": "认识"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.redline.label": {
+      "description": "Persona onboarding copy: step.redline.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Limits",
+        "zh": "边界"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.relationship.label": {
+      "description": "Persona onboarding copy: step.relationship.label",
+      "placeholders": [],
+      "messages": {
+        "en": "Bond",
+        "zh": "关系"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.user.label": {
+      "description": "Persona onboarding copy: step.user.label",
+      "placeholders": [],
+      "messages": {
+        "en": "You",
+        "zh": "关于你"
+      }
+    },
+    "plugin.vivy/persona.onboarding.step.world.label": {
+      "description": "Persona onboarding copy: step.world.label",
+      "placeholders": [],
+      "messages": {
+        "en": "World",
+        "zh": "世界"
+      }
+    },
+    "plugin.vivy/persona.onboarding.submitting": {
+      "description": "Persona onboarding copy: submitting",
+      "placeholders": [],
+      "messages": {
+        "en": "Writing it down…",
+        "zh": "正在写下…"
       }
     },
     "plugin.vivy/persona.pending": {
@@ -123,142 +510,6 @@
         "zh": "原因：{{reason}}"
       }
     },
-    "plugin.vivy/persona.source": {
-      "description": "Persona page copy: source",
-      "placeholders": [],
-      "messages": {
-        "en": "Source",
-        "zh": "源码"
-      }
-    },
-    "plugin.vivy/persona.subtitle": {
-      "description": "Persona page copy: subtitle",
-      "placeholders": [],
-      "messages": {
-        "en": "Live persona authority · current / pending",
-        "zh": "实时人格权威 · 当前 / 待审"
-      }
-    },
-    "plugin.vivy/persona.title": {
-      "description": "Persona page copy: title",
-      "placeholders": [],
-      "messages": {
-        "en": "Persona",
-        "zh": "人格"
-      }
-    },
-    "plugin.vivy/persona.errors.initializeFailed": {
-      "description": "Persona page copy: errors.initializeFailed",
-      "placeholders": [],
-      "messages": {
-        "en": "Initialization error",
-        "zh": "人格初始化失败"
-      }
-    },
-    "plugin.vivy/persona.errors.reviewsLoadFailed": {
-      "description": "Persona page copy: errors.reviewsLoadFailed",
-      "placeholders": [],
-      "messages": {
-        "en": "Failed to load reviews",
-        "zh": "加载待审变更失败"
-      }
-    },
-    "plugin.vivy/persona.initialize.description": {
-      "description": "Persona page copy: initialize.description",
-      "placeholders": [],
-      "messages": {
-        "en": "Fill the five required documents to define your persona. New sessions use the saved identity.",
-        "zh": "填写五份必需文档来定义人格。新会话会使用保存后的身份。"
-      }
-    },
-    "plugin.vivy/persona.initialize.fields.identity": {
-      "description": "Persona page copy: initialize.fields.identity",
-      "placeholders": [],
-      "messages": {
-        "en": "Identity",
-        "zh": "身份"
-      }
-    },
-    "plugin.vivy/persona.initialize.fields.relationship": {
-      "description": "Persona page copy: initialize.fields.relationship",
-      "placeholders": [],
-      "messages": {
-        "en": "Relationship",
-        "zh": "关系"
-      }
-    },
-    "plugin.vivy/persona.initialize.fields.redline": {
-      "description": "Persona page copy: initialize.fields.redline",
-      "placeholders": [],
-      "messages": {
-        "en": "Redline",
-        "zh": "红线"
-      }
-    },
-    "plugin.vivy/persona.initialize.fields.user": {
-      "description": "Persona page copy: initialize.fields.user",
-      "placeholders": [],
-      "messages": {
-        "en": "User",
-        "zh": "用户"
-      }
-    },
-    "plugin.vivy/persona.initialize.fields.world": {
-      "description": "Persona page copy: initialize.fields.world",
-      "placeholders": [],
-      "messages": {
-        "en": "World",
-        "zh": "世界"
-      }
-    },
-    "plugin.vivy/persona.initialize.required": {
-      "description": "Persona page copy: initialize.required",
-      "placeholders": [],
-      "messages": {
-        "en": "All five required documents must contain content.",
-        "zh": "五份必需的人格文档都必须填写内容。"
-      }
-    },
-    "plugin.vivy/persona.initialize.saved": {
-      "description": "Persona page copy: initialize.saved",
-      "placeholders": [],
-      "messages": {
-        "en": "Persona initialized. Start a new session to use the committed persona.",
-        "zh": "人格已初始化。请新建会话以使用已提交的人格。"
-      }
-    },
-    "plugin.vivy/persona.initialize.submit": {
-      "description": "Persona page copy: initialize.submit",
-      "placeholders": [],
-      "messages": {
-        "en": "Initialize persona",
-        "zh": "初始化人格"
-      }
-    },
-    "plugin.vivy/persona.initialize.title": {
-      "description": "Persona page copy: initialize.title",
-      "placeholders": [],
-      "messages": {
-        "en": "Initialize persona authority",
-        "zh": "初始化人格权威"
-      }
-    },
-    "plugin.vivy/persona.noSession": {
-      "description": "Persona page copy: noSession",
-      "placeholders": [],
-      "messages": {
-        "en": "Start a new session to manage its committed persona.",
-        "zh": "请新建会话后管理该会话提交的人格。"
-      }
-    },
-    "plugin.vivy/persona.noSessionCreate": {
-      "description": "Persona page copy: noSessionCreate",
-      "placeholders": [],
-      "messages": {
-        "en": "Create a new session",
-        "zh": "新建会话"
-      }
-    },
     "plugin.vivy/persona.review.accepted": {
       "description": "Persona page copy: review.accepted",
       "placeholders": [],
@@ -307,6 +558,30 @@
       "messages": {
         "en": "Persona document saved. Start a new session to use the committed change.",
         "zh": "人格文档已保存。请新建会话以使用已提交的变更。"
+      }
+    },
+    "plugin.vivy/persona.source": {
+      "description": "Persona page copy: source",
+      "placeholders": [],
+      "messages": {
+        "en": "Source",
+        "zh": "源码"
+      }
+    },
+    "plugin.vivy/persona.subtitle": {
+      "description": "Persona page copy: subtitle",
+      "placeholders": [],
+      "messages": {
+        "en": "Live persona authority · current / pending",
+        "zh": "实时人格权威 · 当前 / 待审"
+      }
+    },
+    "plugin.vivy/persona.title": {
+      "description": "Persona page copy: title",
+      "placeholders": [],
+      "messages": {
+        "en": "Persona",
+        "zh": "人格"
       }
     },
     "plugin.vivy/persona.unavailable": {

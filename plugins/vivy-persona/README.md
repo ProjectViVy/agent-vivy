@@ -6,7 +6,8 @@ The 人格 (persona) sidebar Module for the Vivy web Face.
 - **Port:** `std/ui-extension@v1` (Provider `vivy.persona.sidebar`)
 - **Scope:** generation (UI-only; no backend Port, no Grant)
 - **Owns:** the `/persona` route, its grouped `vivy` sidebar entry
-  (order 10), the page content, and the `plugin.vivy/persona.*` copy.
+  (order 10), the page content, the `shell.onboarding` first-run gate, and the
+  `plugin.vivy/persona.*` copy.
 
 Selecting it in a Recipe is what makes the persona block exist:
 
@@ -39,11 +40,20 @@ The cognitive action owner is `vivy/diva-cognitive`:
 - `diva.cognitive.persona.reviews.list`
 - `diva.cognitive.persona.review.decide`
 
-The UI exposes the five required initialization documents, all eight readable
-persona kinds (including optional `MISSION.MD`), current content, and review
-decisions. History is intentionally absent because the current cognitive
-action contract does not expose a history read; the page never fabricates it.
-The route is a live page (`demo: false`).
+While the authority reports `uninitialized`, one guided implementation asks the
+user for the five required documents one page at a time — after saying what
+this companion is meant to be — and writes them in a single
+`diva.cognitive.persona.initialize` call. The same component is mounted twice:
+inside the first-run gate and as the uninitialized body of the page. The user
+can defer the gate (`vivy.persona.onboarding.dismissed`, a local courtesy flag,
+never persona state); the page keeps offering initialization regardless. A
+rejected write keeps every answer, shows the authority's own message, and
+returns to the document that message names.
+
+The UI exposes all eight readable persona kinds (including optional
+`MISSION.MD`), current content, and review decisions. History is intentionally
+absent because the current cognitive action contract does not expose a history
+read; the page never fabricates it. The route is a live page (`demo: false`).
 
 The Module declares only the packages it imports by name; those pins must stay
 exact and installed in `ui/node_modules`.
@@ -52,9 +62,13 @@ exact and installed in `ui/node_modules`.
 
 The Module declares its presentation and the host renders it:
 
-- its sidebar entry names a host icon (`icon: 'dna'` from
+- its sidebar entry names a host icon (`icon: 'user-round'` from
   `HOST_ICON_NAMES` in `@vivy/ui-sdk`) — never an icon component, so the
   shell owns what an icon looks like;
+- its first-run gate is a `shell.onboarding` value in the host's components
+  registry: the host owns the slot and renders it once its own welcome flow is
+  closed, and this Module owns whether anything appears by reading its own
+  status, so no host context is passed and the shell holds no persona state;
 - its route is declared with `defineUIRoute({ path, titleKey, subtitleKey,
   demo, render })`, so the host draws the demo banner, the header (the entry's
   own icon, the title, the subtitle), and a content region with a definite full
