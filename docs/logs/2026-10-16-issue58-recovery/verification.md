@@ -174,3 +174,76 @@ lossless logs, HTTP fixtures, source hashes, disk failure and root regression pr
 Remaining: Task2 continuous native fold/reconcile/CAS/positive receipt/restart, S4
 management actions/tools/UI, S5 BML capability/single-sink/legacy exit, and S6 fixed
 product candidate/justci/UI/Windows/live-model/#66. No whole S3/Issue pass is claimed.
+
+## Intermediate native Windows CI — not a Task2 acceptance cut
+
+GitHub Actions run132 / 38797712766 checks remoteed9d20d22f818fd05c310948160da71c1a2668f7
+(exact local1a4cd31d tree796f5883) on windows-latest. UI CI and existing full-UI
+browser smoke completed successfully; backend CI was still running at observation.
+The fresh-clone setup and independent cold dev startup steps also passed. See
+evidence/windows-ci132-intermediate.json and the linked workflow for actual status.
+This WIP predates the uncommitted native Recap observer/CAS fixes, includes no new
+Recap management UI, and is not whole Windows/product acceptance. Earlier NOT RUN
+entries remain chronological; a final integrated source still needs its own gate.
+
+## Native Task2 independent review — changes required
+
+Fixed sourceb26ee856/tree982f37f5 (remoteca99c2f1) received independent review:
+two Important findings, zero Critical/Minor. Actual captured correction-only tool
+fragments form invalid live tool exchanges; explicit native summaries are outside
+Service cancel/drain/model-switch fences. Three reviewer overlay REDs reproduce
+those boundaries while the immutable candidate remains untouched. The review's
+focused selection passes45 test/subtest cases but does not negate its RED probes.
+See reviews/s3-native-review.md and evidence/s3-native-review-manifest.json.
+
+Fixture-onlyf372626d/remotef34c8873 adds the existing BlobStore capability to an old
+positive runtime fixture. Full Issue58 focused remains RED on three positive App
+cases sharing two more missing-BlobStore fixture constructors; production App
+already supplies it. Its required race selection passes separately. A consolidated
+TDD fix/verification pass is underway; no native Task2 or combined S3 acceptance
+is claimed. Working-tree incremental greens are not fixed-candidate passes.
+
+## Native Task2 consolidated fixes — scoped interface accepted at3e13019b
+
+Local3e13019b0373d8f6344bb84469fd72598f4c11ab and published
+remotecdc2e16cd8f00ee06ced6ba46c4baffca5fbdeff share exact tree
+f482293e05f14a955f7d0f6b5ec6644b973af3fe. Original unavailable local code and
+its tests are not reused. Independent review atb26 found two Important issues;
+one consolidated TDD pass fixes historical correction wire representation and
+explicit summary cancellation/drain/model/engine fences. It also repairs the two
+App fixture omissions without weakening mandatory capability checks. Synthetic
+Journal payloads preserve JSON objects via RawMessage instead of base64 strings.
+
+| Fixed-source gate | Actual result | Qualification |
+|---|---|---|
+| All runtime/App `^TestIssue58`, normal,35m timeout | PASS228 tests/subtests plus2 package events;0fail/skip,29.579s | Exact isolated3e130; existing unchanged UI embed prerequisite, not new UI acceptance |
+| Same complete Issue58 selection, `-race` | PASS228 tests/subtests plus2 package events;0fail/skip/race,269.214s | Exact isolated3e130; external rejected0/forwarded0 |
+| Root rerun of three original unchanged reviewer probes with test-only overlay | PASS3 tests plus1 package;0fail/skip,16.962s | Exact isolated3e130; original probe tail SHA7fa75d58abe2c658af6b94098109caf8f3014ab2f40b7889693366e9f6e0298f; no second independent review claimed |
+| Broader default runtime/App,35m timeout, separate MemoryLoop gate | RUNNING | Not acceptance until exit metadata exists; parent owns result |
+| Full `just ci`, final native Windows backend, new Recap UI | NOT RUN at this cut | Must qualify integrated S4/S5 candidate |
+| PostgreSQL and real model quality | NOT RUN | No DSN; local HTTP fixture capture is not real-model quality |
+
+All fixed-source runners remove credential-bearing child variables by name, use
+offline dependencies and a non-forwarding external deny proxy; actual local HTTP
+fixtures remain available. Each completed fixed run reports external rejected0 and
+forwarded0. Original evidence remains retained on failure or uncertainty.
+
+The earlier f372 broad aggregate FAILed after605.156s: runtime package passed, App
+reached default600s package timeout (the named MemoryLoop test had only9s active).
+1436 passing test events and5 skips are partial evidence, not whole-package success
+or a demonstrated MemoryLoop deadlock. External rejected2/forwarded0. The new broader
+run follows repository35m/default-skip-MemoryLoop policy and does not rewrite this
+failed result. Repository DIVA/MemoryLoop and integrated justci remain separate.
+
+Completed author attempts (including RED/compile failures and dirty-source greens),
+source hashes, root probe overlay/provenance and safe runner are retained losslessly
+in evidence/s3-native-completed-attempts.tar.gz, SHA256
+d90529202c5a4e4ffe9a9844fdcf1e9590f2575c719ffdb4a9554a7f92ee81c8;
+151 files indexed by s3-native-completed-manifest.json. The running broader log is
+excluded until completion. The independent review archive remains unchanged.
+
+This closes the two independent findings for the scoped native runtime interface
+and releases the serialized S4 source lane. It is not whole S3/Issue acceptance.
+S4 management/UI, S5 exact source expansion/BML/single-sink/legacy exit and S6 gates
+remain. ContextStatus and CompactSession zero totals are not measured unified LIFE
+pressure; rowless summary usage is not yet included in RunStore-joined usage UI.
