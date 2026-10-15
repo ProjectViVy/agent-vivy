@@ -79,16 +79,16 @@ func (s *Store) GCSessionScoped(ctx context.Context, sessionID string) (uint64, 
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM memory_supersedes WHERE memory_id IN
-		   (SELECT memory_id FROM memory_records WHERE session_id = ?)`,
+		   (SELECT memory_id FROM memory_records WHERE session_id = ? AND `+s.legacyPredicate("memory_records")+`)`,
 		sessionID); err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM memory_fts WHERE session_id = ?`, sessionID); err != nil {
+		`DELETE FROM memory_fts WHERE session_id = ? AND `+s.legacyPredicate("memory_fts"), sessionID); err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM memory_records WHERE session_id = ?`, sessionID)
+		`DELETE FROM memory_records WHERE session_id = ? AND `+s.legacyPredicate("memory_records"), sessionID)
 	if err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
@@ -127,18 +127,20 @@ func (s *Store) GCStaleSessionScoped(ctx context.Context, activeSessionIDs []str
 		return 0, persistenceErr(s.path, err)
 	}
 	defer tx.Rollback()
+	recordClause := clause + " AND " + s.legacyPredicate("memory_records")
+	ftsClause := clause + " AND " + s.legacyPredicate("memory_fts")
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM memory_supersedes WHERE memory_id IN
-		   (SELECT memory_id FROM memory_records WHERE `+clause+`)`,
+		   (SELECT memory_id FROM memory_records WHERE `+recordClause+`)`,
 		args...); err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM memory_fts WHERE `+clause, args...); err != nil {
+		`DELETE FROM memory_fts WHERE `+ftsClause, args...); err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM memory_records WHERE `+clause, args...)
+		`DELETE FROM memory_records WHERE `+recordClause, args...)
 	if err != nil {
 		return 0, persistenceErr(s.path, err)
 	}
@@ -243,22 +245,48 @@ func (s *Store) Backup(ctx context.Context, destination string) error {
 // Rust `restore(self)`: the receiver is closed on every path, success or
 // failure.
 func (s *Store) Restore(ctx context.Context, backup string) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.readOnly {
+		_ = s.Close()
+		return nil, boundUnavailable()
+	}
 	info, err := os.Stat(backup)
 	if err != nil || info.IsDir() {
 		_ = s.Close()
 		return nil, invalidBackupErr()
 	}
-	valid, err := openPath(ctx, backup, s.workspaceID)
+	valid, err := openReadOnlyPath(ctx, backup, s.workspaceID)
 	if err != nil {
 		_ = s.Close()
 		return nil, invalidBackupErr()
 	}
 	_ = valid.Close()
 	_ = s.Close()
-	if err := copyFile(backup, s.path); err != nil {
+	// Validate/upgrade only a disposable live copy. A failed schema upgrade
+	// must preserve both the original database and the backup, not leave the
+	// original replaced by a copy that this binary could not finish opening.
+	stage, err := os.CreateTemp(filepath.Dir(s.path), ".bml-restore-*.sqlite3")
+	if err != nil {
 		return nil, ioErr(s.path, err)
 	}
-	return openPath(ctx, s.path, s.workspaceID)
+	stagePath := stage.Name()
+	_ = stage.Close()
+	defer func() { _ = os.Remove(stagePath); _ = os.Remove(stagePath + "-wal"); _ = os.Remove(stagePath + "-shm") }()
+	if err := copyFile(backup, stagePath); err != nil {
+		return nil, ioErr(s.path, err)
+	}
+	upgraded, err := openPath(ctx, stagePath, s.workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if err := upgraded.Close(); err != nil {
+		return nil, ioErr(stagePath, err)
+	}
+	if err := os.Rename(stagePath, s.path); err != nil {
+		return nil, ioErr(s.path, err)
+	}
+	return openExistingMutable(ctx, s.path, s.workspaceID)
 }
 
 // CanonicalWorkspaceID derives the stable workspace identity from a
@@ -325,9 +353,10 @@ func OpenExistingCanonical(ctx context.Context, dir string) (*Store, error) {
 		return nil, invalidBackupErr()
 	}
 	canonical := CanonicalWorkspaceID(dir)
-	store, err := openPath(ctx, path, canonical)
+	probe, err := openReadOnlyPath(ctx, path, canonical)
 	if err == nil {
-		return store, nil
+		_ = probe.Close()
+		return openExistingMutable(ctx, path, canonical)
 	}
 	var se *StoreError
 	if errors.As(err, &se) && se.Code == ErrDatabaseWorkspaceMismatch &&
@@ -341,6 +370,18 @@ func OpenExistingCanonical(ctx context.Context, dir string) (*Store, error) {
 // the canonical identity behind a verified backup + manifest.
 func migrateLegacyWorkspaceIdentity(ctx context.Context, dir, legacy, canonical string) (*Store, error) {
 	path := filepath.Join(dir, storeFileName)
+	probe, err := openReadOnlyPath(ctx, path, legacy)
+	if err != nil {
+		return nil, err
+	}
+	bound, err := probe.hasBoundState(ctx)
+	_ = probe.Close()
+	if err != nil {
+		return nil, err
+	}
+	if bound {
+		return nil, identityMigrationRejectedErr()
+	}
 	store, err := openPath(ctx, path, legacy)
 	if err != nil {
 		return nil, err
@@ -360,7 +401,7 @@ func migrateLegacyWorkspaceIdentity(ctx context.Context, dir, legacy, canonical 
 	} else {
 		// An earlier attempt already left a backup; it must still validate
 		// as a store bound to the legacy identity.
-		validation, err := openPath(ctx, backup, legacy)
+		validation, err := openReadOnlyPath(ctx, backup, legacy)
 		if err != nil {
 			_ = store.Close()
 			return nil, err
@@ -504,9 +545,17 @@ func RollbackCanonicalIdentity(ctx context.Context, dir string) (WorkspaceIdenti
 		return WorkspaceIdentityMigrationManifest{}, identityMigrationRejectedErr()
 	}
 	database := filepath.Join(dir, storeFileName)
-	current, err := openPath(ctx, database, manifest.CanonicalWorkspaceID)
+	current, err := openReadOnlyPath(ctx, database, manifest.CanonicalWorkspaceID)
 	if err != nil {
 		return WorkspaceIdentityMigrationManifest{}, err
+	}
+	bound, boundErr := current.hasBoundState(ctx)
+	if boundErr != nil || bound {
+		_ = current.Close()
+		if boundErr != nil {
+			return WorkspaceIdentityMigrationManifest{}, boundErr
+		}
+		return WorkspaceIdentityMigrationManifest{}, identityMigrationRejectedErr()
 	}
 	currentIntegrity, err := current.Integrity(ctx)
 	if err != nil {
@@ -520,7 +569,7 @@ func RollbackCanonicalIdentity(ctx context.Context, dir string) (WorkspaceIdenti
 	}
 	_ = current.Close()
 
-	backupValidation, err := openPath(ctx, manifest.BackupPath, manifest.LegacyWorkspaceID)
+	backupValidation, err := openReadOnlyPath(ctx, manifest.BackupPath, manifest.LegacyWorkspaceID)
 	if err != nil {
 		return WorkspaceIdentityMigrationManifest{}, err
 	}
@@ -554,7 +603,7 @@ func openPath(ctx context.Context, path, workspaceID string) (*Store, error) {
 			return nil, ioErr(parent, err)
 		}
 	}
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
 	if err != nil {
 		return nil, ioErr(path, err)
 	}
@@ -583,6 +632,10 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
 		_ = out.Close()
 		return err
 	}

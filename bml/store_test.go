@@ -98,8 +98,8 @@ func TestOpenInitializesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.SchemaVersion != 1 {
-		t.Errorf("SchemaVersion = %d, want 1", m.SchemaVersion)
+	if m.SchemaVersion != 2 {
+		t.Errorf("SchemaVersion = %d, want 2", m.SchemaVersion)
 	}
 	if m.StoreRevision != 0 {
 		t.Errorf("StoreRevision = %d, want 0", m.StoreRevision)
@@ -131,7 +131,7 @@ func TestReopenExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.SchemaVersion != 1 || m.WorkspaceID != "ws-1" {
+	if m.SchemaVersion != 2 || m.WorkspaceID != "ws-1" {
 		t.Errorf("metadata after reopen = %+v", m)
 	}
 }
@@ -216,7 +216,7 @@ func TestOpenExistingReadsExistingStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.WorkspaceID != "ws-1" || m.SchemaVersion != 1 {
+	if m.WorkspaceID != "ws-1" || m.SchemaVersion != 2 {
 		t.Errorf("metadata = %+v", m)
 	}
 }

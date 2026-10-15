@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	schemaVersion int64 = 1
+	schemaVersion int64 = 2
 	component           = "embedded_laputa"
 	storeFileName       = "memory.sqlite3"
 	busyTimeoutMS       = 5000
@@ -192,6 +193,8 @@ type Store struct {
 	db          *sql.DB
 	path        string
 	workspaceID string
+	schema      int64
+	readOnly    bool
 	mu          sync.Mutex
 }
 
@@ -209,6 +212,10 @@ func Open(ctx context.Context, dir, workspaceID string) (*Store, error) {
 // creating or modifying filesystem state. A missing database fails closed.
 func OpenExisting(ctx context.Context, dir, workspaceID string) (*Store, error) {
 	path := filepath.Join(dir, storeFileName)
+	return openReadOnlyPath(ctx, path, workspaceID)
+}
+
+func openReadOnlyPath(ctx context.Context, path, workspaceID string) (*Store, error) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		if err == nil {
@@ -221,7 +228,7 @@ func OpenExisting(ctx context.Context, dir, workspaceID string) (*Store, error) 
 		return nil, ioErr(path, err)
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db, path: path, workspaceID: workspaceID}
+	s := &Store{db: db, path: path, workspaceID: workspaceID, readOnly: true}
 	if err := s.checkIdentity(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -361,9 +368,34 @@ func (s *Store) initialize(ctx context.Context) error {
 			return err
 		}
 	}
+	if version != 2 {
+		if version == 1 {
+			var reserved int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name IN ('memory_ownership','memory_operations')`).Scan(&reserved); err != nil {
+				return persistenceErr(s.path, err)
+			}
+			if reserved != 0 {
+				return boundError("unsupported_schema", "schema 1 contains unqualified native ownership/operation state")
+			}
+		}
+		for _, ddl := range boundSchemaDDL {
+			if _, err := tx.ExecContext(ctx, ddl); err != nil {
+				return persistenceErr(s.path, err)
+			}
+		}
+	}
+	if err := s.checkBoundSchema(ctx, tx); err != nil {
+		return err
+	}
+	if version == 1 {
+		if _, err := tx.ExecContext(ctx, `UPDATE schema_meta SET schema_version=2 WHERE component=? AND schema_version=1`, component); err != nil {
+			return persistenceErr(s.path, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return persistenceErr(s.path, err)
 	}
+	s.schema = schemaVersion
 	if err := callerCtx.Err(); err != nil {
 		return persistenceErr(s.path, err)
 	}
@@ -380,11 +412,18 @@ func (s *Store) checkIdentity(ctx context.Context) error {
 	if err != nil {
 		return persistenceErr(s.path, err)
 	}
-	return checkMetaRow(version, storedWorkspace, s.workspaceID)
+	if err := checkMetaRow(version, storedWorkspace, s.workspaceID); err != nil {
+		return err
+	}
+	s.schema = version
+	if version == 2 {
+		return s.checkBoundSchema(ctx, s.db)
+	}
+	return nil
 }
 
 func checkMetaRow(version int64, storedWorkspace, workspaceID string) error {
-	if version != schemaVersion {
+	if version != 1 && version != schemaVersion {
 		return unsupportedSchemaErr(version)
 	}
 	if storedWorkspace != workspaceID {
@@ -462,7 +501,7 @@ const (
 func (s *Store) Get(ctx context.Context, id string) (*StoredRecord, error) {
 	var revision int64
 	var recordJSON string
-	err := s.db.QueryRowContext(ctx, selectStoredSQL, id).Scan(&revision, &recordJSON)
+	err := s.db.QueryRowContext(ctx, selectStoredSQL+` AND `+s.legacyPredicate("memory_records"), id).Scan(&revision, &recordJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -482,7 +521,8 @@ func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) 
 	if int64(limit) > MaxMemoryRecords {
 		limit = uint32(MaxMemoryRecords)
 	}
-	rows, err := s.db.QueryContext(ctx, listStoredSQL, limit)
+	query := strings.Replace(listStoredSQL, "ORDER BY", "WHERE "+s.legacyPredicate("memory_records")+" ORDER BY", 1)
+	rows, err := s.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}
@@ -511,7 +551,7 @@ func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) 
 // deposed by a later tombstone even when the target row has no tombstone
 // flag set.
 func (s *Store) SupersededTargetIDs(ctx context.Context) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, selectSupersededTargetsSQL)
+	rows, err := s.db.QueryContext(ctx, selectSupersededTargetsSQL+` AND `+s.legacyPredicate("r"))
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}
@@ -533,14 +573,14 @@ func (s *Store) SupersededTargetIDs(ctx context.Context) (map[string]struct{}, e
 // Put inserts or replaces one canonical record under store and row CAS.
 // expectedRecordRevision nil means the record must not exist yet.
 func (s *Store) Put(ctx context.Context, record Record, expectedStoreRevision int64, expectedRecordRevision *int64) (StoredRecord, error) {
-	return s.putInner(ctx, record, expectedStoreRevision, expectedRecordRevision, nil)
+	return s.putInner(ctx, record, expectedStoreRevision, expectedRecordRevision, nil, nil)
 }
 
 // PutTombstone atomically writes a tombstone only if the target record still
 // has the revision observed by the caller.
 func (s *Store) PutTombstone(ctx context.Context, record Record, expectedStoreRevision int64, targetID string, targetRevision int64) error {
 	_, err := s.putInner(ctx, record, expectedStoreRevision, nil,
-		&targetRevisionGuard{id: targetID, revision: targetRevision})
+		&targetRevisionGuard{id: targetID, revision: targetRevision}, nil)
 	return err
 }
 
@@ -554,6 +594,7 @@ func (s *Store) putInner(
 	expectedStoreRevision int64,
 	expectedRecordRevision *int64,
 	targetGuard *targetRevisionGuard,
+	op *boundWrite,
 ) (StoredRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -569,10 +610,30 @@ func (s *Store) putInner(
 		return StoredRecord{}, persistenceErr(s.path, err)
 	}
 	defer tx.Rollback()
+	if op != nil {
+		replay, err := s.lookupBound(ctx, tx, op.bindingJSON, op.mutation.OperationID, op.mutation.PayloadDigest, op.fingerprint)
+		if err != nil {
+			return StoredRecord{}, err
+		}
+		if replay != nil {
+			op.outcome = *replay
+			return StoredRecord{Record: record, Revision: replay.RecordRevision}, nil
+		}
+	}
+	checkedRecord := record
+	if targetGuard != nil {
+		checkedRecord.Supersedes = append(append([]string(nil), record.Supersedes...), targetGuard.id)
+	}
+	if err := s.validateWriteOwnership(ctx, tx, checkedRecord, op); err != nil {
+		return StoredRecord{}, err
+	}
 
 	var actualStore int64
 	if err := tx.QueryRowContext(ctx, selectStoreRevisionSQL, component).Scan(&actualStore); err != nil {
 		return StoredRecord{}, persistenceErr(s.path, err)
+	}
+	if op != nil && op.mutation.ExpectedStoreRevision == nil {
+		expectedStoreRevision = actualStore
 	}
 	if actualStore != expectedStoreRevision {
 		return StoredRecord{}, storeRevisionConflictErr(expectedStoreRevision, actualStore)
@@ -684,6 +745,11 @@ func (s *Store) putInner(
 	if _, err := tx.ExecContext(ctx, updateCountersSQL, nextCount, nextBytes, component); err != nil {
 		return StoredRecord{}, persistenceErr(s.path, err)
 	}
+	if op != nil {
+		if err := s.saveBoundOutcome(ctx, tx, op, record, nextRecordRevision, actualStore+1); err != nil {
+			return StoredRecord{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return StoredRecord{}, persistenceErr(s.path, err)
 	}
@@ -729,6 +795,9 @@ func (s *Store) ImportRecords(ctx context.Context, records []Record, expectedSto
 	var inserts []insert
 	for i := range records {
 		record := &records[i]
+		if err := s.validateWriteOwnership(ctx, tx, *record, nil); err != nil {
+			return StoreMetadata{}, err
+		}
 		canonicalJSON, err := marshalCanonical(record)
 		if err != nil {
 			return StoreMetadata{}, corruptRecordErr()
