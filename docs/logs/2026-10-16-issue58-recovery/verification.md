@@ -614,3 +614,23 @@ validator tests PASS; all local-only requests rejected0/forwarded0. Raw working
 and fixed attempts are separately retained in s5-ci-fixture-fix archive. Actual
 Windows rerun is pending. Neither this correction nor Linux greens accept BML
 or whole S5/S6; new Recap browser/native dependency Windows/justci remain open.
+
+## Native BML independent review complete: two Important blockers
+
+Independent fixed92048 review is complete:0Critical/2Important/0Minor. I1 live
+schema1 readonly handle across another supported upgrade discloses new bound
+rows through legacy Get/List/Search/SearchVisible. I2 same-binding single-target
+tombstone CAS can additionally suppress independently updated B through extra
+Supersedes without B CAS; receipt names only A. Existing legacy multi-target
+mechanism is inherited, but the new bound single-target boundary must reject it.
+
+Independent focused99 plus cancellation1 tests PASS/2package results. The actual
+receipt-INSERT cancellation probe preserves five tables/counters and absent
+receipt, then permits exactly one retry. Both original finding probes remain
+RED. Native1.56 independently confirmed; all5invocations offline/rejected0/
+forwarded0. Root verified23artifact hashes and25source/support hashes against
+committed92048. Original probes/logs/overlays and report are preserved in
+s5-bml-independent-review archive (SHA74714381a3839717c936f25c6f7f7920657706bd19fb605e5bfb35281aee0f6b).
+One consolidated author TDD pass is now released. Root will relocate only overlay
+target paths and rerun unchanged probes plus fixed native/root-MVS normal/race.
+No redundant second review of the same fix diff and no consumer activation.

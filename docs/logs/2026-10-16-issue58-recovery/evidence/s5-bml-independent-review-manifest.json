@@ -1,0 +1,9 @@
+{
+  "candidate": "92048bccda52875a798ade1bccc4e44823a564fb",
+  "tree": "a9532ce41a286334e0462b7401bce786e89e65c0",
+  "artifact_hashes_verified": 23,
+  "source_hashes_verified": 25,
+  "archive_sha256": "74714381a3839717c936f25c6f7f7920657706bd19fb605e5bfb35281aee0f6b",
+  "verdict": "0 Critical,2 Important,0 Minor; Changes required; no activation",
+  "qualification": "Independent focused99+cancel1 pass; both original RED probes fail. Native1.56 local fixtures only. No Windows/consumer/S5 acceptance."
+}
