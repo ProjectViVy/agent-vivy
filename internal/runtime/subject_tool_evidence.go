@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -254,6 +255,32 @@ func (c serviceToolOperationCoordinator) priorToolOutcome(ctx context.Context, o
 		if event.PayloadVersion != 1 {
 			return nil, ErrRecapUnavailable
 		}
+		// Legacy success omitted the entire failure unit. A present unit must
+		// have all three explicit string fields; null is never an attestation.
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(event.Payload, &fields) != nil {
+			return nil, storage.ErrSubjectEvidenceIncomplete
+		}
+		for _, name := range []string{"tool_call_id", "tool_name", "result"} {
+			if !legacyOutcomeString(fields, name) {
+				return nil, storage.ErrSubjectEvidenceIncomplete
+			}
+		}
+		present := 0
+		for _, name := range []string{"outcome", "reason", "effects"} {
+			if _, ok := fields[name]; ok {
+				present++
+				if !legacyOutcomeString(fields, name) {
+					return nil, storage.ErrSubjectEvidenceIncomplete
+				}
+			}
+		}
+		if present != 0 && present != 3 {
+			return nil, storage.ErrSubjectEvidenceIncomplete
+		}
+		if _, ok := fields["error"]; ok && !legacyOutcomeString(fields, "error") {
+			return nil, storage.ErrSubjectEvidenceIncomplete
+		}
 		outcome := &storage.ToolEvidenceOutcome{Outcome: p.Outcome, Reason: p.Reason, Effects: p.Effects}
 		if p.Outcome != "" {
 			outcome.Diagnostic = p.Error
@@ -266,4 +293,13 @@ func (c serviceToolOperationCoordinator) priorToolOutcome(ctx context.Context, o
 		return outcome, nil
 	}
 	return nil, replay.Err()
+}
+
+func legacyOutcomeString(fields map[string]json.RawMessage, name string) bool {
+	raw, ok := fields[name]
+	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
+	var value string
+	return json.Unmarshal(raw, &value) == nil
 }

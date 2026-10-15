@@ -45,7 +45,7 @@ func (o ToolEvidenceOutcome) Validate() error {
 	if o == (ToolEvidenceOutcome{}) {
 		return nil
 	}
-	if !utf8.ValidString(o.Diagnostic) || len(o.Diagnostic) == 0 || len(o.Diagnostic) > 2048 {
+	if !utf8.ValidString(o.Diagnostic) || len(o.Diagnostic) > 2048 {
 		return ErrSubjectEvidenceIncomplete
 	}
 	switch o.Outcome {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/mcphost"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/conformance"
 	"agent-vivy/internal/tools"
@@ -129,7 +130,7 @@ func TestIssue58RefusalCrashCutReplayKeepsNotExecuted(t *testing.T) {
 }
 
 func TestIssue58LegacyToolOutcomeRequiresExactHostProof(t *testing.T) {
-	for _, kind := range []string{"absent", "prior-refusal", "prior-success", "wrong-call", "malformed"} {
+	for _, kind := range []string{"absent", "prior-refusal", "prior-success", "wrong-call", "malformed", "null-unit", "partial-unit", "null-result", "null-error"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			f := newIssue58Wire(t)
@@ -182,6 +183,16 @@ func TestIssue58LegacyToolOutcomeRequiresExactHostProof(t *testing.T) {
 					payload.Effects = "unknown"
 				}
 				p, _ := json.Marshal(payload)
+				switch kind {
+				case "null-unit":
+					p = []byte(`{"tool_call_id":"legacy-call","tool_name":"legacy-tool","result":"old body","outcome":null,"reason":null,"effects":null}`)
+				case "partial-unit":
+					p = []byte(`{"tool_call_id":"legacy-call","tool_name":"legacy-tool","result":"old body","reason":""}`)
+				case "null-result":
+					p = []byte(`{"tool_call_id":"legacy-call","tool_name":"legacy-tool","result":null}`)
+				case "null-error":
+					p = []byte(`{"tool_call_id":"legacy-call","tool_name":"legacy-tool","result":"old body","error":null}`)
+				}
 				if _, err = f.b.Append(ctx, storage.Commit{RunID: op.RunID, Events: []domain.RunEvent{{RunID: op.RunID, Type: domain.EventToolFinished, PayloadVersion: 1, Payload: p}}}); err != nil {
 					t.Fatal(err)
 				}
@@ -216,5 +227,61 @@ func TestIssue58LegacyToolOutcomeRequiresExactHostProof(t *testing.T) {
 				t.Fatal("legacy read rewrote receipt")
 			}
 		})
+	}
+}
+
+type issue58EmptyRemoteErrorTool struct{ remoteErrTool }
+
+func (t *issue58EmptyRemoteErrorTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	t.calls++
+	return "", &mcphost.ToolExecutionError{}
+}
+
+func TestIssue58EmptyNativeDiagnosticRetainsTypedOutcome(t *testing.T) {
+	tool := &issue58EmptyRemoteErrorTool{}
+	f := newIssue58Wire(t, tool)
+	f.reply = func(i int) *schema.Message {
+		if i == 0 {
+			return schema.AssistantMessage("", []schema.ToolCall{{ID: "empty-diagnostic", Type: "function", Function: schema.FunctionCall{Name: tool.Spec().Name, Arguments: `{"q":"fixture"}`}}})
+		}
+		return schema.AssistantMessage("complete", nil)
+	}
+	run := f.run(t, "use the remote tool")
+	if run.Status != domain.RunCompleted || tool.calls != 1 || len(f.capture()) != 2 {
+		t.Fatalf("native empty diagnostic did not complete: status=%s calls=%d requests=%d", run.Status, tool.calls, len(f.capture()))
+	}
+	var finished bool
+	for _, event := range replayAll(t, f.b, run.ID) {
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var p payloadToolFinished
+		if err := json.Unmarshal(event.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Outcome != toolFailureStatusRecoverable || p.Reason != toolFailureReasonRemoteTool || p.Effects != toolEffectsUnknown || p.Error != "" {
+			t.Fatalf("native outcome changed: %+v", p)
+		}
+		finished = true
+	}
+	if !finished {
+		t.Fatal("missing native tool.finished")
+	}
+	f.restart(t)
+	op, err := f.b.GetToolOperation(context.Background(), run.ID, "empty-diagnostic")
+	if err != nil || op.State != domain.ToolOperationCompleted {
+		t.Fatal("empty diagnostic outcome not durable", err)
+	}
+	var ref storage.ToolEvidenceReference
+	if err := json.Unmarshal([]byte(op.Result), &ref); err != nil {
+		t.Fatal(err)
+	}
+	raw, found, err := f.b.Blobs().Get(context.Background(), ref.ID)
+	if err != nil || !found {
+		t.Fatal("missing retained outcome", err)
+	}
+	body, err := storage.VerifyToolEvidence(ref, raw)
+	if err != nil || body.Outcome == nil || body.Outcome.Outcome != toolFailureStatusRecoverable || body.Outcome.Diagnostic != "" {
+		t.Fatalf("empty diagnostic tuple lost after reopen: %+v %v", body.Outcome, err)
 	}
 }

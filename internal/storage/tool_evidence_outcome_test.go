@@ -19,7 +19,7 @@ func TestIssue58ToolEvidenceOutcomeStrictUnit(t *testing.T) {
 		_, err := VerifyToolEvidence(ref, raw)
 		return err
 	}
-	for _, outcome := range []*ToolEvidenceOutcome{{}, {Outcome: "refused", Reason: "policy_denied", Effects: "not_executed", Diagnostic: "did not execute"}, {Outcome: "recoverable", Reason: "not_found", Effects: "none", Diagnostic: "missing"}} {
+	for _, outcome := range []*ToolEvidenceOutcome{{}, {Outcome: "refused", Reason: "policy_denied", Effects: "not_executed", Diagnostic: "did not execute"}, {Outcome: "recoverable", Reason: "not_found", Effects: "none", Diagnostic: "missing"}, {Outcome: "recoverable", Reason: "remote_tool_error", Effects: "unknown"}} {
 		body := ToolEvidence{Result: "fixture", ModelProjection: "fixture", Outcome: outcome}
 		raw, err := json.Marshal(body)
 		if err != nil || verify(string(raw)) != nil {
