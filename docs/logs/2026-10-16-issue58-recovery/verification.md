@@ -530,3 +530,87 @@ Root isolated fixed-fdcb affected consumer selection PASS318tests+5packages,
 2explicit opt-in fixture skips,0fail,53.722s, rejected0/forwarded0. Consumer race is
 RUNNING separately. No current/full UI, native Windows, BML/loaded/source-consumer
 or S6 product acceptance is inferred from dependency publication or these greens.
+
+## Fixed dependency-pin consumer race completion
+
+At fixed Vivy fdcb25a554df79c7938287b89a539c905804ca63/tree471a603a,
+with actual native sibling published249a756e/tree9fff8cf9, root isolated race
+selection PASS256 tests+5packages,1 explicit opt-in SplitFixture skip,0fail,
+339.059s and0race warnings. Normal selection PASS318+5packages,2opt-in skips,
+53.722s. Both runners rejected0/forwarded0 external requests. This completes
+only the dependency-pin consumer RUNNING state above. Full raw outputs and exact
+runner commands are archived in evidence/s5-native-pin-consumer.tar.gz and its
+manifest; no BML activation or whole Story/product acceptance is inferred.
+
+Native BML schema/ownership/atomic receipt implementation is now the sole source
+writer. Its SQLite1.56 dependency-cache setup failure is retained as a setup
+failure, not semantic RED; official unchanged-version cache preparation passed
+before offline retry. App/Garden consumer activation remains gated on independent
+native BML review and any consolidated TDD fix.
+
+## Intermediate actual Windows UI gate failure
+
+Run38817922217 at branch head9a1a21d4 checks out GitHub PR merge008aa27b
+into main5715950. UI job116707597725 FAILS: existing cross-face classification
+omits chatInput.contextUnavailable and chatInput.compactUnmeasured. Its707 Vitest
+tests/93files and Vite build pass; these do not make the job green. Root reproduced
+the original assertion unchanged at fixedfdcb25a5: exit1/0.365s, no external
+requests. Minimal existing faceSpecific.webKeys classification fix is queued after
+the single native BML writer releases its index. No validator relaxation. Original
+Windows decoded log and local RED are archived with SHA256 manifest under
+evidence/s5-intermediate-windows-ui.*. Existing full-UI browser smoke passed in
+its distinct job; new Recap E2E was not invoked. Backend was still running at
+observation. This intermediate run does not qualify a final candidate.
+
+## Intermediate actual Windows backend failure
+
+Same run38817922217 backend job116707597299 has now completed FAIL. Many
+Issue58 App/runtime/SQLite fixtures reject at storage subject binding validation;
+the original plain decoded log and complete failed-test-line list are archived
+under evidence/s5-intermediate-windows-backend.* with SHA256 manifest. The
+actual real-Assembly HTTP regression proceeds separately in the log; this is
+not a reason to ignore fixture failures. A separate read-only diagnosis traces
+platform path handling and trusted fixture versus actual resolved identity in
+fixedfdcb; no production/fixture change is authorized concurrently with the sole
+BML native writer. No root cause or Windows pass is claimed pending that evidence.
+The UI classification failure remains a separate known defect. The workflow
+aggregate is not a substitute for either failed lane.
+
+## Native BML producer checkpoint and independent review in progress
+
+BML source92048bccda52875a798ade1bccc4e44823a564fb/treea9532ce4 is
+published as5770f07ffbe4fd0b5701678846b97d4e6557eb68, exact tree verified.
+Only19BML files change. Root verified63author artifacts, all19committed source
+hashes and14tested Go hashes. Author final nativeSQLite1.56 normal/race and root
+MVS1.59 normal each155tests+1package PASS; execution preceded commit and is
+byte-bound, not mislabeled fixed-HEAD execution. Vet passes. All26raw attempts,
+RED/setup/compile/fault evidence are retained in s5-bml-native-author archive.
+
+Independent review on a clean fixed92048 clone has substantiated cross-handle
+schema1 readonly upgrade leakage and single-target tombstone CAS additional
+suppression REDs; review is still ongoing, no final finding count or acceptance.
+The latter reuses legacy multi-supersedes but the new bound single-target CAS
+must reject additional deletion targets. Root accepts that minimum boundary,
+without a new bulk API. No BML consumer is active; one consolidated author TDD
+pass is released only after complete independent report.
+
+## CI portability, explicit inventory and Web classification checkpoint
+
+Actual Windows root failures were traced to the shared conformance fixture's
+Unix-only /trusted/owner path, plus the independently stale Generation inventory.
+Root fetched the actual CI merge's three identity/SQL source files and confirmed
+byte equality with fixedfdcb; proof is archived. Production binding/permission
+guards remain unchanged. Root replaces only test-owned path construction with
+filepath.Join+typed JSON/Valid check, adds the two existing Web classification
+keys, and explicitly declares reviewed Recap module/five tools/seven actions in
+the existing complete inventory fixture. Test assertions/validators unchanged.
+
+Source7f10ec6649eaae1e51aa15c4ae04ee12cec6a743/tree6d70b711 is published
+as be19b94f8ca633fbf9f51c327023a652aeffd83a, exact tree verified. Original
+Windows failures and unchanged fixedfdcb local crossface/inventory RED remain.
+Root fixed7f10 App/runtime/SQLite selection PASS269tests+3packages,1opt-in
+SplitFixture skip,0fail/34.767s. Fixed crossface/completeness/eight unchanged
+validator tests PASS; all local-only requests rejected0/forwarded0. Raw working
+and fixed attempts are separately retained in s5-ci-fixture-fix archive. Actual
+Windows rerun is pending. Neither this correction nor Linux greens accept BML
+or whole S5/S6; new Recap browser/native dependency Windows/justci remain open.
