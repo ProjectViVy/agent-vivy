@@ -154,6 +154,8 @@ type MainConversationBinding struct {
     SubjectID, DomainID, ConversationID string
     ActiveSessionID domain.SessionID // internal storage coordinate, not subject identity
     PolicyID, ToolPolicyRef string // trusted Generation policy references
+    SchemaVersion int
+    Grant storage.SubjectGrantSnapshot // actual Host decision, reference and version
 }
 type MainConversationResolver interface {
     ResolveMainConversation(context.Context) (MainConversationBinding, error)
@@ -170,6 +172,32 @@ binding fails explicitly for LIFE, never falls back to an arbitrary ordinary ses
 Headless/test composition may supply the same governed singleton binding without
 implementing the sidebar or creating an alternate runtime. Installed integration
 remains blocked until the real #66 producer and consumer seam are accepted.
+
+The #58 consumer additionally requires `SchemaVersion == 1` and a
+`SubjectGrantSnapshot` containing stable Host `Reference`, `Version`, the actual
+immutable decision `Snapshot` JSON, and `WholeDomainRead`. These additions remain
+subject to #66 agreement; #58 does not implement that producer. Contribution is
+separate from resident read authority. Trusted composition may supply
+`SubjectSourceResolver(context.Context, domain.SessionID)` for explicitly
+approved ordinary personal sources. That callback uses the existing Host
+Policy/Grant checks, returns no grant for private/restricted/child/strategy or
+foreign sources, and is never accepted from model/client JSON. An ordinary
+source's snapshot must not grant `WholeDomainRead` or `life-recap-v1`.
+
+Session source membership and each Run's conversation/policy/schema/grant
+snapshot commit inside the existing admission transaction. Membership is
+immutable; changed policy, domain, grant reference/version/decision or missing
+resolver fails closed for a persisted source. Unshared ordinary admission stays
+unchanged. A second internal segment may share the existing main conversation
+identity; segments do not become ordinary Session-list entries. These metadata
+pins are evidence, not a permission engine or caller authorization token. Every
+resident/source reader must recheck the current trusted Host authorization.
+
+The existing `FactoryInput.ResolveRecapBinding` callback carries trusted
+`RecapBinding.SubjectID` independently of `ProfileID`, at the actual existing
+ACTMEM `Store.Root`. There is no second SubjectID resolver, ProfileID fallback,
+or migration of legacy evolution/persona keys.
+
 
 One shared domain contains only host-authorized subject-owned personal sources.
 The general cross-session Recap/recent-original contract remains: internal segments
@@ -240,14 +268,39 @@ Persistence stays under existing `actmem/`: immutable Markdown revisions in
 single atomic current head including text+coverage+operation identity. Write and
 flush the revision first, then atomically replace and flush head; only the chain
 reachable from the committed head is history. Orphans are never promoted on startup.
-A response lost after commit is resolved with OperationID. A sync failure after
-replacement is an unknown commit: freeze further writes, reopen/read and resolve
-the operation; never pretend rollback. No destructive cleanup in this scope.
+A response lost after commit is resolved with OperationID only after owner-level
+durability confirmation. Namespace visibility and matching hashes are not a receipt.
+A failure after replacement is attempted freezes all authoritative C1 reads,
+positive/negative lookup, history, revision access and replay with zero data and
+`recap_commit_unknown` until Close/reopen and successful recovery. The first bound
+C1 use of every newly acquired owner validates the selected reachable chain and
+republishes the exact selected head bytes through the platform's staged replacement
+and flush protocol before acknowledging it. Recovery changes no logical revision,
+operation identity, digest, timestamp, text or coverage, and never promotes orphans.
+Confirmed unchanged heads need no repeated full durability flush. No destructive
+cleanup or second owner/receipt database is introduced.
+
+Missing-head negative resolution also needs a qualified namespace absence barrier.
+Unix may return not-found after successful directory persistence. Windows currently
+has no qualified absence barrier: missing-head lookup/history/revision fail closed
+with `recap_commit_unknown`. Revision-zero ReadRecap is only an **uninitialized
+current view**, with zero coverage; it is not a committed receipt or proof that a
+pending operation was absent. Under the same owner, a new or exact-retry base-zero
+Commit may publish its actual requested initial head through qualified write-through
+replacement and return that positive receipt. A visible nonempty selected head must
+always be validated/recovered/replayed, never treated as empty. Native Windows
+recovery acceptance remains required; cross-compilation is not durability evidence.
 
 Acquire a directory-scoped OS lock for Store lifetime (including two instances in
 one process), canonicalize real path, fail on symlink alias collision, and release
-on Close. Use the existing dependency-compatible `gofrs/flock` implementation where
-available, adding an explicit Laputa module pin if necessary, not a PID-file lock.
+on Close. `Open` acquires it immediately. `New` construction and legacy Read/missing
+legacy reads remain filesystem-free; first authoritative C1 use may lazily acquire
+and recover this same Store. An unowned reader cannot bypass another owner's lock.
+When Garden's trusted binding resolver is configured, construction uses this same
+`actmem.Open` owner and passes its frozen canonical Root to the callback before
+state/ingestion startup; nil resolver keeps legacy New behavior. Partial Open errors
+and Close release that owner. Use the existing dependency-compatible `gofrs/flock`
+implementation where available, adding an explicit Laputa module pin if necessary, not a PID-file lock.
 Platform atomic replacement must support Windows replacement without unlinking the
 old head first; isolate platform helpers and prove crash behavior. Revision history
 is retained indefinitely by default. Do not add a SQLite ACTMEM store beside it.
@@ -276,6 +329,33 @@ type SubjectHistoryStore interface {
     ArchiveRetainedSession(context.Context, domain.SessionID) error
 }
 ```
+
+The same backend additionally exposes
+`CaptureSubjectHistory(context.Context, SubjectHistoryBinding) (uint64, error)`.
+It atomically reads the committed sequence head once. `ListSubjectInteractions`
+arguments are `(binding, after, capturedThrough, limit)` and every page uses that
+same immutable `capturedThrough`. Zero is a captured empty prefix, never a request
+to follow the moving head; no second coverage cursor is introduced.
+`GetSubjectSource(ctx, sessionID)` and `GetRunSubjectSource(ctx, runID)` return the
+immutable admission snapshots for authorization comparison and observer routing.
+`SubjectSourceStore` groups these metadata methods with the unchanged four C2
+signatures. Its `SubjectSourceBinding` contains the subject/domain, Session,
+conversation identity (empty for ordinary contribution), schema version,
+PolicyID/ToolPolicyRef, personal scope and the actual grant snapshot above.
+
+Until S2 Task2 connects lossless tool/steering/interrupted-delta evidence repair,
+Task1 returns `ErrSubjectEvidenceIncomplete` for those runs and retains their
+originals without allocating sequence. Text-only interactions seal only after
+terminal/status/canonical-ID checks, admitted user identity, deterministic
+assistant projection and Journal completion-hash validation, and a digest of all
+exact message/attachment/file-snapshot fields. Idempotent seal and original reads
+revalidate the evidence/digest. Outcome remains the actual terminal event.
+Direct shell uses a separate non-atomic admission today: Task1 rejects an eligible
+shell-first/main source before allocation or execution with explicit unavailable.
+Task2 must integrate the same subject pins/protection in a shared admission
+transaction, retain exact shell tool evidence, and preserve `NoContext` exclusion.
+This temporary fail-closed boundary is not an approved final LIFE tool restriction.
+
 
 The index sequence is allocated only when a terminal interaction's exact evidence
 is durable and validated. Concurrency orders by durable seal, never wall clock.
@@ -354,7 +434,8 @@ if pressure: select oldest complete prefix; summarize(head.text, exact prefix)
 validate free text, output budget and unchanged scope
 commit owner(base revision, operation ID, contiguous range+digest)
   conflict -> reread head, rebuild remaining range, regenerate (at most one fresh retry)
-  unknown -> lookup same operation; unresolved -> pause
+  unknown -> retain exact pending request; Close/reopen same owner and recover
+             durably lookup same operation; busy/unknown/unavailable -> pause
   failure before commit attempt -> retain old head and every source; no offload
   error/cancel after Finalize begins -> resolve operation, reload committed head
 reload committed head; assemble its remaining exact suffix + current once
@@ -370,7 +451,15 @@ error. The receipt is operation metadata, not another Recap authority.
 Inference is outside owner locks. A confirmed durable commit (returned or resolved
 by OperationID) is the only retirement boundary. No cross-database transaction is needed: evidence precedes
 owner CAS, and context retirement is derived from the committed cursor on reload.
-The index is not updated with a duplicate cursor after owner commit.
+The index is not updated with a duplicate cursor after owner commit. S3 retains
+the exact pending OperationID, request, source range and all evidence until the
+owner returns a confirmed positive receipt, including after Callback/Finalize errors.
+It cannot acknowledge from visible text, an ordinary read of advanced coverage,
+revision zero, or bare missing-head/not-found observations. Unsupported negative
+resolution pauses; revision zero never permits evidence retirement or discarding a
+pending request. Initial base-zero publication/exact retry may yield the first
+positive receipt. Recovery uses the same owner lifecycle, never a second Store to
+bypass uncertainty or a busy lock.
 
 Ordinary edit/restore/other-session consolidation affects the next run admission.
 Clear also invalidates already-admitted snapshots at the next safe model boundary:

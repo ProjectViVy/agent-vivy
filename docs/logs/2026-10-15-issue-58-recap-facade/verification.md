@@ -85,3 +85,39 @@ and git status exits 128. No stamping disable flag or toolchain edit was used.
 Parent's independent normal clone, at the same source SHA with a real `.git`
 directory, builds headless successfully with stamping enabled. Parent owns full
 candidate validation/just ci in that clean clone after the pin commit.
+
+
+## Coordinated owner-recovery pin (supersedes intermediate pin evidence)
+
+Vivy baseline `d54fa92e180f55c70963348ed44118f1ff899cba` now selects published
+Laputa `4c7c6b20859375d0d764d3ba2a0188926cf73c9e`, exact reviewed recovery tree
+`0d728106f295dd28db2dc86d446af186cc43e76a`. Normal Go metadata confirms all three
+module pseudo-versions `v0.0.0-20261015104519-4c7c6b208593`, timestamp
+`2026-10-15T10:45:19Z`, and exact Origin.Hash. Source recovery review is clean.
+
+- All three module archives downloaded with normal sum.golang.org validation,
+  empty GOPRIVATE/GONOSUMDB, and default proxy route. A temporary no-replace
+  three-module modfile generated six authenticated archive/go.mod sum entries;
+  those exact lines were appended to go.sum, preserving all prior entries/order.
+  Normal `go mod verify -modfile=/tmp/issue58-recovery-pins.mod` passes.
+- `just ensure-laputa bootstrap-test`: PASS, all 11 tests, no skipped cases.
+- Published clean Garden `go test -mod=readonly -json ./agentapi
+  ./internal/runtimecore/... -count=1`: PASS, 70 and 19 top-level tests (77 and 22
+  pass events including subtests), package elapsed 2.372s and 2.224s.
+- Exact-pin cognitive `go test -mod=readonly -json
+  ./internal/modules/diva-cognitive ./internal/cognitivecontract -count=1`: PASS,
+  29 top-level tests / 37 pass events, 0.188s; cognitivecontract has no tests.
+- Exact-pin C2 `go test -mod=readonly -json ./internal/storage/...
+  ./internal/app ./internal/rpc -run '^TestIssue58' -count=1`: PASS, 22 top-level
+  tests / 46 pass events including subtests. Five PostgreSQL tests skip because
+  VIVY_POSTGRES_TEST_DSN is unset; real PostgreSQL remains unverified. Package
+  pass events: storage 1, migrations 1, SQLite 20, app 14, RPC 10.
+- `git diff --check`: PASS. No source, C2, UI, recipe, test, policy or ensure-laputa
+  behavior changed in this pin increment. Parent's index remains excluded.
+
+Exact outputs are retained in `/tmp/issue58-recovery-{module-download,meta-garden,
+meta-laputa,meta-mentle}.json`, `/tmp/issue58-recovery-bootstrap.log`, and
+`/tmp/issue58-recovery-{garden,cognitive,c2}.jsonl`. This rerun replaces the earlier
+intermediate-pin scoped evidence; it does not claim the centralized final S6 CI,
+Windows durability, real PostgreSQL or product acceptance. No raw full-root or
+just ci rerun, stamping/verification bypass, source reset or push was performed.

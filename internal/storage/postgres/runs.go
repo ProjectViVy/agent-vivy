@@ -86,6 +86,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	} else if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
 	}
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, admission.Run, admission.Subject); err != nil {
+		return domain.RunEvent{}, err
+	}
 	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, admission.ExpectedMask); err != nil {
 		return domain.RunEvent{}, err
 	}
@@ -177,6 +180,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES ($1,$2,$3,$4,$5,$6)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
 			return domain.RunEvent{}, fmt.Errorf("storage: append primary queue admission: %w", err)
 		}
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, admission.Run, admission.Subject, admission.Message.ID); err != nil {
+		return domain.RunEvent{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: commit primary run admission: %w", err)

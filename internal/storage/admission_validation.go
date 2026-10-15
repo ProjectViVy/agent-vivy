@@ -19,6 +19,14 @@ import (
 // backend transaction. The backend must still validate the captured
 // selection and definition while holding its session/definition locks.
 func ValidateRunAdmissionInput(in RunAdmission) error {
+	if in.Subject != nil {
+		if err := in.Subject.Validate(); err != nil {
+			return err
+		}
+		if in.Subject.SessionID != in.Run.SessionID || (in.Run.Kind != "" && in.Run.Kind != domain.RunKindPrimary) || in.Run.ParentID != "" || in.Run.Depth != 0 || in.Run.Purpose != "" {
+			return ErrSubjectBinding
+		}
+	}
 	if strings.TrimSpace(string(in.Run.ID)) == "" {
 		return admissionInvalid("run id is required")
 	}

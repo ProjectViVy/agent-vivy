@@ -32,10 +32,12 @@ func Open(ctx context.Context, path string) (*Backend, error) {
 	// path is a filesystem name, not a caller-supplied SQLite URI. Escape
 	// URI delimiters and literal percent sequences before the driver parses
 	// them; otherwise distinct profile paths can open the same database.
-	db, err := sql.Open("sqlite", "file:"+url.PathEscape(path))
+	db, err := sql.Open("sqlite", "file:"+url.PathEscape(path)+"?_busy_timeout=25")
 	if err != nil {
 		return nil, fmt.Errorf("storage: open sqlite %s: %w", path, err)
 	}
+	// The DSN initializes every replacement connection with a short busy wait.
+	// Context-aware bounded retries cover CAS and subject admission/sealing.
 	// Single writer keeps SQLite contention trivial without leaking WAL or
 	// locking knobs through the contracts (D-027).
 	db.SetMaxOpenConns(1)

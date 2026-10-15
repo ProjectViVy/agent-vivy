@@ -38,12 +38,21 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 		if err := postgresCompareAdmission(ctx, tx, in, existing); err != nil {
 			return in.Started, err
 		}
+		if err := b.subjectStore().RegisterAdmissionTx(ctx, tx.SQL, in.Run, in.Subject); err != nil {
+			return in.Started, err
+		}
+		if err := b.subjectStore().PinRunTx(ctx, tx.SQL, in.Run, in.Subject, in.Message.ID); err != nil {
+			return in.Started, err
+		}
 		if err := tx.Commit(); err != nil {
 			return in.Started, storage.AdmissionUnavailable("commit idempotent run admission", err)
 		}
 		return existing.started, nil
 	}
 
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx.SQL, in.Run, in.Subject); err != nil {
+		return in.Started, err
+	}
 	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.ExpectedMask); err != nil {
 		return in.Started, err
 	}
@@ -103,6 +112,9 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES ($1,$2,$3,$4,$5,$6)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
 			return in.Started, storage.AdmissionUnavailable("insert queue admission event", err)
 		}
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx.SQL, in.Run, in.Subject, in.Message.ID); err != nil {
+		return in.Started, err
 	}
 	if err := tx.Commit(); err != nil {
 		return in.Started, storage.AdmissionUnavailable("commit run admission", err)

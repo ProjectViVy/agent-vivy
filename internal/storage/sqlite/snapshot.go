@@ -34,37 +34,27 @@ func (s *Snapshot) Get(ctx context.Context, key string) ([]byte, int64, error) {
 // Put applies optimistic concurrency: the write succeeds only when the
 // stored version equals expectVersion (0 creates the key at version 1).
 func (s *Snapshot) Put(ctx context.Context, key string, value []byte, expectVersion int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return retrySQLiteBusy(ctx, func() error { return s.putCAS(ctx, key, value, expectVersion) })
+}
+
+func (s *Snapshot) putCAS(ctx context.Context, key string, value []byte, expectVersion int64) error {
+
+	var result sql.Result
+	var err error
+	if expectVersion == 0 {
+		result, err = s.db.ExecContext(ctx, `INSERT INTO snapshots(key,value,version) VALUES(?,?,1) ON CONFLICT(key) DO NOTHING`, key, value)
+	} else {
+		result, err = s.db.ExecContext(ctx, `UPDATE snapshots SET value=?,version=version+1 WHERE key=? AND version=?`, value, key, expectVersion)
+	}
 	if err != nil {
-		return fmt.Errorf("storage: begin snapshot put: %w", err)
+		return fmt.Errorf("storage: snapshot CAS %q: %w", key, err)
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	var version int64
-	err = tx.QueryRowContext(ctx,
-		`SELECT version FROM snapshots WHERE key = ?`, key).Scan(&version)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if expectVersion != 0 {
-			return storage.ErrVersionConflict
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO snapshots (key, value, version) VALUES (?, ?, 1)`,
-			key, value); err != nil {
-			return fmt.Errorf("storage: snapshot insert %q: %w", key, err)
-		}
-	case err != nil:
-		return fmt.Errorf("storage: snapshot read %q: %w", key, err)
-	default:
-		if version != expectVersion {
-			return storage.ErrVersionConflict
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE snapshots SET value = ?, version = version + 1 WHERE key = ?`,
-			value, key); err != nil {
-			return fmt.Errorf("storage: snapshot update %q: %w", key, err)
-		}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: snapshot CAS rows: %w", err)
 	}
-
-	return tx.Commit()
+	if affected != 1 {
+		return storage.ErrVersionConflict
+	}
+	return nil
 }

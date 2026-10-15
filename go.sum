@@ -768,3 +768,9 @@ github.com/ProjectViVy/laputa/laputa v0.0.0-20261015094757-5f26de678a99 h1:sO+I6
 github.com/ProjectViVy/laputa/laputa v0.0.0-20261015094757-5f26de678a99/go.mod h1:nctqXPUme+YhoV1SMwVqnrIkTKoHaJNl+0yvZn/7ZaE=
 github.com/ProjectViVy/laputa/mentle v0.0.0-20261015094757-5f26de678a99 h1:z+Av8n1yKKVvWktD+mXXTmYiriEyQJ1rLml3zBVd584=
 github.com/ProjectViVy/laputa/mentle v0.0.0-20261015094757-5f26de678a99/go.mod h1:0CHmst4cXuP9bCslJ1ZQMrHo4ZS3ivVg92YGM3vtjsA=
+github.com/ProjectViVy/laputa/garden v0.0.0-20261015104519-4c7c6b208593 h1:RblkcCk4axxbW1V2T3V4T9fz1o5Kiynop7Ak7az6pyk=
+github.com/ProjectViVy/laputa/garden v0.0.0-20261015104519-4c7c6b208593/go.mod h1:t+6aPD6GSpEPu455CqChrFYzsHnPuflsjme5ralof/I=
+github.com/ProjectViVy/laputa/laputa v0.0.0-20261015104519-4c7c6b208593 h1:N4uPzBrIGt24CxQ5n1FtRlo1hIYMFxd3BInpCq9rdAQ=
+github.com/ProjectViVy/laputa/laputa v0.0.0-20261015104519-4c7c6b208593/go.mod h1:nctqXPUme+YhoV1SMwVqnrIkTKoHaJNl+0yvZn/7ZaE=
+github.com/ProjectViVy/laputa/mentle v0.0.0-20261015104519-4c7c6b208593 h1:ywcQc06C6PO4sc8mm8vRt60oGxz2eM5KTf08G5BxCAc=
+github.com/ProjectViVy/laputa/mentle v0.0.0-20261015104519-4c7c6b208593/go.mod h1:0CHmst4cXuP9bCslJ1ZQMrHo4ZS3ivVg92YGM3vtjsA=

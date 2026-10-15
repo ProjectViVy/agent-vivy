@@ -122,6 +122,15 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	sessionAdmission := s.sessionAdmission(sessionID)
 	sessionAdmission.Lock()
 	defer sessionAdmission.Unlock()
+	// Until Task2 integrates exact shell evidence into an atomic admission,
+	// eligible shell-first sources must not create an unprotected shared run.
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if source != nil {
+		return "", ErrSubjectShellAdmissionUnavailable
+	}
 	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
 		return "", err
 	}

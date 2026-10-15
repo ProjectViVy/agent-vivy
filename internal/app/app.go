@@ -109,6 +109,9 @@ type App struct {
 type AppOption func(*appOptions)
 
 type appOptions struct {
+	mainConversation cognitivecontract.MainConversationResolver
+	subjectSources   cognitivecontract.SubjectSourceResolver
+
 	channels bool
 	gateway  bool
 	sink     runtime.EventSink
@@ -136,6 +139,18 @@ type appOptions struct {
 	// contextSourceTimeout is a test seam for instrumented integration runs;
 	// production compositions retain ContextHost's own default.
 	contextSourceTimeout time.Duration
+}
+
+// WithMainConversationResolver supplies the governed #66/headless singleton.
+// It consumes no user-facing create or conversion option.
+func WithMainConversationResolver(resolver cognitivecontract.MainConversationResolver) AppOption {
+	return func(o *appOptions) { o.mainConversation = resolver }
+}
+
+// WithSubjectSources binds existing Host Policy/Grant checks for contribution-only
+// personal sources. The callback is reevaluated for every admission.
+func WithSubjectSources(resolver cognitivecontract.SubjectSourceResolver) AppOption {
+	return func(o *appOptions) { o.subjectSources = resolver }
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -911,6 +926,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
+		MainConversation:      ao.mainConversation,
+		SubjectSources:        ao.subjectSources,
 		Journal:               backend,
 		Work:                  workStore,
 		WorkSink:              workBus,

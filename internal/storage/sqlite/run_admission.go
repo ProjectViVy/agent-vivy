@@ -20,7 +20,7 @@ var _ storage.RunAdmissionStore = (*Backend)(nil)
 // immutable prompt envelope, and run.started event as one transaction. The
 // session writer lock is acquired before reading the selection so a catalog
 // switch cannot race the capture token.
-func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmission) (domain.RunEvent, error) {
+func (b *Backend) commitRunAdmission(ctx context.Context, in storage.RunAdmission) (domain.RunEvent, error) {
 	if err := storage.ValidateRunAdmissionInput(in); err != nil {
 		return in.Started, err
 	}
@@ -39,12 +39,21 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 		if err := sqliteCompareAdmission(ctx, tx, in, existing); err != nil {
 			return in.Started, err
 		}
+		if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, in.Run, in.Subject); err != nil {
+			return in.Started, err
+		}
+		if err := b.subjectStore().PinRunTx(ctx, tx, in.Run, in.Subject, in.Message.ID); err != nil {
+			return in.Started, err
+		}
 		if err := tx.Commit(); err != nil {
 			return in.Started, storage.AdmissionUnavailable("commit idempotent run admission", err)
 		}
 		return existing.started, nil
 	}
 
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, in.Run, in.Subject); err != nil {
+		return in.Started, err
+	}
 	if err := sqliteValidateAdmissionCapture(ctx, tx, in.ExpectedMask); err != nil {
 		return in.Started, err
 	}
@@ -104,6 +113,9 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES (?,?,?,?,?,?)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
 			return in.Started, storage.AdmissionUnavailable("insert queue admission event", err)
 		}
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, in.Run, in.Subject, in.Message.ID); err != nil {
+		return in.Started, err
 	}
 	if err := tx.Commit(); err != nil {
 		return in.Started, storage.AdmissionUnavailable("commit run admission", err)
