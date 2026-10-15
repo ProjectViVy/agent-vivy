@@ -250,19 +250,27 @@ func (s *Service) runRecapMessages(ctx context.Context, sid domain.SessionID, us
 }
 
 func (s *Service) validateRecapModelLeg(ctx context.Context, sid domain.SessionID, rid domain.RunID, input modelCallInput) error {
-	sources, ok := s.deps.Sessions.(storage.SubjectSourceStore)
-	if !ok {
-		return nil
-	}
-	pin, err := sources.GetRunSubjectSource(ctx, rid)
-	if err == storage.ErrNotFound {
-		return nil
-	}
+	selected, err := s.residentRecapRun(ctx, rid, sid)
 	if err != nil {
 		return err
 	}
-	if pin.ConversationID == "" {
+	if !selected {
+		if residentRecap(ctx) {
+			return storage.ErrSubjectBinding
+		}
+		for _, message := range input.Messages {
+			if message != nil {
+				if _, present := message.Extra[recapAdmissionExtra]; present {
+					return storage.ErrSubjectBinding
+				}
+			}
+		}
 		return nil
+	}
+	sources := s.deps.Sessions.(storage.SubjectSourceStore)
+	pin, err := sources.GetRunSubjectSource(ctx, rid)
+	if err != nil {
+		return err
 	}
 	if err = s.authorizeSubjectRun(ctx, sources, pin.SubjectHistoryBinding, sid, rid); err != nil {
 		return err

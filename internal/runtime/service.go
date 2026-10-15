@@ -1211,7 +1211,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		var frozenText, frozenDigest string
 		var persona storage.PersonaSnapshot
-		if b := s.deps.Cognitive; face != domain.FaceCode && b != nil && b.Primary != nil {
+		if b := s.deps.Cognitive; (face != domain.FaceCode || (subjectSource != nil && subjectSource.ConversationID != "")) && b != nil && b.Primary != nil {
 			// The coding face keeps its project instruction contract and
 			// does not require companion-persona onboarding.
 			// Session authority rides in the primary run's input before

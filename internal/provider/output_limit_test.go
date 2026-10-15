@@ -142,7 +142,7 @@ func TestIssue58OneLiveSpecPerInvocationActualHTTP(t *testing.T) {
 			cm := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), NewCatalog(vendor), source)
 			if bound {
 				var err error
-				cm, err = cm.WithTools(nil)
+				cm, err = cm.WithTools([]*schema.ToolInfo{{Name: "fixture_tool", ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{"value": {Type: schema.String}})}})
 				if err != nil {
 					t.Fatal(err)
 				}

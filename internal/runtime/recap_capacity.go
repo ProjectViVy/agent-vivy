@@ -110,23 +110,12 @@ func residentRecap(ctx context.Context) bool {
 	return enabled
 }
 func (s *Service) withRecapRunPolicy(ctx context.Context, rid domain.RunID, sid domain.SessionID, providerName, modelID string) context.Context {
-	sources, ok := s.deps.Sessions.(storage.SubjectSourceStore)
-	if !ok {
+	selected, err := s.residentRecapRun(ctx, rid, sid)
+	if !selected && err == nil {
 		return ctx
 	}
-	pin, err := sources.GetRunSubjectSource(ctx, rid)
-	if err == storage.ErrNotFound {
-		// An ordinary unshared run legitimately has no source pin. A current
-		// selected source or unavailable authorization must never choose Coding.
-		current, resolveErr := s.resolveSubjectAdmission(ctx, sid)
-		if resolveErr == nil && (current == nil || current.ConversationID == "") {
-			return ctx
-		}
-	} else if err == nil && pin.ConversationID == "" {
-		return ctx
-	}
-	// Any other lookup failure fences legacy native compression. The final
-	// observer propagates the actual read error before provider invocation.
+	// Unavailable policy never silently selects legacy compression. The
+	// final observer propagates the actual error before invoking the provider.
 	ctx = context.WithValue(ctx, residentRecapKey{}, true)
 	ctx = domain.WithModelRequestScope(ctx, providerName, modelID)
 	return domain.WithModelOutputLimit(ctx, s.recapOutputLimit(ctx))
@@ -159,4 +148,39 @@ func (s *Service) recapModelInfo(ctx context.Context) domain.ModelInfo {
 		return domain.ModelInfo{}
 	}
 	return info
+}
+
+// residentRecapRun distinguishes positively known ordinary/child execution
+// from unavailable selected-policy pins. Session identity cannot grant a child
+// resident input, and a missing primary pin cannot authorize a resident Run.
+func (s *Service) residentRecapRun(ctx context.Context, rid domain.RunID, sid domain.SessionID) (bool, error) {
+	sources, ok := s.deps.Sessions.(storage.SubjectSourceStore)
+	if !ok {
+		if s.deps.MainConversation != nil || s.deps.SubjectSources != nil {
+			return false, storage.ErrSubjectBinding
+		}
+		return false, nil
+	}
+	pin, err := sources.GetRunSubjectSource(ctx, rid)
+	if err == nil {
+		return pin.ConversationID != "", nil
+	}
+	if err != storage.ErrNotFound {
+		return false, err
+	}
+	run, err := s.deps.Runs.GetRun(ctx, rid)
+	if err != nil {
+		return false, err
+	}
+	if run.Kind == domain.RunKindChild || run.Kind == domain.RunKindWorkflow {
+		return false, nil
+	}
+	current, err := s.resolveSubjectAdmission(ctx, sid)
+	if err != nil {
+		return false, err
+	}
+	if current != nil && current.ConversationID != "" {
+		return false, storage.ErrSubjectBinding
+	}
+	return false, nil
 }

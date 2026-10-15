@@ -421,14 +421,18 @@ func TestIssue58AdmittedModelCapacityIgnoresMutableLabels(t *testing.T) {
 type issue58RunPinFailure struct {
 	storage.SessionStore
 	storage.SubjectSourceStore
+	missing bool
 }
 
-func (issue58RunPinFailure) GetRunSubjectSource(context.Context, domain.RunID) (storage.SubjectSourceBinding, error) {
+func (f issue58RunPinFailure) GetRunSubjectSource(context.Context, domain.RunID) (storage.SubjectSourceBinding, error) {
+	if f.missing {
+		return storage.SubjectSourceBinding{}, storage.ErrNotFound
+	}
 	return storage.SubjectSourceBinding{}, errors.New("fixture run pin read unavailable")
 }
 func TestIssue58RunPinFailureCannotSelectLegacyCompaction(t *testing.T) {
 	f := newIssue58Wire(t)
-	f.svc.deps.Sessions = issue58RunPinFailure{f.b, f.b}
+	f.svc.deps.Sessions = issue58RunPinFailure{SessionStore: f.b, SubjectSourceStore: f.b}
 	run := f.run(t, strings.Repeat("large unsealed current ", 500))
 	if run.Status != domain.RunFailed || len(f.capture()) != 0 {
 		t.Fatal("run pin lookup failure reached provider")
@@ -437,5 +441,14 @@ func TestIssue58RunPinFailureCannotSelectLegacyCompaction(t *testing.T) {
 		if event.Type == domain.EventContextCompacted {
 			t.Fatal("run pin read failure silently selected legacy compaction")
 		}
+	}
+}
+
+func TestIssue58MissingResidentRunPinStopsHTTP(t *testing.T) {
+	f := newIssue58Wire(t)
+	f.svc.deps.Sessions = issue58RunPinFailure{SessionStore: f.b, SubjectSourceStore: f.b, missing: true}
+	run := f.run(t, "pin must exist")
+	if run.Status != domain.RunFailed || len(f.capture()) != 0 {
+		t.Fatal("missing resident run pin silently authorized provider")
 	}
 }

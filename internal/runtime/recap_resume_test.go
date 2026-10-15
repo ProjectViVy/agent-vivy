@@ -96,3 +96,58 @@ func TestIssue58RecapCheckpointResume(t *testing.T) {
 		})
 	}
 }
+
+func TestIssue58MissingResidentPinOnSecondLegAndResume(t *testing.T) {
+	for _, mode := range []string{"second-leg", "resume"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			tool := &issue58CallbackTool{result: "exact"}
+			var f *issue58Wire
+			if mode == "second-leg" {
+				f = newIssue58Wire(t, tool)
+				tool.run = func() {
+					f.svc.deps.Sessions = issue58RunPinFailure{SessionStore: f.b, SubjectSourceStore: f.b, missing: true}
+				}
+				f.reply = func(i int) *schema.Message {
+					if i == 0 {
+						return issue58ToolReply(tool.Spec().Name, `{"number":1}`)
+					}
+					return schema.AssistantMessage("must not transmit", nil)
+				}
+			} else {
+				f = newIssue58Wire(t, tools.NewAskUser())
+				f.reply = func(i int) *schema.Message {
+					if i == 0 {
+						return issue58ToolReply(tools.AskUserName, `{"question":"fixture?"}`)
+					}
+					return schema.AssistantMessage("must not transmit", nil)
+				}
+			}
+			id, err := f.svc.Run(ctx, "main-reader", "pin this request")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "resume" {
+				q := waitForPendingQuestion(t, f.b, id)
+				if !f.svc.WaitIdle(ctx) {
+					t.Fatal("not suspended")
+				}
+				f.svc.deps.Sessions = issue58RunPinFailure{SessionStore: f.b, SubjectSourceStore: f.b, missing: true}
+				if err = f.svc.AnswerQuestion(ctx, q.ID, "answer"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !f.svc.WaitIdle(ctx) {
+				t.Fatal("not idle")
+			}
+			run, err := f.b.GetRun(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Status != domain.RunFailed || len(f.capture()) != 1 {
+				t.Fatalf("missing pin bypassed admitted guard mode=%s run=%+v HTTP=%d", mode, run, len(f.capture()))
+			}
+		})
+	}
+}
