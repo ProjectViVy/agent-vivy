@@ -163,7 +163,7 @@ export function WelcomeWizard() {
         <div className="border-b bg-muted/40 px-7 py-4">
           <div className="mb-4 h-1 overflow-hidden rounded-full bg-border">
             <div
-              className="h-full rounded-full bg-primary transition-all duration-300"
+              className="h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none"
               style={{ width: `${(step / (steps.length - 1)) * 100}%` }}
             />
           </div>
@@ -200,8 +200,9 @@ export function WelcomeWizard() {
           </div>
         </div>
 
-        {/* 内容区 */}
+        {/* 内容区：每次换步重新挂载，复用项目动效语言做一次进入淡入 */}
         <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+          <div key={step} className="animate-in fade-in-0 slide-in-from-right-2 duration-200 motion-reduce:animate-none">
           {step === 0 ? (
             <div className="text-center">
               <div className="mb-4 flex justify-center">
@@ -326,6 +327,7 @@ export function WelcomeWizard() {
               </div>
             </div>
           )}
+          </div>
         </div>
 
         {/* 底部操作 */}

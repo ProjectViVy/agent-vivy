@@ -12,6 +12,7 @@ import (
 	controlaction "agent-vivy/sdk/port/controlaction"
 
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	"github.com/ProjectViVy/laputa/laputa/persona"
 )
 
 type envelope struct {
@@ -226,6 +227,47 @@ func TestPersonaReadRejectsForeignKind(t *testing.T) {
 	_, bundle := armedBundle(t, &fakeControl{})
 	if err := invokeActionErr(t, bundle, ActionPersonaRead, `{"session_id":"s","kind":"world domination"}`); !errors.Is(err, controlaction.ErrInvalidInput) {
 		t.Fatalf("foreign kind err = %v", err)
+	}
+}
+
+// A rejected persona write is authored by the user, so it must reach the face
+// as a fixable code plus the authority's own message (which names the document)
+// instead of the opaque internal default.
+func TestPersonaWriteFailureKeepsItsFixableCode(t *testing.T) {
+	capErr := &persona.CapExceededError{Kind: persona.KindIdentity, Limit: 800}
+	code, status, retryable := classify(capErr)
+	if code != "persona_cap_exceeded" || status != "failed" || retryable {
+		t.Fatalf("cap classification = %s/%s/%v", code, status, retryable)
+	}
+	if message := publicMessage(capErr, code); !strings.Contains(message, "IDENTITY.MD") {
+		t.Fatalf("cap message = %q", message)
+	}
+	// Negative control: an error the authority cannot classify carries no
+	// diagnosis, so it keeps the opaque mapping rather than borrowing a
+	// persona label.
+	code, status, _ = classify(errors.New("probe"))
+	if code != "internal" || status != "failed" {
+		t.Fatalf("unclassified persona error = %s/%s", code, status)
+	}
+	if message := publicMessage(errors.New("probe"), code); message != "operation internal" {
+		t.Fatalf("unclassified persona message = %q", message)
+	}
+}
+
+// The real authority path, not a hand-built error: an over-cap initialization
+// returns the fixable code and names the document in the envelope.
+func TestPersonaInitializeCapFailureIsLegible(t *testing.T) {
+	_, bundle := armedBundle(t, &fakeControl{})
+	out := invokeAction(t, bundle, ActionPersonaInitialize,
+		`{"session_id":"s","initialization":{"identity":"`+strings.Repeat("a", 801)+`","relationship":"rel","redline":"line","user":"usr","world":"wld"}}`)
+	if out.Status != "failed" || out.Error == nil {
+		t.Fatalf("over-cap initialize outcome = %s", out.Value)
+	}
+	if out.Error.Code != "persona_cap_exceeded" {
+		t.Fatalf("over-cap initialize code = %s", out.Error.Code)
+	}
+	if !strings.Contains(out.Error.Message, "IDENTITY.MD") {
+		t.Fatalf("over-cap initialize message = %q", out.Error.Message)
 	}
 }
 

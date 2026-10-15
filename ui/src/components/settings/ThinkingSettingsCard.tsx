@@ -26,7 +26,9 @@ export function ThinkingSettingsCard() {
       .then(([nextReport, nextLevels]) => {
         if (!alive) return;
         setReport(nextReport);
-        setLevels(nextLevels.levels);
+        // Backend input is untrusted: a malformed list must not take the frame
+        // down (the card reads `levels.length` on every render).
+        setLevels(nextLevels.levels ?? []);
       })
       .catch((err) => {
         if (alive) setError(String(err));

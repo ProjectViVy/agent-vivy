@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
@@ -155,6 +156,14 @@ func classify(err error) (code, status string, retryable bool) {
 		}
 		return string(domainCode), "failed", false
 	}
+	// Persona documents are authored by the user, so a rejected write is a
+	// fixable input failure, not an internal one: keep the authority's stable
+	// code and its message (which names the document and its cap) instead of
+	// degrading it to the opaque default. The authority's storage fallback
+	// carries no diagnosis of its own, so it keeps the generic mapping.
+	if personaCode := persona.CodeOf(err); personaCode != "" && personaCode != personaStorageFallback {
+		return personaCode, "failed", false
+	}
 	switch {
 	case errors.Is(err, cognitivecontract.ErrUnarmed):
 		return "capability_unavailable", "unavailable", true
@@ -178,8 +187,15 @@ func publicMessage(err error, code string) string {
 	if laputaevolution.CodeOf(err) != "" {
 		return err.Error()
 	}
+	if strings.HasPrefix(code, "persona_") {
+		return err.Error()
+	}
 	return "operation " + code
 }
+
+// personaStorageFallback is persona.CodeOf's default for an unclassified error.
+// It names no fixable cause, so dispatch treats it as unclassified.
+const personaStorageFallback = "persona_storage_error"
 
 // --- capability status -----------------------------------------------------
 
