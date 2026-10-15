@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -29,7 +30,18 @@ func Issue58Admission(s storage.SubjectSourceBinding, id string) storage.RunAdmi
 
 func Issue58Identity(t *testing.T, b storage.Engine) {
 	t.Helper()
-	raw := []byte(`{"version":1,"subject_id":"11111111-1111-4111-8111-111111111111","domain_id":"subject-personal-v1","authority_id":"22222222-2222-4222-8222-222222222222","owner_path":"/trusted/owner"}`)
+	id := domain.SubjectIdentity{
+		Version: 1, SubjectID: "11111111-1111-4111-8111-111111111111",
+		DomainID: domain.SubjectPersonalDomain, AuthorityID: "22222222-2222-4222-8222-222222222222",
+		OwnerPath: filepath.Join(t.TempDir(), "owner"),
+	}
+	if !id.Valid() {
+		t.Fatal("fixture subject identity is not valid on this platform")
+	}
+	raw, err := json.Marshal(id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := b.Snapshot().Put(context.Background(), "organism/subject/v1", raw, 0); err != nil {
 		t.Fatal(err)
 	}
