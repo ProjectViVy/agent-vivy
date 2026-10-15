@@ -197,12 +197,11 @@ func TestCodeFaceJSONModeContinuesNewestSession(t *testing.T) {
 	t.Setenv("VIVY_PROVIDER", "deepseek")
 	t.Setenv("VIVY_API_BASE", textOnlyDeepSeekServer(t, "ack").URL)
 
-	// Two invocations share the journal (sessions live there) while each gets
-	// a private DataDir, matching how separate vivy-code processes isolate
-	// their memory/settings homes.
+	// Continuing the same organism reuses both its Journal and authority owner.
+	// A different owner root must remain a subject-binding mismatch.
 	cfg := newDeepSeekTestConfig(t)
 	cfg2 := cfg
-	cfg2.Storage.DataDir = t.TempDir()
+	cfg2.Storage.DataDir = cfg.Storage.DataDir
 
 	res, out1, _, err := runCodeFaceMode(t, cfg, plugin.Options{Mode: "json", Prompt: "first"})
 	if err != nil || res.Status != "completed" {

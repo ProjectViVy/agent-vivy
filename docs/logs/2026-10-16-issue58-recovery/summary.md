@@ -30,3 +30,12 @@ Main migrations end at 043; recovery branch has paired044/045, so no current num
 ## Execution ownership
 
 One implementation writer, GPT-6.1 Sol High, rebuilds missing S2 provenance. Root owns integration, status and evidence; a separate read-only reviewer audited the baseline. No main merge, deployment, tenant migration or external messaging is authorized. Checkpoints go to `feat/issue-58-recovery-20261016`.
+
+## Latest recovery progress
+
+S2 provenance was reimplemented, independently reviewed and fixed at8ae1db9d;
+focused producer/race gates pass without inheriting old local GREEN. Broader
+regression failures and the safer-run boundary are recorded in verification.md.
+S3 Task1 is in progress at locale69e9d59 (exact remote treebea63855), not accepted.
+Task2 fold/reconcile/CAS/receipt and all S4–S6 delivery remain outstanding. The
+initial findings above describe the recovered baseline, not current completion.

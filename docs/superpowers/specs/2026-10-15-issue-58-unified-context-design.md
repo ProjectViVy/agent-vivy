@@ -633,6 +633,35 @@ compact, select the oldest contiguous prefix leaving a complete suffix within th
 raw target. The exact summarizer request must fit its real model capacity; subdivide
 the prefix at complete-interaction boundaries. Never use the existing 200 KiB break.
 
+### Recovery capacity refinement: enforce the requested output reservation
+
+Inspection of the current provider path found model metadata reporting
+`MaxOutputTokens == 0` (API decides), no foreground provider max-token request, and
+no output reservation in the call/event BudgetLedger. Input bytes or the context
+window cannot establish an output bound. This is a concrete implementation gap,
+not a measured tuning result or a new product design.
+
+For selected LIFE only, use one internal policy-owned requested output limit seed
+of4096, bounded further by any declared positive model output maximum. Enforce that
+exact value through native Eino `model.WithMaxTokens` and the existing protocol
+adapters; reserve the same value in full-request capacity accounting. It is a
+requested per-run cap, not invented physical model metadata or a second registry.
+The trusted runtime supplies a narrow generic requested-limit context value; no
+new user-facing setting, mode selector or global Coding default is added.
+
+Apply the cap after existing thinking-option translation. If the selected Claude
+thinking budget is incompatible with the cap, fail explicitly before HTTP; never
+change the user's thinking choice silently. Verify actual OpenAI/Claude HTTP fields
+and unchanged thinking choices; unsupported/deferred protocols remain unavailable.
+Unknown context-window capacity or non-text charges still pause explicitly.
+Ordinary Coding with no requested limit retains its current behavior. Task2 summary
+requests use the same native seam with their separate existing hard output bound;
+this refinement adds no alternate summarizer.
+
+Ruling cost if wrong: conservative output availability or API rejection for models
+with smaller undeclared limits; no originals may be retired on that error. Native
+wire evidence is separate from real-model obedience/quality acceptance in S6.
+
 ```text
 authorize reader; repair domain terminal projections then seal
 capture complete disposition snapshot and its interaction ceiling; load owner head

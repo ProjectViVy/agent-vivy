@@ -68,3 +68,53 @@ regression and centralized product acceptance remain open. Existing data, migrat
 and dependencies were not rewritten; no046 is introduced because existing fields
 and Journal can represent the evidence. Any discovered persistence gap invalidates
 that ruling and must be repaired before dependent activation.
+
+## Subsequent safer broad probe — FAIL / incomplete
+
+Fixed source8ae1db9d was subsequently tested with a materially safer local-only
+runner: cached dependencies only (`GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local`),
+credential-bearing child environment names removed, and a loopback non-forwarding
+HTTP/HTTPS deny proxy. Local fixture requests remain available; external requests
+are rejected rather than forwarded. This is distinct from the original rejected
+action, whose BLOCKED record above is retained. No rejection bypass was used.
+
+The same package command exited1. The proxy rejected2 external requests and
+forwarded none. Raw output and runner metadata are preserved in
+[evidence manifest](evidence/s2-localonly-full-manifest.json).
+
+- FAIL: runtime `TestModelCallPayloadSchemas/actual_v3_request_validates` and
+  `TestServiceRunHappyPath` expected event version3; production correctly emitted4.
+  Test-only repair c308029e asserts strict v4 provenance and retains historicalv3.
+  Its focused passing result is not a rerun of this broad command.
+- FAIL: app `TestCodeFaceJSONModeContinuesNewestSession` changed the ACTMEM root
+  on its second startup while retaining the same Journal. Independent read-only
+  diagnosis confirmed the existing owner-path binding correctly rejects it.
+  Repair the fixture to reuse the organism root; do not weaken production binding.
+- INCOMPLETE: the app package reached its180s aggregate limit during C05. C05
+  had run25s and was waiting for the killed fixture's real30s SQLite lease;
+  earlier crash cases each consumed about41s. This does not establish a C05
+  deadlock, pass or product failure. Rerun crash recovery with its real lifecycle
+  budget on a later fixed candidate. Do not delete leases or alter the clock.
+- PASS in this probe: storage, migrations and SQLite packages. PostgreSQL DSN
+  cases remain skipped and are not real database execution.
+
+Full `just ci`, native Windows, actual model quality and installed #66 acceptance
+remain open. Default and DIVA Recipe composition must be reported separately.
+
+## S3 input recovery checkpoints
+
+- Remote4a553700 / tree8e804182 (local2c428600): shared strict projection receipt
+  codec and automatic evidence projection helpers; not Task1 acceptance.
+- Remote773dc741 / treeebadeca (localec579296): trusted per-run output cap, applied
+  after provider thinking options; local OpenAI/Claude HTTP fixtures exercise the
+  exact requested cap and unchanged thinking. No physical model limit is invented.
+- Remotef27dbe162731cda202afd0713b29ce53ac12f923 / treebea63855191e2538e0563f9a6b4c4c270a6a0fb9
+  equals locale69e9d59 and includes the c308029e test-only repair. It checkpoints
+  governed run input wiring and actual local-wire fixtures, while remaining
+  restart/certificate/refusal/isolation work and independent review are pending.
+  Mandatory reconciliation still fails before provider invocation until Task2.
+
+The supported projection certificate and requested4096-token LIFE output reserve
+are implementation refinements documented in the plan/design. Unknown provenance,
+model window, non-text cost or unsupported protocol remains unavailable. Ordinary
+Coding has no new cap default. Local HTTP wire evidence is not live model quality.
