@@ -271,3 +271,68 @@ Completed broad/environment raw files and runner metadata are losslessly archive
 in evidence/s3-native-broad-and-environment.tar.gz with its SHA/file manifest. No
 running MemoryLoop log is represented as complete evidence. Final product/DIVA,
 new UI, real PostgreSQL/live quality and installed #66 gates remain qualified.
+
+## Native Task2 DIVA/MemoryLoop script completion
+
+Exact3e130 in clean local shared clone runs the unmodified repository-supported
+`scripts/test-memory-loop.ps1` with offline dependencies and GOFLAGS=-p=1: PASS,
+exit0,786.032s. Real DIVA Recipe pack/inspect and SDK artifact checks pass; the
+App overlay package passes in766.065s. Earlier same-clone non-App passing package
+results are valid same-source Go cache reuse. This script prints aggregate package
+results without individual test/skip counts, so no invented zero-skip or50-test
+pass count is claimed. Safe runner rejected1 external request and forwarded0.
+
+Generation6431f296012517cb22a1716e6520b8e46102dff0b3578a1f03eab792a34111f0,
+Recipe digestb44092c97ee9a05a2c19bff256967f0faa84bfa17b6c10ea6bc571f6ec927c17.
+The script removes its temporary artifact normally; this is its real packed-body
+regression gate, not the later installed S6 artifact/binary freeze or live quality.
+The clone's first attempt failed SDK pack from missing offline UI dependencies;
+root copied existing installed dependencies into that clone and reran unchanged.
+Both completed attempts and metadata are archived in
+s3-native-memoryloop-completed.tar.gz with its manifest. The earlier detached VCS
+failure remains separately preserved. `test-diva-recall.ps1` is RUNNING separately.
+
+## S4 backend checkpoint — implementation present, review/UI pending
+
+Local94bff8014525a22ed647b23453d3b57fb9115f12 and
+remote69096de73cb3b2f4618b53909a721486ee07d8a9 share exact tree
+7678864b43badef22a603c38b2d67e67303003d2. Same bound C1 now serves protected
+Recap actions and deferred tools. Request-scoped discovery delegates to official
+Eino search over eligible tools; actual activation/invocation reauthorizes. A real
+restart RED exposed native tool_search bypassing durable tool-operation evidence;
+the thin adapter now records complete actual args/results through the existing
+coordinator, without relaxing C2 seal. Raw malformed UTF8/surrogate/duplicate/null
+inputs reject before decoder replacement. Shared ContextStatus explicitly reports
+measurement unavailable instead of old session zero-token pressure.
+
+Root reran the author backend regression selection in an isolated exact94 worktree:
+317 test/subtest passes plus5 package passes,0fail,1 optional fixture-capture SKIP,
+exit0,58.854s; external rejected0/forwarded0. This supplies fixed-candidate evidence;
+author incremental RED/compile/FAIL/GREEN logs remain precommit source iterations.
+Complete fixed Issue58 race is RUNNING. UI, independent S4 review and wider SDK/CI
+are still pending; sources and loaded revision remain explicit unavailable until
+S5, and ordinary usage UI omits rowless summaries. Do not call whole S4 complete.
+54 completed backend/evidence files are archived with the S4 backend manifest;
+source/review milestones stay separate from eventual S6 centralized acceptance.
+
+The pinned Playwright public browser dependency install failed: repeated official
+ChromeHeadless151/v1234 downloads returned empty/non-zip archives. No local browser
+was installed, no dependency was downgraded, and browser E2E is NOT RUN. Install log
+and metadata are preserved in the S4 backend archive; React/typecheck/build or old
+Windows fixture success cannot substitute for new Recap browser acceptance.
+
+## DIVA recall and old Windows terminal disposition
+
+Exact3e130 separately runs unmodified `scripts/test-diva-recall.ps1`: PASS,
+exit0,113.058s. Its JSON validator requires each of the6 named integration tests
+to pass exactly once and rejects every skip. The SDK-generated selected DIVA
+assembly is used; fixture results are not installed/live-model quality evidence.
+Safe runner rejected2 external requests, forwarded0. Raw log/metadata and manifest
+are retained in evidence/s3-native-diva-recall.tar.gz. Full final justci remains open.
+
+The earlier intermediate Windows run132 is now terminal: backend CANCELLED,
+UI CI PASS, existing full-UI browser smoke PASS; aggregate job named just-ci FAIL
+because it requires all3 successful lanes. It did not run a local `just ci` command.
+This is the oldered9d20d2/tree796f5883 WIP, not new Recap UI or final backend
+acceptance. See evidence/windows-ci132-terminal.json for exact job IDs/times.
+Main was re-fetched again and remains5715950; no newer main source was overwritten.

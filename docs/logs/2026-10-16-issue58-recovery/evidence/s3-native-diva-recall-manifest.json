@@ -1,0 +1,18 @@
+{
+  "candidate": "3e13019b0373d8f6344bb84469fd72598f4c11ab",
+  "archive": "s3-native-diva-recall.tar.gz",
+  "archive_sha256": "7949687217ad33db6467041ad9d57a318e0a3800d61f82a6f08a5ec628959d7c",
+  "qualification": "Repository unmodified test-diva-recall.ps1 PASS; six named tests asserted pass with zero skips by its JSON validator. Local fixtures, not installed/live model or final candidate.",
+  "files": [
+    {
+      "path": "issue58-s3-native-diva-recall.log",
+      "size": 454,
+      "sha256": "a9a54957dd83188e728b1ca1bf5916a3c59b5e9ce741a2898259a5ea07c72be7"
+    },
+    {
+      "path": "issue58-s3-native-diva-recall.json",
+      "size": 405,
+      "sha256": "a3f297272fadb91b9791da6c5cd46bf4ae68cca5a9954bd9576625864c0d072d"
+    }
+  ]
+}
