@@ -115,6 +115,7 @@ type ChildRunCanceller interface {
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
+	Recap            cognitivecontract.RecapPort
 	MainConversation cognitivecontract.MainConversationResolver
 	SubjectSources   cognitivecontract.SubjectSourceResolver
 
@@ -3186,7 +3187,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		if len(parentReplies) > 0 {
 			userText = formatParentReplies(parentReplies, userText)
 		}
-		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, collaboration)
+		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(withRunID(ctx, m.runID), sessionID, userText, eng, face, workspaceID, collaboration)
 	} else {
 		msgs, selection, stats, execution.child.included, err = s.runMessagesForChild(ctx, userText, execution.child.pending, eng)
 	}
@@ -3284,6 +3285,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 // "main" or "child" from the execution context; the summary routes are
 // claimed by the wrapped summarizer models in compaction_middleware.go.
 func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
+	ctx = s.withRecapRunPolicy(ctx, m.runID)
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
@@ -3351,6 +3353,9 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	}
 	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
+	}
+	if err := o.svc.validateRecapModelLeg(ctx, o.sessionID, o.m.runID, in); err != nil {
+		return meta, err
 	}
 	provenance, err := o.svc.modelInputProvenance(ctx, o.m.runID, in.Messages)
 	if err != nil {
@@ -3655,6 +3660,14 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 	// static Instruction cannot (date and whether active tools exist).
 	// Tool discovery is owned by Eino's official middleware.
 	preamble := composeRunPreamble(time.Now(), len(selection.Specs) > 0, face, collaboration)
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
+	if source != nil && source.ConversationID != "" {
+		messages, stats, err := s.runRecapMessages(ctx, sessionID, userText, preamble, eng)
+		return messages, selection, stats, err
+	}
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
@@ -5168,6 +5181,15 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			CauseCategory: causeInternalError,
 			Message:       "The run was stopped because it reached the limit of tool-call turns. Please try again with a simpler request.",
 		})
+	}
+	if errors.Is(cause, ErrRecapReconciliationRequired) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "recap_reconciliation_required: Resident context requires reconciliation before another model call."})
+	}
+	if errors.Is(cause, ErrRecapUnavailable) || errors.Is(cause, storage.ErrSubjectBinding) || errors.Is(cause, storage.ErrSubjectEvidenceIncomplete) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "recap_unavailable: Resident context could not be authorized or verified."})
+	}
+	if errors.Is(cause, ErrContextCapacityRequired) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "context_capacity_required: The complete request and output reserve do not fit a known model capacity."})
 	}
 	if errors.Is(cause, ErrContextBudgetExceeded) {
 		slog.Warn("run failed: context budget exceeded", "run", string(m.runID), "err", cause)

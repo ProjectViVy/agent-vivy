@@ -175,6 +175,19 @@ func (c serviceToolOperationCoordinator) resolve(ctx context.Context, op domain.
 	if err := storage.VerifyToolEvidenceArguments(op, arguments); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrToolOperationUnknown, err)
 	}
+	// Selected LIFE keeps the complete authorized output in its live run.
+	// The compact reference remains the durable public projection and ordinary
+	// Coding behavior; original bytes were verified before this branch.
+	pin, err := c.service.deps.Sessions.(storage.SubjectSourceStore).GetRunSubjectSource(ctx, c.runID)
+	if err != nil {
+		return "", err
+	}
+	if pin.ConversationID != "" {
+		if evidence.Failure != "" {
+			return "", fmt.Errorf("%s", evidence.Failure)
+		}
+		return untrustedToolResultHeader + evidence.Result, nil
+	}
 	if op.Failure != "" {
 		return "", fmt.Errorf("%s", op.Failure)
 	}

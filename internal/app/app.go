@@ -968,6 +968,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MaskFrameDigest: maskFrameDigest,
 		GenerationID:    generationID,
 		Cognitive:       cognitiveBinding,
+		Recap: func() cognitivecontract.RecapPort {
+			if provider, ok := cognitiveBundle.(cognitivecontract.RecapProvider); ok {
+				return provider.Recap()
+			}
+			return nil
+		}(),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {

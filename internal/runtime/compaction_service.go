@@ -139,6 +139,13 @@ type CompactOptions struct {
 // the covered rows, and journals a context.compacted event. It refuses to
 // run while a run is active: live runs already compress in-run.
 func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID, opts CompactOptions) (CompactionResult, error) {
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return CompactionResult{}, err
+	}
+	if source != nil && source.ConversationID != "" {
+		return CompactionResult{}, ErrRecapReconciliationRequired
+	}
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")
 	}

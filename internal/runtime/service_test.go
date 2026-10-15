@@ -264,7 +264,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 	}
 
 	// Seq is monotonic 1..K with no gaps. Observed calls emit model.request
-	// v3 and model.usage v2; model.completed and the terminal Observer
+	// v4 and model.usage v2; model.completed and the terminal Observer
 	// projection use v2; the remaining events retain their existing
 	// versions when no Context View is selected.
 	for i, ev := range events {
@@ -276,7 +276,11 @@ func TestServiceRunHappyPath(t *testing.T) {
 		case domain.EventModelCompleted, domain.EventRunCompleted, domain.EventModelUsage:
 			wantVersion = 2
 		case domain.EventModelRequest:
-			wantVersion = 3
+			wantVersion = 4
+			provenance, err := storage.DecodeModelInputProvenance(ev)
+			if err != nil || provenance.ContentOrigin != storage.ContentOriginOriginal || provenance.ExcludeAutomaticIngest {
+				t.Fatalf("request provenance=%+v err=%v", provenance, err)
+			}
 		}
 		if ev.PayloadVersion != wantVersion {
 			t.Fatalf("event %d (%s) payload version = %d, want %d", i, ev.Type, ev.PayloadVersion, wantVersion)

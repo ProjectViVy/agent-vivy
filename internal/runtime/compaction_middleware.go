@@ -256,7 +256,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	if err != nil {
 		return nil, fmt.Errorf("runtime: summarization middleware: %w", err)
 	}
-	return []adk.ChatModelAgentMiddleware{newContextMonitor(), reducer, summ}, nil
+	return []adk.ChatModelAgentMiddleware{codingCompactionMiddleware{newContextMonitor()}, codingCompactionMiddleware{reducer}, codingCompactionMiddleware{summ}}, nil
 }
 
 // preserveProjectFileContextsFinalize applies Eino's canonical summary
