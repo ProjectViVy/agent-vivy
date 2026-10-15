@@ -381,29 +381,53 @@ Failures in that run, both traced to causes outside the merge:
    `app: cognitive factory: diva-cognitive: open garden owner: recap binding:
    storage: subject binding mismatch` (see below).
 
-### Isolating the symlink failure (environment, not source)
+### Root cause of the symlink failure (host token, not source)
 
 A throwaway module under the gitignored scratch dir (since removed) called
-`CreateSymbolicLinkW` directly and `os.Symlink`, from a normal binary and from a test
-binary, in the system temp dir, the workspace scratch dir, the package directory and
-the repo root:
+`CreateSymbolicLinkW` directly with an explicit flag matrix, and verified each
+attempt with `os.Lstat` instead of trusting the return value:
 
 ```text
-normal binary, raw CreateSymbolicLinkW flags 0x3 (unprivileged+directory)   OK
-normal binary, raw CreateSymbolicLinkW flags 0x1 (privileged)               OK
-normal binary, os.Symlink                                                   denied (in some runs), OK in others
-go test binary, os.Symlink (cwd, t.TempDir(), os.TempDir())                 denied in every directory
+raw 0x1 (privileged + directory)     r1=1280 GetLastError=1314 err=<nil> | Lstat: file not found, created=false
+raw 0x2 (unprivileged only)          r1=1280 GetLastError=1314 err=<nil> | Lstat: file not found, created=false
+raw 0x3 (unprivileged + directory)   r1=1280 GetLastError=1314 err=<nil> | Lstat: file not found, created=false
+syscall.CreateSymbolicLink 0x3       err=A required privilege is not held by the client. | created=false
+os.Symlink                           err=… A required privilege is not held by the client. | created=false
 ```
 
-`os.Symlink` is the only failing call, and it fails inside test binaries
-deterministically while the raw API with the same flags succeeds in the same process.
-Go's own implementation passes `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE` and,
-on any error, **retries without it**
-(`$GOROOT/src/os/file_windows.go:371-384`), so the reported
-`ERROR_PRIVILEGE_NOT_HELD` is the masked second attempt. Developer Mode is enabled
-(`AllowDevelopmentWithoutDevLicense=1`) and the token is a plain medium-integrity
-`mastwet-think\com01` with no AppContainer or restricting SIDs. This is recorded as
-an unresolved environment defect of this session; it needs an owner decision.
+The Win32 call itself fails with `ERROR_PRIVILEGE_NOT_HELD` (1314) for **every**
+flag combination, including `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE`. Go's
+generated wrapper applies the documented failure test `r1&0xff == 0`
+(`$GOROOT/src/syscall/zsyscall_windows.go:552-558`) and correctly reports the
+error; `os.Symlink` then retries without the flag
+(`$GOROOT/src/os/file_windows.go:371-384`) and surfaces the same errno.
+
+Token state of the gate shell:
+
+```text
+whoami                     -> mastwet-think\com01, Mandatory Label\Medium Mandatory Level
+BUILTIN\Administrators     -> "Group used for deny only"      (UAC-filtered admin token)
+whoami /priv               -> 5 privileges; SeCreateSymbolicLinkPrivilege absent,
+                              SeBackupPrivilege absent
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock
+  AllowDevelopmentWithoutDevLicense = 1
+HKLM\SOFTWARE\Policies\Microsoft\Windows\Appx\AllowDevelopmentWithoutDevLicense
+                           -> unset (no policy override)
+```
+
+Cause: the process runs with a UAC-filtered administrator token that lacks
+`SeCreateSymbolicLinkPrivilege`, and this host does not honour the Developer-Mode
+unprivileged-create bypass despite that registry value. No source change can fix
+it. Options are host-side: run the gate from an **elevated** shell (that token
+carries the privilege), repair/refresh Developer Mode, or run these suites on a
+host or CI where link creation is permitted.
+
+**Correction to the first version of this section:** it claimed that a raw
+`CreateSymbolicLinkW` succeeded while Go's `os.Symlink` was refused, and inferred
+a Go-side or sandbox anomaly. That was a measurement error — the raw probe treated
+a nonzero `r1` as success instead of applying the documented `r1&0xff == 0` test,
+and never checked that a link existed. Re-measured with `Lstat`, every variant
+fails identically.
 
 Consequence: `internal/app/subject_binding_test.go` now probes host symlink support
 and skips instead of failing. The `sdk/internal*` suites were **not** modified — they

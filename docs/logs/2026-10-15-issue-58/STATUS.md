@@ -217,12 +217,16 @@ tests across 92 files**, `vite build`, and the three i18n checks all passed.
 
 Remaining risk:
 - **A full `just ci` is not green on this machine, and the merge is not the cause.**
-  This session refuses `os.Symlink` with `A required privilege is not held by the
-  client` in every directory and from both normal and test binaries, while a raw
-  `CreateSymbolicLinkW` call with the unprivileged flag succeeds in the same process.
+  The gate shell runs with a UAC-filtered administrator token at Medium integrity
+  (`BUILTIN\Administrators` is deny-only) that lacks
+  `SeCreateSymbolicLinkPrivilege`, and this host does not honour the Developer-Mode
+  unprivileged-create bypass, so `CreateSymbolicLinkW` fails with
+  `ERROR_PRIVILEGE_NOT_HELD` (1314) for **every** flag combination. Verified by
+  calling the API directly and confirming with `Lstat` that no link is created.
   Every symlink-dependent suite therefore fails here: `internal/app` (now an
-  explicit skip) and the `sdk/internal*` pack/UI-link suites. This needs an owner
-  decision; it is not evidence of a source regression.
+  explicit skip) and the `sdk/internal*` pack/UI-link suites. The fix is host-side:
+  run the gate from an elevated shell, repair Developer Mode, or use a host/CI where
+  link creation is permitted.
 - `vite build` fails when esbuild unlinks its own temp file under the system `%TEMP%`
   (`Access is denied`), and succeeds when `TEMP`/`TMP` point at a workspace-local
   scratch directory. Both `just ci` attempts are recorded in `verification.md`.
