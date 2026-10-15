@@ -218,7 +218,8 @@ func TestIssue58CoveredSupersessionAdmission(t *testing.T) {
 	}
 }
 
-func (f *issue58Wire) restart(t *testing.T) {
+func (f *issue58Wire) restart(t *testing.T) { f.reopen(t, true) }
+func (f *issue58Wire) reopen(t *testing.T, recoverPending bool) {
 	t.Helper()
 	ctx := context.Background()
 	if !f.svc.WaitIdle(ctx) {
@@ -254,7 +255,9 @@ func (f *issue58Wire) restart(t *testing.T) {
 	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(), Recap: f.owner})
 	f.svc.SetCatalog(catalog)
 	issue58Sources(f.svc, f.sources)
-	if err = f.svc.Recover(ctx); err != nil {
-		t.Fatal(err)
+	if recoverPending {
+		if err = f.svc.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

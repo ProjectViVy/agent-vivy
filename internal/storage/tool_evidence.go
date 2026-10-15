@@ -1,10 +1,12 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
@@ -28,11 +30,85 @@ type ToolEvidenceReference struct {
 	FailureSHA256    string       `json:"failure_sha256"`
 	FailureByteCount int          `json:"failure_byte_count"`
 }
+
+// ToolEvidenceOutcome is the persisted native tool.finished failure unit.
+// An explicit all-empty unit attests no classified failure; absence is legacy
+// data and is never promoted to such an attestation during replay.
+type ToolEvidenceOutcome struct {
+	Outcome    string `json:"outcome"`
+	Reason     string `json:"reason"`
+	Effects    string `json:"effects"`
+	Diagnostic string `json:"diagnostic"`
+}
+
+func (o ToolEvidenceOutcome) Validate() error {
+	if o == (ToolEvidenceOutcome{}) {
+		return nil
+	}
+	if !utf8.ValidString(o.Diagnostic) || len(o.Diagnostic) == 0 || len(o.Diagnostic) > 2048 {
+		return ErrSubjectEvidenceIncomplete
+	}
+	switch o.Outcome {
+	case "refused":
+		if o.Effects == "not_executed" && (o.Reason == "policy_denied" || o.Reason == "user_denied" || o.Reason == "invalid_arguments") {
+			return nil
+		}
+	case "recoverable":
+		if (o.Reason == "not_found" && o.Effects == "none") || ((o.Reason == "invalid_arguments" || o.Reason == "command_failed" || o.Reason == "remote_tool_error") && o.Effects == "unknown") {
+			return nil
+		}
+	}
+	return ErrSubjectEvidenceIncomplete
+}
+func decodeToolEvidenceOutcome(raw json.RawMessage) (*ToolEvidenceOutcome, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return nil, ErrSubjectEvidenceIncomplete
+	}
+	fields := map[string]bool{}
+	values := map[string]string{}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil, ErrSubjectEvidenceIncomplete
+		}
+		name, ok := key.(string)
+		if !ok || fields[name] {
+			return nil, ErrSubjectEvidenceIncomplete
+		}
+		switch name {
+		case "outcome", "reason", "effects", "diagnostic":
+		default:
+			return nil, ErrSubjectEvidenceIncomplete
+		}
+		fields[name] = true
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, ErrSubjectEvidenceIncomplete
+		}
+		var text string
+		if json.Unmarshal(value, &text) != nil {
+			return nil, ErrSubjectEvidenceIncomplete
+		}
+		values[name] = text
+	}
+	if _, err = decoder.Token(); err != nil || len(fields) != 4 {
+		return nil, ErrSubjectEvidenceIncomplete
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return nil, ErrSubjectEvidenceIncomplete
+	}
+	outcome := &ToolEvidenceOutcome{Outcome: values["outcome"], Reason: values["reason"], Effects: values["effects"], Diagnostic: values["diagnostic"]}
+	return outcome, outcome.Validate()
+}
+
 type ToolEvidence struct {
-	Result          string `json:"result"`
-	Failure         string `json:"failure"`
-	ModelProjection string `json:"model_projection,omitempty"`
-	ModelFailure    string `json:"model_failure,omitempty"`
+	Outcome         *ToolEvidenceOutcome `json:"outcome,omitempty"`
+	Result          string               `json:"result"`
+	Failure         string               `json:"failure"`
+	ModelProjection string               `json:"model_projection,omitempty"`
+	ModelFailure    string               `json:"model_failure,omitempty"`
 }
 
 func ToolEvidenceArgumentsID(op domain.ToolOperation) string {
@@ -62,6 +138,20 @@ func VerifyToolEvidence(ref ToolEvidenceReference, raw []byte) (ToolEvidence, er
 	var evidence ToolEvidence
 	if len(raw) != ref.ByteCount || digestToolOperationBytes(raw) != ref.SHA256 || json.Unmarshal(raw, &evidence) != nil {
 		return evidence, fmt.Errorf("tool artifact %s: %w", ref.ID, ErrSubjectEvidenceIncomplete)
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return evidence, ErrSubjectEvidenceIncomplete
+	}
+	if encoded, present := fields["outcome"]; present {
+		var err error
+		evidence.Outcome, err = decodeToolEvidenceOutcome(encoded)
+		if err != nil {
+			return evidence, err
+		}
+	}
+	if _, present := fields["outcome"]; !present && evidence.Outcome != nil {
+		return evidence, ErrSubjectEvidenceIncomplete
 	}
 	if ref.ResultSHA256 != digestToolOperationBytes([]byte(evidence.Result)) || ref.ResultByteCount != len(evidence.Result) || ref.FailureSHA256 != digestToolOperationBytes([]byte(evidence.Failure)) || ref.FailureByteCount != len(evidence.Failure) {
 		return evidence, ErrSubjectEvidenceIncomplete

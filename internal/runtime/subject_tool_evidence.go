@@ -78,7 +78,15 @@ func (c serviceToolOperationCoordinator) retainArguments(ctx context.Context, op
 	return nil
 }
 func (c serviceToolOperationCoordinator) retainResult(ctx context.Context, op domain.ToolOperation, result string, invokeErr error, original originalToolOutcome) (string, string, error) {
-	evidence := storage.ToolEvidence{Result: strings.TrimPrefix(result, untrustedToolResultHeader)}
+	evidence := storage.ToolEvidence{Result: strings.TrimPrefix(result, untrustedToolResultHeader), Outcome: &storage.ToolEvidenceOutcome{}}
+	if state := nudgeStateFromContext(ctx); state != nil {
+		if failure, ok := state.Failure(op.OperationID); ok {
+			evidence.Outcome = &storage.ToolEvidenceOutcome{Outcome: failure.Status, Reason: failure.Reason, Effects: failure.Effects, Diagnostic: failure.Diagnostic}
+		}
+	}
+	if err := evidence.Outcome.Validate(); err != nil {
+		return "", "", err
+	}
 	if invokeErr != nil {
 		evidence.Failure = invokeErr.Error()
 	}
@@ -182,6 +190,23 @@ func (c serviceToolOperationCoordinator) resolve(ctx context.Context, op domain.
 	if err != nil {
 		return "", err
 	}
+	outcome := evidence.Outcome
+	if outcome == nil && pin.ConversationID != "" {
+		outcome, err = c.priorToolOutcome(ctx, op)
+		if err != nil {
+			return "", err
+		}
+		if outcome == nil {
+			return "", fmt.Errorf("%w: legacy tool outcome unavailable", ErrRecapUnavailable)
+		}
+	}
+	if outcome != nil && outcome.Outcome != "" {
+		if state := nudgeStateFromContext(ctx); state != nil {
+			if err := state.MarkFailure(op.OperationID, toolFailure{Status: outcome.Outcome, Reason: outcome.Reason, Effects: outcome.Effects, Diagnostic: outcome.Diagnostic}); err != nil {
+				return "", err
+			}
+		}
+	}
 	if pin.ConversationID != "" {
 		if evidence.Failure != "" {
 			return "", fmt.Errorf("%s", evidence.Failure)
@@ -204,4 +229,41 @@ func (c serviceToolOperationCoordinator) resolve(ctx context.Context, op domain.
 		return untrustedToolResultHeader + string(encoded), nil
 	}
 	return ref.Projection, nil
+}
+
+// Only an exact prior host tool.finished can qualify a legacy artifact's
+// outcome. Missing proof pauses; result text and today's classifier never do.
+func (c serviceToolOperationCoordinator) priorToolOutcome(ctx context.Context, op domain.ToolOperation) (*storage.ToolEvidenceOutcome, error) {
+	replay, err := c.service.deps.Journal.Replay(ctx, c.runID, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer replay.Close()
+	for replay.Next() {
+		event := replay.Value().Event
+		if event.Type != domain.EventToolFinished {
+			continue
+		}
+		var p payloadToolFinished
+		if json.Unmarshal(event.Payload, &p) != nil {
+			return nil, storage.ErrSubjectEvidenceIncomplete
+		}
+		if p.ToolCallID != op.OperationID || p.ToolName != op.ToolName {
+			continue
+		}
+		if event.PayloadVersion != 1 {
+			return nil, ErrRecapUnavailable
+		}
+		outcome := &storage.ToolEvidenceOutcome{Outcome: p.Outcome, Reason: p.Reason, Effects: p.Effects}
+		if p.Outcome != "" {
+			outcome.Diagnostic = p.Error
+		} else if p.Error != "" {
+			return nil, ErrRecapUnavailable
+		}
+		if err := outcome.Validate(); err != nil {
+			return nil, err
+		}
+		return outcome, nil
+	}
+	return nil, replay.Err()
 }
