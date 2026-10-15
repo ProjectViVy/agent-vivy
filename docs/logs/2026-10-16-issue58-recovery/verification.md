@@ -634,3 +634,35 @@ s5-bml-independent-review archive (SHA74714381a3839717c936f25c6f7f7920657706bd19
 One consolidated author TDD pass is now released. Root will relocate only overlay
 target paths and rerun unchanged probes plus fixed native/root-MVS normal/race.
 No redundant second review of the same fix diff and no consumer activation.
+
+## Native BML consolidated fix: scoped producer accepted
+
+Fixed7993302f2693bd945bdef995fc313eb5d6a52b13/tree2d6fb54b is published
+as d0f88f3e9713ce33ea0a4beb8aca76388dd864d3, exact tree verified. The
+minimal I1 read transaction checks actual schema and executes legacy Get/List/
+Search/SearchVisible/SupersededTargetIDs on that same snapshot, returning explicit
+schema_changed/reopen after observed upgrade. Genuine schema1 stays readable
+without file mutation. I2 rejects extra bound tombstone targets, preserving
+ordinary unbound multi-target behavior. No dependency/consumer change.
+
+Root unchanged original3 probes PASS3+1package/1.021s at an actual clean fixed799
+clone. NativeSQLite1.56 normal/race each159+1package PASS1.899s/8.100s; rootMVS1.59
+normal159+1 PASS1.827s; vet PASS0.318s. Independent module-list records retain
+actual versions. All zero fail/skip/race and rejected0/forwarded0. Root verified
+24author artifacts,7committed changed files,4unchanged dependency files and
+3unchanged original probe hashes. Author baseline-HEAD working-source results
+remain distinct from these fixed execution records. Original RED/one consolidated
+TDD fix/cancellation/positive legacy controls are retained in separate author/
+root-fixed archives. No redundant second fix-diff review. This accepts only
+the native producer interface, not App activation, whole S5/S6 or Windows.
+
+## Intermediate actual Windows UI correction verified
+
+Run38822208743 UI job116721582909 at branch1765d30d, actual PR merge
+6f055ae55cd5a786e83f971153ff9b838e46ae76, PASS707tests/93files, typecheck,
+Vite build, completeness,8validator tests and14semantic crossface units. Original
+failed job remains preserved. Exact decoded UI log is archived under
+s5-windows-ui-fixture-fixed.*. Existing browser smoke also passed separately;
+it did not invoke the new Recap E2E. Backend was still running at observation.
+Later native-BML checkpoint pushes can cancel intermediate runs; cancellation
+never establishes backend success or final Windows qualification.

@@ -1,0 +1,11 @@
+{
+  "fixed_commit": "7993302f2693bd945bdef995fc313eb5d6a52b13",
+  "tree": "2d6fb54b338bd859e50e83531782bd3fdab619b8",
+  "remote_equivalent": "d0f88f3e9713ce33ea0a4beb8aca76388dd864d3",
+  "verified_artifact_hashes": 24,
+  "verified_changed_source_files": 7,
+  "original_probes_unchanged": 3,
+  "dependencies_unchanged": 4,
+  "archive_sha256": "9a21c743f0d1c04e095048558f1f4bf21c9b222031459670211de9994a08736b",
+  "qualification": "Author working-source gates are byte-bound; root fixed-candidate gates archived separately. NativeWindows NOT RUN. No consumer activation."
+}
