@@ -118,3 +118,30 @@ The supported projection certificate and requested4096-token LIFE output reserve
 are implementation refinements documented in the plan/design. Unknown provenance,
 model window, non-text cost or unsupported protocol remains unavailable. Ordinary
 Coding has no new cap default. Local HTTP wire evidence is not live model quality.
+
+## Subsequent fixed-candidate evidence and interruption
+
+- PASS: exact658fc30b targeted `TestMemoryLoopCrashC05EffectsDoneBeforeWatermark`,
+  local-only/offline/credential-stripped runner,120s package budget,71.429s wall
+  including build. No external requests. Actual lease wait remains unchanged.
+- INTERRUPTED: a new25m package-budget probe at658fc30b lost its execution session
+  after transport disconnect; no final exit/runner metadata exists. Its raw partial
+  log confirms the old positive LIFE tool fixture failure, later repaired at3d.
+  Partial passes do not certify app or full packages. See broad-658-interruption.json.
+- Reviewed3d / remote4c4e605a, treee7e37350: independent runtime^Issue58 PASS7.002s;
+  provider FAIL on nil-tool fixture. Three Important source findings and that Minor
+  fixture finding are recorded in reviews/s3-input-review.md.
+- Fixf8 / remotef8cb53ba10367523772f7976fe88630117ef9140, treeaae24648: root exact
+  six-group local-only regression PASS21 events, exit0, external0. Fixes include
+  missing-pin first/next-leg/resume denial, LIFE FaceCode Frozen Core and worker
+  isolation; no independent second review or broader pass is inferred.
+- FAIL: authorf8 prescribed focused gate,146 pass events/5 fail events (three
+  positive app cases plus parent/package): ContinuityOnlyComposition eligible
+  request, ExactTextInteractionSealsThroughServiceRun, FormattedGrantAuthorizedRead.
+  Test-only real C1/capacity fixture repair is pending; assertions are preserved.
+
+All S3 attempted logs at this snapshot, including RED and compile failures, are
+losslessly retained in s3-input-attempts-pre-acceptance.tar.gz with its manifest.
+Root/reviewer raw logs, the interrupted broad output and the non-forwarding runner
+source are retained under s3-root-evidence-manifest.json. These are evidence, not
+Task1 acceptance. Focused/race gates on the repaired candidate are still required.
