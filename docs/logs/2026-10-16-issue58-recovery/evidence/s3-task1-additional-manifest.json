@@ -1,0 +1,77 @@
+[
+  {
+    "file": "issue58-s3-root-final-proof.log.gz",
+    "bytes": 26105,
+    "sha256": "dc4c09be78cfa36b2e92c500b73f4d52b945bc518e693fd107366c9ace6f0675"
+  },
+  {
+    "file": "issue58-s3-root-final-proof.json.gz",
+    "bytes": 647,
+    "sha256": "3c92d108f658c3c5fa1af740e0cff12631c34df950c6686e9feca4546fdaba16"
+  },
+  {
+    "file": "issue58-s3-root-refusal-replay.log.gz",
+    "bytes": 8882,
+    "sha256": "b00c23c56b301bcc2c558f84336470f59703c1d910be8ff5ca23df99dff472f8"
+  },
+  {
+    "file": "issue58-s3-root-refusal-replay.json.gz",
+    "bytes": 606,
+    "sha256": "17c3ace0c449fe92627187929722c334d777c46c38161131125d4448daaa939d"
+  },
+  {
+    "file": "issue58-s3-1cc-focused.log.gz",
+    "bytes": 296921,
+    "sha256": "7033b11b9df0a51ee19c7cb51f7da1071302dccde6b421092821d8aeb8e43961"
+  },
+  {
+    "file": "issue58-s3-1cc-focused.json.gz",
+    "bytes": 480,
+    "sha256": "26e04f9e5a11f1b84541477d876ff31788cc4cda8fa4b14357c27f2d5658d34c"
+  },
+  {
+    "file": "issue58-s3-1cc-race.log.gz",
+    "bytes": 80162,
+    "sha256": "32042a4bf030cb35766ae5d4404cfb7aec5b1fa610dd9484aac6b8f6281e4f16"
+  },
+  {
+    "file": "issue58-s3-1cc-race.json.gz",
+    "bytes": 493,
+    "sha256": "d586d2d9cba49e2b3bf507181722badff834633ff1f27363b98f548d0e140d9a"
+  },
+  {
+    "file": "issue58-s3-1cc-compat.log.gz",
+    "bytes": 285269,
+    "sha256": "046ade4d72d127d1b77167f7fbd19cb9bcd6908879ca56e86129250020cf5d14"
+  },
+  {
+    "file": "issue58-s3-1cc-compat.json.gz",
+    "bytes": 473,
+    "sha256": "72d7292618f55980498a52d70334a9518fead2effe2c9293facc8476fdc51c6f"
+  },
+  {
+    "file": "issue58-cache-reclamation.json.gz",
+    "bytes": 229,
+    "sha256": "b3b76554f185cd8ef7b04f820548214683de591449c3ec8d91711a9fd6c4b804"
+  },
+  {
+    "file": "issue58-s3-legacy-presence-red.log.gz",
+    "bytes": 10496,
+    "sha256": "47c27d9e97c3c8a51e500711dfb926c379f89c97cfeb6dbcb28c86c887818b2b"
+  },
+  {
+    "file": "issue58-s3-legacy-presence-red.json.gz",
+    "bytes": 441,
+    "sha256": "f88942173729dc8c0f39ff3e0f0c3790092bd68aa523b3be4e33b5b6b2384d39"
+  },
+  {
+    "file": "issue58-s3-legacy-presence-green.log.gz",
+    "bytes": 9372,
+    "sha256": "146cba3af007b956d29865500bbd8c28f141bfb71d5fd4aea29eb513d7cb7396"
+  },
+  {
+    "file": "issue58-s3-legacy-presence-green.json.gz",
+    "bytes": 441,
+    "sha256": "df09a156e61e0dd06fe1cbaa3e814a79ee59a3bac17be5a2bc57898415002d0c"
+  }
+]

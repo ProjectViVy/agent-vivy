@@ -1,5 +1,7 @@
 # Recovery verification
 
+Current cut: S3 Task1 input preparation accepted at96adc4f7 (remote exact-tree db474a19). Normal and race each205 passing test/subtest events; fourteen PostgreSQL DSN cases skipped. S3 Task2 is in progress; S4–S6 remain open. Earlier sections below are chronological evidence, not the latest acceptance. See [S3 input acceptance](s3-input-acceptance.md).
+
 Candidate baseline: `b91096cca2028a8e8b127f60d41da600d64bb7eb`.
 
 - PASS: authenticated connector read of Issue58 and git clone of repository; remote heads checked via `git ls-remote`.
@@ -145,3 +147,30 @@ losslessly retained in s3-input-attempts-pre-acceptance.tar.gz with its manifest
 Root/reviewer raw logs, the interrupted broad output and the non-forwarding runner
 source are retained under s3-root-evidence-manifest.json. These are evidence, not
 Task1 acceptance. Focused/race gates on the repaired candidate are still required.
+
+## Accepted Task1 final gates — isolated96adc4f7
+
+| Gate | Actual result | Qualification |
+|---|---|---|
+| `go test -json ./internal/storage/... ./internal/runtime ./internal/app ./internal/provider -run '^TestIssue58' -count=1` | PASS205 test/subtest events, FAIL0, SKIP17, exit0;27.891s | 14 genuine PostgreSQL no-DSN skips;3 packages with no selected tests. Not real PostgreSQL execution |
+| Same selection with `-race` | PASS205 test/subtest events, FAIL0, SKIP17, exit0;180.340s | Exact same immutable96/treeef33; no races; same skip qualification |
+| Wider `Test(Issue58|.*Persona|.*Child|ToolSearchActivatesDeferredTool)` runtime/app compatibility | PASS200 test/subtest events plus2 package passes, FAIL0/SKIP0;95.440s | Exact1cc19c91. Later96 only refines replay proof/diagnostic validation; do not call this a96 rerun |
+| Root amended replay/legacy/codec/native-empty diagnostic selection | PASS, exit0;3.196s | Exact96, own local-only runner, raw metadata preserved |
+
+Every final runner reports zero external requests rejected/forwarded; dependencies
+were offline and credential-bearing child env names removed. Built UI fixture was
+copied to the isolated worktree only for Go embedding; this is not new UI acceptance.
+
+Earlier1cc race FAILed from disk exhaustion: SQLite migration34 could not write and
+runtime could not compile, so runtime race was NOT RUN. Its log is preserved. Root
+reclaimed13.848GB of reproducible Go cache entries older4h (strict hex -a/-d files);
+module sources/repositories/evidence were untouched. The later exact96 rerun, not
+that failed attempt, supplies the race pass.
+
+Source manifest32 files SHA256ab4af6bcee375f70e47711dcca4335fb38b86737c4faaac25f7d162919b4a48b.
+See s3-task1-complete-manifest.json and s3-task1-additional-manifest.json for all
+lossless logs, HTTP fixtures, source hashes, disk failure and root regression proof.
+
+Remaining: Task2 continuous native fold/reconcile/CAS/positive receipt/restart, S4
+management actions/tools/UI, S5 BML capability/single-sink/legacy exit, and S6 fixed
+product candidate/justci/UI/Windows/live-model/#66. No whole S3/Issue pass is claimed.

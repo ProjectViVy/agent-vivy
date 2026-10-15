@@ -29,8 +29,8 @@ its old GREEN, independent review claims or checked progress as fresh evidence.
 |---|---|---|
 | S0 | Existing scope/design retained | No new product design or confirmation |
 | S1 | Remote owner/facade present, revalidation underway | Exact bb57e93 owner: 114 passing events; final platform/candidate gates pending |
-| S2 | Tasks 1–3 present; Task4 reimplemented at8ae1db9d, focused producer interface accepted after independent review and I1/I2 TDD fixes | Focused+race pass; broad/justci BLOCKED by automatic approval review, real PostgreSQL pending. This is not full Story/product acceptance |
-| S3 | Task1 reimplementation started from accepted focused producer8ae1db9d | Actual local HTTP/input/capacity/projection/certificate/restart gates first, native fold/CAS/positive receipt next; no combined activation or S3 acceptance yet |
+| S2 | Tasks 1–3 present; Task4 reimplemented at8ae1db9d, focused producer interface accepted after independent review and I1/I2 TDD fixes | Focused+race pass; original broad action BLOCKED, safer broad probe failures/interruption retained and fixture failures repaired. Final S3 input-focused SQLite/owner gates pass; full justci/real PostgreSQL still pending. This is not full Story/product acceptance |
+| S3 | Task1 preparation accepted at96adc4f7 after independent review/TDD fixes | Exact isolated normal/race each205 pass/14PG skips; actual local HTTP/seal/reopen/scope/capacity/refusal proof. Task2 native fold/reconcile/CAS/positive receipts in progress; no combined activation/S3 acceptance |
 | S4 | Planned, not delivered | Same-owner actions/tools and complete UI remain |
 | S5 | Planned, not delivered | BML/single sink/legacy exit; #66 installed producer absent |
 | S6 | Not run | One fixed candidate; HTTP/scope/cancel/restart/race/migration/UI/Windows and real-model quality |

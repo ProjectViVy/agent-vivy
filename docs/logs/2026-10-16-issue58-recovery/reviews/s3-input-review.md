@@ -22,3 +22,14 @@ Root independently executed six fix groups on isolated exactf8: `go test -json .
 The subsequent author prescribed focused gate atf8 actually FAILed:146 pass events and5 fail events representing three old positive app cases plus parent/package. Their fixtures lack the newly required real bound Recap/capacity dependencies. Preserve positive success/seal/grant assertions and repair only fixture setup; no production rejection is weakened. Focused/race gates on the repaired test candidate remain pending.
 
 S3 Task2 fold/reconcile/CAS/positive receipts, installed #66 binding, live model quality, Windows and PostgreSQL remain unverified. No overall S3 or Issue58 acceptance is claimed.
+
+## Final Task1 disposition
+
+All I1/I2/I3 and M1 are repaired. Additional targeted recovery REDs found missing
+persisted refusal semantics, malformed legacy proof acceptance and overly strict
+empty diagnostics; each has RED→GREEN evidence and final exact96 suite/race passes.
+The existing evidence blob carries typed outcome, with strict unit decoding and
+legacy host-proof fallback; no metadata is inferred from text/current policy.
+Root executed amended recovery proof independently on96; full final gate each205
+pass/0fail with14PG skips. Task1 preparation accepted; the independent3d report is
+not silently relabeled as a review of96 or as Task2/product acceptance.

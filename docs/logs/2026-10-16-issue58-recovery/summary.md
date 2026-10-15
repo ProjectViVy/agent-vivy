@@ -39,3 +39,14 @@ regression failures and the safer-run boundary are recorded in verification.md.
 S3 Task1 is in progress at locale69e9d59 (exact remote treebea63855), not accepted.
 Task2 fold/reconcile/CAS/receipt and all S4–S6 delivery remain outstanding. The
 initial findings above describe the recovered baseline, not current completion.
+
+## Latest accepted source and next work
+
+S3 Task1 was reimplemented and accepted at96adc4f7 / exact-tree remotedb474a19
+(treeef33f382), after independent review, TDD repairs, actual local provider HTTP,
+SQLite/owner reopen and native checkpoint/refusal replay tests. Exact isolated
+normal/race gates each205 passing test events;14PG no-DSN skips are not execution.
+The input acceptance/report contains full commands and retained failed attempts.
+Task2 native fold/reconcile/CAS/pending-receipt recovery now owns the sole source
+write lane. Mandatory correction remains unavailable before HTTP until that adapter
+exists. No combined S3 activation, S4/S5 work or centralized product pass is claimed.
