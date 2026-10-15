@@ -187,7 +187,7 @@ type rowQuerier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func (s *Store) lookupBound(ctx context.Context, q rowQuerier, bindingJSON, operationID, digest, fingerprint string) (*MutationOutcome, error) {
+func (s *Store) lookupBound(ctx context.Context, q rowQuerier, bindingJSON, operationID string, digest *string, fingerprint string) (*MutationOutcome, error) {
 	var owner, savedDigest, savedFingerprint, raw string
 	err := q.QueryRowContext(ctx, `SELECT binding_json,payload_digest,request_fingerprint,outcome_json FROM memory_operations WHERE operation_id=?`, operationID).Scan(&owner, &savedDigest, &savedFingerprint, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -199,7 +199,7 @@ func (s *Store) lookupBound(ctx context.Context, q rowQuerier, bindingJSON, oper
 	if owner != bindingJSON {
 		return nil, boundError("ownership_denied", "native operation belongs to another binding")
 	}
-	if savedDigest != digest || (fingerprint != "" && savedFingerprint != fingerprint) {
+	if (digest != nil && savedDigest != *digest) || (fingerprint != "" && savedFingerprint != fingerprint) {
 		return nil, boundError("operation_conflict", "native operation request differs")
 	}
 	var out MutationOutcome
@@ -207,7 +207,7 @@ func (s *Store) lookupBound(ctx context.Context, q rowQuerier, bindingJSON, oper
 		return nil, corruptRecordErr()
 	}
 	encoded, err := marshalCanonical(out.Binding)
-	if err != nil || string(encoded) != owner || out.OperationID != operationID || out.PayloadDigest != digest || out.RecordRevision <= 0 || out.StoreRevision <= 0 || out.CanonicalStatus != "completed" || out.IndexStatus != "ready" {
+	if err != nil || string(encoded) != owner || out.OperationID != operationID || out.PayloadDigest != savedDigest || savedDigest == "" || out.RecordRevision <= 0 || out.StoreRevision <= 0 || out.CanonicalStatus != "completed" || out.IndexStatus != "ready" {
 		return nil, corruptRecordErr()
 	}
 	return &out, nil
@@ -229,7 +229,7 @@ func (s *Store) LookupBoundMutation(ctx context.Context, binding OwnershipBindin
 	if err != nil {
 		return nil, err
 	}
-	return s.lookupBound(ctx, s.db, string(raw), operationID, digest, "")
+	return s.lookupBound(ctx, s.db, string(raw), operationID, &digest, "")
 }
 
 func (s *Store) validateWriteOwnership(ctx context.Context, tx *sql.Tx, record Record, op *boundWrite) error {

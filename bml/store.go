@@ -626,7 +626,7 @@ func (s *Store) putInner(
 	}
 	defer tx.Rollback()
 	if op != nil {
-		replay, err := s.lookupBound(ctx, tx, op.bindingJSON, op.mutation.OperationID, op.mutation.PayloadDigest, op.fingerprint)
+		replay, err := s.lookupBound(ctx, tx, op.bindingJSON, op.mutation.OperationID, &op.mutation.PayloadDigest, op.fingerprint)
 		if err != nil {
 			return StoredRecord{}, err
 		}

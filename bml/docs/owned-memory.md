@@ -120,3 +120,13 @@ conversion, re-keying or bound-state migration is supplied.
 Native SQLite 1.56.0 and root MVS 1.59.0 are qualified separately. Actual Windows,
 App/adapter activation, whole S5/S6, UI, live-model and tenant acceptance remain
 root-owned downstream gates.
+
+## Operation-only status consumer
+
+`Store/Home.LookupBoundOperation(ctx, binding, operationID)` serves a trusted
+consumer whose status contract has no caller digest. It validates the full stored
+owner/destination and returns the original retained digest/outcome, never the
+current record. A missing operation stays absent; legacy schema/read-only
+capabilities stay explicit. The existing `LookupBoundMutation` still requires a
+nonempty matching digest. Neither API changes mutation replay's complete native
+request fingerprint or CAS. This adds no schema, cache or receipt store.

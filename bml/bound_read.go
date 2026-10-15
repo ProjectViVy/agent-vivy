@@ -210,3 +210,37 @@ func (h *Home) ExportSource(ctx context.Context, id string, revision int64) (Sto
 	}
 	return *stored, nil
 }
+
+// LookupBoundOperation returns the retained native result for an exact owner
+// and operation ID, including its original digest. This read-only status API
+// never weakens LookupBoundMutation's required digest or mutation replay checks.
+func (s *Store) LookupBoundOperation(ctx context.Context, binding OwnershipBinding, operationID string) (*MutationOutcome, error) {
+	if err := binding.validate(); err != nil {
+		return nil, err
+	}
+	if !utf8.ValidString(operationID) || strings.TrimSpace(operationID) == "" {
+		return nil, boundError("invalid_mutation", "native operation identity required")
+	}
+	if s.schema < 2 {
+		return nil, boundUnavailable()
+	}
+	raw, err := marshalCanonical(binding)
+	if err != nil {
+		return nil, err
+	}
+	return s.lookupBound(ctx, s.db, string(raw), operationID, nil, "")
+}
+
+func (h *Home) LookupBoundOperation(ctx context.Context, binding OwnershipBinding, operationID string) (*MutationOutcome, error) {
+	if err := binding.validate(); err != nil {
+		return nil, err
+	}
+	s, err := h.existingStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return nil, boundUnavailable()
+	}
+	return s.LookupBoundOperation(ctx, binding, operationID)
+}
