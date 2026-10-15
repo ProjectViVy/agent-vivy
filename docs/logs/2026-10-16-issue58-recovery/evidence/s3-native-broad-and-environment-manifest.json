@@ -1,0 +1,37 @@
+{
+  "candidate": "3e13019b0373d8f6344bb84469fd72598f4c11ab",
+  "archive": "s3-native-broad-and-environment.tar.gz",
+  "archive_sha256": "4d69521eaf325ba3a633a200e431073fb7dba60c1a826484a24602bb0258325c",
+  "files": [
+    {
+      "path": "issue58-task2-3e130-broad-default.json",
+      "size": 454,
+      "sha256": "34947913e05a2f9c72ca856c4376f951b3e22db79fdde1edbd2d29315a89fdfb"
+    },
+    {
+      "path": "issue58-task2-3e130-broad-default.log",
+      "size": 1462562,
+      "sha256": "9c0006b722282ee8ca1e7d116901c7d35ec398abbf393c01634eb4d8982c9c5f"
+    },
+    {
+      "path": "issue58-s3-native-memoryloop.json",
+      "size": 402,
+      "sha256": "082cbaf34e59ebf81d7b01a933ac926444719d6deb95b614738a2ddbda2267e5"
+    },
+    {
+      "path": "issue58-s3-native-memoryloop.log",
+      "size": 928,
+      "sha256": "7584f229fd5765d1e1c4ee7a193c252d06b199fcf25e8ed9535f81b57e2f1ee0"
+    },
+    {
+      "path": "issue58-s3-vcs-diagnostic.json",
+      "size": 445,
+      "sha256": "9a1b63c35fb142da3bea8c459cc8f6c8494fbae8cad2979d54a0b2493e45952d"
+    },
+    {
+      "path": "issue58-s3-vcs-diagnostic.log",
+      "size": 168,
+      "sha256": "87db3755905bb521244c426c3dfc44e27329f3ffa776470aa5a2f7a032a87ea9"
+    }
+  ]
+}

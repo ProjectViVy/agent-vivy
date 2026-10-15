@@ -37,8 +37,7 @@ S2 provenance was reimplemented, independently reviewed and fixed at8ae1db9d;
 focused producer/race gates pass without inheriting old local GREEN. Broader
 regression failures and the safer-run boundary are recorded in verification.md.
 Historical intermediate: S3 Task1 was in progress at locale69e9d59 (exact remote treebea63855), not accepted at that cut. The latest accepted cut is recorded below.
-Task2 fold/reconcile/CAS/receipt and all S4–S6 delivery remain outstanding. The
-initial findings above describe the recovered baseline, not current completion.
+The initial findings above describe the recovered baseline, not current completion.
 
 ## Latest accepted source and next work
 
@@ -47,14 +46,27 @@ S3 Task1 was reimplemented and accepted at96adc4f7 / exact-tree remotedb474a19
 SQLite/owner reopen and native checkpoint/refusal replay tests. Exact isolated
 normal/race gates each205 passing test events;14PG no-DSN skips are not execution.
 The input acceptance/report contains full commands and retained failed attempts.
-Task2 native fold/reconcile/CAS/pending-receipt recovery now owns the sole source
-write lane. Mandatory correction remains unavailable before HTTP until that adapter
-exists. No combined S3 activation, S4/S5 work or centralized product pass is claimed.
+Native Task2 has since been reimplemented and its scoped runtime interface accepted
+at3e13019b / exact-tree remotecdc2e16c (treef482293e). One independent review
+found two Important issues; one consolidated TDD pass repaired historical tool
+fragment representation and explicit summary cancellation/drain/model/engine
+fences. Exact3e130 normal/race each228 tests pass without failure/skip/race; root
+also reran the three original unchanged reviewer probes, all passing. Broader
+default runtime/App passes1501 tests plus2 package events,3 intentional skips.
+Raw completed attempts, source hashes and reviewer RED/fix evidence are archived.
+
+S4 is now the sole implementation writer for same-owner actions, protected deferred
+tools and management UI. S5 exact source expansion/BML/single-sink/legacy exit and
+S6 integrated product gates remain. DIVA/MemoryLoop verification is running on a
+clean local clone of exact3e130 after a detached-worktree VCS detection failure;
+full justci/new UI/final native Windows/live-model/#66 installation are not accepted.
+No PostgreSQL DSN means no real PostgreSQL execution. Scoped S3 interface acceptance
+does not establish whole S3 or centralized product acceptance.
 
 
-Task2 WIP checkpoint local340bc959 / remoteee053ead (exact tree1eb88a3f)
+Historical Task2 WIP checkpoint local340bc959 / remoteee053ead (exact tree1eb88a3f)
 preserves the first native adapter and pending-intent implementation. It is not an
 accepted Task2 cut. Subsequent tests exposed real bound-port CAS error translation
-and explicit-summary observation on a closed source run; both remain qualification
-work. The integration rulings in S3.md bind pending recovery and synthetic control
+and explicit-summary observation on a closed source run; both were repaired and
+reverified at3e130. The integration rulings in S3.md bind pending recovery and synthetic control
 Journal use without introducing another owner or fake conversation lifecycle.

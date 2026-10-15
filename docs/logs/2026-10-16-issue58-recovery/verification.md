@@ -247,3 +247,27 @@ and releases the serialized S4 source lane. It is not whole S3/Issue acceptance.
 S4 management/UI, S5 exact source expansion/BML/single-sink/legacy exit and S6 gates
 remain. ContextStatus and CompactSession zero totals are not measured unified LIFE
 pressure; rowless summary usage is not yet included in RunStore-joined usage UI.
+
+## Native Task2 broader gate completion and DIVA environment cut
+
+Exact3e130 broader default runtime/App (`-skip '^TestMemoryLoop' -timeout35m
+-count=1 -json`) PASSes1501 test/subtest events plus2 package events,0fail;
+3 conditional skips (CognitiveActionFixtureCapture, RealProviderSmoke,
+ReportFeedbackSnapshot),68.197s. Safe runner rejected2 external proxy requests and
+forwarded0; no external endpoint accepted payload. This supersedes only the RUNNING
+state of that run above, not the earlier f372 timeout or any final integrated gate.
+
+The first repository-supported MemoryLoop script attempt failed before tests:
+Go1.26.4 vcsGit.RootNames recognizes a .git directory, not this worktree's .git
+file, then tries unusable parent VCS metadata. `go list` therefore exits128 during
+VCS stamping. Plain Git correctly resolves the worktree and fixed HEAD. The raw
+failure/diagnostic is preserved without disabling stamping or changing production
+assertions. Root created a separate local shared clone with a real .git directory,
+checked out the same3e130, and restarted the unmodified script there. That second
+run is RUNNING, not yet a DIVA/MemoryLoop pass. Generated UI embedding prerequisite
+is the same unchanged existing build; this is not new UI acceptance.
+
+Completed broad/environment raw files and runner metadata are losslessly archived
+in evidence/s3-native-broad-and-environment.tar.gz with its SHA/file manifest. No
+running MemoryLoop log is represented as complete evidence. Final product/DIVA,
+new UI, real PostgreSQL/live quality and installed #66 gates remain qualified.
