@@ -281,4 +281,36 @@ func (ops *BundleSkillOperations) SetSkillEnabled(ctx context.Context, name stri
 	return ops.local.SetSkillEnabled(ctx, name, enabled, expectedHash)
 }
 
+func (ops *BundleSkillOperations) GetSkillRevision(ctx context.Context, id string) (domain.SkillRevision, error) {
+	lifecycle, ok := ops.local.(tools.SkillRevisionLifecycle)
+	if !ok {
+		return domain.SkillRevision{}, tools.ErrSkillRevisionHistoryUnavailable
+	}
+	return lifecycle.GetSkillRevision(ctx, id)
+}
+
+func (ops *BundleSkillOperations) SetSkillRevisionStatus(ctx context.Context, id string, status domain.SkillRevisionStatus) error {
+	lifecycle, ok := ops.local.(tools.SkillRevisionLifecycle)
+	if !ok {
+		return tools.ErrSkillRevisionHistoryUnavailable
+	}
+	return lifecycle.SetSkillRevisionStatus(ctx, id, status)
+}
+
+func (ops *BundleSkillOperations) ListPendingSkillRevisions(ctx context.Context) ([]domain.SkillRevision, error) {
+	lifecycle, ok := ops.local.(tools.SkillRevisionLifecycle)
+	if !ok {
+		return nil, tools.ErrSkillRevisionHistoryUnavailable
+	}
+	return lifecycle.ListPendingSkillRevisions(ctx)
+}
+
+func (ops *BundleSkillOperations) CheckSkillRevision(ctx context.Context, id string) error {
+	lifecycle, ok := ops.local.(tools.SkillRevisionLifecycle)
+	if !ok {
+		return tools.ErrSkillRevisionHistoryUnavailable
+	}
+	return lifecycle.CheckSkillRevision(ctx, id)
+}
+
 var _ tools.SkillOperations = (*BundleSkillOperations)(nil)

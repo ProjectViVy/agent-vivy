@@ -152,7 +152,7 @@ func TestEinoSkillBackendStagesAppliesAndRejectsStaleRevision(t *testing.T) {
 	if err := json.Unmarshal(proposal.Data, &ref); err != nil {
 		t.Fatalf("decode edit ref: %v", err)
 	}
-	if _, err := backend.ApplySkillRevision(ctx, runID, ref.RevisionID); err == nil || !strings.Contains(err.Error(), "target changed") {
+	if _, err := backend.ApplySkillRevision(ctx, runID, ref.RevisionID); !errors.Is(err, ErrSkillRevisionStale) {
 		t.Fatalf("stale apply error = %v", err)
 	}
 }

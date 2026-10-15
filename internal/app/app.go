@@ -899,6 +899,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		cognitiveBinding = &runtime.CognitiveBinding{
 			Domain:   cognitiveDomain,
+			Skills:   skillOps,
 			Binding:  resolvedBinding,
 			SourceID: cognitiveBundle.SourceID(),
 			Source:   cognitiveBundle.Source(),
@@ -912,6 +913,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:               backend,
+		Skills:                skillOps,
 		Work:                  workStore,
 		WorkSink:              workBus,
 		Runs:                  backend,

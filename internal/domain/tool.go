@@ -111,8 +111,9 @@ const (
 // ApprovalKind identifies the execution owner that will receive a decision.
 // The existing run kind remains the default for backwards-compatible rows.
 const (
-	ApprovalKindRun   = "run"
-	ApprovalKindChild = "child"
+	ApprovalKindRun           = "run"
+	ApprovalKindChild         = "child"
+	ApprovalKindSkillRevision = "skill_revision"
 )
 
 // Approval records a server-side decision for an effectful tool call
