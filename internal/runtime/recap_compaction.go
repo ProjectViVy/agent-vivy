@@ -40,6 +40,7 @@ type recapFold struct {
 	input []*schema.Message
 }
 type recapSummaryKey struct{}
+type recapCapacityFoldKey struct{}
 
 func (s *Service) compactSubjectRecap(ctx context.Context, binding storage.SubjectHistoryBinding, instructions string) (actmem.RecapHead, error) {
 	if s.engine == nil || s.deps.Recap == nil {
@@ -146,6 +147,9 @@ func (s *Service) prepareRecapFold(ctx context.Context, b storage.SubjectHistory
 			break
 		}
 		suffix += cost
+	}
+	if force, _ := ctx.Value(recapCapacityFoldKey{}).(bool); force && desired == 0 && len(ranges) > 1 {
+		desired = len(ranges) - 1
 	}
 	f.Interactions = ranges[:desired]
 	if desired == 0 && len(f.CorrectionRefs) == 0 {
@@ -411,6 +415,11 @@ func (m *recapSummaryModel) Stream(context.Context, []*schema.Message, ...model.
 }
 
 func (s *Service) summarizeRecapFold(ctx context.Context, f *recapFold) (cognitivecontract.RecapHead, error) {
+	var observerErr error
+	ctx, observerErr = s.withRecapSummaryObserver(ctx, f)
+	if observerErr != nil {
+		return cognitivecontract.RecapHead{}, observerErr
+	}
 	eng := engineFromContext(ctx)
 	if eng == nil {
 		eng = s.engine
@@ -462,7 +471,10 @@ func (s *Service) summarizeRecapFold(ctx context.Context, f *recapFold) (cogniti
 			return []*schema.Message{schema.SystemMessage(head.Text)}, nil
 		},
 		Callback: func(eventCtx context.Context, before, after adk.ChatModelAgentState) error {
-			emitCompactionEvent(eventCtx, "recap", 0, 0, len(f.Interactions), 0)
+			sink, _ := eventCtx.Value(governanceEventSinkKey{}).(GovernanceEventSink)
+			if sink != nil {
+				return sink(eventCtx, GovernanceEvent{Type: domain.EventContextCompacted, Mode: "recap", DroppedMessages: len(f.Interactions)})
+			}
 			return nil
 		},
 	})
@@ -484,4 +496,35 @@ func (s *Service) summarizeRecapFold(ctx context.Context, f *recapFold) (cogniti
 		return committed, nil
 	}
 	return cognitivecontract.RecapHead{}, err
+}
+
+func (s *Service) withRecapSummaryObserver(ctx context.Context, f *recapFold) (context.Context, error) {
+	if modelCallObserverFactoryFrom(ctx) != nil {
+		return ctx, nil
+	}
+	// Same rowless session-control contract as toolExposureRunID: no RunStore
+	// row, admission, terminal, projection, C2 interaction, or ingest candidate.
+	rid := domain.RunID(newPrefixedID("sessctl_recap_" + sha256Hex([]byte(f.Reader))[:16] + "_"))
+	ledger, err := NewBudgetLedger(s.deps.Budget)
+	if err != nil {
+		return ctx, err
+	}
+	provider, id := s.CurrentModel()
+	mapper := newEventMapper(rid, s.engine.cfg.MaxEventPayloadBytes)
+	mapper.setUsageRoutes(provider, id, s.engine.cfg.SummaryModelID)
+	mapper.setRunScope(s.deps.TenantID, "", string(f.Reader))
+	if sink, _ := ctx.Value(governanceEventSinkKey{}).(GovernanceEventSink); sink == nil {
+		ctx = withGovernanceEventSink(ctx, func(eventCtx context.Context, event GovernanceEvent) error {
+			_, err := s.recordSyntheticSessionEvent(eventCtx, f.Reader, rid, domain.EventContextCompacted, payloadContextCompacted{Mode: event.Mode, DroppedMessages: event.DroppedMessages})
+			return err
+		})
+	}
+	ctx = withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
+		modelID := id
+		if !route.FallbackModel && s.engine.cfg.SummaryModel != nil {
+			modelID = s.engine.cfg.SummaryModelID
+		}
+		return &runModelCallObserver{svc: s, m: mapper, sessionID: f.Reader, ledger: ledger, source: modelCallSourceSummary, provider: provider, model: modelID, syntheticSessionControl: true, calls: map[string]*observedModelCall{}}
+	})
+	return ctx, nil
 }

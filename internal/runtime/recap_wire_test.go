@@ -33,6 +33,7 @@ type issue58Wire struct {
 	sources  map[domain.SessionID]storage.SubjectSourceBinding
 	reply    func(int) *schema.Message
 	path     string
+	url      string
 }
 
 func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
@@ -45,6 +46,10 @@ func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
 		f.requests = append(f.requests, string(raw))
 		f.mu.Unlock()
 		reply := f.reply(index)
+		if reply == nil {
+			http.Error(w, "fixture provider failure", http.StatusServiceUnavailable)
+			return
+		}
 		var request struct {
 			Stream bool `json:"stream"`
 		}
@@ -64,6 +69,7 @@ func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", payload)
 	}))
 	t.Cleanup(server.Close)
+	f.url = server.URL
 	ref, err := provider.NewCatalog().RefForSelection("fixture", provider.Endpoint{Adapter: provider.AdapterOpenAICompletions, BaseURL: server.URL, DefaultModel: "fixture"})
 	if err != nil {
 		t.Fatal(err)
@@ -207,23 +213,25 @@ func TestIssue58CoveredSupersessionAdmission(t *testing.T) {
 	if err = f.b.RecordSessionTruncation(context.Background(), storage.SessionTruncation{SessionID: row.SessionID, CutoffMessageID: "user_covered-A", TailMessageID: "user_covered-A", Reason: storage.TruncationRewind}); err != nil {
 		t.Fatal(err)
 	}
+	f.reply = func(i int) *schema.Message {
+		if i == 0 {
+			return schema.AssistantMessage("The prior assertion occurred historically and is superseded in archived A.", nil)
+		}
+		return schema.AssistantMessage("complete", nil)
+	}
 	run := f.run(t, "new current B")
-	if run.Status != domain.RunFailed || len(f.capture()) != 0 {
-		t.Fatalf("mandatory reconciliation reached HTTP %+v", run)
+	if run.Status != domain.RunCompleted || len(f.capture()) != 2 {
+		t.Fatalf("mandatory reconciliation failed before foreground: %+v %s", run, issue58FailurePayload(t, f, run))
 	}
-	events := replayAll(t, f.b, run.ID)
-	var payloads []json.RawMessage
-	for _, event := range events {
-		payloads = append(payloads, event.Payload)
-	}
-	raw, _ := json.Marshal(payloads)
-	if !strings.Contains(string(raw), "recap_reconciliation_required") {
-		t.Fatalf("missing explicit refusal: %s", raw)
+	requests := f.capture()
+	if !strings.Contains(requests[0], "covered fact") || !strings.Contains(requests[0], "user_covered-A") || strings.Contains(requests[1], "covered fact") || !strings.Contains(requests[1], "superseded in archived A") {
+		t.Fatal("summary/foreground boundary lost correction")
 	}
 	after, err := f.owner.ReadRecap(context.Background())
-	if err != nil || after != head {
-		t.Fatal("Task1 changed owner/coverage")
+	if err != nil || after.Cause != "reconcile" || after.CoveredThrough != head.CoveredThrough {
+		t.Fatalf("invalid corrected head: %+v %v", after, err)
 	}
+
 }
 
 func (f *issue58Wire) restart(t *testing.T) { f.reopen(t, true) }

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -176,7 +177,18 @@ func (s *Service) runRecapMessages(ctx context.Context, sid domain.SessionID, us
 	if len(current) == 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: admitted current interaction missing", storage.ErrSubjectEvidenceIncomplete)
 	}
+	if err := s.resolvePendingRecaps(ctx, binding); err != nil {
+		return nil, ContextStats{}, err
+	}
 	cut, err := s.prepareRecapContext(ctx, binding, sid, current)
+	if errors.Is(err, ErrRecapReconciliationRequired) || (err == nil && recapRawPressure(cut)) {
+		if _, compactErr := s.compactSubjectRecap(ctx, binding, ""); compactErr != nil {
+			return nil, ContextStats{}, compactErr
+		}
+		// A later mutation belongs to a newer cut. Rebuild once and pause if
+		// that cut already requires another correction; never admit stale text.
+		cut, err = s.prepareRecapContext(ctx, binding, sid, current)
+	}
 	if err != nil {
 		return nil, ContextStats{}, err
 	}
@@ -226,6 +238,16 @@ func (s *Service) runRecapMessages(ctx context.Context, sid domain.SessionID, us
 	mandatory := append([]*schema.Message{schema.SystemMessage(instruction)}, messages...)
 	cut.Usage, err = s.measureRecapRequest(ctx, mandatory, allTools)
 	if err != nil {
+		if forced, _ := ctx.Value(recapCapacityFoldKey{}).(bool); !forced && errors.Is(err, ErrContextCapacityRequired) && len(cut.Interactions) > 1 {
+			foldCtx := context.WithValue(ctx, recapCapacityFoldKey{}, true)
+			head, compactErr := s.compactSubjectRecap(foldCtx, binding, "")
+			if compactErr != nil {
+				return nil, ContextStats{}, compactErr
+			}
+			if head.Revision != cut.Head.Revision {
+				return s.runRecapMessages(foldCtx, sid, userText, preamble, eng)
+			}
+		}
 		return nil, ContextStats{}, err
 	}
 	if eng.cfg.ContextHost != nil && len(messages) > 0 {
@@ -321,4 +343,21 @@ func (s *Service) validateRecapModelLeg(ctx context.Context, sid domain.SessionI
 	}
 	_, err = s.measureRecapRequest(ctx, input.Messages, input.Tools)
 	return err
+}
+
+func recapRawPressure(cut RecapContext) bool {
+	n := 0
+	for _, m := range cut.Messages {
+		complete := false
+		for _, row := range cut.Interactions {
+			if row.RunID == m.RunID {
+				complete = true
+				break
+			}
+		}
+		if complete {
+			n += messageCostForMessage(m) + len(m.ToolArgs) + len(m.ToolCallID)
+		}
+	}
+	return len(cut.Interactions) > 1 && n > recapRecentRawTokens
 }

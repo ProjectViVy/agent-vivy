@@ -1321,6 +1321,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
 	var admittedScope *domain.AcceptedHistoryScope
@@ -2482,6 +2483,10 @@ func (s *Service) appendRunEventLocked(ctx context.Context, event domain.RunEven
 // example manual compaction) that intentionally has no RunStore row, while
 // still participating in the session deletion fence.
 func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	return s.recordSyntheticSessionEventVersion(ctx, sessionID, runID, typ, 1, payload)
+}
+
+func (s *Service) recordSyntheticSessionEventVersion(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, typ domain.EventType, version int, payload any) (domain.RunEvent, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("runtime: marshal synthetic event: %w", err)
@@ -2489,7 +2494,7 @@ func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID dom
 	if limit := s.engine.cfg.MaxEventPayloadBytes; limit > 0 && len(data) > limit {
 		return domain.RunEvent{}, fmt.Errorf("runtime: synthetic event payload is %d bytes; limit is %d", len(data), limit)
 	}
-	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: data}
+	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: version, Payload: data}
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	if s.sessionDeleted(sessionID) {
@@ -3175,6 +3180,11 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		ctx = withRunPrompt(ctx, promptSnapshot)
 	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	ledger := s.ledgerForRun(m.runID)
+	// Admission summaries use the same run budget and Journal observer.
+	admissionCtx := withRunExecution(withRunID(withSessionID(ctx, sessionID), m.runID), eng, execution)
+	admissionCtx = withGovernanceEventSink(admissionCtx, s.governanceSink(m, sessionID, ledger))
+	admissionCtx = s.withLiveModelStreamObserver(admissionCtx, m, sessionID, ledger, nil, execution.child != nil, nil)
 	var msgs []*schema.Message
 	var selection tools.Selection
 	var stats ContextStats
@@ -3189,7 +3199,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		if len(parentReplies) > 0 {
 			userText = formatParentReplies(parentReplies, userText)
 		}
-		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(withRunID(ctx, m.runID), sessionID, userText, eng, face, workspaceID, collaboration)
+		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(admissionCtx, sessionID, userText, eng, face, workspaceID, collaboration)
 	} else {
 		msgs, selection, stats, execution.child.included, err = s.runMessagesForChild(ctx, userText, execution.child.pending, eng)
 	}
@@ -3201,7 +3211,6 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	s.storeContextView(m.runID, stats.ContextViewID)
 	// The per-invocation v3 model.request is journaled by the observer
 	// seam inside Begin, before the provider is invoked (OBS-02/D2).
-	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
 	runCtx = withRunExecution(runCtx, eng, execution)
 	if execution.suppressSessionMessageProjection {
@@ -3320,14 +3329,16 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 // terminal persistence context so caller cancellation cannot strand the
 // closure record.
 type runModelCallObserver struct {
-	svc       *Service
-	m         *eventMapper
-	sessionID domain.SessionID
-	ledger    *BudgetLedger
-	source    string
-	provider  string
-	model     string
-	onDelta   func(string)
+	svc                     *Service
+	m                       *eventMapper
+	sessionID               domain.SessionID
+	ledger                  *BudgetLedger
+	source                  string
+	synchronousSummary      bool
+	syntheticSessionControl bool
+	provider                string
+	model                   string
+	onDelta                 func(string)
 	// warmer is the run's cache-warming scheduler (VCP F2); nil when
 	// config or the model's declared capabilities opt out. Summary-route
 	// observers never carry one.
@@ -3346,6 +3357,16 @@ type observedModelCall struct {
 	toolCallChunks    []*schema.Message
 }
 
+// Synthetic session controls use the established rowless Journal lane. They
+// never create/project/terminate a conversation Run on observer persistence failure.
+func (o *runModelCallObserver) persistModelEvent(ctx context.Context, event domain.RunEvent) bool {
+	if o.syntheticSessionControl {
+		_, err := o.svc.recordSyntheticSessionEventVersion(ctx, o.sessionID, event.RunID, event.Type, event.PayloadVersion, event.Payload)
+		return err == nil
+	}
+	return o.svc.persistAndPublish(ctx, o.sessionID, event)
+}
+
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
 	meta := modelCallMeta{
 		CallID:   uuid.NewString(),
@@ -3356,7 +3377,19 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
 	}
-	if err := o.svc.validateRecapModelLeg(ctx, o.sessionID, o.m.runID, in); err != nil {
+	if fold, summary := ctx.Value(recapSummaryKey{}).(*recapFold); o.source == modelCallSourceSummary && summary && fold != nil {
+		o.synchronousSummary = true
+		pin, ok := domain.ModelRequestScopeFromContext(ctx)
+		if !ok || pin.Provider != o.provider || pin.Model != o.model {
+			return meta, ErrRecapUnavailable
+		}
+		if err := o.svc.validateRecapFold(ctx, fold); err != nil {
+			return meta, err
+		}
+		if _, err := o.svc.measureRecapRequest(ctx, in.Messages, in.Tools); err != nil {
+			return meta, err
+		}
+	} else if err := o.svc.validateRecapModelLeg(ctx, o.sessionID, o.m.runID, in); err != nil {
 		return meta, err
 	}
 	provenance, err := o.svc.modelInputProvenance(ctx, o.m.runID, in.Messages)
@@ -3390,10 +3423,10 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 			return meta, err
 		}
 	}
-	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+	if !o.persistModelEvent(ctx, event) {
 		return meta, errors.New("runtime: model request event could not be journaled")
 	}
-	if o.source != modelCallSourceMaintenance {
+	if o.source != modelCallSourceMaintenance && !o.synchronousSummary {
 		o.m.noteObservedCallStart()
 	}
 	o.mu.Lock()
@@ -3403,7 +3436,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
-	if o.source != modelCallSourceMaintenance {
+	if o.source != modelCallSourceMaintenance && !o.synchronousSummary {
 		o.m.noteObservedCallMaterialized(o.source)
 	}
 }
@@ -3434,7 +3467,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 			}
 			for _, fragment := range fragments {
 				for _, event := range o.m.toolCallEvents(fragment) {
-					if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+					if !o.persistModelEvent(ctx, event) {
 						return errors.New("runtime: invalid tool argument marker could not be journaled")
 					}
 				}
@@ -3477,7 +3510,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return err
 	}
 	for _, event := range events {
-		if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+		if !o.persistModelEvent(ctx, event) {
 			return context.Canceled
 		}
 	}
@@ -3509,7 +3542,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 		if sample, ok := usage.sample(); ok && sample.key() != usage.lastEmit {
 			usage.lastEmit = sample.key()
 			event := o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, true))
-			if !o.svc.persistAndPublish(persistCtx, o.sessionID, event) {
+			if !o.persistModelEvent(persistCtx, event) {
 				return errors.New("runtime: usage settlement event could not be journaled")
 			}
 		}
@@ -3544,7 +3577,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 			}
 		}
 	}
-	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
+	if !o.persistModelEvent(persistCtx, o.m.build(domain.EventModelCallFinished, finish)) {
 		return errors.New("runtime: model call finish event could not be journaled")
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {

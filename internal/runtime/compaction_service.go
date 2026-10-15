@@ -144,6 +144,9 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		return CompactionResult{}, err
 	}
 	if source != nil && source.ConversationID != "" {
+		if s.deps.Recap == nil {
+			return CompactionResult{}, ErrRecapUnavailable
+		}
 		s.mu.Lock()
 		busy := len(s.active) > 0 || len(s.pending) > 0
 		s.mu.Unlock()

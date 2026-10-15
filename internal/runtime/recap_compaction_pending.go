@@ -1,13 +1,19 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
+	"strings"
+	"unicode/utf8"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/storage"
+	"github.com/ProjectViVy/laputa/garden/agentapi"
 	"github.com/ProjectViVy/laputa/laputa/actmem"
 )
 
@@ -23,8 +29,44 @@ func recapPendingPrefix(binding storage.SubjectHistoryBinding) string {
 	raw, _ := json.Marshal(binding)
 	return "recap/pending/v1/" + sha256Hex(raw) + "/"
 }
+func recapPendingOperationPrefix(p *recapPending) string {
+	return recapPendingPrefix(p.Fold.Binding) + p.Request.OperationID + "/"
+}
 func recapPendingKey(p *recapPending) string {
-	return recapPendingPrefix(p.Fold.Binding) + p.Request.OperationID
+	raw, _ := json.Marshal(p)
+	return recapPendingOperationPrefix(p) + sha256Hex(raw)
+}
+
+func decodeRecapPending(raw []byte, key string, binding storage.SubjectHistoryBinding) (recapPending, error) {
+	var p recapPending
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&p) != nil || decoder.Decode(new(any)) != io.EOF {
+		return p, ErrRecapUnavailable
+	}
+	canonical, err := json.Marshal(p)
+	if err != nil || !bytes.Equal(raw, canonical) || recapPendingKey(&p) != key {
+		return p, ErrRecapUnavailable
+	}
+	r := p.Request
+	if p.Version != 1 || p.Fold.Binding != binding || p.Fold.Reader == "" || p.Fold.InputDigest == "" || !validRecapDigest(p.Fold.InputDigest) || safeOffloadCallID(r.OperationID) == "" || !strings.HasPrefix(r.OperationID, "recap_") || r.Binding != p.Fold.Head.Binding || r.Binding.SubjectID != binding.SubjectID || r.Binding.DomainID != binding.DomainID || r.BaseRevision != p.Fold.Head.Revision || r.Sources.Digest != p.Fold.Receipt || r.Sources.After != p.Fold.Head.CoveredThrough || r.RestoredFrom != 0 || !utf8.ValidString(r.Text) || strings.TrimSpace(r.Text) == "" || len(r.Text) > recapSummaryOutputTokens {
+		return p, ErrRecapUnavailable
+	}
+	through := p.Fold.Head.CoveredThrough
+	for _, row := range p.Fold.Interactions {
+		if row.Sequence != through+1 {
+			return p, ErrRecapUnavailable
+		}
+		through = row.Sequence
+	}
+	if through != r.Sources.Through || through > p.Fold.Snapshot.Through || (through == r.Sources.After && r.Cause != "reconcile") || (through > r.Sources.After && r.Cause != "summary") {
+		return p, ErrRecapUnavailable
+	}
+	receipt, err := decodeRecapReceipt(p.Fold.Receipt)
+	if err != nil || receipt.Binding != binding || receipt.Range.After != r.Sources.After || receipt.Range.Through != through || receipt.Dispositions.Digest != p.Fold.Snapshot.DispositionDigest || validateRecapCorrectionReferences(receipt.CorrectionRefs, p.Fold.Snapshot) != nil {
+		return p, ErrRecapUnavailable
+	}
+	return p, nil
 }
 
 func (s *Service) persistRecapPending(ctx context.Context, p *recapPending) error {
@@ -39,6 +81,16 @@ func (s *Service) persistRecapPending(ctx context.Context, p *recapPending) erro
 		return err
 	}
 	key := recapPendingKey(p)
+	lister := s.deps.ToolEvidence.(storage.BlobPrefixLister)
+	keys, listErr := lister.ListPrefix(ctx, recapPendingOperationPrefix(p))
+	if listErr != nil {
+		return listErr
+	}
+	for _, existing := range keys {
+		if existing != key {
+			return fmt.Errorf("%w: pending operation identity reused", ErrRecapUnavailable)
+		}
+	}
 	old, found, err := s.deps.ToolEvidence.Get(ctx, key)
 	if err != nil {
 		return err
@@ -104,13 +156,21 @@ func (s *Service) commitRecapPending(ctx context.Context, p *recapPending) (cogn
 	if found {
 		return resolved, nil
 	}
-	if actmem.CodeOf(err) == "recap_conflict" {
+	if recapCommitErrorCode(err) == "recap_conflict" {
 		if deleteErr := s.deps.ToolEvidence.Delete(context.WithoutCancel(ctx), recapPendingKey(p)); deleteErr != nil {
 			return cognitivecontract.RecapHead{}, fmt.Errorf("%w: rejected intent cleanup: %v", ErrRecapCommitPending, deleteErr)
 		}
 		return cognitivecontract.RecapHead{}, errRecapCaptureChanged
 	}
 	return cognitivecontract.RecapHead{}, fmt.Errorf("%w: %w", ErrRecapCommitPending, err)
+}
+
+func recapCommitErrorCode(err error) string {
+	var api *agentapi.Error
+	if errors.As(err, &api) {
+		return api.Code
+	}
+	return actmem.CodeOf(err)
 }
 
 func (s *Service) resolvePendingRecaps(ctx context.Context, binding storage.SubjectHistoryBinding) error {
@@ -135,9 +195,9 @@ func (s *Service) resolvePendingRecaps(ctx context.Context, binding storage.Subj
 		if !found {
 			continue
 		}
-		var p recapPending
-		if err = json.Unmarshal(raw, &p); err != nil || p.Version != 1 || p.Fold.Binding != binding || recapPendingKey(&p) != key || p.Request.OperationID == "" || p.Request.Sources.Digest != p.Fold.Receipt {
-			return ErrRecapUnavailable
+		p, err := decodeRecapPending(raw, key, binding)
+		if err != nil {
+			return err
 		}
 		if _, found, err := s.lookupRecapPending(ctx, &p); err != nil {
 			return err
