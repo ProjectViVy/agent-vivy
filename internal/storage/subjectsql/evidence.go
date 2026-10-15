@@ -193,11 +193,12 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 				ToolCallID                   string                          `json:"tool_call_id"`
 				ToolName                     string                          `json:"tool_name"`
 				Args                         map[string]any                  `json:"args"`
+				OriginalArgumentsBytes       []byte                          `json:"original_arguments_bytes"`
 				OriginalArgumentsInvalidUTF8 bool                            `json:"original_arguments_invalid_utf8"`
 				OriginalArguments            string                          `json:"original_arguments"`
 				ArgumentsReference           *storage.ToolArgumentsReference `json:"arguments_reference"`
 			}
-			if json.Unmarshal(e.Payload, &p) != nil || p.OriginalArgumentsInvalidUTF8 || p.ToolCallID == "" || calls[p.ToolCallID] {
+			if json.Unmarshal(e.Payload, &p) != nil || e.PayloadVersion >= 2 || p.OriginalArgumentsInvalidUTF8 || len(p.OriginalArgumentsBytes) > 0 || p.ToolCallID == "" || calls[p.ToolCallID] {
 				return nil, "", storage.ErrSubjectEvidenceIncomplete
 			}
 			id := fmt.Sprintf("msgp_%s_%020d_1", in.RunID, e.Seq)

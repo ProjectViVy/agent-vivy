@@ -340,6 +340,29 @@ Edit/restore/clear reset the certificate through their existing empty Sources;
 never inherit it from an older revision after such a mutation. Empty cleared text
 must not be reconstructed from correction references.
 
+### Recovery clarification: supported automatic projection certificate
+
+The supplied recovery record's final controller ruling is exported here; it
+refines the same revision3 envelope, with no new owner, API or product scope.
+Before automatically admitting a nonempty source-bearing `summary`/`reconcile`
+head, the one host codec must require supported `projection_policy: 1`. Missing,
+malformed or unknown policy is unavailable evidence. Never rewrite or recertify an
+old automatic head merely to make admission succeed. This qualification precedes
+the ordinary covered-disposition reconciliation check described below.
+
+Explicit human edit/restore has intentionally empty Sources and may be admitted
+without this automatic certificate; do not inherit an older certificate. Existing
+covered-target reconciliation still applies. Empty/uninitialized/clear needs no
+invented certificate or covered replay. Keep nonempty v1/v2 owner replacement
+blocked separately. Positive fixtures use valid current receipts; retain legacy
+automatic negatives and manual edit/restore positives.
+
+Ruling cost if wrong: conservative availability loss for older automatic summaries,
+or explicitly human-restored excluded text entering the non-authoritative data
+block. Current grants, disposition, capacity and clear epoch checks still apply.
+Unknown input provenance is checked before any known exclusion; a partial safe
+subset cannot certify an unavailable whole input.
+
 This is a semantic C1 contract extension using unchanged Go DTOs/port signatures,
 not a proposed public RPC/schema expansion or new ACTMEM format number. Existing
 `laputa/actmem/{recap,recap_format,recap_history}.go` must all validate the new cause

@@ -105,6 +105,11 @@ func RunInputProvenance(ctx context.Context, journal Journal, runID domain.RunID
 	result := InputProvenance{ContentOrigin: ContentOriginOriginal}
 	for it.Next() {
 		event := it.Value().Event
+		// tool.requested v2 records raw invalid UTF-8 plus explicit unavailability.
+		// A terminal failure does not turn these received bytes into eligible input.
+		if event.Type == domain.EventToolRequested && event.PayloadVersion >= 2 {
+			return UnknownInputProvenance(), nil
+		}
 		if event.Type != domain.EventModelRequest {
 			continue
 		}

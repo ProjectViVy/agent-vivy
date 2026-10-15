@@ -166,7 +166,7 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
 				return nil, fmt.Errorf("decode tool.requested seq %d: %w", re.Seq, err)
 			}
-			if p.OriginalArgumentsInvalidUTF8 {
+			if re.PayloadVersion >= 2 || p.OriginalArgumentsInvalidUTF8 || len(p.OriginalArgumentsBytes) > 0 {
 				return nil, storage.ErrSubjectEvidenceIncomplete
 			}
 			args, err := json.Marshal(p.Args)

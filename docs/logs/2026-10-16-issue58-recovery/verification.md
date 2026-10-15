@@ -33,3 +33,38 @@ NOT RUN: full `just ci`, candidate race, real PostgreSQL, installed LIFE/#66, re
 - `dac4036c0bb80134be4330896f55075b427fcab2`: WIP S2 provenance. Tree2e438d8f equals local4e27122. NOT ACCEPTED: native checkpoint serialization, raw invalid-UTF8 producer path and remaining affected regressions were unresolved at this checkpoint. Later edits are not covered by its evidence.
 
 CLI push has no HTTPS credential. Connected GitHub API publication creates exact source trees with explicit parentage; author and committer were confirmed as the responsible human. Remote commit IDs therefore differ from local metadata. No forced ref update is used; a lease rejects concurrent branch movement.
+
+## S2 new-source gates and review
+
+Producer source candidate `0f27910a` (remote tree-equivalent `6694dc15`) passed
+`go test ./internal/runtime ./internal/app ./internal/storage/... -run '^TestIssue58|^TestNotebook|^Test.*Provenance' -count=1 -timeout=120s` and the same selected focused race gate as reported in its raw logs. These results do not close independent findings I1/I2. The [independent review](reviews/s2-provenance-review.md) requests changes.
+
+BLOCKED, not test PASS/FAIL: the attempted broad command
+`go test ./internal/runtime ./internal/app ./internal/storage/... -count=1 -timeout=180s`
+was rejected by automatic approval review for HTTPS to an untrusted/non-approved
+destination with unknown payload, advising approved/local dependency sources. The
+command log is empty and its session no longer exists. No full/justci retry or
+indirect bypass was attempted. Read-only inspection has not identified the exact
+external destination; external-looking test URLs are not proof of an actual request.
+Previously local focused validation is distinct from this rejected broad action.
+
+Additional fixed-baseline main regressions: TestRegisteredCustomProviderRunsFromItsOwnEndpoint and all three TestModelThinking tests passed (4 tests, no skips). This closes the exact test-name gap in the earlier broad compatibility regex; it is not live-model acceptance.
+
+## Accepted focused S2 producer cut
+
+Source8ae1db9d / treea76e8d96 closes I1/I2 by one TDD fix pass. Exact commands and
+all attempted logs, including initial compile/test failures and the empty blocked
+broad log, are preserved losslessly in evidence/s2-reimplementation-logs.tar.gz.
+
+- PASS: offline focused producer selection after fixes.
+- PASS: offline focused race: runtime20.301s, app11.680s, storage1.025s, SQLite2.414s.
+- PASS: root independent execution of TestIssue58InvalidUTF8StreamRetainsArgumentPrefixAndIdentity and TestIssue58InvalidArgumentsBlockObserverDelivery, with actual run events in evidence/s2-fix-verification.jsonl.gz.
+- SKIP: PostgreSQL real DB cases, no DSN.
+- BLOCKED: broad packages/justci after automatic rejection; no retry, no result.
+- NOT RUN: S3 actual HTTP/capacity/fold/CAS/receipt, new Recap UI, installed #66, native Windows, real-model quality.
+
+This accepts the focused producer interface for S3 implementation only. S2 full
+regression and centralized product acceptance remain open. Existing data, migrations
+and dependencies were not rewritten; no046 is introduced because existing fields
+and Journal can represent the evidence. Any discovered persistence gap invalidates
+that ruling and must be repaired before dependent activation.

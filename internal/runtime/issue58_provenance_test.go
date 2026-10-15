@@ -397,3 +397,88 @@ func TestIssue58NativeFinalizeRetainsProvenance(t *testing.T) {
 		}
 	}
 }
+
+func TestIssue58InvalidUTF8StreamRetainsArgumentPrefixAndIdentity(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "stream.db")
+	svc, b := openD15CrashService(t, path)
+	svc.deps.Sink = newTestSink()
+	conformance.Issue58Identity(t, b)
+	source := conformance.Issue58Source("invalid-stream", false)
+	mustCreateSession(t, b, source.SessionID)
+	svc.deps.SubjectSources = func(context.Context, domain.SessionID) (*storage.SubjectSourceBinding, error) { return &source, nil }
+	a := conformance.Issue58Admission(source, "invalid-stream-run")
+	if _, err := b.CommitRunAdmission(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	m := newEventMapper(a.Run.ID, 64<<10)
+	m.runProvider = "fixture"
+	m.runModel = "fixture"
+	index := 0
+	prefix := `{"value":"`
+	suffix := string([]byte{0xff}) + `"}`
+	chunks := []*schema.Message{{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{Index: &index, ID: "stream-operation", Function: schema.FunctionCall{Name: "issue58_exact", Arguments: prefix}}}}, {Role: schema.Assistant, ToolCalls: []schema.ToolCall{{Index: &index, Function: schema.FunctionCall{Arguments: suffix}}}}}
+	observed := svc.withLiveModelStreamObserver(ctx, m, source.SessionID, nil, nil, false, nil)
+	out, err := observeStream(observed, &observedModelCallCore{}, &fakeChatModel{streamReader: schema.StreamReaderFromArray(chunks)}, []*schema.Message{schema.UserMessage("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	if _, err := out.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := out.Recv(); !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+		t.Fatalf("invalid fragment forwarded: %v", err)
+	}
+	found := false
+	for _, event := range replayAll(t, b, a.Run.ID) {
+		if event.Type == domain.EventToolRequested {
+			var p payloadToolRequested
+			if err := json.Unmarshal(event.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			if p.ToolCallID != "stream-operation" || p.ToolName != "issue58_exact" || string(p.OriginalArgumentsBytes) != prefix+suffix || !p.OriginalArgumentsInvalidUTF8 {
+				t.Fatalf("lost exact stream arguments/identity: %+v", p)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("missing stream unavailable evidence")
+	}
+	if _, err := b.GetToolOperation(ctx, a.Run.ID, "stream-operation"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("invalid stream executed/admitted: %v", err)
+	}
+	svc.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{Message: "invalid streamed tool arguments"}))
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if _, _, err := reopened.ReadSubjectRunEvidence(ctx, source.SubjectHistoryBinding, a.Run.ID); !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+		t.Fatalf("invalid streamed source became sealable after reopen: %v", err)
+	}
+	ceiling, err := reopened.CaptureSubjectHistory(ctx, source.SubjectHistoryBinding)
+	if err != nil || ceiling != 0 {
+		t.Fatalf("invalid source sealed after restart: ceiling%d %v", ceiling, err)
+	}
+	persisted := false
+	for _, event := range replayAll(t, reopened, a.Run.ID) {
+		if event.Type == domain.EventToolRequested {
+			var p payloadToolRequested
+			if err := json.Unmarshal(event.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			if p.ToolCallID != "stream-operation" || p.ToolName != "issue58_exact" || string(p.OriginalArgumentsBytes) != prefix+suffix {
+				t.Fatalf("raw stream evidence changed after reopen: %+v", p)
+			}
+			persisted = true
+		}
+	}
+	if !persisted {
+		t.Fatal("raw stream evidence missing after restart")
+	}
+}

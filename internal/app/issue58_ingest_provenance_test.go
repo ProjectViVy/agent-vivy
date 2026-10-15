@@ -2,8 +2,10 @@ package app
 
 import (
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/sdk/port/observer"
 	"context"
 	"errors"
 	"path/filepath"
@@ -21,6 +23,7 @@ func TestIssue58AutomaticIngestProvenance(t *testing.T) {
 		{"unknown", `{"input_provenance":{"content_origin":"unknown","exclude_automatic_ingest":false}}`, 4, false, true},
 		{"missing-bool", `{"input_provenance":{"content_origin":"notebook"}}`, 4, false, true},
 		{"legacy", `{}`, 3, false, true},
+		{"invalid-args", `{"input_provenance":{"content_origin":"original","exclude_automatic_ingest":false}}`, 4, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -38,6 +41,11 @@ func TestIssue58AutomaticIngestProvenance(t *testing.T) {
 			if _, err := b.Append(ctx, storage.Commit{RunID: "r", Events: []domain.RunEvent{{Type: domain.EventModelRequest, PayloadVersion: tc.version, Payload: []byte(tc.request)}}}); err != nil {
 				t.Fatal(err)
 			}
+			if tc.name == "invalid-args" {
+				if _, err := b.Append(ctx, storage.Commit{RunID: "r", Events: []domain.RunEvent{{Type: domain.EventToolRequested, PayloadVersion: 2, Payload: []byte(`{"original_arguments_invalid_utf8":true,"original_arguments_bytes":"/w==","tool_call_id":"invalid","tool_name":"test","args":{}}`)}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			excluded, err := ingestExclusionPredicate(b)(ctx, "r")
 			if tc.unavailable {
 				if !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
@@ -45,6 +53,56 @@ func TestIssue58AutomaticIngestProvenance(t *testing.T) {
 				}
 			} else if err != nil || excluded != tc.excluded {
 				t.Fatalf("ingest decision %t %v", excluded, err)
+			}
+		})
+	}
+}
+
+type issue58IngestReceiver struct{ delivered int }
+
+func (*issue58IngestReceiver) ID() string { return "fixture/issue58-memory" }
+func (r *issue58IngestReceiver) ObserveRun(context.Context, observer.RunEvent) error {
+	r.delivered++
+	return nil
+}
+
+func TestIssue58InvalidArgumentsBlockObserverDelivery(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(map[bool]string{false: "original-delivers", true: "invalid-blocked"}[invalid], func(t *testing.T) {
+			ctx := context.Background()
+			b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "delivery.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer b.Close()
+			if err := b.CreateSession(ctx, domain.Session{ID: "delivery-session", CreatedAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.CreateRun(ctx, domain.Run{ID: "delivery-run", SessionID: "delivery-session", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			events := []domain.RunEvent{{Type: domain.EventModelRequest, PayloadVersion: 4, Payload: []byte(`{"input_provenance":{"content_origin":"original","exclude_automatic_ingest":false}}`)}}
+			terminal := domain.EventRunCompleted
+			if invalid {
+				events = append(events, domain.RunEvent{Type: domain.EventToolRequested, PayloadVersion: 2, Payload: []byte(`{"original_arguments_invalid_utf8":true,"original_arguments_bytes":"/w==","tool_call_id":"invalid","tool_name":"test","args":{}}`)})
+				terminal = domain.EventRunFailed
+			}
+			events = append(events, domain.RunEvent{Type: terminal, PayloadVersion: 2, Payload: []byte(`{"result":"committed evidence"}`)})
+			if _, err := b.Append(ctx, storage.Commit{RunID: "delivery-run", Events: events}); err != nil {
+				t.Fatal(err)
+			}
+			receiver := &issue58IngestReceiver{}
+			host, err := observerhost.New(observerhost.Config{Journal: b, Cursors: b.Snapshot(), RunSubscriptions: []observerhost.RunSubscription{{Provider: receiver, EventTypes: []string{string(domain.EventRunCompleted), string(domain.EventRunFailed)}, AllowedPayloadFields: []string{"result"}, ExcludeRun: ingestExclusionPredicate(b)}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = host.DeliverRun(ctx, "delivery-run")
+			if invalid {
+				if receiver.delivered != 0 || !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+					t.Fatalf("invalid evidence delivered to automatic observer %d %v", receiver.delivered, err)
+				}
+			} else if err != nil || receiver.delivered != 1 {
+				t.Fatalf("original observer delivery missing %d %v", receiver.delivered, err)
 			}
 		})
 	}

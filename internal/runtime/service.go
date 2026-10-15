@@ -3339,6 +3339,7 @@ type observedModelCall struct {
 	input             modelCallInput
 	provenance        storage.InputProvenance
 	provenanceStamped bool
+	toolCallChunks    []*schema.Message
 }
 
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -3405,13 +3406,30 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return nil
 	}
 	state := o.call(meta.CallID)
+	if state != nil && len(chunk.ToolCalls) > 0 {
+		// Retain only tool fragments; Eino remains the owner of concatenation
+		// semantics (Index/ID/name and raw argument string assembly).
+		state.toolCallChunks = append(state.toolCallChunks, &schema.Message{Role: schema.Assistant, ToolCalls: append([]schema.ToolCall(nil), chunk.ToolCalls...)})
+	}
 	for _, call := range chunk.ToolCalls {
 		if !utf8.ValidString(call.Function.Arguments) {
 			// Preserve a durable unavailable marker before either JSON encoding or
 			// Eino can normalize the invalid provider bytes into a valid string.
-			for _, event := range o.m.toolCallEvents(chunk) {
-				if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
-					return errors.New("runtime: invalid tool argument marker could not be journaled")
+			fragments := []*schema.Message{chunk}
+			if state != nil {
+				fragments = state.toolCallChunks
+			}
+			// ConcatMessages preserves raw Go string bytes and the first fragment's
+			// identity without JSON normalization. If the provider's fragment metadata
+			// is itself inconsistent, retain each received fragment as unavailable.
+			if joined, err := schema.ConcatMessages(fragments); err == nil {
+				fragments = []*schema.Message{joined}
+			}
+			for _, fragment := range fragments {
+				for _, event := range o.m.toolCallEvents(fragment) {
+					if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+						return errors.New("runtime: invalid tool argument marker could not be journaled")
+					}
 				}
 			}
 			return storage.ErrSubjectEvidenceIncomplete
