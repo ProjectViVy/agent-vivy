@@ -152,6 +152,27 @@ func (c *Catalog) RefForEndpoint(vendor string, endpoint Endpoint) (Ref, error) 
 	return ref, nil
 }
 
+// RefForSelection resolves one selection whose endpoint a user registered
+// (Settings → Models "custom provider") rather than the embedded data. That
+// entry declares an endpoint identity and a model list, never a credential
+// name and never capability, so the credential is the registry key the caller
+// already holds and the adapter is the one the entry named — which is what the
+// capability gate keys on. An adapter the sealed table does not execute fails
+// closed here exactly as it does through RefForEndpoint.
+//
+// name is the registry alias: it labels the Ref and the KeyMissingError, and
+// is never looked up in the embedded data.
+func (c *Catalog) RefForSelection(name string, endpoint Endpoint) (Ref, error) {
+	if err := checkAdapter(endpoint.Adapter); err != nil {
+		return nil, fmt.Errorf("provider %q: %w", name, err)
+	}
+	ref, err := newAdapterRef(endpoint.Adapter, Vendor{Name: name, DisplayName: name}, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("provider %q: %w", name, err)
+	}
+	return ref, nil
+}
+
 // For resolves a vendor name to a Ref over that vendor's default endpoint.
 func (c *Catalog) For(name string) (Ref, error) {
 	vendor, ok := c.Vendor(name)
