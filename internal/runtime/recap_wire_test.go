@@ -45,6 +45,14 @@ func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
 		f.requests = append(f.requests, string(raw))
 		f.mu.Unlock()
 		reply := f.reply(index)
+		var request struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.Unmarshal(raw, &request); err == nil && !request.Stream {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"id": "fixture", "object": "chat.completion", "model": "fixture", "choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": reply.Content}, "finish_reason": "stop"}}})
+			return
+		}
 		delta := map[string]any{"role": "assistant", "content": reply.Content}
 		reason := "stop"
 		if len(reply.ToolCalls) > 0 {
@@ -77,7 +85,7 @@ func newIssue58Wire(t *testing.T, availableTools ...tools.Tool) *issue58Wire {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()})
+	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(), ToolEvidence: f.b.Blobs()})
 	f.svc.SetCatalog(provider.NewCatalog(provider.Vendor{Name: "fixture", Endpoints: []provider.Endpoint{{Adapter: provider.AdapterOpenAICompletions, DefaultModel: "fixture", Models: []provider.Model{{ID: "fixture", ContextWindow: 128000}}}}}))
 	conformance.Issue58Identity(t, f.b)
 	mustCreateSession(t, f.b, "main-reader")
@@ -252,7 +260,7 @@ func (f *issue58Wire) reopen(t *testing.T, recoverPending bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.owner.store.Close() })
-	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(), Recap: f.owner})
+	f.svc = NewService(eng, "fixture", "fixture", ServiceDeps{Journal: f.b, Runs: f.b, Messages: f.b, Sessions: f.b, Truncations: f.b, Questions: f.b, Approvals: f.b, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(), ToolEvidence: f.b.Blobs(), Recap: f.owner})
 	f.svc.SetCatalog(catalog)
 	issue58Sources(f.svc, f.sources)
 	if recoverPending {

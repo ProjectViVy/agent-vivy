@@ -144,7 +144,21 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		return CompactionResult{}, err
 	}
 	if source != nil && source.ConversationID != "" {
-		return CompactionResult{}, ErrRecapReconciliationRequired
+		s.mu.Lock()
+		busy := len(s.active) > 0 || len(s.pending) > 0
+		s.mu.Unlock()
+		if busy {
+			return CompactionResult{}, ErrCompactionBusy
+		}
+		before, readErr := s.deps.Recap.ReadRecap(ctx)
+		if readErr != nil {
+			return CompactionResult{}, readErr
+		}
+		head, compactErr := s.compactSubjectRecap(ctx, source.SubjectHistoryBinding, opts.Instructions)
+		if compactErr != nil {
+			return CompactionResult{}, compactErr
+		}
+		return CompactionResult{Folded: int(head.CoveredThrough - before.CoveredThrough), Skipped: head.Revision == before.Revision}, nil
 	}
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")

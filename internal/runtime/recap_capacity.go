@@ -25,6 +25,9 @@ type recapRequestUsage struct {
 
 func (s *Service) recapOutputLimit(ctx context.Context) int {
 	n := recapOutputTokens
+	if _, summary := ctx.Value(recapSummaryKey{}).(*recapFold); summary {
+		n = recapSummaryOutputTokens
+	}
 	if maximum := s.recapModelInfo(ctx).MaxOutputTokens; maximum > 0 && maximum < n {
 		n = maximum
 	}

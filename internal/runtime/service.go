@@ -278,6 +278,7 @@ type Service struct {
 	bundleChecks     map[domain.RunID]bundlecontract.CaptureCheck
 	workflowStartMu  sync.Mutex
 	workflowNodeMu   sync.Mutex
+	recapCommitMu    sync.Mutex
 	operationMu      sync.Mutex
 	operationFlights map[string]*toolOperationFlight
 	goalStarting     map[domain.SessionID]struct{}
