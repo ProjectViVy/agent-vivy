@@ -45,19 +45,27 @@ func Open(ctx context.Context, in cognitivecontract.FactoryInput) (cognitivecont
 	}
 	gardenRoot := filepath.Join(dataRoot, "garden")
 	owner, err := agentapi.Open(ctx, agentapi.Config{
-		PersonaDir: filepath.Join(gardenRoot, "persona"),
-		PalacePath: filepath.Join(gardenRoot, "palace", "palace.db"),
-		ModelsDir:  filepath.Join(gardenRoot, "models"),
-		StateDB:    filepath.Join(gardenRoot, "garden.db"),
-		ProfileID:  profileID,
-		AgentID:    agentID,
-		Platform:   platformID,
-		Principal:  agentapi.PrincipalUser,
+		PersonaDir:          filepath.Join(gardenRoot, "persona"),
+		PalacePath:          filepath.Join(gardenRoot, "palace", "palace.db"),
+		ModelsDir:           filepath.Join(gardenRoot, "models"),
+		StateDB:             filepath.Join(gardenRoot, "garden.db"),
+		ProfileID:           profileID,
+		AgentID:             agentID,
+		Platform:            platformID,
+		Principal:           agentapi.PrincipalUser,
+		ResolveRecapBinding: in.ResolveRecapBinding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("diva-cognitive: open garden owner: %w", err)
 	}
-	b := &bundle{owner: owner, strategyDigest: strategyDigest()}
+	recap, err := owner.BindRecap()
+	if err != nil {
+		_ = owner.Close()
+		return nil, fmt.Errorf("diva-cognitive: bind recap owner: %w", err)
+	}
+	b := &bundle{owner: owner, recap: recap, strategyDigest: strategyDigest()}
+	// Legacy capture/evolution scope stays on its existing profile binding.
+	// It neither grants nor selects the separate trusted Recap subject/domain.
 	b.scope = laputaevolution.Scope{
 		SubjectID:   profileID,
 		Kind:        laputaevolution.ScopePersonal,
@@ -93,6 +101,7 @@ func strategyDigest() string {
 
 type bundle struct {
 	owner          *agentapi.Client
+	recap          cognitivecontract.RecapPort
 	scope          laputaevolution.Scope
 	sourceID       string
 	strategyDigest string

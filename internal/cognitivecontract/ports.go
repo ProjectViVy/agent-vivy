@@ -27,8 +27,14 @@ type Factory func(context.Context, FactoryInput) (Bundle, error)
 // identity, and the owned storage dependency the durable trigger record is
 // persisted under. It introduces no second storage DTO scheme.
 type FactoryInput struct {
-	// Config is the trusted embedder config; the factory derives every
-	// Garden-owned path and identity from it.
+	// ResolveRecapBinding registers/verifies the organism subject, complete
+	// sharing domain and actual existing ACTMEM owner path before workers start.
+	// Supplied only by trusted composition; nil leaves optional Recap unarmed.
+	// It must never infer a subject from ProfileID or UI/model fields.
+	ResolveRecapBinding func(context.Context, string) (RecapBinding, error)
+
+	// Config is the trusted embedder config; the factory derives Garden paths
+	// and legacy persona/profile bindings from it. Recap identity is separate.
 	Config config.Config
 	// GenerationID is the sealed Generation identity proven by the
 	// composition; a selected factory may refuse an empty identity.
