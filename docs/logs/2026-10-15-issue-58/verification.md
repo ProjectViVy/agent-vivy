@@ -12,7 +12,7 @@ Environment
 | Go | `go1.26.4 windows/amd64` (`CGO_ENABLED=0`, `CC=gcc` not installed) |
 | node / just | `v24.19.0` / `just 1.46.0` |
 | Vivy lane | `feat/issue-58-life-continuity`, branched from `66fabfd2`; `main` unchanged at `5715950d` |
-| Laputa pin | `bb57e93a61cfb41460524d00a557a3a9f2cce1e7`, parent `4c7c6b20859375d0d764d3ba2a0188926cf73c9e`, tree clean |
+| Laputa pin | `bb57e93a61cfb41460524d00a557a3a9f2cce1e7` at the T1 baseline; **advanced to `8c5328daa7a4e9cdd089d78858de087a36fb0843` in T1b** (`v0.0.0-20261015195414-8c5328daa7a4`, `refs/heads/feat/issue-58-recap`), tree clean |
 
 ## Scene protection
 
@@ -72,13 +72,31 @@ Fix applied: the fixture builds the identity via `domain.SubjectIdentity` with
 
 | Command | Result |
 |---|---|
-| `go test ./internal/storage/... ./internal/app ./internal/rpc -run '^TestIssue58' -count=1 -json` | exit 0 — **pass=62 fail=0 skip=16** |
-| `go test -mod=readonly ./internal/modules/diva-cognitive ./internal/cognitivecontract -count=1 -json` | exit 0 — **pass=41 fail=0 skip=1** |
+| `go test ./internal/storage/... ./internal/app ./internal/rpc -run '^TestIssue58' -count=1 -json` | exit 0 — **pass=62 fail=0 skip=16 event totals** |
+| `go test -mod=readonly ./internal/modules/diva-cognitive ./internal/cognitivecontract -count=1 -json` | exit 0 — **pass=41 fail=0 skip=1 event totals** |
 | `go test -p 1 -timeout 35m ./internal/runtime ./internal/storage/... -count=1` | exit 0 — runtime ok 342.5s, storage ok 2.6s, migrations ok 4.9s, postgres ok 0.1s, sqlite ok 103.5s |
 | `go vet ./...` | exit 0 |
 | `go build ./...` | exit 0 |
 | `git diff --check` | exit 0 (no output) |
 | `just ci` `fmt-check` equivalent over tracked Go files | exit 0 (no unformatted files) |
+
+**Counting method (corrected in T1b).** `go test -json` emits both test-level and
+package-level events, so a raw `"Action":"pass"`/`"Action":"skip"` count overstates
+the number of tests. For the focused run the two readings are:
+
+| Reading | pass | fail | skip |
+|---|---|---|---|
+| Event totals (as tabulated above) | 62 | 0 | 16 |
+| Test-level (top-level + subtest) | 56 | 0 | 13 |
+| Package-level | 6 | 0 | 3 |
+
+The 3 package-level skips are `internal/storage/bundlesql`,
+`internal/storage/conformance` and `internal/storage/subjectsql`, which match no
+`^TestIssue58` test (`no tests to run`). The 6 package-level passes are
+`internal/storage`, `postgres`, `migrations`, `rpc`, `sqlite` and `app`, all `ok`.
+Both readings reproduce identically before and after the T1b pin advance, so the pin
+change caused no test-outcome change. The earlier T1 record quoted the event totals
+without this distinction; that was imprecise, not a different result.
 
 Focused skips, listed by name and **not** counted as passes: 13 PostgreSQL-server
 `TestIssue58` suites (`AdmissionBoundaries`, `ContinuityReplayBinding`,
@@ -107,7 +125,6 @@ production code — only created, locked and closed.
 
 Isolation experiment (reversible): the helper was patched locally to skip
 `.owner.lock`, the suites were rerun, and the pristine file was then restored.
-This is **not** a landed change to the Laputa repository.
 
 | Command (Laputa, patched locally, unpublished) | Result |
 |---|---|
@@ -118,7 +135,7 @@ Restoration verified: restored file SHA-256 equals the backup
 (`55005D26…D3D18A`), Laputa `git status --porcelain` empty, HEAD still
 `bb57e93…`, and `just ensure-laputa` exits 0 again.
 
-Prepared upstream patch (exact, unpublished):
+The exact patch that was later published (unchanged from the isolated experiment):
 
 ```diff
 --- a/laputa/actmem/recap_test.go
@@ -147,11 +164,65 @@ Prepared upstream patch (exact, unpublished):
  				return e
 ```
 
+## T1b — publication and re-pin verification
+
+The owner authorized publishing this patch, so the "unpublished local experiment"
+above became a real upstream commit followed by a coordinated re-pin. Sequence and
+evidence:
+
+1. **Commit.** In the Laputa checkout, local branch `feat/issue-58-recap` was created
+   at the previously pinned `bb57e93`. The helper was patched and committed as
+   `8c5328daa7a4e9cdd089d78858de087a36fb0843` (author `mastwet`, no AI attribution,
+   8 insertions in one file, `git diff --stat` = 1 file changed).
+2. **Verify before pushing.** Native Windows, at that exact commit:
+   `go test ./actmem -run '^TestIssue58' -count=1 -v` → **pass=29 fail=0 skip=1**;
+   `go test ./...` for the `laputa` module → `actmem ok 5.038s`, `evolution`,
+   `evolution/diva`, `evolution/inofy`, `persona` all `ok`, exit 0.
+3. **Push.** Direct GitHub connections on this machine are intermittent
+   (`Failed to connect to github.com port 443 after 21s`, three consecutive direct
+   attempts). The push succeeded through the machine's local proxy:
+   `git -c http.proxy=http://127.0.0.1:7892 push origin 8c5328d:refs/heads/feat/issue-58-recap`
+   → `bb57e93..8c5328d` (a fast-forward; no force, no history rewrite).
+   Remote verified: `git ls-remote --heads ... feat/issue-58-recap` →
+   `8c5328daa7a4e9cdd089d78858de087a36fb0843`.
+4. **Pseudo-version.** Derived from the commit, not invented:
+   commit time `2026-10-16T03:54:14+08:00` = epoch `1792094054` =
+   `2026-10-15T19:54:14Z` → `v0.0.0-20261015195414-8c5328daa7a4`.
+5. **Re-pin.** `go.mod` (three `require` lines), `laputa-source.lock.json`
+   (`commit`), and `go.sum` six new lines.
+6. **go.sum cross-check.** The hashes were not derived by hand. A throwaway module
+   (`.workspace/tmp/laputa-sum`, no `replace`, `GONOSUMDB=github.com/ProjectViVy/*`)
+   downloaded all three modules at the published version and printed the canonical
+   `Sum`/`GoModSum`. The lines written into this repository's `go.sum` are identical
+   to that output:
+
+   ```text
+   garden  h1:TzPbwAjK7l82kUUyOn617cpoyNpqI0NcXqrvVU9q2yo=  go.mod h1:t+6aPD6GSpEPu455CqChrFYzsHnPuflsjme5ralof/I=
+   laputa  h1:VK7gAt1R4LvAiDgNAw6VqKoGkvyjv/jJGsgQMinHDmg=  go.mod h1:nctqXPUme+YhoV1SMwVqnrIkTKoHaJNl+0yvZn/7ZaE=
+   mentle  h1:emgqDUul4zJ7TUZgtFOB9TUyvA2OAJR6bHbsciCcxs0=  go.mod h1:0CHmst4cXuP9bCslJ1ZQMrHo4ZS3ivVg92YGM3vtjsA=
+   ```
+
+   The three `go.mod` hashes are unchanged from the previous pin (expected: no
+   `go.mod` was edited); the three module hashes changed (expected: a module zip's
+   hash covers `<module>@<version>/...` paths, so the version participates).
+7. **Pin consistency in this repository.**
+   `just ensure-laputa` → exit 0 (lock and local checkout agree, tree clean).
+   `just bootstrap-test` → 11 pass / 0 fail, which includes the
+   `dependency-closure` test asserting all three `go.mod` revisions match the lock.
+8. **No regression from the pin advance.** Focused `TestIssue58` on the new pin:
+   pass=62 fail=0 skip=16 (event totals, identical to T1);
+   `go vet ./...` exit 0; `go build ./...` exit 0; `git diff --check` exit 0.
+
+Scope note: this makes the pinned owner tests **runnable** on Windows. It is not a
+durability result in itself — Windows durability still rests on the owner's own
+crash, recovery and reconcile suites, and a snapshot helper that skips an unreadable
+ownership artifact adds no coverage.
+
 ## Unavailable gates
 
 | Gate | Evidence it cannot run here |
 |---|---|
-| `go test -race ./...` (Laputa and Vivy) | `go: -race requires cgo`. With `CGO_ENABLED=1 CC=clang`: `clang: error: unsupported option '-mthreads' for target 'x86_64-pc-windows-msvc'`. With `CGO_ENABLED=1 CC="zig cc"`: `lld-link: error: undefined symbol: WakeByAddressSingle` / `WakeByAddressAll`. No `gcc.exe` exists anywhere under the usual toolchain roots. |
+| `go test -race ./...` (Laputa and Vivy) | `go: -race requires cgo`. With `CGO_ENABLED=1 CC=clang`: `clang: error: unsupported option '-mthreads' for target 'x86_64-pc-windows-msvc'`. With `CGO_ENABLED=1 CC="zig cc"`: `lld-link: error: undefined symbol: WakeByAddressSingle` / `WakeByAddressAll`. No `gcc.exe` exists anywhere under the usual toolchain roots. The owner authorized a local mingw-w64 install; `choco install mingw -y` **failed** because this shell is not elevated (`IsInRole(Administrator)` = `False`): `Unable to obtain lock file access on 'C:\ProgramData\chocolatey\lib\...'`, then `Access to the path 'C:\ProgramData\chocolatey\lib-bad' is denied`, `Cannot create directory`, `Chocolatey installed 0/0 packages`. Still needs an elevated install or a portable user-space toolchain. |
 | Garden `go test ./agentapi ./internal/runtimecore/...` | build failure: `github.com/coder/hnsw@v0.6.1/encode.go:304:23: undefined: renameio.TempFile` — upstream `renameio` ships only `!windows` files; Vivy carries a vendored replacement in `go.mod` only, so Garden cannot build natively as its own module. Pre-existing, unrelated to #58. |
 | Real PostgreSQL parity / snapshot isolation | No `VIVY_POSTGRES_TEST_DSN`, no `psql`, no Docker. |
 | `just ci` full recipe | Not run in this step; the focused, broad, vet, build and fmt gates above were run instead. |
@@ -159,7 +230,12 @@ Prepared upstream patch (exact, unpublished):
 
 ## Not verified here
 
-`just ci` at a frozen candidate, native Windows race/durability for the pinned
-Laputa tree, real PostgreSQL migration and isolation parity, real-model quality,
-installed-artifact behaviour, DIVA/Mentle acceptance, the `#66` sidebar producer,
-and all of S3–S6. No product acceptance is claimed by this step.
+`just ci` at a frozen candidate, `-race` on this machine, real PostgreSQL migration
+and isolation parity, real-model quality, installed-artifact behaviour, DIVA/Mentle
+acceptance, the `#66` sidebar producer, and all of S3–S6. No product acceptance is
+claimed by this step.
+
+Windows durability for the pinned Laputa owner is now **runnable and passing**
+(`actmem` Issue58 pass=29 fail=0 skip=1 at `8c5328daa7a4`), but see the scope note in
+T1b: a helper that skips an unreadable ownership artifact enables the suite, it does
+not add durability coverage.

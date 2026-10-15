@@ -12,7 +12,12 @@ main conversation above Sessions; ordinary Coding boundaries stay unchanged.
 
 Lane: `feat/issue-58-life-continuity`, branched from `66fabfd2`
 (`origin/feat/issue-58-implementation`, 8 commits ahead of `main` `5715950d`).
-Lane work happens in the root checkout, `main` is never moved, nothing is pushed.
+Lane work happens in the root checkout; `main` is never moved. The only push in
+this lane is the authorized Laputa test-helper fix recorded in T1b; nothing from
+this repository has been pushed.
+
+Current Laputa pin: `8c5328daa7a4e9cdd089d78858de087a36fb0843`
+(`v0.0.0-20261015195414-8c5328daa7a4`, `refs/heads/feat/issue-58-recap`).
 
 ---
 
@@ -42,8 +47,10 @@ Done:
 - Prepared (but did not publish) one upstream Laputa test-helper patch; recorded
   it as a blocker instead of silently editing another repository's pin.
 
-Tests: pass=62 fail=0 skip=16 focused `TestIssue58` (storage/app/rpc);
-pass=41 fail=0 skip=1 cognitive; broad `./internal/runtime ./internal/storage/...`
+Tests: pass=62 fail=0 skip=16 **event** totals for the focused `TestIssue58`
+(storage/app/rpc) run — of which 56 pass and 13 skip are test-level and 6 pass
+plus 3 skip are package-level (see T1b for the recount); pass=41 fail=0 skip=1
+event totals for cognitive (`diva-cognitive`/`cognitivecontract`); broad `./internal/runtime ./internal/storage/...`
 ok; `go vet ./...`, `go build ./...`, `git diff --check` and the `just ci`
 `fmt-check` equivalent all exit 0; `just bootstrap-test` 11 pass / 0 fail.
 Skipped (never counted as pass): 13 PostgreSQL-server `TestIssue58` suites without
@@ -67,16 +74,68 @@ the affected gates.
 
 ---
 
+## T1b — Laputa Windows test-helper fix published; pin advanced
+
+HEAD: T1b content commit (see below)
+Laputa pin: `8c5328daa7a4e9cdd089d78858de087a36fb0843` (parent `bb57e93…`),
+published on `refs/heads/feat/issue-58-recap`, tree clean
+
+The owner authorized publishing the upstream test-helper patch and re-pinning, and
+authorized a local mingw-w64 install for the race lane. Both T1 blockers were then
+resolved or advanced.
+
+Done:
+- Committed the one-helper fix in the Laputa checkout as `8c5328daa7a4` on branch
+  `feat/issue-58-recap`, on top of the previously pinned `bb57e93`. Test-only change
+  in `laputa/actmem/recap_test.go`; no production path, no authority contract and no
+  `AGENTS.md` non-negotiable is touched.
+- Pushed it as a fast-forward (`bb57e93..8c5328d`) and verified the remote ref by
+  `ls-remote`. Direct GitHub connections are intermittent on this machine; the push
+  succeeded through the machine's local proxy (`http://127.0.0.1:7892`).
+- Advanced the coordinated pin in `go.mod` (three requires),
+  `go.sum` (six new lines) and `laputa-source.lock.json` to
+  `v0.0.0-20261015195414-8c5328daa7a4`. The `go.sum` hashes were not hand-derived:
+  they were produced by downloading the three modules at the published version in a
+  throwaway module without `replace`, then cross-checked line-for-line against the
+  values recorded in this repository.
+- Corrected an evidence-accuracy defect in the T1 record: the focused figures
+  `pass=62 / fail=0 / skip=16` are **event** totals, not test totals. Of those
+  events, 56 pass and 13 skip are test-level (top-level plus subtest) and 6 pass plus
+  3 skip are package-level (the 3 are packages with no matching test). Both readings
+  reproduce, and neither changed with the new pin, so nothing regressed.
+
+Tests: Laputa native Windows at the published commit — actmem Issue58 pass=29
+fail=0 skip=1, `go test ./...` for the `laputa` module ok; `just ensure-laputa`
+exit 0; `just bootstrap-test` 11 pass / 0 fail; Vivy focused `TestIssue58` on the new
+pin pass=62 fail=0 skip=16 (event totals); `go vet ./...`, `go build ./...`,
+`git diff --check` all exit 0.
+
+Remaining risk:
+- The Windows test now depends on the lock being excluded from a snapshot helper.
+  That is a test-visibility decision, not a durability claim: it removes an
+  unreadable ownership artifact from a content assertion and adds no coverage. Real
+  Windows durability still rests on the owner's own crash/recovery suites.
+- `-race` remains unverified. `choco install mingw` was attempted and **failed**:
+  this shell is not elevated and cannot write `C:\ProgramData\chocolatey\lib`.
+  A user-space toolchain or a Linux lane is still needed.
+- PostgreSQL, Garden-on-Windows and `just ci` on a frozen candidate remain open, as
+  in T1.
+
+Next: T2 — merge `main` into this lane, resolve the 8 overlapping files, rerun the
+affected gates.
+
+---
+
 ## Blockers awaiting an owner decision
 
-1. **Upstream Laputa test-helper patch.** The pinned owner holds `.owner.lock`
-   under an exclusive byte-range lock for its whole lifetime; on Windows the
-   `issue58Files` snapshot helper cannot read it, so 7 top-level and 22 subtest
-   Windows cases fail on a pristine checkout. The exact minimal patch is in
-   `verification.md`. Landing it needs a published commit in
-   `ProjectViVy/laputa` plus a coordinated re-pin of `garden`/`laputa`/`mentle`
-   in `go.mod`, `go.sum` and `laputa-source.lock.json`. No push is authorized.
-2. **`-race` toolchain.** Not executable here: `-race requires cgo`;
+1. ~~**Upstream Laputa test-helper patch.**~~ **RESOLVED in T1b.** The owner
+   authorized publication; the fix is now Laputa `8c5328daa7a4` on
+   `feat/issue-58-recap` and all three pins were advanced together. Native Windows
+   durability evidence is no longer blocked on this.
+2. **`-race` toolchain.** Still blocked. Not executable here: `-race requires cgo`;
    `clang` rejects Go's `-mthreads`; `zig cc` links with
-   `undefined symbol: WakeByAddressSingle`. Needs a mingw-w64 gcc, or a
-   Linux/WSL environment for the race lane.
+   `undefined symbol: WakeByAddressSingle`. The owner authorized a local mingw-w64
+   install, but `choco install mingw` fails because this shell is not elevated
+   (`Unable to obtain lock file access on C:\ProgramData\chocolatey\lib\...`,
+   `Access to C:\ProgramData\chocolatey\lib-bad is denied`). Needs an elevated
+   install, a portable user-space toolchain, or a Linux/WSL race lane.

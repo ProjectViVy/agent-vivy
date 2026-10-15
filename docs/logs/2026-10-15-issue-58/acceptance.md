@@ -15,8 +15,8 @@ minutes with the checks below.
    git -C ../laputa status --porcelain
    ```
 
-   Expect `bb57e93a61cfb41460524d00a557a3a9f2cce1e7`, parent
-   `4c7c6b20859375d0d764d3ba2a0188926cf73c9e`, and empty status. The owner files
+   Expect `8c5328daa7a4e9cdd089d78858de087a36fb0843`, parent
+   `bb57e93a61cfb41460524d00a557a3a9f2cce1e7`, and empty status. The owner files
    `../laputa/laputa/actmem/recap.go`, `recap_format.go` and `recap_history.go`
    exist, and `recap_history.go` contains a reachable `"reconcile"` transition.
 
@@ -54,17 +54,42 @@ minutes with the checks below.
   is built.
 - No Recap is written, no compaction runs, no memory UI exists. `S3`–`S6` are
   still unimplemented.
-- Windows durability of the pinned owner is not yet an accepted result. The
-  pristine pinned tree still fails its Windows suite on the owner-lock read; the
-  passing numbers in `verification.md` come from an unpublished local patch.
 - PostgreSQL and `-race` claims are absent by design, not by omission of a
   passing run.
 
-## Decisions this step needs from the owner
+## What changed after the owner's authorizations
 
-1. Whether to publish the prepared one-helper Laputa patch and re-pin
-   `garden`/`laputa`/`mentle` (no push is currently authorized). Until then,
-   native Windows durability evidence stays `Pending`.
-2. Whether to provide a mingw-w64 toolchain, a WSL/Linux lane, or accept `-race`
-   as a documented gap. The concurrency gates in `S3`–`S4` depend on it.
-3. Whether a PostgreSQL DSN can be supplied for the migration-parity rows.
+The owner authorized publishing the Laputa test-helper patch and a local
+mingw-w64 install. The publication is done; the mingw install is not.
+
+- **Windows durability is now a runnable, reproduced result.** A human can confirm
+  it directly:
+
+  ```powershell
+  git -C ../laputa rev-parse HEAD          # expect 8c5328daa7a4...
+  git -C ../laputa status --porcelain      # expect empty
+  cd ../laputa/laputa; go test ./actmem -run '^TestIssue58' -count=1
+  # expect ok, 29 pass / 0 fail / 1 skip
+  ```
+
+  And from this repository:
+
+  ```powershell
+  just ensure-laputa      # exit 0: lock and checkout agree
+  just bootstrap-test     # 11 pass / 0 fail, includes the pin-vs-lock assertion
+  ```
+
+  Scope honesty: the fix excludes the lifetime owner lock from a test snapshot
+  helper, because Windows holds it under an exclusive byte-range lock. That makes the
+  suite runnable; it does not add durability coverage.
+
+- **The mingw install did not succeed.** `choco install mingw -y` fails because this
+  shell is not elevated and cannot write `C:\ProgramData\chocolatey\lib`. `-race` is
+  therefore still unverified on this machine.
+
+## Decisions this step still needs from the owner
+
+1. How to complete the `-race` toolchain: run an elevated `choco install mingw`,
+   install a portable user-space mingw-w64, or provide a WSL/Linux race lane. The
+   concurrency gates in `S3`–`S4` depend on it.
+2. Whether a PostgreSQL DSN can be supplied for the migration-parity rows.
