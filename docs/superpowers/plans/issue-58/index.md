@@ -12,6 +12,34 @@ The owner's explicit development instruction accepts the corrected execution pla
 it does not authorize deployment, mainline merge or switching tenant data. Progress
 and acceptance below must still derive from actual evidence.
 
+## Recovery status — 2026-10-16
+
+The owner authorized recovery in a new independent lane. Remote `66fabfd` and main
+`5715950` were re-fetched; local integration `b91096c` plus recovery notes `ab382bf`
+were published as tree-equivalent remote `cf9dbe18e2b40f41324d40ca80b95d8da22b72ca`
+(tree `77f1cc77b84c26e70a5ed175de1e359a9340017b`). Different metadata/history does
+not imply identical commit identity. No reset or clean was used.
+
+The earlier Story rows below describe remote delivery history, not current
+acceptance. Original `c113cac`/`858af73` source and S3 uncommitted files are
+unavailable. Cleanup staging has zero files and no Git objects. Do not reuse
+its old GREEN, independent review claims or checked progress as fresh evidence.
+
+| Story | Current recovery disposition | Fresh evidence / next gate |
+|---|---|---|
+| S0 | Existing scope/design retained | No new product design or confirmation |
+| S1 | Remote owner/facade present, revalidation underway | Exact bb57e93 owner: 114 passing events; final platform/candidate gates pending |
+| S2 | Tasks 1–3 present; missing Task 4 is being reimplemented | Baseline fixed b91096: 108 passing events, zero failures, 13 PostgreSQL DSN skips. Provenance reimplementation not yet accepted |
+| S3 | Unimplemented in recoverable remote; blocked on missing provenance producer | Rebuild input admission then native summary/CAS/positive receipt; do not equate Task1 input wiring with S3 |
+| S4 | Planned, not delivered | Same-owner actions/tools and complete UI remain |
+| S5 | Planned, not delivered | BML/single sink/legacy exit; #66 installed producer absent |
+| S6 | Not run | One fixed candidate; HTTP/scope/cancel/restart/race/migration/UI/Windows and real-model quality |
+
+Baseline UI build/typecheck and 692 Vitest tests passed. These are baseline
+regressions, not the missing Recap UI acceptance. Details and strict result
+classification: [recovery record](../../../logs/2026-10-16-issue58-recovery/summary.md).
+The seven-Story DAG and external EXT-66 boundary remain unchanged.
+
 ## Epics, dependencies and readiness
 
 | Story | Epic / requirements | Outcome | Immediate predecessors / accepted output | Plan | State | Evidence / blocker |
