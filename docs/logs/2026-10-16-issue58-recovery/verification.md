@@ -496,3 +496,37 @@ finding. These greens do not override either RED. All19 artifact hashes verified
 unaccepted. One consolidated author native TDD fix is released; root will rerun
 unchanged probes and affected fixed normal/race before publication/pin activation.
 Vivy still pinsbb57 and no BML consumer is active. See independent report/archive.
+
+## Native consolidated fix and exact dependency publication
+
+Native fixeda99c25feea48e151c847cea81015bec0fdfe80bf/tree
+9fff8cf9d5ca174a1af90e43a0e718281a24635e is published as remote
+249a756e04c5f28af781e4dadea9e9086689bde0, exact tree verified. One local
+complete-document guard and presence/non-null check reject malformed uncertain
+snapshot metadata before any write; legitimate explicit zero/nonzero still recover
+true native receipts. Original raw DB JSON and C1/archive bytes remain unchanged
+on all six refusal paths. Shared evolution helper is unchanged.
+
+Root runs original unchanged reviewer probes on isolated fixeda99: PASS8 tests
+plus1package,0fail/skip,2.731s. Root fixed Garden normal/race each181tests+3packages
+PASS9.715s/44.471s; ACTMEM normal/race each120+1 PASS0.717s/3.877s. Each lane totals
+301tests+4packages with0fail/skip/race. All local-only runs rejected0/forwarded0.
+Original probe hashes/overlays, raw fixed results and author RED8pass/12fail plus
+GREEN20 are retained in separate archives. This accepts the native producer
+interface after independent review and one consolidated TDD pass, not whole S5.
+
+Normal git fetch of the actual published249 succeeds in5.392s. A minimal external
+modfile with no replace resolves all3 new published modules using ordinary go mod
+download, official Go proxy/direct and sum.golang.org: PASS80.976s. All3 signed
+sumdb cache notes and actual Sum/GoModSum are retained. Every10 changed Go files
+inside normal module-cache sources matches its published249 Git blob byte-for-byte.
+No manually fabricated module zip or checksum was used.
+
+Vivy pin candidatefdcb25a554df79c7938287b89a539c905804ca63, tree471a603a,
+remote1d0e1268 exact verified, updates only go.mod/go.sum/source lock to
+v0.0.0-20261015222145-249a756e04c5. Actual sibling HEAD is now published249, clean;
+local source branch/a99 and all history are preserved. Main re-fetch remains5715950.
+Root isolated fixed-fdcb affected consumer selection PASS318tests+5packages,
+2explicit opt-in fixture skips,0fail,53.722s, rejected0/forwarded0. Consumer race is
+RUNNING separately. No current/full UI, native Windows, BML/loaded/source-consumer
+or S6 product acceptance is inferred from dependency publication or these greens.
