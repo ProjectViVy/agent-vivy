@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 )
@@ -70,7 +71,8 @@ func TestModelThinkingRejectsUnknownLevelAndReadOnly(t *testing.T) {
 }
 
 // TestModelThinkingLevelsAnswersDeclaredSurface: the test model declares no
-// thinking support, so the levels verb answers an empty list.
+// thinking support, so the levels verb answers an empty list — an empty JSON
+// array on the wire, never null (the UI reads `.length` on it).
 func TestModelThinkingLevelsAnswersDeclaredSurface(t *testing.T) {
 	env := newControlTestEnv(t)
 	result, rpcErr := callControl(t, env.handler, "model/thinking/levels", nil)
@@ -78,6 +80,16 @@ func TestModelThinkingLevelsAnswersDeclaredSurface(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	view := result.(map[string]any)
+	if view["levels"] == nil {
+		t.Fatal("levels is nil; the wire contract is an empty list")
+	}
+	encoded, err := json.Marshal(view["levels"])
+	if err != nil {
+		t.Fatalf("marshal levels: %v", err)
+	}
+	if string(encoded) != "[]" {
+		t.Fatalf("levels encoded as %s, want []", encoded)
+	}
 	if levels, ok := view["levels"].([]string); ok && len(levels) > 0 {
 		t.Fatalf("non-thinking model reported levels: %v", levels)
 	}
