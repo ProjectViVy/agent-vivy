@@ -460,3 +460,24 @@ and product acceptance still await S5 exact sources/loaded composition and S6
 browser/full CI/installed quality. S5 source release is now bounded to the native
 legacy-consumer compatibility producer first; no BML consumer is activated before
 that producer's independent review/publication/new pin.
+
+## S5 native compatibility producer: published WIP, independent review in progress
+
+Native local3c365207d295221c4a3c5667fc71a6a465ee59f8 / remote
+1edf7b2379d7887a016c57b78e2060ad9dae1588 share exact tree
+1ca98be9a8cffb18d242bf3c1aa40a613d0bbb7f. Policy-documentation merge
+local1ce1c1e / remote9b25b0a9 shares treea6d45151 with verified ordered bb57+f44
+parents; its71 changed blobs equal existing main objects and no Go source changed.
+The new producer closes only verified v3-incompatible legacy consumers, preserving
+unknown effect metadata and actual old positive archive receipts. One strict
+semantic predicate covers restart, retry, watermark and archive from ordered SQL
+snapshots; capsule parsing is reused with explicit strict v3 errors.
+
+Author working-source final normal/race each281 passing tests plus4 packages,
+0fail/skip/race, no external requests. Root independently checked all12 source
+hashes against committed blobs. All REDs, setup failures, intermediate broad error
+assertion and strengthened malformed-archive RED/GREEN are archived without
+relabeling merge-HEAD working-source logs as fixed-candidate execution. Independent
+Astra review is running on a clean fixed3c clone; its findings/fixed repro gates
+are not replaced by author greens. Native Windows is NOT RUN. Vivy still pinsbb57;
+no BML schema/adapter/consumer, new module sum or selected activation is claimed.
