@@ -62,3 +62,16 @@ func (b *Backend) ReadSubjectRunEvidence(ctx context.Context, bnd storage.Subjec
 	}
 	return b.subjectStore().ReadSubjectRunEvidence(ctx, bnd, rid)
 }
+
+func (b *Backend) CaptureSubjectContext(ctx context.Context, bnd storage.SubjectHistoryBinding) (storage.SubjectContextSnapshot, error) {
+	if err := b.db.guard(); err != nil {
+		return storage.SubjectContextSnapshot{}, err
+	}
+	return b.subjectStore().CaptureSubjectContext(ctx, bnd)
+}
+func (b *Backend) ListSubjectPendingRuns(ctx context.Context, bnd storage.SubjectHistoryBinding) ([]storage.SubjectPendingRun, error) {
+	if err := b.db.guard(); err != nil {
+		return nil, err
+	}
+	return b.subjectStore().ListSubjectPendingRuns(ctx, bnd)
+}

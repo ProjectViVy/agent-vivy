@@ -97,6 +97,8 @@ type SubjectSourceStore interface {
 	GetSubjectSource(context.Context, domain.SessionID) (SubjectSourceBinding, error)
 	GetRunSubjectSource(context.Context, domain.RunID) (SubjectSourceBinding, error)
 	CaptureSubjectHistory(context.Context, SubjectHistoryBinding) (uint64, error)
+	CaptureSubjectContext(context.Context, SubjectHistoryBinding) (SubjectContextSnapshot, error)
+	ListSubjectPendingRuns(context.Context, SubjectHistoryBinding) ([]SubjectPendingRun, error)
 }
 
 func SubjectInteractionID(run domain.RunID, terminal domain.EventSeq) string {
@@ -132,4 +134,37 @@ func SubjectEvidenceDigest(messages []domain.Message) (string, error) {
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// SubjectContextSnapshot is a complete metadata cut. Through remains the
+// terminal-interaction ceiling; DispositionDigest is not a progress cursor.
+type SubjectContextSnapshot struct {
+	// Sources is the complete distinct domain membership from this same SQL cut.
+	// It is current-authorization input, not a disposition acknowledgement.
+	Sources           []SubjectSourceBinding
+	Through           uint64
+	Dispositions      []SubjectDisposition
+	DispositionDigest string
+}
+type SubjectDisposition struct {
+	SessionID domain.SessionID
+	MarkerID  uint64
+	Marker    SessionTruncation
+	Targets   []SubjectDispositionTarget
+}
+type SubjectDispositionTarget struct {
+	InteractionID   string
+	Sequence        uint64
+	SourceSessionID domain.SessionID
+	RunID           domain.RunID
+	SourceDigest    string
+	MessageIDs      []string
+	ViewMessageIDs  []string
+}
+
+// SubjectPendingRun is a terminal, unsealed coordinate, never body evidence.
+type SubjectPendingRun struct {
+	SessionID   domain.SessionID
+	RunID       domain.RunID
+	TerminalSeq domain.EventSeq
 }

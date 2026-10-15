@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -152,6 +153,140 @@ func TestIssue58RecapErrorClassification(t *testing.T) {
 			}
 			if out.Status != tc.status || out.Error == nil || out.Error.Code != tc.code || out.Error.Retryable != tc.retryable || len(out.Value) != 0 {
 				t.Fatalf("outcome=%s", raw)
+			}
+		})
+	}
+}
+
+// Exercise both the cognitive port and Garden's bound facade against the same
+// real owner. A pre-reconcile owner rejects the first correction below.
+func TestIssue58RecapBoundReconcile(t *testing.T) {
+	for _, coverage := range []uint64{0, 9} {
+		t.Run(fmt.Sprint(coverage), func(t *testing.T) {
+			ctx := context.Background()
+			in := testFactoryInput(t)
+			binding := cognitivecontract.RecapBinding{SubjectID: "organism-subject-uuid", DomainID: "subject-personal-v1"}
+			in.ResolveRecapBinding = func(context.Context, string) (cognitivecontract.RecapBinding, error) {
+				return binding, nil
+			}
+			b, err := Open(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer b.Close()
+			port := recapPort(t, b)
+			commit := func(request cognitivecontract.RecapCommit) cognitivecontract.RecapHead {
+				t.Helper()
+				head, err := port.CommitRecap(ctx, request)
+				if err != nil {
+					var apiErr *agentapi.Error
+					if errors.As(err, &apiErr) {
+						t.Fatalf("%s: code=%s head=%+v err=%v", request.OperationID, apiErr.Code, head, err)
+					}
+					t.Fatalf("%s: %+v %v", request.OperationID, head, err)
+				}
+				return head
+			}
+			assertError := func(request cognitivecontract.RecapCommit, code string) {
+				t.Helper()
+				head, err := port.CommitRecap(ctx, request)
+				var apiErr *agentapi.Error
+				if !errors.As(err, &apiErr) || apiErr.Code != code || head != (cognitivecontract.RecapHead{}) {
+					t.Fatalf("want %s without head: %+v %v", code, head, err)
+				}
+			}
+			base := cognitivecontract.RecapHead{Binding: binding}
+			if coverage != 0 {
+				base = commit(cognitivecontract.RecapCommit{OperationID: "summary", Cause: "summary", Text: "历史原文", Sources: cognitivecontract.SourceRange{Through: coverage, Digest: "historical-plain-receipt"}})
+				base = commit(cognitivecontract.RecapCommit{BaseRevision: base.Revision, OperationID: "initial-clear", Cause: "clear"})
+			}
+			text := "  用户纠正：日期是十八日。\r\n\r\n## 自由标题\r\n---\r\n```\r\n承诺原文\r\n```\r\n\r\n"
+			receipt := " {\"v\":99,\"dispositions\":\"已更正\",\"correction_evidence_digest\":\"opaque\"}\r\n"
+			request := cognitivecontract.RecapCommit{BaseRevision: base.Revision, OperationID: "reconcile", Cause: "reconcile", Text: text, Sources: cognitivecontract.SourceRange{After: coverage, Through: coverage, Digest: receipt}}
+			first := commit(request) // Omitted binding is stamped by the bound owner.
+			if first.Binding != binding || first.Text != text || first.Sources != request.Sources || first.Cause != "reconcile" || first.CoveredThrough != coverage || first.InvalidationEpoch != base.InvalidationEpoch || first.Revision != base.Revision+1 || first.RestoredFrom != 0 {
+				t.Fatalf("reconcile changed exact receipt or progress: %+v", first)
+			}
+			equal := request
+			equal.Binding = binding
+			if got := commit(equal); got != first {
+				t.Fatalf("equal binding did not replay omitted binding: %+v", got)
+			}
+			for _, foreign := range []cognitivecontract.RecapBinding{
+				{SubjectID: "foreign-subject", DomainID: binding.DomainID},
+				{SubjectID: binding.SubjectID, DomainID: "foreign-domain"},
+			} {
+				wrong := request
+				wrong.Binding = foreign
+				assertError(wrong, "recap_scope_denied")
+			}
+			changed := request
+			changed.Sources.Digest += " "
+			assertError(changed, "recap_operation_conflict")
+			invalid := request
+			invalid.OperationID = "invalid-range"
+			invalid.BaseRevision = first.Revision
+			invalid.Sources.Through++
+			assertError(invalid, "recap_invalid_range")
+			current := first
+			for _, cause := range []string{"edit", "clear", "restore"} {
+				if cause != "edit" {
+					next := request
+					next.Binding = binding
+					next.BaseRevision = current.Revision
+					next.OperationID = "certificate-before-" + cause
+					previous := current
+					current = commit(next)
+					if current.Sources != request.Sources || current.Text != text || current.CoveredThrough != coverage || current.InvalidationEpoch != previous.InvalidationEpoch {
+						t.Fatalf("reconcile before %s changed receipt or progress: %+v", cause, current)
+					}
+				}
+				mutation := cognitivecontract.RecapCommit{BaseRevision: current.Revision, OperationID: cause, Cause: cause}
+				if cause == "edit" {
+					mutation.Text = "手工修改\r\n"
+				}
+				if cause == "restore" {
+					mutation.RestoredFrom = first.Revision
+				}
+				previous := current
+				current = commit(mutation)
+				wantEpoch := previous.InvalidationEpoch
+				if cause == "clear" {
+					wantEpoch++
+				}
+				if current.Sources != (cognitivecontract.SourceRange{}) || current.CoveredThrough != coverage || current.InvalidationEpoch != wantEpoch || current.Revision != previous.Revision+1 {
+					t.Fatalf("%s retained certificate or changed progress: %+v", cause, current)
+				}
+				if cause == "edit" && current.Text != mutation.Text || cause == "clear" && current.Text != "" || cause == "restore" && (current.Text != text || current.RestoredFrom != first.Revision) {
+					t.Fatalf("%s changed text semantics: %+v", cause, current)
+				}
+				if got := commit(request); got != first {
+					t.Fatalf("%s lost original receipt: %+v", cause, got)
+				}
+			}
+			got, found, err := port.LookupRecapOperation(ctx, request.OperationID)
+			if err != nil || !found || got != first {
+				t.Fatalf("lookup=%+v %v %v", got, found, err)
+			}
+			got, err = port.ReadRecapRevision(ctx, first.Revision)
+			if err != nil || got != first {
+				t.Fatalf("revision=%+v %v", got, err)
+			}
+			history, err := port.ListRecapHistory(ctx, 0, 20)
+			if err != nil || len(history) != int(current.Revision) || history[0] != current {
+				t.Fatalf("history=%+v %v", history, err)
+			}
+			if err := b.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := Open(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			got, err = recapPort(t, reopened).ReadRecap(ctx)
+			if err != nil || got != current {
+				t.Fatalf("reopen=%+v %v", got, err)
 			}
 		})
 	}

@@ -1,0 +1,38 @@
+=== RUN   TestIssue58SubjectContextSnapshot
+    subject_context.go:119: manifest archived/edit through=1 markers=2 original=context-archived-A-run:2 digest=8552ad1f6f8123f3bde02100c0f3c9bd52a056d7dab7d6ef2096b6e2e6b19219 disposition=35a86d868fd68338173080c03a3b33cbec477166271bd97503e6f26f82a33789
+--- PASS: TestIssue58SubjectContextSnapshot (1.50s)
+=== RUN   TestIssue58SubjectContextScope
+--- PASS: TestIssue58SubjectContextScope (1.31s)
+=== RUN   TestIssue58SubjectContextCopyScope
+    subject_context.go:212: manifest nested views=2 through=3 parent=context-copy-parent-run:2 original=6415b6134edd4f83910b46a5cc6a5b6a872c825054e239c2101a047e77e4b70c disposition=447908b13b9a2e5f8eb15d1d09ec6302a429b812163f586bc232f4bb68a49e06
+--- PASS: TestIssue58SubjectContextCopyScope (1.40s)
+=== RUN   TestIssue58SubjectContextSnapshotRace
+--- PASS: TestIssue58SubjectContextSnapshotRace (2.08s)
+=== RUN   TestIssue58SubjectContextInvalidMapping
+    subject_context.go:212: manifest nested views=2 through=3 parent=context-copy-parent-run:2 original=6415b6134edd4f83910b46a5cc6a5b6a872c825054e239c2101a047e77e4b70c disposition=447908b13b9a2e5f8eb15d1d09ec6302a429b812163f586bc232f4bb68a49e06
+--- PASS: TestIssue58SubjectContextInvalidMapping (1.39s)
+PASS
+ok  	agent-vivy/internal/storage/sqlite	8.711s
+=== RUN   TestIssue58SubjectDomainPendingRepair
+--- PASS: TestIssue58SubjectDomainPendingRepair (1.35s)
+=== RUN   TestIssue58SubjectContextScope
+--- PASS: TestIssue58SubjectContextScope (1.24s)
+=== RUN   TestIssue58SubjectDomainPendingRepairFailure
+=== RUN   TestIssue58SubjectDomainPendingRepairFailure/projection
+=== RUN   TestIssue58SubjectDomainPendingRepairFailure/missing-terminal
+=== RUN   TestIssue58SubjectDomainPendingRepairFailure/missing-status
+=== RUN   TestIssue58SubjectDomainPendingRepairFailure/revoked
+--- PASS: TestIssue58SubjectDomainPendingRepairFailure (4.77s)
+    --- PASS: TestIssue58SubjectDomainPendingRepairFailure/projection (1.22s)
+    --- PASS: TestIssue58SubjectDomainPendingRepairFailure/missing-terminal (1.20s)
+    --- PASS: TestIssue58SubjectDomainPendingRepairFailure/missing-status (1.17s)
+    --- PASS: TestIssue58SubjectDomainPendingRepairFailure/revoked (1.17s)
+=== RUN   TestIssue58SubjectDomainPendingRepairActiveAndNoContextExcluded
+--- PASS: TestIssue58SubjectDomainPendingRepairActiveAndNoContextExcluded (1.29s)
+=== RUN   TestIssue58SubjectContextNestedCopyAuthorization
+    subject_context.go:212: manifest nested views=2 through=3 parent=context-copy-parent-run:2 original=6415b6134edd4f83910b46a5cc6a5b6a872c825054e239c2101a047e77e4b70c disposition=447908b13b9a2e5f8eb15d1d09ec6302a429b812163f586bc232f4bb68a49e06
+--- PASS: TestIssue58SubjectContextNestedCopyAuthorization (1.27s)
+=== RUN   TestIssue58SubjectDomainPendingRepairConcurrentTerminal
+--- PASS: TestIssue58SubjectDomainPendingRepairConcurrentTerminal (1.15s)
+PASS
+ok  	agent-vivy/internal/runtime	12.149s

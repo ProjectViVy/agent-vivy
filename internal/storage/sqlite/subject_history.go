@@ -39,3 +39,10 @@ var _ storage.SubjectSourceStore = (*Backend)(nil)
 func (b *Backend) ReadSubjectRunEvidence(ctx context.Context, bnd storage.SubjectHistoryBinding, rid domain.RunID) ([]domain.Message, storage.SubjectInteraction, error) {
 	return b.subjectStore().ReadSubjectRunEvidence(ctx, bnd, rid)
 }
+
+func (b *Backend) CaptureSubjectContext(ctx context.Context, bnd storage.SubjectHistoryBinding) (storage.SubjectContextSnapshot, error) {
+	return b.subjectStore().CaptureSubjectContext(ctx, bnd)
+}
+func (b *Backend) ListSubjectPendingRuns(ctx context.Context, bnd storage.SubjectHistoryBinding) ([]storage.SubjectPendingRun, error) {
+	return b.subjectStore().ListSubjectPendingRuns(ctx, bnd)
+}

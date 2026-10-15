@@ -304,13 +304,35 @@ envelope in the existing opaque `Sources.Digest` string:
 
 ```text
 {v:1, binding, range:{after,through,exact_originals_digest},
- dispositions:{digest}, correction_evidence_digest}
+ dispositions:{digest}, correction_refs:[captured SubjectDisposition records],
+ correction_evidence_digest}
 ```
 
 The outer range fields are the real interaction coordinates. The host verifies
 the original-range digest, complete C2 disposition snapshot and exact correction
 references; Laputa does not parse or independently verify source evidence. The
 whole string participates in existing request/head digests, CAS and durable replay.
+`correction_refs` records exactly the marker/target/message subset actually supplied
+as correction evidence, with an explicit empty array when none was supplied. Reuse
+the C2 `SubjectDisposition`/`SubjectDispositionTarget` coordinates: view Session and
+marker ID, full captured `SessionTruncation` metadata, target interaction/sequence,
+source Session/Run/digest, and aligned canonical/view message-ID pairs. Store no
+transcript bodies or grant copies. Canonically order records and pairs while
+preserving their association; `correction_evidence_digest` binds those references
+plus the exact expanded inputs used. This preserves the captured subset when later
+seals add targets or markers change, after pending-operation metadata is cleared.
+The references commit atomically with C1 Text and Sources; no side artifact or
+second write is needed to make historical source navigation reliable.
+
+One shared host codec, proposed `internal/runtime/recap_receipt.go`, owns envelope
+encoding/validation for Task 1 certificate checks, Task 2 generation and the runtime
+Service's source-navigation path consumed by S4. It reuses C2 DTOs instead of creating
+a second evidence vocabulary; owner and UI do not parse a second receipt authority.
+This fits the existing runtime Service's authorized original reader and keeps Eino
+in runtime/provider. C1/C2 APIs and public management schemas remain unchanged.
+Cost is O(actual correction-reference metadata) per immutable revision/head. Fail
+explicitly on encoding/capacity failure; never truncate references to fit or omit
+them while claiming exact provenance.
 It is provenance attached to the current text, not a second progress cursor: no
 numeric marker coverage or SQL acknowledgement is introduced. Historical plain
 receipts remain valid owner data but cannot certify the current disposition set.
@@ -417,6 +439,7 @@ remain unchanged:
 CaptureSubjectContext(context.Context, SubjectHistoryBinding) (SubjectContextSnapshot, error)
 type SubjectContextSnapshot struct {
     Through uint64 // existing terminal-interaction ceiling
+    Sources []SubjectSourceBinding // all distinct persisted domain source sessions
     Dispositions []SubjectDisposition
     DispositionDigest string
 }
@@ -437,7 +460,8 @@ type SubjectDispositionTarget struct {
 }
 ```
 
-Capture reads the ceiling, persisted eligible source/run pins, rewind/edit markers
+Capture reads the ceiling, all distinct persisted domain source-session bindings,
+participating run pins, rewind/edit markers
 affecting indexed originals through that ceiling, and exact target identities in
 ONE consistent SQL snapshot. SQLite and Postgres must each qualify their isolation;
 multiple Postgres READ COMMITTED queries are not a coherent capture. The complete
@@ -464,13 +488,32 @@ nor MAX(marker.id) proves cross-session order or committed-prefix visibility. Th
 ceiling is not itself hashed unless its change changes the affected target set.
 
 The Service wrapper `CaptureSubjectContext(ctx, readerSessionID)` first calls
-`AuthorizeSubjectHistory`, then compares participating source/run pins with the
-current trusted Host resolver, including archived sources, before returning the
-authorized snapshot or expanding bodies. Denial/error blocks the domain capture;
-do not omit a denied source and claim a complete fingerprint. A later recapture
+`AuthorizeSubjectHistory`, then current-resolves every captured source Session and
+compares it with the captured pin using `SameSubjectSourceBinding`, before exposing
+any snapshot/ceiling to the resident consumer. `Sources` comes from all distinct
+persisted membership in the SAME consistent capture transaction, never membership
+filtered by current grants. Include archived and already-covered sources even when
+they have no markers, pending runs or uncovered suffix. Missing/changed/denied
+source authorization returns a zero snapshot; B's whole-domain reader grant alone
+does not excuse revoked A. Keep targeted run-pin checks for pending repair, marker
+targets/copy chains and suffix expansion; no all-historical-run or body scan.
+Denial/error blocks the domain capture; do not omit a denied source and claim a
+complete fingerprint. A later recapture
 compares the whole digest and grants. No snapshot/acknowledgement is persisted in
 SQL. Use `ReadSubjectOriginal` for immutable originals, but derive disposition from
 this capture's target IDs instead of mixing its newer mutable marker fields.
+
+This is a revision 3 clarification of the existing fixed-domain/no-partial-head
+contract, not new automatic forgetting or revocation machinery. A C1 receipt proves
+committed provenance, not current permission. Previously authorized occurrence and
+original bytes remain retained when a current grant is missing/changed; deny current
+resident exposure without automatically deleting, reconciling, reclassifying or
+resetting that knowledge. Restoring the exact authorized binding permits the check
+again; a domain reset still requires the separately reviewed process already stated
+above. A new unrelated source does not itself change `DispositionDigest`, which
+remains a digest of dispositions/targets rather than authorization progress. The
+additional cost is O(distinct persisted source Sessions) metadata/current-Host checks,
+not O(historical runs/bodies). Measure S6 cost before proposing any cache.
 
 Before capture, close the separate pending-repair gap on the same core store:
 enumerate terminal unsealed run/session coordinates across the authorized domain,
@@ -576,8 +619,9 @@ if pressure: select oldest complete prefix; summarize(head.text, exact prefix)
 validate free text, output budget and unchanged scope
 commit owner(base revision, operation ID, contiguous range+digest)
   conflict -> reread head, rebuild remaining range, regenerate (at most one fresh retry)
-  unknown -> retain exact pending request; Close/reopen same owner and recover
-             durably lookup same operation; busy/unknown/unavailable -> pause
+  live unknown -> persist exact pending request/evidence; pause until existing host/app
+                  stops/drains/closes/reopens same owner (normally product restart)
+                  then durably lookup same operation; unresolved -> remain paused
   failure before commit attempt -> retain old head and every source; no offload
   error/cancel after Finalize begins -> resolve operation, reload committed head
 reload committed head; assemble its remaining exact suffix + current once
@@ -648,9 +692,30 @@ pending request. Initial base-zero publication/exact retry may yield the first
 positive receipt. Recovery uses the same owner lifecycle, never a second Store to
 bypass uncertainty or a busy lock.
 
+The bound RecapPort has no Close/reopen/recovery control. On live
+`recap_commit_unknown`, S3 preserves the exact durable pending operation/request,
+receipt envelope and source/correction evidence, then pauses without retirement or
+a competing commit. Only the existing host/app lifecycle may stop/drain Service and
+observers, close the cognitive host and reopen the same bound owner, normally during
+product restart. Finalize/error handling must not close Bundle, open a second Store
+or parallel bundle, or introduce hot restart, a new recovery API or scheduler.
+After that lifecycle completes, use the renewed bound port to resolve the exact
+OperationID under the existing positive-receipt rules. Busy/unknown/unavailable or
+unsupported negative resolution remains paused. A post-Finalize Callback error may
+instead resolve immediately by exact lookup when the owner is still authoritative;
+the callback error alone does not require restart. Recovery tests must exercise
+actual host shutdown/reopen on the same root and renewed bound port, never bypass
+ownership by opening a direct second Store. Live unknown therefore costs availability
+until restart/recovery; it is not permission to guess whether data committed.
+
 Ordinary edit/restore/other-session consolidation affects the next run admission.
 Source rewind/edit after the admitted cut also takes effect at the next admission;
 do not splice its new marker set into an already-admitted pinned head/suffix.
+Current permission is not pinned forever: revalidate the reader and every admitted
+source binding against current Host decisions before each provider leg/resume. A
+missing/changed grant stops invocation even if the source was already covered and
+has no markers. Do not splice a fresh head/marker set into the admitted snapshot as
+a response to permission failure, or reinterpret its C1 receipt as a current grant.
 Clear also invalidates already-admitted snapshots at the next safe model boundary:
 compare epoch, full request capacity and permission before every model call/resume
 using the existing Eino middleware. An oversized unsealed current interaction pauses
@@ -679,6 +744,13 @@ text and unchanged coverage/epoch. Edit/restore/clear reset the host certificate
 the next S3 admission performs required reconciliation. This adds no public mutate
 action or caller-supplied receipt/cause/schema field: management actions retain
 their fixed edit/clear/restore causes, and only the trusted runtime emits reconcile.
+For historical correction sources, the Service decodes that revision's own envelope
+through the shared host codec, rechecks current reader/view/source/run authorization,
+expands the recorded interaction IDs, verifies source digests and exact scoped
+message-ID mappings, and returns only the recorded subset. Never infer old targets
+from live capture, timestamps or a pending request. Historical fingerprint-only
+receipts explicitly report exact correction-source navigation unavailable; do not
+guess, rewrite old receipts, or reinterpret denied sources as absent evidence.
 
 Deferred `actmem_read`, `actmem_update`, `actmem_clear`, `actmem_history`,
 `actmem_restore` call the same governed owner methods through ToolHost. `tool_search`

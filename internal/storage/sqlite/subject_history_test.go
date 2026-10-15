@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"agent-vivy/internal/storage/conformance"
+	"context"
 	"testing"
 )
 
@@ -33,3 +34,25 @@ func TestIssue58MissingEvidenceBlocksNewSeal(t *testing.T) {
 }
 
 func TestIssue58CopySources(t *testing.T) { conformance.RunIssue58CopySources(t, openBackend(t)) }
+
+func TestIssue58SubjectContextSnapshot(t *testing.T) {
+	conformance.RunIssue58SubjectContextSnapshot(t, openBackend(t))
+}
+func TestIssue58SubjectContextScope(t *testing.T) {
+	conformance.RunIssue58SubjectContextScope(t, openBackend(t))
+}
+
+func TestIssue58SubjectContextCopyScope(t *testing.T) {
+	conformance.RunIssue58SubjectContextCopyScope(t, openBackend(t))
+}
+func TestIssue58SubjectContextSnapshotRace(t *testing.T) {
+	conformance.RunIssue58SubjectContextSnapshotRace(t, openBackend(t))
+}
+
+func TestIssue58SubjectContextInvalidMapping(t *testing.T) {
+	b := openBackend(t)
+	conformance.RunIssue58SubjectContextInvalidMapping(t, b, func(id string) error {
+		_, err := b.db.ExecContext(context.Background(), `DELETE FROM message_copy_sources WHERE message_id=?`, id)
+		return err
+	})
+}
