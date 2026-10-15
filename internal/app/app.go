@@ -950,6 +950,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ApprovalExpiration:    cfg.Tools.Approval.Expiration,
 		ApprovalSettleTimeout: time.Duration(cfg.Runtime.Sandbox.Approval.TimeoutSeconds) * time.Second,
 		ShellState:            backend.Blobs(),
+		ToolEvidence:          backend.Blobs(),
 		Budget: runtime.BudgetPolicy{
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
