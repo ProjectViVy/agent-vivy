@@ -73,5 +73,6 @@ The [unified context contract](../../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY
 
 The [Issue #58 execution package](../issue-58/index.md) now records the 2026-10-15
 source baseline, proposed design and S0–S6 executable plans. It is in plan review,
-with LIFE-selector approval and product verification still pending; it does not
-change the historical completion states above.
+with the owner-confirmed singleton LIFE model, external #66 binding integration,
+and product verification still pending; it does not change the historical
+completion states above. The ordinary-session LIFE-selector proposal is withdrawn.

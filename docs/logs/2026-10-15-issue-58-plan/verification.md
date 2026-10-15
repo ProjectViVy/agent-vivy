@@ -35,5 +35,7 @@ manual packet review checked requirement coverage and producer/consumer consiste
 Existing source paths were checked by the planner and independent reviewer.
 
 `git diff --check` passed. The independent [review](review.md) found no remaining
-substantive plan-design blocker after revisions; D1/package approval remains pending.
+substantive plan-design blocker in the then-reviewed revision; its D1 approval
+requirement has since been withdrawn by explicit owner correction. Design revision 2
+requires its own focused consistency review; overall package approval remains pending.
 No full runtime gate is waived by these document checks.

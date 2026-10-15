@@ -2,9 +2,12 @@
 
 Open the [index](../../superpowers/plans/issue-58/index.md), then the linked design.
 Confirm the single owner, trusted sharing boundary, evidence-before-retirement
-ordering, Coding/worker exclusion, UI conflict/clear/restore behavior and selected
-backend semantics match the intended product. Review D1's narrow LIFE selector as
-one consolidated decision; all other engineering choices are explicitly proposed.
+ordering, ordinary-session policy isolation, worker permissions, UI conflict/clear/
+restore behavior and backend semantics match the intended product. D1 is withdrawn:
+the confirmed LIFE singleton has no user-facing session model or Coding/LIFE toggle.
+It retains governed coding/tool capability; avatar/name edits do not rekey/reset it.
+Verify #58 consumes #66's trusted binding without implementing its full sidebar UI.
+Do not ask for the confirmed product shape again; engineering choices remain proposed.
 
 Each Story must name concrete existing/proposed files, producer/consumer contracts,
 ordered steps, meaningful tests, evidence, rollback and readiness. The DAG must

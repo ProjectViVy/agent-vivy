@@ -1,15 +1,17 @@
 # Issue #58: unified subject continuity design
 
 Status: **planning proposal for review; no implementation or product acceptance**.
-Revision: `issue58-design-1`, 2026-10-15. Parent requirements:
+Revision: `issue58-design-2`, 2026-10-15. Parent requirements:
 [unified context contract](../../architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md),
 [Issue #58](https://github.com/ProjectViVy/agent-vivy/issues/58), and #57's worker boundaries.
 [Execution index](../plans/issue-58/index.md) owns readiness and dependencies.
 
 ## Intent, authority, and limits
 
-After several context rotations, a LIFE conversation in session B must continue
-session A's corrections, promises, unfinished matters, and tool-verified outcomes.
+LIFE is one continuous subject conversation, with no user-facing session model.
+After context rotations or restart, that same conversation must retain corrections,
+promises, unfinished matters, and tool-verified outcomes. Underlying Session/Run
+records may be reused without exposing LIFE creation, switching or conversion.
 The actual provider request must contain the committed Recap and exact authorized
 recent originals. Saving a document or returning a plausible answer is insufficient.
 
@@ -20,12 +22,13 @@ recent originals. Saving a document or returning a plausible answer is insuffici
 | R3 | Shared authorized recent window, actual model admission, safe continuous-range compaction, explicit capacity failures | S3 |
 | R4 | Full inspect/edit/conflict/clear/history/restore/source UI and equivalent headless/deferred tools | S4 |
 | R5 | BML first; one selected projection sink; provider-native CRUD/search; legacy preservation | S5 |
-| R6 | Coding/worker/workspace isolation, persona ownership, no forced onboarding | S1–S5 |
+| R6 | Ordinary-session policy isolation, worker/workspace permissions, persona ownership, no forced onboarding | S1–S5 |
 | R7 | Same-candidate independent review, CI, real model/UI/install/Windows/restart acceptance | S6 |
 
 Owner requirements above are distinct from engineering proposals below. Proposed
-budgets, persistence layout, activation boundary, identity binding and LIFE selector
-are not individually user-approved. Review this package before execution. Do not
+budgets, persistence layout, activation boundary and identity binding mechanics
+are not individually user-approved. The singleton LIFE product shape below is
+owner-confirmed; the withdrawn D1 selector is not an open approval question. Review this package before execution. Do not
 implement #66, a role wizard, main-chat redesign, robots, multimodal generation, a
 standalone Garden import, a second runtime/scheduler/compactor/transcript database,
 automatic persona evolution, or user-data migration. Development execution must use
@@ -55,7 +58,7 @@ this matrix exist at the baseline; all new paths in Story plans are labeled prop
 | Original messages | `internal/runtime/message_projector.go`, `internal/storage/{contracts,history}.go`, `internal/storage/{sqlite,postgres}/messages.go` | Journal replay + deterministic message IDs already exist. Current capture in `cognitive_capture_source.go` has user text plus bounded assistant projection, not complete experience. |
 | Tool original | `internal/runtime/tooladapter.go:804–838`, `internal/runtime/tool_operation.go` | Result compaction is inside invoke, before coordinator persistence. Persist exact result/reference before shortening; Journal-only changes would lose original output. |
 | Durable context | `internal/runtime/{context,service,compaction_service,compaction_middleware,engine}.go` | Newest-first trim, history-read fallback, timestamp `TailFrom`, 200 KiB summary-input break, and in-run reduction can lose uncovered context. Selected policy must bypass these retirements, reuse their admission/model seams. |
-| Retention | `internal/storage/{sqlite,postgres}/sessions.go`, `internal/runtime/service.go` | DeleteSession physically deletes messages/runs/Journal; LIFE list removal needs non-destructive archive path. |
+| Retention | `internal/storage/{sqlite,postgres}/sessions.go`, `internal/runtime/service.go` | DeleteSession physically deletes messages/runs/Journal; retained internal sources need non-destructive archive protection. The pinned LIFE conversation is not a removable session-list item. |
 | BML | `bml/{provider,home,store,search}.go`, `internal/modules/memory/{provider,service,actions,tools}.go` | Existing completion observer is an 8 KiB projection, not originals. Preserve native CRUD, extend source export/projection semantics. |
 | UI | `plugins/vivy-memory/ui/vivy-memory/src/{page,view,dialogs}.tsx`, `memory-client.ts` | Existing module manages BML records/rules only. Add actual owner Recap tab, never local authority. |
 | Deferred tools | `internal/runtime/{toolmount_middleware,tool_activation,tool_search_e2e_test}.go` | Reuse deferred catalog and tool_search activation, no always-on Recap schemas. |
@@ -103,9 +106,9 @@ retention, which Eino does not supply. It is not another summarizer or agent loo
 Keep all Eino imports inside runtime/provider. Re-evaluate this adapter if upstream
 adds a durable authorized subject handoff; do not duplicate that capability.
 
-## Shared contracts (proposed, authoritative revision 1)
+## Shared contracts (proposed, authoritative revision 2)
 
-### Identity and explicit LIFE selection
+### Identity and the trusted singleton LIFE binding
 
 Core owns `SubjectID`, generated once as a UUID in its existing SnapshotStore key
 `organism/subject/v1` using absent-version CAS; that same record pins the canonical
@@ -119,28 +122,63 @@ domain. Store an immutable binding record in the Recap head; mismatch fails clos
 Existing profile paths are not moved. Nonempty legacy ACTMEM remains blocked from
 selection pending separate human-reviewed replacement; no automatic adoption.
 
-**Decision D1 requiring consolidated product review:** there is no LIFE selector in
-main (`Face` is web/tui/code/headless, and `RunMode`/PolicyProfile are execution
-controls). Recommended minimal choice: add a persisted session `ContextPurpose`
-enum `unspecified|life|coding`, set through existing authenticated `session/create`
-or the memory page's explicit “Enable LIFE continuity for this session” action
-before its first run. This is a continuity selector, not the #66 mode UI. Existing
-and unspecified sessions remain unchanged. A session selected as LIFE gets
-`life-recap-v1` **enabled by default**; it needs no second memory switch. Code face,
-explicit coding tasks, private/child/strategy runs and restricted workspaces veto
-the policy regardless of selector. Public/model input cannot assert SubjectID,
-sharing membership or override the veto. Face alone never implies LIFE.
+**Owner correction, superseding D1:** LIFE is a special, unique persistent main
+conversation, permanently entered from the left sidebar above Sessions, showing
+the current persona avatar and name (for example, Vivy). It has no user-facing
+session create/switch/convert flow. Remove residual visible Coding/LIFE selector
+or toggle buttons; entering the pinned conversation is the product entry, not a
+mode switch on an ordinary session. Avatar/name changes are presentation updates,
+never a subject rekey, new conversation or memory reset. Uninitialized users can
+continue unnamed chat; the older forced-setup requirement is superseded.
 
-This selector is a new user-facing session contract, so S0 cannot be accepted and
-S1–S5 cannot be released until D1 is reviewed. Alternative: wait for a separately
-delivered LIFE admission selector; that adds an external blocker and does not
-authorize treating all chat as LIFE. Free-text intent classification is not a
-security boundary: coding tasks must use the explicit coding task/face admission.
-The future LIFE entry must surface that rule; silently detecting task type from
-message prose is out of scope. Normal unnamed first-arrival chat remains available.
+[Issue #66](https://github.com/ProjectViVy/agent-vivy/issues/66) owns the sidebar/main
+conversation producer and its trusted policy hook. That UI is an **external
+producer dependency**, not implementation scope of #58. #58 consumes its one
+persistent main-conversation binding and enables `life-recap-v1` by default there.
+It must not add `ContextPurpose`, a memory-page enable action, session/create flags,
+or a conversion path as a substitute. Ordinary sessions keep their traditional
+Coding context/compaction policy. They are still the subject's own sessions and may
+share its separately governed Persona under #57; they are not delegated workers.
 
-One shared domain contains only host-authorized personal LIFE sessions. Restricted
-workspace content never contributes to the head or window. Since a single free-text
+LIFE retains executable tools and coding ability. A request to write code inside
+LIFE does not change its identity or silently select ordinary-session policy.
+Different compaction and tool exposure are trusted policy/composition choices in
+the same engine. Reuse existing Recipe/Module/ToolHost inventory and authorization;
+do not invent an approved tool allowlist, remove coding tools by prose intent, or
+introduce another loop. Worker/private/restricted scope rules still apply.
+
+Proposed #58 consumer seam, to agree with the #66 producer before integration:
+
+```go
+type MainConversationBinding struct {
+    SubjectID, DomainID, ConversationID string
+    ActiveSessionID domain.SessionID // internal storage coordinate, not subject identity
+    PolicyID, ToolPolicyRef string // trusted Generation policy references
+}
+type MainConversationResolver interface {
+    ResolveMainConversation(context.Context) (MainConversationBinding, error)
+}
+```
+
+The proposed shared type belongs at `internal/cognitivecontract/main_conversation.go`
+under the #66 producer's ownership. Its resolver is supplied by trusted composition,
+not constructed from model/client fields. Admission validates the target internal
+conversation/session against this binding, pins the policy and uses the existing
+Service.Run. Main conversation identity survives restart and any authorized internal
+storage segmentation; SubjectID remains independently stable. A missing/mismatched
+binding fails explicitly for LIFE, never falls back to an arbitrary ordinary session.
+Headless/test composition may supply the same governed singleton binding without
+implementing the sidebar or creating an alternate runtime. Installed integration
+remains blocked until the real #66 producer and consumer seam are accepted.
+
+One shared domain contains only host-authorized subject-owned personal sources.
+The general cross-session Recap/recent-original contract remains: internal segments
+and other explicitly authorized subject sources may contribute without creating
+multiple visible LIFE conversations or granting ordinary sessions resident LIFE
+context. Ordinary sessions are unshared by default; explicit source eligibility
+controls exact evidence capture, sealing and retention independently of resident
+LIFE injection. Such an authorized source keeps its existing Coding request strategy.
+Restricted workspace content never contributes to the head or window. Since a single free-text
 Recap cannot be safely filtered per fact, a caller lacking the entire domain grant
 receives no Recap. Do not produce partial subject heads. Scope membership is fixed
 for phase one; dynamic removal/reclassification of already-covered sources is not
@@ -269,10 +307,12 @@ durable bytes, not local temporary paths. Projection repair must succeed before 
 
 Paired append-only migrations add index/identity/retained-session metadata. LIFE
 sources become retention-protected at admission, before terminal sealing, so failed
-and unfinished interactions cannot disappear through hard deletion. LIFE
-list removal archives the session; low-level hard deletion rejects retained sources
+and unfinished interactions cannot disappear through hard deletion. Authorized
+internal source retirement or ordinary-source list removal archives the underlying
+record; no LIFE session delete/archive control is exposed. The singleton remains
+permanently addressable. Low-level hard deletion rejects retained sources
 even if called outside UI. Recovery and exact source reads include archived sessions
-under the same grant. Coding legacy deletion remains unchanged. Physical source or
+under the same grant. Ordinary-session legacy deletion remains unchanged for unprotected sources. Physical source or
 Recap-history deletion is excluded; a backend tombstone never claims that deletion.
 
 ### C3: admission, compaction and activation
@@ -280,7 +320,9 @@ Recap-history deletion is excluded; a backend tombstone never claims that deleti
 Runtime resolves policy and binding before any persona/Recap/history preparation.
 Child/worker paths are denied by default including inherited hooks, tools and
 instructions; an explicit scoped grant permits only its named source read, not
-automatic resident Recap/persona. Coding policy continues its existing pipeline.
+automatic resident Recap/persona. Ordinary-session Coding policy continues its existing pipeline; LIFE may still
+execute coding tools under its own admitted policy. Other subject-owned sessions
+retain existing Persona behavior; only delegated workers lack implicit persona access.
 
 Selected LIFE input order: existing governed instructions/Frozen Core; a delimited
 non-authoritative Recap data block with revision; shared recent original interactions
@@ -374,7 +416,7 @@ Reviewable wireframe proposal (within existing memory module; no main chat chang
 | Source panel | Exact ordered messages, tool-result status, attachment/reference open; unavailable reason, no fabricated excerpt |
 | Conflict dialog | Your draft and current saved revision side by side; Copy draft / Reload / edit against latest; no force overwrite |
 | Clear dialog | “Clears active Recap. History and original sources remain. Active calls finish; subsequent calls pause at a safe boundary.” |
-| LIFE selection | D1 proposal: eligible current session can opt into LIFE before its first run; disabled with a clear reason otherwise |
+| Entry and scope | Memory UI manages the actual subject Recap. No LIFE enable/convert control or Coding/LIFE selector. The pinned main-conversation sidebar entry is owned by #66. |
 
 State flow: read → edit(draft/base) → save → saved; stale save → conflict(draft
 retained) → explicit reload/reconcile → save. Clear and restore are explicit actions
@@ -424,20 +466,24 @@ Coding requirement. Do not open another directory to make both writers succeed.
 
 ## Acceptance and remaining review
 
-S6 uses Chinese experience A then a distinct same-subject session B after multiple
-folds: corrected dates/decisions, a promise, unfinished work and verified tool result
+S6 uses Chinese experience A then continuation B in the same visible pinned
+conversation after multiple folds/restart. A/B may be distinct underlying authorized
+source/session segments in storage-level tests, not UI-created LIFE sessions: corrected dates/decisions, a promise, unfinished work and verified tool result
 must survive without invented facts. Collect exact provider request bodies in a
 controlled test environment plus request digest/Recap revision/source range. Evaluate
 quality, omissions and model token/call costs; no simulated model proves real quality.
 
 Test concurrent summaries, edit, clear, cancellation, fail-before-commit, commit with
 lost response, reopen, Windows replacement/lock, index lag, archive removal and exact
-source navigation; test Coding/worker/unauthorized domain negative cases. UI and
+source navigation; test ordinary Coding-policy isolation, LIFE coding-tool use,
+worker and unauthorized-domain negative cases. UI and
 headless must operate on the same head. DIVA/Mentle remains pending until its actual
 selected installed composition passes, even if BML passes. One candidate commit and
 exact dependency/artifact identity must own all claimed gates; a fix invalidates
 affected evidence and requires a rerun on the new candidate.
 
-D1 is the one product decision requiring review; all other engineering proposals are
-concrete choices in this design. The current environment lacks Go/just/PowerShell,
-so runtime validation is pending. No Story is Ready for development this turn.
+D1 is withdrawn, not awaiting approval: the owner-confirmed singleton LIFE shape
+replaces it. The remaining external integration dependency is #66's trusted main-
+conversation binding/policy hook; #58 does not implement its full sidebar UI. Overall
+package approval and engineering/runtime evidence remain pending. The current
+environment lacks Go/just/PowerShell. No Story is Ready for development this turn.

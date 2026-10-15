@@ -26,7 +26,37 @@ The independent reviewer reported **no remaining substantive plan-design blocker
 after checking the revisions. The integrator also read the complete packet and
 verified the documentation-only scope, links and DAG.
 
-D1 and overall package approval still gate development. No Story is Ready this
+At that revision, D1 and overall package approval still gated development. No Story was Ready that
 turn. Real runtime CI, Windows durability, real-model quality, installed UI/headless
 behavior and owner-led DIVA/Mentle validation remain future gates. No passing
 implementation result is inferred from this review.
+
+## Owner correction after this review
+
+Design revision 2 withdraws D1: the owner confirmed one pinned continuous LIFE
+conversation above Sessions, dynamic persona avatar/name, no user-facing LIFE
+session creation/conversion/switching, and removal of visible Coding/LIFE buttons.
+LIFE keeps tool execution/coding ability. Ordinary subject-owned sessions are not
+workers and retain their separately governed Persona behavior. Uninitialized users
+may chat unnamed. #66 is the external singleton-binding/sidebar producer; #58 only
+consumes its governed seam and preserves general authorized subject-source sharing.
+
+The previous independent review remains historical evidence for its reviewed
+revision; it does not approve the superseded D1 product model or certify revision 2.
+No new user decision on the singleton shape is required.
+
+## Independent revision-2 review
+
+The independent GPT-6 Astra High reviewer rechecked the corrected design, index
+and S0–S6. One consistency clarification was applied: source eligibility governs
+full original capture/sealing/retention independently of resident LIFE injection.
+An explicitly authorized ordinary-session source retains exact evidence while
+preserving its Coding request strategy; ordinary sources are unshared by default.
+
+Final disposition: no remaining substantive plan blocker. The singleton entry,
+absence of session conversion/selectors, LIFE coding capability, ordinary-session
+Persona behavior, worker isolation and external #66 producer boundary are consistent.
+The integrator confirmed document links, the unchanged internal DAG and clean diff.
+This is a plan review; runtime/UI acceptance and external producer integration
+remain unverified. The separately authorized preview-button removal has its own
+delivery log and does not implement the #58 runtime.
