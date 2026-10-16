@@ -5,7 +5,7 @@ export type FailureAction = 'retry' | 'open_model_settings' | 'none';
 
 export interface ClassifiedFailure {
   kind: FailureKind;
-  titleKey: 'errors.controlPlaneTitle' | 'errors.apiKeyTitle' | 'errors.providerTitle' | 'errors.runFailedTitle' | 'errors.genericTitle';
+  titleKey: 'errors.controlPlaneTitle' | 'errors.apiKeyTitle' | 'errors.providerTitle' | 'errors.runFailedTitle' | 'errors.genericTitle' | 'errors.workControlTitle';
   detail: string;
   action: FailureAction;
   /** 附加的本地化说明（比如「这不是后端连接问题」），不是原始错误文本。 */

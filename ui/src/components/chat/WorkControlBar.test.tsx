@@ -23,6 +23,7 @@ describe('chat work controls', () => {
     useVivyStore.setState({
       activeSessionId: 's1', sessions: [{ id: 's1', title: 'Session', created_at: 1, permission_preset: 'cautious' }],
       work: baseWork, workPhase: 'ready', workError: null, workBusy: false,
+      messages: [], messagesPhase: 'ready',
     });
     container = document.createElement('div');
     document.body.append(container);
@@ -164,11 +165,33 @@ describe('chat work controls', () => {
 
   it('offers a retry when the authoritative WorkView cannot load', async () => {
     const loadWork = vi.fn(async () => undefined);
-    useVivyStore.setState({ work: null, workPhase: 'error', workError: 'connection lost', loadWork: loadWork as never });
+    useVivyStore.setState({ work: null, workPhase: 'error', workError: 'connection lost', messagesPhase: 'ready', loadWork: loadWork as never });
     await render();
+    expect(container.textContent).toContain('Work state unavailable');
     expect(container.textContent).toContain('connection lost');
+    expect(container.textContent).not.toContain('This is not a backend connectivity issue');
     await act(async () => { button('Refresh work state')?.click(); });
     expect(loadWork).toHaveBeenCalledWith('s1');
+  });
+
+  it('explains a lost control plane instead of repeating the transport string', async () => {
+    useVivyStore.setState({
+      work: null, workPhase: 'error', workError: 'The Vivy control plane disconnected', messagesPhase: 'ready',
+      loadWork: (async () => undefined) as never,
+    });
+    await render();
+    expect(container.textContent).toContain('The control plane did not respond');
+    expect(container.textContent).toContain('Refresh work state');
+  });
+
+  it('leaves the only failure explanation to the conversation when the session itself failed to load', async () => {
+    useVivyStore.setState({
+      work: null, workPhase: 'error', workError: 'connection lost', messagesPhase: 'error', messages: [],
+      loadWork: (async () => undefined) as never,
+    });
+    await render();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).not.toContain('connection lost');
   });
 
   it('drops revision draft controls when the backend presents a different submission', async () => {

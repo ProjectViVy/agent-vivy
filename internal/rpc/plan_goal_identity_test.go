@@ -60,3 +60,68 @@ func TestPlanEnterUsesAuthenticatedPeerSessionBinding(t *testing.T) {
 		t.Fatalf("bound Plan Journal = %+v / %v", events, err)
 	}
 }
+
+// A work read is connection-establishing. The browser fires session/work/get
+// together with session/messages when the user switches sessions, so the read
+// must resolve the session it names instead of failing against a binding that
+// the same switch is still establishing. Mutations keep the binding gate.
+func TestWorkReadEstablishesPeerSessionBinding(t *testing.T) {
+	ctx := context.Background()
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.Work = deps.Sessions.(storage.WorkStore) })
+	peer := NewPeer(nil, env.handler, Options{Identity: actionhost.Identity{ID: "face/connection", Face: "web"}})
+	call := func(method string, params map[string]any) (any, *Error) {
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return env.handler.Handle(peer.authenticatedContext(ctx), peer, Request{JSONRPC: "2.0", Method: method, Params: raw})
+	}
+	boundSession := func() domain.SessionID {
+		t.Helper()
+		identity, ok := actionhost.IdentityFromContext(peer.authenticatedContext(ctx))
+		if !ok {
+			t.Fatal("peer has no authenticated identity")
+		}
+		return domain.SessionID(identity.SessionID)
+	}
+
+	viewed, rpcErr := call("session/create", map[string]any{"title": "viewed"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	encoded, err := json.Marshal(viewed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var viewedSession sessionResult
+	if err := json.Unmarshal(encoded, &viewedSession); err != nil || viewedSession.ID == "" {
+		t.Fatalf("viewed session = %s / %v", encoded, err)
+	}
+	if got := boundSession(); got != viewedSession.ID {
+		t.Fatalf("peer bound to %q, want %q", got, viewedSession.ID)
+	}
+
+	selected := domain.SessionID("sess-work-read-selected")
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: selected, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := call("session/work/get", map[string]any{"session_id": selected}); rpcErr != nil {
+		t.Fatalf("work read for the newly selected session = %v, want success", rpcErr)
+	}
+	if got := boundSession(); got != selected {
+		t.Fatalf("after the work read the peer is bound to %q, want %q", got, selected)
+	}
+
+	unselected := domain.SessionID("sess-work-read-unselected")
+	if err := env.backend.CreateSession(ctx, domain.Session{ID: unselected, CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := call("plan/enter", map[string]any{
+		"session_id": unselected, "expected_version": 0, "request_id": "unselected-enter",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("mutation for an unselected session = %v, want conflict", rpcErr)
+	}
+	if got := boundSession(); got != selected {
+		t.Fatalf("a rejected mutation moved the peer to %q, want %q", got, selected)
+	}
+}
