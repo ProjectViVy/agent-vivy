@@ -384,6 +384,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	modelHost := modelProvider.Host()
 	resolver := newModelResolverForProject(cfg, liveSettingsPath, ao.projectRoot, catalog, modelHost, credentialResolver)
+	if reason := resolver.FrozenAmbiguity(); reason != "" {
+		// Several embedded vendors can share one credential name, so a set
+		// variable does not always name the provider. Say so once and keep the
+		// settings document in effect instead of guessing.
+		logger.Warn("environment provider selection is ambiguous", "detail", reason)
+	}
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
