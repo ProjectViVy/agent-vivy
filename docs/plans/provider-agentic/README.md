@@ -11,9 +11,9 @@ so that all three protocol families live on one message generation and the
 deleted rather than kept.
 
 **Architecture:** One message generation, one sealed binding table, zero
-conversion code. A protocol family's differences may exist only inside the
-constructor of a pinned Eino component; Vivy holds data declarations and one
-`case`. See `DESIGN-CONCEPT.md`.
+protocol/message conversion code. Pinned components own protocol encoding and
+decoding; Vivy retains thin configuration/per-request option projections at its
+existing provider boundary. See `DESIGN-CONCEPT.md`.
 
 **Tech Stack (target):** Go 1.26.4, `eino v0.9.21`,
 `eino-ext/components/model/agenticopenai v0.2.4`,
@@ -43,7 +43,9 @@ documentation-only until a human schedules the spike.
 A human changes an `UNSCHEDULED` stage to scheduled. The stages are a **spike**:
 they may produce throwaway code inside a lane worktree, and they may end in
 `NO-GO`. They may not change production code; the migration is a separate
-program that S3 and S4 define.
+program that S3 and S4 define. A spike `GO` schedules that program, not a
+production release: S3 §2.7 defines the separate product acceptance gate.
+This review revision schedules no stage and runs no spike.
 
 ## Critical path
 
@@ -59,9 +61,9 @@ S0 dependency truth (measure, do not argue)
 
 ## The one iron rule
 
-> A protocol family's differences may exist only inside the constructor of a
-> pinned Eino component. Vivy holds data declarations and one `case`, and no
-> other protocol-specific code.
+> Protocol message encoding and decoding stay in pinned Eino components. Vivy
+> keeps sealed bindings and thin configuration/per-request option projections at
+> the existing provider boundary; no Vivy-owned protocol codec or message bridge.
 
 Any cross-generation or cross-protocol conversion code is forbidden: it is the
 mechanism that creates residue. `DESIGN-CONCEPT.md` §2 explains why this is
@@ -80,8 +82,8 @@ own.
   import `github.com/cloudwego/eino*`
   (`internal/app/importlint_test.go:86-102`).
 - **One message generation.** After the migration, `schema.Message` does not
-  appear on the run path. Mixing generations inside one agent is impossible —
-  Eino publishes no `*schema.Message` ↔ `*schema.AgenticMessage` conversion
+  appear on the run path. The existing single typed seam cannot mix generations
+  without a bridge; Eino publishes no `*schema.Message` ↔ `*schema.AgenticMessage` conversion
   (`S1-component-contract.md`).
 - **One data write point.** All provider configuration data stays in
   `internal/provider/data/`. A spike never edits it.
@@ -114,7 +116,7 @@ decision; if implementation proves one wrong, stop and amend this ledger first.
 | **D1** | The model seam moves to `model.AgenticModel` (`BaseModel[*schema.AgenticMessage]`). Exactly one message generation exists on the run path afterwards. |
 | **D2** | The adapter table becomes **bindings, not states**: a row is (family name, data declarations, pinned Eino constructor). `CapabilityState` on the adapter path is deleted. |
 | **D3** | `openai-responses` enters as the third executable binding, via `agenticopenai.NewResponsesModel`. There is no fourth adapter and no reasoning-only adapter. |
-| **D4** | `anthropic-messages` moves to `agenticclaude.New`. This is the one irreversible decision in the program; S4 decides it explicitly. |
+| **D4** | `anthropic-messages` moves to `agenticclaude.New` only if required behavior is preserved. It is an all-or-nothing constraint of this route, not irreversible; S4 decides adoption and durable-run rollback handling explicitly. |
 | **D5** | `sdk/port/support.go`'s generic 5-state port support and `sdk/port/providerprofile.Profile` are **untouched**. They belong to the plugin-platform axis, not the provider path; the public Profile gains no capability field. |
 | **D6** | No hub, no codec, no bridge, no residue/snapshot namespace, no capability matrix, and no new port. The pinned components perform all protocol conversion. |
 | **D7** | Whether the titler models stay on the older generation is decided by evidence in S3, not here. It is a real question because titling is text-only. |
@@ -175,8 +177,8 @@ is a decision rather than an oversight:
 **Deleted** (itemised with a consumer check in `S3-migration-inventory.md`):
 the adapter capability state and its error, the deferred branch in adapter
 resolution, the `DEFERRED-INDEFINITE` member on the provider path, the
-`Executable` / `State` catalog wire fields, the UI capability badge and its
-non-executable row path, the `schema.Message` generation on the run path, and
+`Executable` / `State` catalog wire fields, the adapter-deferral UI badge and its
+non-executable row path (not actual runtime readiness/unavailability), the `schema.Message` generation on the run path, and
 the test clusters that assert deferral.
 
 **Added:** one binding (`NewResponsesModel`), one message generation, and the

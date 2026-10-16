@@ -190,10 +190,10 @@ components/prompt/agentic_chat_template.go:34        FromAgenticMessages
 
 All four are callback or prompt-template conversions. **None converts
 `*schema.Message` to `*schema.AgenticMessage`.** S1 re-runs this search and
-records the result verbatim, because it is the single claim that turns
-"migration" into "all-or-nothing migration": there is no supported way to mix
-generations inside one agent, so a partial migration cannot be expressed as a
-runtime shortcut.
+records the result verbatim. Under the existing single typed model seam,
+changing the generation requires its consumers to move together; do not infer
+that every conceivable multi-runner design is technically impossible. A second
+runtime is outside this program and conflicts with architecture unity.
 
 ## 5. Verdicts S1 must return
 
@@ -203,7 +203,7 @@ status:
 | Verdict | Meaning |
 |---|---|
 | `ADOPT` | The component satisfies every required capability with a cited API |
-| `ADOPT-WITH-ADAPTER` | Satisfies them, but requires a thin Vivy seam at the existing boundary (e.g. a config projection), stated explicitly |
+| `ADOPT-WITH-ADAPTER` | Satisfies them through an explicitly scoped thin configuration/per-request option projection at the existing boundary; never protocol encoding/decoding or a message bridge |
 | `DEFERRED` | A required capability is absent. This is a legitimate S4 input, not a stage failure |
 
 A `DEFERRED` verdict must name the missing capability, the search that proved it
@@ -225,6 +225,12 @@ Vivy-owned implementation (decision D9).
 | C9 | Pass extra request fields | The DeepSeek `thinking` object and any vendor dialect that is not a first-class option |
 | C10 | Express a Claude-style thinking budget | The `anthropic-messages` binding must not lose its current capability |
 | C11 | Run inside the ADK typed agent and runner | The whole migration's premise |
+
+The checklist is a verification artifact, not a new runtime capability matrix.
+Mark applicability per component (for example Claude budgets apply to Claude),
+and name the consumer for each requirement. An evidenced absence of an applicable
+required capability blocks adoption; recording the absence is not a pass.
+Constructor availability does not establish endpoint/model feature support.
 
 ## 7. Exit evidence
 

@@ -1,7 +1,8 @@
 # S2 — Local `httptest` Minimal Closed Loop
 
-**Goal:** prove the design end to end with **zero network access**, before any
-production edit, and produce a pass/fail matrix that S4 can decide on.
+**Goal:** prove upstream component/typed-agent feasibility with **zero external
+network access**, before any production edit, and produce a pass/fail matrix
+that S4 can decide on. This is not Vivy's product end-to-end acceptance.
 
 **Status:** `UNSCHEDULED`. This document specifies the harness; it does not
 contain its results.
@@ -17,8 +18,8 @@ Three things are being proven, and none of them needs a real provider:
 
 1. That an `AgenticModel` from each of the three bindings drives an ADK typed
    agent — the migration's premise.
-2. That the four channels the product depends on (text, tool call, reasoning,
-   usage) survive the generational change.
+2. That text, tool call, reasoning and usage survive the component-to-ADK loop,
+   not yet Vivy's event projection, history reconstruction or UI.
 3. That the failure paths fail closed.
 
 A local fake is also the only way to test the failure paths at all: a real
@@ -43,7 +44,9 @@ digest and breaks the sealed-Generation gate (`docs/TODO.md:116`,
 ```
 
 Nothing from `.spike/` is committed and nothing from it is imported by the
-repository.
+repository. The harness does not traverse Vivy's modeladapter, Journal,
+compaction, checkpoint store or UI; it cannot detect regressions in those
+consumers. Their separate migration acceptance is S3 §2.7.
 
 ## 3. The three fakes
 
@@ -110,9 +113,9 @@ They are acceptance criteria here.
 |---|---|---|
 | A1 | Text | Assistant text arrives, incrementally, and concatenates to the fixture's text |
 | A2 | Tool call | Tool-call id, name, and arguments round-trip through the tool result and the second drive |
-| A3 | Reasoning | A `schema.Reasoning` content block appears, with signature where the protocol carries one, and its text matches the fixture |
-| A4 | Usage | Token counts are non-zero and land where the run path can read them |
-| A5 | Failure | One failure path per protocol: HTTP 500, malformed/truncated SSE, and `ctx` cancellation. Each returns an error; **none** returns a silently empty assistant message |
+| A3 | Reasoning | A `schema.Reasoning` block matches the fixture; where the protocol carries signature or opaque/redacted reasoning, verify the required content survives the subsequent tool-round-trip outbound request, not merely inbound parsing |
+| A4 | Usage | Exact fixture token counts and relevant cached/reasoning counters reach the ADK-readable result; product route attribution and duplicate suppression remain S3 §2.7 checks |
+| A5 | Failure | For each protocol exercise HTTP 500, malformed/truncated SSE and `ctx` cancellation. Each surfaces the intended failure/cancellation; none reports silent successful empty output |
 | A6 | Isolation | The three protocols can run in one process, sequentially and interleaved, without sharing state |
 
 A5 and A6 are the ones most likely to fail, and are therefore the most valuable

@@ -17,15 +17,16 @@ repository**, and the boundary conditions under which the concept is false.
 
 The design rule, in one sentence:
 
-> A protocol family's differences may exist only inside the constructor of a
-> pinned Eino component. Vivy holds data declarations and one `case`, and no
-> other protocol-specific code.
+> Protocol message encoding and decoding stay in pinned Eino components. Vivy
+> keeps sealed bindings and thin configuration/per-request option projections at
+> the existing provider boundary; no Vivy-owned protocol codec or message bridge.
 
 Two consequences follow, and both are the point:
 
-- **There is no place where a conversion could live**, so there is no conversion
-  to maintain, test, or clean up.
-- **Adding a protocol is adding a row**, not adding a layer.
+- **No Vivy-owned protocol/message conversion is introduced.** Domain event
+  projection and product option policy still have explicit owners and tests.
+- **Adding a protocol adds a binding**, not a new conversion layer; required
+  configuration and per-call option projection must still be priced and verified.
 
 ### 1.1 Vocabulary
 
@@ -90,9 +91,8 @@ The objection remains correct in its own scope, and the gap is real: in
 (`components/model/agentic_callback_extra.go:61,79`,
 `components/prompt/agentic_callback_extra.go:45,59`) and
 `components/prompt/agentic_chat_template.go:34 FromAgenticMessages`. None
-converts `*schema.Message` ↔ `*schema.AgenticMessage`. **Therefore mixing
-generations inside one agent is impossible, and the migration must be
-all-or-nothing per adapter.** That is a constraint on the migration shape, not
+converts `*schema.Message` ↔ `*schema.AgenticMessage`. **Therefore this plan cannot mix generations through the existing single typed
+model seam without a bridge, and the seam and its consumers move together.** That is a constraint on the migration shape, not
 an argument against the pattern; the pattern's answer is to move the seam, not
 to write the bridge.
 
@@ -137,7 +137,9 @@ in `catalog.go:191-200`, the wire fields `Executable`/`State`
 (`internal/rpc/control.go:5571,5573,5612`), and the UI badge path
 (`ui/src/components/settings/provider-catalog.ts:26,117-118`,
 `ModelSettingsCard.tsx:615,618`) all exist to describe one non-executable row.
-Once the row is executable, they have no subject.
+Once every row is executable, the adapter deferral state has no subject.
+Runtime readiness/unavailability and endpoint/model feature support are separate
+facts and must remain derived and enforced (S3's preserved list).
 
 This is not a "cleanup after the feature". It is the feature: the pattern's
 claim is that a protocol is either constructible or not declared, so the state
@@ -225,13 +227,15 @@ Honest limits, each of which would change the plan rather than be worked around.
 
 1. **`AgenticModel` is upstream-marked Beta.** A breaking change in a patch
    release is a live possibility. Mitigation is architectural, not optimistic:
-   the seam is one line and one package, and the import quarantine keeps the
-   blast radius inside `internal/provider` and `internal/runtime`.
-2. **Moving Anthropic is the one irreversible decision.** `anthropic-messages`
-   currently works on `components/model/claude v0.1.25`. Moving it to
-   `agenticclaude v0.1.7` is required for the single-generation claim, and it
-   is the part with no fallback if `agenticclaude` proves weaker in `S1`/`S2`.
-   This is why `S4-decision.md` must decide it explicitly.
+   pin exact versions and re-run semantic regression gates before upgrades.
+   Import quarantine bounds the packages, not the work: S3 inventories 24
+   production files, seven owned middlewares, and durable checkpoint effects.
+2. **Moving Anthropic is an all-or-nothing constraint of this route, not an
+   irreversible operation.** `anthropic-messages` currently works on
+   `components/model/claude v0.1.25`. If `agenticclaude v0.1.7` cannot preserve
+   required behavior, stop this route rather than silently weakening Anthropic.
+   S4 decides adoption explicitly and specifies upgrade/rollback handling for
+   persisted runs; reverting code alone does not prove state compatibility.
 3. **Tool binding changes from a method to an option.** 33 `WithTools(` call
    sites exist across `internal/runtime` and `internal/provider`. Each becomes a
    request-time option. This is mechanical but not optional.
@@ -270,7 +274,8 @@ fail-closed resolution — is sound and stays.
 
 What changes is one generation, and what is deleted is one state vocabulary. The
 concept introduces no new mechanism: no hub, no codec, no bridge, no adapter
-interface, no capability matrix, and no new port. It is the smaller of the two
-available patterns by construction, because it performs no protocol conversion
-at all — the pinned components do that, which is also what `AGENTS.md`'s
-"Eino-native capability second" asks for.
+interface, no capability matrix, and no new port. It avoids the owned conversion layer of the compared hub design: pinned
+components perform protocol conversion, as `AGENTS.md`'s "Eino-native capability
+second" asks for. This does not yet prove lower total lifecycle cost than
+keeping the current behavior and deferring Responses. S4 must weigh measured
+cost, preserved behavior, and the user-visible benefit before scheduling migration.

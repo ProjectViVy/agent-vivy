@@ -18,8 +18,10 @@ are fixed now, so a `GO` has to be earned and a `NO-GO` cannot be talked away.
 
 ## 2. Admissible outcomes
 
-Exactly three. The stage must produce one of them; "needs more investigation" is
-not an outcome, it is a failure to run S0–S3.
+Exactly three. The stage must produce one of them. Unresolved evidence is named
+as a blocker with a bounded resolution path, never silently counted as a pass.
+These are spike outcomes about scheduling migration, not product release
+approval; S3 §2.7 must pass before landing/release acceptance.
 
 | Outcome | Meaning | What it implies |
 |---|---|---|
@@ -35,8 +37,14 @@ cannot be met at all is `NO-GO`.
 ### T1 — Dependency truth (from S0)
 
 - The module-graph delta is classified in full, with no line left uncategorised.
-- The net binary-size delta is **measured**, not estimated. An estimate is
-  admissible for `GO-CONDITIONAL` only.
+- Like-for-like module probes preserve the application baseline constraints;
+  additions/removals/bumps are attributable to the intended replacements.
+- The component binary probe is measured and labelled as such, not claimed as
+  the shipped product delta. The owner explicitly accepts its cost tradeoff
+  against required user benefit and continuing the current deferred behavior.
+- Full-product binary and relevant runtime cost acceptance are assigned to the
+  migration gate in S3 §2.7. Unknown spike cost evidence is a named conditional
+  blocker, not proof of affordability; no numeric target is invented here.
 - The pseudo-version pin is legal under an existing precedent.
 - No transitive pin conflicts with an existing pin.
 
@@ -45,6 +53,10 @@ cannot be met at all is `NO-GO`.
 - Every capability in `S1-component-contract.md` §6 (C1–C11) has either a cited
   API or an explicit, evidenced absence.
 - One verdict per component, from `ADOPT` / `ADOPT-WITH-ADAPTER` / `DEFERRED`.
+  Every applicable required capability must be satisfied for `GO`; an evidenced
+  absence or `DEFERRED` verdict is a blocker, not a completed-contract pass.
+  `ADOPT-WITH-ADAPTER` permits only the scoped thin config/per-request projection,
+  never a custom protocol codec, message bridge or replacement runtime.
 - **No required capability needs a Vivy-owned protocol converter or message
   bridge.** If it does, this is `NO-GO` (decision D9) — not a `GO-CONDITIONAL`,
   because the bridge is the residue this program exists to avoid.
@@ -72,7 +84,9 @@ cannot be met at all is `NO-GO`.
 - The migration shape is decided: Shape A, or Shape B only if a two-generation
   interval is representable **without** a Vivy-owned bridge. If Shape B needs a
   bridge, the answer is Shape A or `NO-GO`.
-- Every risk row has a runnable detection plan.
+- Every risk row has a runnable detection plan, and S3 §2.7's product-path,
+  durable-run upgrade/rollback and cost checks have named migration phase gates.
+  Their future execution is not represented as completed spike evidence.
 
 ## 4. The option that is rejected outright
 
@@ -86,9 +100,11 @@ occurrence migration — and it is **rejected**. It contradicts decisions D1 and
 D6: it makes two message generations permanent, which makes the adapter table a
 mixed-generation table, which makes capability and generation both facts that a
 row must carry, which is precisely the state-and-condition vocabulary this
-program deletes. It would also require exactly the `Message`↔`AgenticMessage`
-bridge that no supported API provides (`S1-component-contract.md` §4.4), so its
-real cost is not lower — it is higher, and its residue is permanent.
+program deletes. Under the existing single typed model seam, it would also require a
+`Message`↔`AgenticMessage` bridge that no supported API provides
+(`S1-component-contract.md` §4.4). This rejects that migration shape within the
+current architecture; it is not proof that all possible dual-runner designs are
+impossible or that migration is cheaper than continuing to defer Responses.
 
 A `NO-GO` is the honest alternative to this option, not a step toward it.
 
@@ -109,12 +125,14 @@ The signed record must contain, in this order:
 7. **The phase schedule** — S3's decomposition, adopted or amended, each phase
    with its gate (`just ci` plus the phase-specific acceptance) and its own
    `docs/logs/` record.
-8. **Rollback** — a revert of the migration commit(s). No data migration is
-   involved: provider configuration data is embedded in the binary
-   (`internal/provider/data/`, `//go:embed`), so a rollback changes behaviour
-   without leaving migrated state behind. The record must say this explicitly,
-   because a reader who assumes otherwise will ask for a data rollback that does
-   not exist.
+8. **Upgrade and rollback** — reverting code restores embedded provider data,
+   but does not establish compatibility of durable run state. The existing
+   `VersionedCheckpointStore.Get` rejects checkpoints from a different Eino
+   version; v0.9.20/v0.9.21 checkpoints therefore cannot be resumed directly
+   across either direction. Record the pending-run drain/finish or safe restart
+   policy, user-visible outcome and synthetic upgrade/downgrade checks from
+   S3 §2.7. Inventory Journal/history changes as well. Do not add a checkpoint
+   converter, bypass version checks, or claim there is no persisted state effect.
 9. **The deferral's disposition** — either the `DEFERRED-INDEFINITE` marking is
    removed from the provider path on landing, or, on `NO-GO`, its restart
    condition is rewritten in `docs/DEFER.MD` to point at the specific missing
