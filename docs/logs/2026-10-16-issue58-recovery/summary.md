@@ -122,3 +122,22 @@ checks pass; actual Windows/browser execution remains pending. See
 preserves the old profile/raw route, selects one App-owned C2 projection adapter
 and requires pre-read qualification of legacy recall/tools. No consumer
 activation or installed DIVA acceptance is implied.
+
+## Task1a checkpoint and actual Windows failures
+
+Task1a f6bcae7d / remote3f547b58 / tree28c871b5 is pushed and root-fixed normal
+380/race81/vet/nativeMVS162 pass, with documented opt-in skips and zero external
+forwarding. [Fixed checkpoint](s5-task1a-fixed-checkpoint.md) records source seals,
+all retained failures and pending independent review. Task1b/Task2 remain open.
+[Actual Windows run and remediation](s6-windows-execution-and-remediation.md)
+records UI707PASS, native failures/BUILDFAIL, new browser setup failure and backend
+cancellation after a real runtime failure. No whole Windows/browser/CI GREEN.
+
+## Task1a independent review correction
+
+Source-only review at f6 is complete: 0Critical/1Important/0Minor. Root reproduced
+I1 (negative expansion budget panic) on the exact candidate in1.324s with the
+unchanged ordinary local native-record fixture. Task1a is changes-required until
+the minimal bound check and fixed-candidate rerun. Broad prior greens are not
+acceptance of that boundary. See s5-task1a-fixed-checkpoint.md and its separately
+sealed original-RED and independent-review archives.

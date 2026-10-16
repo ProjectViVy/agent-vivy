@@ -675,3 +675,21 @@ and archive hashes are recorded in [s6-ci-wiring.md](s6-ci-wiring.md). Preserved
 author baseline formatter failures are not final CI execution. Published run
 38824982363 is pending; native Windows, new browser rendering/manual screenshot
 QA and final full `just ci` remain unqualified.
+
+## Fixed Task1a and real Windows observation
+
+See [Task1a fixed gates](s5-task1a-fixed-checkpoint.md) for immutable f6 execution,
+raw archive hashes and exact counts/skips. See [actual Windows results](s6-windows-execution-and-remediation.md)
+for run38825120165: real failures remain failures even though backend was later
+cancelled. Source-only CI review is separately qualified; Task1a independent
+review is still pending after reviewer initialization failures. No test denial,
+source assertion or final acceptance requirement is waived.
+
+## Task1a independent review correction
+
+Source-only review at f6 is complete: 0Critical/1Important/0Minor. Root reproduced
+I1 (negative expansion budget panic) on the exact candidate in1.324s with the
+unchanged ordinary local native-record fixture. Task1a is changes-required until
+the minimal bound check and fixed-candidate rerun. Broad prior greens are not
+acceptance of that boundary. See s5-task1a-fixed-checkpoint.md and its separately
+sealed original-RED and independent-review archives.
