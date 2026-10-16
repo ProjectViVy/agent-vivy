@@ -89,7 +89,7 @@ shows a decision is wrong, stop and amend this ledger first.
 | **D3** | Data is embedded with `//go:embed` and parsed from the embedded FS at startup. The running process never reads it from disk; `providers.bundle_dir` is deleted. |
 | **D4** | Four layers: Adapter (code, sealed) / Vendor (identity + key) / Endpoint (protocol + address + default model + models) / Model (metadata, inline). |
 | **D5** | Three adapters, named after the real wire APIs: `openai-completions`, `openai-responses`, `anthropic-messages`. |
-| **D6** | `openai-responses` is `DEFERRED-INDEFINITE`, with the explicit owner commitment to migrate onto `AgenticModel` as its only lift path. |
+| **D6** | `openai-responses` is `DEFERRED-INDEFINITE`, with the explicit owner commitment to migrate onto `AgenticModel` as its only lift path. **Amended 2026-10-17:** the lift path is being taken. The owner re-prioritized the work and a Route B spike program was authored at `docs/plans/provider-agentic/` (README plus S0–S4); that program's `S1-component-contract.md` supersedes this ledger's `EINO-CAPABILITY.md` for current-generation facts. The three adapter names and the sealed-unit model this ledger established are unchanged. |
 | **D7** | Default is vendor `deepseek` on adapter `openai-completions` (OpenAI-standard streaming), overridable by user configuration. |
 | **D8** | Endpoint identity is `(adapter, base_url)`. The selection payload `{provider, base_url, default_model}` keeps its exact shape; only its vocabulary changes. |
 | **D9** | `settings.yaml` migration map: `deepseek`→`openai-completions`, `openai`→`openai-completions`, `anthropic`→`anthropic-messages`. |
