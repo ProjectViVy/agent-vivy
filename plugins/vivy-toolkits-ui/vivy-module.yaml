@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/toolkits-ui, version: 0.1.0}
-source: {ref: repo:plugins/vivy-toolkits-ui, sha256: 00a277212d96789aee4fd8ba3907e9c4189a7516e648a4ef6221bae180c2e29f}
+source: {ref: repo:plugins/vivy-toolkits-ui, sha256: 5762a1989ec3b2b3c03341d8513f72e6b6eb45401411b8d3a45b31f722c70ac2}
 provides:
   - {port: std/ui-extension@v1, id: vivy.toolkits-ui.sidebar}
 i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}

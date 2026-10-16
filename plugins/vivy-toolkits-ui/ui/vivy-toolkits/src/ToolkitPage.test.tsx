@@ -35,12 +35,63 @@ describe('ToolkitPage', () => {
     }) } as unknown as ToolkitClient;
     await act(async () => root.render(<ToolkitPage client={client} />));
     await act(async () => { container.querySelector<HTMLButtonElement>('ul button')!.click(); await Promise.resolve(); });
-    expect(container.textContent).toContain('当前构建暂不可用');
-    expect(container.textContent).toContain('Skills');
-    expect(container.textContent).toContain('面具');
-    expect(container.textContent).toContain('Rules');
-    expect(container.textContent).toContain('Hooks');
-    expect(container.textContent).toContain('MCP');
+    // Without a host the translator returns the catalog key, so these assertions
+    // also prove the page asks for a cataloged key instead of inlining copy.
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.ownerUnavailable');
+    for (const kind of ['skills', 'masks', 'rules', 'hooks', 'mcp']) {
+      expect(container.textContent).toContain(`plugin.vivy/toolkits-ui.${kind}`);
+    }
+  });
+
+  it('keeps the library visible while a refresh is in flight', async () => {
+    const slow = deferred<ToolkitPageResult>();
+    const client = { list: vi.fn().mockResolvedValueOnce(page(item)).mockReturnValueOnce(slow.promise), inspect: vi.fn() } as unknown as ToolkitClient;
+    await act(async () => root.render(<ToolkitPage client={client} />));
+    expect(container.textContent).toContain('bmad/experts');
+    await act(async () => { window.dispatchEvent(new Event('focus')); await Promise.resolve(); });
+    // A refresh must not replace the list or add a second status region.
+    expect(container.textContent).toContain('bmad/experts');
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(0);
+    const refresh = container.querySelector<HTMLButtonElement>('[data-action="refresh"]');
+    expect(refresh?.getAttribute('aria-busy')).toBe('true');
+    await act(async () => { slow.resolve(page(item)); await Promise.resolve(); });
+    expect(refresh?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('serializes catalog mutations so an in-flight change cannot resend a stale catalog', async () => {
+    const slow = deferred<{ id: string; state: string; revision: number; kind: string }>();
+    const inspection = {
+      installation: item,
+      release: { install_id: item.install_id, bundle_id: item.bundle_id, release_digest: item.release_digest, release_sequence: 1 },
+      releases: [],
+      manifest: {
+        id: 'bmad/experts', version: '1', name: 'BMAD Experts', resources: [],
+        components: { skills: [], masks: [], rules: [], hooks: [], mcp: [{ id: 'docs', endpoint: 'http://127.0.0.1:1/mcp', authEnv: 'authEnv' }] },
+      },
+      consents: [],
+      executables: [{ kind: 'mcp', local_id: 'docs', release_digest: item.release_digest, declaration_digest: 'c'.repeat(64), consent_allowed: false, consent_current: false, missing_bindings: [], runtime_state: 'inactive', runtime_tool_count: -1 }],
+      bindings: [],
+    };
+    const available = { ...page(item), capabilities: { owners: { skill: true, mask: true, rule: true, hook: true, mcp: true } } };
+    const client = {
+      list: vi.fn().mockResolvedValue(available),
+      inspect: vi.fn().mockResolvedValue(inspection),
+      setBindings: vi.fn().mockReturnValue(slow.promise),
+      consent: vi.fn(),
+    } as unknown as ToolkitClient;
+    await act(async () => root.render(<ToolkitPage client={client} />));
+    await act(async () => { container.querySelector<HTMLButtonElement>('ul button')!.click(); await Promise.resolve(); });
+    const consent = container.querySelector<HTMLButtonElement>('[data-action="consent-grant"]');
+    expect(consent?.disabled).toBe(false);
+    const input = container.querySelector<HTMLInputElement>('#binding-mcp-docs-authEnv')!;
+    await act(async () => { input.value = 'HOST_TOKEN'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { container.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await Promise.resolve(); });
+    // The catalog identity is shared: a second mutation cannot start while the
+    // binding write is still in flight, or it would send the stale revision.
+    expect(client.consent).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLButtonElement>('[data-action="consent-grant"]')?.disabled).toBe(true);
+    await act(async () => { slow.resolve({ id: 'op-bindings', state: 'committed', revision: 2, kind: 'bindings' }); await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector<HTMLButtonElement>('[data-action="consent-grant"]')?.disabled).toBe(false);
   });
 });
 
