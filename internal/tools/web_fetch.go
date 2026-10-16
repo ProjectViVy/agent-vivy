@@ -64,7 +64,7 @@ func (t *webFetchTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 		Timeout int    `json:"timeout"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("web_fetch: invalid arguments: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.URL) == "" {
 		return "", &ArgError{Field: "url", Reason: "is required"}

@@ -139,7 +139,7 @@ func decodeCommandRequest(args json.RawMessage) (CommandRequest, error) {
 		TimeoutMS int               `json:"timeout_ms"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return CommandRequest{}, fmt.Errorf("command: invalid arguments: %w", err)
+		return CommandRequest{}, &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.Command) == "" {
 		return CommandRequest{}, &ArgError{Field: "command", Reason: "is required"}

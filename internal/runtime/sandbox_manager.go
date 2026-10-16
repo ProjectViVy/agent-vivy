@@ -16,6 +16,16 @@ import (
 // ErrSandboxDenied is returned when a sandbox check blocks an operation.
 var ErrSandboxDenied = errors.New("runtime: sandbox denied operation")
 
+// ErrProtectedPathDenied and ErrSymlinkPathDenied are the tool-boundary
+// denials the filesystem backend raises for its own workspace policy: a
+// protected path (.env, keys, credentials) and any symlink component. They are
+// governance denials, so the tool adapter turns them into a per-call refusal
+// (the call did not run) instead of a run-fatal tool error.
+var (
+	ErrProtectedPathDenied = errors.New("runtime: protected path denied")
+	ErrSymlinkPathDenied   = errors.New("runtime: symlink path denied")
+)
+
 // FileOp identifies the type of filesystem operation being validated.
 type FileOp string
 
