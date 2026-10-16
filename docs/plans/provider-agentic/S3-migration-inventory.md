@@ -77,7 +77,8 @@ unchanged) and, for every change, the message-generation decision.
   the adapter unchanged), `:91` `fromEinoMessages` — today a **spike-era,
   text-only** bridge whose own comment says `ContentBlock` is not transported.
   It must be deleted or rewritten; leaving it as-is would be a silent
-  text-only filter on the new generation (S2's A2/A3 would catch it).
+  text-only filter on the new generation. S2 does not import this bridge;
+  only the product-path acceptance in §2.7 can catch that regression.
 - The 22 non-test files carrying `schema.Message`: `contextadapter.go`,
   `model_stream_observer.go`, `context.go`, `compaction_middleware.go`,
   `mapper.go`, `prompt_middleware.go`, `service.go`, `nudge_middleware.go`,
@@ -112,7 +113,8 @@ unchanged) and, for every change, the message-generation decision.
   `profileSelectionError` at `:5521-5537`, whose `switch` at `:5529-5534`
   rejects any state outside `{COMPILED, UNCONFIGURED, READY}` with "provider
   Profile %q is %s and cannot execute". That gate is what makes a deferred
-  adapter unselectable today; it needs a subject once none is deferred.
+  adapter unselectable today, but it also rejects real `UNAVAILABLE` profiles.
+  Remove only the obsolete deferral branch; retain actual availability gates.
 - `ui/src/lib/api.ts:569` (`ProviderCapabilityState`), `:572`
   (`ProviderAdapterState`), `:578` (`state: ProviderCapabilityState`), `:601`
   (`executable: boolean`), `:603` (`state: ProviderAdapterState`).
@@ -136,6 +138,42 @@ unchanged) and, for every change, the message-generation decision.
   user-visible improvement of the migration — and it depends on the Journal
   projection in §2.5 actually persisting reasoning, so the two must land
   together or the row still receives nothing.
+
+### 2.7 Product acceptance, separate from the component spike
+
+S3 must assign these checks to migration phases; S4's spike decision schedules
+implementation, not release. Product acceptance requires the actual Vivy path,
+not a re-run of the isolated S2 harness:
+
+- Preserve existing conversation history, image/file context and tool calls,
+  including approval/interrupt/resume. Exercise the affected domain projections,
+  not only new Eino types. Preserve policy/Grant boundaries and secret isolation.
+- Verify reasoning through provider -> observer/mapper -> durable Journal -> UI,
+  including reopening a session. Define the handling of signatures and opaque/
+  redacted blocks across tool results, history reconstruction and compaction;
+  provider replay material is not automatically user-visible reasoning text.
+- Verify exact usage counters, main/summary-route attribution and no duplicate
+  charges/events; verify context budgets and compaction behavior under the new
+  representation. Test cancellation, stream closure and parallel tool races.
+- Inventory durable checkpoints explicitly. `VersionedCheckpointStore.Get`
+  in `internal/runtime/checkpoint.go` rejects mismatched Eino versions, and
+  `engine.go` wires it into the runner. The v0.9.20 -> v0.9.21 bump prevents
+  direct old-checkpoint resume; a reverted old binary likewise rejects new
+  checkpoints. Decide an explicit drain/finish or safe restart disposition for
+  pending runs in both directions, with user-visible outcomes. Preserve
+  fail-closed checks; add no custom checkpoint converter. Test upgrade and
+  downgrade using synthetic persisted state, never production journals.
+- Compare full product binaries and relevant stream-path latency, memory and
+  allocation behavior against the recorded baseline with matching toolchain,
+  platform, flags and workload. Record measured values versus estimates and
+  known constraints. The owner accepts material cost/regression tradeoffs;
+  merely measuring them is not acceptance. Do not invent numeric budgets or
+  build a new benchmark framework just for the plan.
+- Run required `just ci` and a real-path UI smoke on split Vite `:3015`,
+  verifying selection, tool execution and reasoning/reopen behavior. Record
+  any unverified provider compatibility separately; a local fake is not evidence
+  that all 45 vendors work. Any required live-provider check needs separately
+  authorized credentials/cost and is not part of this zero-network spike.
 
 ## 3. Residue-deletion set
 
@@ -165,6 +203,8 @@ like code (`AGENTS.md`).
 
 | Site | Why |
 |---|---|
+| Runtime `COMPILED` / `UNCONFIGURED` / `READY` / `UNAVAILABLE` states and selection gates | Construction/configuration failures still exist; a sealed binding is not runtime readiness |
+| Endpoint/model feature declarations and `AdapterSupportsCapability` validation | A constructible protocol does not imply every model or endpoint supports thinking, tools or arbitrary options; preserve authoritative derived checks |
 | `sdk/port/support.go:12-16` | The generic 5-state port support vocabulary (`RESERVED`/`SPECIFIED`/`CANDIDATE`/`SUPPORTED`/`DEFERRED-INDEFINITE`). It applies to public ports, not to provider adapters — a different axis. Deleting it would be scope contamination in the other direction |
 | `sdk/port/providerprofile/providerprofile.go:34-41` | The declarative public `Profile`. It has no capability field today and **must not gain one**: the profile stays declarative, and capability is derived (D5) |
 | `sdk/internal/testdata/default-generation.expected.json:168-172` | The adapter set stays three, so the generated expectation is unchanged. Editing it would be evidence drift |
@@ -174,7 +214,7 @@ like code (`AGENTS.md`).
 
 | # | Risk | Severity | Detection | Response |
 |---|---|---|---|---|
-| R1 | `AgenticModel` is upstream **Beta**; a patch release may break it | med | S2 + `just ci` after the bump | The seam is one line in one package; the import quarantine bounds the blast radius |
+| R1 | `AgenticModel` is upstream **Beta**; a patch release may break it | med | S2 + `just ci` after the bump | Exact pins and semantic regression gates; quarantine bounds packages, not the 24-file migration surface |
 | R2 | `libs/acl/openai` arrives as a pseudo-version (`agenticopenai@v0.2.4/go.mod:9`) | low | S0 pin-legality step | Precedent exists (`go.mod:7,18,19,23`); record it, do not re-litigate |
 | R3 | Tool binding changes from a method to a request-time option, 33 sites | med | compile + full test run | Mechanical, but no site may be missed; S2's A2 is the behavioural check |
 | R4 | Streaming chunk type change | high | S2 A1–A3; observer tests | Enumerate every stream consumer before editing |
@@ -186,6 +226,7 @@ like code (`AGENTS.md`).
 | R10 | `EINO-TOOLSNODE-ERR-RACE` (`docs/DEFER.MD:118`) — parallel tool goroutines share a function-scope `err` | med | A `-race` run of a parallel tool batch after the bump | Assert the state of the row after the version bump; do not assume it was fixed |
 | R11 | Scale: 145/24 non-test + 312/42 test occurrences | — | Inventory completion | This is why the migration is phased rather than a patch |
 | R12 | A partially-migrated intermediate state | high | Compile | See §5 |
+| R13 | Persisted runs cannot resume across the Eino-version boundary, including rollback | high | Synthetic upgrade/downgrade checkpoint tests and pending-run disposition | Preserve fail-closed version checks; §2.7 and S4 §5.8 |
 
 ## 5. The two migration shapes
 
