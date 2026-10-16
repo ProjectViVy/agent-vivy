@@ -23,9 +23,10 @@ const (
 )
 
 // memoryTool adapts one Service method to the std/tool@v1 contract. The
-// Definition is static; Invoke resolves the service at call time through
-// the Active registry, exactly like the control-action plane.
+// Definition is static; App-bound instances retain their exact service.
+// Standalone legacy providers may resolve through Active.
 type memoryTool struct {
+	serviceBinding
 	definition toolport.Definition
 	invoke     func(context.Context, *Service, json.RawMessage) (json.RawMessage, error)
 }
@@ -44,7 +45,7 @@ func (t *memoryTool) Invoke(ctx context.Context, _ toolport.Host, args json.RawM
 	case len(args) > maxActionInput:
 		payload, err = marshalOutcome(invalidInput())
 	default:
-		service := Active()
+		service := t.memoryService()
 		if service == nil {
 			payload, err = marshalOutcome(unavailableOutcome())
 		} else {

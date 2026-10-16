@@ -10,8 +10,11 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"github.com/ProjectViVy/agent-vivy/bml"
+	gardenmemory "github.com/ProjectViVy/laputa/garden/memory"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
@@ -25,7 +28,7 @@ type generatedCognitiveFactoryBinding interface {
 // without vivy/diva-cognitive returns nil; a selected module whose emitted
 // binding is missing or mistyped fails init instead of degrading to a second
 // construction path.
-func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.RuntimeAssembly, cfg config.Config, generationID string, store storage.SnapshotStore) (cognitivecontract.Bundle, error) {
+func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.RuntimeAssembly, cfg config.Config, generationID string, store storage.SnapshotStore, memoryService ...*memorymodule.Service) (cognitivecontract.Bundle, error) {
 	if !assemblyHasModule(assembly.Manifest.Modules, "vivy/diva-cognitive") {
 		return nil, nil
 	}
@@ -44,7 +47,18 @@ func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.Runti
 		return nil, fmt.Errorf("app: resolve cognitive data directory: %w", err)
 	}
 	cfg.Storage.DataDir = dataRoot
+	var makeBackend func(context.Context, cognitivecontract.RecapBinding) (gardenmemory.Backend, error)
+	if len(memoryService) > 0 && memoryService[0] != nil {
+		if !assemblyHasModule(assembly.Manifest.Modules, memorymodule.ID) {
+			return nil, fmt.Errorf("app: unselected memory service")
+		}
+		owned := memoryService[0]
+		makeBackend = func(_ context.Context, binding cognitivecontract.RecapBinding) (gardenmemory.Backend, error) {
+			return memorymodule.NewBoundBackend(owned, bml.OwnershipBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID, ScopeKind: "personal", DestinationID: "bml"})
+		}
+	}
 	bundle, err := factory(ctx, cognitivecontract.FactoryInput{
+		NewSubjectBackend: makeBackend,
 		ResolveRecapBinding: func(ctx context.Context, actualRoot string) (cognitivecontract.RecapBinding, error) {
 			binding, err := ResolveSubjectBinding(ctx, store, actualRoot)
 			return cognitivecontract.RecapBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID}, err

@@ -84,6 +84,7 @@ type App struct {
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
 	cognitive    cognitivecontract.Bundle
+	memory       *memorymodule.Service
 	backend      storage.Engine
 	worker       *workerManager
 	resolver     *ModelResolver
@@ -337,20 +338,27 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	// The memory service is composition-owned: opened once after storage when
-	// the Generation compiled the memory action module, then resolved by the
-	// generated providers through the package-level registry.
+	// the Generation compiled the memory action module. Generated providers
+	// receive copies bound to this exact service before dispatch.
 	memoryOwned := false
+	var memoryService *memorymodule.Service
 	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/memory-bml") {
-		if _, err := memorymodule.Open(ctx, cfg); err != nil {
+		var err error
+		memoryService, err = memorymodule.OpenOwned(ctx, cfg, leaseOwner.OrganismLeaseOwner())
+		if err != nil {
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: open memory service: %w", err)
 		}
 		memoryOwned = true
 		defer func() {
 			if memoryOwned {
-				_ = memorymodule.Close()
+				_ = memoryService.Close()
 			}
 		}()
+		if err := bindMemoryProviders(&runtimeAssembly, memoryService); err != nil {
+			_ = backend.Close()
+			return nil, err
+		}
 	}
 
 	// Provider metadata is part of the binary: there is no bundle directory,
@@ -829,7 +837,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// DN-LC: the one cognitive owner binds through the same sealed accessor
 	// pattern as the mask factory. A selected-but-unarmed binding fails the
 	// composition; an omitted module changes nothing.
-	cognitiveBundle, err = cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
+	cognitiveBundle, err = cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot(), memoryService)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err
@@ -1563,6 +1571,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		mcpBackend:   mcpBackend,
 		assembly:     &runtimeAssembly,
 		diagnostics:  diagnostics,
+		memory:       memoryService,
 		closeDone:    make(chan struct{}),
 	}
 	if runObserverHost != nil {
@@ -1716,7 +1725,9 @@ func (a *App) startClose() {
 				a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 			}
 			a.closeStage.Store("memory")
-			a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
+			if a.memory != nil {
+				a.closeErr = errors.Join(a.closeErr, a.memory.Close())
+			}
 			if a.diagnostics != nil {
 				a.closeStage.Store("diagnostics")
 				a.closeErr = errors.Join(a.closeErr, a.diagnostics.Close())
@@ -2348,6 +2359,13 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if a.assembly != nil {
 		assemblyCloseErr = errors.Join(assemblyCloseErr, a.assembly.Close(shutdownCtx))
+	}
+	var memoryCloseErr error
+	if a.memory != nil {
+		memoryCloseErr = a.memory.Close()
+	}
+	if memoryCloseErr != nil {
+		return fmt.Errorf("close memory: %w", memoryCloseErr)
 	}
 	if httpCloseErr != nil {
 		return fmt.Errorf("shutdown http server: %w", httpCloseErr)
