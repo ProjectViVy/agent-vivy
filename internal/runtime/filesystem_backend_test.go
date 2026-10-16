@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,5 +324,295 @@ func TestEinoFilesystemBackendHonorsCancellation(t *testing.T) {
 	_, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "missing.txt"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("read error = %v, want context cancellation", err)
+	}
+}
+
+// A model may name the workspace root as ".", "./", ".//" or ""; every form
+// must resolve to the root instead of failing the run. Regression for
+// run_8d376d0f457fa5e5: list_dir {"path":"./"} returned
+// "filesystem: invalid path" and Eino's ToolsNode turned that into a fatal
+// [NodeRunError].
+func TestEinoFilesystemBackendAcceptsWorkspaceRootSpellings(t *testing.T) {
+	backend, workspace, runID := newFilesystemTestBackend(t)
+	if err := os.WriteFile(filepath.Join(workspace.Path, "root.txt"), []byte("top"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := context.Background()
+
+	for _, path := range []string{"", ".", "./", ".//", "./."} {
+		listed, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: path})
+		if err != nil {
+			t.Fatalf("list_dir %q = %v, want the workspace root", path, err)
+		}
+		if listed.Path != "." || len(listed.Entries) != 1 || listed.Entries[0].Path != "root.txt" {
+			t.Fatalf("list_dir %q = %+v, want the root entry", path, listed)
+		}
+	}
+	read, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "./root.txt"})
+	if err != nil || read.Content != "top" {
+		t.Fatalf("read_file ./root.txt = %+v, %v", read, err)
+	}
+}
+
+// A path defect is the model's own argument mistake: it must surface as a
+// structured *tools.ArgError so the runtime's §5 soft conversion keeps the
+// run alive with a model-visible diagnostic (NUDGE-DESIGN §5), never as a
+// run-fatal engine error.
+func TestEinoFilesystemBackendPathDefectsAreArgumentErrors(t *testing.T) {
+	backend, _, runID := newFilesystemTestBackend(t)
+	ctx := context.Background()
+
+	cases := []string{"/etc", "/", `\Windows`, "../outside", "a\x00b", "root.txt/nested"}
+	if filepath.VolumeName(`C:\Windows`) != "" {
+		// Drive-absolute paths only exist on Windows.
+		cases = append(cases, `C:\Windows`)
+	}
+	if err := os.WriteFile(filepath.Join(mustWorkspace(t, backend, runID), "root.txt"), []byte("file"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			_, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: path})
+			assertPathArgError(t, err)
+		})
+	}
+
+	// The list target itself may be a file rather than a directory.
+	_, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: "root.txt"})
+	assertPathArgError(t, err)
+
+	// Search/glob/grep share the same resolve seam.
+	if _, err := backend.SearchFiles(ctx, runID, tools.FileSearchRequest{Query: "x", Path: "/etc"}); err == nil {
+		t.Fatal("search with a rooted path was accepted")
+	} else {
+		assertPathArgError(t, err)
+	}
+}
+
+func mustWorkspace(t *testing.T, backend *EinoFilesystemBackend, runID domain.RunID) string {
+	t.Helper()
+	workspace, err := backend.manager.Ensure(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("ensure workspace: %v", err)
+	}
+	return workspace.Path
+}
+
+func assertPathArgError(t *testing.T, err error) {
+	t.Helper()
+	var argErr *tools.ArgError
+	if !errors.As(err, &argErr) || argErr.Field != "path" {
+		t.Fatalf("error = %v (%T), want *tools.ArgError on field %q", err, err, "path")
+	}
+	// The same error must classify as recoverable for a readonly tool, the
+	// way the runtime adapter treats it at the invocation seam.
+	failure, ok := classifyToolFailure(context.Background(), domain.ToolSpec{Name: tools.ListDirName, Readonly: true}, err)
+	if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonInvalidArguments {
+		t.Fatalf("classification = %+v (ok=%v), want recoverable/invalid_arguments", failure, ok)
+	}
+}
+
+// Every remaining argument defect in the filesystem family carries the
+// offending field, so §5 recovers it as recoverable/invalid_arguments instead
+// of letting Eino's ToolsNode fail the whole run. Regression coverage for the
+// same class as run_8d376d0f457fa5e5 (a model mistake must not kill the run),
+// now including patch/read/write limits that used to be bare errors.
+func TestEinoFilesystemBackendArgumentDefectsAreTypedArgumentErrors(t *testing.T) {
+	backend, workspace, runID := newFilesystemTestBackend(t)
+	ctx := context.Background()
+	runCtx := tools.WithRunID(ctx, runID)
+	// A tiny cap keeps the over-limit cases cheap to express.
+	backend.maxFileBytes = 24
+
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(workspace.Path, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+	write("notes.txt", "alpha\nbeta\ngamma\ndelta\n")
+	write("twice.txt", "dup\ndup\n")
+	write("binary.bin", "\x00\x01ab")
+	write("shot.png", strings.Repeat("p", 25))
+
+	big := strings.Repeat("x", 25)
+	cases := []struct {
+		name  string
+		field string
+		call  func() error
+	}{
+		{"read reversed line range", "end_line", func() error {
+			_, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "notes.txt", StartLine: 4, EndLine: 2})
+			return err
+		}}, {"read image over the read cap", "path", func() error {
+			_, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "shot.png"})
+			return err
+		}},
+		{"search empty query", "query", func() error {
+			_, err := backend.SearchFiles(ctx, runID, tools.FileSearchRequest{Query: "", Path: "."})
+			return err
+		}},
+		{"write over the content cap", "content", func() error {
+			_, err := backend.WriteFile(ctx, runID, tools.FileWriteRequest{Path: "big.txt", Content: big})
+			return err
+		}},
+		{"prepare write over the content cap", "content", func() error {
+			_, err := backend.PrepareWriteFile(ctx, runID, tools.FileWriteRequest{Path: "big.txt", Content: big})
+			return err
+		}},
+		{"patch empty old_string", "old_string", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "notes.txt", OldString: "", NewString: "x"})
+			return err
+		}},
+		{"patch identical strings", "new_string", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "notes.txt", OldString: "alpha", NewString: "alpha"})
+			return err
+		}},
+		{"patch unmatched old_string", "old_string", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "notes.txt", OldString: "epsilon", NewString: "x"})
+			return err
+		}},
+		{"patch ambiguous old_string", "replace_all", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "twice.txt", OldString: "dup", NewString: "x"})
+			return err
+		}},
+		{"patch binary target", "path", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "binary.bin", OldString: "ab", NewString: "x"})
+			return err
+		}},
+		{"patch missing target", "path", func() error {
+			_, err := backend.PatchFile(ctx, runID, tools.FilePatchRequest{Path: "absent.txt", OldString: "ab", NewString: "x"})
+			return err
+		}},
+		{"prepare patch missing target", "path", func() error {
+			_, err := backend.PreparePatchFile(ctx, runID, tools.FilePatchRequest{Path: "absent.txt", OldString: "ab", NewString: "x"})
+			return err
+		}},
+		{"prepare patch unmatched old_string", "old_string", func() error {
+			_, err := backend.PreparePatchFile(ctx, runID, tools.FilePatchRequest{Path: "notes.txt", OldString: "epsilon", NewString: "x"})
+			return err
+		}},
+		{"prepare patch binary target", "path", func() error {
+			_, err := backend.PreparePatchFile(ctx, runID, tools.FilePatchRequest{Path: "binary.bin", OldString: "ab", NewString: "x"})
+			return err
+		}},
+		{"multiedit without edits", "edits", func() error {
+			_, err := backend.MultiPatchFile(ctx, runID, tools.FileMultiEditRequest{Path: "notes.txt"})
+			return err
+		}},
+		{"multiedit binary target", "path", func() error {
+			_, err := backend.MultiPatchFile(ctx, runID, tools.FileMultiEditRequest{Path: "binary.bin", Edits: []tools.FileMultiEditItem{{OldString: "ab", NewString: "x"}}})
+			return err
+		}},
+		{"prepare multiedit without edits", "edits", func() error {
+			_, err := backend.PrepareMultiPatchFile(ctx, runID, tools.FileMultiEditRequest{Path: "notes.txt"})
+			return err
+		}},
+		{"multiedit missing target", "path", func() error {
+			_, err := backend.MultiPatchFile(ctx, runID, tools.FileMultiEditRequest{Path: "absent.txt", Edits: []tools.FileMultiEditItem{{OldString: "ab", NewString: "x"}}})
+			return err
+		}},
+		{"prepare multiedit missing target", "path", func() error {
+			_, err := backend.PrepareMultiPatchFile(ctx, runID, tools.FileMultiEditRequest{Path: "absent.txt", Edits: []tools.FileMultiEditItem{{OldString: "ab", NewString: "x"}}})
+			return err
+		}},
+		{"glob empty pattern", "pattern", func() error {
+			_, err := backend.Glob(runCtx, tools.GlobRequest{Pattern: ""})
+			return err
+		}},
+		{"glob escaping pattern", "pattern", func() error {
+			_, err := backend.Glob(runCtx, tools.GlobRequest{Pattern: "../outside/*"})
+			return err
+		}},
+		{"grep invalid pattern", "pattern", func() error {
+			_, err := backend.Grep(runCtx, tools.GrepRequest{Pattern: "([a-z"})
+			return err
+		}},
+		{"eino glob empty pattern", "pattern", func() error {
+			_, err := backend.GlobInfo(runCtx, &filesystem.GlobInfoRequest{Pattern: ""})
+			return err
+		}},
+		{"eino grep invalid pattern", "pattern", func() error {
+			_, err := backend.GrepRaw(runCtx, &filesystem.GrepRequest{Pattern: "([a-z"})
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			var argErr *tools.ArgError
+			if !errors.As(err, &argErr) || argErr.Field != tc.field {
+				t.Fatalf("error = %v (%T), want *tools.ArgError on field %q", err, err, tc.field)
+			}
+			failure, ok := classifyToolFailure(ctx, domain.ToolSpec{Name: tools.PatchName}, err)
+			if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonInvalidArguments {
+				t.Fatalf("classification = %+v (ok=%v), want recoverable/invalid_arguments", failure, ok)
+			}
+		})
+	}
+}
+
+// A boundary denial is a governance decision, not a run failure: the
+// filesystem backend must report the typed sentinel and the adapter must turn
+// it into a per-call refusal (refused/policy_denied/not_executed) so the model
+// is told the call did not run.
+func TestEinoFilesystemBackendProtectedPathDenialIsTypedRefusal(t *testing.T) {
+	backend, workspace, runID := newFilesystemTestBackend(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(workspace.Path, ".env"), []byte("SECRET=1"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	_, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: ".env"})
+	if !errors.Is(err, ErrProtectedPathDenied) {
+		t.Fatalf("protected read error = %v, want ErrProtectedPathDenied", err)
+	}
+	assertBoundaryDenialRefusal(t, err, tools.ReadFileName, true)
+}
+
+func TestEinoFilesystemBackendSymlinkDenialIsTypedRefusal(t *testing.T) {
+	backend, workspace, runID := newFilesystemTestBackend(t)
+	ctx := context.Background()
+	target := filepath.Join(workspace.Path, "real.txt")
+	if err := os.WriteFile(target, []byte("real"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(workspace.Path, "link.txt")); err != nil {
+		t.Skipf("symlink unavailable on this Windows account: %v", err)
+	}
+	_, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "link.txt"})
+	if !errors.Is(err, ErrSymlinkPathDenied) {
+		t.Fatalf("symlink read error = %v, want ErrSymlinkPathDenied", err)
+	}
+	assertBoundaryDenialRefusal(t, err, tools.ReadFileName, true)
+}
+
+// Every governance denial the filesystem boundary can raise must resolve to a
+// refusal through the shared adapter seam, on a model-driven leg or not.
+func TestBoundaryDenialSentinelsAreRefusals(t *testing.T) {
+	for _, sentinel := range []error{ErrProtectedPathDenied, ErrSymlinkPathDenied, ErrSandboxDenied} {
+		t.Run(sentinel.Error(), func(t *testing.T) {
+			assertBoundaryDenialRefusal(t, fmt.Errorf("filesystem: denied: %w", sentinel), tools.ReadFileName, false)
+		})
+	}
+}
+
+func assertBoundaryDenialRefusal(t *testing.T, err error, toolName string, modelLeg bool) {
+	t.Helper()
+	// A refusal defaults to policy_denied/refused/not_executed: the call never
+	// reached the tool, so its effects are known to be absent.
+	refusal, ok := asToolRefusal(err)
+	if !ok {
+		t.Fatalf("error = %v (%T), want a tool refusal", err, err)
+	}
+	if refusal.classification != "" {
+		t.Fatalf("refusal classification = %q, want the policy_denied default", refusal.classification)
+	}
+	failure := refusalFailure(refusal.classification, refusal.reason)
+	if failure.Status != toolFailureStatusRefused || failure.Reason != toolFailureReasonPolicyDenied || failure.Effects != toolEffectsNotExecuted {
+		t.Fatalf("refusal record = %+v, want refused/policy_denied/not_executed", failure)
+	}
+	// A refusal is never soft-converted into an invalid_arguments result.
+	if soft, softOK := classifyToolFailure(context.Background(), domain.ToolSpec{Name: toolName, Readonly: modelLeg}, err); softOK {
+		t.Fatalf("boundary denial was classified as a recoverable failure: %+v", soft)
 	}
 }

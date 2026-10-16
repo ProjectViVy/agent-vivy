@@ -117,7 +117,7 @@ func decodeBashRequest(args json.RawMessage) (string, CommandRequest, error) {
 		Background bool   `json:"run_in_background"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", CommandRequest{}, fmt.Errorf("bash: invalid arguments: %w", err)
+		return "", CommandRequest{}, &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	script := strings.TrimSpace(input.Command)
 	if script == "" {
