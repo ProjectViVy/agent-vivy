@@ -141,6 +141,15 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         : '';
     return base + bytes + status;
   };
+  // 上下文占用即压缩入口：会话可压缩时整块是按钮（点击弹出压缩窗口），
+  // 否则只作为状态环呈现。
+  const compactAvailable = Boolean(context?.compaction_enabled && activeSessionId);
+  const contextMeter = <>
+    <div className="relative h-7 w-7" aria-hidden="true">
+      <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
+    </div>
+    <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
+  </>;
   const thinkingModeOption = THINKING_MODES.find((mode) => mode.value === thinkingMode)!;
   const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
   const permissionLocked = Boolean(running) || permissionBusy || !activeSessionId;
@@ -414,27 +423,30 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       }
     }} placeholder={placeholder || t(commands.draft?.name === 'goal' ? (commands.draft.goalRef ? 'composerCommands.resumePlaceholder' : 'composerCommands.goalPlaceholder') : commands.draft?.name === 'plan' ? 'composerCommands.planPlaceholder' : 'chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
     <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={contextTitleText()}>
-      <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="relative h-7 w-7">
-        <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
-      </div>
-      <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
-      {context?.compaction_enabled ? (
+      {compactAvailable ? (
         <Popover open={compactOpen} onOpenChange={setCompactOpen}>
           <PopoverTrigger asChild>
-            <button type="button" disabled={disabled || !activeSessionId || compacting} title={running ? t('chatInput.compactBusy') : t('chatInput.compact')} aria-label={t('chatInput.compact')} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50">
-              <Shrink className="h-4 w-4" />
+            <button type="button" className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+              <span className="sr-only">{t('chatInput.contextLabel')}</span>
+              {contextMeter}
+              <Shrink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             </button>
           </PopoverTrigger>
           <PopoverContent side="top" align="start" className="w-72 p-3">
             <p className="text-sm font-medium">{t('chatInput.compact')}</p>
             <p className="mt-1 text-xs text-muted-foreground">{t('chatInput.compactHint')}</p>
+            {running ? <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">{t('chatInput.compactBusy')}</p> : null}
             <Input value={compactInstructions} onChange={(event) => setCompactInstructions(event.target.value)} placeholder={t('chatInput.compactInstructionsPlaceholder')} className="mt-2 h-8 text-sm" aria-label={t('chatInput.compactInstructionsPlaceholder')} />
             <Button type="button" size="sm" className="mt-2 w-full" disabled={compacting} onClick={() => void runCompact()}>
               {compacting ? t('chatInput.compacting') : t('chatInput.compactNow')}
             </Button>
           </PopoverContent>
         </Popover>
-      ) : null}
+      ) : (
+        <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="flex shrink-0 items-center gap-1.5">
+          {contextMeter}
+        </div>
+      )}
     </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
     <button type="button" onClick={() => void send('follow_up')} disabled={disabled || !canSend} className="rounded-full border border-border p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40" title={t('chatInput.sendAsFollowUp')} aria-label={t('chatInput.sendAsFollowUp')}><Clock className="h-4 w-4" /></button>
