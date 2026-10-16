@@ -7,6 +7,7 @@ import { Breadcrumb } from '../components/ui/breadcrumb';
 import { Calendar } from '../components/ui/calendar';
 import { MessageBubble } from '../components/chat/MessageBubble';
 import { ReviewCard } from '../components/approvals/ReviewCard';
+import { ApprovalQuickCard } from '../components/approvals/ApprovalQuickCard';
 import { TrajectoryLedger } from '../components/trajectory/TrajectoryLedger';
 import { turnLabel } from '../components/trajectory/trajectory-utils';
 import { TRAJECTORY_KIND_LABEL } from '../components/trajectory/trajectory-types';
@@ -52,6 +53,21 @@ describe.each([
     expect(html).toContain(copy.approve);
     expect(html).toContain(content);
     expect(html).toContain('run-id');
+    const quick = renderToStaticMarkup(
+      <ApprovalQuickCard
+        review={review}
+        pendingCount={2}
+        busy={false}
+        error={null}
+        offset={{ x: 0, y: 0 }}
+        onOffsetChange={() => undefined}
+        onRespond={() => undefined}
+        onOpenCenter={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(quick).toContain(copy.approve);
+    expect(quick).toContain(content);
   });
 
   it('localizes the trajectory empty state and host badges, not grouping identifiers', () => {

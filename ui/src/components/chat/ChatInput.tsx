@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
   Paperclip, Send, Shield, ShieldCheck, Shrink, Sparkles, Square, X,
@@ -21,6 +21,7 @@ import { WorkspaceSelector } from './WorkspaceSelector';
 import { HistoryPicker } from './HistoryPicker';
 import { ContextReferenceChip } from './ContextReferenceChip';
 import { ComposerCommandControls, useComposerCommands } from './ComposerCommands';
+import { ApprovalQuickCard, pickPendingReview } from '@/components/approvals/ApprovalQuickCard';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
@@ -96,15 +97,27 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const [confirmTrusted, setConfirmTrusted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
+  // 快捷审批卡是本组件自己的浮层：开关与拖动位置只影响这个输入框，不进 store，
+  // 因而不扩宽 SDK 的 Face 状态契约（审批数据本身仍来自 store.reviews）。
+  const [reviewQuickOpen, setReviewQuickOpen] = useState(false);
+  const [reviewQuickOffset, setReviewQuickOffset] = useState({ x: 0, y: 0 });
+  const reviews = useVivyStore((state) => state.reviews);
+  const reviewsError = useVivyStore((state) => state.reviewsError);
+  const reviewBusyIds = useVivyStore((state) => state.reviewBusyIds);
+  const respondReview = useVivyStore((state) => state.respondReview);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
   const queuedMessages = useVivyStore((state) => state.queuedMessages);
   const kernelQueue = useVivyStore((state) => state.kernelQueue);
   const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
   const removeKernelQueued = useVivyStore((state) => state.removeKernelQueued);
   const clearQueue = useVivyStore((state) => state.clearQueue);
-  const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
+  const pendingReviews = useMemo(() => reviews.filter((review) => review.status === 'pending'), [reviews]);
+  const pendingReviewCount = pendingReviews.length;
+  // 快捷审批卡只决定一条：本会话最早的待处理项，其次全局最早的。
+  const quickReview = useMemo(() => pickPendingReview(reviews, activeSessionId), [reviews, activeSessionId]);
+  const currentDraft = useRef({ value, pending, sessionId: activeSessionId });
+  currentDraft.current = { value, pending, sessionId: activeSessionId };
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
@@ -353,9 +366,9 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* 右侧：审批中心 */}
+      {/* 右侧：快捷审批卡（审批中心仍从卡片内或侧栏进入） */}
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
+        <button type="button" aria-expanded={reviewQuickOpen} aria-controls="approval-quick-card" onClick={() => setReviewQuickOpen(!reviewQuickOpen)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
       </div>
     </div>
     {/* 队列 pill（对照 Crush + pi 双轨）：内核 steer/follow_up 与本地
@@ -454,6 +467,19 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     <Button size="icon" variant="destructive" className="rounded-full" onClick={totalQueued ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
   </>
 ) : <button type="button" onClick={() => void send('send')} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+    {reviewQuickOpen ? (
+      <ApprovalQuickCard
+        review={quickReview}
+        pendingCount={pendingReviewCount}
+        busy={quickReview !== null && reviewBusyIds.includes(quickReview.id)}
+        error={reviewsError}
+        offset={reviewQuickOffset}
+        onOffsetChange={setReviewQuickOffset}
+        onRespond={(action) => { if (quickReview) return respondReview(quickReview.id, { action }); }}
+        onOpenCenter={() => openReviewCenter(true)}
+        onClose={() => setReviewQuickOpen(false)}
+      />
+    ) : null}
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>
