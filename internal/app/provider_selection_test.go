@@ -203,3 +203,88 @@ func TestApplySettingsEnvEmptySelectionTouchesNothing(t *testing.T) {
 		t.Fatalf("%s = %q, want untouched", provider.APIBaseEnvVar, got)
 	}
 }
+
+// resetBaseURLState clears the publishing memory between cases: it is process
+// state, so a test that publishes must not depend on the order it runs in.
+func resetBaseURLState() {
+	appliedBaseURL.mu.Lock()
+	appliedBaseURL.value = ""
+	appliedBaseURL.mu.Unlock()
+	os.Unsetenv(provider.APIBaseEnvVar)
+}
+
+// A provider the user registered is an endpoint, not an embedded vendor: its
+// key is resolved from the registry by (adapter, address). Writing it into the
+// environment variable of a vendor that happens to share the entry's label
+// would hand the operator's key to an unrelated endpoint — here the embedded
+// openai vendor, whose variable reads OPENAI_API_KEY.
+func TestApplySettingsEnvKeepsRegisteredProviderKeyInTheRegistry(t *testing.T) {
+	clearModelEnv(t)
+	resetBaseURLState()
+
+	entry := settings.ProviderEntry{
+		ID: "custom-1", DisplayName: "openai", Bundle: provider.AdapterOpenAICompletions,
+		BaseURL: "https://gateway.example/v1", DefaultModel: "my-model",
+		Models: []string{"my-model"}, ApiKey: "sk-my-gateway",
+	}
+	stored := settings.Settings{
+		Provider: provider.AdapterOpenAICompletions, BaseURL: entry.BaseURL,
+		DefaultModel: entry.DefaultModel, Providers: []settings.ProviderEntry{entry},
+	}
+	dir := t.TempDir()
+	if _, err := settings.Save(settings.Path(dir), stored); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := settings.Load(settings.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Storage.DataDir = t.TempDir()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	applySettingsEnv(logger, testCatalog(t), cfg, loaded)
+
+	if got := os.Getenv("OPENAI_API_KEY"); got != "" {
+		t.Fatalf("OPENAI_API_KEY = %q; a registered provider's key must stay in the registry", got)
+	}
+	if got := os.Getenv(provider.APIBaseEnvVar); got != entry.BaseURL {
+		t.Fatalf("%s = %q, want the registered address", provider.APIBaseEnvVar, got)
+	}
+}
+
+// VIVY_API_BASE is also the documented operator freeze knob for one process,
+// so a settings write publishes and withdraws only its own value.
+func TestApplyBaseURLEnvWithdrawsOnlyItsOwnValue(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	t.Run("an operator value survives an empty settings address", func(t *testing.T) {
+		resetBaseURLState()
+		t.Setenv(provider.APIBaseEnvVar, "https://operator.example/v1")
+		applyBaseURLEnv(logger, "")
+		if got := os.Getenv(provider.APIBaseEnvVar); got != "https://operator.example/v1" {
+			t.Fatalf("%s = %q, want the operator's value", provider.APIBaseEnvVar, got)
+		}
+	})
+
+	t.Run("a published settings address is withdrawn", func(t *testing.T) {
+		resetBaseURLState()
+		applyBaseURLEnv(logger, "https://gateway.example/v1")
+		if got := os.Getenv(provider.APIBaseEnvVar); got != "https://gateway.example/v1" {
+			t.Fatalf("after publish %s = %q", provider.APIBaseEnvVar, got)
+		}
+		applyBaseURLEnv(logger, "")
+		if got := os.Getenv(provider.APIBaseEnvVar); got != "" {
+			t.Fatalf("after withdraw %s = %q, want unset", provider.APIBaseEnvVar, got)
+		}
+	})
+
+	t.Run("a value set after the publish is not clobbered", func(t *testing.T) {
+		resetBaseURLState()
+		applyBaseURLEnv(logger, "https://gateway.example/v1")
+		t.Setenv(provider.APIBaseEnvVar, "https://operator.example/v1")
+		applyBaseURLEnv(logger, "")
+		if got := os.Getenv(provider.APIBaseEnvVar); got != "https://operator.example/v1" {
+			t.Fatalf("%s = %q, want the externally set value", provider.APIBaseEnvVar, got)
+		}
+	})
+}
