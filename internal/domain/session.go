@@ -136,19 +136,32 @@ type FileContext struct {
 // Provenance: Source is ui | channel | headless (empty reads as ui, see
 // EffectiveSource); Channel/ChatID/ChannelMessageID carry channel
 // provenance and stay empty on non-channel rows.
+// MessageCopySource is a direct, exact parent coordinate written atomically
+// with a fork/clone copy. It never carries a source body or a read grant.
+type MessageCopySource struct {
+	SessionID SessionID
+	MessageID string
+}
+
 type Message struct {
-	ID               string
-	SessionID        SessionID
-	RunID            RunID // empty for user-authored messages
-	Role             Role
-	CreatedAt        int64   // unix milli
-	WorkSeq          WorkSeq // latest committed session work event visible when this message was persisted
-	Content          string
-	Attachments      []Attachment  // user rows: multimodal input; assistant rows: the outbound media source for channel delivery
-	FileContexts     []FileContext // user rows only; bounded project text snapshots
-	ToolCallID       string
-	ToolName         string
-	ToolArgs         []byte
+	ID           string
+	SessionID    SessionID
+	RunID        RunID // empty for user-authored messages
+	Role         Role
+	CreatedAt    int64   // unix milli
+	WorkSeq      WorkSeq // latest committed session work event visible when this message was persisted
+	Content      string
+	Attachments  []Attachment  // user rows: multimodal input; assistant rows: the outbound media source for channel delivery
+	FileContexts []FileContext // user rows only; bounded project text snapshots
+	ToolCallID   string
+	ToolName     string
+	ToolArgs     []byte
+	// ToolError is expanded only from an owned exact tool artifact; the normal
+	// MessageStore projection remains derived from the public Journal outcome.
+	ToolError string `json:",omitempty"`
+	// CopySource is used only as input to the atomic fork/clone transaction;
+	// persisted provenance is read through MessageCopySourceStore.
+	CopySource       *MessageCopySource `json:",omitempty"`
 	Source           string
 	Channel          string
 	ChatID           string

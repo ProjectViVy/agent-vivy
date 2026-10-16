@@ -110,7 +110,17 @@ func ingestExclusionPredicate(backend storage.Engine) func(context.Context, doma
 		if run.Purpose == domain.RunPurposeReport {
 			return true, nil
 		}
-		return backend.HasExcludedToolOperations(ctx, id)
+		p, err := storage.RunInputProvenance(ctx, backend, id)
+		if err != nil {
+			return false, err
+		}
+		excluded, available := storage.ClassifyInputProvenance(p.ContentOrigin, p.ExcludeAutomaticIngest)
+		if !available {
+			return false, storage.ErrSubjectEvidenceIncomplete
+		}
+		// Query the existing operation guard only after releasing Journal Replay.
+		operationExcluded, err := backend.HasExcludedToolOperations(ctx, id)
+		return excluded || operationExcluded, err
 	}
 }
 

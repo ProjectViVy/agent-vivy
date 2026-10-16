@@ -1,0 +1,104 @@
+{
+  "vivy_candidate": "fdcb25a554df79c7938287b89a539c905804ca63",
+  "vivy_tree": "471a603ab03a59c525cb51337c4da7994c174f6c",
+  "remote_equivalent": "1d0e12689000eaaebd57cc8cca1fc7c53d81d0e5",
+  "native_actual_head": "249a756e04c5f28af781e4dadea9e9086689bde0",
+  "native_tree": "9fff8cf9d5ca174a1af90e43a0e718281a24635e",
+  "results": {
+    "normal": {
+      "runner": {
+        "candidate": "fdcb25a554df79c7938287b89a539c905804ca63",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-p=1",
+          "./internal/modules/diva-cognitive",
+          "./internal/runtime",
+          "./internal/app",
+          "./internal/actionhost",
+          "./internal/config",
+          "-run",
+          "Issue58|Cognitive|GeneratedTool|ToolSearch|DefaultGenerated|EveryContract|StrictInput|ServiceContextStatusAndCompactSession",
+          "-count=1",
+          "-timeout=12m"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 53.722,
+        "external_proxy_requests_rejected": 0,
+        "external_forwarded": 0,
+        "dependency_network": "disabled",
+        "child_credentials": "removed by name; no values logged"
+      },
+      "terminal": {
+        "pass_test": 318,
+        "pass_package": 5,
+        "skip_test": 2
+      },
+      "skipped_tests": [
+        "TestCognitiveActionFixtureCapture",
+        "TestIssue58RecapSplitFixture"
+      ],
+      "race_warnings": 0
+    },
+    "race": {
+      "runner": {
+        "candidate": "fdcb25a554df79c7938287b89a539c905804ca63",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-race",
+          "-p=1",
+          "./internal/modules/diva-cognitive",
+          "./internal/runtime",
+          "./internal/app",
+          "./internal/actionhost",
+          "./internal/config",
+          "-run",
+          "Issue58",
+          "-count=1",
+          "-timeout=12m"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 339.059,
+        "external_proxy_requests_rejected": 0,
+        "external_forwarded": 0,
+        "dependency_network": "disabled",
+        "child_credentials": "removed by name; no values logged"
+      },
+      "terminal": {
+        "pass_test": 256,
+        "pass_package": 5,
+        "skip_test": 1
+      },
+      "skipped_tests": [
+        "TestIssue58RecapSplitFixture"
+      ],
+      "race_warnings": 0
+    }
+  },
+  "files": [
+    {
+      "path": "issue58-root-native-pin-consumer-normal.log",
+      "bytes": 562637,
+      "sha256": "80ca7d2e37c61d12e10cdb695383c0be427c20ff112854b265ec0d88e1791505"
+    },
+    {
+      "path": "issue58-root-native-pin-consumer-normal.json",
+      "bytes": 661,
+      "sha256": "e970a6b00b26968f522c90e6f94a3e924748f1d295097757332190322f534fc1"
+    },
+    {
+      "path": "issue58-root-native-pin-consumer-race.log",
+      "bytes": 513075,
+      "sha256": "40591d452de4806bbb6ade98f273c8e8ec119dbbc2eb7eaf06eb8b28f7c74026"
+    },
+    {
+      "path": "issue58-root-native-pin-consumer-race.json",
+      "bytes": 559,
+      "sha256": "7f3c6f2d2b8e981f4b874b8335b338ae8266a5f2f682619a879e0495997b2fef"
+    }
+  ],
+  "qualification": "Affected consumer pin regression only. Local HTTP fixtures; no live-model quality, browser, Windows, real PostgreSQL, BML consumer or whole S5/S6 acceptance."
+}

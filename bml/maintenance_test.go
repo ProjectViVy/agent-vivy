@@ -175,7 +175,7 @@ func TestIntegrityEmptyStore(t *testing.T) {
 		t.Fatalf("Integrity: %v", err)
 	}
 	want := StoreIntegrity{
-		SchemaVersion: 1, StoreRevision: 0, RecordCount: 0,
+		SchemaVersion: 2, StoreRevision: 0, RecordCount: 0,
 		TombstoneCount: 0, ContentBytes: 0, FTSRowCount: 0,
 		SupersedesEdgeCount: 0, CorruptRecordIDs: nil, OrphanFTSRows: 0,
 	}
@@ -200,7 +200,7 @@ func TestIntegrityCounts(t *testing.T) {
 		t.Fatalf("Integrity: %v", err)
 	}
 	want := StoreIntegrity{
-		SchemaVersion:       1,
+		SchemaVersion:       2,
 		StoreRevision:       3,
 		RecordCount:         3,
 		TombstoneCount:      1,

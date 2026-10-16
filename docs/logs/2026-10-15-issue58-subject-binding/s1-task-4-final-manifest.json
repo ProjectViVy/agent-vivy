@@ -1,0 +1,18 @@
+{
+  "base": "4658e263746b4e10059627c896f8d07628b50405",
+  "source_commit": "2936b6d5d59cb0c776bf834a3c7a3afa5ec5e1d6",
+  "files": {
+    "go.mod": "527a9ebecbb87bad41c978e042ace3667f910adfdc2fbd2ef1c412a689a7e31a",
+    "go.sum": "fdea136f528e6f99447e4d441ec4f5c79e59f46349100927cf670fd4547f780d",
+    "laputa-source.lock.json": "5f7b8214d368451917ccef8151d2efc886391761072a2ac1d42a6f04fce0a4e1",
+    "internal/modules/diva-cognitive/recap_test.go": "f65ad731c5e08b8e7902caa3ab87cd248ba64a54ea1c8efe3e46f24b7e346ca5"
+  },
+  "normal_published_module_resolution": "{\n\t\"Path\": \"github.com/ProjectViVy/laputa/garden\",\n\t\"Version\": \"v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"Time\": \"2026-10-15T12:40:34Z\",\n\t\"Dir\": \"/root/go/pkg/mod/github.com/!project!vi!vy/laputa/garden@v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"GoMod\": \"/root/go/pkg/mod/cache/download/github.com/!project!vi!vy/laputa/garden/@v/v0.0.0-20261015124034-bb57e93a61cf.mod\",\n\t\"GoVersion\": \"1.26.4\",\n\t\"Sum\": \"h1:HKVdTVhBrqguKIjgE+CVDlFxWWjy+lbPOQkGoDs+Qic=\",\n\t\"GoModSum\": \"h1:t+6aPD6GSpEPu455CqChrFYzsHnPuflsjme5ralof/I=\"\n}\n{\n\t\"Path\": \"github.com/ProjectViVy/laputa/laputa\",\n\t\"Version\": \"v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"Time\": \"2026-10-15T12:40:34Z\",\n\t\"Dir\": \"/root/go/pkg/mod/github.com/!project!vi!vy/laputa/laputa@v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"GoMod\": \"/root/go/pkg/mod/cache/download/github.com/!project!vi!vy/laputa/laputa/@v/v0.0.0-20261015124034-bb57e93a61cf.mod\",\n\t\"GoVersion\": \"1.26.4\",\n\t\"Sum\": \"h1:n1aQyPS0O/Isl/PrSlFe43jaVoLQwfk6gYDk2YY632I=\",\n\t\"GoModSum\": \"h1:nctqXPUme+YhoV1SMwVqnrIkTKoHaJNl+0yvZn/7ZaE=\"\n}\n{\n\t\"Path\": \"github.com/ProjectViVy/laputa/mentle\",\n\t\"Version\": \"v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"Time\": \"2026-10-15T12:40:34Z\",\n\t\"Indirect\": true,\n\t\"Dir\": \"/root/go/pkg/mod/github.com/!project!vi!vy/laputa/mentle@v0.0.0-20261015124034-bb57e93a61cf\",\n\t\"GoMod\": \"/root/go/pkg/mod/cache/download/github.com/!project!vi!vy/laputa/mentle/@v/v0.0.0-20261015124034-bb57e93a61cf.mod\",\n\t\"GoVersion\": \"1.26.4\",\n\t\"Sum\": \"h1:7QZ6nI2CngrrXdwdxjFEN/xJ+Km/07pYX+WQ5WN0Oac=\",\n\t\"GoModSum\": \"h1:0CHmst4cXuP9bCslJ1ZQMrHo4ZS3ivVg92YGM3vtjsA=\"\n}\n",
+  "verification_file": "s1-task-4-verification.json",
+  "verification_sha256": "d704a1eb0a7ce2183a24537c7c702bfbab2864e15343c4cd3c9b40867894e4f4",
+  "raw_red_sha256": "c5e84b0bad0215c7c67a8c97d2a321b7fcf6f9baf66fc78829eefb65abacb6c6",
+  "raw_green_sha256": "3fe7d66ca69e956235fd44563f7a5edc2414092f405eb38a5666f9b899ad6120",
+  "owner_source_edit": false,
+  "adapter_source_edit": false,
+  "parent_owned_plan_and_review_changes_excluded": true
+}

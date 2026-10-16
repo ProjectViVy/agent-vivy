@@ -240,12 +240,13 @@ func (r SourceRef) Validate() error {
 // wire field (false for new projections). Redacted and Truncated are
 // independent because an item may have both properties.
 type HistoryItem struct {
-	Ref        SourceRef   `json:"ref"`
-	Author     string      `json:"author"`
-	Text       string      `json:"text"`
-	SourceRefs []SourceRef `json:"source_refs,omitempty"`
-	Redacted   bool        `json:"redacted"`
-	Truncated  bool        `json:"truncated"`
+	Ref          SourceRef   `json:"ref"`
+	Author       string      `json:"author"`
+	Text         string      `json:"text"`
+	SourceRefs   []SourceRef `json:"source_refs,omitempty"`
+	OriginStatus string      `json:"origin_status,omitempty"`
+	Redacted     bool        `json:"redacted"`
+	Truncated    bool        `json:"truncated"`
 }
 
 // Validate checks a bounded, public projection and its bounded provenance.
@@ -253,6 +254,11 @@ func (i HistoryItem) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
 	if err := i.Ref.Validate(); err != nil {
 		return err
+	}
+	switch i.OriginStatus {
+	case "", "ok", "unavailable", "forbidden":
+	default:
+		return fmt.Errorf("history origin status %q is unknown", i.OriginStatus)
 	}
 	if !validHistoryAuthor(i.Author) {
 		return fmt.Errorf("history item author %q is unknown", i.Author)

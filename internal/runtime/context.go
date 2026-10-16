@@ -33,6 +33,7 @@ type ContextPolicy struct {
 
 // ContextStats describes how the policy shaped one run's context.
 type ContextStats struct {
+	recap                   *RecapContext
 	OriginalHistoryMessages int
 	IncludedHistoryMessages int
 	DroppedHistoryMessages  int
@@ -236,6 +237,7 @@ func pairToolTurns(in []domain.Message) []domain.Message {
 func projectFeed(msgs []domain.Message) []*schema.Message {
 	out := make([]*schema.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); {
+		start := i
 		msg := msgs[i]
 		switch {
 		case msg.Role == domain.RoleUser:
@@ -261,6 +263,7 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 			out = append(out, schema.AssistantMessage(msg.Content, nil))
 			i++
 		}
+		stampInputProvenance(out[len(out)-1], projectedInputProvenance(msgs[start:i]))
 	}
 	return out
 }
@@ -272,12 +275,14 @@ func projectFeedWithContext(ctx context.Context, contextHost *contexthost.Host, 
 func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget, references map[domain.RunID][]domain.ContextReference) ([]*schema.Message, error) {
 	out := make([]*schema.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); {
+		start := i
 		msg := msgs[i]
 		if msg.Role == domain.RoleUser {
 			projected, err := userFeedMessageWithContextBudget(ctx, contextHost, msg, budget, references[msg.RunID])
 			if err != nil {
 				return nil, err
 			}
+			stampInputProvenance(projected, projectedInputProvenance(msgs[i:i+1]))
 			out = append(out, projected)
 			i++
 			continue
@@ -303,6 +308,7 @@ func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.
 			budget.add(projected)
 			i++
 		}
+		stampInputProvenance(out[len(out)-1], projectedInputProvenance(msgs[start:i]))
 	}
 	return out, nil
 }

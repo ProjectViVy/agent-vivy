@@ -26,4 +26,5 @@ modules:
   - vivy/provider-profiles
   - vivy/masks
   - vivy/diva-cognitive
+  - vivy/recap-tools
   - vivy/diva-memory

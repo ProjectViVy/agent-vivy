@@ -208,8 +208,12 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, err
 	}
 
-	// Receipt lookup precedes every write so an identical replay returns the
-	// original run without a second admission.
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, a.Run, a.Subject); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+
+	// Source authorization pins were revalidated above. Receipt lookup precedes
+	// new run/message writes, so an identical replay cannot admit a second run.
 	existing, found, err := postgresFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
 	if err != nil {
 		return storage.ContinuityResult{}, err
@@ -294,6 +298,9 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		`UPDATE sessions SET updated_at = CASE WHEN updated_at < $1 THEN $2 ELSE updated_at END WHERE id = $3`,
 		at, at, a.SessionID); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: touch admitted session: %w", err)
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, a.Run, a.Subject, a.Message.ID); err != nil {
+		return storage.ContinuityResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w", storage.ErrCommitUncertain)

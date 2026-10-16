@@ -1,0 +1,6 @@
+--- FAIL: TestIssue58SubjectDomainPendingRepairFailure (0.16s)
+    --- FAIL: TestIssue58SubjectDomainPendingRepairFailure/missing-terminal (0.06s)
+        subject_context_test.go:176: incomplete domain accepted {Through:1 Dispositions:[] DispositionDigest:4ac6d79be75cbdfbba472994d4efcbf8327fa7a1f755cb89847c3f33405d4d77} <nil>
+FAIL
+FAIL	agent-vivy/internal/runtime	0.187s
+FAIL

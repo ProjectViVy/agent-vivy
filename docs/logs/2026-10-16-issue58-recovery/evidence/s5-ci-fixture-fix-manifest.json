@@ -1,0 +1,121 @@
+{
+  "source": "7f10ec6649eaae1e51aa15c4ae04ee12cec6a743",
+  "tree": "6d70b7116ff52ba9ac01fef5dc6e159bf5dd391e",
+  "remote_equivalent": "be19b94f8ca633fbf9f51c327023a652aeffd83a",
+  "archive_sha256": "37fe801da5cd308a4ab7a5f18bda5fca44d2d7c14879f98ac89e968b73aceb48",
+  "files": [
+    {
+      "name": "issue58-ci-fix-fixed-completeness.log",
+      "bytes": 98,
+      "sha256": "be273a3e34dc25a7588d401737fe8dbdc2404ab8f04efddf08f2fd78a0d4d7f8"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-crossface-validator.log",
+      "bytes": 702,
+      "sha256": "18e6351a4e93670f7051d60aedbe8e3f77ed86e5280f5c36197cd7f70d1d2185"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-crossface.log",
+      "bytes": 85,
+      "sha256": "d118ffcc46190914fc5c180aab6724ec844a9f363675f18c87291f4144f3e91c"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-normal.log",
+      "bytes": 524587,
+      "sha256": "9187eb28c712aeef3fe0b8f6b09a58987a218d08b6a7a2521244808454850c17"
+    },
+    {
+      "name": "issue58-ci-fix-working-completeness.log",
+      "bytes": 98,
+      "sha256": "be273a3e34dc25a7588d401737fe8dbdc2404ab8f04efddf08f2fd78a0d4d7f8"
+    },
+    {
+      "name": "issue58-ci-fix-working-crossface-validator.log",
+      "bytes": 701,
+      "sha256": "cc5d361f8835cab3c9ba5e452e46fac4fdeab0230b0b7b2e75afa7fd805f003c"
+    },
+    {
+      "name": "issue58-ci-fix-working-crossface.log",
+      "bytes": 85,
+      "sha256": "d118ffcc46190914fc5c180aab6724ec844a9f363675f18c87291f4144f3e91c"
+    },
+    {
+      "name": "issue58-ci-fix-working-fixture-minimal.log",
+      "bytes": 63219,
+      "sha256": "97649730e07602c7b476f9d5e65a515ce139ab9264e4b12363d1cd8fda7c1864"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-completeness.json",
+      "bytes": 345,
+      "sha256": "ebcff72224388578c298512f5678a27e11407118d8365b8ce2cbd265034c4d32"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-crossface-validator.json",
+      "bytes": 362,
+      "sha256": "124d5c3f544961976e00f6beee799d53ace767b6478f043c3707192f6324875a"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-crossface.json",
+      "bytes": 343,
+      "sha256": "483904312f2854df5da76d894e707527a8d81f1853bfcfc8985531046efd1a30"
+    },
+    {
+      "name": "issue58-ci-fix-fixed-normal.json",
+      "bytes": 501,
+      "sha256": "419d31206e67cb246e76630c4a44af0b24a75fa50432bdce7b9e4ef336ff3c0b"
+    },
+    {
+      "name": "issue58-ci-fix-working-completeness.json",
+      "bytes": 345,
+      "sha256": "e6de0a20ab4850ceb8b45e4fd930e2399b6311d7722345c9dfc57aa35cd661f9"
+    },
+    {
+      "name": "issue58-ci-fix-working-crossface-validator.json",
+      "bytes": 362,
+      "sha256": "886feb39df5087fea1a0187e591b8824c12648a508caea3edf77b7a6c7ad04d4"
+    },
+    {
+      "name": "issue58-ci-fix-working-crossface.json",
+      "bytes": 343,
+      "sha256": "66a0b9cf25bb9f7f5606109117d2b621e00da0c9dfb54a5bfb81d936588988d5"
+    },
+    {
+      "name": "issue58-ci-fix-working-fixture-minimal.json",
+      "bytes": 587,
+      "sha256": "aaaf0ec868d3505e807ad4880dc12c3626e36d580461373803606e0e85b9effb"
+    },
+    {
+      "name": "issue58-crossface-original-red.log",
+      "bytes": 101,
+      "sha256": "ec5cf392ecda876ec00f4608971f954d085a34e0cba6c4ef6d06194a44c22a40"
+    },
+    {
+      "name": "issue58-crossface-original-red.json",
+      "bytes": 343,
+      "sha256": "f15edbd601bfd0333e7de0b5aff6ee4511a648e618e398e5f10cc803aeab6ba7"
+    },
+    {
+      "name": "issue58-inventory-original-red.log",
+      "bytes": 11679,
+      "sha256": "23e5c17ca738a945e228665a7ee602b2b1b5a6308586c3f7fe1b561e92834d92"
+    },
+    {
+      "name": "issue58-inventory-original-red.json",
+      "bytes": 455,
+      "sha256": "5495d0be24c49ff9b7e9d749f6a3af7f12c2e0ae73bdaf9ce5982553297c99dd"
+    },
+    {
+      "name": "issue58-windows-binding-ci-source-bytes.json",
+      "bytes": 769,
+      "sha256": "166452ba0b78e86a03afc212e8093e3931b857a8b6a859dea11b90d0c63c3c8c"
+    }
+  ],
+  "fixed_normal": {
+    "test_pass": 269,
+    "package_pass": 3,
+    "test_skip": 1,
+    "skipped_test": "TestIssue58RecapSplitFixture",
+    "seconds": 34.767
+  },
+  "qualification": "Linux fixed candidate; original native Windows RED retained; Windows rerun pending. BML producer independent review has known blocking RED, no activation. Working-source attempts remain explicitly qualified as such."
+}

@@ -13,6 +13,7 @@ import { dateTimeLocale, useTranslation } from '@/i18n';
 type CompactionFeedback =
   | { kind: 'saved' }
   | { kind: 'not-needed' }
+  | { kind: 'compacted-unmeasured' }
   | { kind: 'compacted'; beforeTokens: number; afterTokens: number }
   | { kind: 'error'; message: string };
 
@@ -116,6 +117,8 @@ export function CompactionSettingsCard() {
       const result = await compactSession(activeSessionId, instructions.trim() || undefined);
       if (result.skipped) {
         setFeedback({ kind: 'not-needed' });
+      } else if (result.token_counts_available === false) {
+        setFeedback({kind:'compacted-unmeasured'});
       } else {
         setFeedback({ kind: 'compacted', beforeTokens: result.before_tokens, afterTokens: result.after_tokens });
 		await refreshHistory(activeSessionId);
@@ -167,7 +170,7 @@ export function CompactionSettingsCard() {
 
         <div className="rounded-lg border p-3">
           <p className="text-sm font-medium">{t('settings.compaction.usageTitle')}</p>
-          {activeSessionId && sessionContext ? (
+          {activeSessionId && sessionContext?.context_pressure_available === false ? <p className="mt-2 text-sm text-muted-foreground">{t('chatInput.contextUnavailable')}</p> : activeSessionId && sessionContext ? (
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t('settings.compaction.feedUsage')}</span>
@@ -233,6 +236,7 @@ export function CompactionSettingsCard() {
             {feedback.kind === 'error' ? feedback.message
               : feedback.kind === 'saved' ? t('settings.compaction.saved')
               : feedback.kind === 'not-needed' ? t('settings.compaction.notNeeded')
+              : feedback.kind === 'compacted-unmeasured' ? t('chatInput.compactUnmeasured')
               : t('settings.compaction.done', {
                 before: feedback.beforeTokens.toLocaleString(dateTimeLocale()),
                 after: feedback.afterTokens.toLocaleString(dateTimeLocale()),

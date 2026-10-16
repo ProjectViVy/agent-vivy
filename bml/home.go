@@ -293,7 +293,7 @@ func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store,
 	}
 	// mode=rw keeps the open honest: a file deleted between the isFile
 	// check and connect errors instead of silently recreating an empty DB.
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=rw&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=rw&_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
 	if err != nil {
 		return nil, ioErr(path, err)
 	}
@@ -302,6 +302,12 @@ func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store,
 	if err := s.checkIdentity(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if s.schema < schemaVersion {
+		if err := s.initialize(ctx); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 	return s, nil
 }

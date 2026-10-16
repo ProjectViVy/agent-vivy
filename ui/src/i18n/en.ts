@@ -385,6 +385,8 @@ export const en: Dictionary = {
     trustedConfirmDescription: 'Trusted relaxes the command allowlist and auto-approves read-only and allowlisted tools. It still cannot write outside this run’s workspace.',
     trustedConfirm: 'Switch',
     reviewCenter: 'Approvals',
+    contextUnavailable: 'Shared context usage is unavailable.',
+    compactUnmeasured: 'Recap updated. Token totals are unavailable.',
     contextTitle: 'Context usage: {{percent}}% · {{used}} / {{limit}} tokens',
     contextLabel: 'Context usage',
     contextValueText: 'About {{used}} tokens used of {{limit}} tokens',
@@ -584,11 +586,6 @@ export const en: Dictionary = {
     manageModelSettings: 'Manage model settings',
   },
   codeMode: {
-    code: "Code",
-    life: "Life",
-    placeholderAria: "Conversation mode: {{mode}} (preview only)",
-    placeholderHint: "Preview only; this choice does not change conversation behavior",
-
     enabled: 'Code mode on',
     disabled: 'Enable code mode',
     noSession: 'Select a conversation first',

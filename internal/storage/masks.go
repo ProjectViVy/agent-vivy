@@ -107,6 +107,8 @@ type RunPromptSnapshot struct {
 }
 
 type RunAdmission struct {
+	// Subject is host-authorized immutable source/policy/grant evidence.
+	Subject *SubjectSourceBinding
 	// Events follow run.started in the same admission transaction.
 	Events  []domain.RunEvent
 	Message domain.Message

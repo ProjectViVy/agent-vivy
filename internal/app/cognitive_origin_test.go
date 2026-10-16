@@ -27,12 +27,14 @@ import (
 // generated-Assembly factory emission is replaced by a direct factory open,
 // because the checked-in default generation does not select the module.
 type cognitiveOriginFixture struct {
-	client *controlrpc.Peer
-	host   *actionhost.Host
-	token  string
+	client  *controlrpc.Peer
+	host    *actionhost.Host
+	token   string
+	bundle  cognitivecontract.Bundle
+	backend *sqlite.Backend
 }
 
-func newCognitiveOriginFixture(t *testing.T) *cognitiveOriginFixture {
+func newCognitiveOriginFixture(t *testing.T, configure ...func(*cognitivecontract.FactoryInput)) *cognitiveOriginFixture {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "origin.db"))
@@ -42,10 +44,14 @@ func newCognitiveOriginFixture(t *testing.T) *cognitiveOriginFixture {
 	t.Cleanup(func() { _ = backend.Close() })
 
 	dataDir := t.TempDir()
-	bundle, err := divacognitive.Open(ctx, cognitivecontract.FactoryInput{
+	input := cognitivecontract.FactoryInput{
 		Config:       config.Config{Storage: config.Storage{DataDir: dataDir}},
 		GenerationID: "generation-origin-test",
-	})
+	}
+	for _, setup := range configure {
+		setup(&input)
+	}
+	bundle, err := divacognitive.Open(ctx, input)
 	if err != nil {
 		t.Fatalf("open cognitive bundle: %v", err)
 	}
@@ -111,7 +117,7 @@ func newCognitiveOriginFixture(t *testing.T) *cognitiveOriginFixture {
 	)
 	go func() { _ = client.Serve(ctx) }()
 	t.Cleanup(func() { _ = client.Close() })
-	return &cognitiveOriginFixture{client: client, host: host, token: token}
+	return &cognitiveOriginFixture{client: client, host: host, token: token, bundle: bundle, backend: backend}
 }
 
 // createCognitiveSession performs the real session/create control call that
@@ -219,6 +225,13 @@ func TestCognitiveActionsServeBoundSessionEndToEnd(t *testing.T) {
 		divacognitive.ActionTrigger:             {},
 		divacognitive.ActionCancel:              {"run_id": "r"},
 		divacognitive.ActionResultsList:         {},
+		"vivy.recap.read":                       {},
+		"vivy.recap.edit":                       {"base_revision": 0, "operation_id": "recap-edit", "text": "full"},
+		"vivy.recap.clear":                      {"base_revision": 0, "operation_id": "recap-clear"},
+		"vivy.recap.history":                    {},
+		"vivy.recap.revision":                   {"revision": 1},
+		"vivy.recap.restore":                    {"base_revision": 0, "operation_id": "recap-restore", "revision": 1},
+		"vivy.recap.sources":                    {"revision": 1},
 	}
 	for _, id := range divacognitive.ActionIDs {
 		input := map[string]any{"session_id": sessionID}
@@ -316,6 +329,13 @@ func TestCognitiveActionFixtureCapture(t *testing.T) {
 		divacognitive.ActionTrigger:             {},
 		divacognitive.ActionCancel:              {"run_id": "r"},
 		divacognitive.ActionResultsList:         {},
+		"vivy.recap.read":                       {},
+		"vivy.recap.edit":                       {"base_revision": 0, "operation_id": "recap-edit", "text": "full"},
+		"vivy.recap.clear":                      {"base_revision": 0, "operation_id": "recap-clear"},
+		"vivy.recap.history":                    {},
+		"vivy.recap.revision":                   {"revision": 1},
+		"vivy.recap.restore":                    {"base_revision": 0, "operation_id": "recap-restore", "revision": 1},
+		"vivy.recap.sources":                    {"revision": 1},
 	}
 	type capture struct {
 		ActionID string          `json:"action_id"`

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
-	einotoolsearch "github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch"
+
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -226,6 +226,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	// in the model/tool dispatch surface.
 	staticTools := make([]einotool.BaseTool, 0, len(ts)+len(cfg.HiddenTools))
 	dynamicTools := make([]einotool.BaseTool, 0, len(ts))
+	contextChecks := make(map[string]tools.ContextAuthorizer)
 	specs := make([]domain.ToolSpec, 0, len(ts))
 	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
 	hiddenInfos := make(map[string]*schema.ToolInfo, len(cfg.HiddenTools))
@@ -244,6 +245,9 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, errors.New("runtime: nil active tool")
 		}
 		spec := t.Spec()
+		if check, ok := t.(tools.ContextAuthorizer); ok {
+			contextChecks[spec.Name] = check
+		}
 		if spec.Name == officialToolSearchName {
 			return nil, fmt.Errorf("runtime: tool name %q is reserved by Eino dynamic tool search", spec.Name)
 		}
@@ -275,6 +279,9 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, errors.New("runtime: nil hidden tool")
 		}
 		spec := t.Spec()
+		if check, ok := t.(tools.ContextAuthorizer); ok {
+			contextChecks[spec.Name] = check
+		}
 		if spec.Name == officialToolSearchName {
 			return nil, fmt.Errorf("runtime: hidden tool name %q is reserved by Eino dynamic tool search", spec.Name)
 		}
@@ -297,14 +304,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	handlers := make([]adk.ChatModelAgentMiddleware, 0, 2+len(cfg.HiddenTools))
 	var searchHandler adk.ChatModelAgentMiddleware
 	if len(dynamicTools) > 0 {
-		var err error
-		searchHandler, err = einotoolsearch.New(ctx, &einotoolsearch.Config{
-			DynamicTools:       dynamicTools,
-			UseModelToolSearch: false,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("runtime: dynamic tool search: %w", err)
-		}
+		searchHandler = newAuthorizedToolSearch(dynamicTools, contextChecks)
 	}
 	if cfg.SkillBackend != nil {
 		// Inline load only; fork frontmatter is left to Eino's native error.
@@ -360,6 +360,9 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	if len(hiddenInfos) > 0 {
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
+	}
+	if len(contextChecks) > 0 {
+		handlers = append(handlers, &authorizedToolVisibility{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}, checks: contextChecks})
 	}
 	handlers = append(handlers, newWorkPlanGuidanceMiddleware())
 	// Same-batch work-control terminal actions must fence every later call in

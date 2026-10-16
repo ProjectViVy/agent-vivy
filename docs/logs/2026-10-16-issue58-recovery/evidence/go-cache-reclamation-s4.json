@@ -1,0 +1,10 @@
+{
+  "scope": "reproducible Go build cache only",
+  "root": "/root/.cache/go-build",
+  "cutoff_unix": 1792085994.164368,
+  "files_removed": 13818,
+  "bytes_reclaimed": 6351281278,
+  "source_module_cache_removed": false,
+  "repository_or_evidence_removed": false,
+  "preserved": "all entries read or modified in last four hours; all non-cache/source/dependency/evidence files"
+}

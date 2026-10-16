@@ -124,14 +124,16 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const permissionBusy = sessionBusyId === activeSessionId;
   const draftBytes = TEXT_ENCODER.encode(value).length;
   // 真实上下文：服务端 session/context 的 feed 占用 + 当前草稿（1 token ≈ 4 字节估算）。
-  const usedTokens = (context?.feed_tokens ?? 0) + Math.round(draftBytes / 4);
+  const pressureAvailable = context?.context_pressure_available !== false;
+  const usedTokens = pressureAvailable ? (context?.feed_tokens ?? 0) + Math.round(draftBytes / 4) : 0;
   const limitTokens = context?.model_limit_tokens ?? ESTIMATED_CONTEXT_LIMIT_TOKENS;
   const contextRatio = Math.min(1, usedTokens / Math.max(1, limitTokens));
   const contextPercent = Math.round(contextRatio * 100);
-  const wouldCompact = context?.compaction_enabled ? usedTokens > (context.trigger_tokens ?? 0) : false;
+  const wouldCompact = pressureAvailable && context?.compaction_enabled ? usedTokens > (context.trigger_tokens ?? 0) : false;
   const contextCircumference = 2 * Math.PI * 10;
   const contextColor = wouldCompact || contextPercent >= 80 ? 'text-destructive' : contextPercent >= 60 ? 'text-amber-500' : 'text-primary';
   const contextTitleText = () => {
+    if (!pressureAvailable) return t('chatInput.contextUnavailable');
     const base = t('chatInput.contextTitle', { percent: contextPercent, used: usedTokens.toLocaleString(dateTimeLocale()), limit: limitTokens.toLocaleString(dateTimeLocale()) });
     if (!context) return base;
     const bytes = ` · ${context.feed_bytes.toLocaleString(dateTimeLocale())} / ${context.limit_bytes.toLocaleString(dateTimeLocale())} B`;
@@ -272,6 +274,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       setCompactInstructions('');
       showNotice(result.skipped
         ? t('chatInput.compactSkipped')
+        : result.token_counts_available === false ? t('chatInput.compactUnmeasured')
         : t('chatInput.compactDone', { before: result.before_tokens.toLocaleString(dateTimeLocale()), after: result.after_tokens.toLocaleString(dateTimeLocale()) }));
     } catch (error) {
       showNotice(error instanceof Error ? error.message : t('chatInput.compactFailed'));
@@ -446,10 +449,10 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       }
     }} placeholder={placeholder || t(commands.draft?.name === 'goal' ? (commands.draft.goalRef ? 'composerCommands.resumePlaceholder' : 'composerCommands.goalPlaceholder') : commands.draft?.name === 'plan' ? 'composerCommands.planPlaceholder' : 'chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
     <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={contextTitleText()}>
-      <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="relative h-7 w-7">
+      <div role={pressureAvailable ? 'progressbar' : 'status'} aria-label={t('chatInput.contextLabel')} aria-valuemin={pressureAvailable ? 0 : undefined} aria-valuemax={pressureAvailable ? 100 : undefined} aria-valuenow={pressureAvailable ? contextPercent : undefined} aria-valuetext={pressureAvailable ? t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens }) : t('chatInput.contextUnavailable')} className="relative h-7 w-7">
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
-      <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
+      <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{pressureAvailable ? `${contextPercent}%` : '—'}</span>
       {context?.compaction_enabled ? (
         <Popover open={compactOpen} onOpenChange={setCompactOpen}>
           <PopoverTrigger asChild>

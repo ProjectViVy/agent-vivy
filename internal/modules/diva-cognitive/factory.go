@@ -18,6 +18,7 @@ import (
 
 	"github.com/ProjectViVy/inofy"
 	"github.com/ProjectViVy/laputa/garden/agentapi"
+	gardenmemory "github.com/ProjectViVy/laputa/garden/memory"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 	"github.com/ProjectViVy/laputa/laputa/persona"
@@ -44,20 +45,50 @@ func Open(ctx context.Context, in cognitivecontract.FactoryInput) (cognitivecont
 		return nil, fmt.Errorf("diva-cognitive: host data directory must be absolute")
 	}
 	gardenRoot := filepath.Join(dataRoot, "garden")
+	var subjectMemory gardenmemory.Backend
+	resolve := in.ResolveRecapBinding
+	if in.NewSubjectBackend != nil {
+		if resolve == nil {
+			return nil, fmt.Errorf("diva-cognitive: selected subject memory has no trusted identity resolver")
+		}
+		original := resolve
+		resolve = func(ctx context.Context, root string) (cognitivecontract.RecapBinding, error) {
+			binding, err := original(ctx, root)
+			if err != nil {
+				return binding, err
+			}
+			subjectMemory, err = in.NewSubjectBackend(ctx, binding)
+			if err != nil {
+				return binding, err
+			}
+			if subjectMemory == nil || !subjectMemory.Capabilities().ServesPrimaryWriter() {
+				return binding, fmt.Errorf("diva-cognitive: selected native subject backend unavailable")
+			}
+			return binding, nil
+		}
+	}
 	owner, err := agentapi.Open(ctx, agentapi.Config{
-		PersonaDir: filepath.Join(gardenRoot, "persona"),
-		PalacePath: filepath.Join(gardenRoot, "palace", "palace.db"),
-		ModelsDir:  filepath.Join(gardenRoot, "models"),
-		StateDB:    filepath.Join(gardenRoot, "garden.db"),
-		ProfileID:  profileID,
-		AgentID:    agentID,
-		Platform:   platformID,
-		Principal:  agentapi.PrincipalUser,
+		PersonaDir:          filepath.Join(gardenRoot, "persona"),
+		PalacePath:          filepath.Join(gardenRoot, "palace", "palace.db"),
+		ModelsDir:           filepath.Join(gardenRoot, "models"),
+		StateDB:             filepath.Join(gardenRoot, "garden.db"),
+		ProfileID:           profileID,
+		AgentID:             agentID,
+		Platform:            platformID,
+		Principal:           agentapi.PrincipalUser,
+		ResolveRecapBinding: resolve,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("diva-cognitive: open garden owner: %w", err)
 	}
-	b := &bundle{owner: owner, strategyDigest: strategyDigest()}
+	recap, err := owner.BindRecap()
+	if err != nil {
+		_ = owner.Close()
+		return nil, fmt.Errorf("diva-cognitive: bind recap owner: %w", err)
+	}
+	b := &bundle{owner: owner, recap: recap, strategyDigest: strategyDigest(), subjectMemory: subjectMemory}
+	// Legacy capture/evolution scope stays on its existing profile binding.
+	// It neither grants nor selects the separate trusted Recap subject/domain.
 	b.scope = laputaevolution.Scope{
 		SubjectID:   profileID,
 		Kind:        laputaevolution.ScopePersonal,
@@ -93,6 +124,8 @@ func strategyDigest() string {
 
 type bundle struct {
 	owner          *agentapi.Client
+	subjectMemory  gardenmemory.Backend
+	recap          cognitivecontract.RecapPort
 	scope          laputaevolution.Scope
 	sourceID       string
 	strategyDigest string
@@ -413,3 +446,5 @@ func (s boundSink) FinalizeSession(ctx context.Context, sessionID string) error 
 	}
 	return bound.ArchiveCapturedSession(ctx)
 }
+
+func (b *bundle) SubjectMemory() gardenmemory.Backend { return b.subjectMemory }

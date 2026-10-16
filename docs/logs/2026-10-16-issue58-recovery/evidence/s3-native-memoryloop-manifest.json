@@ -1,0 +1,31 @@
+{
+  "candidate": "3e13019b0373d8f6344bb84469fd72598f4c11ab",
+  "tree": "f482293e05f14a955f7d0f6b5ec6644b973af3fe",
+  "generation": "6431f296012517cb22a1716e6520b8e46102dff0b3578a1f03eab792a34111f0",
+  "recipe_digest": "b44092c97ee9a05a2c19bff256967f0faa84bfa17b6c10ea6bc571f6ec927c17",
+  "archive": "s3-native-memoryloop-completed.tar.gz",
+  "archive_sha256": "fa1878bab5d35d4a4294f1f87d16e8c44923f3b302b666f0081b06e275ea38bd",
+  "qualification": "Unmodified repository script PASS, aggregate package output without individual test/skip counts; non-App same-source cache reused, App fresh766.065s. Not installed DIVA/live model quality or final S4/S5 candidate.",
+  "files": [
+    {
+      "path": "issue58-s3-native-memoryloop-clone.log",
+      "size": 7102,
+      "sha256": "116be28be3782ba42998e3297a9cdad0128d33a7aa0e948d20e622acd136140d"
+    },
+    {
+      "path": "issue58-s3-native-memoryloop-clone.json",
+      "size": 405,
+      "sha256": "95585d32f14e2a1d079944194c2d6bb69406f3472cddb0ff30992f00069b8e28"
+    },
+    {
+      "path": "issue58-s3-native-memoryloop-offlineui.log",
+      "size": 53631,
+      "sha256": "5559fb551f6c2418e16eb3520844d2889c221ef47cada476d527509bfaf3abf1"
+    },
+    {
+      "path": "issue58-s3-native-memoryloop-offlineui.json",
+      "size": 405,
+      "sha256": "5dea73457fe86b202985dc83e8db23e1a00f3597abadef94eb75bbb3050e5b3b"
+    }
+  ]
+}

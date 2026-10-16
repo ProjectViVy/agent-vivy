@@ -1,0 +1,11 @@
+{
+  "run": 38822208743,
+  "ui_job": 116721582909,
+  "branch_head": "1765d30d4d7022a0227ada6098c47b958c3b161b",
+  "actual_pr_merge_abbrev": "6f055ae",
+  "status": "PASS",
+  "qualification": "Intermediate native Windows UI707/typecheck/build/i18n pipeline only; existing browser smoke passes separately; new Recap E2E not invoked, backend still running. Native BML producer has two blocking findings, no activation. No final candidate acceptance.",
+  "log_sha256": "a027df0515f805be21659184667bfcf567d271f0e69286397d1a8293752bc324",
+  "archive_sha256": "0ab68f3e8dab4c09a144105ca4aa41ecf0ad866a0703fbcd0113c4a6db3502f4",
+  "actual_pr_merge_full": "6f055ae55cd5a786e83f971153ff9b838e46ae76"
+}

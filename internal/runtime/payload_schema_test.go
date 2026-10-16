@@ -11,10 +11,11 @@ import (
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // TestModelCallPayloadSchemas pins the OBS-02 wire contract: the closed
-// schemas validate real journaled lifecycle events (v3 request, v2 usage,
+// schemas validate real journaled lifecycle events (v4 request, v2 usage,
 // v1 call.finished) plus legacy/v2 fixtures, and reject payloads that fall
 // outside every version branch.
 func TestModelCallPayloadSchemas(t *testing.T) {
@@ -32,11 +33,28 @@ func TestModelCallPayloadSchemas(t *testing.T) {
 		t.Fatalf("lifecycle = %d requests, %d samples, %d finishes", len(k.requests), len(k.samples), len(k.finished))
 	}
 
-	t.Run("actual v3 request validates", func(t *testing.T) {
-		if k.requests[0].PayloadVersion != 3 {
-			t.Fatalf("request version = %d, want 3", k.requests[0].PayloadVersion)
+	t.Run("actual v4 request validates", func(t *testing.T) {
+		if k.requests[0].PayloadVersion != 4 {
+			t.Fatalf("request version = %d, want 4", k.requests[0].PayloadVersion)
 		}
 		validatePayloadSchema(t, "model.request", k.requests[0].Payload)
+		provenance, err := storage.DecodeModelInputProvenance(k.requests[0])
+		if err != nil || provenance.ContentOrigin != storage.ContentOriginOriginal || provenance.ExcludeAutomaticIngest {
+			t.Fatalf("actual request provenance=%+v err=%v", provenance, err)
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(k.requests[0].Payload, &fields) != nil {
+			t.Fatal("invalid request")
+		}
+		for _, bad := range []json.RawMessage{json.RawMessage(`{"content_origin":"original"}`), json.RawMessage(`{"content_origin":"original","exclude_automatic_ingest":null}`)} {
+			fields["input_provenance"] = bad
+			raw, _ := json.Marshal(fields)
+			event := k.requests[0]
+			event.Payload = raw
+			if _, err := storage.DecodeModelInputProvenance(event); err == nil {
+				t.Fatal("accepted missing/null v4 exclusion proof")
+			}
+		}
 	})
 	t.Run("actual v2 usage samples validate", func(t *testing.T) {
 		for i, ev := range k.samples {

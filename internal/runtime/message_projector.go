@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -81,15 +82,44 @@ func (s *Service) appendProjectedMessages(ctx context.Context, runID domain.RunI
 }
 
 func (s *Service) projectedMessages(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) ([]domain.Message, error) {
+	retained := false
+	if sources, ok := s.deps.Sessions.(storage.SubjectSourceStore); ok {
+		_, err := sources.GetRunSubjectSource(ctx, runID)
+		if err == nil {
+			retained = true
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			return nil, err
+		}
+	}
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		return nil, fmt.Errorf("replay Journal for message projection: %w", err)
 	}
-	defer it.Close()
-	var out []domain.Message
-	var pending strings.Builder
+	// Release Replay's backend connection before resolving operation metadata.
+	// SQLite's single-connection Journal cannot service a nested lookup.
+	var events []domain.RunEvent
 	for it.Next() {
-		re := it.Value().Event
+		events = append(events, it.Value().Event)
+	}
+	replayErr := it.Err()
+	it.Close()
+	if replayErr != nil {
+		return nil, replayErr
+	}
+	var out []domain.Message
+	receipts := map[string]domain.RunEvent{}
+	var terminal bool
+	var pending strings.Builder
+	var provenance *storage.InputProvenance
+	textMessage := func(e domain.RunEvent, suffix, content string) domain.Message {
+		m := projectedTextMessage(sessionID, runID, e, suffix, content)
+		if provenance != nil {
+			m.ContentOrigin = provenance.ContentOrigin
+			m.ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
+		}
+		return m
+	}
+	for _, re := range events {
 		switch re.Type {
 		case domain.EventRunStarted:
 			// `!!` no-context shell runs journal for the transcript only;
@@ -106,7 +136,21 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			if json.Unmarshal(re.Payload, &request) == nil && request.Source == modelCallSourceMaintenance {
 				continue
 			}
+			if retained && pending.Len() > 0 {
+				m := textMessage(re, "0", pending.String())
+				m.Source = "journal_partial"
+				out = append(out, m)
+			}
 			pending.Reset()
+			if re.PayloadVersion >= 4 {
+				p, err := storage.DecodeModelInputProvenance(re)
+				if err != nil {
+					return nil, err
+				}
+				provenance = &p
+			} else {
+				provenance = nil
+			}
 		case domain.EventModelDelta:
 			var p payloadModelDelta
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
@@ -115,12 +159,15 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			pending.WriteString(p.Delta)
 		case domain.EventToolRequested:
 			if pending.Len() > 0 {
-				out = append(out, projectedTextMessage(sessionID, runID, re, "0", pending.String()))
+				out = append(out, textMessage(re, "0", pending.String()))
 				pending.Reset()
 			}
 			var p payloadToolRequested
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
 				return nil, fmt.Errorf("decode tool.requested seq %d: %w", re.Seq, err)
+			}
+			if re.PayloadVersion >= 2 || p.OriginalArgumentsInvalidUTF8 || len(p.OriginalArgumentsBytes) > 0 {
+				return nil, storage.ErrSubjectEvidenceIncomplete
 			}
 			args, err := json.Marshal(p.Args)
 			if err != nil {
@@ -131,11 +178,24 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				Role: domain.RoleAssistant, CreatedAt: re.CreatedAt,
 				ToolCallID: p.ToolCallID, ToolName: p.ToolName, ToolArgs: args,
 			})
+			if provenance != nil {
+				out[len(out)-1].ContentOrigin = provenance.ContentOrigin
+				out[len(out)-1].ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
+			}
+		case domain.EventToolOperation:
+			var p struct {
+				OperationID string                    `json:"operation_id"`
+				State       domain.ToolOperationState `json:"state"`
+			}
+			if json.Unmarshal(re.Payload, &p) == nil && p.State == domain.ToolOperationCompleted {
+				receipts[p.OperationID] = re
+			}
 		case domain.EventToolFinished:
 			var p payloadToolFinished
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
 				return nil, fmt.Errorf("decode tool.finished seq %d: %w", re.Seq, err)
 			}
+			delete(receipts, p.ToolCallID)
 			content := p.Result
 			if p.Error != "" {
 				content = p.Error
@@ -145,22 +205,82 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				Role: domain.RoleTool, CreatedAt: re.CreatedAt, Content: content,
 				ToolCallID: p.ToolCallID, ToolName: p.ToolName,
 			}
-			if isNotebookTool(p.ToolName) {
+			if s.deps.ToolOperations != nil {
+				op, err := s.deps.ToolOperations.GetToolOperation(ctx, runID, p.ToolCallID)
+				if err != nil && !errors.Is(err, storage.ErrNotFound) {
+					return nil, err
+				}
+				if err == nil {
+					msg.ContentOrigin = op.ContentOrigin
+					msg.ExcludeAutomaticIngest = op.ExcludeAutomaticIngest
+				}
+			} else if isNotebookTool(p.ToolName) {
 				msg.ContentOrigin = domain.ContentOriginNotebook
 				msg.ExcludeAutomaticIngest = true
 			}
 			out = append(out, msg)
+		case domain.EventRunCompleted:
+			terminal = true
+		case domain.EventRunFailed, domain.EventRunCancelled:
+			terminal = true
+			if retained && pending.Len() > 0 {
+				m := textMessage(re, "0", pending.String())
+				m.Source = "journal_partial"
+				out = append(out, m)
+				pending.Reset()
+			}
 		case domain.EventModelCompleted:
 			content, err := completedProjectionContent(re, pending.String())
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, projectedTextMessage(sessionID, runID, re, "0", content))
+			out = append(out, textMessage(re, "0", content))
 			pending.Reset()
 		}
 	}
-	if err := it.Err(); err != nil {
-		return nil, fmt.Errorf("iterate Journal message projection: %w", err)
+	if terminal && len(receipts) > 0 {
+		if sources, ok := s.deps.Sessions.(storage.SubjectSourceStore); ok {
+			if _, err := sources.GetRunSubjectSource(ctx, runID); err == nil {
+				events := make([]domain.RunEvent, 0, len(receipts))
+				for _, e := range receipts {
+					events = append(events, e)
+				}
+				sort.Slice(events, func(i, j int) bool { return events[i].Seq < events[j].Seq })
+				for _, e := range events {
+					var p struct {
+						OperationID string `json:"operation_id"`
+					}
+					if err := json.Unmarshal(e.Payload, &p); err != nil {
+						return nil, err
+					}
+					op, err := s.deps.ToolOperations.GetToolOperation(ctx, runID, p.OperationID)
+					if err != nil {
+						return nil, err
+					}
+					ref, err := storage.DecodeToolEvidenceReference(op)
+					if err != nil {
+						return nil, err
+					}
+					raw, found, err := s.toolEvidenceBlobs().Get(ctx, ref.ID)
+					if err != nil {
+						return nil, err
+					}
+					if !found {
+						return nil, storage.ErrSubjectEvidenceIncomplete
+					}
+					if _, err := storage.VerifyToolEvidence(ref, raw); err != nil {
+						return nil, err
+					}
+					content := ref.Projection
+					if op.Failure != "" {
+						content = op.Failure
+					}
+					out = append(out, domain.Message{ID: projectedMessageID(runID, e.Seq, "0"), SessionID: sessionID, RunID: runID, Role: domain.RoleTool, CreatedAt: e.CreatedAt, Content: content, ToolCallID: op.OperationID, ToolName: op.ToolName, Source: "journal_partial", ContentOrigin: op.ContentOrigin, ExcludeAutomaticIngest: op.ExcludeAutomaticIngest})
+				}
+			} else if !errors.Is(err, storage.ErrNotFound) {
+				return nil, err
+			}
+		}
 	}
 	return out, nil
 }
@@ -216,7 +336,8 @@ func projectedMessageID(runID domain.RunID, seq domain.EventSeq, slot string) st
 
 func sameProjectedMessage(a, b domain.Message) bool {
 	return a.RunID == b.RunID && a.Role == b.Role && a.Content == b.Content &&
-		a.ToolCallID == b.ToolCallID && a.ToolName == b.ToolName && bytes.Equal(a.ToolArgs, b.ToolArgs)
+		a.ToolCallID == b.ToolCallID && a.ToolName == b.ToolName && bytes.Equal(a.ToolArgs, b.ToolArgs) &&
+		a.ContentOrigin == b.ContentOrigin && a.ExcludeAutomaticIngest == b.ExcludeAutomaticIngest
 }
 
 func (s *Service) reconcileSessionMessageProjection(ctx context.Context, sessionID domain.SessionID) error {

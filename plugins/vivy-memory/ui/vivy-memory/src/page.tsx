@@ -5,8 +5,8 @@
  * 这里只返回页面内容，因此所有插件页面的外观一致。
  */
 
-import { MemoryView } from './view';
+import { RecapWorkspace } from './recap';
 
 export function MemoryPage() {
-  return <MemoryView />;
+  return <RecapWorkspace />;
 }

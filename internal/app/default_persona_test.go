@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	divacognitive "agent-vivy/internal/modules/diva-cognitive"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage/sqlite"
 )
 
 // Use the shipped factory, not a directly constructed DIVA test bundle.
@@ -23,7 +25,12 @@ func TestDefaultPersonaAuthorityPersistsAndFreezesPerSession(t *testing.T) {
 		t.Fatal("default/headless generation omits the persona authority")
 	}
 	cfg := config.Config{Storage: config.Storage{DataDir: t.TempDir()}}
-	bundle, err := cognitiveBundleForAssembly(ctx, &assembly, cfg, assembly.GenerationID, nil)
+	backend, err := sqlite.Open(ctx, filepath.Join(cfg.Storage.DataDir, "core.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	bundle, err := cognitiveBundleForAssembly(ctx, &assembly, cfg, assembly.GenerationID, backend.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +73,7 @@ func TestDefaultPersonaAuthorityPersistsAndFreezesPerSession(t *testing.T) {
 	if err := bundle.Close(); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err = cognitiveBundleForAssembly(ctx, &assembly, cfg, assembly.GenerationID, nil)
+	bundle, err = cognitiveBundleForAssembly(ctx, &assembly, cfg, assembly.GenerationID, backend.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}

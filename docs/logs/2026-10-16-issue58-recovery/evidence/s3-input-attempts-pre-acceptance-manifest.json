@@ -1,0 +1,186 @@
+{
+  "status": "attempt snapshot; not Task1 acceptance",
+  "latest_production_source": "f8d61b315dce27bfdd8a54548c30f872bdf85286",
+  "files": [
+    {
+      "file": "admission-cases-first.jsonl",
+      "bytes": 34469,
+      "sha256": "29e0bbf3c49f1142a468a0e9055416d2e34287d7cca8f59b7bdea038d5218e86"
+    },
+    {
+      "file": "app-fixture-repair-green.jsonl",
+      "bytes": 6109,
+      "sha256": "47e8167606b9e2cf74ca39a507a7b836049c30766808201c82f27061aeec7217"
+    },
+    {
+      "file": "certificate-refusal-first.jsonl",
+      "bytes": 38275,
+      "sha256": "996ea8ae4f824918a7e15b15909a874730752bedb774cd8761aa152066e37c9e"
+    },
+    {
+      "file": "codec-projection-green.jsonl",
+      "bytes": 1948,
+      "sha256": "dd308769a4e7fe1e1d21ada10db3d3d3613951bf94edc78169be4b256198cb1c"
+    },
+    {
+      "file": "f8d61b31-focused.jsonl",
+      "bytes": 240757,
+      "sha256": "fd33c66500f905d80b48fae4028f2984ad1b522683ad10e24d059b778f67d0fd"
+    },
+    {
+      "file": "full-seal-failure-boundary-green.jsonl",
+      "bytes": 14181,
+      "sha256": "9d53573125c27e625e598703e4fdeb159a01a991431ad64588e438b1e4a0a95f"
+    },
+    {
+      "file": "full-tool-reconcile-red.jsonl",
+      "bytes": 9988,
+      "sha256": "48e9ee4532ce70af974f24d122c37df690d890feee8fb1e56ff32d952dc8affb"
+    },
+    {
+      "file": "isolation-missing-pin-green.jsonl",
+      "bytes": 19387,
+      "sha256": "30e8d604b7c23c109615266ec819465da80f2c5fa87a24aae6901256c4ee2e1c"
+    },
+    {
+      "file": "isolation-red.jsonl",
+      "bytes": 17201,
+      "sha256": "aee049d3e5344d22e27a572ef21fa0aa6c5f2f4e5c4494e837cdc7e668ac1e51"
+    },
+    {
+      "file": "missing-pin-leg-resume-red.jsonl",
+      "bytes": 3959,
+      "sha256": "403d06a5f4a5eacbabbed9747cfd54d81928de3710903e473991bc330802aff2"
+    },
+    {
+      "file": "missing-pin-red.jsonl",
+      "bytes": 3139,
+      "sha256": "6df1fe3c89af809473f39f3edb8f27dc4759df7581a3a7678cf276d2636adbac"
+    },
+    {
+      "file": "output-limit-green.jsonl",
+      "bytes": 4724,
+      "sha256": "0d952ec673020ac6202373ee3a848e4b20f47961c886cfeffb8ba958409f64ea"
+    },
+    {
+      "file": "output-limit-red-v2.jsonl",
+      "bytes": 989,
+      "sha256": "0279d0d238e66d20ab9be4790bab09d823e4bc6f79b1bffdd0a7b018eb89615f"
+    },
+    {
+      "file": "output-limit-red-v3.jsonl",
+      "bytes": 989,
+      "sha256": "fb2fa0e17e5dfd42ea93aed2aebb14eeba9ce6a697a0acd9772ec8f4fdb0c603"
+    },
+    {
+      "file": "output-limit-red-v4.jsonl",
+      "bytes": 3803,
+      "sha256": "327eadbeceac95fccbb2a4df2397bc776c8f9ea253ba73164220ee5183d713ed"
+    },
+    {
+      "file": "output-limit-red.jsonl",
+      "bytes": 988,
+      "sha256": "5c5b6844e8ea109b832935a8d487c498d4db264b36fef8d6e89db8950c3f545c"
+    },
+    {
+      "file": "owner-fixture-compatibility-green.jsonl",
+      "bytes": 1248,
+      "sha256": "7fafb60632356c7bd7b5c72f13d296719ff79fc3ad5281e03cc5483cb784e841"
+    },
+    {
+      "file": "preflight-tool-scope-first.jsonl",
+      "bytes": 13823,
+      "sha256": "3010a771c911b1ce0ccdc4a7f514c0f655895ba7bb0aa5aa64ef00dc9d4309fe"
+    },
+    {
+      "file": "projection-red.jsonl",
+      "bytes": 1165,
+      "sha256": "e1e1a754828f59b1bdead25cc741f9b996c1c5ffa075f372c54dc8960ea82062"
+    },
+    {
+      "file": "provider-issue58-green.jsonl",
+      "bytes": 8308,
+      "sha256": "4f471b767328cc752429bb516cdcadff5dff79e667bf17e781ad32ed173ec871"
+    },
+    {
+      "file": "receipt-green.jsonl",
+      "bytes": 1195,
+      "sha256": "d3b99a2ffd340980d6ad41523db79a235e99f72c940558f24e998a9bb7eb047f"
+    },
+    {
+      "file": "receipt-red.jsonl",
+      "bytes": 2293,
+      "sha256": "a9a821590ff1dec6ee6ea9e9baf81beee81b9cadbeb1a7619910eeea6283b45a"
+    },
+    {
+      "file": "receipt-subset-red.jsonl",
+      "bytes": 1373,
+      "sha256": "f57693e86e3497574282349e4c6750c0cdf9b874ec5d1484823a6b9b3f8f296d"
+    },
+    {
+      "file": "refusal-truthful-green-attempt.jsonl",
+      "bytes": 33966,
+      "sha256": "d87729ae12cb6f4730cb3360f113ca05ff5a0d7ececed3c0cc05a76973a1e2bd"
+    },
+    {
+      "file": "refusal-truthful-red.jsonl",
+      "bytes": 21794,
+      "sha256": "8b1f8cbbda6fadca6f55d70a275f285ba37caae76278f1056d8da234e3d7ce0f"
+    },
+    {
+      "file": "restart-equality-schema-first.jsonl",
+      "bytes": 45244,
+      "sha256": "de87866de34ac88ad3ae20b0a07d4e7ac405035f35fd36cebfa7e693f0d4845a"
+    },
+    {
+      "file": "resume-first.jsonl",
+      "bytes": 16615,
+      "sha256": "e0f6f7f75e6a8c359df1ee2c7563c02521f86646797629cfbfc44b6a67b259d7"
+    },
+    {
+      "file": "route-live-spec-first.jsonl",
+      "bytes": 12289,
+      "sha256": "b2172b62711277375191f85053405c092c0e8abdddadfd10b61db5d91007bb17"
+    },
+    {
+      "file": "route-pin-green.jsonl",
+      "bytes": 5855,
+      "sha256": "81348fc68da32eb76009642e5974e751c4dfeb8bcc723c3f6261e8581d72fd5f"
+    },
+    {
+      "file": "route-pin-red.jsonl",
+      "bytes": 1479,
+      "sha256": "f0b5df1359d9b429090d1c78f7b1cde6d9ba93b3e22a4dc9a06dc0b9c15cf0db"
+    },
+    {
+      "file": "shared-green-attempt.jsonl",
+      "bytes": 2973,
+      "sha256": "816152a3be3ec6b35ae2e4e05d6466c18fee3e4f510dbc7ce3f67e86696468d9"
+    },
+    {
+      "file": "shared-integration-build.jsonl",
+      "bytes": 1119,
+      "sha256": "f472c541ce74f5dcf67bd70d1333cc1e4db88678dbf530bd52f2062310233660"
+    },
+    {
+      "file": "shared-red.jsonl",
+      "bytes": 4213,
+      "sha256": "d77d7ab3fb57d6744f69f7a0c5338d933727b7e7fcfbf757afae1b4f0634bd0d"
+    },
+    {
+      "file": "shared-tool-reconcile-green.jsonl",
+      "bytes": 12364,
+      "sha256": "2f34e8dd1dd59222c609f67c377c454629b8f5278e2b3358de8a8eb58fada381"
+    },
+    {
+      "file": "source-f8d61b31.sha256",
+      "bytes": 2759,
+      "sha256": "39b7a3daed92f4247da714c00220cdb66f4a8bb6ef9f9811f4c624a0f5ed47a1"
+    },
+    {
+      "file": "v4-compatibility-green.jsonl",
+      "bytes": 17150,
+      "sha256": "9e595b4e0eb5344372c25da7a5f89710f0e4160ae05c2dcfad3e0f7f06a15b67"
+    }
+  ]
+}

@@ -465,3 +465,9 @@ func (r *Registry) Resolve(enabled []string) ([]Tool, error) {
 	}
 	return out, nil
 }
+
+// ContextAuthorizer optionally restricts discovery and execution to the trusted
+// request identity. It never replaces ToolHost policy/approval checks.
+type ContextAuthorizer interface {
+	AuthorizeTool(context.Context) error
+}

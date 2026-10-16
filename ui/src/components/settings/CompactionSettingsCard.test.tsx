@@ -105,4 +105,11 @@ describe('CompactionSettingsCard mounted feedback', () => {
     expect(feedback?.textContent).toBe('后端拒绝：session is busy');
     expect(view.compactSession).toHaveBeenCalledTimes(1);
   });
+  it('does not invent token savings for unmeasured Recap consolidation', async () => {
+    view.compactSession.mockResolvedValue({before_tokens:0,after_tokens:0,folded_messages:2,skipped:false,token_counts_available:false});
+    await render();await act(async()=>button('Compact now').click());
+    expect(container.textContent).toContain('Recap updated. Token totals are unavailable.');
+    expect(container.textContent).not.toContain('0 → 0');
+  });
+
 });

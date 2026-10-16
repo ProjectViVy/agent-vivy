@@ -57,6 +57,10 @@ fmt-check:
 plugin-ci:
     powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Recurse -Filter go.mod -File | ForEach-Object { $_.Directory }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $m.FullName); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
 
+# Root ./... excludes this independently declared nested module.
+bml-ci:
+    Push-Location bml; try { & "{{go}}" vet -p=1 ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE }; & "{{go}}" test -p=1 -count=1 -timeout=5m ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE } } finally { Pop-Location }
+
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.
 ui-build: ensure-laputa
@@ -86,11 +90,11 @@ build-split: ensure-laputa
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci
+ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci bml-ci
 
 # Independent backend gate for Actions. It builds ui/dist for go:embed but
 # leaves UI typechecking and tests to ui-ci so both lanes always report.
-backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci
+backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci bml-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e

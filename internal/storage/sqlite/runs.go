@@ -58,7 +58,7 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 // CommitPrimaryRun persists the user message, active primary run and
 // run.started event in one transaction. The session write lock is acquired
 // before checking active runs so concurrent backend handles serialize.
-func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.PrimaryRunCommit) (domain.RunEvent, error) {
+func (b *Backend) commitPrimaryRun(ctx context.Context, admission storage.PrimaryRunCommit) (domain.RunEvent, error) {
 	if err := storage.ValidatePrimaryRunCommit(admission); err != nil {
 		return domain.RunEvent{}, err
 	}
@@ -84,6 +84,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	}
 	if affected == 0 {
 		return domain.RunEvent{}, storage.ErrNotFound
+	}
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, admission.Run, admission.Subject); err != nil {
+		return domain.RunEvent{}, err
 	}
 	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
 		return domain.RunEvent{}, err
@@ -176,6 +179,9 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 		if _, err := tx.ExecContext(ctx, "INSERT INTO run_events (run_id,seq,type,created_at,payload_version,payload) VALUES (?,?,?,?,?,?)", event.RunID, event.Seq, event.Type, event.CreatedAt, event.PayloadVersion, event.Payload); err != nil {
 			return domain.RunEvent{}, fmt.Errorf("storage: append primary queue admission: %w", err)
 		}
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, admission.Run, admission.Subject, admission.Message.ID); err != nil {
+		return domain.RunEvent{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: commit primary run admission: %w", err)

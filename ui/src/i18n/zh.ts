@@ -383,6 +383,8 @@ export const zh = {
     trustedConfirmDescription: '信任模式会放宽命令白名单，并自动批准只读和白名单工具。仍无法写出本次运行的工作区。',
     trustedConfirm: '确认切换',
     reviewCenter: '审批中心',
+    contextUnavailable: '共享上下文用量暂不可用。',
+    compactUnmeasured: '回顾已更新，token 用量暂不可用。',
     contextTitle: '上下文占用：{{percent}}% · {{used}} / {{limit}} tokens',
     contextLabel: '上下文占用',
     contextValueText: '已使用约 {{used}} tokens，模型窗口 {{limit}} tokens',
@@ -582,11 +584,6 @@ export const zh = {
     manageModelSettings: '管理模型设置',
   },
   codeMode: {
-    code: "代码",
-    life: "生活",
-    placeholderAria: "会话模式：{{mode}}（界面占位）",
-    placeholderHint: "界面占位；暂不改变会话行为",
-
     enabled: '代码模式已开启',
     disabled: '开启代码模式',
     noSession: '请先选择一个会话',

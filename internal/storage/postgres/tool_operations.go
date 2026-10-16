@@ -189,6 +189,7 @@ func postgresSameToolOperationBinding(existing, request domain.ToolOperation) bo
 	return existing.RunID == request.RunID && existing.OperationID == request.OperationID &&
 		existing.ToolName == request.ToolName && existing.RequestDigest == request.RequestDigest &&
 		existing.ArgumentsDigest == request.ArgumentsDigest &&
+		existing.ContentOrigin == request.ContentOrigin && existing.ExcludeAutomaticIngest == request.ExcludeAutomaticIngest &&
 		string(existing.MiddlewareInputArguments) == string(request.MiddlewareInputArguments) &&
 		string(existing.EffectiveArguments) == string(request.EffectiveArguments)
 }

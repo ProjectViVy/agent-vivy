@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -114,16 +115,22 @@ type ChildRunCanceller interface {
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
+	Recap            cognitivecontract.RecapPort
+	MainConversation cognitivecontract.MainConversationResolver
+	SubjectSources   cognitivecontract.SubjectSourceResolver
+
 	Journal storage.Journal
 	// ToolOperations is the Journal-transactional recovery index for logical
 	// tool calls. NewService discovers it from Journal when the backend also
 	// implements storage.ToolOperationStore.
 	ToolOperations storage.ToolOperationStore
-	Runs           storage.RunStore
-	Messages       storage.MessageStore
-	Work           storage.WorkStore
-	GoalRuns       storage.GoalRunStore
-	PrimaryRuns    storage.PrimaryRunStore
+	// ToolEvidence is the existing backend BlobStore for authorized exact originals.
+	ToolEvidence storage.BlobStore
+	Runs         storage.RunStore
+	Messages     storage.MessageStore
+	Work         storage.WorkStore
+	GoalRuns     storage.GoalRunStore
+	PrimaryRuns  storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -262,32 +269,35 @@ type Service struct {
 	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
-	mu               sync.Mutex
-	bundleGateMu     sync.Mutex
-	bundleDrainID    string
-	bundleAdmissions int
-	active           map[domain.RunID]context.CancelFunc
-	bundleViews      map[domain.RunID]ToolkitViewHandle
-	bundleChecks     map[domain.RunID]bundlecontract.CaptureCheck
-	workflowStartMu  sync.Mutex
-	workflowNodeMu   sync.Mutex
-	operationMu      sync.Mutex
-	operationFlights map[string]*toolOperationFlight
-	goalStarting     map[domain.SessionID]struct{}
-	goalRuns         map[domain.SessionID]domain.RunID
-	goalDisarmed     map[domain.SessionID]struct{}
-	planTransitions  map[domain.SessionID]uint64
-	planCancelling   map[domain.SessionID]uint64
-	goalRunSessions  map[domain.RunID]domain.SessionID
-	goalRunRefs      map[domain.RunID]domain.GoalRef
-	admissionLocksMu sync.Mutex
-	admissionLocks   map[domain.SessionID]*sync.Mutex
-	humanIntentLocks map[domain.SessionID]*sync.Mutex
-	goalWakeRunning  map[domain.SessionID]struct{}
-	goalWakePending  map[domain.SessionID]struct{}
-	goalWG           sync.WaitGroup
-	stopping         bool
-	humanPending     map[domain.SessionID]int
+	mu                  sync.Mutex
+	bundleGateMu        sync.Mutex
+	bundleDrainID       string
+	bundleAdmissions    int
+	active              map[domain.RunID]context.CancelFunc
+	bundleViews         map[domain.RunID]ToolkitViewHandle
+	bundleChecks        map[domain.RunID]bundlecontract.CaptureCheck
+	workflowStartMu     sync.Mutex
+	workflowNodeMu      sync.Mutex
+	recapCommitMu       sync.Mutex
+	sessionControls     map[domain.RunID]context.CancelFunc
+	sessionControlsIdle chan struct{}
+	operationMu         sync.Mutex
+	operationFlights    map[string]*toolOperationFlight
+	goalStarting        map[domain.SessionID]struct{}
+	goalRuns            map[domain.SessionID]domain.RunID
+	goalDisarmed        map[domain.SessionID]struct{}
+	planTransitions     map[domain.SessionID]uint64
+	planCancelling      map[domain.SessionID]uint64
+	goalRunSessions     map[domain.RunID]domain.SessionID
+	goalRunRefs         map[domain.RunID]domain.GoalRef
+	admissionLocksMu    sync.Mutex
+	admissionLocks      map[domain.SessionID]*sync.Mutex
+	humanIntentLocks    map[domain.SessionID]*sync.Mutex
+	goalWakeRunning     map[domain.SessionID]struct{}
+	goalWakePending     map[domain.SessionID]struct{}
+	goalWG              sync.WaitGroup
+	stopping            bool
+	humanPending        map[domain.SessionID]int
 	// runSessions keeps the session identity for live/suspended runs so a
 	// concurrent session deletion can seal every producer before removing the
 	// durable rows. deletedSessions is a process-local tombstone: once delete
@@ -721,7 +731,7 @@ func (s *Service) ChangeModelWhenIdle(providerName, modelID string, persist func
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	s.mu.Lock()
-	busy := len(s.active) != 0 || len(s.pending) != 0 || len(s.shellPending) != 0 || len(s.snapshots) != 0
+	busy := len(s.active) != 0 || len(s.pending) != 0 || len(s.shellPending) != 0 || len(s.snapshots) != 0 || len(s.sessionControls) != 0
 	s.mu.Unlock()
 	if busy {
 		return ErrModelChangeBusy
@@ -758,9 +768,26 @@ func (s *Service) MaxEventPayloadBytes() int {
 // deletion with run startup and Journal-to-message projection. The tombstone
 // prevents a cancelled drive from appending a late event after storage delete.
 func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
+	// Reject permanent/retained sources before canceling producers or installing
+	// a process tombstone. The storage guard remains authoritative as well.
+	if err := s.retainedSubjectSource(ctx, id); err != nil {
+		return err
+	}
+	source, err := s.resolveSubjectAdmission(ctx, id)
+	if err != nil {
+		return err
+	}
+	if source != nil {
+		return storage.ErrRetainedSession
+	}
+
 	// Serialize the tombstone with the final Plan entry check. A deletion
 	// beginning during an unlocked Goal drain wins before Plan can commit.
 	s.projectionMu.Lock()
+	if err := s.retainedSubjectSource(ctx, id); err != nil {
+		s.projectionMu.Unlock()
+		return err
+	}
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
 	s.closingSessions[id] = struct{}{}
@@ -961,6 +988,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	subjectSource, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	// Continuity only supplies an atomic boundary for a continuity request.
+	// Reject an eligible ordinary Run before any admission side effect when
+	// the selected branch would otherwise write its records separately.
+	if subjectSource != nil && options.Continuity == nil && persist == nil && options.GoalRound == nil && s.deps.PrimaryRuns == nil && s.deps.Admission == nil {
+		return "", storage.ErrSubjectBinding
 	}
 	queue, queueErr := s.queueFor(ctx, sessionID)
 	if queueErr != nil {
@@ -1177,7 +1214,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		var frozenText, frozenDigest string
 		var persona storage.PersonaSnapshot
-		if b := s.deps.Cognitive; face != domain.FaceCode && b != nil && b.Primary != nil {
+		if b := s.deps.Cognitive; (face != domain.FaceCode || (subjectSource != nil && subjectSource.ConversationID != "")) && b != nil && b.Primary != nil {
 			// The coding face keeps its project instruction contract and
 			// does not require companion-persona onboarding.
 			// Session authority rides in the primary run's input before
@@ -1286,6 +1323,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
 	var admittedScope *domain.AcceptedHistoryScope
@@ -1330,6 +1368,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}(),
 	})
 	admission := storage.RunAdmission{
+		Subject: subjectSource,
 		Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask,
 		Bundle: bundleSnapshot, ExpectedBundle: expectedBundle,
 	}
@@ -1379,6 +1418,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 		}
 		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
+			Subject:        subjectSource,
 			SessionID:      sessionID,
 			Message:        message,
 			Run:            run,
@@ -1458,6 +1498,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 			var commitErr error
 			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
+				Subject:        subjectSource,
 				Mutation:       mutation,
 				Message:        message,
 				Run:            run,
@@ -1494,6 +1535,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
 			var commitErr error
 			started, commitErr = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+				Subject:        subjectSource,
 				Message:        message,
 				Run:            run,
 				Started:        started,
@@ -1854,8 +1896,11 @@ func (s *Service) cancelWorkflowChildren(parentID domain.RunID) {
 // approvals close the same way.
 func (s *Service) CancelAll() {
 	s.mu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(s.active))
+	cancels := make([]context.CancelFunc, 0, len(s.active)+len(s.sessionControls))
 	for _, c := range s.active {
+		cancels = append(cancels, c)
+	}
+	for _, c := range s.sessionControls {
 		cancels = append(cancels, c)
 	}
 	pendingIDs := make([]domain.RunID, 0, len(s.pending)+len(s.shellPending))
@@ -1879,10 +1924,16 @@ func (s *Service) CancelAll() {
 // storage is never closed underneath a run still persisting its terminal
 // event (E4).
 func (s *Service) WaitIdle(ctx context.Context) bool {
+	s.mu.Lock()
+	controlsIdle := s.sessionControlsIdle
+	s.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		s.goalWG.Wait()
+		if controlsIdle != nil {
+			<-controlsIdle
+		}
 		close(done)
 	}()
 	select {
@@ -2002,7 +2053,7 @@ func (s *Service) RecoverBackground(ctx context.Context) error {
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
 	s.mu.Lock()
-	busy := len(s.active) > 0 || len(s.pending) > 0
+	busy := len(s.active) > 0 || len(s.pending) > 0 || len(s.sessionControls) > 0
 	s.mu.Unlock()
 	if busy {
 		return ErrRecoveryBusy
@@ -2443,6 +2494,10 @@ func (s *Service) appendRunEventLocked(ctx context.Context, event domain.RunEven
 // example manual compaction) that intentionally has no RunStore row, while
 // still participating in the session deletion fence.
 func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	return s.recordSyntheticSessionEventVersion(ctx, sessionID, runID, typ, 1, payload)
+}
+
+func (s *Service) recordSyntheticSessionEventVersion(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, typ domain.EventType, version int, payload any) (domain.RunEvent, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("runtime: marshal synthetic event: %w", err)
@@ -2450,7 +2505,7 @@ func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID dom
 	if limit := s.engine.cfg.MaxEventPayloadBytes; limit > 0 && len(data) > limit {
 		return domain.RunEvent{}, fmt.Errorf("runtime: synthetic event payload is %d bytes; limit is %d", len(data), limit)
 	}
-	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: data}
+	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: version, Payload: data}
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	if s.sessionDeleted(sessionID) {
@@ -3124,6 +3179,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	if eng == nil {
 		eng = s.engine
 	}
+	ctx = s.withRecapRunPolicy(ctx, m.runID, sessionID, m.runProvider, m.runModel)
 	promptSnapshot, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, m.runID)
 	if promptErr != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, promptErr))
@@ -3135,6 +3191,11 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		ctx = withRunPrompt(ctx, promptSnapshot)
 	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	ledger := s.ledgerForRun(m.runID)
+	// Admission summaries use the same run budget and Journal observer.
+	admissionCtx := withRunExecution(withRunID(withSessionID(ctx, sessionID), m.runID), eng, execution)
+	admissionCtx = withGovernanceEventSink(admissionCtx, s.governanceSink(m, sessionID, ledger))
+	admissionCtx = s.withLiveModelStreamObserver(admissionCtx, m, sessionID, ledger, nil, execution.child != nil, nil)
 	var msgs []*schema.Message
 	var selection tools.Selection
 	var stats ContextStats
@@ -3149,7 +3210,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		if len(parentReplies) > 0 {
 			userText = formatParentReplies(parentReplies, userText)
 		}
-		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, collaboration)
+		msgs, selection, stats, err = s.runMessagesForRunWithCollaboration(admissionCtx, sessionID, userText, eng, face, workspaceID, collaboration)
 	} else {
 		msgs, selection, stats, execution.child.included, err = s.runMessagesForChild(ctx, userText, execution.child.pending, eng)
 	}
@@ -3161,7 +3222,6 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	s.storeContextView(m.runID, stats.ContextViewID)
 	// The per-invocation v3 model.request is journaled by the observer
 	// seam inside Begin, before the provider is invoked (OBS-02/D2).
-	ledger := s.ledgerForRun(m.runID)
 	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
 	runCtx = withRunExecution(runCtx, eng, execution)
 	if execution.suppressSessionMessageProjection {
@@ -3247,6 +3307,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 // "main" or "child" from the execution context; the summary routes are
 // claimed by the wrapped summarizer models in compaction_middleware.go.
 func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
+	ctx = s.withRecapRunPolicy(ctx, m.runID, sessionID, m.runProvider, m.runModel)
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
@@ -3279,14 +3340,16 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 // terminal persistence context so caller cancellation cannot strand the
 // closure record.
 type runModelCallObserver struct {
-	svc       *Service
-	m         *eventMapper
-	sessionID domain.SessionID
-	ledger    *BudgetLedger
-	source    string
-	provider  string
-	model     string
-	onDelta   func(string)
+	svc                     *Service
+	m                       *eventMapper
+	sessionID               domain.SessionID
+	ledger                  *BudgetLedger
+	source                  string
+	synchronousSummary      bool
+	syntheticSessionControl bool
+	provider                string
+	model                   string
+	onDelta                 func(string)
 	// warmer is the run's cache-warming scheduler (VCP F2); nil when
 	// config or the model's declared capabilities opt out. Summary-route
 	// observers never carry one.
@@ -3297,9 +3360,22 @@ type runModelCallObserver struct {
 }
 
 type observedModelCall struct {
-	mode  string
-	usage usageAccumulator
-	input modelCallInput
+	mode              string
+	usage             usageAccumulator
+	input             modelCallInput
+	provenance        storage.InputProvenance
+	provenanceStamped bool
+	toolCallChunks    []*schema.Message
+}
+
+// Synthetic session controls use the established rowless Journal lane. They
+// never create/project/terminate a conversation Run on observer persistence failure.
+func (o *runModelCallObserver) persistModelEvent(ctx context.Context, event domain.RunEvent) bool {
+	if o.syntheticSessionControl {
+		_, err := o.svc.recordSyntheticSessionEventVersion(ctx, o.sessionID, event.RunID, event.Type, event.PayloadVersion, json.RawMessage(event.Payload))
+		return err == nil
+	}
+	return o.svc.persistAndPublish(ctx, o.sessionID, event)
 }
 
 func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (modelCallMeta, error) {
@@ -3312,17 +3388,39 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if o.source == "main" || o.source == "child" {
 		meta.ContextViewID = o.m.contextViewID
 	}
+	if fold, summary := ctx.Value(recapSummaryKey{}).(*recapFold); o.source == modelCallSourceSummary && summary && fold != nil {
+		o.synchronousSummary = true
+		pin, ok := domain.ModelRequestScopeFromContext(ctx)
+		if !ok || pin.Provider != o.provider || pin.Model != o.model {
+			return meta, ErrRecapUnavailable
+		}
+		if err := o.svc.validateRecapFold(ctx, fold); err != nil {
+			return meta, err
+		}
+		if _, err := o.svc.measureRecapRequest(ctx, in.Messages, in.Tools); err != nil {
+			return meta, err
+		}
+	} else if err := o.svc.validateRecapModelLeg(ctx, o.sessionID, o.m.runID, in); err != nil {
+		return meta, err
+	}
+	provenance, err := o.svc.modelInputProvenance(ctx, o.m.runID, in.Messages)
+	if err != nil {
+		return meta, err
+	}
 	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
 	if meta.ContextViewID != "" {
 		request.ContextView = meta.ContextViewID
 	}
-	event := o.m.build(domain.EventModelRequest, payloadModelRequestV3{
-		payloadModelRequest: request,
-		CallID:              meta.CallID,
-		Mode:                in.Mode,
-		Provider:            o.provider,
-		Model:               o.model,
-		Source:              o.source,
+	event := o.m.build(domain.EventModelRequest, payloadModelRequestV4{
+		InputProvenance: provenance,
+		payloadModelRequestV3: payloadModelRequestV3{
+			payloadModelRequest: request,
+			CallID:              meta.CallID,
+			Mode:                in.Mode,
+			Provider:            o.provider,
+			Model:               o.model,
+			Source:              o.source,
+		},
 	})
 	// The v3 request consumes the event quota and carries the run's
 	// model-call charge up front; the mapped model.completed/
@@ -3336,20 +3434,20 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 			return meta, err
 		}
 	}
-	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+	if !o.persistModelEvent(ctx, event) {
 		return meta, errors.New("runtime: model request event could not be journaled")
 	}
-	if o.source != modelCallSourceMaintenance {
+	if o.source != modelCallSourceMaintenance && !o.synchronousSummary {
 		o.m.noteObservedCallStart()
 	}
 	o.mu.Lock()
-	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in}
+	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode, input: in, provenance: provenance}
 	o.mu.Unlock()
 	return meta, nil
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
-	if o.source != modelCallSourceMaintenance {
+	if o.source != modelCallSourceMaintenance && !o.synchronousSummary {
 		o.m.noteObservedCallMaterialized(o.source)
 	}
 }
@@ -3359,6 +3457,42 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return nil
 	}
 	state := o.call(meta.CallID)
+	if state != nil && len(chunk.ToolCalls) > 0 {
+		// Retain only tool fragments; Eino remains the owner of concatenation
+		// semantics (Index/ID/name and raw argument string assembly).
+		state.toolCallChunks = append(state.toolCallChunks, &schema.Message{Role: schema.Assistant, ToolCalls: append([]schema.ToolCall(nil), chunk.ToolCalls...)})
+	}
+	for _, call := range chunk.ToolCalls {
+		if !utf8.ValidString(call.Function.Arguments) {
+			// Preserve a durable unavailable marker before either JSON encoding or
+			// Eino can normalize the invalid provider bytes into a valid string.
+			fragments := []*schema.Message{chunk}
+			if state != nil {
+				fragments = state.toolCallChunks
+			}
+			// ConcatMessages preserves raw Go string bytes and the first fragment's
+			// identity without JSON normalization. If the provider's fragment metadata
+			// is itself inconsistent, retain each received fragment as unavailable.
+			if joined, err := schema.ConcatMessages(fragments); err == nil {
+				fragments = []*schema.Message{joined}
+			}
+			for _, fragment := range fragments {
+				for _, event := range o.m.toolCallEvents(fragment) {
+					if !o.persistModelEvent(ctx, event) {
+						return errors.New("runtime: invalid tool argument marker could not be journaled")
+					}
+				}
+			}
+			return storage.ErrSubjectEvidenceIncomplete
+		}
+	}
+	// Provider metadata cannot certify its own provenance. Tag only one chunk:
+	// Eino ConcatMessages preserves it without concatenating duplicate metadata.
+	delete(chunk.Extra, inputProvenanceExtra)
+	if state != nil && !state.provenanceStamped {
+		stampInputProvenance(chunk, state.provenance)
+		state.provenanceStamped = true
+	}
 	var events []domain.RunEvent
 	if state != nil && state.mode == "stream" {
 		if o.onDelta != nil {
@@ -3387,7 +3521,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return err
 	}
 	for _, event := range events {
-		if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
+		if !o.persistModelEvent(ctx, event) {
 			return context.Canceled
 		}
 	}
@@ -3419,7 +3553,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 		if sample, ok := usage.sample(); ok && sample.key() != usage.lastEmit {
 			usage.lastEmit = sample.key()
 			event := o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, true))
-			if !o.svc.persistAndPublish(persistCtx, o.sessionID, event) {
+			if !o.persistModelEvent(persistCtx, event) {
 				return errors.New("runtime: usage settlement event could not be journaled")
 			}
 		}
@@ -3454,7 +3588,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 			}
 		}
 	}
-	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
+	if !o.persistModelEvent(persistCtx, o.m.build(domain.EventModelCallFinished, finish)) {
 		return errors.New("runtime: model call finish event could not be journaled")
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {
@@ -3572,6 +3706,14 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 	// static Instruction cannot (date and whether active tools exist).
 	// Tool discovery is owned by Eino's official middleware.
 	preamble := composeRunPreamble(time.Now(), len(selection.Specs) > 0, face, collaboration)
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
+	if source != nil && source.ConversationID != "" {
+		messages, stats, err := s.runRecapMessages(ctx, sessionID, userText, preamble, eng)
+		return messages, selection, stats, err
+	}
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}
@@ -3686,13 +3828,7 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		return stored, false
 	}
 	kept := stored[idx:]
-	excluded := false
-	for _, m := range stored[:idx] {
-		if m.ExcludeAutomaticIngest {
-			excluded = true
-			break
-		}
-	}
+	provenance := projectedInputProvenance(stored[:idx])
 	summary := domain.Message{
 		ID:        newMessageID(),
 		SessionID: latest.SessionID,
@@ -3700,12 +3836,8 @@ func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.Sessi
 		CreatedAt: latest.TailFrom,
 		Content:   compactionSummaryPrefix + latest.Summary,
 	}
-	if excluded {
-		// A folded range containing excluded rows taints the derived summary:
-		// mixed summaries are conservatively excluded from automatic ingest.
-		summary.ExcludeAutomaticIngest = true
-		summary.ContentOrigin = domain.ContentOriginNotebook
-	}
+	summary.ContentOrigin = provenance.ContentOrigin
+	summary.ExcludeAutomaticIngest = provenance.ExcludeAutomaticIngest
 	out := make([]domain.Message, 0, len(kept)+1)
 	out = append(out, summary)
 	out = append(out, kept...)
@@ -5096,6 +5228,15 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			Message:       "The run was stopped because it reached the limit of tool-call turns. Please try again with a simpler request.",
 		})
 	}
+	if errors.Is(cause, ErrRecapReconciliationRequired) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "recap_reconciliation_required: Resident context requires reconciliation before another model call."})
+	}
+	if errors.Is(cause, ErrRecapUnavailable) || errors.Is(cause, storage.ErrSubjectBinding) || errors.Is(cause, storage.ErrSubjectEvidenceIncomplete) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "recap_unavailable: Resident context could not be authorized or verified."})
+	}
+	if errors.Is(cause, ErrContextCapacityRequired) {
+		return m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "context_capacity_required: The complete request and output reserve do not fit a known model capacity."})
+	}
 	if errors.Is(cause, ErrContextBudgetExceeded) {
 		slog.Warn("run failed: context budget exceeded", "run", string(m.runID), "err", cause)
 		return m.build(domain.EventRunFailed, payloadRunFailed{
@@ -5340,6 +5481,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		bundleHandleToRelease.Release()
 	}
 	s.deleteShellState(shellStateRefToDelete)
+	if s.deps.MainConversation != nil || s.deps.SubjectSources != nil {
+		if run, err := s.deps.Runs.GetRun(persistCtx, terminal.RunID); err == nil {
+			if err := s.sealSubjectRunLocked(persistCtx, run.SessionID, run.ID); err != nil {
+				slog.Error("retain subject interaction remains unsealed", "run", string(run.ID), "err", err)
+			}
+		}
+	}
 	s.projectionMu.Unlock()
 	if runSession != "" {
 		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)

@@ -54,6 +54,9 @@ type sessionHead struct {
 }
 
 func (d dispatch) Invoke(ctx context.Context, actionID string, input json.RawMessage) (json.RawMessage, error) {
+	if strings.HasPrefix(actionID, "vivy.recap.") {
+		return d.invokeRecap(ctx, actionID, input, "")
+	}
 	if d.bundle == nil || d.bundle.owner == nil {
 		return nil, cognitivecontract.ErrUnarmed
 	}
@@ -142,8 +145,10 @@ func classify(err error) (code, status string, retryable bool) {
 	var apiErr *agentapi.Error
 	if errors.As(err, &apiErr) && apiErr != nil {
 		switch apiErr.Code {
-		case "unavailable", "index_health_unavailable", "capability_unavailable", "backend_unavailable", "recovery_required":
+		case "unavailable", "index_health_unavailable", "capability_unavailable", "backend_unavailable", "recovery_required", "recap_unavailable", "recap_owner_busy":
 			return apiErr.Code, "unavailable", true
+		case "recap_commit_unknown":
+			return apiErr.Code, "unknown", true
 		}
 		return apiErr.Code, "failed", false
 	}

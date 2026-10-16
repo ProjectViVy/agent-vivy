@@ -1,0 +1,9 @@
+{
+  "source": "92048bccda52875a798ade1bccc4e44823a564fb",
+  "tree": "a9532ce41a286334e0462b7401bce786e89e65c0",
+  "remote_equivalent": "5770f07ffbe4fd0b5701678846b97d4e6557eb68",
+  "verified_artifacts": 63,
+  "verified_source_files": 19,
+  "archive_sha256": "739b7af7812ef36d13675c33a526d8c000dfd25f5dd6df1a4718761b7c648a6a",
+  "qualification": "Author working-source normal/race/root MVS155 each, matched committed source bytes. Independent review ongoing with one Important cross-handle schema1 legacy-read isolation RED. Native producer NOT accepted; no activation; Windows NOT RUN."
+}

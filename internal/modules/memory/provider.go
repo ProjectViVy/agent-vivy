@@ -48,7 +48,7 @@ const maxIDPartBytes = 128
 // Provider is the single sync-plane provider: one identity serves both the
 // std/context-source@v1 recall contract and the std/observer/run@v1 ingest
 // contract (receipt-aware), so the sealed manifest lists stay consistent.
-type Provider struct{}
+type Provider struct{ serviceBinding }
 
 var (
 	_ contextsource.Provider      = (*Provider)(nil)
@@ -66,8 +66,8 @@ func (*Provider) ID() string { return ProviderID }
 // the Candidate envelope per VIVY-MEMORY-PROFILE.md §record-envelope. The
 // cursor is a decimal offset into the re-executed search; the page size is
 // the host's Limit.
-func (*Provider) Query(ctx context.Context, req contextsource.Request) (contextsource.Page, error) {
-	service := Active()
+func (p *Provider) Query(ctx context.Context, req contextsource.Request) (contextsource.Page, error) {
+	service := p.memoryService()
 	if service == nil {
 		return contextsource.Page{}, errUnavailable
 	}
@@ -124,12 +124,12 @@ func (p *Provider) ObserveRun(ctx context.Context, event observer.RunEvent) erro
 // empty one, and a redelivered event replays the same receipt without
 // writing twice. A failed state always pairs with a non-nil error so the
 // host retains its cursor.
-func (*Provider) ObserveRunWithReceipt(ctx context.Context, event observer.RunEvent) (observer.DeliveryReceipt, error) {
+func (p *Provider) ObserveRunWithReceipt(ctx context.Context, event observer.RunEvent) (observer.DeliveryReceipt, error) {
 	receiptID := ingestReceiptID(event.ID)
 	fail := func(err error) (observer.DeliveryReceipt, error) {
 		return observer.NewDeliveryReceipt(event.ID, receiptID, observer.DeliveryFailed), err
 	}
-	service := Active()
+	service := p.memoryService()
 	if service == nil {
 		return fail(errUnavailable)
 	}

@@ -35,6 +35,7 @@ const (
 const outputLimitReason = "output_too_large"
 
 type memoryAction struct {
+	serviceBinding
 	definition controlaction.Definition
 	invoke     func(context.Context, *Service, json.RawMessage) (json.RawMessage, error)
 }
@@ -48,7 +49,7 @@ func (a memoryAction) Invoke(ctx context.Context, _ controlaction.Host, input js
 	if len(input) > maxActionInput {
 		return marshalOutcome(invalidInput())
 	}
-	service := Active()
+	service := a.memoryService()
 	if service == nil {
 		return marshalOutcome(unavailableOutcome())
 	}
@@ -59,15 +60,15 @@ func (a memoryAction) Invoke(ctx context.Context, _ controlaction.Host, input js
 // vivy/memory-bml.
 func ActionProviders() []controlaction.Provider {
 	return []controlaction.Provider{
-		memoryAction{definition: actionDefinition(ActionList, "List visible long-term memory records", controlaction.EffectRead, listInputSchema), invoke: invokeList},
-		memoryAction{definition: actionDefinition(ActionSearch, "Search visible long-term memory", controlaction.EffectRead, searchInputSchema), invoke: invokeSearch},
-		memoryAction{definition: actionDefinition(ActionGet, "Get one visible memory record", controlaction.EffectRead, getInputSchema), invoke: invokeGet},
-		memoryAction{definition: actionDefinition(ActionAdd, "Add a user-asserted long-term memory record", controlaction.EffectWrite, addInputSchema), invoke: invokeAdd},
-		memoryAction{definition: actionDefinition(ActionUpdate, "Update a memory record under revision CAS", controlaction.EffectWrite, updateInputSchema), invoke: invokeUpdate},
-		memoryAction{definition: actionDefinition(ActionRemove, "Tombstone a memory record under revision CAS", controlaction.EffectWrite, removeInputSchema), invoke: invokeRemove},
-		memoryAction{definition: actionDefinition(ActionRulesRead, "Read the MEMRULES handbook", controlaction.EffectRead, emptyInputSchema), invoke: invokeRulesRead},
-		memoryAction{definition: actionDefinition(ActionRulesWrite, "Replace the MEMRULES handbook under content-digest CAS", controlaction.EffectWrite, rulesWriteInputSchema), invoke: invokeRulesWrite},
-		memoryAction{definition: actionDefinition(ActionStatus, "Report memory service status", controlaction.EffectRead, emptyInputSchema), invoke: invokeStatus},
+		&memoryAction{definition: actionDefinition(ActionList, "List visible long-term memory records", controlaction.EffectRead, listInputSchema), invoke: invokeList},
+		&memoryAction{definition: actionDefinition(ActionSearch, "Search visible long-term memory", controlaction.EffectRead, searchInputSchema), invoke: invokeSearch},
+		&memoryAction{definition: actionDefinition(ActionGet, "Get one visible memory record", controlaction.EffectRead, getInputSchema), invoke: invokeGet},
+		&memoryAction{definition: actionDefinition(ActionAdd, "Add a user-asserted long-term memory record", controlaction.EffectWrite, addInputSchema), invoke: invokeAdd},
+		&memoryAction{definition: actionDefinition(ActionUpdate, "Update a memory record under revision CAS", controlaction.EffectWrite, updateInputSchema), invoke: invokeUpdate},
+		&memoryAction{definition: actionDefinition(ActionRemove, "Tombstone a memory record under revision CAS", controlaction.EffectWrite, removeInputSchema), invoke: invokeRemove},
+		&memoryAction{definition: actionDefinition(ActionRulesRead, "Read the MEMRULES handbook", controlaction.EffectRead, emptyInputSchema), invoke: invokeRulesRead},
+		&memoryAction{definition: actionDefinition(ActionRulesWrite, "Replace the MEMRULES handbook under content-digest CAS", controlaction.EffectWrite, rulesWriteInputSchema), invoke: invokeRulesWrite},
+		&memoryAction{definition: actionDefinition(ActionStatus, "Report memory service status", controlaction.EffectRead, emptyInputSchema), invoke: invokeStatus},
 	}
 }
 

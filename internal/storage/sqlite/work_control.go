@@ -242,7 +242,7 @@ func scanWorkEvent(scanner workScanner) (domain.WorkEvent, error) {
 // CommitGoalRun persists the user message, active run, run.started event and
 // goal.round_admitted event in one transaction. Publication and engine drive
 // happen only after this method returns successfully.
-func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCommit) (storage.GoalRunCommitResult, error) {
+func (b *Backend) commitGoalRun(ctx context.Context, admission storage.GoalRunCommit) (storage.GoalRunCommitResult, error) {
 	if err := storage.ValidateGoalRunCommit(admission); err != nil {
 		return storage.GoalRunCommitResult{}, err
 	}
@@ -262,6 +262,10 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	}
 	if affected == 0 {
 		return storage.GoalRunCommitResult{}, storage.ErrNotFound
+	}
+
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, admission.Run, admission.Subject); err != nil {
+		return storage.GoalRunCommitResult{}, err
 	}
 
 	events, err := readWorkEventsTx(ctx, tx, admission.Mutation.SessionID)
@@ -428,6 +432,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		candidate.SessionID, int64(candidate.Seq), string(candidate.Kind), candidate.PayloadVersion,
 		candidate.RequestID, candidate.RequestHash, candidate.CreatedAt, payload); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: insert goal admission: %w", err)
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, admission.Run, admission.Subject, admission.Message.ID); err != nil {
+		return storage.GoalRunCommitResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: commit goal run admission: %w", err)
