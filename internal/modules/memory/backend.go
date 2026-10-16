@@ -172,7 +172,7 @@ func (b *BoundBackend) Expand(ctx context.Context, req gardenmemory.AuthorizedEx
 	if err := b.authorizeScopes(req.Scopes); err != nil {
 		return gardenmemory.EvidencePage{}, err
 	}
-	if req.ExpectedRevision > math.MaxInt64 || req.BudgetChars > 4000 {
+	if req.ExpectedRevision > math.MaxInt64 || req.BudgetChars < 0 || req.BudgetChars > 4000 {
 		return gardenmemory.EvidencePage{}, backendFailure(evolution.ErrInvalidSchema, "native expansion bound exceeded")
 	}
 	stored, err := b.service.home.ExportBoundSource(ctx, b.binding, req.CardID, int64(req.ExpectedRevision))
