@@ -1,0 +1,230 @@
+{
+  "base": "4e57f3ea0954ef20ad598b33245c06cc7fa1f119",
+  "toolchain": "go1.26.4 linux/amd64",
+  "eino": "v0.9.13",
+  "laputa_published": "4c7c6b20859375d0d764d3ba2a0188926cf73c9e",
+  "source_sha256": {
+    "internal/app/subject_admission_test.go": "e706db4d7fafdf9e626d355c20e02ec9be95703cf17bedb23423aaa0ae3c6588",
+    "internal/domain/history.go": "e60f542d5a243b0756b94879488b34cfdb0b45cb8a6f4f558dd00dde29bb5109",
+    "internal/domain/session.go": "21ca6138fbccc599124a79c88dc9b85b8003c8e116fd6d886421a828c9253f41",
+    "internal/runtime/enhanced_tooladapter.go": "df0e3640f87fda138c36e679681d41384b654246a13751a19acfc03882c75589",
+    "internal/runtime/history_service.go": "dcf69e32023fc5e8a454e4f756b8ee35231b7fbf2ab827515265582c54f746eb",
+    "internal/runtime/mapper.go": "94913745bfa98f4a058805d849d5e3355ef1ff57c8ed4986136798dc9217c408",
+    "internal/runtime/message_projector.go": "8d3b3d6a1a8f2c1f4b1c5352c36766dbb25c947096e1c0a575616493aa42dd60",
+    "internal/runtime/payloads.go": "c9e2ad123424540a1da352652d1f8b9c5c72a0df36508b2d3b1a85b1e4b7c936",
+    "internal/runtime/plan_goal_probe_test.go": "7efeffe00733c2f1a431a6bf1a417a499b0d16d4ac4471b0d5b5d46a10fe83b2",
+    "internal/runtime/rewind_service.go": "c1ecfa3a5754e2bd63ceed71f0e3c23a8f25fa974afe1a94421f2dc377285e44",
+    "internal/runtime/service.go": "c5ca18f43329670ead8937a0a7d1a00c74595aef3d445e940d2c8c9a1c9fafd9",
+    "internal/runtime/shell.go": "e3b53a91e810363bac0861dd8217dbb2f2dfc4a0f61fd5ab447bcecd5c299cba",
+    "internal/runtime/subject_binding.go": "5c5e2d7e80124c320f058f165ea347ba6a6a61246ef5245edff5662c3df4480d",
+    "internal/runtime/subject_evidence_test.go": "0b91f580693e2cb188b5ff4802fb6ce9ccf09bc747d501fdff13fa8b41c8930d",
+    "internal/runtime/subject_history.go": "2d11544eaa27fb2b07f4644ef0fcd7f57d3d3108586bebcaed67ae845ec81974",
+    "internal/runtime/subject_history_test.go": "f625a0f0af9f373248110df58f717732a4eb97b128084c4eb7dbc858524468af",
+    "internal/runtime/subject_tool_evidence.go": "9b073a60dfb6139be437b2336ade4aa303672608c2c944449980903efadc0a50",
+    "internal/runtime/tool_operation.go": "618ca579831155057bac3d78776cb014316e05ed50cadeb3d9426c4729f7c4b2",
+    "internal/runtime/tooladapter.go": "0787a02a1f484d71a32b4c1288c84137cc9734534ee25b21de4c2ee1fee069d6",
+    "internal/storage/admission_validation.go": "1a2d1dca019cb01ad0d08261dd460cb615a3c1689e9bd4efc3b7c7fb383febbc",
+    "internal/storage/conformance/subject_history.go": "9f74a96fda20396e9fc14836ef77e96a5663f82ceac1f384930123149e65f723",
+    "internal/storage/conformance/subject_retention.go": "b97e113e68d8ca83f7be77ea6b1838d4ea7c4ac4f18d216554c48eac68a13506",
+    "internal/storage/history.go": "6fb4f510fafa497f402001c6fad9f38515e4c2513706f141728038d7a9af6796",
+    "internal/storage/migrations/manifest_test.go": "31bf99ebb61806ce0a31e713c7597ee1c3666ecc3693e99ed69f034746182630",
+    "internal/storage/migrations/postgres/045_subject_shell_evidence.sql": "03d79610909ff558a67542ac2965013d52878ab72e5cb8f0e9f336268bc2ea21",
+    "internal/storage/migrations/runner_test.go": "7b7950416613491338d3e71a8b1689991fcc7c7e97e9ae51fd043df8bb65a40c",
+    "internal/storage/migrations/sqlite/045_subject_shell_evidence.sql": "7044a0eccaaaa3a2f3d4c97302f14989750592f85a4a9fec5e2628223ddaa13b",
+    "internal/storage/migrations/subject_history_test.go": "0b52acab4bb968675e7840e664278f8807178cf59884b3bb4d4c00bed11a531e",
+    "internal/storage/postgres/history_mutations.go": "822fd38eeba8dc597970ca6a12c961f8c30f4514cae2400fdba301e7005ccf2d",
+    "internal/storage/postgres/run_admission.go": "2edd6e4dd4725368981e004b079b0223414391452821d665ccfbe64e2e119f61",
+    "internal/storage/postgres/subject_history.go": "3cb62591e5f4631e74dbebaf410d14a4abc9fcc98a83e29eb8c1fd31caa5dfd9",
+    "internal/storage/postgres/subject_history_test.go": "863861ef23f5478f4be98747bc8fe3d0adb080a2f453f24134978586e189146b",
+    "internal/storage/sqlite/history_mutations.go": "28197a6e0089fd806d1c9f8430673e30bf80255b2c48bde0a0146008e64103eb",
+    "internal/storage/sqlite/run_admission.go": "95628ede21fcdedf8481c37c80e4df85c6994edabbd51500edfd720d0c121f90",
+    "internal/storage/sqlite/subject_history.go": "e75f5ec1bfa464fab014ab1d414d3385d7cbaef86611f6fe22ce64ca803004d3",
+    "internal/storage/sqlite/subject_history_test.go": "351a97ced0d2e3d590066eb8a2af0684d1de80632e21b0c8bfbc493276212acf",
+    "internal/storage/subject_history.go": "efdfcc01b71560f25fe7f2c6f4176a621b35c01537789a343e5505be51850fdd",
+    "internal/storage/subjectsql/evidence.go": "2c5a2a79460f188468126b816cd12df9b1542004a7c8f0188085f72d79cf8e9c",
+    "internal/storage/subjectsql/subjectsql.go": "20f2e1e6889dc3db04c3489da981905792bb41e04e12dc7646d797e42de23381",
+    "internal/storage/tool_evidence.go": "527934ec3350ec30f40e9b9569e755b791dd5ee525376c6e54c433afbd62daee"
+  },
+  "eino_capability_sources_sha256": {
+    "/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.13/compose/tool_node.go": "44afbd5217f2e566ff4f312f4408657c1244a080f16b12e3d7c4a34309ac2e3d",
+    "/root/go/pkg/mod/github.com/cloudwego/eino@v0.9.13/components/tool/interface.go": "d10e710bb80923427b68fb58b90737299e7aa98b75819f4d1c46df1bde1b712e"
+  },
+  "fixture_manifests": [
+    "plan_goal_probe_test.go:398: manifest retained Plan run_7d905312c2b538cc:19 51cd75449567fe9482c8ce92c15e3f76cca4bb002cb1989487440219d2f38dde candidate ac42d5b4f20ae5b58af788acd10b7d321370ed9d0b876ac540f53769ce7d181e",
+    "plan_goal_probe_test.go:398: manifest retained Plan run_5809fd0aefc24388:19 8285f95a444d851acdbea9e4f142eb5982f0bd68c8bbbbb0a7fea11add1548ea candidate 744b3f350a0e8e1491ad041006b41d73c49259e52c76de2b182547a2823c06bb",
+    "subject_history_test.go:28: manifest before/after archive retention-run:7 fe84c42bafadf6b87c0c20efb11c72bd230014462120c66e143169911154fd95 artifact subject-tool/2b602ac7cb2ba6e9b603e7c92a948fbd5494f12031f2360edc7075e9b4b8259b/result/1bc8bdb4c85de701af2d0e6eed1245b4924b8d52edbc44dc83331721c728dbc6 1bc8bdb4c85de701af2d0e6eed1245b4924b8d52edbc44dc83331721c728dbc6 190134",
+    "subject_evidence_test.go:411: manifest resident=false run_ae220d744e23068a:16 e5b49cb368e9c86b3837f66c3e05d01c843b33c0e5bfc932a2dcac059eef11e2",
+    "subject_evidence_test.go:411: manifest resident=true run_be2790d299865ec9:16 1c46f0e9d223b4a14537768a4d3fb59e4e28ac3cda5aee001821e3a85f6d9043",
+    "subject_history_test.go:90: manifest before restart restart-run:11 2a5be1ad9a837ad2740c0b8fb3d2944e2f6ecfa32812fd42f9b9603588bede13",
+    "subject_history_test.go:107: manifest after restart restart-run:11 2a5be1ad9a837ad2740c0b8fb3d2944e2f6ecfa32812fd42f9b9603588bede13",
+    "subject_history_test.go:207: manifest before/after archive run_e800bdbd74ddd1be:6 7d3fa34549417b6aca99921b514c91af6a56a44647fb0149f8dd0d51c56374ef",
+    "subject_history_test.go:254: manifest partial receipt receipt-repair-run:6 af4fb5092d33b6ddc21b708368ce41352440ff87e57d9567f3e76af1309e0c28",
+    "subject_history_test.go:349: manifest before/after fork and rewind run_93db56e0a8bc7ee9:6 5f59890faf5a7957d1a3bb6eab19583a765b6f4239493dbdd23b4bfcb3a042f1",
+    "subject_history_test.go:544: manifest exact copy before/after nested fork/restart/archive identical-run:3 3673a699d36e3425f3d728925b0f4268ed33b421c07b9cabbaf4242a8691483c"
+  ],
+  "verification": {
+    "focused": {
+      "command": "go test ./internal/runtime ./internal/storage/... -run '^TestIssue58' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage": {
+          "pass": 1
+        },
+        "agent-vivy/internal/storage/postgres": {
+          "skip": 8
+        },
+        "agent-vivy/internal/storage/migrations": {
+          "pass": 2
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 24
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 39
+        }
+      },
+      "skips": [
+        "TestIssue58InteractionOrderAndDedup",
+        "TestIssue58SubjectIsolation",
+        "TestIssue58AdmissionBoundaries",
+        "TestIssue58ContinuityReplayBinding",
+        "TestIssue58FormattedGrantReplay",
+        "TestIssue58SubjectRetention",
+        "TestIssue58MissingEvidenceBlocksNewSeal",
+        "TestIssue58CopySources"
+      ],
+      "failures": [],
+      "raw_output_sha256": "9dae91d46933032cfcd5aa3432fea70c3a7a82c5a616946c8b35aead64022f38"
+    },
+    "full": {
+      "command": "go test ./internal/runtime ./internal/storage/... -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage/migrations": {
+          "pass": 40,
+          "skip": 5
+        },
+        "agent-vivy/internal/storage": {
+          "pass": 21
+        },
+        "agent-vivy/internal/storage/postgres": {
+          "skip": 36,
+          "pass": 1
+        },
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 209
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 1130,
+          "skip": 1
+        }
+      },
+      "skips": [
+        "TestPostgresReleasedCronUpgradePreservesRows/head-16",
+        "TestPostgresReleasedCronUpgradePreservesRows/head-17",
+        "TestPostgresReleasedCronUpgradePreservesRows/head-23",
+        "TestPostgresReleasedCronUpgradePreservesRows/head-35",
+        "TestPostgresReleasedCronRepairUpgrade",
+        "TestBackendConformance",
+        "TestBundleStoreConformance",
+        "TestDeleteSessionRemovesPersistedWorkAndSubmissionRows",
+        "TestHistoryConformance",
+        "TestWorkspaceUpdateSerializesWithFirstRunAcrossTransactions",
+        "TestContinuityAtomic",
+        "TestContinuityRetry",
+        "TestContinuityExpectations",
+        "TestFileVersionChainSemantics",
+        "TestMaskStoreCRUDAndSelection",
+        "TestMaskSelectionRevisionZeroSerializesOnDedicatedConnections",
+        "TestMaskSelectionSerializesAfterDedicatedDelete",
+        "TestReadMaskCaptureSeesOneCommittedDefinitionVersion",
+        "TestCommitSessionForkRollsBackCopiedMaskSelectionAfterLaterFailure",
+        "TestNotebookContract",
+        "TestNotebookLegacyImport",
+        "TestNotebookMissingScopeIsolation",
+        "TestReportRootAdmission",
+        "TestReportRootAdmissionParallel",
+        "TestReportSettingsEnsureReadAndCAS",
+        "TestReportPublicationFirstPromotedReplayAndCandidate",
+        "TestReportSourcesBounded",
+        "TestReportSettingsCommitReceiptReplay",
+        "TestReviewProjectionPreservesArgumentsAndKeepsMetadata",
+        "TestIssue58InteractionOrderAndDedup",
+        "TestIssue58SubjectIsolation",
+        "TestIssue58AdmissionBoundaries",
+        "TestIssue58ContinuityReplayBinding",
+        "TestIssue58FormattedGrantReplay",
+        "TestIssue58SubjectRetention",
+        "TestIssue58MissingEvidenceBlocksNewSeal",
+        "TestIssue58CopySources",
+        "TestMigrateUpgradesV14InPlace",
+        "TestWorkflowDefinitionContractPostgres",
+        "TestWorkflowStepContractPostgres",
+        "TestWorkflowStepUpgradeFrom033Postgres",
+        "TestReportFeedbackSnapshot"
+      ],
+      "failures": [],
+      "raw_output_sha256": "6434cb75037cd9025361ef484440d6087a685fad514dba80377e0677e656b05d"
+    },
+    "app": {
+      "command": "go test ./internal/app -run '^TestIssue58' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/app": {
+          "pass": 14
+        }
+      },
+      "skips": [],
+      "failures": [],
+      "raw_output_sha256": "0294c262bc667eb188e71db243ea5ef11f67db2e4cc24def00e92317aaa56b0b"
+    },
+    "required_race": {
+      "command": "go test -race ./internal/runtime ./internal/storage/sqlite -run '^(TestIssue58|TestMessageProjector|TestToolOperationCrashMatrix|TestApprovalResumeReusesPreparedToolOperation|TestServiceCancelConcurrentIdempotent)' -count=1 -json",
+      "exit_code": 1,
+      "counts": {
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 21
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 47,
+          "fail": 2
+        }
+      },
+      "skips": [],
+      "failures": [
+        "TestIssue58RetainedPlanReviewRestartAndDecisionReplay/revise",
+        "TestIssue58RetainedPlanReviewRestartAndDecisionReplay"
+      ],
+      "raw_output_sha256": "200ccb3036f50c6687b323375a28693583f58c97a6810a6824932ddf36d23ed6"
+    },
+    "baseline_race": {
+      "command": "go test -race ./internal/runtime -run '^TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch$' -count=1 -json",
+      "exit_code": 1,
+      "counts": {
+        "agent-vivy/internal/runtime": {
+          "fail": 1
+        }
+      },
+      "skips": [],
+      "failures": [
+        "TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch"
+      ],
+      "raw_output_sha256": "4d586171447282f7af70487d265a832fefad87e1de5c8837b8e8e391fe576dff"
+    },
+    "diagnostic_race": {
+      "command": "go test -race ./internal/runtime ./internal/storage/sqlite -run '^(TestIssue58(Original|Shell|Evidence|Archive|Fork|Rewind|Terminal|Completed|Default|Invalid|Authorized|Failed|PostInvoke|RetainedMultimodal|NoContext|Pending|Interaction|Subject|Admission|Continuity|Formatted|Sealed|Exact|Snapshot|Contention|Missing|Historical|Copy)|TestMessageProjector|TestToolOperationCrashMatrix|TestApprovalResumeReusesPreparedToolOperation|TestServiceCancelConcurrentIdempotent)' -count=1 -json",
+      "exit_code": 0,
+      "counts": {
+        "agent-vivy/internal/storage/sqlite": {
+          "pass": 24
+        },
+        "agent-vivy/internal/runtime": {
+          "pass": 52
+        }
+      },
+      "skips": [],
+      "failures": [],
+      "raw_output_sha256": "b9c39053148c2f8f99b9f3dad8fc508988edd5d55fd02df5890727d73f504543"
+    }
+  }
+}

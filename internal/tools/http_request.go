@@ -55,7 +55,7 @@ func (t *httpRequestTool) InvokableRun(ctx context.Context, args json.RawMessage
 		Headers map[string]string `json:"headers"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("http_request: invalid arguments: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.URL) == "" {
 		return "", &ArgError{Field: "url", Reason: "is required"}

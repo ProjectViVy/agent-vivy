@@ -51,6 +51,7 @@ func (e SourceExpectation) validate() error {
 // scope, exact source expectations and the idempotency receipt. Everything
 // commits in one transaction or nothing does.
 type ContinuityAdmission struct {
+	Subject        *SubjectSourceBinding
 	SessionID      domain.SessionID
 	Message        domain.Message
 	Run            domain.Run
@@ -84,7 +85,7 @@ func (a ContinuityAdmission) Validate() error {
 		}
 	}
 	if err := ValidateRunAdmissionInput(RunAdmission{
-		Message: a.Message, Run: a.Run, Started: a.Events[0], Prompt: a.Prompt,
+		Subject: a.Subject, Message: a.Message, Run: a.Run, Started: a.Events[0], Prompt: a.Prompt,
 		ExpectedMask: a.ExpectedMask, Bundle: a.Bundle, ExpectedBundle: a.ExpectedBundle,
 	}); err != nil {
 		return err

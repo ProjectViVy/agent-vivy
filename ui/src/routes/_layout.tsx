@@ -19,7 +19,6 @@ import { cn } from '@/lib/utils';
 import { usePluginHost } from '@vivy/ui-sdk';
 import { ChatHeaderSlot, ShellOnboardingSlot } from '@/plugins/presentation-host';
 import { useCompanionAvatar } from '@/hooks/use-companion-avatar';
-import { ConversationModePlaceholder } from '@/components/chat/ConversationModePlaceholder';
 
 export const Route = createFileRoute('/_layout')({ component: Layout });
 
@@ -152,7 +151,6 @@ function Layout() {
           </div>
           <div className="flex min-w-0 flex-1 justify-end">
             <div className="flex min-w-0 max-w-full items-center gap-1" data-chat-toolbar>
-              <ConversationModePlaceholder />
               {host ? <ChatHeaderSlot host={host} /> : null}
               <ModelSwitcher />
             </div>

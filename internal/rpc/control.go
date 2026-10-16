@@ -2031,6 +2031,9 @@ func (h *controlHandler) cancelChild(ctx context.Context, request Request) (any,
 }
 
 func (h *controlHandler) createSession(ctx context.Context, request Request) (any, *Error) {
+	if err := rejectSubjectClaims(request); err != nil {
+		return nil, err
+	}
 	var params struct {
 		Title         string `json:"title"`
 		WorkspacePath string `json:"workspace_path"`
@@ -4419,8 +4422,29 @@ func parseSessionParams(request Request) (sessionParams, *Error) {
 	return params, nil
 }
 
+// Identity and policy are always supplied by the trusted composition. Reject
+// attempted claims explicitly so a browser cannot convert an ordinary session.
+func rejectSubjectClaims(request Request) *Error {
+	if len(request.Params) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(request.Params, &fields) != nil {
+		return &Error{Code: InvalidParams, Message: "params must be a valid JSON object"}
+	}
+	for _, name := range []string{"subject_id", "domain_id", "conversation_id", "policy_id", "tool_policy_ref", "grant", "subject_source", "life", "context_purpose"} {
+		if _, ok := fields[name]; ok {
+			return &Error{Code: InvalidParams, Message: "subject identity and context policy are host controlled"}
+		}
+	}
+	return nil
+}
+
 func parseTurnParams(request Request) (turnParams, *Error) {
 	var params turnParams
+	if err := rejectSubjectClaims(request); err != nil {
+		return params, err
+	}
 	if err := decodeParams(request, &params); err != nil {
 		return params, err
 	}

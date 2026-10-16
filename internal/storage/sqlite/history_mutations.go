@@ -110,6 +110,19 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,work_seq,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, int64(m.WorkSeq), m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
 			return nil, fmt.Errorf("storage: copy fork message: %w", err)
 		}
+		if m.CopySource != nil {
+			parent := sqliteForkSourceID(child.ID, markers)
+			if parent == "" || m.CopySource.SessionID != parent || m.CopySource.MessageID == "" {
+				return nil, storage.ErrSourceChanged
+			}
+			var original string
+			if err := tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE session_id=? AND id=?`, parent, m.CopySource.MessageID).Scan(&original); err != nil {
+				return nil, fmt.Errorf("storage: read fork parent message: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO message_copy_sources(message_id,parent_session_id,parent_message_id) VALUES(?,?,?)`, m.ID, parent, original); err != nil {
+				return nil, fmt.Errorf("storage: persist fork source: %w", err)
+			}
+		}
 		for i, a := range m.Attachments {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO message_attachments (message_id,position,name,mime_type,data) VALUES (?,?,?,?,?)`, m.ID, i, a.Name, a.MimeType, a.Data); err != nil {
 				return nil, fmt.Errorf("storage: copy fork attachment: %w", err)
@@ -204,4 +217,13 @@ func sqliteInsertHistoryEvent(ctx context.Context, tx *sql.Tx, e *domain.RunEven
 		return fmt.Errorf("storage: insert history event: %w", err)
 	}
 	return nil
+}
+
+func (b *Backend) GetMessageCopySource(ctx context.Context, sid domain.SessionID, id string) (domain.MessageCopySource, error) {
+	var source domain.MessageCopySource
+	err := b.db.QueryRowContext(ctx, `SELECT p.parent_session_id,p.parent_message_id FROM message_copy_sources p JOIN messages m ON m.id=p.message_id WHERE m.session_id=? AND p.message_id=?`, sid, id).Scan(&source.SessionID, &source.MessageID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return source, storage.ErrNotFound
+	}
+	return source, err
 }

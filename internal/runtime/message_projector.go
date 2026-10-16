@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -81,12 +82,23 @@ func (s *Service) appendProjectedMessages(ctx context.Context, runID domain.RunI
 }
 
 func (s *Service) projectedMessages(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) ([]domain.Message, error) {
+	retained := false
+	if sources, ok := s.deps.Sessions.(storage.SubjectSourceStore); ok {
+		_, err := sources.GetRunSubjectSource(ctx, runID)
+		if err == nil {
+			retained = true
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			return nil, err
+		}
+	}
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		return nil, fmt.Errorf("replay Journal for message projection: %w", err)
 	}
 	defer it.Close()
 	var out []domain.Message
+	receipts := map[string]domain.RunEvent{}
+	var terminal bool
 	var pending strings.Builder
 	for it.Next() {
 		re := it.Value().Event
@@ -105,6 +117,11 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			var request payloadModelRequestV3
 			if json.Unmarshal(re.Payload, &request) == nil && request.Source == modelCallSourceMaintenance {
 				continue
+			}
+			if retained && pending.Len() > 0 {
+				m := projectedTextMessage(sessionID, runID, re, "0", pending.String())
+				m.Source = "journal_partial"
+				out = append(out, m)
 			}
 			pending.Reset()
 		case domain.EventModelDelta:
@@ -131,11 +148,20 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				Role: domain.RoleAssistant, CreatedAt: re.CreatedAt,
 				ToolCallID: p.ToolCallID, ToolName: p.ToolName, ToolArgs: args,
 			})
+		case domain.EventToolOperation:
+			var p struct {
+				OperationID string                    `json:"operation_id"`
+				State       domain.ToolOperationState `json:"state"`
+			}
+			if json.Unmarshal(re.Payload, &p) == nil && p.State == domain.ToolOperationCompleted {
+				receipts[p.OperationID] = re
+			}
 		case domain.EventToolFinished:
 			var p payloadToolFinished
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
 				return nil, fmt.Errorf("decode tool.finished seq %d: %w", re.Seq, err)
 			}
+			delete(receipts, p.ToolCallID)
 			content := p.Result
 			if p.Error != "" {
 				content = p.Error
@@ -150,6 +176,16 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 				msg.ExcludeAutomaticIngest = true
 			}
 			out = append(out, msg)
+		case domain.EventRunCompleted:
+			terminal = true
+		case domain.EventRunFailed, domain.EventRunCancelled:
+			terminal = true
+			if retained && pending.Len() > 0 {
+				m := projectedTextMessage(sessionID, runID, re, "0", pending.String())
+				m.Source = "journal_partial"
+				out = append(out, m)
+				pending.Reset()
+			}
 		case domain.EventModelCompleted:
 			content, err := completedProjectionContent(re, pending.String())
 			if err != nil {
@@ -161,6 +197,50 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 	}
 	if err := it.Err(); err != nil {
 		return nil, fmt.Errorf("iterate Journal message projection: %w", err)
+	}
+	if terminal && len(receipts) > 0 {
+		if sources, ok := s.deps.Sessions.(storage.SubjectSourceStore); ok {
+			if _, err := sources.GetRunSubjectSource(ctx, runID); err == nil {
+				events := make([]domain.RunEvent, 0, len(receipts))
+				for _, e := range receipts {
+					events = append(events, e)
+				}
+				sort.Slice(events, func(i, j int) bool { return events[i].Seq < events[j].Seq })
+				for _, e := range events {
+					var p struct {
+						OperationID string `json:"operation_id"`
+					}
+					if err := json.Unmarshal(e.Payload, &p); err != nil {
+						return nil, err
+					}
+					op, err := s.deps.ToolOperations.GetToolOperation(ctx, runID, p.OperationID)
+					if err != nil {
+						return nil, err
+					}
+					ref, err := storage.DecodeToolEvidenceReference(op)
+					if err != nil {
+						return nil, err
+					}
+					raw, found, err := s.toolEvidenceBlobs().Get(ctx, ref.ID)
+					if err != nil {
+						return nil, err
+					}
+					if !found {
+						return nil, storage.ErrSubjectEvidenceIncomplete
+					}
+					if _, err := storage.VerifyToolEvidence(ref, raw); err != nil {
+						return nil, err
+					}
+					content := ref.Projection
+					if op.Failure != "" {
+						content = op.Failure
+					}
+					out = append(out, domain.Message{ID: projectedMessageID(runID, e.Seq, "0"), SessionID: sessionID, RunID: runID, Role: domain.RoleTool, CreatedAt: e.CreatedAt, Content: content, ToolCallID: op.OperationID, ToolName: op.ToolName, Source: "journal_partial"})
+				}
+			} else if !errors.Is(err, storage.ErrNotFound) {
+				return nil, err
+			}
+		}
 	}
 	return out, nil
 }

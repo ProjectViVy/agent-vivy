@@ -142,8 +142,10 @@ func classify(err error) (code, status string, retryable bool) {
 	var apiErr *agentapi.Error
 	if errors.As(err, &apiErr) && apiErr != nil {
 		switch apiErr.Code {
-		case "unavailable", "index_health_unavailable", "capability_unavailable", "backend_unavailable", "recovery_required":
+		case "unavailable", "index_health_unavailable", "capability_unavailable", "backend_unavailable", "recovery_required", "recap_unavailable", "recap_owner_busy":
 			return apiErr.Code, "unavailable", true
+		case "recap_commit_unknown":
+			return apiErr.Code, "unknown", true
 		}
 		return apiErr.Code, "failed", false
 	}

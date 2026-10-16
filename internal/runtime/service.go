@@ -114,16 +114,21 @@ type ChildRunCanceller interface {
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
 type ServiceDeps struct {
+	MainConversation cognitivecontract.MainConversationResolver
+	SubjectSources   cognitivecontract.SubjectSourceResolver
+
 	Journal storage.Journal
 	// ToolOperations is the Journal-transactional recovery index for logical
 	// tool calls. NewService discovers it from Journal when the backend also
 	// implements storage.ToolOperationStore.
 	ToolOperations storage.ToolOperationStore
-	Runs           storage.RunStore
-	Messages       storage.MessageStore
-	Work           storage.WorkStore
-	GoalRuns       storage.GoalRunStore
-	PrimaryRuns    storage.PrimaryRunStore
+	// ToolEvidence is the existing backend BlobStore for authorized exact originals.
+	ToolEvidence storage.BlobStore
+	Runs         storage.RunStore
+	Messages     storage.MessageStore
+	Work         storage.WorkStore
+	GoalRuns     storage.GoalRunStore
+	PrimaryRuns  storage.PrimaryRunStore
 	// TenantID is the process-owned isolation identity forwarded to every
 	// ContextHost request and terminal Observer projection. Empty means the
 	// single-tenant local organism.
@@ -758,9 +763,26 @@ func (s *Service) MaxEventPayloadBytes() int {
 // deletion with run startup and Journal-to-message projection. The tombstone
 // prevents a cancelled drive from appending a late event after storage delete.
 func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
+	// Reject permanent/retained sources before canceling producers or installing
+	// a process tombstone. The storage guard remains authoritative as well.
+	if err := s.retainedSubjectSource(ctx, id); err != nil {
+		return err
+	}
+	source, err := s.resolveSubjectAdmission(ctx, id)
+	if err != nil {
+		return err
+	}
+	if source != nil {
+		return storage.ErrRetainedSession
+	}
+
 	// Serialize the tombstone with the final Plan entry check. A deletion
 	// beginning during an unlocked Goal drain wins before Plan can commit.
 	s.projectionMu.Lock()
+	if err := s.retainedSubjectSource(ctx, id); err != nil {
+		s.projectionMu.Unlock()
+		return err
+	}
 	s.mu.Lock()
 	s.deletedSessions[id] = struct{}{}
 	s.closingSessions[id] = struct{}{}
@@ -961,6 +983,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	subjectSource, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	// Continuity only supplies an atomic boundary for a continuity request.
+	// Reject an eligible ordinary Run before any admission side effect when
+	// the selected branch would otherwise write its records separately.
+	if subjectSource != nil && options.Continuity == nil && persist == nil && options.GoalRound == nil && s.deps.PrimaryRuns == nil && s.deps.Admission == nil {
+		return "", storage.ErrSubjectBinding
 	}
 	queue, queueErr := s.queueFor(ctx, sessionID)
 	if queueErr != nil {
@@ -1330,6 +1362,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}(),
 	})
 	admission := storage.RunAdmission{
+		Subject: subjectSource,
 		Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask,
 		Bundle: bundleSnapshot, ExpectedBundle: expectedBundle,
 	}
@@ -1379,6 +1412,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 		}
 		result, commitErr := s.deps.Continuity.CommitContinuityRun(ctx, storage.ContinuityAdmission{
+			Subject:        subjectSource,
 			SessionID:      sessionID,
 			Message:        message,
 			Run:            run,
@@ -1458,6 +1492,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 			var commitErr error
 			admitted, commitErr = s.deps.GoalRuns.CommitGoalRun(ctx, storage.GoalRunCommit{
+				Subject:        subjectSource,
 				Mutation:       mutation,
 				Message:        message,
 				Run:            run,
@@ -1494,6 +1529,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		err = s.withAdmissionIntent(sessionID, options.HumanAdmission, func() error {
 			var commitErr error
 			started, commitErr = s.deps.PrimaryRuns.CommitPrimaryRun(ctx, storage.PrimaryRunCommit{
+				Subject:        subjectSource,
 				Message:        message,
 				Run:            run,
 				Started:        started,
@@ -5340,6 +5376,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		bundleHandleToRelease.Release()
 	}
 	s.deleteShellState(shellStateRefToDelete)
+	if s.deps.MainConversation != nil || s.deps.SubjectSources != nil {
+		if run, err := s.deps.Runs.GetRun(persistCtx, terminal.RunID); err == nil {
+			if err := s.sealSubjectRunLocked(persistCtx, run.SessionID, run.ID); err != nil {
+				slog.Error("retain subject interaction remains unsealed", "run", string(run.ID), "err", err)
+			}
+		}
+	}
 	s.projectionMu.Unlock()
 	if runSession != "" {
 		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)

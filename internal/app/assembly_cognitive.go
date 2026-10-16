@@ -45,6 +45,10 @@ func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.Runti
 	}
 	cfg.Storage.DataDir = dataRoot
 	bundle, err := factory(ctx, cognitivecontract.FactoryInput{
+		ResolveRecapBinding: func(ctx context.Context, actualRoot string) (cognitivecontract.RecapBinding, error) {
+			binding, err := ResolveSubjectBinding(ctx, store, actualRoot)
+			return cognitivecontract.RecapBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID}, err
+		},
 		Config:       cfg,
 		GenerationID: generationID,
 		Store:        store,
