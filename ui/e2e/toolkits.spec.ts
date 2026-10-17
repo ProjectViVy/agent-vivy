@@ -73,7 +73,12 @@ async function startMockMCP(): Promise<void> {
 }
 
 async function openToolkits(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  // Skip the welcome wizard and the unrelated first-run Persona gate: a freshly
+  // created session would otherwise open a modal over the Toolkit page.
+  await page.addInitScript(() => {
+    localStorage.setItem('vivy.ui.welcome.completed', '1');
+    localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+  });
   await page.goto('/');
   const link = page.getByRole('link', { name: 'Toolkits', exact: true });
   if (!(await link.isVisible().catch(() => false))) await page.getByRole('button', { name: 'VIVY', exact: true }).click();
@@ -112,20 +117,22 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   await expect(page.getByText('No Toolkits are installed.')).toBeVisible();
   const initial = await catalogState(page);
 
-  const source = page.getByLabel('Host directory path');
+  await page.getByTestId('toolkit-library').getByRole('button', { name: 'Install Toolkit', exact: true }).click();
+  const dialog = page.getByTestId('toolkit-install-dialog');
+  const source = dialog.getByLabel('Host directory path');
   await source.fill(path.join(fixtureRoot, 'missing'));
-  await page.getByRole('button', { name: 'Preview source', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Preview source', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Preview failed');
 
   await source.fill(releaseV1);
-  await page.getByRole('button', { name: 'Preview source', exact: true }).click();
-  const preview = page.getByTestId('toolkit-preview');
+  await dialog.getByRole('button', { name: 'Preview source', exact: true }).click();
+  const preview = dialog.getByTestId('toolkit-preview');
   await expect(preview).toContainText('BMAD Experts');
   await expect(preview).toContainText('Release SHA-256:');
   const firstDigestText = await preview.innerText();
   const firstDigest = firstDigestText.match(/Release SHA-256: ([a-f0-9]{64})/)?.[1];
   expect(firstDigest).toBeTruthy();
-  await preview.getByRole('button', { name: 'Install disabled', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Install disabled', exact: true }).click();
 
   await expect(page.getByRole('status').filter({ hasText: 'Toolkit installed disabled' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'BMAD Experts', exact: true })).toBeVisible();
@@ -142,9 +149,9 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   await expect(consentButtons.first()).toBeDisabled();
   await expect(consentButtons.nth(1)).toBeDisabled();
   await page.getByRole('button', { name: 'View content', exact: true }).first().click();
-  await expect(page.getByRole('dialog')).toContainText('Create a concise product requirements document');
+  await expect(page.getByTestId('component-content-dialog')).toContainText('Create a concise product requirements document');
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.getByTestId('component-content-dialog')).toBeHidden();
   expect(mcpRequests).toBe(0);
 
   await page.getByRole('button', { name: 'Prepare enable', exact: true }).click();
@@ -159,15 +166,21 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   await mcpBindings.getByRole('button', { name: 'Save bindings', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Host environment references saved' })).toBeVisible();
   await mcp.getByRole('button', { name: 'Confirm authorization', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Authorization recorded' })).toBeVisible();
   await expect(mcp).toContainText('authorized for current declaration');
   const hook = componentSection(page, 'Hooks');
   await hook.getByRole('button', { name: 'Confirm authorization', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Authorization recorded' })).toBeVisible();
   await expect(hook).toContainText('authorized for current declaration');
   expect(mcpRequests).toBe(0);
   await expect(page.getByTestId('catalog-epoch')).toContainText(`Catalog epoch ${initial.epoch + 1}`);
 
   writeRelease(releaseV1, '2.0.0', `printf 'v2' > '${hookMarker}'`);
-  await source.fill(releaseV1);
+  // The install dialog is gone at this point; the update source fields live in
+  // the details and are prefilled from the selected Toolkit's own source.
+  const detailSource = page.getByLabel('Host directory path');
+  await expect(detailSource).toHaveValue(/release-v1$/);
+  await detailSource.fill(releaseV1);
   await page.getByRole('button', { name: 'Prepare update', exact: true }).click();
   const update = page.getByTestId('prepared-candidate');
   await expect(update).toContainText('hook/before-tool: changed');
@@ -191,6 +204,6 @@ test('installs native PM and Dev Masks, keeps Skills independent, and updates wi
   await page.getByRole('button', { name: 'Prepare uninstall', exact: true }).click();
   const uninstall = page.getByTestId('prepared-candidate');
   await uninstall.getByRole('button', { name: 'Publish change', exact: true }).click();
-  await expect(page.getByText('example/bmad-experts · orphaned')).toBeVisible();
+  await expect(page.locator('[data-testid="toolkit-row"][data-state="orphaned"]')).toContainText('example/bmad-experts');
   expect(mcpRequests).toBe(0);
 });

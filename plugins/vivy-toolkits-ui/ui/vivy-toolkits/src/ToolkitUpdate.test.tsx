@@ -45,25 +45,39 @@ describe('Toolkit updates and bindings', () => {
       retryable: false, blockers: [], prepared: {
         input_digest: '1'.repeat(64), expected_catalog: catalog, candidate_digest: '2'.repeat(64),
         releases: [], new_releases: [], installations: [], mutation_kind: 'update', mutation_install_id: install.install_id,
-        changes: [{ kind: 'hook', local_id: 'lint', change: 'changed', before_digest: '3'.repeat(64), after_digest: '4'.repeat(64), requires_fresh_consent: true }],
+        changes: [
+          { kind: 'hook', local_id: 'lint', change: 'changed', before_digest: '3'.repeat(64), after_digest: '4'.repeat(64), requires_fresh_consent: true },
+          { kind: 'mask', local_id: 'pm', change: 'removed' },
+        ],
       },
     };
     const client = makeClient({ prepareSource: vi.fn().mockResolvedValue({ operation, candidate_digest: '2'.repeat(64), expected_catalog: catalog, releases: [] }) });
     await selectInstalled(client, container, root);
-    const update = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('准备更新'));
-    expect(update).toBeDefined();
+    const update = container.querySelector<HTMLButtonElement>('[data-action="prepare-update"]');
+    expect(update).not.toBeNull();
     await act(async () => { update!.click(); await Promise.resolve(); });
     expect(client.prepareSource).toHaveBeenCalledWith('local', 'update', expect.objectContaining({ install_id: install.install_id, location: '/host/toolkit', expected_install_revision: 2 }));
-    expect(container.textContent).toContain('hook/lint: changed');
-    expect(container.textContent).toContain('需要重新确认授权');
-    expect(container.textContent).toContain('发布变更');
+    expect(container.querySelector('[data-action="publish-candidate"]')).not.toBeNull();
+    // The diff row keeps its machine verb in data and its catalog key as text,
+    // so the change is translatable without a copy of the label in code.
+    const change = container.querySelector('[data-testid="prepared-candidate"] [data-change]');
+    expect(change?.getAttribute('data-change')).toBe('changed');
+    expect(change?.textContent).toContain('hook/lint');
+    expect(change?.textContent).toContain('plugin.vivy/toolkits-ui.changeChanged');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.freshConsent');
+    // A candidate that removes a Mask must point the user at the Masks page:
+    // the backend reports the singular component kind, not the section name.
+    const maskChange = container.querySelector('[data-testid="prepared-candidate"] [data-change="removed"]');
+    expect(maskChange?.textContent).toContain('plugin.vivy/toolkits-ui.maskRemovalHint');
+    expect(maskChange?.querySelector('a[href="/masks"]')).not.toBeNull();
   });
 
   it('prepares rollback only from a retained prior release', async () => {
     const client = makeClient({ prepare: vi.fn().mockResolvedValue({ operation: pendingOperation('rollback'), candidate_digest: '5'.repeat(64), expected_catalog: catalog, releases: [] }) });
     await selectInstalled(client, container, root);
-    const rollback = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('准备回滚'));
-    expect(rollback).toBeDefined();
+    const rollback = container.querySelector<HTMLButtonElement>('[data-action="prepare-rollback"]');
+    expect(rollback).not.toBeNull();
+    expect(rollback?.disabled).toBe(false);
     await act(async () => { rollback!.click(); await Promise.resolve(); });
     expect(client.prepare).toHaveBeenCalledWith('rollback', expect.objectContaining({ release_digest: 'b'.repeat(64), install_id: install.install_id }));
   });
@@ -83,23 +97,24 @@ describe('Toolkit updates and bindings', () => {
       inspect: vi.fn().mockResolvedValueOnce(baseInspection).mockResolvedValue(nextInspection),
     });
     await selectInstalled(client, container, root);
-    const update = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('准备更新'));
+    const update = container.querySelector<HTMLButtonElement>('[data-action="prepare-update"]');
     await act(async () => { update!.click(); await Promise.resolve(); });
-    const publish = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('发布变更'));
+    const publish = container.querySelector<HTMLButtonElement>('[data-action="publish-candidate"]');
     await act(async () => { publish!.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(client.operation).toHaveBeenCalledWith('operation');
     expect(client.inspect).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('f'.repeat(12));
-    expect(container.textContent).toContain('工具包目录已更新');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.catalogUpdated');
   });
 
   it('shows stale consent and saves only host environment variable references', async () => {
     const save = vi.fn().mockRejectedValue(new Error('revision conflict'));
     const client = makeClient({ setBindings: save, operation: vi.fn().mockRejectedValue(new Error('not found')) });
     await selectInstalled(client, container, root);
-    expect(container.textContent).toContain('旧授权已失效，需重新确认');
-    expect(container.textContent).toContain('重新确认授权');
-    expect(container.textContent).toContain('缺少主机环境变量绑定');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.consentStale');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.reauthorizeConsent');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.missingBindings');
+    const hookRow = container.querySelector('[data-testid="toolkit-executable"][data-component="hook/lint"]');
     const input = container.querySelector<HTMLInputElement>('#binding-hook-lint-envFrom-token');
     expect(input).not.toBeNull();
     await act(async () => {
@@ -107,7 +122,7 @@ describe('Toolkit updates and bindings', () => {
       setter?.call(input, 'VIVY_LINT_TOKEN');
       input!.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const saveButton = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('保存绑定'));
+    const saveButton = hookRow?.querySelector<HTMLButtonElement>('[data-action="save-bindings"]');
     await act(async () => { saveButton!.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(save).toHaveBeenCalledWith(expect.objectContaining({
       operation_id: expect.any(String), expected_config_revision: 3,
@@ -116,7 +131,7 @@ describe('Toolkit updates and bindings', () => {
     expect(input!.value).toBe('VIVY_LINT_TOKEN');
     expect(container.textContent).not.toContain('DECLARED_DEFAULT');
     expect(container.textContent).not.toContain('DECLARED_AUTH');
-    expect(container.textContent).toContain('表单内容已保留');
+    expect(container.textContent).toContain('plugin.vivy/toolkits-ui.bindingsConflict');
   });
 });
 
