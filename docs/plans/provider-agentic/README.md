@@ -34,11 +34,20 @@ documentation-only until a human schedules the spike.
 
 | Stage | Deliverable | State | Depends on |
 |---|---|---|---|
-| **S0** | Dependency truth: pins, module-graph delta, binary cost | `UNSCHEDULED` | — |
-| **S1** | Component contract: the Eino capability check for the new generation | `UNSCHEDULED` | S0 |
-| **S2** | Local `httptest` minimal closed loop, zero network | `UNSCHEDULED` | S1 |
-| **S3** | Per-file migration inventory, residue-deletion set, risk table | `UNSCHEDULED` | S2 |
-| **S4** | Decision record: `GO` / `GO-CONDITIONAL` / `NO-GO` | `UNSCHEDULED` | S0–S3 |
+| **S0** | Dependency truth: pins, module-graph delta, binary cost | `DONE 2026-10-17` | — |
+| **S1** | Component contract: the Eino capability check for the new generation | `DONE 2026-10-17` | S0 |
+| **S2** | Local `httptest` minimal closed loop, zero network | `DONE 2026-10-17` | S1 |
+| **S3** | Per-file migration inventory, residue-deletion set, risk table | `DONE 2026-10-17` | S2 |
+| **S4** | Decision record: `GO` / `GO-CONDITIONAL` / `NO-GO` | `PROPOSED: GO-CONDITIONAL` — awaiting owner signature | S0–S3 |
+
+**Spike run 2026-10-17** (scheduled by the owner in that session; record:
+`docs/logs/2026-10-17-provider-agentic-spike/`). The measurement baseline was
+moved from `a5f1f90` (issue-58 branch, eino v0.9.20) to upstream `main`
+`e7dcf85` (eino v0.9.13), the base a migration would actually start from; S0
+measured both. Line citations in §§1–8 of each stage file are the plan as
+reviewed; each file's final "Result" section re-cites against `main` and
+supersedes them. Headline: no bridge needed; seven named blockers (S4 §8.3); the
+reasoning-visibility benefit is already delivered by the current stack.
 
 A human changes an `UNSCHEDULED` stage to scheduled. The stages are a **spike**:
 they may produce throwaway code inside a lane worktree, and they may end in

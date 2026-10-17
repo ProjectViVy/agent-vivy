@@ -6,9 +6,8 @@ do — before any code is written. This is the mandatory Eino capability check
 required by root `AGENTS.md` for any plan that touches model orchestration,
 streaming, context management, or tool binding.
 
-**Status:** `UNSCHEDULED`. This document states the method, the questions, and
-the raw material already verified; the verdicts in §5 are what the stage
-produces.
+**Status:** `DONE 2026-10-17`. §1–§8 are the method as reviewed; the result
+(verdicts, C1–C14, re-run search, corrections) is §9.
 
 **Depends on:** S0. **Blocks:** S2.
 
@@ -253,3 +252,94 @@ Constructor availability does not establish endpoint/model feature support.
 - Do not write production code, and do not construct a model against a live
   endpoint. S1 establishes the contract; S2 exercises it locally.
 - Do not propose a Vivy-owned substitute for an absent capability.
+
+## 9. Result (2026-10-17)
+
+All citations re-read in the module cache at `eino@v0.9.21`,
+`agenticopenai@v0.2.4`, `agenticclaude@v0.1.7`,
+`libs/acl/openai@v0.1.18-0.20260924031408-10df7cac3f6d`. Vivy sites are cited at
+`main` `e7dcf85`. Items marked *run* were confirmed by the S2 harness
+(`S2-local-httptest-loop.md` §9), not by reading alone.
+
+### 9.1 §2–§4 citations
+
+Every citation in §2, §4.1–§4.3 and the middleware table in §3 was found at the
+stated path and line. Corrections:
+
+- **Vivy-owned middlewares: 8, not 7.** Add
+  `internal/runtime/always_skills.go:79-80` `alwaysSkillsMiddleware` (embeds
+  `*adk.BaseChatModelAgentMiddleware`, overrides `BeforeModelRewriteState` and
+  reads `msg.Extra`). `schema.AgenticMessage` has `Extra map[string]any`, so the
+  marker key carries over.
+- **ADK surface Vivy uses (36 `adk.*` symbols) has a typed counterpart for every
+  message-carrying type**: `AgentEvent` (`adk/interface.go:438` →
+  `TypedAgentEvent`), `ModelContext` (`:81`), `ChatModelAgentState` (`:233`),
+  `RetryDecision` (`:218`), `RetryContext` (`:143`), `ModelRetryConfig`
+  (`retry_chatmodel.go:256`), `AgentInput` (`:445`), `Runner`
+  (`runner.go:62`), `MessageVariant` (`interface.go:107`). The rest
+  (`InterruptInfo`, `CancelError`, `AgentRunOption`, `ResumeParams`,
+  `ChatModelAgentResumeData`, `ToolsConfig`, checkpoint interfaces) is
+  generation-neutral.
+- **Tools node:** `compose.NewAgenticToolsNode` (`compose/agentic_tools_node.go:32`)
+  wraps the same `ToolsNode`, so `ToolsConfig`/`compose.ToolsNodeConfig` carry
+  over unchanged.
+- **Agent transfer is not supported on the agentic generation**
+  (`adk/interface.go:60-67`). Vivy does not use transfer or agent-as-tool
+  (`rg 'Transfer|NewAgentTool|SetSubAgents' internal` finds none in the run
+  path); child workers are separate `Service` runs. Not a blocker.
+
+### 9.2 §4.4 bridge search, re-run verbatim
+
+```text
+$ grep -rnE '^func (Conv|To|From|Convert)[A-Za-z]*Agentic[A-Za-z]*\(' eino@v0.9.21
+components/model/agentic_callback_extra.go:61:func ConvAgenticCallbackInput(src callbacks.CallbackInput) *AgenticCallbackInput {
+components/model/agentic_callback_extra.go:79:func ConvAgenticCallbackOutput(src callbacks.CallbackOutput) *AgenticCallbackOutput {
+components/prompt/agentic_chat_template.go:34:func FromAgenticMessages(formatType schema.FormatType, templates ...schema.AgenticMessagesTemplate) *DefaultAgenticChatTemplate {
+components/prompt/agentic_callback_extra.go:45:func ConvAgenticCallbackInput(src callbacks.CallbackInput) *AgenticCallbackInput {
+components/prompt/agentic_callback_extra.go:59:func ConvAgenticCallbackOutput(src callbacks.CallbackOutput) *AgenticCallbackOutput {
+```
+
+No `*schema.Message` ↔ `*schema.AgenticMessage` conversion exists. (The only
+such converter is internal to `libs/acl/openai` — `agentic_convert.go` — and is
+the component's own protocol code, not a public bridge.)
+
+### 9.3 Capability checklist
+
+Capabilities **C12–C14 are added**: Vivy uses them today
+(`internal/provider/claude.go:77`, `internal/runtime/cachewarmer.go:166`,
+`internal/runtime/model_stream_observer.go:327`,
+`internal/provider/resolving.go:304-316`) and §6 did not list them.
+
+| # | Capability | `agenticopenai` chat (`openai-completions`) | `agenticopenai` responses | `agenticclaude` |
+|---|---|---|---|---|
+| C1 | Arbitrary base URL | `chat_model.go:63`; *run*. User `content` is always sent as a parts array (S2 §9.3.7) — vendor reach unproven (S4 B7) | `responses_model.go:47`; *run* | `model.go:66`; *run* (SDK appends `/v1/messages`) |
+| C2 | Request-time `WithTools` | *run*: tools on wire both turns | *run* | *run* |
+| C3 | `WithDeferredTools` | **silently dropped** (*run*: hidden tool absent, no error) — not used by Vivy today (`engine.go:303` `UseModelToolSearch: false`) | `defer_loading` + `tool_search` on wire (*run*) | `defer_loading` on wire (*run*) |
+| C4 | Stream text blocks | *run* | *run* | *run* |
+| C5 | Tool-call deltas, stable index | *run* | *run* | *run* |
+| C6 | Inbound `schema.Reasoning` | `reasoning_content` → Reasoning block (`libs/acl/openai agentic_convert.go:51-53,145-147`); *run* | summary → Reasoning (*run*); **`encrypted_content` dropped on the streaming path** (`responses_event_convertor.go:595-606`; non-stream maps it at `responses_convertor.go:2139`) | thinking + signature (`event_convertor.go:125-128`); *run* |
+| C7 | Outbound reasoning control | no first-class field (`ChatConfig`, `chat_model.go:34-133`); `reasoning_effort` via per-request `WithExtraFields` (`option.go:68`); *run* | `WithResponsesReasoning` (`option.go:105`); *run* | see C10 |
+| C8 | Token usage | prompt/completion/total/cached/reasoning exact (*run*); `stream_options.include_usage` sent (*run*) | exact (*run*) | prompt/completion/cache-read/cache-write exact; **`TotalTokens` wrong (12 vs 18) when `message_delta` carries output tokens only** (max-merge in `schema/agentic_message.go:1105-1130` over `convertor.go:1317-1330`); exact when the delta carries cumulative input counts (*run*) |
+| C9 | Extra request fields | per request `WithExtraFields` → body (*run*: DeepSeek `thinking` object on wire) | `ResponsesConfig.ExtraFields`, `option.go:68` | `WithExtraFields` → `option.WithJSONSet` (`model.go:489-490`); *run* |
+| C10 | Claude thinking budget | n/a | n/a | config-level `Thinking` only (`model.go:98`, no per-request option); per-request budget via `WithExtraFields({"thinking":…})` overrides the body (*run*) |
+| C11 | ADK typed agent + runner | *run* | *run* | *run* |
+| C12 | Anthropic prompt caching | n/a | `WithResponsesPromptCacheKey` (`option.go:97`) | `Config.CacheControl` → top-level `cache_control` (`model.go:130,484-485`; *run*); per-block `SetContentBlockCacheControl` (`content_block_extra.go:128`). **Semantics differ** from today's `AutoCacheControl` breakpoints (`claude.go:77`) |
+| C13 | Cache-write token count | n/a | n/a | typed `PromptTokenDetails.CacheWriteTokens` (`convertor.go:1326`, *run*), replaces `einoclaude.GetCacheCreationInputTokens` |
+| C14 | Per-request timeout | `ChatConfig.Timeout` (config only) | config `HTTPClient`/timeout | `WithRequestTimeout` (`option.go:72`) |
+
+### 9.4 Verdicts
+
+| Component | Verdict | Scoped thin projection | Blocking items |
+|---|---|---|---|
+| `agenticopenai.NewChatModel` | **`ADOPT-WITH-ADAPTER`** | Thinking policy → per-request `WithExtraFields` (`thinking`, `reasoning_effort`), as today's `resolving.go:313-316` already does | None for current use. C3 silent drop is a risk if native tool search is ever enabled on this family (S3 R14) |
+| `agenticopenai.NewResponsesModel` | **`ADOPT-WITH-ADAPTER`** | Thinking policy → `WithResponsesReasoning` | Streamed reasoning replay needs server-side storage (`store` default true); stateless/ZDR replay is not available on the streaming path (S4 B3) |
+| `agenticclaude.New` | **`ADOPT-WITH-ADAPTER`** | Thinking budget → per-request `WithExtraFields`; cache → `Config.CacheControl` | Cache semantics change (S4 B6); `TotalTokens` must be derived from prompt+completion in Vivy's usage projection or confirmed against the live wire form (S4 B5) |
+
+### 9.5 Is a Vivy-owned protocol converter or message bridge required?
+
+**No.** Every applicable capability is reached through a cited constructor,
+config field or per-request option. The projections in §9.4 replace option
+calls that exist today and encode no protocol messages. Two findings (C6
+Responses `encrypted_content`, C8 Claude total) are component limitations that
+do not need a bridge: one needs an owner choice (`store`), the other a domain
+usage projection rule. Decision D9 is not triggered.
