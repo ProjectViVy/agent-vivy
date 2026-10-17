@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,25 +8,32 @@
   =====================================================================
   Vivy HITL Review Center — Visual Sprint · Design System (Junior pass)
   =====================================================================
-  ASSUMPTIONS (待用户确认):
-  - 视觉方向: 沿现有 ui/ 工业 IDE 风延伸, 不另起炉灶。
-    现有 tokens 来自 ui/src/styles/tokens.css (#5b5bd6 violet, 中性面,
-    Inter 字体栈)。本原型直接复用这套语义, 并叠加"审查语义层"。
-  - 风险维度: 沿用 research-report §4 的多维风险 (effect / reversibility /
-    scope / trust / precondition), 但以现有 success/warning/danger 语义色
-    派生出 3 级风险 (low/medium/high), 不引入新色相, 避免 slop。
-  - 状态色: pending=warning(amber), approved/answered=success,
+  ASSUMPTIONS (pending user confirmation):
+  - Visual direction: extend the existing industrial-IDE style in ui/; do not
+    start over. The current tokens come from ui/src/styles/tokens.css
+    (#5b5bd6 violet, neutral surfaces, Inter font stack). This prototype
+    reuses that semantic set and layers a "review semantic layer" on top.
+  - Risk dimensions: reuse the multi-dimensional risk model from
+    research-report §4 (effect / reversibility / scope / trust /
+    precondition), but derive three risk levels (low/medium/high) from the
+    existing success/warning/danger semantic colors; introduce no new hues
+    and avoid slop.
+  - Status colors: pending=warning(amber), approved/answered=success,
     denied/cancelled/expired/stale=danger, executing=primary,
-    succeeded=success。状态用 形状+文字+色 三信号, 不只靠色。
-  - 字体: 沿用 Inter / PingFang SC 系统栈 (这是现有品牌签名, 非 slop 偷懒)。
-  - 这版是"从 existing context 长出来"的高保真原型, 不是空想风格。
+    succeeded=success. Status uses three signals: shape + text + color, not
+    color alone.
+  - Typography: keep the Inter / PingFang SC system stack (this is the
+    existing brand signature, not slop or laziness).
+  - This is a high-fidelity prototype grown from existing context, not an
+    imagined style.
 
-  下一步: 用户确认后, 我把这套系统铺到 5 个屏幕的真实交互原型里。
+  Next: after user confirmation, I will extend this system across the five
+  real interaction prototypes.
   =====================================================================
 -->
 <style>
   :root {
-    /* —— 沿用现有 ui/ tokens —— */
+    /* —— Reuse existing ui/ tokens —— */
     --primary: #5b5bd6;
     --primary-strong: #4a4ac4;
     --primary-soft: #ececff;
@@ -57,7 +64,7 @@
     --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
     --space-5: 20px; --space-6: 24px;
 
-    /* —— 审查语义层 (派生, 不引入新色相) —— */
+    /* —— Review semantic layer (derived; no new hues) —— */
     --risk-low: var(--success);
     --risk-low-soft: var(--success-soft);
     --risk-medium: var(--warning);
@@ -103,14 +110,14 @@
   .badge.primary { background: var(--primary-soft); color: var(--primary-strong); }
   .badge.primary .dot { background: var(--primary); }
 
-  /* 风险三级 */
+  /* Three risk levels */
   .risk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: var(--radius-pill); }
   .risk-low { background: var(--risk-low-soft); color: var(--risk-low); }
   .risk-medium { background: var(--risk-medium-soft); color: var(--risk-medium); }
   .risk-high { background: var(--risk-high-soft); color: var(--risk-high); }
   .risk-low::before, .risk-medium::before, .risk-high::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
 
-  /* 状态: 形状+文字+色 三信号 */
+  /* Status: shape + text + color, three signals */
   .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
   .status .glyph { width: 16px; height: 16px; border-radius: 5px; display: inline-grid; place-items: center;
                    font-size: 11px; font-weight: 800; color: #fff; }
@@ -123,7 +130,7 @@
   .status.denied, .status.expired, .status.stale { color: var(--danger); }
   .status.executing { color: var(--primary-strong); }
 
-  /* 按钮 */
+  /* Buttons */
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
           min-height: 38px; padding: 0 var(--space-4); border-radius: var(--radius-sm);
           font-weight: 600; font-size: 13px; border: 1px solid transparent; cursor: pointer; }
@@ -147,14 +154,14 @@
   <header>
     <p class="eyebrow">Vivy HITL · Visual Sprint</p>
     <h1>Design System — Review Center</h1>
-    <p class="lede">沿用现有 <code>ui/</code> 工业 IDE 设计语言（violet #5b5bd6 + 中性面），叠加审查语义层。这是五屏可点击原型的设计基底，所有屏幕共用同一套 tokens、风险层级、状态信号与组件。</p>
+    <p class="lede">Extends the existing industrial-IDE design language in <code>ui/</code> (violet #5b5bd6 + neutral surfaces) with a review semantic layer. This is the design foundation for the five clickable screens; all screens share the same tokens, risk levels, status signals, and components.</p>
   </header>
 
   <div class="note">
-    <strong>Junior pass · 假设（待确认）。</strong> 视觉方向 = 沿现有品牌延伸；风险 = 3 级派生（不引入新色相）；状态 = 形状+文字+色三信号（无障碍，不靠色 alone）；字体 = 现有 Inter / PingFang SC 栈。确认后铺到五屏真实交互原型。
+    <strong>Junior pass · assumptions (pending confirmation).</strong> Visual direction = extend the existing brand; risk = three derived levels (no new hues); status = shape + text + color, three signals (accessible, never color alone); typography = existing Inter / PingFang SC stack. After confirmation, apply this to the five real interaction prototypes.
   </div>
 
-  <h2>品牌基底 · 沿用 ui/ tokens</h2>
+  <h2>Brand foundation · reuse ui/ tokens</h2>
   <div class="grid cols-4">
     <div class="swatch"><div class="chip" style="background:var(--primary)"></div><div class="meta"><strong>Primary</strong><span>#5b5bd6</span></div></div>
     <div class="swatch"><div class="chip" style="background:var(--surface-canvas)"></div><div class="meta"><strong>Canvas</strong><span>#f5f6f8</span></div></div>
@@ -166,7 +173,7 @@
     <div class="swatch"><div class="chip" style="background:var(--border-strong)"></div><div class="meta"><strong>Border</strong><span>#cccfd6</span></div></div>
   </div>
 
-  <h2>审查语义层 · 风险三级（派生，无新色相）</h2>
+  <h2>Review semantic layer · three risk levels (derived, no new hues)</h2>
   <div class="grid cols-3">
     <div class="card">
       <span class="risk risk-low">Low risk</span>
@@ -182,7 +189,7 @@
     </div>
   </div>
 
-  <h2>状态信号 · 形状 + 文字 + 色（不只靠色）</h2>
+  <h2>Status signals · shape + text + color (not color alone)</h2>
   <div class="grid cols-3">
     <div class="card">
       <div class="status pending"><span class="glyph">!</span> Pending</div>
@@ -199,7 +206,7 @@
     </div>
   </div>
 
-  <h2>组件 · 类型徽章与按钮</h2>
+  <h2>Components · kind badges and buttons</h2>
   <div class="grid cols-2">
     <div class="card">
       <p class="field-label">Review kind badges</p>
@@ -220,9 +227,9 @@
     </div>
   </div>
 
-  <h2>事实字段 · 审查信息层级（严格顺序）</h2>
+  <h2>Fact fields · review information hierarchy (strict order)</h2>
   <div class="card">
-    <p class="field-label">Hierarchy from research-report §5.3 — 1→5 自上而下</p>
+    <p class="field-label">Hierarchy from research-report §5.3 — 1→5 top to bottom</p>
     <div class="grid cols-2" style="margin-top:6px">
       <div class="fact"><span class="field-label">① Consequence & decision state</span><span class="v">"Vivy wants to write file X"</span></div>
       <div class="fact"><span class="field-label">② Exact target & scope</span><span class="v">workspace/src/main.go · 1 file</span></div>
@@ -232,10 +239,10 @@
     </div>
   </div>
 
-  <h2>下一步</h2>
+  <h2>Next steps</h2>
   <div class="card">
-    <p class="lede">确认本设计系统后，将铺到以下五屏真实交互原型（含状态切换）：</p>
-    <p class="lede">A · Review Center 全局队列 → B · Approval 详情（diff-first）→ C · Question 详情 → D · Run inspector Review tab → E · Inline 对话卡</p>
+    <p class="lede">After this design system is confirmed, it will be applied to the following five real interaction prototypes (with state switching):</p>
+    <p class="lede">A · Review Center global queue → B · Approval detail (diff-first) → C · Question detail → D · Run inspector Review tab → E · Inline conversation card</p>
   </div>
 </body>
 </html>
