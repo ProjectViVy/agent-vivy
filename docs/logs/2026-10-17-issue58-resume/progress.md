@@ -19,3 +19,5 @@ Recap first-load race: activeSessionId preceded RPC peer binding. Original real-
 CI first attempt: UI 733 tests passed; studiocore fake SDK build failed because /tmp/.git is an empty sandbox mount. Same test passed with TMPDIR inside the valid candidate clone, without disabling VCS checks. Remaining first-attempt Go SDK suite is still running; this mixed working-tree run is not fixed-candidate acceptance.
 Laputa local merge 82d15017224f77a20a79b72251be5bb7d3a86c27 retains 249 native implementation and 8c5328d owner-lock snapshot correction. Root dependency lock still 249 pending deliberate pin update and revalidation. No remote publication.
 Next: finish current CI result, pin bundled Laputa candidate, rerun with repository-local TMPDIR, then Windows harness corrections and S5 Task1b/Task2. S6 not accepted.
+
+Pin update: go.mod and laputa-source.lock.json now name local merged Laputa 82d15017224f77a20a79b72251be5bb7d3a86c27. Reproduce using BOTH /workspace/issue58-handoff/*.bundle in sibling full clones. This unpublished dependency cannot be fetched from GitHub; do not publish the Vivy candidate alone. No remote state changed.
