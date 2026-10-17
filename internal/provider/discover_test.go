@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -137,5 +139,56 @@ func TestModelListClientUnreachable(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "sk-secret") {
 		t.Fatalf("error leaked the api key: %v", err)
+	}
+}
+
+// modelListPayload builds a well-formed /models payload with count ids.
+func modelListPayload(count int) map[string]any {
+	data := make([]map[string]any, 0, count)
+	for i := 0; i < count; i++ {
+		data = append(data, map[string]any{"id": fmt.Sprintf("model-%d", i)})
+	}
+	return map[string]any{"data": data}
+}
+
+// An id no provider can use is a selector the runtime would send on every
+// request, so it is dropped instead of persisted into the registry.
+func TestModelListClientDropsOversizedModelIDs(t *testing.T) {
+	ts, _, _ := testModelsServer(t, http.StatusOK, map[string]any{"data": []map[string]any{
+		{"id": strings.Repeat("m", maxModelIDBytes+1)},
+		{"id": "gpt-4o"},
+	}})
+	models, err := (&ModelListClient{HTTP: ts.Client()}).List(context.Background(), ts.URL, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0] != "gpt-4o" {
+		t.Fatalf("models = %v (len %d), want just gpt-4o", models, len(models))
+	}
+}
+
+func TestModelListClientRejectsAnUnboundedCatalogue(t *testing.T) {
+	ts, _, _ := testModelsServer(t, http.StatusOK, modelListPayload(MaxModelListEntries+1))
+	models, err := (&ModelListClient{HTTP: ts.Client()}).List(context.Background(), ts.URL, "")
+	if err == nil {
+		t.Fatalf("a catalogue above the limit must fail, got %d ids", len(models))
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(MaxModelListEntries)) {
+		t.Fatalf("error = %v, want it to name the %d limit", err, MaxModelListEntries)
+	}
+	if models != nil {
+		t.Fatalf("models = %v, want no partial result", models)
+	}
+}
+
+// The limit is inclusive: a catalogue exactly at it is still writable.
+func TestModelListClientKeepsACatalogueAtTheLimit(t *testing.T) {
+	ts, _, _ := testModelsServer(t, http.StatusOK, modelListPayload(MaxModelListEntries))
+	models, err := (&ModelListClient{HTTP: ts.Client()}).List(context.Background(), ts.URL, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != MaxModelListEntries {
+		t.Fatalf("models = %d entries, want %d", len(models), MaxModelListEntries)
 	}
 }

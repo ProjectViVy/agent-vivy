@@ -5,7 +5,12 @@ import path from 'node:path';
 
 test('opens Toolkits with the keyboard and fits a narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  // Skip the welcome wizard and the unrelated first-run Persona gate: a freshly
+  // created session would otherwise open a modal over the Toolkit page.
+  await page.addInitScript(() => {
+    localStorage.setItem('vivy.ui.welcome.completed', '1');
+    localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+  });
   await page.goto('/');
 
   const openNavigation = page.getByRole('button', { name: /open navigation/i });
@@ -25,7 +30,8 @@ test('opens Toolkits with the keyboard and fits a narrow viewport', async ({ pag
 
   const toolkitPage = page.getByTestId('toolkit-page');
   await expect(toolkitPage).toBeVisible();
-  await expect(toolkitPage.getByRole('heading', { name: 'Toolkits', exact: true })).toBeVisible();
+  // The route header belongs to the host page surface, not to the module page.
+  await expect(page.getByRole('heading', { name: 'Toolkits', exact: true })).toBeVisible();
 
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -56,19 +62,26 @@ test('reads a populated Toolkit on mobile and keeps long content inside its keyb
 
   try {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+    // Skip the welcome wizard and the unrelated first-run Persona gate: a freshly
+    // created session would otherwise open a modal over the Toolkit page.
+    await page.addInitScript(() => {
+      localStorage.setItem('vivy.ui.welcome.completed', '1');
+      localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+    });
     await page.goto('/toolkits');
     await expect(page.getByTestId('toolkit-page')).toBeVisible();
 
-    const sourceInput = page.getByLabel('Host directory path');
+    await page.getByTestId('toolkit-library').getByRole('button', { name: 'Install Toolkit', exact: true }).click();
+    const installDialog = page.getByTestId('toolkit-install-dialog');
+    const sourceInput = installDialog.getByLabel('Host directory path');
     await sourceInput.fill(path.join(fixtureRoot, 'missing'));
-    await page.getByRole('button', { name: 'Preview source', exact: true }).click();
+    await installDialog.getByRole('button', { name: 'Preview source', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Preview failed');
 
     await sourceInput.fill(source);
-    await page.getByRole('button', { name: 'Preview source', exact: true }).click();
-    await expect(page.getByTestId('toolkit-preview')).toContainText('Mobile Content Check');
-    await page.getByTestId('toolkit-preview').getByRole('button', { name: 'Install disabled', exact: true }).click();
+    await installDialog.getByRole('button', { name: 'Preview source', exact: true }).click();
+    await expect(installDialog.getByTestId('toolkit-preview')).toContainText('Mobile Content Check');
+    await installDialog.getByRole('button', { name: 'Install disabled', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Toolkit installed disabled');
 
     const skillSection = page.getByRole('heading', { name: 'Skills', exact: true }).locator('xpath=../..');
@@ -77,11 +90,11 @@ test('reads a populated Toolkit on mobile and keeps long content inside its keyb
     await readContent.focus();
     await page.keyboard.press('Enter');
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByTestId('component-content-dialog');
     await expect(dialog).toContainText('DETAIL-START');
     await expect(dialog).toContainText('DETAIL-END');
     const dimensions = await page.evaluate(() => {
-      const dialogElement = document.querySelector<HTMLElement>('[role="dialog"]');
+      const dialogElement = document.querySelector<HTMLElement>('[data-testid="component-content-dialog"]');
       const content = dialogElement?.querySelector<HTMLElement>('pre');
       const rect = dialogElement?.getBoundingClientRect();
       return {
