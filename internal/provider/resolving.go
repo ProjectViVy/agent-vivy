@@ -295,6 +295,34 @@ func EffectiveThinkingLevel(info domain.ModelInfo, mode domain.ThinkingMode) dom
 	return ResolveThinkingLevel(info, mode)
 }
 
+// ThinkingLevelSurface projects the level names a face may offer for one
+// model: the declared levels when it declares any, the full seven-level
+// surface when it supports thinking but declares none (the run path honors
+// any requested level there), and nothing for a model that does not support
+// thinking.
+//
+// It is the one rule behind both model/thinking/levels and
+// session/context.thinking_levels, so the settings card and the composer
+// cannot disagree about what the active model accepts. The result is always
+// a non-nil slice, which is the wire contract for both verbs.
+func ThinkingLevelSurface(info domain.ModelInfo) []string {
+	if len(info.ThinkingLevels) > 0 {
+		levels := make([]string, 0, len(info.ThinkingLevels))
+		for _, level := range info.ThinkingLevels {
+			levels = append(levels, level)
+		}
+		return levels
+	}
+	if !info.SupportsThinking {
+		return []string{}
+	}
+	levels := make([]string, 0, len(domain.ThinkingLevelOrder))
+	for _, level := range domain.ThinkingLevelOrder {
+		levels = append(levels, string(level))
+	}
+	return levels
+}
+
 // claudeNonStreamingTokenCeiling is the Anthropic SDK's non-streaming
 // ceiling: a Generate whose max_tokens crosses 128000/6 tokens is refused
 // client-side with "streaming is required". Requests above it carry an

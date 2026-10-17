@@ -133,6 +133,10 @@ export interface SessionContext {
   limit_bytes: number;
   model_limit_tokens: number;
   thinking_supported: boolean;
+  /** 活跃模型声明的级别面（与 model/thinking/levels 同一投影）；未声明思考时为空表。 */
+  thinking_levels?: string[];
+  /** 模型自身的默认级别；未声明时为空串。 */
+  thinking_default?: string;
   compaction_enabled: boolean;
   trigger_tokens: number;
   would_compact: boolean;

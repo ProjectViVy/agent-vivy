@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
 
@@ -107,6 +109,39 @@ func TestApplyStringPatchExactAmbiguityUnchanged(t *testing.T) {
 	_, _, err := applyStringPatch("same\nsame\n", "same", "x", false)
 	if err == nil || !strings.Contains(err.Error(), "matched 2 times") {
 		t.Fatalf("exact ambiguity error = %v", err)
+	}
+}
+
+// A patch defect is always the model's own argument mistake: each one carries
+// the field that must change, so §5 recovers it as recoverable/invalid_arguments
+// instead of a run-fatal engine error (NUDGE-DESIGN §5).
+func TestApplyStringPatchDefectsAreTypedArgumentErrors(t *testing.T) {
+	cases := []struct {
+		name       string
+		content    string
+		oldString  string
+		newString  string
+		replaceAll bool
+		field      string
+	}{
+		{"empty old_string", "content", "", "x", false, "old_string"},
+		{"exact ambiguity", "same\nsame\n", "same", "x", false, "replace_all"},
+		{"not found before the end", "alpha\nbeta\n", "alpha\ngamma\n", "x", false, "old_string"},
+		{"not found tolerant", "alpha\nbeta\n", "gamma\ndelta\n", "x", false, "old_string"},
+		{"tolerant ambiguity", "  foo  \n  foo  \n  foo  \n  foo  \n", "foo\nfoo", "x", false, "replace_all"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := applyStringPatch(tc.content, tc.oldString, tc.newString, tc.replaceAll)
+			var argErr *tools.ArgError
+			if !errors.As(err, &argErr) || argErr.Field != tc.field {
+				t.Fatalf("error = %v (%T), want *tools.ArgError on field %q", err, err, tc.field)
+			}
+			failure, ok := classifyToolFailure(context.Background(), domain.ToolSpec{Name: tools.PatchName}, err)
+			if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonInvalidArguments {
+				t.Fatalf("classification = %+v (ok=%v), want recoverable/invalid_arguments", failure, ok)
+			}
+		})
 	}
 }
 

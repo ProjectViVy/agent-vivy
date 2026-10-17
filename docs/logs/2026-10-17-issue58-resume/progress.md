@@ -5,3 +5,9 @@ Pre-flight: S3/S4 consume native C1/C2; S5 Task1a adapter exists, Task1b/2 unfin
 Ruling: isolate both repositories under /workspace/issue58 so checked-in relative replacements resolve exact lock without modifying the original Laputa checkout.
 Current: merge main into recovery candidate; resolve TODO with both current rows; regenerate UI assembly via SDK.
 Next: stage UI, commit integration, merge PR71 and inspect conflicts/pins.
+
+Integration: main committed at 598c48f6. PR71 merged preserving both histories. Laputa remains 249; Windows-only 8c5328d is a retained pending dependency correction, not silently discarded.
+Ruling: merge tooladapter publishRefusal extraction but keep durable operation admission only at InvokableRun; proposal failure already has an admitted operation. Automatic text merge compiled with missing locals; fixed and focused tests pending.
+UI merge RED: unavailable shared context rendered 0%; restored unknown display plus passive accessibility semantics. Same 22 compact/thinking/approval tests GREEN. UI typecheck and build passed.
+Bootstrap baseline: real native BML negative-budget regression passed (8 events, zero skip).
+Next: finish focused Go tests; reproduce SDK minimal pack failure; fix optional inventory binding without mandatory absent fields.

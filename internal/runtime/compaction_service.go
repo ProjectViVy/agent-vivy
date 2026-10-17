@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 )
 
@@ -63,6 +64,15 @@ type ContextStatusResult struct {
 	// route's model accepts an explicit extended-thinking request. The
 	// chat input gates its thinking selector on this flag.
 	ThinkingSupported bool `json:"thinking_supported"`
+	// ThinkingLevels is the level surface the active model accepts, from the
+	// same projection as model/thinking/levels (provider.ThinkingLevelSurface):
+	// declared levels, else the seven-level surface for a thinking-capable
+	// model, else an empty list. The composer offers exactly these names, so
+	// the button cannot promise a level the run path would clamp away.
+	ThinkingLevels []string `json:"thinking_levels"`
+	// ThinkingDefault is the model's own default level, empty when it
+	// declares none.
+	ThinkingDefault string `json:"thinking_default"`
 	// ImageSupportKnown distinguishes resolved model metadata from unknown
 	// custom routes. ImageSupported is meaningful only when known is true;
 	// terminal faces fail closed for the local image entry point when unknown.
@@ -99,6 +109,8 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 
 	info := s.GetModelInfo(ctx)
 	out.ThinkingSupported = info.SupportsThinking
+	out.ThinkingLevels = provider.ThinkingLevelSurface(info)
+	out.ThinkingDefault = info.DefaultThinking
 	out.ImageSupportKnown = info.ContextWindow > 0
 	out.ImageSupported = info.SupportsImages
 	if info.ContextWindow > 0 {

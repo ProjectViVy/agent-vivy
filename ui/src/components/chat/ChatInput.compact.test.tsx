@@ -56,14 +56,24 @@ describe('chat-level compact control (VCP-D3)', () => {
     ));
   }
   const compactButton = () =>
-    Array.from(container.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === 'Compact context');
+    Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Context usage'));
   async function click(el: Element) {
     await act(async () => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   }
 
-  it('hides the control when compaction is not enabled', async () => {
+  it('keeps a passive usage meter when compaction is not enabled', async () => {
     await render(false, { ...contextWithCompaction, compaction_enabled: false });
     expect(compactButton()).toBeUndefined();
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe('Context usage');
+  });
+
+  it('puts the usage meter inside the compact trigger', async () => {
+    await render(false);
+    const trigger = compactButton()!;
+    expect(trigger).toBeDefined();
+    expect(trigger.textContent).toContain('6%');
+    expect(trigger.querySelector('svg')).toBeTruthy();
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
   });
 
   it('compacts with instructions from the popover', async () => {

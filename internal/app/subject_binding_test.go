@@ -80,6 +80,25 @@ func TestIssue58SubjectOwnerPathMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A symbolic link is a reparse point and is not universally permitted:
+	// Windows requires SeCreateSymbolicLinkPrivilege or an effective Developer
+	// Mode. Probe the host first so a refusal is an explicit skip, never a
+	// pass; the canonical-alias assertion still runs wherever links work
+	// (Linux CI, Developer-Mode Windows).
+	probeTarget := filepath.Join(root, "probe-target")
+	if err := os.Mkdir(probeTarget, 0700); err != nil {
+		t.Fatal(err)
+	}
+	probeLink := filepath.Join(root, "probe-link")
+	if err := os.Symlink(probeTarget, probeLink); err != nil {
+		t.Skipf("host does not permit symbolic links, so the canonical-alias assertion cannot run: %v", err)
+	}
+	if err := os.Remove(probeLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(probeTarget); err != nil {
+		t.Fatal(err)
+	}
 	alias := filepath.Join(root, "alias")
 	if err := os.Symlink(owner, alias); err != nil {
 		t.Fatal(err)

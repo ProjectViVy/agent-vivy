@@ -87,7 +87,7 @@ describe('composer slash commands', () => {
     expect(tag()?.textContent).toContain('/plan');
     await key('Enter');
     expect(enterPlan).toHaveBeenCalledOnce();
-    expect(onSend).toHaveBeenCalledWith('Design the change', 'normal', undefined, 'auto');
+    expect(onSend).toHaveBeenCalledWith('Design the change', 'normal', undefined, undefined);
     expect(input().value).toBe('');
     expect(container.querySelector('[data-plan-mode]')).not.toBeNull();
   });
@@ -148,7 +148,7 @@ describe('composer slash commands', () => {
     expect(tag()?.textContent).toContain('release-review');
     await type('Check this release');
     await key('Enter');
-    expect(onSend).toHaveBeenCalledWith('Use the skill "release-review" for this request.\n\nCheck this release', 'normal', undefined, 'auto');
+    expect(onSend).toHaveBeenCalledWith('Use the skill "release-review" for this request.\n\nCheck this release', 'normal', undefined, undefined);
   });
 
   it('keeps the draft when a selected skill becomes disabled', async () => {
@@ -170,7 +170,7 @@ describe('composer slash commands', () => {
     await type(text);
     await key('Enter');
     expect(tag()).toBeNull();
-    expect(onSend).toHaveBeenCalledWith(text, 'normal', undefined, 'auto');
+    expect(onSend).toHaveBeenCalledWith(text, 'normal', undefined, undefined);
   });
 
   it('ignores composing Enter and uses Escape to dismiss discovery', async () => {

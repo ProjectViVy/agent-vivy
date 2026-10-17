@@ -197,17 +197,20 @@ func TestCodeFaceJSONModeContinuesNewestSession(t *testing.T) {
 	t.Setenv("VIVY_PROVIDER", "deepseek")
 	t.Setenv("VIVY_API_BASE", textOnlyDeepSeekServer(t, "ack").URL)
 
-	// Continuing the same organism reuses both its Journal and authority owner.
-	// A different owner root must remain a subject-binding mismatch.
+	// Two invocations share the journal (sessions live there). The subject
+	// binding pins the one canonical ACTMEM owner directory to that journal
+	// (unified-context design revision 3: "A changed profile/config path cannot
+	// open a second empty Recap stream for the same subject"), so both
+	// invocations use the same data root — which is what the default
+	// configuration already derives from the journal location. Continuity must
+	// therefore come from the journal, which is what this test asserts.
 	cfg := newDeepSeekTestConfig(t)
-	cfg2 := cfg
-	cfg2.Storage.DataDir = cfg.Storage.DataDir
 
 	res, out1, _, err := runCodeFaceMode(t, cfg, plugin.Options{Mode: "json", Prompt: "first"})
 	if err != nil || res.Status != "completed" {
 		t.Fatalf("first run: status=%q err=%v", res.Status, err)
 	}
-	res, out2, _, err := runCodeFaceMode(t, cfg2, plugin.Options{Mode: "json", Prompt: "second", ContinueNewest: true})
+	res, out2, _, err := runCodeFaceMode(t, cfg, plugin.Options{Mode: "json", Prompt: "second", ContinueNewest: true})
 	if err != nil || res.Status != "completed" {
 		t.Fatalf("continue run: status=%q err=%v", res.Status, err)
 	}

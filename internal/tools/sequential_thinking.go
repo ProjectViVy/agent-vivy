@@ -65,7 +65,7 @@ func (t *sequentialThinkingTool) InvokableRun(ctx context.Context, args json.Raw
 		BranchID          string `json:"branch_id"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("sequential_thinking: invalid arguments: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.Thought) == "" {
 		return "", &ArgError{Field: "thought", Reason: "is required"}

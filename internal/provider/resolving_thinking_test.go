@@ -356,6 +356,30 @@ func TestThinkingLevelSamplingParamsReachBody(t *testing.T) {
 	}
 }
 
+// TestThinkingLevelSurface pins the one projection both thinking verbs use:
+// declared levels win, a thinking-capable model without a declaration offers
+// the full seven-level surface, and a model without thinking support offers
+// nothing (never null on the wire).
+func TestThinkingLevelSurface(t *testing.T) {
+	declared := ThinkingLevelSurface(domain.ModelInfo{SupportsThinking: true, ThinkingLevels: []string{"low", "high"}})
+	if len(declared) != 2 || declared[0] != "low" || declared[1] != "high" {
+		t.Fatalf("declared surface = %v, want [low high]", declared)
+	}
+	// The projection must not alias the catalog's slice.
+	declared[0] = "mutated"
+	if again := ThinkingLevelSurface(domain.ModelInfo{SupportsThinking: true, ThinkingLevels: []string{"low", "high"}}); again[0] != "low" {
+		t.Fatalf("surface aliased the source slice: %v", again)
+	}
+	undeclared := ThinkingLevelSurface(domain.ModelInfo{SupportsThinking: true})
+	if len(undeclared) != len(domain.ThinkingLevelOrder) || undeclared[0] != string(domain.ThinkingLevelMinimal) {
+		t.Fatalf("undeclared surface = %v, want the seven-level order", undeclared)
+	}
+	unsupported := ThinkingLevelSurface(domain.ModelInfo{})
+	if unsupported == nil || len(unsupported) != 0 {
+		t.Fatalf("unsupported surface = %v, want a non-nil empty list", unsupported)
+	}
+}
+
 // TestThinkingDeepSeekStaysBinary pins the DeepSeek surface: an explicit
 // level maps onto the canonical enabled+high request because the endpoint's
 // thinking surface is binary.

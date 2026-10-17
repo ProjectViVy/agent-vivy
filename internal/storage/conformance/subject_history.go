@@ -28,6 +28,10 @@ func Issue58Admission(s storage.SubjectSourceBinding, id string) storage.RunAdmi
 	return storage.RunAdmission{Subject: &s, Message: domain.Message{ID: "user_" + id, SessionID: s.SessionID, RunID: domain.RunID(id), Role: domain.RoleUser, CreatedAt: 1, Content: "exact source " + id}, Run: domain.Run{ID: domain.RunID(id), SessionID: s.SessionID, Status: domain.RunActive, Kind: domain.RunKindPrimary, CreatedAt: 1}, Started: domain.RunEvent{RunID: domain.RunID(id), Type: domain.EventRunStarted, PayloadVersion: 1, CreatedAt: 1, Payload: []byte(`{}`)}}
 }
 
+// Issue58Identity registers the one organism identity at a native canonical
+// owner path. domain.SubjectIdentity.Valid requires a platform-absolute, clean
+// path, so a POSIX-only literal cannot stand in on Windows; the path emulates
+// the trusted ACTMEM authority location and is never a second identity source.
 func Issue58Identity(t *testing.T, b storage.Engine) {
 	t.Helper()
 	id := domain.SubjectIdentity{
@@ -42,7 +46,7 @@ func Issue58Identity(t *testing.T, b storage.Engine) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Snapshot().Put(context.Background(), "organism/subject/v1", raw, 0); err != nil {
+	if err := b.Snapshot().Put(context.Background(), domain.SubjectIdentityKey, raw, 0); err != nil {
 		t.Fatal(err)
 	}
 }

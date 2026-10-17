@@ -98,6 +98,58 @@ func interruptForToolApproval(ctx context.Context, toolName string, arguments js
 	return einotool.StatefulInterrupt(ctx, encoded, encoded)
 }
 
+// approvalInterrupt builds the tool's own review proposal before the run pauses
+// for human approval. A proposal that cannot be built from the call's arguments
+// is a defect in the call, not in the run: on a model-driven leg it returns the
+// same model-visible outcome an invocation failure would (NUDGE-DESIGN §5) —
+// a typed recoverable failure or a refusal — instead of suspending for a review
+// that can never pass and then failing in the service. Anything the §5 seam
+// does not recognise keeps today's interrupt-and-report path.
+func (a *toolAdapter) approvalInterrupt(ctx context.Context, spec domain.ToolSpec, args json.RawMessage, operation *domain.ToolOperation, message string) (string, error) {
+	if provider, ok := a.t.(tools.ProposalProvider); ok {
+		if _, err := provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args); err != nil {
+			result, handled, handleErr := a.proposalFailure(ctx, spec, err)
+			if handleErr != nil {
+				return "", handleErr
+			}
+			if handled {
+				if operation != nil {
+					coordinator := toolOperationCoordinatorFromContext(ctx)
+					if coordinator == nil {
+						return "", ErrToolOperationUnavailable
+					}
+					return coordinator.Execute(ctx, *operation, func(context.Context) (string, error) { return result, nil })
+				}
+				return result, nil
+			}
+		}
+	}
+	return "", interruptForToolApproval(ctx, spec.Name, args, message)
+}
+
+// proposalFailure classifies an error raised while building a tool's review
+// proposal with the same vocabulary the invocation seam uses: a governance
+// denial is a refusal, an allowlisted argument defect is recoverable, anything
+// else (infrastructure, a non-model leg) stays with the caller.
+func (a *toolAdapter) proposalFailure(ctx context.Context, spec domain.ToolSpec, err error) (string, bool, error) {
+	if refusal, ok := asToolRefusal(err); ok {
+		result, markErr := publishRefusal(ctx, spec, refusal)
+		return result, true, markErr
+	}
+	state := nudgeStateFromContext(ctx)
+	if state == nil {
+		return "", false, nil
+	}
+	failure, ok := classifyToolFailure(ctx, spec, err)
+	if !ok {
+		return "", false, nil
+	}
+	if markErr := state.MarkFailure(compose.GetToolCallID(ctx), failure); markErr != nil {
+		return "", true, markErr
+	}
+	return failure.Diagnostic, true, nil
+}
+
 func validateResumedToolApproval(ctx context.Context, toolName string, arguments json.RawMessage) error {
 	wasInterrupted, hasState, encodedState := einotool.GetInterruptState[string](ctx)
 	if !wasInterrupted || !hasState {
@@ -172,6 +224,7 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 		return refusal, true
 	}
 	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) ||
+		errors.Is(err, ErrProtectedPathDenied) || errors.Is(err, ErrSymlinkPathDenied) ||
 		errors.Is(err, ErrWorkUnavailable) || errors.Is(err, ErrWorkSessionRequired) ||
 		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
 		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
@@ -510,6 +563,29 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		return "", err
 	}
 	spec := a.t.Spec()
+	result, err = publishRefusal(ctx, spec, refusal)
+	if err != nil {
+		return "", err
+	}
+	if residentRecap(ctx) {
+		if coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator); ok {
+			// Completion means a durable logical outcome, never tool execution.
+			// refused/not_executed is already recorded above and remains on the
+			// native tool.finished event. This closure cannot call the tool.
+			operation, admitErr := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(argumentsInJSON), []byte(argumentsInJSON))
+			if admitErr != nil {
+				return "", admitErr
+			}
+			return coordinator.Execute(ctx, operation, func(context.Context) (string, error) { return result, nil })
+		}
+	}
+	return result, nil
+}
+
+// publishRefusal records one per-call governance refusal and returns the
+// model-visible text. It is the single source of truth for "this call did not
+// run", shared by the invocation seam and by the pre-approval proposal check.
+func publishRefusal(ctx context.Context, spec domain.ToolSpec, refusal *toolRefusal) (string, error) {
 	reason := refusal.reason
 	// Publish the typed refusal before the model-visible result so the
 	// leg's detector sees refused/not_executed on the failure channel.
@@ -528,19 +604,8 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			Profile: policyProfile(ctx), PolicyHash: policyHash, Reason: reason,
 		})
 	}
-	result = refusalToolResult(spec.Name, reason)
-	if residentRecap(ctx) {
-		if coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator); ok {
-			// Completion means a durable logical outcome, never tool execution.
-			// refused/not_executed is already recorded above and remains on the
-			// native tool.finished event. This closure cannot call the tool.
-			operation, admitErr := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(argumentsInJSON), []byte(argumentsInJSON))
-			if admitErr != nil {
-				return "", admitErr
-			}
-			return coordinator.Execute(ctx, operation, func(context.Context) (string, error) { return result, nil })
-		}
-	}
+	result := refusalToolResult(spec.Name, reason)
+
 	return result, nil
 }
 
@@ -815,7 +880,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
-				return "", interruptForToolApproval(ctx, spec.Name, args, "middleware approval required for "+spec.Name)
+				return a.approvalInterrupt(ctx, spec, args, operation, "middleware approval required for "+spec.Name)
 			}
 			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
 			if !isTarget || !hasData {
@@ -851,7 +916,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			if !wasInterrupted {
 				// First execution: pause the run so the service can surface
 				// tool.approval_required over a durable checkpoint (D-029).
-				return "", interruptForToolApproval(ctx, spec.Name, args, "approval required for "+spec.Name)
+				return a.approvalInterrupt(ctx, spec, args, operation, "approval required for "+spec.Name)
 			}
 			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
 			if !isTarget {
