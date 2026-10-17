@@ -34,6 +34,12 @@ type providerSelection struct {
 	BaseURL  string
 	Model    string
 	endpoint provider.Endpoint
+	// registered reports that this selection resolved against the user
+	// registry rather than the embedded data. Vendor is then only the entry's
+	// label, not an embedded vendor name, so callers that look embedded
+	// metadata up by name — the vendor's credential variable in particular —
+	// must not treat it as one.
+	registered bool
 }
 
 // resolveStoredSelection maps a stored `provider`/`base_url`/`default_model`
@@ -91,14 +97,15 @@ func resolveCustomSelection(entry settings.ProviderEntry, baseURL, storedModel s
 	}
 	endpoint, ok := customEndpoint(entry, adapter, baseURL)
 	if !ok {
-		return providerSelection{Vendor: label, Adapter: adapter, BaseURL: baseURL, Model: model}, false
+		return providerSelection{Vendor: label, Adapter: adapter, BaseURL: baseURL, Model: model, registered: true}, false
 	}
 	return providerSelection{
-		Vendor:   label,
-		Adapter:  adapter,
-		BaseURL:  baseURL,
-		Model:    model,
-		endpoint: endpoint,
+		Vendor:     label,
+		Adapter:    adapter,
+		BaseURL:    baseURL,
+		Model:      model,
+		endpoint:   endpoint,
+		registered: true,
 	}, true
 }
 

@@ -177,11 +177,12 @@ type ControlDeps struct {
 	// timeout, surfaced by settings/get as the UI fallback.
 	ConfigHTTPTimeoutSeconds int
 	// ApplySettingsEnv applies a persisted settings document's non-secret
-	// overlays to the running process environment (VIVY_API_BASE for
-	// base_url, the active bundle's env_key for the resolved api_key). It is
-	// wired by the composition root so a settings/providers write updates the
-	// environment immediately; the startup overlay replays the same document
-	// on the next launch. Nil means no live apply (read-only deployments).
+	// overlays to the running process environment at write time (VIVY_API_BASE
+	// for base_url, the embedded vendor's env_key for the resolved api_key).
+	// It is wired by the composition root so a settings/providers write takes
+	// effect without a restart; nothing replays the document at startup, where
+	// the environment is read into a frozen session instead. Nil means no live
+	// apply (read-only deployments).
 	ApplySettingsEnv func(settings.Settings)
 	// TokenUsage provides cross-run usage aggregation for stats/tokens.
 	// Nil disables the method.
@@ -5204,7 +5205,8 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	}
 	// Write-through env apply: the resolved active key (registry entry
 	// wins, legacy overlay falls back) and base_url reach the running
-	// process now; the startup overlay replays the same document.
+	// process now. A process that later starts is not replayed from this
+	// document — it freezes whatever its environment names.
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
 	}

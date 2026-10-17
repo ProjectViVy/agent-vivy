@@ -408,6 +408,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	modelHost := modelProvider.Host()
 	resolver := newModelResolverForProject(cfg, liveSettingsPath, ao.projectRoot, catalog, modelHost, credentialResolver)
+	if reason := resolver.FrozenAmbiguity(); reason != "" {
+		// Several embedded vendors can share one credential name, so a set
+		// variable does not always name the provider. Say so once and keep the
+		// settings document in effect instead of guessing.
+		logger.Warn("environment provider selection is ambiguous", "detail", reason)
+	}
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -1343,8 +1349,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ConfigToolsEnabled: append([]string(nil), cfg.Tools.Enabled...),
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
-		// api_key → active bundle env_key) immediately; the startup overlay
-		// replays the same document on the next launch.
+		// api_key → the embedded vendor's env_key) immediately. It is the
+		// only caller: startup reads the environment into a frozen session
+		// instead of replaying the document.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
 		Diagnostics:      diagnostics,
@@ -1907,23 +1914,23 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	return strings.TrimSpace(id)
 }
 
-// applySettingsEnv applies the non-secret base URL and the active selection's
-// api_key overlay to the process environment. It is shared between the startup
-// overlay (next-launch semantics) and the write-time path, so a settings save
-// updates the environment immediately AND the next start replays the same
-// document. Secret values are never logged.
+// applySettingsEnv publishes the non-secret base URL to the process
+// environment and overlays the active selection's api_key. It has exactly one
+// caller path: the settings write RPCs, which call it right after persisting a
+// document, so an open session picks the change up without a restart. Nothing
+// calls it at startup — a process that starts with credentials in the
+// environment is frozen by freezeFromEnv instead.
 //
-// The credential variable is the *vendor's*, read from the embedded data: a
-// selection that resolves to a third-party endpoint writes that vendor's
-// environment variable instead of one of the three former config blocks.
+// Secrets are never logged. The key write is deliberately narrow: the
+// credential variable is the *embedded vendor's*, so it is written only when
+// the selection actually resolved to an embedded vendor. A provider the user
+// registered has no embedded vendor behind it, and its key belongs to the
+// registry — writing it into whichever vendor's variable happens to match its
+// label would hand the operator's key to an unrelated endpoint.
 func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config.Config, s settings.Settings) {
-	if s.BaseURL != "" {
-		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
-			logger.Warn("settings base_url not applied", "err", err)
-		}
-	}
+	applyBaseURLEnv(logger, s.BaseURL)
 	selection, ok := resolveStoredSelection(catalog, cfg, s)
-	if !ok || selection.Vendor == "" {
+	if !ok || selection.Vendor == "" || selection.registered {
 		return
 	}
 	vendor, ok := catalog.Vendor(selection.Vendor)
@@ -1935,6 +1942,38 @@ func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config
 			logger.Warn("settings api_key not applied", "err", err)
 		}
 	}
+}
+
+// appliedBaseURL remembers the address this process published, so a settings
+// write can withdraw its own value without clearing one an operator exported.
+var appliedBaseURL struct {
+	mu    sync.Mutex
+	value string
+}
+
+// applyBaseURLEnv publishes the stored address to provider.APIBaseEnvVar. An
+// empty address withdraws only the value this process wrote: VIVY_API_BASE is
+// also the documented operator freeze knob, and a settings save must not
+// silently re-point a process its operator deliberately pinned.
+func applyBaseURLEnv(logger *slog.Logger, baseURL string) {
+	appliedBaseURL.mu.Lock()
+	defer appliedBaseURL.mu.Unlock()
+	if baseURL != "" {
+		if err := os.Setenv(provider.APIBaseEnvVar, baseURL); err != nil {
+			logger.Warn("settings base_url not applied", "err", err)
+			return
+		}
+		appliedBaseURL.value = baseURL
+		return
+	}
+	if appliedBaseURL.value == "" || os.Getenv(provider.APIBaseEnvVar) != appliedBaseURL.value {
+		return
+	}
+	if err := os.Unsetenv(provider.APIBaseEnvVar); err != nil {
+		logger.Warn("settings base_url not withdrawn", "err", err)
+		return
+	}
+	appliedBaseURL.value = ""
 }
 
 // applySettingsOverlay reads the operator-managed settings document and
