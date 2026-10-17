@@ -352,18 +352,43 @@ type ProviderEntry struct {
 	ID string `yaml:"id"`
 	// DisplayName is the user-facing alias shown in the Settings UI.
 	DisplayName string `yaml:"display_name"`
-	// Bundle is the runtime bundle: openai or anthropic.
+	// Bundle is the protocol the entry speaks, one of the adapters this build
+	// executes (settings.NormalizeAdapter); the stored values are the adapter
+	// names, so it is not limited to openai/anthropic.
 	Bundle string `yaml:"bundle"`
 	// BaseURL is the OpenAI-compatible gateway address for this entry.
 	BaseURL string `yaml:"base_url"`
 	// DefaultModel is the entry's preferred model; empty means "use bundle
-	// default".
+	// default". A non-empty value is reconciled into Models on read and on
+	// write, so a selection can never advertise a default it does not list.
 	DefaultModel string `yaml:"default_model"`
 	// Models is the model list shown in the Settings UI (raw model ids).
 	Models []string `yaml:"models"`
-	// ApiKey optionally overlays the bundle's env_key when this entry is the
-	// active selection; empty means "no overlay".
+	// ApiKey optionally overlays the entry's own credential when this entry is
+	// the active selection; empty means "no overlay". It is stored in the
+	// registry and resolved by (bundle, base_url), never written into an
+	// embedded vendor's environment variable.
 	ApiKey string `yaml:"api_key"`
+}
+
+// reconcileDefaultModel keeps an entry's declared default inside its model
+// list: a default the entry does not offer is a selection the runtime would
+// adopt and the Settings UI could not show, because the list renders Models.
+// The comparison ignores surrounding whitespace, which the runtime also
+// trims. Order is preserved and an already-listed default stays untouched, so
+// reconciliation is idempotent.
+func (e ProviderEntry) reconcileDefaultModel() ProviderEntry {
+	model := strings.TrimSpace(e.DefaultModel)
+	if model == "" {
+		return e
+	}
+	for _, id := range e.Models {
+		if strings.TrimSpace(id) == model {
+			return e
+		}
+	}
+	e.Models = append(append([]string(nil), e.Models...), model)
+	return e
 }
 
 // NetworkSearchSettings is the UI-managed network_search preference.
@@ -497,6 +522,12 @@ func load(path string) (Settings, error) {
 	// The migrated value is returned in memory; the next successful settings
 	// write rewrites the document without the retired records.
 	migrateLegacyMock(&s)
+	// A stored entry may name a default outside its own model list (an older
+	// build persisted the two independently). Reconcile before Validate so
+	// such a document stays loadable and its selection is representable.
+	for i, entry := range s.Providers {
+		s.Providers[i] = entry.reconcileDefaultModel()
+	}
 	// Normalize a decoded empty registry to nil so a document round-trip is
 	// stable (yaml marshals nil and empty slices identically).
 	if len(s.Providers) == 0 {
@@ -973,6 +1004,7 @@ func ActiveKey(s Settings, provider, baseURL string) string {
 // The returned Settings is the candidate with the entry applied; validation
 // happens in Save.
 func (s Settings) UpsertProvider(entry ProviderEntry) Settings {
+	entry = entry.reconcileDefaultModel()
 	for i, e := range s.Providers {
 		if e.ID == entry.ID {
 			next := append([]ProviderEntry(nil), s.Providers...)

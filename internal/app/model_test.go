@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/app/settings"
@@ -365,5 +366,111 @@ func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) 
 	}
 	if current.Adapter != provider.AdapterOpenAICompletions {
 		t.Fatalf("resolved adapter = %q, want openai-completions", current.Adapter)
+	}
+}
+
+// clearModelEnv makes an environment-session test hermetic: every embedded
+// vendor's credential variable is a candidate, so an ambient one would decide
+// the session before the test sets anything.
+func clearModelEnv(t *testing.T) {
+	t.Helper()
+	keys := append(provider.VendorEnvKeys(testCatalog(t).Vendors()),
+		envProviderOverride, envModelOverride, provider.APIBaseEnvVar)
+	for _, key := range keys {
+		original, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Setenv(key, original) })
+	}
+}
+
+// TestResolverSharedEnvKeyDoesNotGuessAVendor: one credential name can be the
+// credential of several embedded vendors (openai and aihubmix both read
+// OPENAI_API_KEY). The environment then names no provider at all, so the
+// settings document stays in effect and the composition root can say why
+// instead of silently running the alphabetically first candidate.
+func TestResolverSharedEnvKeyDoesNotGuessAVendor(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("OPENAI_API_KEY", "sk-shared")
+	dir := t.TempDir()
+	path := settings.Path(dir)
+	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderDeepSeek, ApiKey: "sk-settings"}); err != nil {
+		t.Fatal(err)
+	}
+	resolver := newModelResolver(config.Default(), path, testCatalog(t), testModelHost(t))
+	if resolver.Frozen() {
+		t.Fatal("an environment that names no single candidate must not freeze the session")
+	}
+	reason := resolver.FrozenAmbiguity()
+	if !strings.Contains(reason, "OPENAI_API_KEY") || !strings.Contains(reason, "aihubmix") || !strings.Contains(reason, "openai") {
+		t.Fatalf("FrozenAmbiguity() = %q, want the shared variable and both candidate vendors", reason)
+	}
+	cur := resolver.Current()
+	if cur.Frozen || cur.Provider != "deepseek" || cur.APIKey != "sk-settings" {
+		t.Fatalf("current selection = %+v, want the settings document's vendor", cur)
+	}
+}
+
+// TestResolverAmbiguousEnvHonoursVIVYProvider: the shared variable does not
+// identify a vendor, but VIVY_PROVIDER still does, by name.
+func TestResolverAmbiguousEnvHonoursVIVYProvider(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("OPENAI_API_KEY", "sk-shared")
+	t.Setenv(envProviderOverride, "aihubmix")
+	resolver := newModelResolver(config.Default(), settings.Path(t.TempDir()), testCatalog(t), testModelHost(t))
+	cur := resolver.Current()
+	if !cur.Frozen || cur.Provider != "aihubmix" || cur.APIKey != "sk-shared" {
+		t.Fatalf("VIVY_PROVIDER=aihubmix resolved %+v", cur)
+	}
+	if reason := resolver.FrozenAmbiguity(); reason != "" {
+		t.Fatalf("FrozenAmbiguity() = %q, want empty for an explicit selection", reason)
+	}
+}
+
+// TestResolverAmbiguousEnvHonoursConfiguredVendor: with the environment naming
+// both candidates, the configured vendor is the tie-break.
+func TestResolverAmbiguousEnvHonoursConfiguredVendor(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("OPENAI_API_KEY", "sk-shared")
+	cfg := config.Default()
+	cfg.Providers.Active = "openai"
+	resolver := newModelResolver(cfg, settings.Path(t.TempDir()), testCatalog(t), testModelHost(t))
+	cur := resolver.Current()
+	if !cur.Frozen || cur.Provider != "openai" || cur.APIKey != "sk-shared" {
+		t.Fatalf("configured vendor openai resolved %+v", cur)
+	}
+}
+
+// TestResolverAmbiguousEnvRejectsAmbiguousAdapterOverride: an adapter both
+// candidates speak is not a selection either, so it must not pick one.
+func TestResolverAmbiguousEnvRejectsAmbiguousAdapterOverride(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("OPENAI_API_KEY", "sk-shared")
+	t.Setenv(envProviderOverride, provider.AdapterOpenAICompletions)
+	resolver := newModelResolver(config.Default(), settings.Path(t.TempDir()), testCatalog(t), testModelHost(t))
+	if resolver.Frozen() {
+		t.Fatal("VIVY_PROVIDER naming an adapter several candidates speak must not pick one")
+	}
+	if resolver.FrozenAmbiguity() == "" {
+		t.Fatal("expected an ambiguity note")
+	}
+}
+
+// TestResolverSingleCredentialStillFreezesTheSession: the ordinary single-key
+// startup is unchanged — one candidate needs no tie-break.
+func TestResolverSingleCredentialStillFreezesTheSession(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("MINIMAX_API_KEY", "sk-minimax")
+	resolver := newModelResolver(config.Default(), settings.Path(t.TempDir()), testCatalog(t), testModelHost(t))
+	cur := resolver.Current()
+	if !cur.Frozen || cur.Provider != "minimax" || cur.APIKey != "sk-minimax" {
+		t.Fatalf("a single credential resolved %+v", cur)
+	}
+	if reason := resolver.FrozenAmbiguity(); reason != "" {
+		t.Fatalf("FrozenAmbiguity() = %q, want empty when nothing is ambiguous", reason)
 	}
 }
