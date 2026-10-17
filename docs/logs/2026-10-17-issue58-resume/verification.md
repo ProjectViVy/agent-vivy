@@ -7,3 +7,5 @@ Root environment Laputa ff3936f did not match source lock. Isolated sibling work
 Merge working tree: pnpm install --frozen-lockfile PASS; SDK stage-ui initially failed before dependency installation, then PASS. pnpm typecheck PASS; pnpm build PASS (chunk-size advisory). Vitest compact/thinking/approval RED 1/22 (false 0%), then GREEN 22/22. Go focused attempt build-failed tooladapter undefined locals following automatic merge; correction is being tested. Historical incoming Markdown whitespace retained; git diff --cached --check excluding docs/logs passes.
 
 Re-read CI 38829757533: backend and full UI pack both fail on optional RuntimeAssembly ContextSources/RunObservers accesses in assembly_memory.go; missing executable is downstream. Native Windows owners also failed; no new Windows result claimed.
+
+Full-clone SDK test: go test -json -p=1 ./sdk/internal -run '^TestV1PackAndInspectProveRecipeRemoval$' -count=1 -timeout=8m. RED 27.975s missing optional assembly fields, GREEN 23.432s after fix. Worktree attempts before relocation failed on VCS inspection and are not RED/GREEN code evidence.

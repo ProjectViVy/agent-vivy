@@ -125,9 +125,11 @@ func BuildDefault() RuntimeAssembly {
 	}
 }
 
-func (assembly *RuntimeAssembly) ContextSourceProviders() any { return assembly.ContextSources }
-func (assembly *RuntimeAssembly) SkillSourceProviders() any   { return assembly.SkillSources }
-func (assembly *RuntimeAssembly) RunObserverProviders() any   { return assembly.RunObservers }
+func (assembly *RuntimeAssembly) ContextSourceProviders() any     { return assembly.ContextSources }
+func (assembly *RuntimeAssembly) ContextSourceProviderSlots() any { return &assembly.ContextSources }
+func (assembly *RuntimeAssembly) SkillSourceProviders() any       { return assembly.SkillSources }
+func (assembly *RuntimeAssembly) RunObserverProviders() any       { return assembly.RunObservers }
+func (assembly *RuntimeAssembly) RunObserverProviderSlots() any   { return &assembly.RunObservers }
 
 func (assembly *RuntimeAssembly) HasMaskFactory() bool { return assembly.MaskFactory != nil }
 

@@ -11,3 +11,6 @@ Ruling: merge tooladapter publishRefusal extraction but keep durable operation a
 UI merge RED: unavailable shared context rendered 0%; restored unknown display plus passive accessibility semantics. Same 22 compact/thinking/approval tests GREEN. UI typecheck and build passed.
 Bootstrap baseline: real native BML negative-budget regression passed (8 events, zero skip).
 Next: finish focused Go tests; reproduce SDK minimal pack failure; fix optional inventory binding without mandatory absent fields.
+
+Canonical active checkout moved to /workspace/issue58-candidate/agent-vivy (full independent clone); sibling Laputa remains exact 249. Earlier worktree is inactive, patch saved at /workspace/issue58/assembly-fix.patch. Go 1.26.4 vcs.RootNames recognizes directory .git only; direct build -x selected invalid /workspace .git. Full clone resolves this without -buildvcs=false.
+SDK optional inventories: full clone unmodified test TestV1PackAndInspectProveRecipeRemoval RED missing ContextSources/RunObservers; generated optional pointer inventory accessors + copy-before-binding GREEN 23.432s. Minimal capabilities remain physically omitted. No Eino API change: this is assembly ownership, not model orchestration.

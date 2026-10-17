@@ -3,6 +3,8 @@ package app
 import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	memorymodule "agent-vivy/internal/modules/memory"
+	"agent-vivy/sdk/port/contextsource"
+	"agent-vivy/sdk/port/observer"
 	"fmt"
 	"slices"
 )
@@ -18,18 +20,32 @@ func bindMemoryProviders(a *genassembly.RuntimeAssembly, service *memorymodule.S
 			return fmt.Errorf("app: bind memory tool: %w", err)
 		}
 	}
-	a.ContextSources = slices.Clone(a.ContextSources)
-	for i, p := range a.ContextSources {
-		a.ContextSources[i], err = memorymodule.BindContextSource(p, service)
-		if err != nil {
-			return fmt.Errorf("app: bind memory source: %w", err)
+	// Optional generated inventories must remain absent in minimal Recipes.
+	// Replace the copied Assembly's slice, never mutate a reusable caller slice.
+	if inventory, ok := any(a).(interface{ ContextSourceProviderSlots() any }); ok {
+		slots, ok := inventory.ContextSourceProviderSlots().(*[]contextsource.Provider)
+		if !ok || slots == nil {
+			return fmt.Errorf("app: invalid generated Context Source slots")
+		}
+		*slots = slices.Clone(*slots)
+		for i, p := range *slots {
+			(*slots)[i], err = memorymodule.BindContextSource(p, service)
+			if err != nil {
+				return fmt.Errorf("app: bind memory source: %w", err)
+			}
 		}
 	}
-	a.RunObservers = slices.Clone(a.RunObservers)
-	for i, p := range a.RunObservers {
-		a.RunObservers[i], err = memorymodule.BindRunProvider(p, service)
-		if err != nil {
-			return fmt.Errorf("app: bind memory observer: %w", err)
+	if inventory, ok := any(a).(interface{ RunObserverProviderSlots() any }); ok {
+		slots, ok := inventory.RunObserverProviderSlots().(*[]observer.RunProvider)
+		if !ok || slots == nil {
+			return fmt.Errorf("app: invalid generated Run Observer slots")
+		}
+		*slots = slices.Clone(*slots)
+		for i, p := range *slots {
+			(*slots)[i], err = memorymodule.BindRunProvider(p, service)
+			if err != nil {
+				return fmt.Errorf("app: bind memory observer: %w", err)
+			}
 		}
 	}
 	a.ActionSets = slices.Clone(a.ActionSets)
