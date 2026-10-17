@@ -3,11 +3,14 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"agent-vivy/internal/domain"
 )
+
+var ErrSkillRevisionHistoryUnavailable = errors.New("tools: local Skill revision history unavailable")
 
 const (
 	SkillsListName  = "skills_list"
@@ -58,6 +61,27 @@ type SkillManageRequest struct {
 	OldString  string
 	NewString  string
 	ReplaceAll bool
+	Evolution  *SkillEvolutionMetadata `json:"evolution,omitempty"`
+}
+
+// SkillEvolutionMetadata is immutable origin evidence retained inside the
+// stored revision payload. It is absent from ordinary manually authored edits.
+type SkillEvolutionMetadata struct {
+	Origin         string          `json:"origin"`
+	OperationID    string          `json:"operation_id"`
+	ApprovalID     string          `json:"approval_id"`
+	Rationale      string          `json:"rationale"`
+	SourceEvidence json.RawMessage `json:"source_evidence"`
+}
+
+// SkillRevisionLifecycle is the durable revision subset needed by the
+// separately reviewed DIVA proposal path. It extends SkillOperations without
+// widening every tool adapter implementation.
+type SkillRevisionLifecycle interface {
+	GetSkillRevision(context.Context, string) (domain.SkillRevision, error)
+	SetSkillRevisionStatus(context.Context, string, domain.SkillRevisionStatus) error
+	ListPendingSkillRevisions(context.Context) ([]domain.SkillRevision, error)
+	CheckSkillRevision(context.Context, string) error
 }
 
 type SkillManageResult struct {

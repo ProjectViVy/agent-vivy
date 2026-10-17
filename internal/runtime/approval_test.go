@@ -819,15 +819,17 @@ func TestAutoApprovesOnTimeoutPresetGate(t *testing.T) {
 		mode   domain.SandboxMode
 		policy domain.ApprovalPolicy
 		want   bool
+		kind   string
 	}{
-		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, true},
-		{domain.SandboxModeReadOnly, domain.ApprovalPolicyAsk, false},
-		{domain.SandboxModeDangerFullAccess, domain.ApprovalPolicyAuto, false},
-		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever, false},
-		{"", "", false},
+		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, true, ""},
+		{domain.SandboxModeReadOnly, domain.ApprovalPolicyAsk, false, ""},
+		{domain.SandboxModeDangerFullAccess, domain.ApprovalPolicyAuto, false, ""},
+		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever, false, ""},
+		{"", "", false, ""},
+		{domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, false, domain.ApprovalKindSkillRevision},
 	}
 	for _, tc := range cases {
-		got := autoApprovesOnTimeout(domain.Approval{SandboxMode: string(tc.mode), ApprovalPolicy: string(tc.policy)})
+		got := autoApprovesOnTimeout(domain.Approval{SandboxMode: string(tc.mode), ApprovalPolicy: string(tc.policy), Kind: tc.kind})
 		if got != tc.want {
 			t.Fatalf("autoApprovesOnTimeout(%q, %q) = %v, want %v", tc.mode, tc.policy, got, tc.want)
 		}
