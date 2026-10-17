@@ -21,3 +21,6 @@ Laputa local merge 82d15017224f77a20a79b72251be5bb7d3a86c27 retains 249 native i
 Next: finish current CI result, pin bundled Laputa candidate, rerun with repository-local TMPDIR, then Windows harness corrections and S5 Task1b/Task2. S6 not accepted.
 
 Pin update: go.mod and laputa-source.lock.json now name local merged Laputa 82d15017224f77a20a79b72251be5bb7d3a86c27. Reproduce using BOTH /workspace/issue58-handoff/*.bundle in sibling full clones. This unpublished dependency cannot be fetched from GitHub; do not publish the Vivy candidate alone. No remote state changed.
+
+Harness correction: six original BML Home fixtures now register immediate error-reporting cleanup without changing their assertions. Native owner snapshot now records presence/type of only the exact root .owner.lock; nested same-named data remains byte-checked. Laputa candidate advanced to 27da7b9e2d991857650b9e373627b65119a73eec (Linux Issue58 suite executed; Windows still unavailable).
+CI first attempt also caught source/lock changes during SDK builds caused by this session proceeding with Recap and pin edits before the long SDK suite finished. These source-hash failures are invalidated execution evidence, not product defects. Next full run must freeze BOTH source trees throughout; do not reinterpret it as passing.

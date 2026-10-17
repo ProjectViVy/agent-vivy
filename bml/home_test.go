@@ -67,6 +67,11 @@ func TestHomePathsAndLazyStore(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "config")
 	h := NewHome(config)
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 
 	if h.ConfigDir() != config {
 		t.Fatalf("config dir: %q", h.ConfigDir())
@@ -134,6 +139,11 @@ func TestHomeAddsIdenticalContentAtSameTime(t *testing.T) {
 func TestHomeLongTermCRUDIsRevisionedAndTombstoned(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 
 	added, err := h.AddRecord(ctx, KindLongTerm, "first", nil)
 	if err != nil {
@@ -288,6 +298,11 @@ func TestHomeMemRulesDefaultThenFile(t *testing.T) {
 func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 
 	putSessionRecord(t, h, "session-checkpoint-a", "gui:active")
 	putSessionRecord(t, h, "session-checkpoint-b", "gui:stale")
@@ -336,6 +351,11 @@ func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
 func TestHomeListFiltersToVisibleLongTerm(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 
 	if _, err := h.AddRecord(ctx, KindLongTerm, "machine fact", nil); err != nil {
 		t.Fatalf("add: %v", err)
@@ -357,6 +377,11 @@ func TestHomeListFiltersToVisibleLongTerm(t *testing.T) {
 func TestHomeStartupIndexTracksAuthority(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 
 	pointer := memrulesPointer()
 	if got := h.StartupMarkdown(); got != pointer {
@@ -400,6 +425,11 @@ func TestHomeStartupIndexTracksAuthority(t *testing.T) {
 func TestHomeL1BudgetCapsIndexLines(t *testing.T) {
 	ctx := context.Background()
 	h := NewHomeWithL1Budget(t.TempDir(), 1)
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Errorf("close home: %v", err)
+		}
+	})
 	for _, content := range []string{"alpha", "beta"} {
 		if _, err := h.AddRecord(ctx, KindLongTerm, content, nil); err != nil {
 			t.Fatalf("add %q: %v", content, err)
