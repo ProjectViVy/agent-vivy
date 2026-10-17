@@ -30,13 +30,14 @@ func recapView(h cognitivecontract.RecapHead) *recapHeadView {
 }
 
 type recapOutcome struct {
-	Status       string           `json:"status"`
-	Head         *recapHeadView   `json:"head,omitempty"`
-	Revisions    []*recapHeadView `json:"revisions,omitempty"`
-	NextBefore   uint64           `json:"next_before,omitempty"`
-	Reason       string           `json:"reason,omitempty"`
-	Activation   string           `json:"activation"`
-	LoadedStatus string           `json:"loaded_status"`
+	Sources      *[]recapSourceView `json:"sources,omitempty"`
+	Status       string             `json:"status"`
+	Head         *recapHeadView     `json:"head,omitempty"`
+	Revisions    []*recapHeadView   `json:"revisions,omitempty"`
+	NextBefore   uint64             `json:"next_before,omitempty"`
+	Reason       string             `json:"reason,omitempty"`
+	Activation   string             `json:"activation"`
+	LoadedStatus string             `json:"loaded_status"`
 }
 type recapInput struct {
 	SessionID    string  `json:"session_id"`
@@ -183,6 +184,20 @@ func (d dispatch) invokeRecap(ctx context.Context, id string, raw json.RawMessag
 			if name == "sources" {
 				out.Status = "failed"
 				out.Reason = "recap_sources_unavailable"
+				control, controlErr := d.bundle.armed()
+				if reader, ok := control.(cognitivecontract.RecapSourcesPort); controlErr == nil && ok {
+					rid := domain.RunID("")
+					if tool != "" {
+						rid = tools.RunIDFromContext(ctx)
+					}
+					sources, sourceErr := reader.ReadRecapSources(ctx, domain.SessionID(in.SessionID), rid, tool, *in.Revision)
+					if sourceErr == nil {
+						views := recapSourceViews(sources)
+						out.Status, out.Reason, out.Sources = "listed", "", &views
+					} else if sourceErr.Error() == "recap_scope_denied" {
+						out.Reason = "recap_scope_denied"
+					}
+				}
 			} else {
 				out.Head = recapView(h)
 			}

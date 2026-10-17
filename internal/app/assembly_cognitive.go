@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -209,4 +210,15 @@ func (c *cognitiveControlPort) AuthorizeRecap(ctx context.Context, sid domain.Se
 		return cognitivecontract.RecapBinding{}, cognitivecontract.ErrUnarmed
 	}
 	return c.svc.AuthorizeRecap(ctx, sid, rid, name)
+}
+
+func (c *cognitiveControlPort) ReadRecapSources(ctx context.Context, sid domain.SessionID, rid domain.RunID, name string, revision uint64) ([]cognitivecontract.RecapSource, error) {
+	if c.svc == nil {
+		return nil, cognitivecontract.ErrUnarmed
+	}
+	sources, err := c.svc.ReadRecapSources(ctx, sid, rid, name, revision)
+	if errors.Is(err, storage.ErrSubjectBinding) || errors.Is(err, runtime.ErrPolicyDenied) {
+		return nil, fmt.Errorf("recap_scope_denied")
+	}
+	return sources, err
 }

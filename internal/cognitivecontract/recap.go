@@ -38,3 +38,31 @@ type RecapProvider interface{ Recap() RecapPort }
 type RecapManagementPort interface {
 	AuthorizeRecap(context.Context, domain.SessionID, domain.RunID, string) (RecapBinding, error)
 }
+
+// RecapSource is an authorized C2 original expansion. Native memory indexes
+// and Recap text are not transcript authorities. References are retained
+// destination-owned snapshots, not fresh reads from another session.
+type RecapSource struct {
+	InteractionID  string
+	SourceRevision uint64
+	SessionID      domain.SessionID
+	RunID          domain.RunID
+	SourceDigest   string
+	Outcome        domain.RunStatus
+	Messages       []domain.Message
+	Disposition    map[string]string
+	References     []domain.ContextReference
+	Corrections    []RecapSourceCorrection
+}
+type RecapSourceCorrection struct {
+	ViewSessionID  domain.SessionID `json:"view_session_id"`
+	Reason         string           `json:"reason"`
+	MessageIDs     []string         `json:"message_ids"`
+	ViewMessageIDs []string         `json:"view_message_ids"`
+}
+
+// RecapSourcesPort is optional and bound through the existing private runtime
+// cell. The reader revalidates the historical revision and current grants.
+type RecapSourcesPort interface {
+	ReadRecapSources(context.Context, domain.SessionID, domain.RunID, string, uint64) ([]RecapSource, error)
+}

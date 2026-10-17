@@ -99,6 +99,13 @@ describe('RecapWorkspace', () => {
   expect(container.querySelector('textarea')?.value).toBe('main only draft\n');
  });
 
+ it('renders certified originals, tool failure, attached snapshots and correction coordinates',async()=>{
+  await mount(async id=>id==='vivy.recap.sources'?{status:'listed',sources:[{interaction_id:'original-a',source_revision:3,messages:[{id:'tool-result',role:'tool',content:'unaltered original',tool_name:'read',tool_status:'failed',tool_arguments:'{"path":"old.txt"}',tool_error:'permission denied',attachments:[{name:'evidence.txt',mime_type:'text/plain',data_url:'data:text/plain;base64,eA=='}],file_contexts:[{name:'old.txt',path:'/past/old.txt',content:'immutable file snapshot'}]}],references:[{id:'ref-1',source_workspace:'saved workspace',items:[{author:'user',text:'exact copied reference'}]}],corrections:[{view_session_id:'rewound-view',reason:'rewind',message_ids:['tool-result'],view_message_ids:['view-tool']}]}]}:{status:'listed',head:HEAD});
+  await click('sources');
+  for(const text of ['unaltered original','permission denied','immutable file snapshot','exact copied reference','rewound-view','view-tool'])expect(container.textContent).toContain(text);
+  expect(container.querySelector('a[download="evidence.txt"]')?.getAttribute('href')).toBe('data:text/plain;base64,eA==');
+  expect(container.textContent).not.toContain(key('sourceUnavailable'));
+ });
  it('reports a pending source read as loading before its availability is known',async()=>{
   let finish:((value:unknown)=>void)|undefined;
   await mount(async id=>id==='vivy.recap.sources'?new Promise(resolve=>{finish=resolve}):{status:'listed',head:HEAD});

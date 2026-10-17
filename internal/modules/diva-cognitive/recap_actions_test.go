@@ -208,3 +208,67 @@ func TestIssue58RecapValidUnicodeRemainsExact(t *testing.T) {
 		t.Fatalf("valid UTF-8 changed: %s", result)
 	}
 }
+
+type recapSourceTestControl struct {
+	recapTestControl
+	calls       int
+	denySources bool
+}
+
+func (c *recapSourceTestControl) ReadRecapSources(_ context.Context, sid domain.SessionID, rid domain.RunID, name string, revision uint64) ([]cognitivecontract.RecapSource, error) {
+	c.calls++
+	if c.denySources {
+		return nil, errors.New("recap_scope_denied")
+	}
+	if sid != "main" || rid != "" || name != "" || revision != 1 {
+		return nil, errors.New("wrong source coordinates")
+	}
+	return []cognitivecontract.RecapSource{{InteractionID: "exact-original", SourceRevision: 1, Messages: []domain.Message{{ID: "result", Role: domain.RoleTool, Content: "preserved body", ToolError: "denied by owner"}}}}, nil
+}
+func TestIssue58RecapSourcesDispatcherAuthorization(t *testing.T) {
+	c := &recapSourceTestControl{recapTestControl: recapTestControl{binding: cognitivecontract.RecapBinding{SubjectID: "subject", DomainID: "personal"}}}
+	in := testFactoryInput(t)
+	in.ResolveRecapBinding = func(context.Context, string) (cognitivecontract.RecapBinding, error) { return c.binding, nil }
+	b, err := Open(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	if err = b.AttachRuntime(c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = recapPort(t, b).CommitRecap(context.Background(), cognitivecontract.RecapCommit{OperationID: "seed", Cause: "edit", Text: "head"}); err != nil {
+		t.Fatal(err)
+	}
+	invoke := func(sid string) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]any{"session_id": sid, "revision": 1})
+		result, err := b.(cognitivecontract.DispatcherProvider).Dispatcher().Invoke(context.Background(), "vivy.recap.sources", raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		if err = json.Unmarshal(result, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	good := invoke("main")
+	if good["status"] != "listed" || c.calls != 1 {
+		t.Fatalf("sources=%v calls=%d", good, c.calls)
+	}
+	sources := good["sources"].([]any)
+	message := sources[0].(map[string]any)["messages"].([]any)[0].(map[string]any)
+	if message["content"] != "preserved body" || message["tool_status"] != "failed" {
+		t.Fatalf("body lost: %v", message)
+	}
+	denied := invoke("ordinary")
+	if denied["reason"] != "recap_scope_denied" || denied["sources"] != nil || c.calls != 1 {
+		t.Fatalf("scope bypass=%v calls=%d", denied, c.calls)
+	}
+	c.denySources = true
+	denied = invoke("main")
+	if denied["reason"] != "recap_scope_denied" || denied["sources"] != nil {
+		t.Fatalf("revoked reader leaked=%v", denied)
+	}
+}

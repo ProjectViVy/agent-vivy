@@ -257,54 +257,9 @@ func (s *Service) populateRecapFold(ctx context.Context, f *recapFold) error {
 		}
 		f.input = append(f.input, feed...)
 	}
-	var correction []*schema.Message
-	for _, d := range f.CorrectionRefs {
-		metadata, _ := json.Marshal(d)
-		correction = append(correction, schema.SystemMessage("[Typed source-view correction references] "+string(metadata)))
-		for _, target := range d.Targets {
-			row := storage.SubjectInteraction{ID: target.InteractionID, Sequence: target.Sequence, SessionID: target.SourceSessionID, RunID: target.RunID, SourceDigest: target.SourceDigest}
-			originals, _, _, err := s.recapInteractionInput(ctx, f.Binding, row)
-			if err != nil {
-				return err
-			}
-			// Classification covers the entire source interaction first so a selected
-			// subset cannot recover an excluded derivative of a sibling tool result.
-			projected, notices, err := projectAutomaticRecapOriginals(originals)
-			if err != nil {
-				return err
-			}
-			selected := []domain.Message{}
-			for _, id := range target.MessageIDs {
-				found := false
-				for _, m := range originals {
-					if m.ID == id {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return storage.ErrSubjectEvidenceIncomplete
-				}
-				for _, m := range projected {
-					if m.ID == id {
-						selected = append(selected, m)
-						break
-					}
-				}
-			}
-			refs, err := s.sessionAttachedReferences(ctx, row.SessionID)
-			if err != nil {
-				return err
-			}
-			feed, err := s.recapCorrectionFragments(ctx, selected, refs)
-			if err != nil {
-				return err
-			}
-			correction = append(correction, feed...)
-			for _, notice := range notices {
-				correction = append(correction, schema.SystemMessage(notice))
-			}
-		}
+	correction, err := s.recapCorrectionInput(ctx, f.Binding, f.CorrectionRefs)
+	if err != nil {
+		return err
 	}
 	if err := validateRecapCorrectionReferences(f.CorrectionRefs, f.Snapshot); err != nil {
 		return err
@@ -593,4 +548,62 @@ func (s *Service) withRecapSummaryObserver(ctx context.Context, f *recapFold) (c
 		return &runModelCallObserver{svc: s, m: mapper, sessionID: f.Reader, ledger: ledger, source: modelCallSourceSummary, provider: provider, model: modelID, syntheticSessionControl: true, calls: map[string]*observedModelCall{}}
 	})
 	return ctx, nil
+}
+
+// recapCorrectionInput reproduces the recorded correction projection without a
+// model call. The same producer serves compaction and historical verification.
+func (s *Service) recapCorrectionInput(ctx context.Context, binding storage.SubjectHistoryBinding, references []storage.SubjectDisposition) ([]*schema.Message, error) {
+	if len(references) > 0 && s.engine == nil {
+		return nil, ErrRecapUnavailable
+	}
+	var correction []*schema.Message
+	for _, d := range references {
+		metadata, _ := json.Marshal(d)
+		correction = append(correction, schema.SystemMessage("[Typed source-view correction references] "+string(metadata)))
+		for _, target := range d.Targets {
+			row := storage.SubjectInteraction{ID: target.InteractionID, Sequence: target.Sequence, SessionID: target.SourceSessionID, RunID: target.RunID, SourceDigest: target.SourceDigest}
+			originals, _, _, err := s.recapInteractionInput(ctx, binding, row)
+			if err != nil {
+				return nil, err
+			}
+			// Classification covers the entire source interaction first so a selected
+			// subset cannot recover an excluded derivative of a sibling tool result.
+			projected, notices, err := projectAutomaticRecapOriginals(originals)
+			if err != nil {
+				return nil, err
+			}
+			selected := []domain.Message{}
+			for _, id := range target.MessageIDs {
+				found := false
+				for _, m := range originals {
+					if m.ID == id {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, storage.ErrSubjectEvidenceIncomplete
+				}
+				for _, m := range projected {
+					if m.ID == id {
+						selected = append(selected, m)
+						break
+					}
+				}
+			}
+			refs, err := s.sessionAttachedReferences(ctx, row.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			feed, err := s.recapCorrectionFragments(ctx, selected, refs)
+			if err != nil {
+				return nil, err
+			}
+			correction = append(correction, feed...)
+			for _, notice := range notices {
+				correction = append(correction, schema.SystemMessage(notice))
+			}
+		}
+	}
+	return correction, nil
 }
