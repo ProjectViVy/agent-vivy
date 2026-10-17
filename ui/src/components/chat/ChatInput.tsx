@@ -63,18 +63,33 @@ const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((
   reader.readAsDataURL(file);
 });
 
-// 思考模式选项：七级 effort 面 + auto/on/off 别名（VCP F1）；level 项直接显示原值。
-const THINKING_MODES: { value: ThinkingMode; icon: LucideIcon; label: string; filled?: boolean }[] = [
-  { value: 'auto', icon: Lightbulb, label: 'chatInput.thinkingModeAuto' },
-  { value: 'minimal', icon: Lightbulb, label: 'minimal' },
-  { value: 'low', icon: Lightbulb, label: 'low' },
-  { value: 'medium', icon: Lightbulb, label: 'medium' },
-  { value: 'high', icon: Lightbulb, label: 'high' },
-  { value: 'xhigh', icon: Lightbulb, label: 'xhigh' },
-  { value: 'max', icon: Lightbulb, label: 'max', filled: true },
-  { value: 'on', icon: Lightbulb, label: 'chatInput.thinkingModeOn', filled: true },
-  { value: 'off', icon: LightbulbOff, label: 'chatInput.thinkingModeOff' },
-];
+// 思考级别：七级 effort 面的升序（与后端 domain.ThinkingLevelOrder 同一口径）。
+const THINKING_LEVEL_ORDER: ThinkingMode[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+// 活跃模型声明的级别面（与 model/thinking/levels 同一投影）：声明了就用声明，
+// 支持思考但未声明时是七级全表；不支持时为空。菜单只提供其中的级别，所以按钮
+// 不会承诺一个运行路径会夹掉的级别。
+function declaredThinkingLevels(supported: boolean, declared: string[] | undefined): ThinkingMode[] {
+  if (!supported) return [];
+  if (!declared || declared.length === 0) return [...THINKING_LEVEL_ORDER];
+  const known = THINKING_LEVEL_ORDER.filter((level) => declared.includes(level));
+  const extra = declared.filter((level) => !THINKING_LEVEL_ORDER.includes(level as ThinkingMode)) as ThinkingMode[];
+  return [...known, ...extra];
+}
+
+// 强度着色：颜色即推理强度，只用现有主题变量（四套皮肤都成立）。
+// 不支持/跟随默认/auto/off → 中性灰；minimal..medium → 主色 60%；high → 主色；
+// xhigh/max/on → 主色 + 实心图标（最高档靠填充再区分一级）。
+function thinkingTint(mode: ThinkingMode | undefined, available: boolean): string {
+  if (!available || mode === undefined || mode === 'auto' || mode === 'off') return 'text-muted-foreground';
+  if (mode === 'high') return 'text-primary';
+  if (mode === 'xhigh' || mode === 'max' || mode === 'on') return 'text-primary';
+  return 'text-primary/60';
+}
+
+function thinkingFilled(mode: ThinkingMode | undefined): boolean {
+  return mode === 'xhigh' || mode === 'max' || mode === 'on';
+}
 
 // 权限模式选项（对照 Agent-DIVA ChatView.permissionOptions）
 const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string; desc: string }[] = [
@@ -93,7 +108,8 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const commands = useComposerCommands(value, setValue);
   const disabled = Boolean(inputDisabled || sending);
   const canSend = Boolean(value.trim() || commands.draft?.name === 'plan' || commands.draft?.skill || commands.draft?.goalRef);
-  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('auto');
+  // undefined = 未显式选择：该轮不下发 thinking，由内核用 settings.yaml 的默认偏好。
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode | undefined>(undefined);
   const [confirmTrusted, setConfirmTrusted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,7 +167,20 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     </div>
     <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
   </>;
-  const thinkingModeOption = THINKING_MODES.find((mode) => mode.value === thinkingMode)!;
+  // 思考控制：可用性来自后端能力（session/context.thinking_supported），回退预填
+  // 的排队项自带级别时仍可查看/调整；不支持时按钮置灰而不是消失。
+  const thinkingSupported = Boolean(context?.thinking_supported);
+  const thinkingAvailable = thinkingSupported || Boolean(restoredTurn);
+  const thinkingLevels = declaredThinkingLevels(thinkingSupported, context?.thinking_levels);
+  const thinkingOptions: { value: ThinkingMode | undefined; icon: LucideIcon; label: string }[] = [
+    { value: undefined, icon: Lightbulb, label: t('chatInput.thinkingModeDefault') },
+    { value: 'auto', icon: Lightbulb, label: t('chatInput.thinkingModeAuto') },
+    ...thinkingLevels.map((level) => ({ value: level, icon: Lightbulb, label: level })),
+    { value: 'on', icon: Lightbulb, label: t('chatInput.thinkingModeOn') },
+    { value: 'off', icon: LightbulbOff, label: t('chatInput.thinkingModeOff') },
+  ];
+  const ThinkingTriggerIcon = thinkingMode === 'off' ? LightbulbOff : Lightbulb;
+  const thinkingCurrentLabel = thinkingOptions.find((option) => option.value === thinkingMode)?.label ?? t('chatInput.thinkingModeDefault');
   const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
   const permissionLocked = Boolean(running) || permissionBusy || !activeSessionId;
 
@@ -177,7 +206,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     setRestoredTurn(draftPreset.turn);
     if (draftPreset.turn) restoreTurnContext(draftPreset.turn);
     setPending(draftPreset.turn?.attachments?.map((item) => ({ ...item })) ?? []);
-    if (draftPreset.turn) setThinkingMode((draftPreset.turn.thinking ?? 'auto') as ThinkingMode);
+    if (draftPreset.turn) setThinkingMode(draftPreset.turn.thinking as ThinkingMode | undefined);
     textareaRef.current?.focus();
   }, [draftPreset]);
 
@@ -228,7 +257,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       if (prepared) {
         const outgoing = pending.length ? pending : undefined;
         const mode = (restoredTurn?.mode ?? 'normal') as RunMode;
-        const args: [string, RunMode, AttachmentInput[] | undefined, ThinkingMode, QueuedTurn?] = [prepared.text, mode, outgoing, thinkingMode];
+        const args: [string, RunMode, AttachmentInput[] | undefined, ThinkingMode | undefined, QueuedTurn?] = [prepared.text, mode, outgoing, thinkingAvailable ? thinkingMode : undefined];
         if (restoredTurn) args.push(restoredTurn);
         if (running && !prepared.forceSend) {
           const handler = track === 'follow_up' ? onFollowUp : onSteer;
@@ -264,7 +293,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       setValue(typeof recalled === 'string' ? recalled : recalled.text);
       setRestoredTurn(turn);
       setPending(turn?.attachments?.map((item) => ({ ...item })) ?? []);
-      if (turn) setThinkingMode((turn.thinking ?? 'auto') as ThinkingMode);
+      if (turn) setThinkingMode(turn.thinking as ThinkingMode | undefined);
       textareaRef.current?.focus();
     }
   };
@@ -307,6 +336,22 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     void applyPermission(preset);
   };
 
+  // 思考入口：能力不支持时只是个置灰禁用按钮（不挂菜单，真实点击也打不开菜单），
+  // 但保留 title 说明原因；支持时才挂下拉。
+  const thinkingTrigger = (
+    <button
+      type="button"
+      disabled={!thinkingAvailable}
+      title={thinkingAvailable ? `${t('chatInput.thinkingMode')}：${thinkingCurrentLabel}` : t('chatInput.thinkingUnsupported')}
+      aria-label={t('chatInput.thinkingMode')}
+      className={cn('shrink-0 rounded-lg p-1.5 transition-colors', thinkingAvailable ? 'hover:bg-accent' : 'cursor-not-allowed opacity-50', thinkingTint(thinkingMode, thinkingAvailable))}
+    >
+      {thinkingFilled(thinkingMode)
+        ? <ThinkingTriggerIcon className="h-4 w-4" fill="currentColor" />
+        : <ThinkingTriggerIcon className="h-4 w-4" />}
+    </button>
+  );
+
   return <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:p-4 sm:pb-4"><div className="mx-auto relative max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
     {/* 顶部功能栏（内容与交互对照 Agent-DIVA chat-input-toolbar） */}
     <div className="flex items-center gap-1 overflow-x-auto px-3 pb-1 pt-2.5 text-muted-foreground">
@@ -328,34 +373,29 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         <option value="plan">{t('chatInput.planMode')}</option>
       </select> : null}
 
-      {/* 思考模式选择：D9 门控 — 仅当会话上下文报告活动模型支持思考时出现；
-          发送链始终携带当前偏好（默认 auto），由服务端最终裁决。 */}
-      {context?.thinking_supported || restoredTurn ? (
+      {/* 思考强度选择：按钮常驻在「智能」左侧，颜色即强度（不支持时置灰，
+          而不是整体隐藏）；菜单只列活跃模型声明的级别，发送链未显式选择时
+          不下发该字段，由内核用 settings.yaml 的默认偏好裁决。 */}
+      {thinkingAvailable ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.thinkingMode')} aria-label={t('chatInput.thinkingMode')}>
-              {thinkingModeOption.filled
-                ? <thinkingModeOption.icon className="h-4 w-4" fill="currentColor" />
-                : <thinkingModeOption.icon className="h-4 w-4" />}
-            </button>
-          </DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild>{thinkingTrigger}</DropdownMenuTrigger>
           <DropdownMenuContent side="bottom" align="start" className="min-w-36 p-1.5">
-            {THINKING_MODES.map((mode) => (
+            {thinkingOptions.map((mode) => (
               <DropdownMenuItem
-                key={mode.value}
+                key={mode.value ?? 'default'}
                 onSelect={() => setThinkingMode(mode.value)}
                 className={cn('gap-2', thinkingMode === mode.value && 'bg-accent text-accent-foreground')}
               >
-                {mode.filled
-                  ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
-                  : <mode.icon className="size-4 shrink-0" />}
+                {thinkingFilled(mode.value)
+                  ? <mode.icon className={cn('size-4 shrink-0', thinkingTint(mode.value, true))} fill="currentColor" />
+                  : <mode.icon className={cn('size-4 shrink-0', thinkingTint(mode.value, true))} />}
                 <span className="flex-1">{mode.label.startsWith('chatInput.') ? t(mode.label) : mode.label}</span>
                 {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : null}
+      ) : thinkingTrigger}
 
       {/* 权限模式选择 */}
       <DropdownMenu>
