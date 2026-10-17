@@ -29,7 +29,10 @@ func issue58WithoutMemory(a genassembly.RuntimeAssembly) genassembly.RuntimeAsse
 	a.Manifest.Tools = slices.DeleteFunc(slices.Clone(a.Manifest.Tools), func(id string) bool { return strings.HasPrefix(id, "memory_") })
 	a.ContextSources = slices.DeleteFunc(slices.Clone(a.ContextSources), func(p contextsource.Provider) bool { return p.ID() == memorymodule.ProviderID })
 	a.Manifest.ContextSources = slices.DeleteFunc(slices.Clone(a.Manifest.ContextSources), func(id string) bool { return id == memorymodule.ProviderID })
-	a.RunObservers = slices.DeleteFunc(slices.Clone(a.RunObservers), func(p observer.RunProvider) bool { return p.ID() == memorymodule.ProviderID })
+	if inventory, ok := any(&a).(interface{ RunObserverProviderSlots() any }); ok {
+		slots := inventory.RunObserverProviderSlots().(*[]observer.RunProvider)
+		*slots = slices.DeleteFunc(slices.Clone(*slots), func(p observer.RunProvider) bool { return p.ID() == memorymodule.ProviderID })
+	}
 	a.Manifest.RunObservers = slices.DeleteFunc(slices.Clone(a.Manifest.RunObservers), func(id string) bool { return id == memorymodule.ProviderID })
 	a.ActionSets = slices.DeleteFunc(slices.Clone(a.ActionSets), func(p controlaction.ProviderSet) bool { return p.ModuleID == memorymodule.ID })
 	a.Manifest.Actions = slices.DeleteFunc(slices.Clone(a.Manifest.Actions), func(id string) bool { return strings.HasPrefix(id, "vivy.memory.") })
