@@ -28,7 +28,7 @@ func (h *controlHandler) subscribeWork(ctx context.Context, peer *Peer, request 
 	if params.AfterSeq < 0 {
 		return nil, &Error{Code: InvalidParams, Message: "after_seq must be non-negative"}
 	}
-	sessionID, rpcErr := h.authorizeWorkSession(ctx, params.SessionID)
+	sessionID, rpcErr := h.resolveWorkSession(ctx, params.SessionID)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
