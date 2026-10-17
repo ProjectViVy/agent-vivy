@@ -9,3 +9,5 @@ Merge working tree: pnpm install --frozen-lockfile PASS; SDK stage-ui initially 
 Re-read CI 38829757533: backend and full UI pack both fail on optional RuntimeAssembly ContextSources/RunObservers accesses in assembly_memory.go; missing executable is downstream. Native Windows owners also failed; no new Windows result claimed.
 
 Full-clone SDK test: go test -json -p=1 ./sdk/internal -run '^TestV1PackAndInspectProveRecipeRemoval$' -count=1 -timeout=8m. RED 27.975s missing optional assembly fields, GREEN 23.432s after fix. Worktree attempts before relocation failed on VCS inspection and are not RED/GREEN code evidence.
+
+Recap client: pnpm --dir ui exec vitest run ../plugins/vivy-memory/ui/vivy-memory/src/recap-client.test.ts ../plugins/vivy-memory/ui/vivy-memory/src/recap.test.tsx — 14 PASS. Original browser: pnpm --dir ui exec playwright test --config ../.workspace/issue58-verification/playwright.config.ts — 1 PASS, real disposable backend, system /usr/bin/chromium. Config changes only browser executable and absolute fixture paths; original spec unchanged. Linux only. Logs archived in /workspace/issue58-handoff.

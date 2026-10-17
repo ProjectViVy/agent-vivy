@@ -25,9 +25,13 @@ export interface RecapOutcome {
  readonly loaded_status?: 'unavailable';
 }
 export class RecapClient {
- constructor(private readonly actions: MemoryActionTransport) {}
- static fromRPC(rpc: FaceClientRPC) { return new RecapClient(createModuleActionClient(rpc)); }
- invoke(action: 'read' | 'edit' | 'clear' | 'history' | 'revision' | 'restore' | 'sources', sessionId: string, input: Record<string, unknown> = {}): Promise<RecapOutcome> {
+ constructor(private readonly actions: MemoryActionTransport, private readonly bindSession?: (sessionId: string) => Promise<unknown>) {}
+ static fromRPC(rpc: FaceClientRPC) { return new RecapClient(createModuleActionClient(rpc), sessionId => rpc.call('session/get', {session_id: sessionId})); }
+ async invoke(action: 'read' | 'edit' | 'clear' | 'history' | 'revision' | 'restore' | 'sources', sessionId: string, input: Record<string, unknown> = {}): Promise<RecapOutcome> {
+  // activeSessionId can change before the peer's asynchronous session lookup
+  // completes. Bind on this same transport before every action, including after
+  // reconnect; a denied lookup must never fall through to a write.
+  await this.bindSession?.(sessionId);
   return this.actions.invoke({moduleId: 'vivy/diva-cognitive', actionId: `vivy.recap.${action}`, input: {...input, session_id: sessionId}});
  }
 }
