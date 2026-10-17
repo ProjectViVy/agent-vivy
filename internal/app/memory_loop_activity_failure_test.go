@@ -12,6 +12,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	"github.com/ProjectViVy/laputa/laputa/actmem"
 )
 
 func TestMemoryLoopActivityFailurePreservesSourceAndArchiveRetry(t *testing.T) {
@@ -78,13 +79,15 @@ func TestMemoryLoopActivityFailurePreservesSourceAndArchiveRetry(t *testing.T) {
 	if err == nil {
 		t.Fatal("public ACTMEM read reported success during actual native fault")
 	}
-	// Use the real Service with an explicit server-side deadline. A client
-	// RPC timeout alone cannot prove that the archive operation was cancelled.
+	// The native v3 policy probe rejects an unreadable owner before waiting for
+	// the legacy projection. Require its typed failure, not an RPC timeout or
+	// an arbitrary error; the source-retention and successful retry checks below
+	// still exercise the actual archive lifecycle.
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	err = f.app.service.DeleteSession(ctx, domain.SessionID(session))
 	cancel()
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("actual archive did not wait for failed native projection: %v", err)
+	if actmem.CodeOf(err) != "recap_unavailable" {
+		t.Fatalf("actual archive did not preserve the native owner failure: %v", err)
 	}
 	params, _ := json.Marshal(map[string]any{"session_id": session})
 	// The failed delete leaves producer admission sealed, so public history
