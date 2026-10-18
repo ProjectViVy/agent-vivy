@@ -734,6 +734,7 @@ refreshModels: '刷新模型列表',
       close: '关闭',
       drag: '拖动可移动',
       questionHint: '该问题需要在审批中心回答。',
+      otherSession: '来自其他会话：{{session}}',
     },
     status: {
       pending: '待处理',

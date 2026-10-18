@@ -134,4 +134,13 @@ describe('ApprovalQuickCard', () => {
     expect(button('Approve')).toBeUndefined();
     expect(button('Approval center')).toBeDefined();
   });
+
+  it('names the session when the pending review belongs to another one', async () => {
+    await render({ review: review({ session_id: 's2', session_title: 'Deploy script' }), activeSessionId: 's1' });
+    expect(container.textContent).toContain('From another session: Deploy script');
+    await render({ review: review({ session_id: 's2' }), activeSessionId: 's1' });
+    expect(container.textContent).toContain('From another session: s2');
+    await render({ review: review({ session_id: 's1', session_title: 'Mine' }), activeSessionId: 's1' });
+    expect(container.textContent).not.toContain('From another session');
+  });
 });

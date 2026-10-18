@@ -153,4 +153,16 @@ describe('composer thinking control', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend.mock.calls[0][3]).toBeUndefined();
   });
+  it('drops a picked level once the model no longer declares it, label and payload alike', async () => {
+    await render(sessionContext({ thinking_supported: true, thinking_levels: ['low', 'high', 'max'] }));
+    await openMenu();
+    await act(async () => menuItems().find((node) => node.textContent?.trim() === 'max')!.click());
+    expect(trigger().getAttribute('title')).toContain('max');
+
+    await render(sessionContext({ thinking_supported: true, thinking_levels: ['low', 'high'] }));
+    expect(trigger().getAttribute('title')).toContain('Follow default');
+    await sendMessage();
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][3]).toBeUndefined();
+  });
 });

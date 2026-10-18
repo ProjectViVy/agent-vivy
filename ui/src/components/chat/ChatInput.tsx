@@ -185,15 +185,22 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const thinkingSupported = Boolean(context?.thinking_supported);
   const thinkingAvailable = thinkingSupported || Boolean(restoredTurn);
   const thinkingLevels = declaredThinkingLevels(thinkingSupported, context?.thinking_levels);
+  // 回填的排队项自带的级别即使当前模型不声明也要显示出来：它随重发一并下发，
+  // 标签必须与下发内容一致。
+  const restoredLevel = restoredTurn?.thinking as ThinkingMode | undefined;
+  const extraLevels = restoredLevel && !['auto', 'on', 'off'].includes(restoredLevel) && !thinkingLevels.includes(restoredLevel as typeof thinkingLevels[number]) ? [restoredLevel] : [];
   const thinkingOptions: { value: ThinkingMode | undefined; icon: LucideIcon; label: string }[] = [
     { value: undefined, icon: Lightbulb, label: t('chatInput.thinkingModeDefault') },
     { value: 'auto', icon: Lightbulb, label: t('chatInput.thinkingModeAuto') },
-    ...thinkingLevels.map((level) => ({ value: level, icon: Lightbulb, label: level })),
+    ...[...thinkingLevels, ...extraLevels].map((level) => ({ value: level as ThinkingMode, icon: Lightbulb, label: level })),
     { value: 'on', icon: Lightbulb, label: t('chatInput.thinkingModeOn') },
     { value: 'off', icon: LightbulbOff, label: t('chatInput.thinkingModeOff') },
   ];
-  const ThinkingTriggerIcon = thinkingMode === 'off' ? LightbulbOff : Lightbulb;
-  const thinkingCurrentLabel = thinkingOptions.find((option) => option.value === thinkingMode)?.label ?? t('chatInput.thinkingModeDefault');
+  // 记住的级别可能已不在当前模型的可选项里（切换模型、回填排队项）。显示与下发
+  // 都只认可选项，保证标签写着“跟随默认”时实际也不下发任何级别。
+  const shownThinking = thinkingOptions.some((option) => option.value === thinkingMode) ? thinkingMode : undefined;
+  const ThinkingTriggerIcon = shownThinking === 'off' ? LightbulbOff : Lightbulb;
+  const thinkingCurrentLabel = thinkingOptions.find((option) => option.value === shownThinking)?.label ?? t('chatInput.thinkingModeDefault');
   const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
   const permissionLocked = Boolean(running) || permissionBusy || !activeSessionId;
 
@@ -270,7 +277,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       if (prepared) {
         const outgoing = pending.length ? pending : undefined;
         const mode = (restoredTurn?.mode ?? 'normal') as RunMode;
-        const args: [string, RunMode, AttachmentInput[] | undefined, ThinkingMode | undefined, QueuedTurn?] = [prepared.text, mode, outgoing, thinkingAvailable ? thinkingMode : undefined];
+        const args: [string, RunMode, AttachmentInput[] | undefined, ThinkingMode | undefined, QueuedTurn?] = [prepared.text, mode, outgoing, thinkingAvailable ? shownThinking : undefined];
         if (restoredTurn) args.push(restoredTurn);
         if (running && !prepared.forceSend) {
           const handler = track === 'follow_up' ? onFollowUp : onSteer;
@@ -358,9 +365,9 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       disabled={!thinkingAvailable}
       title={thinkingAvailable ? `${t('chatInput.thinkingMode')}：${thinkingCurrentLabel}` : t('chatInput.thinkingUnsupported')}
       aria-label={t('chatInput.thinkingMode')}
-      className={cn('shrink-0 rounded-lg p-1.5 transition-colors', thinkingAvailable ? 'hover:bg-accent' : 'cursor-not-allowed opacity-50', thinkingTint(thinkingMode, thinkingAvailable))}
+      className={cn('shrink-0 rounded-lg p-1.5 transition-colors', thinkingAvailable ? 'hover:bg-accent' : 'cursor-not-allowed opacity-50', thinkingTint(shownThinking, thinkingAvailable))}
     >
-      {thinkingFilled(thinkingMode)
+      {thinkingFilled(shownThinking)
         ? <ThinkingTriggerIcon className="h-4 w-4" fill="currentColor" />
         : <ThinkingTriggerIcon className="h-4 w-4" />}
     </button>
@@ -398,13 +405,13 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
               <DropdownMenuItem
                 key={mode.value ?? 'default'}
                 onSelect={() => setThinkingMode(mode.value)}
-                className={cn('gap-2', thinkingMode === mode.value && 'bg-accent text-accent-foreground')}
+                className={cn('gap-2', shownThinking === mode.value && 'bg-accent text-accent-foreground')}
               >
                 {thinkingFilled(mode.value)
                   ? <mode.icon className={cn('size-4 shrink-0', thinkingTint(mode.value, true))} fill="currentColor" />
                   : <mode.icon className={cn('size-4 shrink-0', thinkingTint(mode.value, true))} />}
                 <span className="flex-1">{mode.label.startsWith('chatInput.') ? t(mode.label) : mode.label}</span>
-                {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
+                {shownThinking === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -543,6 +550,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
     {reviewQuickOpen ? (
       <ApprovalQuickCard
         review={quickReview}
+        activeSessionId={activeSessionId}
         pendingCount={pendingReviewCount}
         busy={quickReview !== null && reviewBusyIds.includes(quickReview.id)}
         error={reviewsError}

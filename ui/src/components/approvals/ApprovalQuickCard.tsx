@@ -36,9 +36,11 @@ export function clampOffset(natural: NaturalRect, viewport: { width: number; hei
 
 /** One pending review with inline Approve/Deny, floating above the composer. */
 export function ApprovalQuickCard({
-  review, pendingCount, busy, error, offset, onOffsetChange, onRespond, onOpenCenter, onClose,
+  review, activeSessionId = null, pendingCount, busy, error, offset, onOffsetChange, onRespond, onOpenCenter, onClose,
 }: {
   review: ReviewItem | null;
+  /** The session the composer belongs to; a review from any other session is labelled. */
+  activeSessionId?: string | null;
   pendingCount: number;
   busy: boolean;
   error: string | null;
@@ -118,6 +120,7 @@ export function ApprovalQuickCard({
   const command = review === null ? '' : review.preview?.trim() || review.target || review.action || '';
   const risk = review?.risk_findings?.[0];
   const remaining = Math.max(0, pendingCount - 1);
+  const otherSession = review !== null && review.session_id !== activeSessionId ? review.session_title || review.session_id : null;
 
   return (
     <div
@@ -151,6 +154,7 @@ export function ApprovalQuickCard({
         </button>
       </div>
       <div className="space-y-2 px-3 py-2.5">
+        {otherSession ? <p className="truncate text-xs font-medium text-amber-600 dark:text-amber-400" title={otherSession}>{t('approvals.quick.otherSession', { session: otherSession })}</p> : null}
         {review === null ? (
           <p className="text-sm text-muted-foreground">{t('approvals.quick.empty')}</p>
         ) : review.kind === 'question' ? (

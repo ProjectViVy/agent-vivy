@@ -736,6 +736,7 @@ refreshModels: 'Refresh model list',
       close: 'Close',
       drag: 'Drag to move',
       questionHint: 'Answer this question in the approval center.',
+      otherSession: 'From another session: {{session}}',
     },
     status: {
       pending: 'Pending',
