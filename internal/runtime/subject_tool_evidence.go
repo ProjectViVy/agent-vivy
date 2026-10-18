@@ -209,8 +209,15 @@ func (c serviceToolOperationCoordinator) resolve(ctx context.Context, op domain.
 		}
 	}
 	if pin.ConversationID != "" {
-		if evidence.Failure != "" {
+		if op.Failure != "" {
+			// Hard failure: the exact original error stays the run's error.
 			return "", fmt.Errorf("%s", evidence.Failure)
+		}
+		if evidence.Failure != "" {
+			// A recoverable failure or refusal was converted into a model-visible
+			// result; evidence keeps the original error, the model sees the
+			// conversion, exactly as in an ordinary run.
+			return ref.Projection, nil
 		}
 		return untrustedToolResultHeader + evidence.Result, nil
 	}
