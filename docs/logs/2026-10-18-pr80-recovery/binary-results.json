@@ -1,0 +1,633 @@
+{
+  "started_at": "2026-10-18T04:13:38.374Z",
+  "finished_at": "2026-10-18T04:17:24.096Z",
+  "platform": "win32/x64",
+  "result": "PASS",
+  "model_requests": 9,
+  "raw_report_sha256": "05140c5a96945b121e63f63fb57b765edefbbcd312364e02ca19a530484cf86b",
+  "binaries": {
+    "old": {
+      "sha256": "52a6acb43c27d86cde23f42221ede4326436528ea7975e09c55590860ae26475",
+      "build_info": [
+        "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-historical.exe: go1.26.4",
+        "path\tagent-vivy/cmd/vivy",
+        "dep\tgithub.com/cloudwego/eino\tv0.9.13\th1:iD/ETS+lxnNp1VeNPqWVGPWdND6Dbf4LyINbLUlDRcM=",
+        "build\tvcs.revision=7b42b2920f72de6f37de8b9e4ff4bf6a110a762f",
+        "build\tvcs.modified=false"
+      ]
+    },
+    "candidate": {
+      "sha256": "e1bdb0972a49863f7e006877adafdfecf584cc2a292e08d66465019d21535c99",
+      "build_info": [
+        "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-candidate.exe: go1.26.4",
+        "path\tagent-vivy/cmd/vivy",
+        "dep\tgithub.com/cloudwego/eino\tv0.9.21\th1:kBAyAjsnPq5NDWjt0VdmP9HY/XVUHs05LoeqybudPRQ=",
+        "build\tvcs.revision=d10d9f50f54eb45c3485f09157e072c54fedfadc",
+        "build\tvcs.modified=false"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "mode": "upgrade",
+      "result": "PASS",
+      "restart_snapshot_identical": true,
+      "runs": [
+        {
+          "kind": "approval",
+          "session_id": "sess_8b4ab18458039a46",
+          "run_id": "run_94c789bc6f1b575f",
+          "run": {
+            "id": "run_94c789bc6f1b575f",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_c3c3d941a8df2c07",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_94c789bc6f1b575f",
+              "generation": 1,
+              "checksum": "d7c8d9fd585f342e43f99551f61ab3511a5ce9e34008875171ac85adeb2c513d"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled"
+            },
+            {
+              "seq": 9,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_5c8526bdd2f4598d",
+          "run_id": "run_da27f69c72708a4b",
+          "run": {
+            "id": "run_da27f69c72708a4b",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_17f20b30876e327c",
+              "status": "cancelled"
+            }
+          ],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_da27f69c72708a4b",
+              "generation": 1,
+              "checksum": "075421c0ed50cd8c1a0f44cb33674b63bba4ea55e97faf9630a5d85bae20962d"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_4d06aa9e7da46b3b",
+          "run_id": "run_6c64abd4af12dee2",
+          "run": {
+            "id": "run_6c64abd4af12dee2",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_6c64abd4af12dee2",
+              "generation": 1,
+              "checksum": "9e3dd85f2a28b2ab7bc01b31fe0278aeb4f06c6dc682bf73badab08832c92d12"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [
+            {
+              "kind": "plan.entered"
+            },
+            {
+              "kind": "plan.submitted"
+            },
+            {
+              "kind": "plan.review_suspended"
+            },
+            {
+              "kind": "plan.review_cancelled"
+            }
+          ],
+          "plan_review_status": "cancelled"
+        }
+      ]
+    },
+    {
+      "mode": "unsupported-direct-rollback",
+      "result": "PASS",
+      "restart_snapshot_identical": true,
+      "runs": [
+        {
+          "kind": "approval",
+          "session_id": "sess_b62590c906a1883b",
+          "run_id": "run_04d7e58754f96d89",
+          "run": {
+            "id": "run_04d7e58754f96d89",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_0be1e0384a415eae",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_04d7e58754f96d89",
+              "generation": 1,
+              "checksum": "fa5bbf2565b4a0b0579c76bc8da65ddd579ff40faf48670b65d4941e8040c805"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "The run was interrupted by a server restart and could not be recovered. Please try again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_165520686069331f",
+          "run_id": "run_0daf734aa19d24c1",
+          "run": {
+            "id": "run_0daf734aa19d24c1",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_abfa7e7b48aa8f69",
+              "status": "pending"
+            }
+          ],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_0daf734aa19d24c1",
+              "generation": 1,
+              "checksum": "c51e6b29fa466397853449f98728fc5e8490e11db946f0b225e674d5385b1250"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required"
+            },
+            {
+              "seq": 7,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "The run was interrupted by a server restart and could not be recovered. Please try again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_da2b5c5be2c719a4",
+          "run_id": "run_380572af49d948f2",
+          "run": {
+            "id": "run_380572af49d948f2",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_380572af49d948f2",
+              "generation": 1,
+              "checksum": "1c900b5009f0ca22d103563c44467c0ca25cbf024352f499d86514e97fa1a5e0"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": {
+                "cause_category": "internal_error",
+                "message": "The run was interrupted by a server restart and could not be recovered. Please try again.",
+                "outcome": "failed"
+              }
+            }
+          ],
+          "work_events": [
+            {
+              "kind": "plan.entered"
+            },
+            {
+              "kind": "plan.submitted"
+            },
+            {
+              "kind": "plan.review_suspended"
+            }
+          ],
+          "plan_review_status": "pending"
+        }
+      ]
+    },
+    {
+      "mode": "clean-before-rollback",
+      "result": "PASS",
+      "restart_snapshot_identical": true,
+      "runs": [
+        {
+          "kind": "approval",
+          "session_id": "sess_e8a2a6306612ad92",
+          "run_id": "run_a65de6f23b13e2f7",
+          "run": {
+            "id": "run_a65de6f23b13e2f7",
+            "status": "cancelled"
+          },
+          "approvals": [
+            {
+              "id": "apr_814cffa9c4a6fb69",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_a65de6f23b13e2f7",
+              "generation": 1,
+              "checksum": "bbb5244b1f48d7183f9282b09d0e3acee948c5690d026b4721d2fbcf802422f2"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled"
+            },
+            {
+              "seq": 9,
+              "type": "run.cancelled"
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_1518187f3bdff25a",
+          "run_id": "run_8b36c859b8917903",
+          "run": {
+            "id": "run_8b36c859b8917903",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_df04b0390efa4cd4",
+              "status": "cancelled"
+            }
+          ],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_8b36c859b8917903",
+              "generation": 1,
+              "checksum": "37b7fff8386f04d3f57b91f4c568109ef9fee8512be565e5b2bd035ceb069d9d"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled"
+            },
+            {
+              "seq": 8,
+              "type": "run.cancelled"
+            }
+          ],
+          "work_events": [],
+          "plan_review_status": "none"
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_b1a7823a030825c9",
+          "run_id": "run_a22bb63e37582c93",
+          "run": {
+            "id": "run_a22bb63e37582c93",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [],
+          "checkpoints": [
+            {
+              "id": "ckpt-run_a22bb63e37582c93",
+              "generation": 1,
+              "checksum": "2c593fedb5e1c0d2a1b42b32aa436e341274036abcaea78b82d9fe4733cb2386"
+            }
+          ],
+          "cleanup_intents": [],
+          "checkpoint_unchanged": true,
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started"
+            },
+            {
+              "seq": 2,
+              "type": "model.request"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated"
+            },
+            {
+              "seq": 6,
+              "type": "run.cancelled"
+            }
+          ],
+          "work_events": [
+            {
+              "kind": "plan.entered"
+            },
+            {
+              "kind": "plan.submitted"
+            },
+            {
+              "kind": "plan.review_suspended"
+            },
+            {
+              "kind": "plan.review_cancelled"
+            }
+          ],
+          "plan_review_status": "cancelled"
+        }
+      ]
+    }
+  ]
+}

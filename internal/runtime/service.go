@@ -1988,7 +1988,8 @@ func (s *Service) SweepExpired(ctx context.Context) error {
 // with a definitive run.failed. No run is left dangling, and the
 // journal's exactly-one-terminal guard keeps the close idempotent
 // (D-008). Called once at startup before the server listens; a listing
-// failure aborts startup, per-run failures only log.
+// failure or incomplete checkpoint cleanup aborts startup for retry;
+// other per-run failures retain their existing best-effort policy.
 func (s *Service) Recover(ctx context.Context) error {
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
@@ -2022,6 +2023,9 @@ func (s *Service) recover(ctx context.Context) error {
 		s.recoveredBudgetLedgers = nil
 		s.mu.Unlock()
 	}()
+	if err := s.recoverCheckpointCleanup(ctx); err != nil {
+		return err
+	}
 	runs, err := s.deps.Runs.ListActiveRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
@@ -2157,8 +2161,10 @@ func (s *Service) recover(ctx context.Context) error {
 				// generation/module restore can retry recovery; no model or tool is
 				// allowed to consume the opaque checkpoint in the meantime.
 				s.rebuildPending(ctx, run, approval, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", approval.ID, ""); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPending(ctx, run, approval, workspaceID)
 			}
@@ -2172,8 +2178,10 @@ func (s *Service) recover(ctx context.Context) error {
 				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
 			} else if blocked {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", "", question.ID); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
 			}
@@ -2182,8 +2190,10 @@ func (s *Service) recover(ctx context.Context) error {
 				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
 			} else if blocked {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "Plan review checkpoint not readable", "", ""); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
 			}
@@ -2468,16 +2478,43 @@ func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID dom
 // checkpointReadable mirrors the interrupt-time check: only a checkpoint
 // the versioned bridge can actually serve back may anchor a resume.
 func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bool {
+	return s.checkpointReadError(ctx, runID) == nil
+}
+
+// errCheckpointMissing reports a run with no stored checkpoint, or no
+// checkpoint store wired.
+var errCheckpointMissing = errors.New("runtime: checkpoint missing")
+
+// checkpointReadError is checkpointReadable with the cause kept, so recovery
+// can tell an engine upgrade or rollback from a lost checkpoint.
+func (s *Service) checkpointReadError(ctx context.Context, runID domain.RunID) error {
 	if s.engine.cfg.Checkpoints == nil {
-		return false
+		return errCheckpointMissing
 	}
 	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
 	if err != nil {
-		return false
+		return err
 	}
 	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
-	return err == nil && ok
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errCheckpointMissing
+	}
+	return nil
 }
+
+const (
+	// lostCheckpointReason is recorded on the interaction row recovery
+	// cancels when its run cannot be resumed.
+	lostCheckpointReason = "the paused run could not be resumed after restart"
+	// engineChangedMessage is the run.failed text when the checkpoint was
+	// written by a different Eino engine version (a Vivy upgrade or
+	// rollback across a paused run). Checkpoints are never converted across
+	// versions; the run is closed and the user starts it again.
+	engineChangedMessage = "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again."
+)
 
 // promptBlocksRecovery distinguishes a recoverable prompt incompatibility
 // from an unreadable Eino checkpoint. The former keeps the approval/question
@@ -3037,6 +3074,12 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 // failUnrecoverable closes one restart-orphaned run with a definitive
 // terminal event so no non-terminal row outlives the process (FR-8).
 func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
+	s.failUnrecoverableWithMessage(ctx, runID, reason, "The run was interrupted by a server restart and could not be recovered. Please try again.")
+}
+
+// failUnrecoverableWithMessage is failUnrecoverable with the user-facing
+// run.failed text chosen by the caller. Child runs keep their own message.
+func (s *Service) failUnrecoverableWithMessage(ctx context.Context, runID domain.RunID, reason, message string) {
 	m := newEventMapper(runID, 0)
 	if run, err := s.deps.Runs.GetRun(ctx, runID); err == nil && run.Kind == domain.RunKindChild {
 		if s.deps.Approvals != nil {
@@ -3057,7 +3100,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	}
 	s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 		CauseCategory: causeInternalError,
-		Message:       "The run was interrupted by a server restart and could not be recovered. Please try again.",
+		Message:       message,
 	}))
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
@@ -5230,7 +5273,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 // publish carries no frame itself — the bus closes its live subscribers
 // on a terminal publish, which sends RPC subscribers back to the journal
 // replay where the event is delivered exactly once (AS-7).
-func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
+func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) error {
 	terminal.RunID = m.runID
 	var cancelledQueue *sessionQueue
 	var cancelledMarkers []domain.RunEvent
@@ -5243,7 +5286,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			cancelledQueue, err = s.queueFor(context.WithoutCancel(ctx), sid)
 			if err != nil {
 				slog.Error("cancel queue replay failed", "err", err)
-				return
+				return err
 			}
 			cancelledQueue.mu.Lock()
 			defer func() {
@@ -5260,7 +5303,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if s.runSessionDeleted(terminal.RunID) && !s.runSessionClosing(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
 		s.projectionMu.Unlock()
-		return
+		return storage.ErrNotFound
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
@@ -5279,7 +5322,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			s.cleanupRunState(terminal.RunID)
 		}
 		s.projectionMu.Unlock()
-		return
+		return err
 	}
 	terminal.Seq = seq
 	if cancelledQueue != nil {
@@ -5296,7 +5339,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if mapped, ok := terminal.Type.RunStatus(); ok {
 		status = mapped
 	}
-	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
+	statusErr := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status)
+	if err := statusErr; err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
 	}
 	s.publish(persistCtx, terminal)
@@ -5363,6 +5407,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			s.drainFollowUps(runSession, terminal.RunID)
 		}
 	}
+	return statusErr
 }
 
 func (s *Service) cleanupRunState(runID domain.RunID) {
