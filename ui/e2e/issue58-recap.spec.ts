@@ -72,3 +72,24 @@ test('governed Recap keeps full drafts through conflicts, history, sources and c
  await expect(page.locator('input')).not.toHaveCount(0);
  expect(errors).toEqual([]);
 });
+
+test('historical sources survive removal of the derived BML record on the real split backend',async({page})=>{
+ test.skip(process.env.VIVY_ISSUE58_SPLIT_TEST!=='1','requires disposable actual backend');
+ await page.addInitScript(()=>{
+  localStorage.setItem('vivy.ui.welcome.completed','1');
+  localStorage.setItem('vivy.ui.activeSession','issue58-recap-main');
+ });
+ await page.goto('/memory');
+ await expect(page.getByTestId('recap-full-text')).toBeVisible();
+ const onboarding=page.getByRole('dialog',{name:'Persona onboarding'});
+ if(await onboarding.isVisible()) await onboarding.getByRole('button',{name:'Not now',exact:true}).click();
+ await page.getByRole('tab',{name:'History',exact:true}).click();
+ await page.locator('button[data-revision="2"]').click();
+ await page.getByRole('button',{name:'View covered sources',exact:true}).click();
+ const originals=page.getByTestId('recap-source-message');
+ await expect(originals).toHaveCount(1);
+ await expect(originals).toContainText('exact-browser-original '.repeat(1000).trim());
+ await originals.locator('summary').click();
+ await expect(originals).toContainText('immutable browser file snapshot');
+ await expect(page.locator('[data-reason="recap_sources_unavailable"]')).toHaveCount(0);
+});

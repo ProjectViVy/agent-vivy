@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +20,9 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/conformance"
+	gardenmemory "github.com/ProjectViVy/laputa/garden/memory"
+	"github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
 type issue58SplitMain struct{ source *storage.SubjectSourceBinding }
@@ -39,7 +45,13 @@ func TestIssue58RecapSplitFixture(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("VIVY_USER_HOME", root)
 	t.Setenv("VIVY_PROVIDER", "deepseek")
-	t.Setenv("VIVY_API_BASE", "http://127.0.0.1:1/v1")
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "fixture-summary", "object": "chat.completion", "model": "deepseek-flash", "choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "完整的测试回顾\n\n第二段保持原样。\n"}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	t.Setenv("VIVY_API_BASE", model.URL)
+	t.Setenv("VIVY_MODEL", "deepseek-flash")
 	t.Setenv("DEEPSEEK_API_KEY", "issue58-synthetic-loopback-key")
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
@@ -54,7 +66,14 @@ func TestIssue58RecapSplitFixture(t *testing.T) {
 	cfg.Runtime.Cron.Enabled = false
 	cfg.Server.Addr = "127.0.0.1:8787"
 	main := &issue58SplitMain{}
-	app, err := NewWithAssembly(context.Background(), cfg, genassembly.BuildDefault(), WithoutEars(), WithMainConversationResolver(main), WithInstructionRoot(cfg.Runtime.WorkspaceRoot))
+	var contribution *storage.SubjectSourceBinding
+	resolveSource := func(_ context.Context, sid domain.SessionID) (*storage.SubjectSourceBinding, error) {
+		if contribution != nil && sid == contribution.SessionID {
+			return contribution, nil
+		}
+		return nil, nil
+	}
+	app, err := NewWithAssembly(context.Background(), cfg, genassembly.BuildDefault(), WithoutEars(), WithMainConversationResolver(main), WithSubjectSources(resolveSource), WithInstructionRoot(cfg.Runtime.WorkspaceRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +96,63 @@ func TestIssue58RecapSplitFixture(t *testing.T) {
 	}
 	if _, err = owner.CommitRecap(context.Background(), cognitivecontract.RecapCommit{OperationID: "fixture-seed", Cause: "edit", Text: "完整的测试回顾\n\n第二段保持原样。\n"}); err != nil {
 		t.Fatal(err)
+	}
+	// Seed authorized contribution originals, then tombstone a real native BML
+	// derived record and compact through the actual runtime.
+	// Source navigation must still use retained core originals and file snapshots.
+	contributor := conformance.Issue58Source("issue58-browser-contributor", false)
+	contributor.SubjectHistoryBinding = main.source.SubjectHistoryBinding
+	contribution = &contributor
+	if err = app.backend.CreateSession(context.Background(), domain.Session{ID: contributor.SessionID, Title: "Historical contribution", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		admission := conformance.Issue58Admission(contributor, fmt.Sprintf("browser-source-%d", i))
+		admission.Run.CreatedAt = int64(i + 1)
+		admission.Message.CreatedAt = int64(i + 1)
+		admission.Message.Content = strings.Repeat("exact-browser-original ", 1000)
+		if i == 1 {
+			admission.Message.Content = "latest browser tail"
+		}
+		admission.Message.FileContexts = []domain.FileContext{{Name: "historical.txt", Path: "past/historical.txt", Size: int64(len("immutable browser file snapshot")), Content: []byte("immutable browser file snapshot")}}
+		if _, err = app.backend.(storage.RunAdmissionStore).CommitRunAdmission(context.Background(), admission); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = app.backend.Append(context.Background(), storage.Commit{RunID: admission.Run.ID, Events: []domain.RunEvent{{RunID: admission.Run.ID, Type: domain.EventRunCompleted, PayloadVersion: 1, Payload: []byte(`{"outcome":"completed"}`)}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err = app.backend.SetRunStatus(context.Background(), admission.Run.ID, domain.RunCompleted); err != nil {
+			t.Fatal(err)
+		}
+
+	}
+	selected := app.cognitive.(cognitivecontract.SubjectMemoryProvider).SubjectMemory()
+	scope := evolution.Scope{SubjectID: head.Binding.SubjectID, Kind: evolution.ScopePersonal}
+	if err = app.service.RepairSubjectHistory(context.Background(), contributor.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := app.service.SubjectRecent(context.Background(), session, 0, 2, 10)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("fixture core originals: %+v %v", rows, err)
+	}
+	if _, err = selected.Mutate(context.Background(), gardenmemory.AuthorizedMutation{Scope: scope, DestinationID: "bml", OperationID: "browser-derived-create", PayloadDigest: "browser-derived-create", Operation: evolution.MutationCreate, RecordID: "browser-derived", ExpectedAbsent: true, Body: "exact-browser-original derived excerpt", Sources: []evolution.SourceRef{{SourceID: "vivy.core.c2", RecordID: rows[0].ID, Revision: rows[0].Sequence, Scope: scope}}, Inference: evolution.InferenceObserved}); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := selected.Search(context.Background(), gardenmemory.AuthorizedSearch{Scopes: []evolution.Scope{scope}, Query: "exact-browser-original", Limit: 10})
+	if err != nil || len(cards.Items) != 1 {
+		t.Fatalf("fixture native projection absent: %+v %v", cards, err)
+	}
+	for _, card := range cards.Items {
+		if _, err = selected.Mutate(context.Background(), gardenmemory.AuthorizedMutation{Scope: scope, DestinationID: "bml", OperationID: "browser-remove-derived", PayloadDigest: "browser-remove-derived", Operation: evolution.MutationTombstone, RecordID: card.ID, ExpectedRevision: uint64(card.Revision), Inference: evolution.InferenceObserved}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = app.service.CompactSession(context.Background(), session, runtime.CompactOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	sourceHead, err := owner.ReadRecap(context.Background())
+	if err != nil || sourceHead.Revision != 2 || sourceHead.CoveredThrough != 1 {
+		t.Fatalf("fixture certified source missing: %+v %v", sourceHead, err)
 	}
 	duration := 300 * time.Second
 	if seconds, parseErr := strconv.Atoi(os.Getenv("VIVY_ISSUE58_SPLIT_SECONDS")); parseErr == nil && seconds >= 10 && seconds <= 900 {

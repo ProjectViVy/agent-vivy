@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ProjectViVy/laputa/laputa/actmem"
+	"os"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -456,6 +458,36 @@ func TestIssue58CompactionCrashCuts(t *testing.T) {
 				}
 				// Existing lifecycle closes the old backend and owner before either is renewed.
 				f.reopen(t, false)
+				if goruntime.GOOS == "windows" && !zero && cut == "before-commit" {
+					// With no positive durable head, Windows cannot prove that an
+					// absent canonical path means the attempted replace never ran.
+					// Retain the original pending operation instead of guessing.
+					before, found, readErr := f.b.Blobs().Get(ctx, keys[0])
+					if readErr != nil || !found {
+						t.Fatal("pending operation absent after reopen")
+					}
+					for attempt := 0; attempt < 2; attempt++ {
+						if _, retryErr := f.svc.CompactSession(ctx, "main-reader", CompactOptions{}); !errors.Is(retryErr, ErrRecapCommitPending) {
+							t.Fatalf("absence manufactured a negative receipt: %v", retryErr)
+						}
+						after, found, readErr := f.b.Blobs().Get(ctx, keys[0])
+						if readErr != nil || !found || string(after) != string(before) {
+							t.Fatal("uncertain retry changed pending operation")
+						}
+					}
+					head, readErr := f.owner.ReadRecap(ctx)
+					if readErr != nil || head.Revision != 0 || head.CoveredThrough != 0 || len(f.capture()) != 1 {
+						t.Fatalf("uncertain retry changed head/model calls: %+v %v", head, readErr)
+					}
+					if _, statErr := os.Stat(f.owner.store.HeadPath()); !errors.Is(statErr, os.ErrNotExist) {
+						t.Fatalf("uncertain attempt materialized a head: %v", statErr)
+					}
+					retained, readErr := f.b.ReadSubjectInteraction(ctx, conformanceBinding(), row.ID)
+					if readErr != nil || !reflect.DeepEqual(retained, originals) {
+						t.Fatal("uncertain retry changed originals")
+					}
+					return
+				}
 				if _, err = f.svc.CompactSession(ctx, "main-reader", CompactOptions{}); err != nil {
 					t.Fatalf("renewed bound port could not resolve exact pending request %v", err)
 				}
