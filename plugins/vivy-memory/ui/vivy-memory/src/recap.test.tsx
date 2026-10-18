@@ -24,6 +24,12 @@ describe('RecapWorkspace', () => {
   expect(container.textContent).toContain('7');expect(container.textContent).toContain('31');expect(container.textContent).toContain(key('cause.reconcile'));
   expect(container.textContent).toContain(key('nextRun'));expect(container.textContent).toContain(key('loadedUnavailable'));
  });
+ it('shows the admitted model revision independently from a newer saved head',async()=>{
+  await mount(async()=>({status:'listed',head:HEAD,loaded_status:'loaded',loaded:{status:'loaded',run_id:'current-model-run',revision:4,invalidation_epoch:1}}));
+  expect(container.textContent).toContain(`${key('loadedRevision')} 4 · current-model-run`);
+  expect(container.querySelector('[data-testid="recap-full-text"]')?.textContent).toBe(HEAD.text);
+  expect(container.textContent).not.toContain(key('loadedUnavailable'));
+ });
  it('retains a dirty draft and original base across background refresh, failed save and cancel',async()=>{
   let head=HEAD;const writes:Record<string,unknown>[]=[];
   await mount(async(id,input)=>{if(id==='vivy.recap.edit'){writes.push(input);throw new Error('connection lost')};return {status:'listed',head}});

@@ -36,6 +36,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
  const copy = (key: string) => t(prefix + key);
  const [tab, setTab] = useState<Tab>('active');
  const [head, setHead] = useState<RecapHead | null>(null);
+ const [loaded, setLoaded] = useState<RecapOutcome['loaded']>();
  const [draft, setDraft] = useState<Draft | null>(() => session ? drafts.get(session) ?? null : null);
  const [editing, setEditing] = useState(false);
  const [conflict, setConflict] = useState<RecapHead | null>(null);
@@ -71,9 +72,10 @@ function RecapEditor({ host, client, session, t, drafts }: {
   try {
    const outcome = await client.invoke('read', session);
    if (!mounted.current || seq !== request.current) return;
+   setLoaded(outcome.loaded_status === 'loaded' ? outcome.loaded : undefined);
    if (outcome.status !== 'listed' || !outcome.head) { setError(outcome.reason ?? outcome.status); setHead(null); return; }
    acceptHead(outcome.head); setError(null);
-  } catch (cause) { if (mounted.current && seq === request.current) setError(message(cause)); }
+  } catch (cause) { if (mounted.current && seq === request.current) { setError(message(cause)); setLoaded(undefined); } }
   finally { if (mounted.current && seq === request.current) setLoading(false); }
  }, [client, session, acceptHead]);
  useEffect(() => {
@@ -176,7 +178,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
     {!session && <p role="status">{copy('unavailableSession')}</p>}
     {head && <Card><CardContent className="space-y-4 pt-5">
      {metadata(head)}
-     <p className="text-sm text-muted-foreground">{copy('nextRun')} · {copy('loadedUnavailable')} · {copy('consolidationUnavailable')}</p>
+     <p className="text-sm text-muted-foreground">{copy('nextRun')} · {loaded ? `${copy('loadedRevision')} ${loaded.revision} · ${loaded.run_id}` : copy('loadedUnavailable')} · {copy('consolidationUnavailable')}</p>
      {editing && draft ? <>
       <label className="block text-sm" htmlFor="recap-draft">{copy('draft')} · {copy('revision')} {draft.base}</label>
       <Textarea id="recap-draft" className="min-h-80 font-mono whitespace-pre-wrap" value={draft.text} onChange={event => { changeDraft({ text: event.target.value, base: draft.base }); intent.current = null; }} disabled={busy} />

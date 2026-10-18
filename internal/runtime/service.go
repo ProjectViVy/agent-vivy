@@ -323,7 +323,8 @@ type Service struct {
 	recoveredBudgetLedgers map[domain.RunID]*BudgetLedger
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
-	snapshots map[domain.RunID]domain.PolicySnapshot
+	snapshots    map[domain.RunID]domain.PolicySnapshot
+	loadedRecaps map[domain.RunID]recapAdmission
 	// queues holds per-session dual-track turn queues (VCP-B1).
 	queues map[domain.SessionID]*sessionQueue
 	// toolActivations caches each session's deferred-tool activation set
@@ -2422,6 +2423,7 @@ func (s *Service) RegisterWorkerProcess(ctx context.Context, runID domain.RunID,
 func (s *Service) UnregisterWorkerAuthority(runID domain.RunID) {
 	s.mu.Lock()
 	delete(s.snapshots, runID)
+	delete(s.loadedRecaps, runID)
 	delete(s.ledgers, runID)
 	delete(s.runTools, runID)
 	s.mu.Unlock()
@@ -3436,6 +3438,9 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	}
 	if !o.persistModelEvent(ctx, event) {
 		return meta, errors.New("runtime: model request event could not be journaled")
+	}
+	if o.source == "main" && !o.syntheticSessionControl {
+		o.svc.noteLoadedRecap(o.m.runID, in)
 	}
 	if o.source != modelCallSourceMaintenance && !o.synchronousSummary {
 		o.m.noteObservedCallStart()
@@ -5468,6 +5473,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	}
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
+	delete(s.loadedRecaps, terminal.RunID)
 	delete(s.runTools, terminal.RunID)
 	delete(s.workFenced, terminal.RunID)
 	delete(s.workBlockedCalls, terminal.RunID)
@@ -5528,6 +5534,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.ledgers, runID)
 	delete(s.snapshots, runID)
+	delete(s.loadedRecaps, runID)
 	delete(s.runTools, runID)
 	delete(s.workFenced, runID)
 	delete(s.workBlockedCalls, runID)

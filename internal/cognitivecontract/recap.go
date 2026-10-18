@@ -66,3 +66,15 @@ type RecapSourceCorrection struct {
 type RecapSourcesPort interface {
 	ReadRecapSources(context.Context, domain.SessionID, domain.RunID, string, uint64) ([]RecapSource, error)
 }
+
+// RecapLoaded is an observation of a model request admitted in this process,
+// never an inference from the newest owner revision.
+type RecapLoaded struct {
+	Status            string       `json:"status"`
+	RunID             domain.RunID `json:"run_id,omitempty"`
+	Revision          uint64       `json:"revision"`
+	InvalidationEpoch uint64       `json:"invalidation_epoch"`
+}
+type RecapLoadedPort interface {
+	ReadRecapLoaded(context.Context, domain.SessionID) (RecapLoaded, error)
+}

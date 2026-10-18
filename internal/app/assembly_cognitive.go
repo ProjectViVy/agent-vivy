@@ -222,3 +222,10 @@ func (c *cognitiveControlPort) ReadRecapSources(ctx context.Context, sid domain.
 	}
 	return sources, err
 }
+
+func (c *cognitiveControlPort) ReadRecapLoaded(ctx context.Context, sid domain.SessionID) (cognitivecontract.RecapLoaded, error) {
+	if c.svc == nil {
+		return cognitivecontract.RecapLoaded{Status: "unavailable"}, cognitivecontract.ErrUnarmed
+	}
+	return c.svc.ReadRecapLoaded(ctx, sid)
+}

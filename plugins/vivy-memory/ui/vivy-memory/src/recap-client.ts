@@ -31,7 +31,8 @@ export interface RecapOutcome {
  readonly sources?: readonly RecapSource[];
  readonly reason?: string;
  readonly activation?: 'next_run' | 'next_safe_boundary';
- readonly loaded_status?: 'unavailable';
+ readonly loaded_status?: 'unavailable' | 'loaded';
+ readonly loaded?: { readonly status: 'loaded'; readonly run_id: string; readonly revision: number; readonly invalidation_epoch: number };
 }
 export class RecapClient {
  constructor(private readonly actions: MemoryActionTransport, private readonly bindSession?: (sessionId: string) => Promise<unknown>) {}

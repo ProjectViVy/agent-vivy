@@ -30,14 +30,15 @@ func recapView(h cognitivecontract.RecapHead) *recapHeadView {
 }
 
 type recapOutcome struct {
-	Sources      *[]recapSourceView `json:"sources,omitempty"`
-	Status       string             `json:"status"`
-	Head         *recapHeadView     `json:"head,omitempty"`
-	Revisions    []*recapHeadView   `json:"revisions,omitempty"`
-	NextBefore   uint64             `json:"next_before,omitempty"`
-	Reason       string             `json:"reason,omitempty"`
-	Activation   string             `json:"activation"`
-	LoadedStatus string             `json:"loaded_status"`
+	Loaded       *cognitivecontract.RecapLoaded `json:"loaded,omitempty"`
+	Sources      *[]recapSourceView             `json:"sources,omitempty"`
+	Status       string                         `json:"status"`
+	Head         *recapHeadView                 `json:"head,omitempty"`
+	Revisions    []*recapHeadView               `json:"revisions,omitempty"`
+	NextBefore   uint64                         `json:"next_before,omitempty"`
+	Reason       string                         `json:"reason,omitempty"`
+	Activation   string                         `json:"activation"`
+	LoadedStatus string                         `json:"loaded_status"`
 }
 type recapInput struct {
 	SessionID    string  `json:"session_id"`
@@ -235,6 +236,16 @@ func (d dispatch) invokeRecap(ctx context.Context, id string, raw json.RawMessag
 	}
 	if err != nil {
 		out = recapFailure(err)
+	}
+	if out.Status != "failed" {
+		control, controlErr := d.bundle.armed()
+		if reader, ok := control.(cognitivecontract.RecapLoadedPort); controlErr == nil && ok {
+			loaded, loadedErr := reader.ReadRecapLoaded(ctx, domain.SessionID(in.SessionID))
+			if loadedErr == nil && loaded.Status == "loaded" {
+				out.Loaded = &loaded
+				out.LoadedStatus = loaded.Status
+			}
+		}
 	}
 	return json.Marshal(out)
 }
