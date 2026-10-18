@@ -7,14 +7,21 @@ import { defineConfig } from '@playwright/test';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
 const workdir = fs.mkdtempSync(path.join(tmpdir(), 'vivy-toolkits-e2e-runtime-'));
-const backend = '127.0.0.1:18787';
-const ui = '127.0.0.1:3015';
+const backendPort = portFromEnv('VIVY_TOOLKITS_E2E_BACKEND_PORT', 18787);
+const uiPort = portFromEnv('VIVY_TOOLKITS_E2E_UI_PORT', 3015);
+if (backendPort === uiPort) {
+  throw new Error('Toolkit E2E backend and UI ports must differ; set VIVY_TOOLKITS_E2E_BACKEND_PORT and VIVY_TOOLKITS_E2E_UI_PORT.');
+}
+const backend = `127.0.0.1:${backendPort}`;
+const ui = `127.0.0.1:${uiPort}`;
 const externalBackend = process.env.VIVY_TOOLKITS_E2E_EXTERNAL_BACKEND === '1';
+const binaryName = process.platform === 'win32' ? 'vivy.exe' : 'vivy';
 const binary = process.env.VIVY_TOOLKITS_E2E_BINARY ||
-  path.join(repoRoot, '.workspace', 'toolkits-e2e', 'default', 'vivy');
+  path.join(repoRoot, '.workspace', 'toolkits-e2e', 'gate', 'default', binaryName);
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 if (!fs.existsSync(binary)) {
-  throw new Error(`Toolkit E2E needs a packed Vivy binary at ${binary}; set VIVY_TOOLKITS_E2E_BINARY after running SDK pack.`);
+  throw new Error(`Toolkit E2E needs a packed Vivy binary at ${binary}; run \`node scripts/toolkits-e2e.mjs\` (just toolkits-e2e) or set VIVY_TOOLKITS_E2E_BINARY after an explicit SDK pack.`);
 }
 
 // Every config evaluation gets a fresh root, so parallel Playwright workers
@@ -63,12 +70,12 @@ export default defineConfig({
       timeout: 120_000,
     }] : []),
     {
-      command: 'pnpm dev',
+      command: `${pnpm} dev`,
       cwd: here,
       url: `http://${ui}`,
       env: {
         ...process.env,
-        GOFLAGS: '-tags=http2legacy',
+        VIVY_UI_PORT: String(uiPort),
         VIVY_BACKEND_ADDR: `http://${backend}`,
       },
       reuseExistingServer: externalBackend,
@@ -76,3 +83,16 @@ export default defineConfig({
     },
   ],
 });
+
+function portFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${name} must be an integer between 1 and 65535, got ${JSON.stringify(raw)}.`);
+  }
+  const port = Number(raw);
+  if (port < 1 || port > 65535) {
+    throw new Error(`${name} must be between 1 and 65535, got ${port}.`);
+  }
+  return port;
+}
