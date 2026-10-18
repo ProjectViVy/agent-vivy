@@ -206,9 +206,9 @@ B2 before treating this as an endorsement.
 | **B3** · *ACCEPTED by owner 2026-10-18: rely on `store` (API default)* | Streamed Responses reasoning cannot be replayed statelessly (`encrypted_content` dropped, `agenticopenai v0.2.4 responses_event_convertor.go:595-606`) | T2 C6, T3 A3 | Either the owner accepts `store` = server default (OpenAI retains responses), or an upstream fix maps `item.EncryptedContent` on the streaming `output_item.done` path. No Vivy workaround (D9) | Owner decision / upstream |
 | **B4** · *ACCEPTED by owner 2026-10-18 as pre-existing; stays a reported bug, not fixed* | Truncated stream is reported as success on every adapter, current and agentic | T3 A5 | Pre-existing defect, tracked as `STREAM-TRUNCATION-SILENT-SUCCESS` (`docs/TODO.md` §0.1). The owner may accept it as "no regression" for this program; the fix (upstream terminal-event check, or a domain-level finish-reason check) is decided on that row | Outside the program |
 | **B5** | Claude `TotalTokens` wrong when `message_delta` carries output tokens only | T2 C8, T3 A4 | Vivy's usage projection derives total = prompt + completion (domain projection, not a codec), plus a P2 test; optionally confirm the live wire form with authorized credentials | Yes (P2) |
-| **B6** | Claude caching semantics change (`AutoCacheControl` breakpoints → top-level `cache_control`) | T2 C12 (added) | P4 cache-read check on a two-turn run with an authorized key; owner accepts the measured behavior | Yes (P4) |
+| **B6** · *handed to the upstream maintainer (needs real keys)* | Claude caching semantics change (`AutoCacheControl` breakpoints → top-level `cache_control`) | T2 C12 (added) | P4 cache-read check on a two-turn run with an authorized key; owner accepts the measured behavior | Yes (P4) |
 
-| **B7** | Chat-completions user `content` is always an array of parts on the agentic component, a plain string today (S2 §9.3.7, R21). Unknown which of the 45 compatible vendors reject it | T2 C1 (vendor reach) | An authorized live check on DeepSeek and each compatible vendor family, or an upstream change that collapses a single text part to a string (as the library already does for tool results). No Vivy codec (D9) | Needs credentials + owner approval; upstream |
+| **B7** · *handed to the upstream maintainer (needs real keys)* | Chat-completions user `content` is always an array of parts on the agentic component, a plain string today (S2 §9.3.7, R21). Unknown which of the 45 compatible vendors reject it | T2 C1 (vendor reach) | An authorized live check on DeepSeek and each compatible vendor family, or an upstream change that collapses a single text part to a string (as the library already does for tool results). No Vivy codec (D9) | Needs credentials + owner approval; upstream |
 
 ### 8.4 Shape
 
@@ -277,7 +277,7 @@ product acceptance. Each phase lands with `just ci`, its own gate and its own
 
 | Role | Name | Date | Decision |
 |---|---|---|---|
-| Owner | songbai-vv | 2026-10-18 | `GO-CONDITIONAL` — migration scheduled behind B5 (P2 work), B6 and B7 |
+| Owner | songbai-vv | 2026-10-18 | `GO-CONDITIONAL` — migration scheduled behind B5 (P2 work), B6 and B7; the B6/B7 live-key checks are left to the upstream maintainer |
 
 Signed by the owner in the 2026-10-18 session; the record was prepared by an
 agent. Per §6, no agent may close a remaining blocker without the evidence that
