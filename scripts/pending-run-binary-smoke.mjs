@@ -182,6 +182,7 @@ try {
     let process = await start(mode === 'upgrade' ? oldBinary : newBinary, fixture);
     const pauses = await seed(process, fixture);
     const before = snapshot(fixture, pauses);
+    const requestsAtPause = modelRequests;
     if (mode === 'clean-before-rollback') {
       for (const pause of pauses) await process.rpc('run/cancel', { run_id: pause.run_id });
       await eventually(async () => (await Promise.all(pauses.map((pause) => process.rpc('run/get', { run_id: pause.run_id })))).every((run) => run.status === 'cancelled'), 'same-version cleanup did not settle');
@@ -190,6 +191,7 @@ try {
       await kill(process);
       process = await start(newBinary, fixture);
       assert.deepEqual(snapshot(fixture, pauses), cleaned, 'same-version restart changed pre-rollback cleanup');
+      assert.equal(modelRequests, requestsAtPause, 'pre-rollback cleanup or restart called the model');
       assert.equal(rows(fixture.db, "SELECT id FROM runs WHERE status IN ('active','accepted')").length, 0, 'active runs remain before historical rollback');
       assert.equal(rows(fixture.db, "SELECT id FROM approvals WHERE decision='pending'").length, 0);
       assert.equal(rows(fixture.db, "SELECT id FROM questions WHERE status='pending'").length, 0);
@@ -197,6 +199,7 @@ try {
     await kill(process);
     process = await start(mode === 'upgrade' ? newBinary : oldBinary, fixture);
     const after = snapshot(fixture, pauses);
+    assert.equal(modelRequests, requestsAtPause, 'first recovery called the model');
     for (let i = 0; i < pauses.length; i++) assert.deepEqual(after[i].checkpoints, before[i].checkpoints, 'checkpoint bytes/pointer changed across versions');
     if (mode === 'upgrade') {
       assertSettled(after, 'failed');
