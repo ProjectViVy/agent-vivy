@@ -229,7 +229,19 @@ All values **measured**, linux/amd64, stripped.
 
 The probe set was built in one module at eino v0.9.21 for both sides, so the
 current-set figure uses the newer helper libraries; it is a component
-comparison, not a product number. The product "add" row links the agentic
+comparison, not a product number.
+
+**Why the cost (owner question, 2026-10-18).** Almost all of it is
+`openai-go/v3 v3.44.0`, the official generated OpenAI SDK that
+`agenticopenai` uses for the Responses API: 134,370 non-test lines, of which
+`responses/` is 27,785. `responses/*.go` imports the SDK's root `openai`
+package (83,698 lines: the whole client with 22 services), so using Responses
+alone links most of the SDK. Its types use reflection-based JSON and many
+interface methods, which the Go linker cannot drop once a type is reachable.
+`openai-go/v3/azure` (imported by `agenticopenai`) also links `azcore`. For
+comparison, the current `components/model/openai v0.1.13` is 433 lines on top
+of the `go-openai` fork (~6,400 lines). No Vivy-side reduction exists short of
+forking the SDK (D9). The product "add" row links the agentic
 packages' init and reachable code only, not a migrated runtime. **The real
 product delta after migration is unknown** and belongs to the migration gate
 (S3 §2.7). A reasonable bracket from these numbers is +2.6 MB to +5.2 MB on a

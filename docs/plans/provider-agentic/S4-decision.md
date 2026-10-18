@@ -161,6 +161,9 @@ bridge, so `NO-GO` does not apply under §2. Several thresholds are unmet, so
 `GO` does not either. The migration program is scheduled **behind** blockers
 B1–B7 and does not start until they close.
 
+**Owner decisions 2026-10-18:** B1 consent half approved (Eino core upgrade
+OK); B2 accepted. Remaining: B1 pending-run policy half, B3–B7.
+
 The evidence also narrows what the migration buys (B2). Owners should read
 B2 before treating this as an endorsement.
 
@@ -170,7 +173,7 @@ B2 before treating this as an endorsement.
 |---|---|---|
 | T1 delta classified, like-for-like | **Met.** +10 / −2 / ~5 modules, identical on both baselines, every line attributed | S0 §7.3 |
 | T1 component probe measured, labelled | **Met.** +5,185,536 B (+15.2 %) linux/amd64 | S0 §7.5 |
-| T1 owner accepts cost vs benefit | **Unmet** → B2 | — |
+| T1 owner accepts cost vs benefit | **Met 2026-10-18** — owner accepted B2 | S0 §7.5 |
 | T1 product cost assigned to migration gate | **Met** (P4) | S3 §7.6 |
 | T1 pseudo-version legal | **Met** (`go.mod:7,18-19`) | S0 §7.7 |
 | T1 no transitive pin conflict | **Met.** Build + provider/runtime tests unchanged on both baselines | S0 §7.6 |
@@ -194,8 +197,8 @@ B2 before treating this as an endorsement.
 
 | # | What is missing | Fails | What closes it | In scope? |
 |---|---|---|---|---|
-| **B1** | Owner consent to move Eino core off v0.9.13, plus a pending-run policy across the version boundary. `EINO-CORE-UPGRADE` (`docs/DEFER.MD:30`) is an owner decision to stay on v0.9.13 until such a policy exists | T1/T4 (R13, R20) | Owner lifts the deferral; P0 writes the drain/finish/restart policy; P1 proves it with synthetic upgrade/downgrade checkpoints | Yes (P0/P1) |
-| **B2** | Owner acceptance of cost vs benefit. **Cost**: +5.2 MB component probe, a second OpenAI client (`openai-go/v3` + `azcore`) that does not replace `go-openai` (S0 Q1/Q2), and a 23-file run-path + 42-file test migration. **Benefit**: `openai-responses` becomes executable, and the deferral vocabulary is deleted. Reasoning visibility is **not** a new benefit; DeepSeek and Claude already surface it (S2 §9.3.6) | T1 | Owner signs with this tradeoff stated, or declines (then §8.9's NO-GO wording applies by owner choice) | Owner decision |
+| **B1** · *consent APPROVED by owner 2026-10-18; policy half open* | Owner consent to move Eino core off v0.9.13, plus a pending-run policy across the version boundary. `EINO-CORE-UPGRADE` (`docs/DEFER.MD:30`) is an owner decision to stay on v0.9.13 until such a policy exists | T1/T4 (R13, R20) | Owner lifts the deferral; P0 writes the drain/finish/restart policy; P1 proves it with synthetic upgrade/downgrade checkpoints | Yes (P0/P1) |
+| **B2** · *ACCEPTED by owner 2026-10-18* | Owner acceptance of cost vs benefit (why the cost is large: S0 §7.5). **Cost**: +5.2 MB component probe, a second OpenAI client (`openai-go/v3` + `azcore`) that does not replace `go-openai` (S0 Q1/Q2), and a 23-file run-path + 42-file test migration. **Benefit**: `openai-responses` becomes executable, and the deferral vocabulary is deleted. Reasoning visibility is **not** a new benefit; DeepSeek and Claude already surface it (S2 §9.3.6) | T1 | Owner signs with this tradeoff stated, or declines (then §8.9's NO-GO wording applies by owner choice) | Owner decision |
 | **B3** | Streamed Responses reasoning cannot be replayed statelessly (`encrypted_content` dropped, `agenticopenai v0.2.4 responses_event_convertor.go:595-606`) | T2 C6, T3 A3 | Either the owner accepts `store` = server default (OpenAI retains responses), or an upstream fix maps `item.EncryptedContent` on the streaming `output_item.done` path. No Vivy workaround (D9) | Owner decision / upstream |
 | **B4** | Truncated stream is reported as success on every adapter, current and agentic | T3 A5 | Pre-existing defect, tracked as `STREAM-TRUNCATION-SILENT-SUCCESS` (`docs/TODO.md` §0.1). The owner may accept it as "no regression" for this program; the fix (upstream terminal-event check, or a domain-level finish-reason check) is decided on that row | Outside the program |
 | **B5** | Claude `TotalTokens` wrong when `message_delta` carries output tokens only | T2 C8, T3 A4 | Vivy's usage projection derives total = prompt + completion (domain projection, not a codec), plus a P2 test; optionally confirm the live wire form with authorized credentials | Yes (P2) |
@@ -272,5 +275,6 @@ product acceptance. Each phase lands with `just ci`, its own gate and its own
 |---|---|---|---|
 | Owner | | | |
 
-Agent-prepared; not signed. Per §6, no agent may sign it or close a blocker
+Agent-prepared; not signed. Per-blocker owner decisions (B1 consent, B2) are
+recorded in §8.1 and §8.3; they are not the §6 signature. Per §6, no agent may sign it or close a blocker
 without the evidence that closes it.

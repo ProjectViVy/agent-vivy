@@ -39,6 +39,11 @@ The branch also carries the two plan commits from upstream
 `docs/provider-agentic-plan` (cherry-picked, docs only) on top of upstream
 `main`; the 17 issue-58 commits under that branch were **not** brought in.
 
+## Owner decisions (2026-10-18)
+
+B1 consent half approved (Eino core upgrade OK); B2 accepted after the cost
+explanation added to S0 §7.5. Remaining blockers: B1 pending-run policy, B3–B7.
+
 ## Not done
 
 - No production code, `go.mod`/`go.sum`, `internal/` or UI change (D8).
