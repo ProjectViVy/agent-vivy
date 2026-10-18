@@ -3,18 +3,30 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
+import { resolveGateEndpoints } from './e2e/e2e-ports.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
 const workdir = fs.mkdtempSync(path.join(tmpdir(), 'vivy-toolkits-e2e-runtime-'));
-const backend = '127.0.0.1:18787';
-const ui = '127.0.0.1:3015';
+const endpoints = resolveGateEndpoints({
+  backendVariable: 'VIVY_TOOLKITS_E2E_BACKEND_PORT',
+  backendDefault: 18787,
+  uiVariable: 'VIVY_TOOLKITS_E2E_UI_PORT',
+  uiDefault: 3015,
+});
+const backend = endpoints.backend;
+const ui = endpoints.ui;
 const externalBackend = process.env.VIVY_TOOLKITS_E2E_EXTERNAL_BACKEND === '1';
+const binaryName = process.platform === 'win32' ? 'vivy.exe' : 'vivy';
 const binary = process.env.VIVY_TOOLKITS_E2E_BINARY ||
-  path.join(repoRoot, '.workspace', 'toolkits-e2e', 'default', 'vivy');
+  path.join(repoRoot, '.workspace', 'toolkits-e2e', 'default', binaryName);
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 if (!fs.existsSync(binary)) {
-  throw new Error(`Toolkit E2E needs a packed Vivy binary at ${binary}; set VIVY_TOOLKITS_E2E_BINARY after running SDK pack.`);
+  throw new Error(
+    `Toolkit E2E needs a packed Vivy binary at ${binary}; run \`node scripts/toolkits-e2e.mjs\` ` +
+      '(just toolkits-e2e), or set VIVY_TOOLKITS_E2E_BINARY to an inspected artifact binary.',
+  );
 }
 
 // Every config evaluation gets a fresh root, so parallel Playwright workers
@@ -22,6 +34,7 @@ if (!fs.existsSync(binary)) {
 fs.mkdirSync(path.join(workdir, 'state'), { recursive: true });
 const quote = (value: string) => JSON.stringify(value.replaceAll('\\', '/'));
 const config = path.join(workdir, 'config.yaml');
+console.log(`[toolkit-e2e] backend ${backend} ui ${ui} binary ${binary} data ${workdir}`);
 fs.writeFileSync(config, [
   'server:',
   `  addr: ${quote(backend)}`,
@@ -63,12 +76,13 @@ export default defineConfig({
       timeout: 120_000,
     }] : []),
     {
-      command: 'pnpm dev',
+      command: `${pnpm} dev`,
       cwd: here,
       url: `http://${ui}`,
       env: {
         ...process.env,
-        GOFLAGS: '-tags=http2legacy',
+        GOFLAGS: process.env.GOFLAGS || '-tags=http2legacy',
+        VIVY_UI_PORT: String(endpoints.uiPort),
         VIVY_BACKEND_ADDR: `http://${backend}`,
       },
       reuseExistingServer: externalBackend,
