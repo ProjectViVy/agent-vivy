@@ -157,3 +157,7 @@ On contract change, update this design and affected producer/consumer plans, tra
 downstream dependencies, invalidate affected readiness/evidence and notify active
 workers. Preserve unaffected historical evidence. Do not call a Story Done based
 only on an implementation agent's report or CI.
+
+## 2026-10-18 integrated local checkpoint
+
+PR70, PR71 and main are ancestors of local candidate e50b74ea2819cd925c738045fa67b71b29f00215 with Laputa27da7b9e2d991857650b9e373627b65119a73eec. Exact historical sources, receipt-aware single sink, qualified native recall and actual loaded revision are implemented; [task-level evidence](../../../logs/2026-10-17-issue58-resume/s5-evidence.md) records limits. Complete Linux just ci, browser2 and targeted race pass on this code SHA; Windows compile only. S6 remains OPEN for installed #66, native Windows, live PostgreSQL/provider, independent review and separate DIVA/Mentle owner acceptance. Evidence-only documentation commits do not change the tested SHA.
