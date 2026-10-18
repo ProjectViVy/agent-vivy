@@ -172,12 +172,16 @@ func (g testGate) EndDrain(string) { *g.log = append(*g.log, "end") }
 type testOwners struct {
 	log              *[]string
 	view             bundlecontract.View
+	failBeforeCommit *bool
 	failAfterPublish *bool
 }
 
 func (o *testOwners) View() bundlecontract.View { return o.view }
 func (o *testOwners) BeforeCommit(context.Context) error {
 	*o.log = append(*o.log, "before-commit")
+	if o.failBeforeCommit != nil && *o.failBeforeCommit {
+		return errors.New("owner preparation failed")
+	}
 	return nil
 }
 func (o *testOwners) AfterPublish(context.Context) error {
