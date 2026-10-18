@@ -23,3 +23,9 @@ merge, compatibility rollback release or live provider-key check. B5 remains
 P2 usage-projection work; B6/B7 remain authorized live-provider acceptance.
 See verification.md for actual checks and remaining blockers. Release packaging
 is not performed because this delivery updates the existing review PR only.
+
+Normal cancellation consistency beyond checkpoint recovery was not generalized.
+Its existing ignored review-event failure is source-inspected and recorded as
+`HITL-NORMAL-CANCEL-EVENT`; pre-rollback acceptance requires complete event
+evidence, not only cancelled row states. Legacy terminal orphans with no
+cleanup intent are not automatically migrated by this change.

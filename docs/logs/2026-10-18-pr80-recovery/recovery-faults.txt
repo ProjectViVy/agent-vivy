@@ -1,0 +1,50 @@
+=== RUN   TestRecoverCleanupIntentWriteFailures
+=== RUN   TestRecoverCleanupIntentWriteFailures/create
+2026/10/18 12:06:35 ERROR journal append of terminal event failed run=run_18a8f197c679a8e4 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupIntentWriteFailures/delete
+2026/10/18 12:06:39 ERROR journal append of terminal event failed run=run_9d371aac11f816ba type=run.cancelled err="storage: run already has a terminal event"
+--- PASS: TestRecoverCleanupIntentWriteFailures (8.08s)
+    --- PASS: TestRecoverCleanupIntentWriteFailures/create (4.24s)
+    --- PASS: TestRecoverCleanupIntentWriteFailures/delete (3.84s)
+=== RUN   TestRecoverCleanupRetriesInteractionWrites
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/row
+2026/10/18 12:06:42 ERROR journal append of terminal event failed run=run_3e11a4db9c189599 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/event
+2026/10/18 12:06:43 ERROR journal append of terminal event failed run=run_29f96fcf9b387c41 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/event_ack
+2026/10/18 12:06:43 ERROR journal append of terminal event failed run=run_ec84ce20f3e31dba type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/terminal
+2026/10/18 12:06:43 ERROR journal append of terminal event failed run=run_195b252dfdfca938 type=run.failed err="injected recovery write failure"
+2026/10/18 12:06:43 ERROR journal append of terminal event failed run=run_195b252dfdfca938 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/terminal_ack
+2026/10/18 12:06:45 ERROR journal append of terminal event failed run=run_188b5c0ca5aaf39d type=run.failed err="injected recovery write failure"
+2026/10/18 12:06:45 ERROR journal append of terminal event failed run=run_188b5c0ca5aaf39d type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/status
+2026/10/18 12:06:47 ERROR set terminal run status run=run_4c59d2e80daf7adc status=failed err="injected recovery write failure"
+2026/10/18 12:06:47 ERROR journal append of terminal event failed run=run_4c59d2e80daf7adc type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/row
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/event
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/event_ack
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/terminal
+2026/10/18 12:06:54 ERROR journal append of terminal event failed run=run_c1186bfa9019a6d8 type=run.failed err="injected recovery write failure"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/terminal_ack
+2026/10/18 12:06:58 ERROR journal append of terminal event failed run=run_57d033ac0d88914c type=run.failed err="injected recovery write failure"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/status
+2026/10/18 12:07:00 ERROR set terminal run status run=run_b3f2a64d52327259 status=failed err="injected recovery write failure"
+--- PASS: TestRecoverCleanupRetriesInteractionWrites (20.84s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/row (3.70s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/event (0.36s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/event_ack (0.34s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/terminal (0.31s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/terminal_ack (1.57s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/status (1.62s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/row (1.33s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/event (1.06s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/event_ack (3.31s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/terminal (2.35s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/terminal_ack (3.48s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/status (1.42s)
+=== RUN   TestRecoverCleanupRetriesPlanAfterTerminal
+--- PASS: TestRecoverCleanupRetriesPlanAfterTerminal (3.38s)
+PASS
+ok  	agent-vivy/internal/runtime	33.043s

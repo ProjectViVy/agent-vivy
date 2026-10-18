@@ -10,9 +10,13 @@ Inspected pinned Eino v0.9.21 `adk/runner.go`: `RunnerConfig.CheckPointStore`, `
 
 ## Steps and acceptance
 
-- [ ] Integrate latest main without replacing development-environment files. Conflict is only the obsolete open ToolsNode race row; retain its completed record.
-- [ ] Add failing real-SQLite tests for cancellation write failure, cancellation event failure, terminal failure, post-terminal Plan failure, intent creation/deletion failures, restart and repeated Recover. Require no duplicate/missing cancellation or terminal events.
-- [ ] Implement durable retry and error propagation, preserving version guard and checkpoint bytes.
-- [ ] Test actual old-main and candidate binaries with isolated paused Approval/Question/Plan databases. Establish unsupported direct historical rollback and supported pre-cleaned rollback. No version string substitution as binary evidence.
-- [ ] Run current just ci, focused recovery failures, relevant race, native Windows binary smoke; reproduce any baseline failures on untouched main in the same host.
-- [ ] Review final diff, record candidate SHA, local versus remote evidence and remaining B5/B6/B7; commit and push to existing PR only, update its body/comment. Never merge or deploy.
+- [x] Integrate latest main without replacing development-environment files. Conflict is only the obsolete open ToolsNode race row; retain its completed record.
+- [x] Add failing real-SQLite tests for cancellation write failure, cancellation event failure, terminal failure, post-terminal Plan failure, intent creation/deletion failures, restart and repeated Recover. Require no duplicate/missing cancellation or terminal events.
+- [x] Implement durable retry and error propagation, preserving version guard and checkpoint bytes.
+- [x] Test actual old-main and candidate binaries with isolated paused Approval/Question/Plan databases. Establish unsupported direct historical rollback and supported pre-cleaned rollback. No version string substitution as binary evidence.
+- [x] Run current just ci, focused recovery failures, relevant race, native Windows binary smoke; reproduce any baseline failures on untouched main in the same host.
+- [x] Review final diff, record candidate SHA, local versus remote evidence and remaining B5/B6/B7; commit and push to existing PR only, update its body/comment. Never merge or deploy.
+
+## Outcome
+
+Windows current just ci and native binary acceptance pass. Full Linux race remains red for the freshly reproduced Claude EinoExt baseline issue; this is recorded as a blocker, not waived. No full provider migration, merge or deployment. See verification.md for final code/evidence revisions and remote status.

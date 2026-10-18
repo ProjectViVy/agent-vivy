@@ -1,0 +1,281 @@
+Sun Oct 18 04:07:13 AM UTC 2026
+e7255a7f46652541fe87716154d0e7cfa0207a95
+go version go1.26.4 linux/amd64
+v24.21.0
+10.33.0
+node scripts/ensure-laputa.mjs --quiet
+pnpm --dir ui install --frozen-lockfile
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +409
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 409, reused 409, downloaded 0, added 409, done
+.../esbuild@0.28.2/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.28.2/node_modules/esbuild postinstall: Done
+
+dependencies:
++ @hookform/resolvers 5.9.1
++ @radix-ui/react-accordion 1.2.20
++ @radix-ui/react-alert-dialog 1.1.23
++ @radix-ui/react-aspect-ratio 1.1.15
++ @radix-ui/react-avatar 1.2.6
++ @radix-ui/react-checkbox 1.3.11
++ @radix-ui/react-collapsible 1.1.20
++ @radix-ui/react-context-menu 2.3.7
++ @radix-ui/react-dialog 1.1.23
++ @radix-ui/react-dropdown-menu 2.1.24
++ @radix-ui/react-hover-card 1.1.23
++ @radix-ui/react-label 2.1.15
++ @radix-ui/react-menubar 1.1.24
++ @radix-ui/react-navigation-menu 1.2.22
++ @radix-ui/react-popover 1.1.23
++ @radix-ui/react-progress 1.1.16
++ @radix-ui/react-radio-group 1.4.7
++ @radix-ui/react-scroll-area 1.2.18
++ @radix-ui/react-select 2.3.7
++ @radix-ui/react-separator 1.1.15
++ @radix-ui/react-slider 1.4.7
++ @radix-ui/react-slot 1.3.3
++ @radix-ui/react-switch 1.3.7
++ @radix-ui/react-tabs 1.1.21
++ @radix-ui/react-toggle 1.1.18
++ @radix-ui/react-toggle-group 1.1.19
++ @radix-ui/react-tooltip 1.2.16
++ @supabase/supabase-js 2.112.3
++ @tailwindcss/typography 0.5.20
++ @tailwindcss/vite 4.3.3
++ @tanstack/react-query 5.102.0
++ @tanstack/react-router 1.170.32
++ @tanstack/router-plugin 1.168.35
++ @vivy/ui-sdk @vivy/ui-sdk@file:../sdk/ui(react@19.2.8)
++ @xyflow/react 12.9.0
++ class-variance-authority 0.7.1
++ clsx 2.1.1
++ cmdk 1.1.1
++ date-fns 4.4.0
++ embla-carousel-react 8.6.0
++ framer-motion 11.18.2
++ highlight.js 11.12.0
++ input-otp 1.5.0
++ lucide-react 0.575.0
++ react 19.2.8
++ react-day-picker 9.14.0
++ react-dom 19.2.8
++ react-hook-form 7.86.0
++ react-markdown 10.1.0
++ react-resizable-panels 4.12.3
++ recharts 2.15.4
++ remark-gfm 4.0.1
++ sonner 2.0.8
++ tailwind-merge 3.6.0
++ tailwindcss 4.3.3
++ tw-animate-css 1.4.0
++ vaul 1.1.2
++ vite-tsconfig-paths 6.1.1
++ zod 3.25.76
++ zustand 5.0.15
+
+devDependencies:
++ @playwright/test 1.62.1
++ @types/node 22.20.1
++ @types/react 19.2.18
++ @types/react-dom 19.2.4
++ @vitejs/plugin-react 5.2.0
++ happy-dom 20.14.0
++ typescript 5.9.3
++ vite 7.3.6
++ vitest 3.2.7
+
+Done in 1.6s using pnpm v10.33.0
+pnpm --dir ui build
+
+> vivy-ui@1.0.0 prebuild /home/mastwet/pr80-verification/agent-vivy/ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"/home/mastwet/pr80-verification/agent-vivy/recipes/default.vivy.yml","output":"/home/mastwet/pr80-verification/agent-vivy/ui/src/generated","assembly":"/home/mastwet/pr80-verification/agent-vivy/ui/src/generated/assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.toolkits-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 build /home/mastwet/pr80-verification/agent-vivy/ui
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2609 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     2.00 kB │ gzip:   1.07 kB
+dist/assets/index-CRqCnUQh.css    157.00 kB │ gzip:  25.19 kB
+dist/assets/index-CnMi0OJZ.js   1,985.93 kB │ gzip: 588.15 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.44s
+go test -race -p 1 -timeout 45m -skip '^TestMemoryLoop' ./internal/...
+ok  	agent-vivy/internal/actionhost	3.127s
+ok  	agent-vivy/internal/app	97.827s
+ok  	agent-vivy/internal/app/settings	3.825s
+ok  	agent-vivy/internal/attachment	1.055s
+?   	agent-vivy/internal/buildinfo	[no test files]
+ok  	agent-vivy/internal/bundlecontract	1.022s
+ok  	agent-vivy/internal/bundles	7.824s
+ok  	agent-vivy/internal/channelhost	49.698s
+?   	agent-vivy/internal/channelhost/fake	[no test files]
+ok  	agent-vivy/internal/codeface	3.376s
+?   	agent-vivy/internal/cognitivecontract	[no test files]
+ok  	agent-vivy/internal/commandpolicy	1.013s
+ok  	agent-vivy/internal/config	1.050s
+ok  	agent-vivy/internal/contexthost	1.047s
+ok  	agent-vivy/internal/domain	1.049s
+ok  	agent-vivy/internal/eval	44.739s
+ok  	agent-vivy/internal/events	1.014s
+?   	agent-vivy/internal/generated/assembly	[no test files]
+?   	agent-vivy/internal/generated/presentation	[no test files]
+ok  	agent-vivy/internal/i18n	1.016s
+ok  	agent-vivy/internal/logging	1.029s
+ok  	agent-vivy/internal/maskcontract	1.029s
+ok  	agent-vivy/internal/mcphost	1.068s
+ok  	agent-vivy/internal/modelhost	1.013s
+ok  	agent-vivy/internal/modulehost	1.015s
+ok  	agent-vivy/internal/moduleport	1.018s
+ok  	agent-vivy/internal/modules	1.025s
+ok  	agent-vivy/internal/modules/checkpoint	1.771s
+ok  	agent-vivy/internal/modules/credential	1.016s
+ok  	agent-vivy/internal/modules/defaults	1.142s
+ok  	agent-vivy/internal/modules/diva-cognitive	1.647s
+?   	agent-vivy/internal/modules/diva-cognitive/catalog	[no test files]
+ok  	agent-vivy/internal/modules/loop	1.061s
+ok  	agent-vivy/internal/modules/masks	1.032s
+?   	agent-vivy/internal/modules/masks/catalog	[no test files]
+ok  	agent-vivy/internal/modules/memory	2.099s
+?   	agent-vivy/internal/modules/memory/catalog	[no test files]
+ok  	agent-vivy/internal/modules/model	1.011s
+ok  	agent-vivy/internal/modules/notebook	1.015s
+ok  	agent-vivy/internal/modules/optional	1.011s
+ok  	agent-vivy/internal/modules/reports	1.015s
+ok  	agent-vivy/internal/modules/sandbox	1.057s
+ok  	agent-vivy/internal/modules/storage	1.731s
+ok  	agent-vivy/internal/modules/toolkits	1.049s
+ok  	agent-vivy/internal/notebookcontract	1.018s
+ok  	agent-vivy/internal/observerhost	1.329s
+?   	agent-vivy/internal/orchestration	[no test files]
+==================
+WARNING: DATA RACE
+Write at 0x00c0002fc1f0 by goroutine 172:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream.func2()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:446 +0x3f2
+
+Previous write at 0x00c0002fc1f0 by goroutine 165:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:480 +0xa28
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly.func1()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:97 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 172 (running) created at:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:419 +0x9d2
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly.func1()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:97 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 165 (running) created at:
+  testing.(*T).Run()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0xb12
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:96 +0x424
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+==================
+--- FAIL: TestStreamCompleteReplyEndsCleanly (0.07s)
+    --- FAIL: TestStreamCompleteReplyEndsCleanly/anthropic-messages (0.00s)
+        testing.go:1712: race detected during execution of test
+==================
+WARNING: DATA RACE
+Write at 0x00c000053650 by goroutine 213:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream.func2()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:446 +0x3f2
+
+Previous write at 0x00c000053650 by goroutine 206:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:480 +0xa28
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug.func1()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:123 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 213 (running) created at:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:419 +0x9d2
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug.func1()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:123 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 206 (running) created at:
+  testing.(*T).Run()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0xb12
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug()
+      /home/mastwet/pr80-verification/agent-vivy/internal/provider/provider_stream_test.go:122 +0x4c4
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+==================
+--- FAIL: TestStreamCutOffIsAcceptedKnownBug (0.01s)
+    --- FAIL: TestStreamCutOffIsAcceptedKnownBug/anthropic-messages (0.00s)
+        testing.go:1712: race detected during execution of test
+FAIL
+FAIL	agent-vivy/internal/provider	3.127s
+?   	agent-vivy/internal/reportcontract	[no test files]
+ok  	agent-vivy/internal/rpc	135.488s
+ok  	agent-vivy/internal/runtime	442.297s
+ok  	agent-vivy/internal/runtime/compaction	1.018s
+ok  	agent-vivy/internal/skillhost	1.038s
+?   	agent-vivy/internal/sourcehash	[no test files]
+ok  	agent-vivy/internal/statushost	1.045s
+ok  	agent-vivy/internal/storage	5.491s
+?   	agent-vivy/internal/storage/bundlesql	[no test files]
+?   	agent-vivy/internal/storage/conformance	[no test files]
+ok  	agent-vivy/internal/storage/migrations	7.652s
+ok  	agent-vivy/internal/storage/postgres	1.017s
+ok  	agent-vivy/internal/storage/sqlite	186.993s
+ok  	agent-vivy/internal/studio	5.937s
+ok  	agent-vivy/internal/studiocore	8.950s
+?   	agent-vivy/internal/testsupport	[no test files]
+ok  	agent-vivy/internal/toolhost	1.067s
+?   	agent-vivy/internal/toolkitcontract	[no test files]
+ok  	agent-vivy/internal/tools	1.552s
+?   	agent-vivy/internal/tui	[no test files]
+FAIL
+error: Recipe `race-ci` failed on line 137 with exit code 1
+RACE_CI_EXIT=1
+Sun Oct 18 04:30:55 AM UTC 2026
