@@ -83,6 +83,7 @@ COPY plugins/vivy-persona/go.mod ./plugins/vivy-persona/
 COPY plugins/vivy-toolkits-ui/go.mod ./plugins/vivy-toolkits-ui/
 COPY plugins/vivy-workflow/go.mod ./plugins/vivy-workflow/
 COPY third_party/renameio/go.mod ./third_party/renameio/
+COPY third_party/eino-claude/go.mod ./third_party/eino-claude/
 
 # The main module replaces ../laputa/{garden,mentle,laputa}, which resolves to
 # /laputa/* here.

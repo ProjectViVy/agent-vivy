@@ -262,6 +262,10 @@ replace github.com/ProjectViVy/agent-vivy/bml => ./bml
 // API for Windows. Required by github.com/coder/hnsw (vector DB).
 replace github.com/google/renameio => ./third_party/renameio
 
+// Claude EinoExt v0.1.25 writes Stream's named return error from its worker
+// goroutine. Keep the upstream component and its behavior with a local race fix.
+replace github.com/cloudwego/eino-ext/components/model/claude => ./third_party/eino-claude
+
 replace github.com/ProjectViVy/laputa/garden => ../laputa/garden
 
 replace github.com/ProjectViVy/laputa/mentle => ../laputa/mentle
