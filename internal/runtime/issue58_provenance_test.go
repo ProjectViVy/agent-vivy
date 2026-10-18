@@ -461,10 +461,8 @@ func TestIssue58InvalidUTF8StreamRetainsArgumentPrefixAndIdentity(t *testing.T) 
 	if _, _, err := reopened.ReadSubjectRunEvidence(ctx, source.SubjectHistoryBinding, a.Run.ID); !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
 		t.Fatalf("invalid streamed source became sealable after reopen: %v", err)
 	}
-	ceiling, err := reopened.CaptureSubjectHistory(ctx, source.SubjectHistoryBinding)
-	if err != nil || ceiling != 0 {
-		t.Fatalf("invalid source sealed after restart: ceiling%d %v", ceiling, err)
-	}
+	// The unavailable bytes never become an original; the run is excluded.
+	issue58AssertExcludedOnly(t, reopened, source.SubjectHistoryBinding)
 	persisted := false
 	for _, event := range replayAll(t, reopened, a.Run.ID) {
 		if event.Type == domain.EventToolRequested {

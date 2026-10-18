@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -31,14 +32,28 @@ func (s *Service) sealSubjectRunLocked(ctx context.Context, sid domain.SessionID
 	if current == nil || !storage.SameSubjectSourceBinding(pin, *current) {
 		return storage.ErrSubjectBinding
 	}
-	if err := s.projectRunMessagesLocked(ctx, sid, rid); err != nil {
+	if err := s.projectRunMessagesLocked(ctx, sid, rid); err != nil && !errors.Is(err, storage.ErrSubjectEvidenceUnresolvable) {
 		return err
 	}
 	_, interaction, err := sources.ReadSubjectRunEvidence(ctx, pin.SubjectHistoryBinding, rid)
-	if err != nil {
+	unresolvable := errors.Is(err, storage.ErrSubjectEvidenceUnresolvable)
+	if err != nil && !unresolvable {
 		return err
 	}
-	_, err = sources.SealSubjectInteraction(ctx, pin.SubjectHistoryBinding, interaction)
+	return sealOrExclude(ctx, sources, pin.SubjectHistoryBinding, interaction, unresolvable)
+}
+
+// sealOrExclude seals the run's exact originals, or, when its evidence can never
+// resolve (unfinished tool operation, invalid tool-argument bytes), seals it as
+// an excluded interaction so the subject's history keeps advancing. Storage
+// re-derives the condition; the flag is only the caller's reading of it.
+func sealOrExclude(ctx context.Context, sources storage.SubjectSourceStore, binding storage.SubjectHistoryBinding, interaction storage.SubjectInteraction, unresolvable bool) error {
+	var err error
+	if unresolvable {
+		_, err = sources.SealSubjectExclusion(ctx, binding, interaction)
+	} else {
+		_, err = sources.SealSubjectInteraction(ctx, binding, interaction)
+	}
 	return err
 }
 

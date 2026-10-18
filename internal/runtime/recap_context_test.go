@@ -100,3 +100,42 @@ func (o *issue58BoundOwner) ListRecapHistory(ctx context.Context, before uint64,
 func (o *issue58BoundOwner) ReadRecapRevision(ctx context.Context, rev uint64) (cognitivecontract.RecapHead, error) {
 	return o.store.ReadRecapRevision(ctx, o.binding, rev)
 }
+
+// A finished run with an unresolved tool operation must not stop the subject's
+// next model request: it is excluded, the healthy run's originals still ship.
+func TestIssue58ExcludedRunDoesNotBlockRecapContext(t *testing.T) {
+	f := newIssue58Wire(t)
+	ctx := context.Background()
+	stuckSource := conformance.Issue58Source("source-stuck", false)
+	healthySource := conformance.Issue58Source("source-healthy", false)
+	for _, source := range []storage.SubjectSourceBinding{stuckSource, healthySource} {
+		f.sources[source.SessionID] = source
+		mustCreateSession(t, f.b, source.SessionID)
+	}
+	conformance.Issue58Stuck(t, f.b, stuckSource, "stuck-run")
+	healthy := conformance.Issue58Completed(t, f.b, healthySource, "healthy-run")
+	if _, err := f.b.SealSubjectInteraction(ctx, healthySource.SubjectHistoryBinding, healthy); err != nil {
+		t.Fatal(err)
+	}
+	run := f.run(t, "current after stuck")
+	if run.Status != domain.RunCompleted {
+		t.Fatalf("stuck run blocked the next request: %+v", run)
+	}
+	requests := f.capture()
+	if len(requests) != 1 || !strings.Contains(requests[0], "exact source healthy-run") || strings.Contains(requests[0], "exact source stuck-run") {
+		t.Fatalf("wrong context for excluded run: %v", requests)
+	}
+	rows, err := f.b.ListSubjectInteractions(ctx, healthySource.SubjectHistoryBinding, 0, 10, 10)
+	if err != nil || len(rows) < 2 {
+		t.Fatalf("interactions %+v %v", rows, err)
+	}
+	excluded := 0
+	for _, row := range rows {
+		if row.Disposition == storage.SubjectInteractionExcluded {
+			excluded++
+		}
+	}
+	if excluded != 1 {
+		t.Fatalf("excluded interactions = %d, want 1", excluded)
+	}
+}

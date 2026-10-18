@@ -33,7 +33,7 @@ func (s *Service) CaptureSubjectContext(ctx context.Context, reader domain.Sessi
 		if err = s.authorizeSubjectRun(ctx, sources, binding, p.SessionID, p.RunID); err != nil {
 			return storage.SubjectContextSnapshot{}, err
 		}
-		if err = s.projectRunMessagesLocked(ctx, p.SessionID, p.RunID); err != nil {
+		if err = s.projectRunMessagesLocked(ctx, p.SessionID, p.RunID); err != nil && !errors.Is(err, storage.ErrSubjectEvidenceUnresolvable) {
 			return storage.SubjectContextSnapshot{}, fmt.Errorf("repair subject run %s: %w", p.RunID, err)
 		}
 	}
@@ -42,13 +42,14 @@ func (s *Service) CaptureSubjectContext(ctx context.Context, reader domain.Sessi
 			return storage.SubjectContextSnapshot{}, err
 		}
 		_, interaction, err := sources.ReadSubjectRunEvidence(ctx, binding, p.RunID)
-		if err != nil {
+		unresolvable := errors.Is(err, storage.ErrSubjectEvidenceUnresolvable)
+		if err != nil && !unresolvable {
 			return storage.SubjectContextSnapshot{}, err
 		}
 		if interaction.TerminalSeq != p.TerminalSeq || interaction.SessionID != p.SessionID {
 			return storage.SubjectContextSnapshot{}, storage.ErrSubjectEvidenceIncomplete
 		}
-		if _, err = sources.SealSubjectInteraction(ctx, binding, interaction); err != nil {
+		if err = sealOrExclude(ctx, sources, binding, interaction, unresolvable); err != nil {
 			return storage.SubjectContextSnapshot{}, err
 		}
 	}

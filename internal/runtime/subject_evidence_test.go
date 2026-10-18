@@ -290,10 +290,7 @@ func TestIssue58EvidenceSaveFailureBlocksContinuation(t *testing.T) {
 			}
 			m := newEventMapper(a.Run.ID, 64<<10)
 			svc.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{Message: "uncertain evidence"}))
-			high, err := b.CaptureSubjectHistory(ctx, source.SubjectHistoryBinding)
-			if err != nil || high != 0 {
-				t.Fatalf("uncertain operation sealed: %d %v", high, err)
-			}
+			issue58AssertExcludedOnly(t, b, source.SubjectHistoryBinding)
 		})
 	}
 }
@@ -448,10 +445,7 @@ func TestIssue58FailedReceiptNeverAdvancesModel(t *testing.T) {
 	if err != nil || run.Status != domain.RunFailed || model.calls != 1 || tool.calls != 1 {
 		t.Fatalf("failed receipt reached successful continuation: %+v model=%d tool=%d %v", run, model.calls, tool.calls, err)
 	}
-	high, err := b.CaptureSubjectHistory(ctx, source.SubjectHistoryBinding)
-	if err != nil || high != 0 {
-		t.Fatalf("failed receipt sealed: %d %v", high, err)
-	}
+	issue58AssertExcludedOnly(t, b, source.SubjectHistoryBinding)
 }
 
 type issue58SubmittedPlan struct{ calls int }
@@ -701,5 +695,24 @@ func TestIssue58CompletedReceiptRejectsMissingOrCorruptArtifacts(t *testing.T) {
 				t.Fatalf("completed receipt lost artifact but continued/reexecuted: %q calls=%d %v", result, calls, err)
 			}
 		})
+	}
+}
+
+// issue58AssertExcludedOnly checks the run was sealed as the subject's only
+// interaction, as an excluded one that exposes no originals.
+func issue58AssertExcludedOnly(t *testing.T, b storage.SubjectSourceStore, binding storage.SubjectHistoryBinding) {
+	t.Helper()
+	ctx := context.Background()
+	high, err := b.CaptureSubjectHistory(ctx, binding)
+	if err != nil || high != 1 {
+		t.Fatalf("unresolvable run was not sealed once: %d %v", high, err)
+	}
+	rows, err := b.ListSubjectInteractions(ctx, binding, 0, high, 10)
+	if err != nil || len(rows) != 1 || rows[0].Disposition != storage.SubjectInteractionExcluded {
+		t.Fatalf("run not sealed as excluded: %+v %v", rows, err)
+	}
+	originals, err := b.ReadSubjectInteraction(ctx, binding, rows[0].ID)
+	if err != nil || len(originals) != 0 {
+		t.Fatalf("excluded interaction exposed originals: %v %v", originals, err)
 	}
 }

@@ -64,6 +64,15 @@ Raw evidence retention is a requirement of the new policy, not a claim that ever
 current backend already captures full transcripts. The default BML observer writes
 a successful-completion projection, not the entire conversation.
 
+A finished interaction whose tool effects can never be resolved (an operation left
+claimed by a cancel, crash or unretainable result, or tool arguments that are not
+valid UTF-8) must not stop the subject's history. Core Storage seals it as an
+`excluded` interaction in the next sequence slot: none of its originals become
+Recap input, coverage advances past it, and the unresolved operation keeps its
+recorded state. Storage re-derives the condition in the sealing transaction, so a
+healthy or merely unprojected run can never be excluded. This is exclusion from
+Recap, not proof that no external effect happened.
+
 Recent raw-window and Recap budgets, trigger thresholds, retained tail, hysteresis,
 topic boundaries and token placement are experimental. No example percentage or
 2k–4k token budget is an agreed default or acceptance threshold. Oversized output
