@@ -88,6 +88,19 @@ func TestIssue58BoundProviderCannotSubstituteForeignActive(t *testing.T) {
 func TestIssue58MemoryConcurrentOwnedAcquireRelease(t *testing.T) {
 	ctx := context.Background()
 	roots := []string{t.TempDir(), t.TempDir()}
+	canonicalRoots := make([]string, len(roots))
+	for i, root := range roots {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonicalRoots[i] = resolved
+	}
+	t.Cleanup(func() {
+		if err := Close(); err != nil {
+			t.Errorf("release remaining memory Home: %v", err)
+		}
+	})
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -102,8 +115,9 @@ func TestIssue58MemoryConcurrentOwnedAcquireRelease(t *testing.T) {
 				if err != nil {
 					continue
 				}
-				if svc.leaseOwner != owner || svc.home.ConfigDir() != roots[i] {
-					errs <- fmt.Errorf("foreign owner returned by concurrent OpenOwned")
+				if svc.leaseOwner != owner || svc.home.ConfigDir() != canonicalRoots[i] {
+					_ = svc.Close()
+					errs <- fmt.Errorf("foreign owner returned by concurrent OpenOwned: lease=%q want=%q root=%q want=%q", svc.leaseOwner, owner, svc.home.ConfigDir(), canonicalRoots[i])
 					return
 				}
 				if err := svc.Close(); err != nil {
