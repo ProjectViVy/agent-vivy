@@ -56,24 +56,42 @@ A paused run resumes from its Eino checkpoint, and a checkpoint is readable
 only by the exact Eino version that wrote it (`VersionedCheckpointStore`,
 `internal/runtime/checkpoint.go`). A Vivy upgrade or rollback that changes
 the Eino version therefore cannot resume a run that was waiting on a person.
-Policy, in both directions:
+Supported boundary for the Eino v0.9.21 upgrade:
 
-- **No drain is required before upgrading, and no checkpoint is converted.**
-  Version checks stay fail-closed.
-- On startup, recovery closes each such run with `run.failed`, cause
-  `internal_error`, and the message *"Vivy was updated while this run was
-  waiting, and a paused run cannot continue on a different engine version.
-  Its pending request was cancelled. Please start the task again."*
-- Its pending interaction is settled, so no actionable card outlives the run:
-  an approval or question is **cancelled** (journaled before the terminal),
-  and a pending Plan review is **cancelled** after it. Prompt-snapshot
-  incompatibilities are unaffected and still keep the review pending.
-- A lost checkpoint at the same version is settled the same way, with the
-  generic restart message.
-- Operators who want a paused task to finish should decide its pending review
-  before upgrading.
+- Upgrade from the historical v0.9.13 binary to a binary containing the durable
+  cleanup fix without draining first. Recovery fails an incompatible paused run
+  with `run.failed`, cause `internal_error`, and the message *"Vivy was updated
+  while this run was waiting, and a paused run cannot continue on a different
+  engine version. Its pending request was cancelled. Please start the task again."*
+- Approval and Question cancellation events precede the terminal; Plan review
+  cancellation follows it. Before these writes, recovery saves a durable cleanup
+  intent in the existing BlobStore. A failed write aborts recovery/startup and
+  preserves the cause. Repeated Recover or a restart retries the intent, even
+  when its Run is already terminal. The intent is removed only after all writes
+  succeed. Journal replay, lifecycle CAS and Work request identity prevent
+  duplicate cancellation and terminal events. Never delete review evidence.
+- No checkpoint is converted and no version check is bypassed. A missing or
+  unreadable same-version checkpoint follows the same cleanup protocol with the
+  generic restart message. Prompt-snapshot incompatibilities remain pending.
+- **Direct rollback to a historical unpatched binary with pending work is
+  unsupported.** Its version guard rejects the new checkpoint but its old
+  recovery implementation does not reliably cancel Approval/Question/Plan.
+  Version-string tests in new code do not prove old-binary behavior.
+- Before historical rollback, stop admitting new work and finish/decide or
+  explicitly cancel every active or paused run **under the current binary**.
+  Verify zero active runs, pending Approvals, pending Questions, pending Plan
+  reviews, and cleanup intents; verify each affected run has exactly one
+  terminal and its cancellation evidence. Restart the current binary and
+  verify these conditions still hold before starting the historical binary.
+  A cleanup error blocks rollback; keep the current binary and retry. This PR
+  does not provide a compatibility rollback build carrying the fix.
+- To preserve a paused task's result, complete its human review before upgrading.
 
-Evidence: `internal/runtime/recovery_engine_version_test.go`.
+Evidence: `internal/runtime/recovery_engine_version_test.go`,
+`internal/runtime/recovery_cleanup_test.go`, and the actual-binary matrix in
+`docs/logs/2026-10-18-pr80-recovery/verification.md`. These cover the current
+ChatModel generation only. AgenticModel/message-generation migration remains
+subject to separate acceptance, including S4 B5/B6/B7.
 
 ## UI rule
 

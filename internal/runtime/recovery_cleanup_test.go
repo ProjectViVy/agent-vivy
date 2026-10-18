@@ -24,16 +24,28 @@ func (f cleanupFaultStore) CancelQuestionWithMetadata(context.Context, string, s
 
 type cleanupFaultJournal struct {
 	storage.Journal
-	kind domain.EventType
+	kind    domain.EventType
+	ackLost bool
 }
 
 func (f cleanupFaultJournal) Append(ctx context.Context, c storage.Commit) (domain.EventSeq, error) {
 	for _, e := range c.Events {
 		if e.Type == f.kind {
+			if f.ackLost {
+				if _, err := f.Journal.Append(ctx, c); err != nil {
+					return 0, err
+				}
+			}
 			return 0, errCleanupWrite
 		}
 	}
 	return f.Journal.Append(ctx, c)
+}
+
+type cleanupFaultRunStore struct{ storage.RunStore }
+
+func (f cleanupFaultRunStore) SetRunStatus(context.Context, domain.RunID, domain.RunStatus) error {
+	return errCleanupWrite
 }
 
 type cleanupFaultWork struct{ storage.WorkStore }
@@ -116,7 +128,7 @@ func TestRecoverCleanupIntentWriteFailures(t *testing.T) {
 // A fresh Service must finish cleanup without losing or duplicating an event.
 func TestRecoverCleanupRetriesInteractionWrites(t *testing.T) {
 	for _, kind := range []string{"approval", "question"} {
-		for _, fault := range []string{"row", "event", "terminal"} {
+		for _, fault := range []string{"row", "event", "event_ack", "terminal", "terminal_ack", "status"} {
 			t.Run(kind+"/"+fault, func(t *testing.T) {
 				ctx := context.Background()
 				var backend *sqlite.Backend
@@ -155,15 +167,25 @@ func TestRecoverCleanupRetriesInteractionWrites(t *testing.T) {
 					s.deps.Approvals = cleanupFaultStore{backend}
 					s.deps.Questions = cleanupFaultStore{backend}
 				case "event":
-					s.deps.Journal = cleanupFaultJournal{backend, cancelType}
+					s.deps.Journal = cleanupFaultJournal{Journal: backend, kind: cancelType}
+				case "event_ack":
+					s.deps.Journal = cleanupFaultJournal{Journal: backend, kind: cancelType, ackLost: true}
+				case "terminal_ack":
+					s.deps.Journal = cleanupFaultJournal{Journal: backend, kind: domain.EventRunFailed, ackLost: true}
+				case "status":
+					s.deps.Runs = cleanupFaultRunStore{backend}
 				case "terminal":
-					s.deps.Journal = cleanupFaultJournal{backend, domain.EventRunFailed}
+					s.deps.Journal = cleanupFaultJournal{Journal: backend, kind: domain.EventRunFailed}
 				}
 				if err := s.Recover(ctx); !errors.Is(err, errCleanupWrite) {
 					t.Fatalf("recover error = %v, want cause preserved", err)
 				}
-				if n := countTerminal(replayAll(t, backend, runID)); n != 0 {
-					t.Fatalf("terminal before successful cleanup = %d", n)
+				wantTerminals := 0
+				if fault == "terminal_ack" || fault == "status" {
+					wantTerminals = 1
+				}
+				if n := countTerminal(replayAll(t, backend, runID)); n != wantTerminals {
+					t.Fatalf("terminal count after fault = %d, want %d", n, wantTerminals)
 				}
 				s = restart()
 				for i := 0; i < 3; i++ {
@@ -194,7 +216,7 @@ func TestRecoverCleanupRetriesInteractionWrites(t *testing.T) {
 }
 
 func TestRecoverCleanupRetriesPlanAfterTerminal(t *testing.T) {
-	backend, runID, sessionID, restart := newPendingPlanRecovery(t)
+	backend, runID, sessionID, restart, reopen := newPendingPlanRecovery(t)
 	ctx := context.Background()
 	s := restart()
 	s.deps.Work = cleanupFaultWork{backend}
@@ -206,6 +228,8 @@ func TestRecoverCleanupRetriesPlanAfterTerminal(t *testing.T) {
 	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending {
 		t.Fatalf("Plan = %+v / %v", state.Plan, err)
 	}
+	// Close and reopen SQLite: only durable state survives this restart.
+	backend = reopen()
 	// No active runs remain: startup must still finish the durable intent.
 	s = restart()
 	for i := 0; i < 3; i++ {

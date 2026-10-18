@@ -160,8 +160,9 @@ not a re-run of the isolated S2 harness:
   direct old-checkpoint resume; a reverted old binary likewise rejects new
   checkpoints. Decide an explicit drain/finish or safe restart disposition for
   pending runs in both directions, with user-visible outcomes. Preserve
-  fail-closed checks; add no custom checkpoint converter. Test upgrade and
-  downgrade using synthetic persisted state, never production journals.
+  fail-closed checks; add no custom checkpoint converter. Test actual old/new binaries with isolated paused Approval/Question/Plan state,
+  never production journals. Historical rollback requires prior cleanup under
+  the fixed current binary; new-code version-string tests are not old-binary evidence.
 - Compare full product binaries and relevant stream-path latency, memory and
   allocation behavior against the recorded baseline with matching toolchain,
   platform, flags and workload. Record measured values versus estimates and
@@ -361,7 +362,7 @@ option.
 | Phase | Scope | Gate |
 |---|---|---|
 | **P0** · *DONE 2026-10-18 except B3–B7 decisions* | Owner decisions B1–B3 and the B7 live-check approval (S4 §8.3); written pending-run policy for the Eino version boundary | Owner signature on S4; policy doc under `docs/` |
-| **P1** · *DONE 2026-10-18* | Eino core `v0.9.13 → v0.9.21` **on the current generation**, alone (lifts `EINO-CORE-UPGRADE`; also fixes `EINO-TOOLSNODE-ERR-RACE`). S0 §7.6 shows it compiles and keeps provider/runtime tests green | `just ci`; synthetic upgrade/downgrade checkpoint tests (fail-closed preserved, drain/restart outcome as P0 decided); `-race` parallel tool batch |
+| **P1** · *DONE 2026-10-18* | Eino core `v0.9.13 → v0.9.21` **on the current generation**, alone (lifts `EINO-CORE-UPGRADE`; also fixes `EINO-TOOLSNODE-ERR-RACE`). S0 §7.6 shows it compiles and keeps provider/runtime tests green | `just ci`; actual old/new binary pending-run acceptance (upgrade cleanup; historical rollback only after verified cleanup), plus synthetic fail-closed tests; `-race` parallel tool batch |
 | **P2** | Shape A on one branch: seam, three bindings, resolving/thinking projection, titler, 8 Vivy middlewares + typed Eino middlewares, mapper/observer/cachewarmer, compaction, child runs, multimodal parts, test rewrite | `just ci`; per-protocol outbound-body tests (thinking policy, tools, cache); usage projection test (R16); `-race`; checkpoint boundary fails closed on the generation change (R20) |
 | **P3** | Residue deletion (§7.3) + RPC/UI (§7.2 2.6) | `just ci`; UI smoke on split Vite `:3015`: Responses row selectable, no deferral badge, `UNAVAILABLE` still locks |
 | **P4** | Product acceptance (§2.7): full-binary and stream-path cost vs baseline, reasoning through Journal and reopen on all three, cache-read check on Claude, optional authorized live-provider check | Owner accepts measured cost; `docs/logs/` record |

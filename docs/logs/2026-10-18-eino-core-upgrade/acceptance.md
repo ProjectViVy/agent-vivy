@@ -7,7 +7,7 @@
    continue on a different engine version. Its pending request was cancelled.
    Please start the task again." Its card no longer appears as actionable in
    Review Center (approval/question status `cancelled`, Plan review
-   `cancelled`). The same holds for a rollback to the old binary.
+   `cancelled`). Direct rollback to the historical old binary with pending work is unsupported. Before rollback, complete cleanup under the current fixed binary and verify no active/pending work or cleanup intents remain. See the corrected policy and `../2026-10-18-pr80-recovery/verification.md` for actual-binary evidence.
 3. Runs that were not paused, and new runs, behave as before.
 4. `go test -race ./internal/runtime -run 'TestNudge|TestToolFailure'` passes
    (it reported the ToolsNode race before).

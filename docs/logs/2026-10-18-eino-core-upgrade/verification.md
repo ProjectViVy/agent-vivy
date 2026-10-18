@@ -38,10 +38,15 @@ restart. With the fix all four pass.
 | `go version -m` on built `cmd/vivy` | `github.com/cloudwego/eino v0.9.21` |
 | Two-binary smoke: old binary (v0.9.13, from `e7dcf85`) then new binary on the same scratch SQLite database, `VIVY_CONFIG` + `VIVY_ADDR=127.0.0.1:18787` | both boot, UI 200, `/rpc` 401 (auth required, expected); log shows no WARN/ERROR besides the address override |
 
-Downgrade direction: the checkpoint version check is string equality
-(`internal/runtime/checkpoint.go:107`), so a rollback reaches the same
-recovery branch as the tested upgrade. No separate rollback test was added;
-the tests use two arbitrary version strings, so they cover either direction.
+Correction from PR #80 follow-up: the original inference of safe rollback from
+string-equality version checks is withdrawn. These tests execute only the new
+code; the historical binary does not contain its cleanup fix. The two-binary
+boot smoke above proves startup only, not pending-run recovery. Historical
+rollback requires complete cleanup under the current fixed binary first.
+Actual paused Approval/Question/Plan binary evidence and fresh current-main
+comparisons are recorded in `../2026-10-18-pr80-recovery/verification.md`.
+The old Linux results above are historical observations, not exemptions for
+current candidate failures.
 
 ## Not run
 

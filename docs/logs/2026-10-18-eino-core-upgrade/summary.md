@@ -4,6 +4,12 @@ Phases P0 and P1 of the provider-agentic program
 (`docs/plans/provider-agentic/S3-migration-inventory.md` §7.6), after the
 owner approved the upgrade on 2026-10-18 (S4 blocker B1).
 
+Correction: the initial cleanup implementation had partial-write and post-terminal
+Plan cancellation gaps. `../2026-10-18-pr80-recovery/` supersedes its consistency
+and rollback claims with durable retry, actual-binary acceptance and fresh gates.
+The original two-binary smoke established startup only. Historical old binaries
+require cleanup before rollback; no bidirectional safety claim remains.
+
 ## What changed
 
 - **Dependency:** `go.mod` pins `github.com/cloudwego/eino v0.9.21` (was
@@ -24,7 +30,7 @@ owner approved the upgrade on 2026-10-18 (S4 blocker B1).
   cause; `failUnrecoverable` delegates to `failUnrecoverableWithMessage`.
 - **Policy (P0)** written into the HITL contract:
   `docs/architecture/hitl-review-center.md` "Restart across an engine version":
-  no drain required, no checkpoint conversion, fail-closed version check kept,
+  no drain required for upgrade to the fixed binary, no checkpoint conversion, fail-closed version check kept,
   pending interactions cancelled, user-facing message defined.
 - **Tests:** `internal/runtime/recovery_engine_version_test.go` (approval,
   question, Plan review across a version change; approval with a missing

@@ -1988,7 +1988,8 @@ func (s *Service) SweepExpired(ctx context.Context) error {
 // with a definitive run.failed. No run is left dangling, and the
 // journal's exactly-one-terminal guard keeps the close idempotent
 // (D-008). Called once at startup before the server listens; a listing
-// failure aborts startup, per-run failures only log.
+// failure or incomplete checkpoint cleanup aborts startup for retry;
+// other per-run failures retain their existing best-effort policy.
 func (s *Service) Recover(ctx context.Context) error {
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()

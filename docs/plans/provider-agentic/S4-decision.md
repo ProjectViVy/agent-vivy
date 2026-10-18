@@ -259,6 +259,13 @@ product acceptance. Each phase lands with `just ci`, its own gate and its own
   or restart, with the user-visible outcome) for each boundary in both
   directions; synthetic old-format checkpoints in tests (never production
   journals); no checkpoint converter; no bypassed version checks.
+- P1 clarification: version refusal in historical code is not cleanup safety.
+  Upgrade to the fixed v0.9.21 binary is supported; historical rollback requires
+  completing and verifying cleanup under the current binary first. Actual
+  binary tests with paused Approval/Question/Plan are required; see
+  `docs/architecture/hitl-review-center.md` and
+  `docs/logs/2026-10-18-pr80-recovery/verification.md`. This does not close
+  the P2 message-generation boundary or B5/B6/B7.
 - Journal: no schema change (domain events only, S3 §7.2 2.5); the projection
   changes, so reopening a pre-migration session must render identically
   (P4 check).

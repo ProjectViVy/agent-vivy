@@ -118,9 +118,10 @@ func TestRecoverWithMissingCheckpointCancelsPendingApproval(t *testing.T) {
 	}
 }
 
-func newPendingPlanRecovery(t *testing.T) (*sqlite.Backend, domain.RunID, domain.SessionID, func() *Service) {
+func newPendingPlanRecovery(t *testing.T) (*sqlite.Backend, domain.RunID, domain.SessionID, func() *Service, func() *sqlite.Backend) {
 	ctx := context.Background()
-	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plan-upgrade.db"))
+	dbPath := filepath.Join(t.TempDir(), "plan-upgrade.db")
+	backend, err := sqlite.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -184,13 +185,22 @@ func newPendingPlanRecovery(t *testing.T) (*sqlite.Backend, domain.RunID, domain
 	}
 
 	return backend, runID, sessionID, func() *Service {
-		return planService("test-engine-next", NewScriptedModel(schema.AssistantMessage("unused", nil)))
-	}
+			return planService("test-engine-next", NewScriptedModel(schema.AssistantMessage("unused", nil)))
+		}, func() *sqlite.Backend {
+			if err := backend.Close(); err != nil {
+				t.Fatal(err)
+			}
+			backend, err = sqlite.Open(ctx, dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return backend
+		}
 }
 
 func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 	ctx := context.Background()
-	backend, runID, sessionID, restart := newPendingPlanRecovery(t)
+	backend, runID, sessionID, restart, _ := newPendingPlanRecovery(t)
 	restarted := restart()
 	if err := restarted.Recover(ctx); err != nil {
 		t.Fatalf("recover: %v", err)
