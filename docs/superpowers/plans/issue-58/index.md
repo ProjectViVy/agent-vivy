@@ -12,6 +12,20 @@ The owner's explicit development instruction accepts the corrected execution pla
 it does not authorize deployment, mainline merge or switching tenant data. Progress
 and acceptance below must still derive from actual evidence.
 
+## Serial recovery checkpoint — 2026-10-18
+
+PR70, PR71 and main were merged without rewriting their histories. Local paired
+candidate includes both Laputa native-v3 and Windows lock-snapshot fixes. S5
+Task1b source navigation and Task2 single-sink/legacy exclusions/observed loaded
+revision now have executable local evidence, including two actual split browser
+tests, native receipt retry, Coding-after-v3 and qualified explicit recall.
+Legacy machine-home list/write schemas are explicitly unavailable to LIFE; no
+unsupported native long-term semantics are claimed. Final frozen `just ci`, race
+and platform gates remain required. #66 production entry is still external and
+LIFE is not enabled. Later historical rows below are not fresh acceptance.
+See [current recovery ledger](../../../logs/2026-10-17-issue58-resume/progress.md)
+and [verification boundaries](../../../logs/2026-10-17-issue58-resume/verification.md).
+
 ## Recovery status — 2026-10-16
 
 The owner authorized recovery in a new independent lane. Remote `66fabfd` and main
