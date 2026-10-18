@@ -9,6 +9,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/observerhost"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
@@ -85,6 +86,19 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 	// Construction-owned subscriptions (e.g. the cognitive capture seam)
 	// append after the sealed inventory; nothing may subscribe after Start.
 	subscriptions = append(subscriptions, extraSubs...)
+	sources, _ := backend.(storage.SubjectSourceStore)
+	subjectSinks := 0
+	for i := range subscriptions {
+		switch subscriptions[i].Provider.ID() {
+		case runtime.SubjectProjectionProviderID:
+			subjectSinks++
+		case memorymodule.ProviderID, runtime.CognitiveCaptureProviderID:
+			subscriptions[i].Provider = legacySubjectObserver{RunProvider: subscriptions[i].Provider, sources: sources}
+		}
+	}
+	if subjectSinks > 1 {
+		return nil, fmt.Errorf("app: multiple selected subject projection sinks")
+	}
 	if len(subscriptions) == 0 {
 		return nil, nil
 	}

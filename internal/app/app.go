@@ -881,6 +881,31 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				}
 			}, ingestExclusionPredicate(backend)))
 	}
+	if ao.mainConversation != nil {
+		failProjection := func(err error) (*App, error) {
+			if cognitiveBundle != nil {
+				_ = cognitiveBundle.Close()
+			}
+			_ = backend.Close()
+			return nil, err
+		}
+		selected, ok := cognitiveBundle.(cognitivecontract.SubjectMemoryProvider)
+		recap, recapOK := cognitiveBundle.(cognitivecontract.RecapProvider)
+		if !ok || !recapOK || selected.SubjectMemory() == nil {
+			return failProjection(fmt.Errorf("app: resident subject projection backend unavailable"))
+		}
+		head, err := recap.Recap().ReadRecap(ctx)
+		if err != nil {
+			return failProjection(err)
+		}
+		projection, err := runtime.NewSubjectProjectionProvider(func() *runtime.Service { return svc }, selected.SubjectMemory(), head.Binding)
+		if err != nil {
+			return failProjection(err)
+		}
+		subscription := projection.Subscription()
+		subscription.ExcludeRun = ingestExclusionPredicate(backend)
+		cognitiveSubs = append(cognitiveSubs, subscription)
+	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
 	if err != nil {
 		if cognitiveBundle != nil {
@@ -1125,6 +1150,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
+	}
+	if memoryService != nil {
+		memoryService.BindSubjectTools(subjectMemoryTools(svc, backend, cognitiveBundle))
 	}
 	if reportsBundle != nil {
 		reportsBundle.AttachAdmission(svc)

@@ -49,7 +49,13 @@ func (t *memoryTool) Invoke(ctx context.Context, _ toolport.Host, args json.RawM
 		if service == nil {
 			payload, err = marshalOutcome(unavailableOutcome())
 		} else {
-			payload, err = t.invoke(ctx, service, args)
+			handled := false
+			if service.subjectTools != nil {
+				payload, handled, err = service.subjectTools(ctx, t.definition.ID, args)
+			}
+			if !handled && err == nil {
+				payload, err = t.invoke(ctx, service, args)
+			}
 		}
 	}
 	if err != nil {
@@ -231,7 +237,8 @@ func invokeToolSearch(ctx context.Context, service *Service, raw json.RawMessage
 }
 
 type getToolInput struct {
-	ID string `json:"id"`
+	ExpectedRevision *int64 `json:"expected_revision"`
+	ID               string `json:"id"`
 }
 
 func invokeToolGet(ctx context.Context, service *Service, raw json.RawMessage) (json.RawMessage, error) {
@@ -242,7 +249,11 @@ func invokeToolGet(ctx context.Context, service *Service, raw json.RawMessage) (
 	if in.ID == "" {
 		return marshalOutcome(invalidInput())
 	}
-	return marshalOutcome(service.Get(ctx, bml.MemoryGetRequest{RecordID: in.ID}))
+	out := service.Get(ctx, bml.MemoryGetRequest{RecordID: in.ID})
+	if in.ExpectedRevision != nil && out.Status == bml.CrudOutcomeListed && (len(out.Entries) != 1 || out.Entries[0].Revision != *in.ExpectedRevision) {
+		return marshalOutcome(failedOutcome(bml.HomeCodeRevisionConflict))
+	}
+	return marshalOutcome(out)
 }
 
 type addToolInput struct {
@@ -338,7 +349,7 @@ func invokeToolRemove(ctx context.Context, service *Service, raw json.RawMessage
 
 var (
 	addToolSchema    = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"]},"content":{"type":"string","minLength":1,"description":"The fact or preference to remember"},"trust":{"type":"string","enum":["user_asserted"],"description":"Authority-assigned trust; only user_asserted is accepted"},"provenance":{"type":"string","enum":["user_input"],"description":"Authority-assigned provenance; only user_input is accepted"},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["kind","content"],"additionalProperties":false}`)
-	getToolSchema    = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"description":"Stable record id"}},"required":["id"],"additionalProperties":false}`)
+	getToolSchema    = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"description":"Stable record id"},"expected_revision":{"type":"integer","minimum":1,"description":"Revision returned by memory_search; required for subject-scoped originals"}},"required":["id"],"additionalProperties":false}`)
 	listToolSchema   = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"],"description":"Record kind; only long_term is visible"},"scope":{"type":"string","enum":["machine-memory-home"],"description":"Scope filter; only the machine memory home is served"},"limit":{"type":"integer","minimum":1,"maximum":4294967295,"description":"Maximum number of entries to return"},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"additionalProperties":false}`)
 	searchToolSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":4096,"description":"Search query"},"limit":{"type":"integer","minimum":1,"maximum":4294967295},"cursor":{"type":"string","description":"Continuation cursor from a previous next_cursor"}},"required":["query"],"additionalProperties":false}`)
 	updateToolSchema = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"content":{"type":"string","minLength":1,"description":"Replacement content; omitted preserves the record's current content"},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64},"reason":{"type":"string","maxLength":1024,"description":"Advisory note; not persisted"}},"required":["id","base_revision"],"additionalProperties":false}`)

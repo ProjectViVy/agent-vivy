@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"sync/atomic"
@@ -19,9 +20,10 @@ const defaultRecallLimit uint32 = 100
 // behind by Close reports the explicit bml_unavailable outcome rather than
 // reopening the store.
 type Service struct {
-	home       *bml.Home
-	leaseOwner string
-	closed     atomic.Bool
+	home         *bml.Home
+	leaseOwner   string
+	closed       atomic.Bool
+	subjectTools func(context.Context, string, json.RawMessage) (json.RawMessage, bool, error)
 }
 
 func (s *Service) close() error {
@@ -312,4 +314,10 @@ func (b serviceBinding) memoryService() *Service {
 		return b.service
 	}
 	return Active()
+}
+
+// BindSubjectTools attaches the construction-owned policy route before App starts.
+// Ordinary unbound providers retain the legacy machine-home contract.
+func (s *Service) BindSubjectTools(route func(context.Context, string, json.RawMessage) (json.RawMessage, bool, error)) {
+	s.subjectTools = route
 }
