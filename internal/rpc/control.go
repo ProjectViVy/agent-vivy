@@ -1176,6 +1176,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			// VCP C3: verified-download reads for session exports and /bug bundles.
 			capabilities = append(capabilities, "exports.read")
 		}
+		if h.deps.Service != nil && h.deps.Service.RecapAvailable() {
+			capabilities = append(capabilities, "recap")
+		}
 		if h.deps.Work != nil && h.deps.Service != nil {
 			capabilities = append(capabilities, "session.work", "session.work.subscribe", "goal", "plan", "plan.get")
 		}

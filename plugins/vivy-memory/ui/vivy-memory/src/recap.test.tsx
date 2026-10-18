@@ -55,6 +55,15 @@ describe('RecapWorkspace', () => {
   expect(container.querySelector('[data-testid="recap-history-text"]')?.textContent).toBe('修正前的完整文字\n');await click('restore');await click('confirmRestore');expect(writes).toEqual(['vivy.recap.clear','vivy.recap.restore']);
  });
 
+ it('translates a denied read instead of showing the backend reason code',async()=>{
+  await mount(async()=>({status:'failed',reason:'recap_scope_denied'}));
+  expect(container.textContent).toContain(key('reason.recap_scope_denied'));expect(container.textContent).not.toContain('recap_scope_denied ');
+  expect(container.textContent).not.toMatch(/(^|[^.])recap_scope_denied/);
+ });
+ it('maps an unknown backend reason to the generic message',async()=>{
+  await mount(async()=>({status:'failed',reason:'some_internal_code'}));
+  expect(container.textContent).toContain(key('reason.generic'));expect(container.textContent).not.toContain('some_internal_code');
+ });
  it('keeps a dirty draft accessible when a later authorized read becomes unavailable',async()=>{
   let unavailable=false;
   await mount(async()=>unavailable?{status:'failed',reason:'recap_unavailable'}:{status:'listed',head:HEAD});

@@ -690,6 +690,30 @@
         "en": "Loaded revision",
         "zh": "实际加载版本"
       }
+    },
+    "plugin.vivy/memory.recap.reason.generic": {
+      "description": "Recap error: generic unavailable reason",
+      "placeholders": [],
+      "messages": {
+        "en": "Recap is unavailable right now.",
+        "zh": "Recap 暂时不可用。"
+      }
+    },
+    "plugin.vivy/memory.recap.reason.recap_scope_denied": {
+      "description": "Recap error: scope denied reason",
+      "placeholders": [],
+      "messages": {
+        "en": "Recap is not available for this session.",
+        "zh": "此会话无法使用 Recap。"
+      }
+    },
+    "plugin.vivy/memory.recap.reason.recap_commit_unknown": {
+      "description": "Recap error: commit outcome unknown reason",
+      "placeholders": [],
+      "messages": {
+        "en": "The save may not have completed. Reload before trying again.",
+        "zh": "保存结果未知，请重新加载后再试。"
+      }
     }
   }
 }

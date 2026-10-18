@@ -8,6 +8,13 @@ import (
 	"agent-vivy/internal/storage"
 )
 
+// RecapAvailable reports whether Recap management can ever be authorized: it
+// needs a trusted main-conversation resolver and the Recap owner port. Hosts
+// publish it as a capability so faces never offer a surface that always denies.
+func (s *Service) RecapAvailable() bool {
+	return s != nil && s.deps.Recap != nil && s.deps.MainConversation != nil
+}
+
 // resolveSubjectAdmission consumes trusted Host decisions on the existing Run
 // path. No RunOptions or browser scope field can select resident LIFE policy.
 func (s *Service) resolveSubjectAdmission(ctx context.Context, sid domain.SessionID) (*storage.SubjectSourceBinding, error) {

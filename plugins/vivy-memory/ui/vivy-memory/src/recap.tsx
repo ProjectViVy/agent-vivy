@@ -16,6 +16,8 @@ type DialogIntent = WriteIntent | { readonly kind: 'reload' };
 const prefix = 'plugin.vivy/memory.recap.';
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 const noSubscription = () => () => undefined;
+// Backend reason codes never reach the user raw; unknown codes read as generic.
+const reasonKey = (reason?: string) => reason === 'recap_scope_denied' || reason === 'recap_commit_unknown' ? `reason.${reason}` : 'reason.generic';
 
 export function RecapWorkspace() {
  const host = usePluginHost();
@@ -73,7 +75,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
    const outcome = await client.invoke('read', session);
    if (!mounted.current || seq !== request.current) return;
    setLoaded(outcome.loaded_status === 'loaded' ? outcome.loaded : undefined);
-   if (outcome.status !== 'listed' || !outcome.head) { setError(outcome.reason ?? outcome.status); setHead(null); return; }
+   if (outcome.status !== 'listed' || !outcome.head) { setError(copy(reasonKey(outcome.reason))); setHead(null); return; }
    acceptHead(outcome.head); setError(null);
   } catch (cause) { if (mounted.current && seq === request.current) { setError(message(cause)); setLoaded(undefined); } }
   finally { if (mounted.current && seq === request.current) setLoading(false); }
@@ -89,7 +91,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
   try {
    const outcome = await client.invoke('history', session, { limit: 20, ...(before ? { before } : {}) });
    if (!mounted.current) return;
-   if (outcome.status !== 'listed') { setError(outcome.reason ?? outcome.status); return; }
+   if (outcome.status !== 'listed') { setError(copy(reasonKey(outcome.reason))); return; }
    setHistory(current => before ? [...current, ...(outcome.revisions ?? [])] : outcome.revisions ?? []);
    setNextBefore(outcome.next_before);
   } catch (cause) { if (mounted.current) setError(message(cause)); }
@@ -102,7 +104,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
    if (!mounted.current) return;
    if (seq!==revisionRequest.current) return;
    if (outcome.status === 'listed' && outcome.head) {setPreview(outcome.head);setSources(null);setSourceReason(null);sourceRequest.current++;}
-   else setError(outcome.reason ?? outcome.status);
+   else setError(copy(reasonKey(outcome.reason)));
   } catch (cause) { if (mounted.current) setError(message(cause)); }
  };
  const selectTab = (value: Tab) => { if (value === tab) return; setTab(value); if (value === 'history') void loadHistory(); };
@@ -125,7 +127,7 @@ function RecapEditor({ host, client, session, t, drafts }: {
    if (outcome.status === 'conflict' && outcome.head) {
     acceptHead(outcome.head); setConflict(outcome.head); setConflictIntent(expected ?? null); setDialog(null); return;
    }
-   if (outcome.status !== 'applied' || !outcome.head) { setError(outcome.reason ?? outcome.status); return; }
+   if (outcome.status !== 'applied' || !outcome.head) { setError(copy(reasonKey(outcome.reason))); return; }
    acceptHead(outcome.head); setDialog(null); setConflict(null); setConflictIntent(null); intent.current = null;
    if (action === 'edit' && draftRef.current === savedDraft) { changeDraft(null); setEditing(false); }
    setNotice(copy(outcome.activation === 'next_safe_boundary' ? 'nextSafeBoundary' : 'nextRun'));
