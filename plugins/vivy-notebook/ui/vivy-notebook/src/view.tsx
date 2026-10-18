@@ -5,7 +5,7 @@
  * the backend; an unsaved buffer lives only in page state and blocks
  * navigation until explicitly confirmed.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, FilePlus2, FolderPlus, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,7 @@ import { NotebookComments } from './comments';
 import { NotebookReports } from './reports';
 import {
   NOTEBOOK_ERROR_CODES, NOTEBOOK_MAX_PAGE_ROWS,
-  type Entry, type GenerationProvenance, type Section,
+  type Entry, type GenerationProvenance, type ReportResult, type Section,
 } from './types';
 
 type CollectionState = 'loading' | 'ready' | 'error';
@@ -58,11 +58,14 @@ export function NotebookView() {
   const [generatedRevs, setGeneratedRevs] = useState<ReadonlySet<string>>(new Set());
   const sectionsEpoch = useRef(0);
   const entriesEpoch = useRef(0);
+  // First-use controls appear after the first real entry read, then stay
+  // mounted across section reloads so an admitted report keeps being tracked.
+  const entriesLoaded = useRef(false);
 
   const selectedSection = sections.find((section) => section.id === sectionId) ?? null;
   const selectedEntry = entries.find((entry) => entry.id === entryId) ?? null;
 
-  const loadSections = async () => {
+  const loadSections = async (preferredSectionId?: string) => {
     if (!client) {
       setUnavailable('no-rpc');
       return;
@@ -75,9 +78,12 @@ export function NotebookView() {
       if (my !== sectionsEpoch.current) return;
       setSections(page.sections);
       setSectionsState('ready');
-      setSectionId((current) => (current && page.sections.some((s) => s.id === current)
-        ? current
-        : page.sections[0]?.id ?? null));
+      setSectionId((current) => (
+        preferredSectionId && page.sections.some((s) => s.id === preferredSectionId)
+          ? preferredSectionId
+          : current && page.sections.some((s) => s.id === current)
+            ? current
+            : page.sections[0]?.id ?? null));
     } catch (cause) {
       if (my !== sectionsEpoch.current) return;
       if (cause instanceof NotebookError && cause.code === NOTEBOOK_ERROR_CODES.capabilityUnavailable) {
@@ -99,6 +105,7 @@ export function NotebookView() {
     try {
       const page = await client.listEntries({ section_id: section, limit: NOTEBOOK_MAX_PAGE_ROWS, include_deleted: includeDeleted });
       if (my !== entriesEpoch.current) return;
+      entriesLoaded.current = true;
       setEntries(page.entries);
       setEntriesState('ready');
       setEntryId((current) => (current && page.entries.some((e) => e.id === current) ? current : null));
@@ -106,6 +113,48 @@ export function NotebookView() {
       if (my === entriesEpoch.current) setEntriesState('error');
     }
   };
+
+  // The reports panel may finish while the page has moved on (or holds an
+  // unsaved draft). Keep the latest closure reachable from its poll effect so
+  // a completion never acts on the state captured when the panel mounted.
+  const reportCompletion = useRef<(result: ReportResult) => void>(() => {});
+  reportCompletion.current = (result) => {
+    const generation = result.generation;
+    if (!generation) return;
+    setLastGeneration(generation);
+    setRefreshKey((value) => value + 1);
+    if (!client) return;
+    void (async () => {
+      let destination: Entry;
+      try {
+        destination = (await client.getEntry({ id: generation.entry_id })).entry;
+      } catch {
+        // The list may already contain the entry; never invent a selection.
+        void loadEntries(sectionId);
+        return;
+      }
+      if (dirty || pendingNav) {
+        // The unsaved buffer owns the editor until the operator decides.
+        void loadEntries(sectionId);
+        return;
+      }
+      if (sections.some((section) => section.id === destination.section_id)) {
+        if (destination.section_id !== sectionId) {
+          setSectionId(destination.section_id);
+        } else {
+          void loadEntries(destination.section_id);
+        }
+      } else {
+        // The destination lives in a section the picker has not loaded yet.
+        await loadSections(destination.section_id);
+      }
+      setEntryId(destination.id);
+    })();
+  };
+  const handleReportGenerated = useCallback(
+    (result: ReportResult) => reportCompletion.current(result),
+    [],
+  );
 
   useEffect(() => { void loadSections(); }, [client]);
   useEffect(() => { void loadEntries(sectionId); }, [client, sectionId, includeDeleted]);
@@ -359,14 +408,7 @@ export function NotebookView() {
               ))}
             </select>
             <Button size="sm" variant="outline" onClick={() => void exportRevision()} data-testid="notebook-export">{t('plugin.vivy/notebook.export')}</Button>
-            <NotebookReports
-              entry={selectedEntry}
-              onGenerated={(result) => {
-                if (result.generation) setLastGeneration(result.generation);
-                setRefreshKey((k) => k + 1);
-                void loadEntries(sectionId);
-              }}
-            />
+            <NotebookReports entry={selectedEntry} onGenerated={handleReportGenerated} />
             <Button size="sm" variant="outline" onClick={() => void mutateEntry('delete')} data-testid="notebook-entry-delete">
               <Trash2 className="mr-1 h-3.5 w-3.5" />{t('common.delete')}
             </Button>
@@ -426,11 +468,18 @@ export function NotebookView() {
       </Tabs>
     </div>
   ) : (
-    <div className="flex h-full items-center justify-center p-6 text-muted-foreground">
+    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-muted-foreground">
       <div className="text-center">
         <BookOpen className="mx-auto mb-2 h-12 w-12 opacity-40" />
-        <p>{t('plugin.vivy/notebook.selectEntry')}</p>
+        <p>{entriesState === 'ready' && entries.length === 0
+          ? t('plugin.vivy/notebook.emptySection')
+          : t('plugin.vivy/notebook.selectEntry')}</p>
       </div>
+      {client && sectionId !== null && sectionsState === 'ready' && entriesLoaded.current ? (
+        <div className="flex max-w-full flex-wrap items-center justify-center" data-testid="notebook-empty-reports">
+          <NotebookReports entry={null} onGenerated={handleReportGenerated} />
+        </div>
+      ) : null}
     </div>
   );
 
