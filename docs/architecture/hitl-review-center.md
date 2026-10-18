@@ -50,6 +50,31 @@ come from the live setting. Restart recovery uses the same transition.
 Decision, expiry, cancellation, and stale outcomes are journal events and can
 be replayed by the run inspector.
 
+## Restart across an engine version (pending-run policy)
+
+A paused run resumes from its Eino checkpoint, and a checkpoint is readable
+only by the exact Eino version that wrote it (`VersionedCheckpointStore`,
+`internal/runtime/checkpoint.go`). A Vivy upgrade or rollback that changes
+the Eino version therefore cannot resume a run that was waiting on a person.
+Policy, in both directions:
+
+- **No drain is required before upgrading, and no checkpoint is converted.**
+  Version checks stay fail-closed.
+- On startup, recovery closes each such run with `run.failed`, cause
+  `internal_error`, and the message *"Vivy was updated while this run was
+  waiting, and a paused run cannot continue on a different engine version.
+  Its pending request was cancelled. Please start the task again."*
+- Its pending interaction is settled, so no actionable card outlives the run:
+  an approval or question is **cancelled** (journaled before the terminal),
+  and a pending Plan review is **cancelled** after it. Prompt-snapshot
+  incompatibilities are unaffected and still keep the review pending.
+- A lost checkpoint at the same version is settled the same way, with the
+  generic restart message.
+- Operators who want a paused task to finish should decide its pending review
+  before upgrading.
+
+Evidence: `internal/runtime/recovery_engine_version_test.go`.
+
 ## UI rule
 
 Review Center is a full main-area surface for cross-session work. The run

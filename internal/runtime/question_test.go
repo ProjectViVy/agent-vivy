@@ -104,12 +104,17 @@ func TestServiceQuestionSuspendAnswerAndResume(t *testing.T) {
 
 func restartQuestionService(t *testing.T, backend *sqlite.Backend) *Service {
 	t.Helper()
+	return restartQuestionServiceAt(t, backend, "test-engine")
+}
+
+func restartQuestionServiceAt(t *testing.T, backend *sqlite.Backend, engineVersion string) *Service {
+	t.Helper()
 	ctx := context.Background()
 	ts, err := tools.Builtin(backend).Resolve([]string{tools.AskUserName})
 	if err != nil {
 		t.Fatalf("resolve ask_user: %v", err)
 	}
-	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), engineVersion)
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}

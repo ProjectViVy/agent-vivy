@@ -46,7 +46,9 @@ moved from `a5f1f90` (issue-58 branch, eino v0.9.20) to upstream `main`
 `e7dcf85` (eino v0.9.13), the base a migration would actually start from; S0
 measured both. Line citations in §§1–8 of each stage file are the plan as
 reviewed; each file's final "Result" section re-cites against `main` and
-supersedes them. Headline: no bridge needed; seven named blockers (S4 §8.3); the
+supersedes them. 2026-10-18: B1 and B2 closed, phases P0/P1 delivered (eino v0.9.21 on the
+current generation; `docs/logs/2026-10-18-eino-core-upgrade/`).
+Headline: no bridge needed; seven named blockers (S4 §8.3); the
 reasoning-visibility benefit is already delivered by the current stack.
 
 A human changes an `UNSCHEDULED` stage to scheduled. The stages are a **spike**:
