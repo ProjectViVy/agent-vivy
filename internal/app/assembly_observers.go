@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -113,8 +114,8 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 }
 
 // ingestExclusionPredicate gates observer delivery: report-purpose Runs and
-// runs with ingestion-excluded tool operations never feed memory or
-// cognitive capture, while the Journal cursor still advances.
+// runs with ingestion-excluded tool operations or unknown input provenance never
+// feed memory or cognitive capture, while the Journal cursor still advances.
 func ingestExclusionPredicate(backend storage.Engine) func(context.Context, domain.RunID) (bool, error) {
 	return func(ctx context.Context, id domain.RunID) (bool, error) {
 		run, err := backend.GetRun(ctx, id)
@@ -125,12 +126,18 @@ func ingestExclusionPredicate(backend storage.Engine) func(context.Context, doma
 			return true, nil
 		}
 		p, err := storage.RunInputProvenance(ctx, backend, id)
+		if errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+			return true, nil // permanently unknown; see below
+		}
 		if err != nil {
 			return false, err
 		}
 		excluded, available := storage.ClassifyInputProvenance(p.ContentOrigin, p.ExcludeAutomaticIngest)
 		if !available {
-			return false, storage.ErrSubjectEvidenceIncomplete
+			// Unknown provenance is permanent (invalid tool-argument marker or a
+			// pre-provenance request). Never feed it to memory, but advance the
+			// cursor instead of retrying the run forever.
+			return true, nil
 		}
 		// Query the existing operation guard only after releasing Journal Replay.
 		operationExcluded, err := backend.HasExcludedToolOperations(ctx, id)

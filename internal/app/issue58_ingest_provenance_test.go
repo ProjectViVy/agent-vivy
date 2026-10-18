@@ -7,7 +7,6 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/sdk/port/observer"
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -48,8 +47,10 @@ func TestIssue58AutomaticIngestProvenance(t *testing.T) {
 			}
 			excluded, err := ingestExclusionPredicate(b)(ctx, "r")
 			if tc.unavailable {
-				if !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
-					t.Fatalf("unknown automatic ingest did not fail closed: %t %v", excluded, err)
+				// Unknown provenance is skipped (cursor advances), never fed to
+				// memory and never retried forever.
+				if err != nil || !excluded {
+					t.Fatalf("unknown automatic ingest must be skipped: %t %v", excluded, err)
 				}
 			} else if err != nil || excluded != tc.excluded {
 				t.Fatalf("ingest decision %t %v", excluded, err)
@@ -66,9 +67,9 @@ func (r *issue58IngestReceiver) ObserveRun(context.Context, observer.RunEvent) e
 	return nil
 }
 
-func TestIssue58InvalidArgumentsBlockObserverDelivery(t *testing.T) {
+func TestIssue58InvalidArgumentsSkipObserverDelivery(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
-		t.Run(map[bool]string{false: "original-delivers", true: "invalid-blocked"}[invalid], func(t *testing.T) {
+		t.Run(map[bool]string{false: "original-delivers", true: "invalid-skipped"}[invalid], func(t *testing.T) {
 			ctx := context.Background()
 			b, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "delivery.db"))
 			if err != nil {
@@ -98,8 +99,12 @@ func TestIssue58InvalidArgumentsBlockObserverDelivery(t *testing.T) {
 			}
 			err = host.DeliverRun(ctx, "delivery-run")
 			if invalid {
-				if receiver.delivered != 0 || !errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
-					t.Fatalf("invalid evidence delivered to automatic observer %d %v", receiver.delivered, err)
+				if receiver.delivered != 0 || err != nil {
+					t.Fatalf("invalid evidence delivered or retried by automatic observer %d %v", receiver.delivered, err)
+				}
+				// The cursor advanced: a second delivery is a no-op, not a retry.
+				if err := host.DeliverRun(ctx, "delivery-run"); err != nil || receiver.delivered != 0 {
+					t.Fatalf("skipped run was redelivered %d %v", receiver.delivered, err)
 				}
 			} else if err != nil || receiver.delivered != 1 {
 				t.Fatalf("original observer delivery missing %d %v", receiver.delivered, err)
