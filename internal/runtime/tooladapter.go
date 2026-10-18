@@ -626,8 +626,19 @@ func workToolCallFenced(ctx context.Context) bool {
 // dispatch performs one governed call. Every per-call refusal leaves it as a
 // *toolRefusal so InvokableRun can turn it into a tool result instead of a
 // run-fatal error.
+// retainsEvidence reports whether the current run pins subject evidence.
+// A lookup failure fails closed.
+func retainsEvidence(ctx context.Context) bool {
+	coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator)
+	if !ok {
+		return false
+	}
+	retained, err := coordinator.RetainsEvidence(ctx)
+	return err != nil || retained
+}
+
 func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (string, error) {
-	if !utf8.ValidString(argumentsInJSON) {
+	if !utf8.ValidString(argumentsInJSON) && retainsEvidence(ctx) {
 		return "", storage.ErrSubjectEvidenceIncomplete
 	}
 	if operations := tools.WorkControlFromContext(ctx); operations != nil {

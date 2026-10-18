@@ -3457,6 +3457,18 @@ func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
 	}
 }
 
+// retainsInvalidArguments reports whether this run pins subject evidence, in
+// which case invalid tool-argument bytes must stay unavailable evidence.
+// Ordinary runs keep the pre-Recap behavior. Lookup failure fails closed.
+func (o *runModelCallObserver) retainsInvalidArguments(ctx context.Context) bool {
+	sources, ok := o.svc.deps.Sessions.(storage.SubjectSourceStore)
+	if !ok {
+		return false
+	}
+	_, err := sources.GetRunSubjectSource(ctx, o.m.runID)
+	return !errors.Is(err, storage.ErrNotFound)
+}
+
 func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.Message) error {
 	if chunk == nil {
 		return nil
@@ -3468,7 +3480,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		state.toolCallChunks = append(state.toolCallChunks, &schema.Message{Role: schema.Assistant, ToolCalls: append([]schema.ToolCall(nil), chunk.ToolCalls...)})
 	}
 	for _, call := range chunk.ToolCalls {
-		if !utf8.ValidString(call.Function.Arguments) {
+		if !utf8.ValidString(call.Function.Arguments) && o.retainsInvalidArguments(ctx) {
 			// Preserve a durable unavailable marker before either JSON encoding or
 			// Eino can normalize the invalid provider bytes into a valid string.
 			fragments := []*schema.Message{chunk}
