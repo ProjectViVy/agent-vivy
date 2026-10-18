@@ -26,6 +26,14 @@ async function action(page: Page, name: string, input: Record<string, unknown> =
  }, {name,input,session:SESSION});
 }
 
+test.beforeEach(async({page})=>{
+ // First-arrival onboarding can appear after the Recap itself has rendered.
+ // Handle it at actionability checks, using the ordinary dismissal control.
+ await page.addLocatorHandler(page.getByRole('dialog',{name:'Persona onboarding'}),async dialog=>{
+  await dialog.getByRole('button',{name:'Not now',exact:true}).click();
+ });
+});
+
 test('governed Recap keeps full drafts through conflicts, history, sources and clear on the real split backend',async({page},testInfo)=>{
  test.skip(process.env.VIVY_ISSUE58_SPLIT_TEST!=='1','run with playwright.issue58.config.ts and its disposable actual backend');
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -81,8 +89,6 @@ test('historical sources survive removal of the derived BML record on the real s
  });
  await page.goto('/memory');
  await expect(page.getByTestId('recap-full-text')).toBeVisible();
- const onboarding=page.getByRole('dialog',{name:'Persona onboarding'});
- if(await onboarding.isVisible()) await onboarding.getByRole('button',{name:'Not now',exact:true}).click();
  await page.getByRole('tab',{name:'History',exact:true}).click();
  await page.locator('button[data-revision="2"]').click();
  await page.getByRole('button',{name:'View covered sources',exact:true}).click();
