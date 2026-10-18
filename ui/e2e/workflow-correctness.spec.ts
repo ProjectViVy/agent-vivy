@@ -1,12 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import type http from 'node:http';
-import { startLoopbackModel } from './continuity-setup';
+import { finalText, holdOpen, modelRequestBodies, setModelScript, startLoopbackModel } from './continuity-setup';
 import { WORKFLOW_MODEL_ADDR } from './workflow-setup';
 
 // Workflow correctness acceptance (issue #81 / E3): the deterministic loopback
 // model drives the real backend + Vite split pair on isolated ports. The
 // assertions read committed host state, never a mocked callback.
 const WORKFLOW_ID = 'pg-workflow';
+const LAUNCH_WORKFLOW_ID = 'pg-launch';
+const LAUNCH_LITERAL = 'PG-browser-literal';
+const RUN_DISABLED_HINT = 'Workflow runs start inside an active session run.';
 const AUTHORED_INPUTS = {
   literal_text: { literal: 'PG-literal-value' },
   root_text: { source: 'input', pointer: '/topic' },
@@ -114,4 +117,91 @@ test('authored node inputs survive save, reload, validate, and publish', async (
   expect(node.inputs).toEqual(AUTHORED_INPUTS);
   expect(node.config?.inputs).toBeUndefined();
   expect(node.config?.task).toBe(WORKFLOW_ID);
+});
+
+async function startChat(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New session' }).first().click();
+  await expect(page.getByText('Start a new conversation')).toBeVisible();
+}
+
+async function sendMessage(page: Page, text: string): Promise<void> {
+  const composer = page.getByRole('combobox', { name: 'Message' });
+  await composer.fill(text);
+  await expect(composer).toHaveValue(text);
+  const send = page.getByRole('button', { name: 'Send' });
+  await expect(send).toBeEnabled();
+  await send.click();
+}
+
+async function openWorkflowsFromShell(page: Page): Promise<void> {
+  // Module entries live inside the sidebar's VIVY group, not on the root list.
+  await page.getByRole('button', { name: 'VIVY', exact: true }).click();
+  await page.getByRole('link', { name: 'Workflows' }).first().click();
+  await expect(page.getByRole('tab', { name: 'Editor' })).toBeVisible();
+}
+
+async function authorAndPublish(page: Page, workflowId: string, inputs: Record<string, unknown>): Promise<void> {
+  await page.getByPlaceholder('workflow id').fill(workflowId);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByText(/No draft found/)).toBeVisible();
+  await page.locator('.react-flow__node').first().click();
+  await expect(inputsField(page)).toBeVisible();
+  await inputsField(page).fill(JSON.stringify(inputs, null, 2));
+  await inputsField(page).blur();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByText('Draft saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Validate' }).click();
+  await expect(page.getByText('Definition is valid.')).toBeVisible();
+  await page.getByRole('button', { name: 'Publish' }).click();
+  await expect(page.getByText(/Published r1/)).toBeVisible();
+}
+
+test('an idle session cannot launch a workflow and says why', async ({ page }) => {
+  await page.goto('/workflows');
+  await expect(page.getByRole('tab', { name: 'Editor' })).toBeVisible();
+  await expect(page.getByText(RUN_DISABLED_HINT)).toBeVisible();
+  const runButton = page.getByRole('button', { name: 'Run', exact: true });
+  await expect(runButton).toBeDisabled();
+});
+
+test('a finished session run cannot launch a workflow', async ({ page }) => {
+  await startChat(page);
+  await setModelScript([finalText('plain answer')], WORKFLOW_MODEL_ADDR);
+  await sendMessage(page, 'just chat');
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible({ timeout: 30_000 });
+
+  await openWorkflowsFromShell(page);
+  await expect(page.getByText(RUN_DISABLED_HINT)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled();
+});
+
+test('an active parent run launches the published workflow and consumes its inputs', async ({ page }) => {
+  await startChat(page);
+  // The parent's model call never answers, so its Run stays active while the
+  // workflow run is launched; the child's call gets the queued text reply.
+  await setModelScript([holdOpen(), finalText('child finished')], WORKFLOW_MODEL_ADDR);
+  await sendMessage(page, 'hold this run open');
+  await expect(page.getByRole('button', { name: 'Cancel run' })).toBeVisible({ timeout: 30_000 });
+
+  await openWorkflowsFromShell(page);
+  await expect(page.getByText(RUN_DISABLED_HINT)).toHaveCount(0);
+  await authorAndPublish(page, LAUNCH_WORKFLOW_ID, { literal_text: { literal: LAUNCH_LITERAL } });
+
+  const runButton = page.getByRole('button', { name: 'Run', exact: true });
+  await expect(runButton).toBeEnabled();
+  await runButton.click();
+
+  // The Runs tab renders the host Run status once the child finishes.
+  await expect(page.getByText('completed').first()).toBeVisible({ timeout: 60_000 });
+  const bodies = await modelRequestBodies(WORKFLOW_MODEL_ADDR);
+  expect(bodies.some((body) => body.includes(LAUNCH_LITERAL))).toBe(true);
+
+  const runs = (await rpc(page, 'inofy.listRuns', {})) as { items: Array<{ run_id: string; status: string }> };
+  // The list carries the host Run status; the inspection view uses the
+  // engine vocabulary (`completed` -> `succeeded`), which the badge showed.
+  const child = runs.items.find((item) => item.status === 'completed');
+  if (!child) throw new Error('no completed workflow run listed');
+  const detail = (await rpc(page, 'inofy.getRun', { run_id: child.run_id })) as { status: string; revision?: number };
+  expect(detail.status).toBe('completed');
 });

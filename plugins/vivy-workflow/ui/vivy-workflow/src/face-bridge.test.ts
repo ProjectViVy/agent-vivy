@@ -69,6 +69,33 @@ describe('FaceBridge.call', () => {
     });
   });
 
+  it('refuses a launch without an eligible parent and never reaches the wire', async () => {
+    for (const overrides of [
+      { activeSessionId: null },
+      { currentRun: null },
+      { currentRun: { id: 'run-parent', session_id: 'sess-1', status: 'completed', created_at: 1 } },
+      { currentRun: { id: 'run-parent', session_id: 'sess-2', status: 'active', created_at: 1 } },
+    ] as Partial<FaceStoreState>[]) {
+      const host = makeHost(overrides);
+      const bridge = new FaceBridge(host.rpc, host.store);
+      await expect(bridge.call('inofy.startRun', { workflow: 'wf-1' })).rejects.toMatchObject({
+        code: 'unsupported_feature',
+      });
+      expect(host.rpc.call).not.toHaveBeenCalled();
+    }
+  });
+
+  it('overwrites caller-supplied parentage with the host parent', async () => {
+    const host = makeHost();
+    const bridge = new FaceBridge(host.rpc, host.store);
+    await bridge.call('inofy.startRun', {
+      workflow: 'wf-1', parent_run_id: 'forged-run', session_id: 'forged-session', operation_id: 'op-1',
+    });
+    expect(host.rpc.call).toHaveBeenCalledWith('inofy.startRun', {
+      workflow: 'wf-1', session_id: 'sess-1', parent_run_id: 'run-parent', operation_id: 'op-1',
+    });
+  });
+
   it('leaves non-startRun calls without run binding params', async () => {
     const host = makeHost();
     const bridge = new FaceBridge(host.rpc, host.store);
