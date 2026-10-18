@@ -15,6 +15,12 @@ func (b *Backend) SealSubjectInteraction(ctx context.Context, bnd storage.Subjec
 	err = retrySQLiteBusy(ctx, func() error { out, err = b.subjectStore().SealSubjectInteraction(ctx, bnd, in); return err })
 	return out, err
 }
+func (b *Backend) SealSubjectExclusion(ctx context.Context, bnd storage.SubjectHistoryBinding, in storage.SubjectInteraction) (storage.SubjectInteraction, error) {
+	var out storage.SubjectInteraction
+	var err error
+	err = retrySQLiteBusy(ctx, func() error { out, err = b.subjectStore().SealSubjectExclusion(ctx, bnd, in); return err })
+	return out, err
+}
 func (b *Backend) ListSubjectInteractions(ctx context.Context, bnd storage.SubjectHistoryBinding, after, through uint64, limit int) ([]storage.SubjectInteraction, error) {
 	return b.subjectStore().ListSubjectInteractions(ctx, bnd, after, through, limit)
 }

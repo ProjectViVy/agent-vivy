@@ -15,6 +15,11 @@ import (
 
 var ErrSubjectBinding = errors.New("storage: subject binding mismatch")
 var ErrSubjectEvidenceIncomplete = errors.New("storage: subject evidence incomplete")
+
+// ErrSubjectEvidenceUnresolvable is an ErrSubjectEvidenceIncomplete whose gap can
+// never close: a terminal run whose tool effects are unresolved or whose tool
+// arguments are not valid UTF-8. Only this error permits an excluded seal.
+var ErrSubjectEvidenceUnresolvable = fmt.Errorf("%w: terminal run has unresolvable tool evidence", ErrSubjectEvidenceIncomplete)
 var ErrSubjectInteractionConflict = errors.New("storage: subject interaction conflict")
 var ErrRetainedSession = errors.New("storage: retained subject source cannot be deleted")
 
@@ -27,7 +32,13 @@ type SubjectInteraction struct {
 	RunID        domain.RunID
 	TerminalSeq  domain.EventSeq
 	SourceDigest string
+	// Disposition is empty for an included interaction, so receipts hashed over
+	// included rows keep their bytes. An excluded interaction has no originals
+	// and the digest of an empty original list.
+	Disposition string `json:",omitempty"`
 }
+
+const SubjectInteractionExcluded = "excluded"
 
 // SubjectHistoryStore is the metadata-only C2 index. Callers must authorize
 // the entire fixed domain before a read; these internal bindings are not tokens.
@@ -35,6 +46,10 @@ type SubjectInteraction struct {
 // prefix. CaptureSubjectHistory atomically reads the watermark for later pages.
 type SubjectHistoryStore interface {
 	SealSubjectInteraction(context.Context, SubjectHistoryBinding, SubjectInteraction) (SubjectInteraction, error)
+	// SealSubjectExclusion seals a run whose evidence is unresolvable as an
+	// excluded interaction. Storage re-verifies the condition; a healthy run is
+	// refused with ErrSubjectEvidenceIncomplete.
+	SealSubjectExclusion(context.Context, SubjectHistoryBinding, SubjectInteraction) (SubjectInteraction, error)
 	ListSubjectInteractions(context.Context, SubjectHistoryBinding, uint64, uint64, int) ([]SubjectInteraction, error)
 	ReadSubjectInteraction(context.Context, SubjectHistoryBinding, string) ([]domain.Message, error)
 	ArchiveRetainedSession(context.Context, domain.SessionID) error

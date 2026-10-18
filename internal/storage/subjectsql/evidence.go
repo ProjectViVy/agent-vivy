@@ -198,7 +198,14 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 				OriginalArguments            string                          `json:"original_arguments"`
 				ArgumentsReference           *storage.ToolArgumentsReference `json:"arguments_reference"`
 			}
-			if json.Unmarshal(e.Payload, &p) != nil || e.PayloadVersion >= 2 || p.OriginalArgumentsInvalidUTF8 || len(p.OriginalArgumentsBytes) > 0 || p.ToolCallID == "" || calls[p.ToolCallID] {
+			if json.Unmarshal(e.Payload, &p) != nil {
+				return nil, "", storage.ErrSubjectEvidenceIncomplete
+			}
+			if e.PayloadVersion >= 2 || p.OriginalArgumentsInvalidUTF8 || len(p.OriginalArgumentsBytes) > 0 {
+				// The received bytes cannot become an exact original; this never heals.
+				return nil, "", storage.ErrSubjectEvidenceUnresolvable
+			}
+			if p.ToolCallID == "" || calls[p.ToolCallID] {
 				return nil, "", storage.ErrSubjectEvidenceIncomplete
 			}
 			id := fmt.Sprintf("msgp_%s_%020d_1", in.RunID, e.Seq)
@@ -342,7 +349,8 @@ func (s Store) evidence(ctx context.Context, tx *sql.Tx, b storage.SubjectHistor
 		return nil, "", err
 	}
 	if unresolved > 0 {
-		return nil, "", storage.ErrSubjectEvidenceIncomplete
+		// Terminal runs cannot complete a claimed operation, so this never heals.
+		return nil, "", storage.ErrSubjectEvidenceUnresolvable
 	}
 	return messages, terminal, nil
 }

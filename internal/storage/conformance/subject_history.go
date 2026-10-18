@@ -2,6 +2,8 @@ package conformance
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -357,4 +359,34 @@ func RunIssue58FormattedGrantReplay(t *testing.T, b storage.Engine) {
 	if string(source.Grant.Snapshot) != original {
 		t.Fatal("producer grant snapshot was mutated")
 	}
+}
+
+// Issue58Stuck builds a failed terminal run whose tool operation was claimed
+// and never completed (cancelled mid-tool, crash, or unretainable result).
+func Issue58Stuck(t *testing.T, b storage.Engine, s storage.SubjectSourceBinding, id string) storage.SubjectInteraction {
+	t.Helper()
+	ctx := context.Background()
+	a := Issue58Admission(s, id)
+	if _, err := b.(storage.RunAdmissionStore).CommitRunAdmission(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	args := []byte(`{"text":"same arguments"}`)
+	digest := func(v string) string { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
+	ops := b.(storage.ToolOperationStore)
+	op := domain.ToolOperation{RunID: a.Run.ID, OperationID: "stuck-call", ToolName: "write_note", RequestDigest: digest("request:" + string(args)), MiddlewareInputArguments: args, ArgumentsDigest: digest(string(args)), EffectiveArguments: args}
+	if _, _, _, err := ops.AdmitToolOperation(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := ops.ClaimToolOperation(ctx, a.Run.ID, "stuck-call", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	failed := domain.RunEvent{RunID: a.Run.ID, Type: domain.EventRunFailed, PayloadVersion: 1, CreatedAt: 1, Payload: []byte(`{"outcome":"failed"}`)}
+	seq, err := b.Append(ctx, storage.Commit{RunID: a.Run.ID, Events: []domain.RunEvent{failed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetRunStatus(ctx, a.Run.ID, domain.RunFailed); err != nil {
+		t.Fatal(err)
+	}
+	return storage.SubjectInteraction{ID: storage.SubjectInteractionID(a.Run.ID, seq), SessionID: s.SessionID, RunID: a.Run.ID, TerminalSeq: seq}
 }

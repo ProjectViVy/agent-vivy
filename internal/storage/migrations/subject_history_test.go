@@ -146,3 +146,38 @@ func TestIssue58ShellMigrationPreservesPopulated044(t *testing.T) {
 	}
 
 }
+
+// 046 adds the interaction disposition to a populated 045 database without
+// touching existing rows, and its paired dialects stay logically identical.
+func TestIssue58DispositionMigrationPreservesPopulated045(t *testing.T) {
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:45], Postgres: manifest.Migrations(Postgres)[:45]}}
+	db := openMigrationTestDB(t)
+	if err := ApplyManifest(ctx, db, SQLite, prior); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subject_interactions(subject_id,domain_id,sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,terminal_type) VALUES('s','d',1,'r:2','sess','r',2,'digest','run.completed')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatal(err)
+	}
+	var disposition string
+	if err := db.QueryRow(`SELECT disposition FROM subject_interactions WHERE run_id='r'`).Scan(&disposition); err != nil || disposition != "included" {
+		t.Fatalf("existing interaction disposition %q %v", disposition, err)
+	}
+	if _, err := db.Exec(`UPDATE subject_interactions SET disposition='bogus'`); err == nil {
+		t.Fatal("disposition accepted an unknown value")
+	}
+	sqlite, postgres := manifest.Migrations(SQLite)[45], manifest.Migrations(Postgres)[45]
+	if sqlite.Version != 46 || postgres.Version != 46 || sqlite.Name != "subject_interaction_disposition" || postgres.Name != sqlite.Name || sqlite.SQL != postgres.SQL {
+		t.Fatal("046 pair mismatch")
+	}
+}

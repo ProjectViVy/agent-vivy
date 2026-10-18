@@ -17,6 +17,12 @@ func (b *Backend) SealSubjectInteraction(ctx context.Context, bnd storage.Subjec
 	}
 	return b.subjectStore().SealSubjectInteraction(ctx, bnd, in)
 }
+func (b *Backend) SealSubjectExclusion(ctx context.Context, bnd storage.SubjectHistoryBinding, in storage.SubjectInteraction) (storage.SubjectInteraction, error) {
+	if err := b.db.guard(); err != nil {
+		return storage.SubjectInteraction{}, err
+	}
+	return b.subjectStore().SealSubjectExclusion(ctx, bnd, in)
+}
 func (b *Backend) ListSubjectInteractions(ctx context.Context, bnd storage.SubjectHistoryBinding, after, through uint64, limit int) ([]storage.SubjectInteraction, error) {
 	if err := b.db.guard(); err != nil {
 		return nil, err

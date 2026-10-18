@@ -228,12 +228,16 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 		return storage.SubjectInteraction{}, err
 	}
 	var existing storage.SubjectInteraction
-	err = s.one(ctx, tx, `SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest FROM subject_interactions WHERE subject_id=? AND domain_id=? AND interaction_id=?`, []any{b.SubjectID, b.DomainID, in.ID}, &existing.Sequence, &existing.ID, &existing.SessionID, &existing.RunID, &existing.TerminalSeq, &existing.SourceDigest)
+	err = s.one(ctx, tx, `SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,disposition FROM subject_interactions WHERE subject_id=? AND domain_id=? AND interaction_id=?`, []any{b.SubjectID, b.DomainID, in.ID}, &existing.Sequence, &existing.ID, &existing.SessionID, &existing.RunID, &existing.TerminalSeq, &existing.SourceDigest, &existing.Disposition)
 	if err == nil {
+		existing.Disposition = storedDisposition(existing.Disposition)
 		want := in
 		want.Sequence = existing.Sequence
 		if want != existing {
 			return storage.SubjectInteraction{}, storage.ErrSubjectInteractionConflict
+		}
+		if existing.Disposition == storage.SubjectInteractionExcluded {
+			return existing, nil
 		}
 		messages, _, err := s.evidence(ctx, tx, b, existing)
 		if err != nil {
@@ -265,6 +269,12 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 	if err := s.completeTerminalEvidence(ctx, tx, b, in.RunID); err != nil {
 		return storage.SubjectInteraction{}, err
 	}
+	return s.insertInteraction(ctx, tx, b, in, outcome)
+}
+
+// insertInteraction allocates the next sequence under the head lock, stores the
+// interaction and commits. in.Disposition selects included or excluded.
+func (s Store) insertInteraction(ctx context.Context, tx *sql.Tx, b storage.SubjectHistoryBinding, in storage.SubjectInteraction, outcome string) (storage.SubjectInteraction, error) {
 	var next int64
 	if err := s.one(ctx, tx, `SELECT next_sequence FROM subject_history_heads WHERE subject_id=? AND domain_id=?`, []any{b.SubjectID, b.DomainID}, &next); err != nil {
 		return storage.SubjectInteraction{}, err
@@ -273,7 +283,7 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 		return storage.SubjectInteraction{}, storage.ErrSubjectInteractionConflict
 	}
 	in.Sequence = uint64(next)
-	if err := s.exec(ctx, tx, `INSERT INTO subject_interactions(subject_id,domain_id,sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,terminal_type) VALUES(?,?,?,?,?,?,?,?,?)`, b.SubjectID, b.DomainID, next, in.ID, in.SessionID, in.RunID, in.TerminalSeq, in.SourceDigest, outcome); err != nil {
+	if err := s.exec(ctx, tx, `INSERT INTO subject_interactions(subject_id,domain_id,sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,terminal_type,disposition) VALUES(?,?,?,?,?,?,?,?,?,?)`, b.SubjectID, b.DomainID, next, in.ID, in.SessionID, in.RunID, in.TerminalSeq, in.SourceDigest, outcome, dispositionOrIncluded(in.Disposition)); err != nil {
 		return storage.SubjectInteraction{}, err
 	}
 	if err := s.exec(ctx, tx, `UPDATE subject_history_heads SET next_sequence=? WHERE subject_id=? AND domain_id=?`, next+1, b.SubjectID, b.DomainID); err != nil {
@@ -283,6 +293,66 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 		return storage.SubjectInteraction{}, err
 	}
 	return in, nil
+}
+
+// storedDisposition maps the column back to the in-memory form where an
+// included interaction has an empty Disposition.
+func storedDisposition(d string) string {
+	if d == "included" {
+		return ""
+	}
+	return d
+}
+
+func dispositionOrIncluded(d string) string {
+	if d == "" {
+		return "included"
+	}
+	return d
+}
+
+// SealSubjectExclusion seals a terminal run whose evidence can never resolve.
+// Storage re-derives the condition inside the head transaction, so a healthy or
+// merely not-yet-projected run can never be excluded by a caller's say-so.
+func (s Store) SealSubjectExclusion(ctx context.Context, b storage.SubjectHistoryBinding, in storage.SubjectInteraction) (storage.SubjectInteraction, error) {
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return storage.SubjectInteraction{}, err
+	}
+	defer tx.Rollback()
+	if err := s.lockHead(ctx, tx, b); err != nil {
+		return storage.SubjectInteraction{}, err
+	}
+	digest, err := storage.SubjectEvidenceDigest([]domain.Message{})
+	if err != nil {
+		return storage.SubjectInteraction{}, err
+	}
+	in.SourceDigest, in.Disposition = digest, storage.SubjectInteractionExcluded
+	var existing storage.SubjectInteraction
+	err = s.one(ctx, tx, `SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,disposition FROM subject_interactions WHERE subject_id=? AND domain_id=? AND interaction_id=?`, []any{b.SubjectID, b.DomainID, in.ID}, &existing.Sequence, &existing.ID, &existing.SessionID, &existing.RunID, &existing.TerminalSeq, &existing.SourceDigest, &existing.Disposition)
+	if err == nil {
+		existing.Disposition = storedDisposition(existing.Disposition)
+		want := in
+		want.Sequence = existing.Sequence
+		if want != existing {
+			return storage.SubjectInteraction{}, storage.ErrSubjectInteractionConflict
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return storage.SubjectInteraction{}, err
+	}
+	if _, _, err := s.evidence(ctx, tx, b, in); !errors.Is(err, storage.ErrSubjectEvidenceUnresolvable) {
+		if err == nil {
+			err = storage.ErrSubjectEvidenceIncomplete
+		}
+		return storage.SubjectInteraction{}, err
+	}
+	var outcome string
+	if err := s.one(ctx, tx, `SELECT type FROM run_events WHERE run_id=? AND seq=?`, []any{in.RunID, in.TerminalSeq}, &outcome); err != nil {
+		return storage.SubjectInteraction{}, err
+	}
+	return s.insertInteraction(ctx, tx, b, in, outcome)
 }
 func (s Store) CaptureSubjectHistory(ctx context.Context, b storage.SubjectHistoryBinding) (uint64, error) {
 	tx, err := s.begin(ctx)
@@ -320,7 +390,7 @@ func (s Store) ListSubjectInteractions(ctx context.Context, b storage.SubjectHis
 	if after > through {
 		return nil, storage.ErrSubjectBinding
 	}
-	rows, err := tx.QueryContext(ctx, s.query(`SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest FROM subject_interactions WHERE subject_id=? AND domain_id=? AND sequence>? AND sequence<=? ORDER BY sequence LIMIT ?`), b.SubjectID, b.DomainID, int64(after), int64(through), limit)
+	rows, err := tx.QueryContext(ctx, s.query(`SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,disposition FROM subject_interactions WHERE subject_id=? AND domain_id=? AND sequence>? AND sequence<=? ORDER BY sequence LIMIT ?`), b.SubjectID, b.DomainID, int64(after), int64(through), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -328,9 +398,10 @@ func (s Store) ListSubjectInteractions(ctx context.Context, b storage.SubjectHis
 	out := []storage.SubjectInteraction{}
 	for rows.Next() {
 		var row storage.SubjectInteraction
-		if err := rows.Scan(&row.Sequence, &row.ID, &row.SessionID, &row.RunID, &row.TerminalSeq, &row.SourceDigest); err != nil {
+		if err := rows.Scan(&row.Sequence, &row.ID, &row.SessionID, &row.RunID, &row.TerminalSeq, &row.SourceDigest, &row.Disposition); err != nil {
 			return nil, err
 		}
+		row.Disposition = storedDisposition(row.Disposition)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -345,12 +416,17 @@ func (s Store) ReadSubjectInteraction(ctx context.Context, b storage.SubjectHist
 		return nil, err
 	}
 	var in storage.SubjectInteraction
-	err = s.one(ctx, tx, `SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest FROM subject_interactions WHERE subject_id=? AND domain_id=? AND interaction_id=?`, []any{b.SubjectID, b.DomainID, id}, &in.Sequence, &in.ID, &in.SessionID, &in.RunID, &in.TerminalSeq, &in.SourceDigest)
+	err = s.one(ctx, tx, `SELECT sequence,interaction_id,session_id,run_id,terminal_seq,source_digest,disposition FROM subject_interactions WHERE subject_id=? AND domain_id=? AND interaction_id=?`, []any{b.SubjectID, b.DomainID, id}, &in.Sequence, &in.ID, &in.SessionID, &in.RunID, &in.TerminalSeq, &in.SourceDigest, &in.Disposition)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	in.Disposition = storedDisposition(in.Disposition)
+	if in.Disposition == storage.SubjectInteractionExcluded {
+		// No original ever became canonical evidence for this run.
+		return []domain.Message{}, nil
 	}
 	messages, _, err := s.evidence(ctx, tx, b, in)
 	if err != nil {
@@ -493,7 +569,7 @@ func (s Store) completeTerminalEvidence(ctx context.Context, tx *sql.Tx, b stora
 		return err
 	}
 	for _, in := range pending {
-		if _, _, err := s.evidence(ctx, tx, b, in); err != nil {
+		if _, _, err := s.evidence(ctx, tx, b, in); err != nil && !errors.Is(err, storage.ErrSubjectEvidenceUnresolvable) {
 			return err
 		}
 	}
