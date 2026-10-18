@@ -64,12 +64,14 @@ func subjectMemoryTools(svc *runtime.Service, store storage.Engine, bundle cogni
 				Limit  int    `json:"limit"`
 				Cursor string `json:"cursor"`
 			}
-			if json.Unmarshal(raw, &input) != nil || input.Query == "" || input.Limit < 0 || input.Limit > 100 {
+			if json.Unmarshal(raw, &input) != nil || input.Query == "" {
 				return fail("memory_invalid_request")
 			}
-			if input.Limit == 0 {
-				input.Limit = 20
+			limit, ok := subjectSearchLimit(input.Limit)
+			if !ok {
+				return fail("memory_invalid_request")
 			}
+			input.Limit = limit
 			page, readErr := backend.Search(ctx, gardenmemory.AuthorizedSearch{Scopes: []evolution.Scope{scope}, Query: input.Query, Limit: input.Limit, Cursor: input.Cursor})
 			if readErr != nil {
 				out, _ := json.Marshal(map[string]any{"status": "failed", "reason": "subject_memory_unavailable", "native_error": readErr.Error()})
@@ -98,4 +100,19 @@ func subjectMemoryTools(svc *runtime.Service, store storage.Engine, bundle cogni
 		out, err := json.Marshal(result)
 		return out, true, err
 	}
+}
+
+// subjectSearchLimit maps a requested page size onto what the subject backend
+// serves. The shared memory_search schema accepts any positive limit, so a
+// larger request is clamped to one full page rather than rejected.
+func subjectSearchLimit(requested int) (int, bool) {
+	switch {
+	case requested < 0:
+		return 0, false
+	case requested == 0:
+		return 20, true
+	case requested > 100:
+		return 100, true
+	}
+	return requested, true
 }

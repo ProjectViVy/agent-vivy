@@ -284,9 +284,11 @@ func (h *Home) writableStore(ctx context.Context) (*Store, error) {
 	return store, nil
 }
 
-// openExistingMutable opens the database at path read-write with no schema
-// initialization, failing when the file is absent or bound to another
-// workspace (TypedMemoryStore::open_existing_database).
+// openExistingMutable opens the database at path read-write, failing when the
+// file is absent or bound to another workspace
+// (TypedMemoryStore::open_existing_database). It never creates a database, but
+// it does upgrade an older schema in place, so even a read through Home can
+// migrate schema 1 to 2 on first use.
 func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store, error) {
 	if !isFile(path) {
 		return nil, invalidBackupErr()

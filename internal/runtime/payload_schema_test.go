@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -141,4 +142,31 @@ func payloadSchemaError(t *testing.T, eventType string, payload json.RawMessage)
 		t.Fatal(err)
 	}
 	return compiled.Validate(instance)
+}
+
+// tool.requested v2 records invalid-UTF-8 argument bytes as explicit
+// unavailability; a later stream fragment may carry no identity.
+func TestToolRequestedPayloadSchemaVersions(t *testing.T) {
+	valid := map[string]string{
+		"v1":                `{"tool_call_id":"c1","tool_name":"echo","args":{"a":1},"original_arguments":"{\"a\":1}"}`,
+		"v1 reference":      `{"tool_call_id":"c1","tool_name":"echo","args":{},"arguments_reference":{"id":"x","sha256":"` + strings.Repeat("a", 64) + `","byte_count":3}}`,
+		"v2 bytes":          `{"tool_call_id":"c1","tool_name":"echo","args":{},"original_arguments_invalid_utf8":true,"original_arguments_bytes":"/w=="}`,
+		"v2 no fragment id": `{"tool_call_id":"","tool_name":"","args":{},"original_arguments_invalid_utf8":true,"original_arguments_bytes":"/w=="}`,
+	}
+	for name, payload := range valid {
+		if err := payloadSchemaError(t, "tool.requested", json.RawMessage(payload)); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
+	}
+	invalid := map[string]string{
+		"v1 without identity":   `{"tool_call_id":"","tool_name":"echo","args":{}}`,
+		"v1 carrying bytes":     `{"tool_call_id":"c1","tool_name":"echo","args":{},"original_arguments_bytes":"/w=="}`,
+		"v2 flag without bytes": `{"tool_call_id":"c1","tool_name":"echo","args":{},"original_arguments_invalid_utf8":true}`,
+		"v2 unknown field":      `{"tool_call_id":"c1","tool_name":"echo","args":{},"original_arguments_invalid_utf8":true,"original_arguments_bytes":"/w==","extra":1}`,
+	}
+	for name, payload := range invalid {
+		if err := payloadSchemaError(t, "tool.requested", json.RawMessage(payload)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
 }
