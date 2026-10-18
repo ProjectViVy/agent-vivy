@@ -72,6 +72,9 @@ Recap input, coverage advances past it, and the unresolved operation keeps its
 recorded state. Storage re-derives the condition in the sealing transaction, so a
 healthy or merely unprojected run can never be excluded. This is exclusion from
 Recap, not proof that no external effect happened.
+The ordinary `SealSubjectInteraction` path accepts only included evidence; a
+new excluded row can be created only through `SealSubjectExclusion`. An exact
+retry of an already sealed excluded interaction remains idempotent.
 
 Recent raw-window and Recap budgets, trigger thresholds, retained tail, hysteresis,
 topic boundaries and token placement are experimental. No example percentage or

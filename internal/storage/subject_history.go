@@ -45,6 +45,9 @@ const SubjectInteractionExcluded = "excluded"
 // List takes (after, capturedThrough, limit); zero through is an empty captured
 // prefix. CaptureSubjectHistory atomically reads the watermark for later pages.
 type SubjectHistoryStore interface {
+	// SealSubjectInteraction seals resolvable evidence as an included
+	// interaction. Callers leave Disposition empty; exclusion is determined by
+	// storage through SealSubjectExclusion.
 	SealSubjectInteraction(context.Context, SubjectHistoryBinding, SubjectInteraction) (SubjectInteraction, error)
 	// SealSubjectExclusion seals a run whose evidence is unresolvable as an
 	// excluded interaction. Storage re-verifies the condition; a healthy run is

@@ -255,6 +255,9 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 	if !errors.Is(err, sql.ErrNoRows) {
 		return storage.SubjectInteraction{}, err
 	}
+	if in.Disposition != "" {
+		return storage.SubjectInteraction{}, storage.ErrSubjectInteractionConflict
+	}
 	messages, outcome, err := s.evidence(ctx, tx, b, in)
 	if err != nil {
 		return storage.SubjectInteraction{}, err
@@ -273,7 +276,8 @@ func (s Store) SealSubjectInteraction(ctx context.Context, b storage.SubjectHist
 }
 
 // insertInteraction allocates the next sequence under the head lock, stores the
-// interaction and commits. in.Disposition selects included or excluded.
+// already-derived interaction disposition and commits. Exclusion callers must
+// use SealSubjectExclusion, which verifies unresolvable evidence in this tx.
 func (s Store) insertInteraction(ctx context.Context, tx *sql.Tx, b storage.SubjectHistoryBinding, in storage.SubjectInteraction, outcome string) (storage.SubjectInteraction, error) {
 	var next int64
 	if err := s.one(ctx, tx, `SELECT next_sequence FROM subject_history_heads WHERE subject_id=? AND domain_id=?`, []any{b.SubjectID, b.DomainID}, &next); err != nil {

@@ -110,6 +110,16 @@ func TestIssue58UnresolvedToolRunIsSealedExcluded(t *testing.T) {
 	}
 	stuck := conformance.Issue58Stuck(t, b, s, "stuck-run")
 	healthy := conformance.Issue58Completed(t, b, s, "healthy-run")
+	for _, disposition := range []string{storage.SubjectInteractionExcluded, "included", "unexpected"} {
+		forged := healthy
+		forged.Disposition = disposition
+		if _, err := b.SealSubjectInteraction(ctx, s.SubjectHistoryBinding, forged); !errors.Is(err, storage.ErrSubjectInteractionConflict) {
+			t.Fatalf("caller-supplied disposition %q was accepted: %v", disposition, err)
+		}
+	}
+	if high, err := b.CaptureSubjectHistory(ctx, s.SubjectHistoryBinding); err != nil || high != 0 {
+		t.Fatalf("rejected exclusion consumed sequence: %d %v", high, err)
+	}
 
 	// Before any exclusion the stuck run is the only blocker.
 	if _, _, err := b.ReadSubjectRunEvidence(ctx, s.SubjectHistoryBinding, stuck.RunID); !errors.Is(err, storage.ErrSubjectEvidenceUnresolvable) {
@@ -130,6 +140,10 @@ func TestIssue58UnresolvedToolRunIsSealedExcluded(t *testing.T) {
 	again, err := b.SealSubjectExclusion(ctx, s.SubjectHistoryBinding, stuck)
 	if err != nil || again != excluded {
 		t.Fatalf("exclusion not idempotent: %+v %v", again, err)
+	}
+	replay, err := b.SealSubjectInteraction(ctx, s.SubjectHistoryBinding, excluded)
+	if err != nil || replay != excluded {
+		t.Fatalf("exact ordinary-seal replay of exclusion failed: %+v %v", replay, err)
 	}
 	if pending, err := b.ListSubjectPendingRuns(ctx, s.SubjectHistoryBinding); err != nil || len(pending) != 0 {
 		t.Fatalf("pending after exclusion: %v %v", pending, err)
