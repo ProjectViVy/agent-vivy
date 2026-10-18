@@ -42,7 +42,8 @@ The branch also carries the two plan commits from upstream
 ## Owner decisions (2026-10-18)
 
 B1 consent half approved (Eino core upgrade OK); B2 accepted after the cost
-explanation added to S0 §7.5. Remaining blockers: B1 pending-run policy, B3–B7.
+explanation added to S0 §7.5. B1 then closed (`docs/logs/2026-10-18-eino-core-upgrade/`);
+B3 and B4 accepted. Remaining blockers: B5 (P2 work), B6, B7.
 
 ## Not done
 
