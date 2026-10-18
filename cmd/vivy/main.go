@@ -13,13 +13,12 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/faceprocess"
+	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/logging"
 	"agent-vivy/sdk/generation"
+	plugin "agent-vivy/sdk/port/face"
 )
-
-// configPath is the conventional location; absent file falls back to the
-// built-in defaults with a warning (FR-10).
-const configPath = "config.yaml"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--inspect-generation" {
@@ -30,6 +29,14 @@ func main() {
 		}
 		_, _ = os.Stdout.Write(raw)
 		return
+	}
+	// A generation that selected the ACP face family owns the artifact's
+	// whole process surface: no-argument protocol mode plus --help and
+	// --inspect-generation; every other invocation is rejected before any
+	// protocol startup. Headless, TUI-packed, and gateway generations keep
+	// the default command surface (ACP-STDIO-FACE §288, §294).
+	if selectedFaceClaimsProtocol(genassembly.BuildDefault().Face) {
+		os.Exit(faceprocess.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		os.Exit(runInit(os.Args[2:]))
@@ -117,20 +124,27 @@ func main() {
 	}
 }
 
+// faceKindACP is the stdio-protocol face family: an ACP-kind provider owns
+// the artifact's no-argument invocation. The TUI face keeps `vivy tui`; the
+// headless kernel keeps the gateway.
+const faceKindACP = "acp"
+
+// selectedFaceClaimsProtocol reports whether the compiled generation's
+// selected Face claims the artifact's whole command surface.
+func selectedFaceClaimsProtocol(face plugin.FaceProvider) bool {
+	return face != nil && face.Definition().Kind == faceKindACP
+}
+
 // loadConfig reads VIVY_CONFIG when set, otherwise config.yaml when
 // present; otherwise it falls back to the built-in defaults. A set
 // VIVY_CONFIG never falls back to the working directory.
 func loadConfig(logger *slog.Logger) (config.Config, error) {
-	if path := os.Getenv("VIVY_CONFIG"); path != "" {
-		return config.Load(path)
-	}
-	if _, err := os.Stat(configPath); err == nil {
-		return config.Load(configPath)
-	}
-	logger.Warn("config.yaml not found; using built-in defaults", "path", configPath)
-	cfg := config.Default()
-	if err := cfg.Validate(); err != nil {
+	cfg, source, err := config.LoadBoot()
+	if err != nil {
 		return config.Config{}, err
+	}
+	if source == "default" {
+		logger.Warn("config.yaml not found; using built-in defaults", "path", config.BootConfigPath)
 	}
 	return cfg, nil
 }
