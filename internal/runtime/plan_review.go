@@ -348,25 +348,33 @@ func (s *Service) CancelPlanReview(sessionID domain.SessionID) {
 }
 
 func (s *Service) cancelPlanReviewForRun(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) {
+	if err := s.settlePlanReviewForRun(ctx, sessionID, runID); err != nil {
+		slog.Warn("cancel Plan review after run close failed", "run", string(runID), "err", err)
+	}
+}
+
+func (s *Service) settlePlanReviewForRun(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) error {
 	if s == nil || s.deps.Work == nil || sessionID == "" || runID == "" {
-		return
+		return nil
 	}
 	state, err := s.deps.Work.ReadWork(ctx, sessionID)
-	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.OriginRunID != runID {
-		return
+	if err != nil {
+		return err
+	}
+	if state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.OriginRunID != runID {
+		return nil
 	}
 	requestID, requestHash, err := modelWorkIdentity(runID, "cancel-plan-review", state.Plan.OriginToolCallID, map[string]string{
 		"submission_id": state.Plan.SubmissionID,
 	})
 	if err != nil {
-		return
+		return err
 	}
-	if _, err := s.CommitWork(ctx, domain.WorkMutation{
+	_, err = s.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
 		RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanReviewCancelled,
 		PlanSubmissionID: state.Plan.SubmissionID, PlanOriginRunID: runID,
 		Reason: "originating run ended before human review",
-	}); err != nil && !errors.Is(err, storage.ErrWorkVersionConflict) {
-		slog.Warn("cancel Plan review after run close failed", "run", string(runID), "err", err)
-	}
+	})
+	return err
 }

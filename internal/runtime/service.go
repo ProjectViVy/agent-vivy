@@ -2022,6 +2022,9 @@ func (s *Service) recover(ctx context.Context) error {
 		s.recoveredBudgetLedgers = nil
 		s.mu.Unlock()
 	}()
+	if err := s.recoverCheckpointCleanup(ctx); err != nil {
+		return err
+	}
 	runs, err := s.deps.Runs.ListActiveRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
@@ -2158,9 +2161,9 @@ func (s *Service) recover(ctx context.Context) error {
 				// allowed to consume the opaque checkpoint in the meantime.
 				s.rebuildPending(ctx, run, approval, workspaceID)
 			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
-				s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", func() error {
-					return s.cancelApproval(ctx, approval, lostCheckpointReason)
-				})
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", approval.ID, ""); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPending(ctx, run, approval, workspaceID)
 			}
@@ -2175,9 +2178,9 @@ func (s *Service) recover(ctx context.Context) error {
 			} else if blocked {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
 			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
-				s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", func() error {
-					return s.cancelQuestion(ctx, question.ID, lostCheckpointReason)
-				})
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", "", question.ID); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
 			}
@@ -2187,9 +2190,9 @@ func (s *Service) recover(ctx context.Context) error {
 			} else if blocked {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
 			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
-				// The Plan review row is settled after the terminal, like any
-				// closed origin run (cancelPlanReviewForRun in failLostCheckpoint).
-				s.failLostCheckpoint(ctx, run, cpErr, "Plan review checkpoint not readable", nil)
+				if err := s.failLostCheckpoint(ctx, run, cpErr, "Plan review checkpoint not readable", "", ""); err != nil {
+					return err
+				}
 			} else {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
 			}
@@ -2511,23 +2514,6 @@ const (
 	// versions; the run is closed and the user starts it again.
 	engineChangedMessage = "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again."
 )
-
-// failLostCheckpoint closes a suspended run whose checkpoint cannot be served
-// back. The pending interaction is settled first, because its cancel event
-// must precede the terminal; the Plan review, if any, is settled after it.
-func (s *Service) failLostCheckpoint(ctx context.Context, run domain.Run, cpErr error, reason string, settle func() error) {
-	if settle != nil {
-		if err := settle(); err != nil {
-			slog.Warn("restart recovery: pending interaction could not be settled", "run", string(run.ID), "err", err)
-		}
-	}
-	if errors.Is(cpErr, ErrCheckpointEngineVersionMismatch) {
-		s.failUnrecoverableWithMessage(ctx, run.ID, reason+": engine version changed", engineChangedMessage)
-	} else {
-		s.failUnrecoverable(ctx, run.ID, reason)
-	}
-	s.cancelPlanReviewForRun(ctx, run.SessionID, run.ID)
-}
 
 // promptBlocksRecovery distinguishes a recoverable prompt incompatibility
 // from an unreadable Eino checkpoint. The former keeps the approval/question
@@ -5286,7 +5272,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 // publish carries no frame itself — the bus closes its live subscribers
 // on a terminal publish, which sends RPC subscribers back to the journal
 // replay where the event is delivered exactly once (AS-7).
-func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
+func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) error {
 	terminal.RunID = m.runID
 	var cancelledQueue *sessionQueue
 	var cancelledMarkers []domain.RunEvent
@@ -5299,7 +5285,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			cancelledQueue, err = s.queueFor(context.WithoutCancel(ctx), sid)
 			if err != nil {
 				slog.Error("cancel queue replay failed", "err", err)
-				return
+				return err
 			}
 			cancelledQueue.mu.Lock()
 			defer func() {
@@ -5316,7 +5302,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if s.runSessionDeleted(terminal.RunID) && !s.runSessionClosing(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
 		s.projectionMu.Unlock()
-		return
+		return storage.ErrNotFound
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
@@ -5335,7 +5321,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			s.cleanupRunState(terminal.RunID)
 		}
 		s.projectionMu.Unlock()
-		return
+		return err
 	}
 	terminal.Seq = seq
 	if cancelledQueue != nil {
@@ -5352,7 +5338,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if mapped, ok := terminal.Type.RunStatus(); ok {
 		status = mapped
 	}
-	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
+	statusErr := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status)
+	if err := statusErr; err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
 	}
 	s.publish(persistCtx, terminal)
@@ -5419,6 +5406,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			s.drainFollowUps(runSession, terminal.RunID)
 		}
 	}
+	return statusErr
 }
 
 func (s *Service) cleanupRunState(runID domain.RunID) {

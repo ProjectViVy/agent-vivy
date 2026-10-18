@@ -118,7 +118,7 @@ func TestRecoverWithMissingCheckpointCancelsPendingApproval(t *testing.T) {
 	}
 }
 
-func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
+func newPendingPlanRecovery(t *testing.T) (*sqlite.Backend, domain.RunID, domain.SessionID, func() *Service) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plan-upgrade.db"))
 	if err != nil {
@@ -183,7 +183,15 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	restarted := planService("test-engine-next", NewScriptedModel(schema.AssistantMessage("unused", nil)))
+	return backend, runID, sessionID, func() *Service {
+		return planService("test-engine-next", NewScriptedModel(schema.AssistantMessage("unused", nil)))
+	}
+}
+
+func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
+	ctx := context.Background()
+	backend, runID, sessionID, restart := newPendingPlanRecovery(t)
+	restarted := restart()
 	if err := restarted.Recover(ctx); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
