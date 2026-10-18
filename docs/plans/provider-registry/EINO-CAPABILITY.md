@@ -1,5 +1,12 @@
 # Eino Capability Check — Three Provider Adapters
 
+> **Superseded for current-generation facts (2026-10-17).** This document is the
+> dated 2026-09-18 record and its pin evidence is stale: it cites `eino v0.9.13`
+> and `agenticopenai v0.2.2`, and it never considered the Anthropic side. The
+> live Eino capability check for the `AgenticModel` generation is
+> `docs/plans/provider-agentic/S1-component-contract.md`. This file is retained
+> as history; do not cite it as the current capability statement.
+
 **Status:** authored 2026-09-18. Evidence-only document; it changes no code.
 
 This is the mandatory Eino capability check for the provider registry redesign

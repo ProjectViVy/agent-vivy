@@ -1,0 +1,761 @@
+Command: just ci
+Result: exit 0
+Raw log SHA256: 0321e9f8be74c993e47853ccab03597cf41d2ace99a82e27ad155472d53732a6
+Generated artifact JSON is represented by length and SHA256; all other output is retained.
+
+node scripts/ensure-laputa.mjs --quiet
+node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs
+✔ all Laputa Go revisions match the full source lock (0.7315ms)
+✔ default catalog imports optional metadata without concrete implementations (0.2868ms)
+✔ the direct-script entry locates its repository without RepoRoot or a matching cwd (2337.0112ms)
+✔ a fresh checkout installs all three modules at the pinned commit and is repeatable (879.8127ms)
+✔ a clean old checkout advances to the pin (1211.2816ms)
+✔ an old checkout with local changes is preserved and fails with an actionable error (794.6508ms)
+✔ an unrelated repository in the sibling path is rejected without changing it (1167.396ms)
+✔ an invalid module identity at the pinned commit fails before Go starts (726.7364ms)
+✔ a source lock and Go revision mismatch fails before touching the sibling (283.7031ms)
+✔ a modified source at the exact pinned commit is rejected (774.23ms)
+✔ a pinned dependency toolchain mismatch fails before Go starts (853.9655ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9353.2364
+node scripts/fmt-check.mjs
+fmt-check: 1224 Go files formatted
+pnpm --dir ui install --frozen-lockfile
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1
++
+Progress: resolved 1, reused 1, downloaded 0, added 1, done
+
+Done in 1.3s using pnpm v10.33.0
+pnpm --dir ui typecheck
+
+> vivy-ui@1.0.0 pretypecheck C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\recipes\\default.vivy.yml","output":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated","assembly":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated\\assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.toolkits-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 typecheck C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> tsc --noEmit
+
+pnpm --dir ui test
+
+> vivy-ui@1.0.0 pretest C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\recipes\\default.vivy.yml","output":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated","assembly":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated\\assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.toolkits-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 test C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> vitest run
+
+
+ RUN  v3.2.7 C:/Users/Administrator/Desktop/morediva/diva-go/agent-vivy/.worktrees/pr80-recovery/agent-vivy/ui
+
+ ✓ src/lib/ui-sdk-face-compat.test.ts (1 test) 1ms
+ ✓ src/lib/api.test.ts (5 tests) 5ms
+ ✓ src/lib/diff.test.ts (11 tests) 5ms
+ ✓ src/components/settings/channel-store.test.ts (12 tests) 6ms
+ ✓ src/generated/ui/vivy-workflow/src/studio/graph.test.ts (7 tests) 4ms
+ ✓ src/components/settings/provider-catalog.test.ts (11 tests) 4ms
+ ✓ src/components/settings/custom-providers.test.ts (18 tests) 8ms
+ ✓ src/lib/run-rows.test.ts (20 tests) 10ms
+ ✓ src/components/settings/saved-models.test.ts (19 tests) 8ms
+ ✓ src/hooks/use-theme.test.ts (9 tests) 1016ms
+   ✓ theme registry > provides a display label and description for every theme through i18n  1012ms
+ ✓ src/components/settings/channel-schema.test.ts (19 tests) 7ms
+ ✓ ../plugins/vivy-notebook/ui/vivy-notebook/src/api.test.ts (6 tests) 6ms
+ ✓ ../sdk/ui/src/module.test.ts (26 tests) 9ms
+ ✓ src/i18n/index.test.ts (16 tests) 969ms
+   ✓ t() lookup > does not detect the locale from browser languages  854ms
+ ✓ src/lib/demo-api.test.ts (9 tests) 10ms
+ ✓ src/lib/demo-api.evolution.test.ts (6 tests) 12ms
+ ✓ src/components/settings/LanguagePicker.test.tsx (5 tests) 4ms
+ ✓ src/generated/ui/vivy-workflow/src/face-bridge.test.ts (13 tests) 1023ms
+   ✓ FaceBridge.subscribe (inofy.events over run/subscribe) > resubscribes from the committed cursor after a stream error  1013ms
+ ✓ src/lib/todos.test.ts (5 tests) 2ms
+ ✓ src/lib/rpc.test.ts (4 tests) 11ms
+ ✓ src/components/trajectory/trajectory-utils.test.ts (18 tests) 11ms
+ ✓ ../sdk/ui/src/action-client.test.ts (5 tests) 7ms
+ ✓ src/components/mcp/mcp-import.test.ts (7 tests) 4ms
+ ✓ ../plugins/vivy-notebook/ui/vivy-notebook/src/reports.test.tsx (6 tests) 13ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/mask-state.test.ts (6 tests) 8ms
+ ✓ src/components/chat/tool-presentation.test.ts (8 tests) 5ms
+ ✓ src/lib/failure.test.ts (6 tests) 4ms
+ ✓ src/generated/ui/vivy-workflow/src/studio/edit.test.ts (5 tests) 3ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/mask-client.test.ts (4 tests) 4ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/mask-session.test.ts (3 tests) 4ms
+ ✓ src/lib/store.test.ts (60 tests) 559ms
+ ✓ ../plugins/vivy-persona/ui/vivy-persona/src/persona-client.test.ts (3 tests) 5ms
+ ✓ src/mask-omission.test.ts (4 tests) 30ms
+ ✓ src/lib/run-subscription.test.ts (2 tests) 5ms
+ ✓ src/lib/chat-actions.test.ts (6 tests) 2ms
+ ✓ src/hooks/use-welcome.test.ts (5 tests) 3ms
+ ✓ src/lib/workflow-api.test.ts (1 test) 2ms
+ ✓ src/components/trajectory/trajectory-session.test.ts (5 tests) 3ms
+ ✓ src/lib/runtime-config.test.ts (4 tests) 7ms
+ ✓ src/components/chat/session-workspaces.test.ts (2 tests) 10ms
+ ✓ ../plugins/coding/session-tree/ui/session-tree/src/tree.test.ts (2 tests) 3ms
+ ✓ src/lib/child-api.test.ts (1 test) 2ms
+ ✓ src/lib/ui-build-provenance.test.ts (1 test) 3ms
+ ✓ ../plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-client.test.ts (2 tests) 5ms
+ ✓ src/components/chat/ToolRow.test.tsx (4 tests) 14ms
+ ✓ src/lib/work-subscription.test.ts (3 tests) 2297ms
+   ✓ work subscription > refreshes backend WorkView on reconnect before subscribing and deduplicates the session sequence  1159ms
+   ✓ work subscription > retries through the existing reconnect path after a failed event refresh  1084ms
+ ✓ src/components/settings/diva-preview-data.test.ts (1 test) 3ms
+ ✓ src/components/chat/ReasoningRow.test.tsx (4 tests) 15ms
+ ✓ src/components/ui/DiffView.test.tsx (2 tests) 10ms
+ ✓ src/components/layout/CompanionAvatar.test.tsx (3 tests) 3ms
+ ✓ src/plugins/host-icons.test.ts (3 tests) 3ms
+ ✓ src/components/planning/SessionTodoPanel.test.tsx (6 tests) 17ms
+ ✓ src/components/chat/MessageBubble.test.tsx (7 tests) 54ms
+ ✓ ../plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-view.test.ts (6 tests) 5ms
+ ✓ src/lib/deliverable-download.test.ts (8 tests) 14ms
+ ✓ src/components/chat/ReferenceDetail.test.tsx (4 tests) 92ms
+ ✓ src/components/chat/WorkControlBar.test.tsx (13 tests) 98ms
+ ✓ src/components/settings/ModelSettingsCard.test.tsx (5 tests) 109ms
+ ✓ ../plugins/vivy-persona/ui/vivy-persona/src/view.test.tsx (10 tests) 363ms
+ ✓ src/components/chat/HistoryPicker.test.tsx (7 tests) 370ms
+ ✓ src/generated/ui/vivy-memory/src/view.test.tsx (9 tests) 641ms
+   ✓ MemoryView > drives vivy.memory.search from the search box  427ms
+ ✓ ../plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitPage.test.tsx (4 tests) 96ms
+ ✓ ../plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitUpdate.test.tsx (4 tests) 237ms
+ ✓ src/components/chat/ChatInput.restore.test.tsx (6 tests) 145ms
+ ✓ src/components/chat/ChatInput.commands.test.tsx (22 tests) 307ms
+stderr | src/hooks/use-companion-avatar.test.tsx > companion avatar preference > treats an inaccessible localStorage as the default without throwing
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/use-companion-avatar.test.tsx > companion avatar preference > treats an inaccessible localStorage as the default without throwing
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/use-companion-avatar.test.tsx > companion avatar preference > notifies a rendered face when the choice changes
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/use-companion-avatar.test.tsx > companion avatar preference > notifies a rendered face when the choice changes
+The current testing environment is not configured to support act(...)
+
+ ✓ src/hooks/use-companion-avatar.test.tsx (7 tests) 19ms
+ ✓ ../plugins/vivy-notebook/ui/vivy-notebook/src/view.test.tsx (5 tests) 149ms
+ ✓ ../plugins/vivy-notebook/ui/vivy-notebook/src/reports-view.test.tsx (6 tests) 228ms
+ ✓ src/i18n/surfaces.test.tsx (8 tests) 73ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/MaskPage.test.tsx (3 tests) 149ms
+ ✓ src/components/chat/DeliverableCard.test.tsx (5 tests) 60ms
+ ✓ ../plugins/vivy-notebook/ui/vivy-notebook/src/editor.test.tsx (4 tests) 77ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/mask-ui.integration.test.tsx (12 tests) 713ms
+ ✓ src/components/chat/WorkspaceSelector.test.tsx (8 tests) 150ms
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+
+ ✓ src/components/chat/session-list-view.test.ts (9 tests) 5ms
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+
+ ✓ ../plugins/vivy-persona/ui/vivy-persona/src/gate.test.tsx (5 tests) 41ms
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > renders the module tabs and lists published workflows on the Workflows tab
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/generated/ui/vivy-workflow/src/workflow-page.test.tsx > WorkflowPage > opens a seeded draft for an unknown workflow id
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ ✓ src/components/chat/ContextReferenceChip.test.tsx (2 tests) 30ms
+ ✓ src/generated/ui/vivy-workflow/src/workflow-page.test.tsx (3 tests) 145ms
+ ✓ src/components/settings/ToolsSettingsCard.test.tsx (4 tests) 60ms
+ ✓ src/components/chat/ChatView.test.tsx (6 tests) 183ms
+ ✓ src/lib/reveal-engine.test.ts (2 tests) 5ms
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > renders partial coverage counts and hides partial cost
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > renders partial coverage counts and hides partial cost
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > renders partial coverage counts and hides partial cost
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > shows unknown buckets as dashes in detail view
+The current testing environment is not configured to support act(...)
+
+ ✓ src/components/settings/ApprovalTimeoutCard.test.tsx (4 tests) 50ms
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > shows unknown buckets as dashes in detail view
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > shows unknown buckets as dashes in detail view
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > shows unknown buckets as dashes in detail view
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/demo/TokenStatsPanel.test.tsx > TokenStatsPanel > refreshes once per burst of authoritative run events
+The current testing environment is not configured to support act(...)
+
+ ✓ src/components/demo/TokenStatsPanel.test.tsx (3 tests) 64ms
+ ✓ src/components/settings/CompactionSettingsCard.test.tsx (3 tests) 75ms
+ ✓ src/components/chat/CodeModeControl.test.tsx (2 tests) 20ms
+ ✓ src/components/settings/ThinkingSettingsCard.test.tsx (2 tests) 43ms
+ ✓ src/components/chat/ChatInput.queue.test.tsx (5 tests) 114ms
+ ✓ src/components/chat/ChatInput.compact.test.tsx (4 tests) 130ms
+ ✓ ../plugins/vivy-masks-ui/ui/vivy-masks/src/MaskHeader.test.tsx (1 test) 28ms
+ ✓ src/i18n/completeness.test.ts (23 tests) 17921ms
+   ✓ catalog completeness command > accepts nested arrays and ignores comments, not runtime strings  512ms
+   ✓ catalog completeness command > rejects missing keys  653ms
+   ✓ catalog completeness command > rejects an extra own prototype-named key in en  1546ms
+   ✓ catalog completeness command > rejects a static translation reference that only exists on the prototype  944ms
+   ✓ catalog completeness command > accepts a prototype-named translation when both catalogs own the key  608ms
+   ✓ catalog completeness command > preserves own __proto__ keys while flattening catalogs  501ms
+   ✓ catalog completeness command > rejects mismatched named placeholders inside arrays  488ms
+   ✓ catalog completeness command > rejects runtime Han copy: const label = "保存";  598ms
+   ✓ catalog completeness command > rejects runtime Han copy: const el = <button>保存</button>;  607ms
+   ✓ catalog completeness command > rejects runtime Han copy: const label = `保存 ${count} 项`;  1004ms
+   ✓ catalog completeness command > rejects direct English JSX chrome and missing translation references  1097ms
+   ✓ catalog completeness command > rejects uncatalogued reveal-engine diagnostics  387ms
+   ✓ catalog completeness command > rejects English copy hidden in JSX string expressions  1159ms
+   ✓ catalog completeness command > rejects English copy in conditional JSX branches  549ms
+   ✓ catalog completeness command > rejects English copy in logical JSX branches  1784ms
+   ✓ catalog completeness command > allows an exact product name in a nullish JSX branch  622ms
+   ✓ catalog completeness command > rejects English copy in JSX template expressions  642ms
+   ✓ catalog completeness command > normalizes literal property names when detecting duplicate keys  349ms
+   ✓ catalog completeness command > rejects catalog keys that collide after flattening  405ms
+   ✓ catalog completeness command > rejects invalid dictionary leaves or duplicate keys: {a: ''}  1198ms
+   ✓ catalog completeness command > rejects invalid dictionary leaves or duplicate keys: {a: 7}  1396ms
+   ✓ catalog completeness command > rejects invalid dictionary leaves or duplicate keys: {a: 'A', a: 'B'}  606ms
+stderr | src/plugins/presentation-host.test.tsx > PresentationHost > keeps typed header render failures inside the existing error boundary and cleans owners
+Error: fixture header failed
+    at Object.render (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.test.tsx:213:31)
+    at C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.tsx:922:18
+    at Array.map (<anonymous>)
+    at ChatHeaderSlot (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.tsx:919:54)
+    at Object.react_stack_bottom_frame (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:25904:20)
+    at renderWithHooks (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:10166:19)
+    at beginWork (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:11778:18)
+    at runWithFiberInDEV (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:874:13)
+    at performUnitOfWork (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:17641:22) {
+  [stack]: [Getter/Setter],
+  [message]: 'fixture header failed'
+}
+
+The above error occurred in the <ChatHeaderSlot> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, PresentationErrorBoundary.
+
+
+stderr | src/plugins/presentation-host.test.tsx > PresentationHost > keeps first-run gate render failures inside the existing error boundary and cleans owners
+Error: fixture gate failed
+    at Object.render (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.test.tsx:266:31)
+    at C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.tsx:955:18
+    at Array.map (<anonymous>)
+    at ShellOnboardingSlot (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\src\plugins\presentation-host.tsx:952:54)
+    at Object.react_stack_bottom_frame (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:25904:20)
+    at renderWithHooks (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:10166:19)
+    at beginWork (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:11778:18)
+    at runWithFiberInDEV (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:874:13)
+    at performUnitOfWork (C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui\node_modules\.pnpm\react-dom@19.2.8_react@19.2.8\node_modules\react-dom\cjs\react-dom-client.development.js:17641:22) {
+  [stack]: [Getter/Setter],
+  [message]: 'fixture gate failed'
+}
+
+The above error occurred in the <ShellOnboardingSlot> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, PresentationErrorBoundary.
+
+
+ ✓ src/plugins/conformance.test.tsx (6 tests) 55ms
+ ✓ src/plugins/presentation-host.test.tsx (35 tests) 225ms
+ ✓ src/components/chat/ConversationSidebar.test.tsx (6 tests) 250ms
+
+ Test Files  93 passed (93)
+      Tests  702 passed (702)
+   Start at  12:00:58
+   Duration  22.75s (transform 55.18s, setup 0ms, collect 256.76s, tests 29.77s, environment 9.42s, prepare 45.98s)
+
+pnpm --dir ui build
+
+> vivy-ui@1.0.0 prebuild C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\recipes\\default.vivy.yml","output":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated","assembly":"C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-recovery\\agent-vivy\\ui\\src\\generated\\assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.toolkits-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 build C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy\.worktrees\pr80-recovery\agent-vivy\ui
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2609 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     2.04 kB │ gzip:   1.09 kB
+dist/assets/index-CRqCnUQh.css    157.00 kB │ gzip:  25.19 kB
+dist/assets/index-CnMi0OJZ.js   1,985.93 kB │ gzip: 588.15 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 3.98s
+node scripts/check-i18n-completeness.js
+PASS: en=1575 keys / 162 placeholders; zh=1575 keys / 162 placeholders; runtime copy audit clean.
+node --test scripts/check-i18n-cross-face.test.js
+✔ accepts complete shared projections and explicit face-specific units (1.1543ms)
+✔ rejects a missing shared projection (0.2127ms)
+✔ rejects placeholder drift across faces (0.181ms)
+✔ rejects unclassified face-specific keys (0.1366ms)
+✔ rejects an unmapped Web key under an existing face-specific family (0.1241ms)
+✔ rejects an unmapped TUI key under an existing face-specific family (0.112ms)
+✔ rejects a declared Web face-specific key missing from the catalogs (0.1221ms)
+✔ rejects a declared TUI face-specific key missing from the catalogs (0.0914ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93.9548
+node scripts/check-i18n-cross-face.js
+PASS: 14 shared semantic units; Web and TUI en/zh projections and arguments conform.
+go vet ./...
+# The Windows runtime package exercises hundreds of SQLite-backed real paths
+# and now legitimately exceeds Go's default 10-minute per-package timeout;
+# the SDK's pack/eval suite (sdk/internal) builds ~20 temporary modules and
+# exceeds it too. internal/runtime crossed the 20-minute bound on the
+# Windows runner, so the shared bound is 35m.
+# Memory-loop integration requires the DIVA Recipe, not the default body.
+# The second pass runs every excluded test against its sealed Assembly.
+# Serialize real SQLite fixture packages to avoid Windows flush contention.
+go test -p 1 -timeout 35m -skip '^TestMemoryLoop' ./...
+ok  	agent-vivy/cmd/vivy	2.322s
+ok  	agent-vivy/cmd/vivy-code	0.825s
+?   	agent-vivy/cmd/vivy-studio	[no test files]
+ok  	agent-vivy/internal/actionhost	5.903s
+ok  	agent-vivy/internal/app	166.654s
+ok  	agent-vivy/internal/app/settings	1.712s
+ok  	agent-vivy/internal/attachment	0.619s
+?   	agent-vivy/internal/buildinfo	[no test files]
+ok  	agent-vivy/internal/bundlecontract	0.916s
+ok  	agent-vivy/internal/bundles	18.907s
+ok  	agent-vivy/internal/channelhost	89.842s
+?   	agent-vivy/internal/channelhost/fake	[no test files]
+ok  	agent-vivy/internal/codeface	3.881s
+?   	agent-vivy/internal/cognitivecontract	[no test files]
+ok  	agent-vivy/internal/commandpolicy	0.424s
+ok  	agent-vivy/internal/config	0.962s
+ok  	agent-vivy/internal/contexthost	1.384s
+ok  	agent-vivy/internal/domain	0.658s
+ok  	agent-vivy/internal/eval	29.932s
+ok  	agent-vivy/internal/events	0.526s
+?   	agent-vivy/internal/generated/assembly	[no test files]
+?   	agent-vivy/internal/generated/presentation	[no test files]
+ok  	agent-vivy/internal/i18n	0.563s
+ok  	agent-vivy/internal/logging	1.293s
+ok  	agent-vivy/internal/maskcontract	0.423s
+ok  	agent-vivy/internal/mcphost	2.544s
+ok  	agent-vivy/internal/modelhost	0.503s
+ok  	agent-vivy/internal/modulehost	0.627s
+ok  	agent-vivy/internal/moduleport	0.793s
+ok  	agent-vivy/internal/modules	0.569s
+ok  	agent-vivy/internal/modules/checkpoint	1.458s
+ok  	agent-vivy/internal/modules/credential	0.613s
+ok  	agent-vivy/internal/modules/defaults	0.547s
+ok  	agent-vivy/internal/modules/diva-cognitive	1.333s
+?   	agent-vivy/internal/modules/diva-cognitive/catalog	[no test files]
+ok  	agent-vivy/internal/modules/loop	0.565s
+ok  	agent-vivy/internal/modules/masks	1.474s
+?   	agent-vivy/internal/modules/masks/catalog	[no test files]
+ok  	agent-vivy/internal/modules/memory	1.711s
+?   	agent-vivy/internal/modules/memory/catalog	[no test files]
+ok  	agent-vivy/internal/modules/model	0.541s
+ok  	agent-vivy/internal/modules/notebook	0.557s
+ok  	agent-vivy/internal/modules/optional	0.453s
+ok  	agent-vivy/internal/modules/reports	0.770s
+ok  	agent-vivy/internal/modules/sandbox	0.612s
+ok  	agent-vivy/internal/modules/storage	1.428s
+ok  	agent-vivy/internal/modules/toolkits	1.061s
+ok  	agent-vivy/internal/notebookcontract	0.540s
+ok  	agent-vivy/internal/observerhost	1.757s
+?   	agent-vivy/internal/orchestration	[no test files]
+ok  	agent-vivy/internal/provider	1.347s
+?   	agent-vivy/internal/reportcontract	[no test files]
+ok  	agent-vivy/internal/rpc	292.537s
+ok  	agent-vivy/internal/runtime	920.903s
+ok  	agent-vivy/internal/runtime/compaction	0.486s
+ok  	agent-vivy/internal/skillhost	1.774s
+?   	agent-vivy/internal/sourcehash	[no test files]
+ok  	agent-vivy/internal/statushost	1.355s
+ok  	agent-vivy/internal/storage	5.758s
+?   	agent-vivy/internal/storage/bundlesql	[no test files]
+?   	agent-vivy/internal/storage/conformance	[no test files]
+ok  	agent-vivy/internal/storage/migrations	7.350s
+ok  	agent-vivy/internal/storage/postgres	0.584s
+ok  	agent-vivy/internal/storage/sqlite	256.951s
+ok  	agent-vivy/internal/studio	6.755s
+ok  	agent-vivy/internal/studiocore	11.141s
+?   	agent-vivy/internal/testsupport	[no test files]
+ok  	agent-vivy/internal/toolhost	2.220s
+?   	agent-vivy/internal/toolkitcontract	[no test files]
+ok  	agent-vivy/internal/tools	3.867s
+?   	agent-vivy/internal/tui	[no test files]
+ok  	agent-vivy/plugins/hello-fs	0.491s
+?   	agent-vivy/sdk	[no test files]
+ok  	agent-vivy/sdk/codeclient	9.209s
+ok  	agent-vivy/sdk/conformance	0.476s
+ok  	agent-vivy/sdk/facerun	0.569s
+ok  	agent-vivy/sdk/generation	0.580s
+ok  	agent-vivy/sdk/internal	424.545s
+ok  	agent-vivy/sdk/internal/assembly	9.967s
+?   	agent-vivy/sdk/internal/cmd/generate-default	[no test files]
+?   	agent-vivy/sdk/internal/cmd/source-hash	[no test files]
+ok  	agent-vivy/sdk/internal/conformance	151.025s
+ok  	agent-vivy/sdk/module	0.570s
+ok  	agent-vivy/sdk/port	0.622s
+ok  	agent-vivy/sdk/port/channel	0.662s
+ok  	agent-vivy/sdk/port/contextsource	0.522s
+ok  	agent-vivy/sdk/port/controlaction	0.557s
+ok  	agent-vivy/sdk/port/face	0.565s
+ok  	agent-vivy/sdk/port/observer	0.419s
+ok  	agent-vivy/sdk/port/pretool	0.547s
+ok  	agent-vivy/sdk/port/providerprofile	0.510s
+ok  	agent-vivy/sdk/port/skillsource	0.496s
+ok  	agent-vivy/sdk/port/status	0.380s
+ok  	agent-vivy/sdk/port/tool	0.469s
+ok  	agent-vivy/sdk/port/toolworld	0.408s
+ok  	agent-vivy/sdk/tui/command	0.680s
+ok  	agent-vivy/sdk/tui/face	2.205s
+ok  	agent-vivy/sdk/tui/i18n	0.505s
+?   	agent-vivy/sdk/tui/internal/textsafe	[no test files]
+ok  	agent-vivy/sdk/tui/live	6.842s
+ok  	agent-vivy/sdk/tui/stream	0.945s
+?   	agent-vivy/sdk/tui/surface	[no test files]
+ok  	agent-vivy/sdk/tui/theme	0.585s
+ok  	agent-vivy/sdk/tui/view	3.667s
+ok  	agent-vivy/sdk/ui	0.467s
+?   	agent-vivy/spike/einoverify	[no test files]
+ok  	agent-vivy/ui	0.670s
+node scripts/memory-loop.mjs
+memory-loop: ordinary packages (106)
+ok  	agent-vivy/cmd/vivy	0.290s [no tests to run]
+ok  	agent-vivy/cmd/vivy-code	0.318s [no tests to run]
+?   	agent-vivy/cmd/vivy-studio	[no test files]
+ok  	agent-vivy/internal/actionhost	0.288s [no tests to run]
+ok  	agent-vivy/internal/app/settings	0.306s [no tests to run]
+ok  	agent-vivy/internal/attachment	0.286s [no tests to run]
+?   	agent-vivy/internal/buildinfo	[no test files]
+ok  	agent-vivy/internal/bundlecontract	0.084s [no tests to run]
+ok  	agent-vivy/internal/bundles	0.286s [no tests to run]
+ok  	agent-vivy/internal/channelhost	0.301s [no tests to run]
+?   	agent-vivy/internal/channelhost/fake	[no test files]
+ok  	agent-vivy/internal/codeface	8.485s [no tests to run]
+?   	agent-vivy/internal/cognitivecontract	[no test files]
+ok  	agent-vivy/internal/commandpolicy	1.402s [no tests to run]
+ok  	agent-vivy/internal/config	4.906s [no tests to run]
+ok  	agent-vivy/internal/contexthost	4.908s [no tests to run]
+ok  	agent-vivy/internal/domain	2.147s [no tests to run]
+ok  	agent-vivy/internal/eval	7.911s [no tests to run]
+ok  	agent-vivy/internal/events	2.715s [no tests to run]
+?   	agent-vivy/internal/generated/assembly	[no test files]
+?   	agent-vivy/internal/generated/presentation	[no test files]
+ok  	agent-vivy/internal/i18n	0.053s [no tests to run]
+ok  	agent-vivy/internal/logging	0.056s [no tests to run]
+ok  	agent-vivy/internal/maskcontract	0.056s [no tests to run]
+ok  	agent-vivy/internal/mcphost	4.964s [no tests to run]
+ok  	agent-vivy/internal/modelhost	7.676s [no tests to run]
+ok  	agent-vivy/internal/modulehost	4.910s [no tests to run]
+ok  	agent-vivy/internal/moduleport	0.054s [no tests to run]
+ok  	agent-vivy/internal/modules	7.646s [no tests to run]
+ok  	agent-vivy/internal/modules/checkpoint	7.148s [no tests to run]
+ok  	agent-vivy/internal/modules/credential	3.554s [no tests to run]
+ok  	agent-vivy/internal/modules/defaults	7.800s [no tests to run]
+ok  	agent-vivy/internal/modules/diva-cognitive	8.477s
+?   	agent-vivy/internal/modules/diva-cognitive/catalog	[no test files]
+ok  	agent-vivy/internal/modules/loop	7.737s [no tests to run]
+ok  	agent-vivy/internal/modules/masks	7.110s [no tests to run]
+?   	agent-vivy/internal/modules/masks/catalog	[no test files]
+ok  	agent-vivy/internal/modules/memory	8.417s [no tests to run]
+?   	agent-vivy/internal/modules/memory/catalog	[no test files]
+ok  	agent-vivy/internal/modules/model	8.415s [no tests to run]
+ok  	agent-vivy/internal/modules/notebook	10.178s [no tests to run]
+ok  	agent-vivy/internal/modules/optional	9.005s [no tests to run]
+ok  	agent-vivy/internal/modules/reports	10.180s [no tests to run]
+ok  	agent-vivy/internal/modules/sandbox	9.688s [no tests to run]
+ok  	agent-vivy/internal/modules/storage	8.292s [no tests to run]
+ok  	agent-vivy/internal/modules/toolkits	11.926s [no tests to run]
+ok  	agent-vivy/internal/notebookcontract	8.061s [no tests to run]
+ok  	agent-vivy/internal/observerhost	8.671s [no tests to run]
+?   	agent-vivy/internal/orchestration	[no test files]
+ok  	agent-vivy/internal/provider	9.170s [no tests to run]
+?   	agent-vivy/internal/reportcontract	[no test files]
+ok  	agent-vivy/internal/rpc	7.422s [no tests to run]
+ok  	agent-vivy/internal/runtime	14.338s
+ok  	agent-vivy/internal/runtime/compaction	9.119s [no tests to run]
+ok  	agent-vivy/internal/skillhost	6.950s [no tests to run]
+?   	agent-vivy/internal/sourcehash	[no test files]
+ok  	agent-vivy/internal/statushost	7.246s [no tests to run]
+ok  	agent-vivy/internal/storage	6.737s [no tests to run]
+?   	agent-vivy/internal/storage/bundlesql	[no test files]
+?   	agent-vivy/internal/storage/conformance	[no test files]
+ok  	agent-vivy/internal/storage/migrations	6.718s [no tests to run]
+ok  	agent-vivy/internal/storage/postgres	6.649s [no tests to run]
+ok  	agent-vivy/internal/storage/sqlite	6.605s [no tests to run]
+ok  	agent-vivy/internal/studio	6.490s [no tests to run]
+ok  	agent-vivy/internal/studiocore	5.965s [no tests to run]
+?   	agent-vivy/internal/testsupport	[no test files]
+ok  	agent-vivy/internal/toolhost	5.964s [no tests to run]
+?   	agent-vivy/internal/toolkitcontract	[no test files]
+ok  	agent-vivy/internal/tools	5.913s [no tests to run]
+?   	agent-vivy/internal/tui	[no test files]
+ok  	agent-vivy/plugins/hello-fs	5.901s [no tests to run]
+?   	agent-vivy/sdk	[no test files]
+ok  	agent-vivy/sdk/codeclient	5.329s [no tests to run]
+ok  	agent-vivy/sdk/conformance	6.737s [no tests to run]
+ok  	agent-vivy/sdk/facerun	6.765s [no tests to run]
+ok  	agent-vivy/sdk/generation	6.707s [no tests to run]
+ok  	agent-vivy/sdk/internal	6.206s
+ok  	agent-vivy/sdk/internal/assembly	6.215s [no tests to run]
+?   	agent-vivy/sdk/internal/cmd/generate-default	[no test files]
+?   	agent-vivy/sdk/internal/cmd/source-hash	[no test files]
+ok  	agent-vivy/sdk/internal/conformance	9.243s [no tests to run]
+ok  	agent-vivy/sdk/module	5.996s [no tests to run]
+ok  	agent-vivy/sdk/port	6.474s [no tests to run]
+ok  	agent-vivy/sdk/port/channel	5.939s [no tests to run]
+ok  	agent-vivy/sdk/port/contextsource	5.411s [no tests to run]
+ok  	agent-vivy/sdk/port/controlaction	5.913s [no tests to run]
+ok  	agent-vivy/sdk/port/face	5.929s [no tests to run]
+ok  	agent-vivy/sdk/port/observer	7.613s [no tests to run]
+ok  	agent-vivy/sdk/port/pretool	6.081s [no tests to run]
+ok  	agent-vivy/sdk/port/providerprofile	11.217s [no tests to run]
+ok  	agent-vivy/sdk/port/skillsource	8.072s [no tests to run]
+ok  	agent-vivy/sdk/port/status	8.071s [no tests to run]
+ok  	agent-vivy/sdk/port/tool	7.609s [no tests to run]
+ok  	agent-vivy/sdk/port/toolworld	9.806s [no tests to run]
+ok  	agent-vivy/sdk/tui/command	9.343s [no tests to run]
+ok  	agent-vivy/sdk/tui/face	10.714s [no tests to run]
+ok  	agent-vivy/sdk/tui/i18n	9.848s [no tests to run]
+?   	agent-vivy/sdk/tui/internal/textsafe	[no test files]
+ok  	agent-vivy/sdk/tui/live	11.234s [no tests to run]
+ok  	agent-vivy/sdk/tui/stream	9.662s [no tests to run]
+?   	agent-vivy/sdk/tui/surface	[no test files]
+ok  	agent-vivy/sdk/tui/theme	10.688s [no tests to run]
+ok  	agent-vivy/sdk/tui/view	9.230s [no tests to run]
+ok  	agent-vivy/sdk/ui	10.037s [no tests to run]
+?   	agent-vivy/spike/einoverify	[no test files]
+ok  	agent-vivy/ui	10.372s [no tests to run]
+memory-loop: packing recipes/diva.vivy.yml
+[generated artifact JSON: 23648 bytes; sha256=0c488b19012d082043f0af51856bb598867a04f0709d16b2eab6e2aff43da1b3]
+[generated artifact JSON: 23648 bytes; sha256=0c488b19012d082043f0af51856bb598867a04f0709d16b2eab6e2aff43da1b3]
+ok  	agent-vivy/sdk/internal	0.919s
+memory-loop: app tests against the DIVA overlay (100 sources)
+ok  	command-line-arguments	885.694s
+memory-loop: passed
+node scripts/diva-recall.mjs
+PASS TestMemoryLoopMemoryInjection (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallAfterProcessRestart (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallNegativeControls (SDK-generated DIVA assembly)
+PASS TestMemoryLoopOrdinaryRecallAuthorityBoundary (SDK-generated DIVA assembly)
+PASS TestMemoryLoopRecallDeadlineDegradesSafely (SDK-generated DIVA assembly)
+PASS TestMemoryLoopCorrectionAndDeletionInModelInput (SDK-generated DIVA assembly)
+go test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
+ok  	agent-vivy/cmd/vivy	1.224s [no tests to run]
+ok  	agent-vivy/cmd/vivy-code	0.529s [no tests to run]
+ok  	agent-vivy/ui	0.039s [no tests to run]
+node scripts/plugin-ci.mjs
+== plugin-ci: faces\headless
+ok  	agent-vivy/faces/headless	0.098s
+== plugin-ci: faces\tui
+ok  	agent-vivy/faces/tui	0.057s
+== plugin-ci: plugins\coding\lsp
+ok  	agent-vivy/plugins/coding/lsp	0.056s
+== plugin-ci: plugins\coding\session-tree
+ok  	agent-vivy/plugins/coding/session-tree	0.537s
+== plugin-ci: plugins\dingtalk
+ok  	agent-vivy/plugins/dingtalk	0.466s
+== plugin-ci: plugins\discord
+ok  	agent-vivy/plugins/discord	0.306s
+== plugin-ci: plugins\exp\argument-guard
+ok  	agent-vivy/plugins/exp/argument-guard	0.627s
+== plugin-ci: plugins\exp\loop-detection
+ok  	agent-vivy/plugins/exp/loop-detection	0.489s
+== plugin-ci: plugins\exp\redaction
+ok  	agent-vivy/plugins/exp/redaction	0.610s
+== plugin-ci: plugins\feishu
+ok  	agent-vivy/plugins/feishu	3.334s
+== plugin-ci: plugins\governance
+ok  	agent-vivy/plugins/governance	0.044s
+== plugin-ci: plugins\infra\llm
+ok  	agent-vivy/plugins/infra/llm	0.635s
+== plugin-ci: plugins\qq
+ok  	agent-vivy/plugins/qq	0.424s
+== plugin-ci: plugins\scx-reference
+ok  	agent-vivy/plugins/scxreference	0.030s
+== plugin-ci: plugins\telegram
+ok  	agent-vivy/plugins/telegram	7.111s
+== plugin-ci: plugins\vivy-evolution
+ok  	agent-vivy/plugins/vivy-evolution	0.532s
+== plugin-ci: plugins\vivy-masks-ui
+?   	agent-vivy/plugins/vivy-masks-ui	[no test files]
+== plugin-ci: plugins\vivy-memory
+ok  	agent-vivy/plugins/vivy-memory	0.559s
+== plugin-ci: plugins\vivy-notebook
+ok  	agent-vivy/plugins/vivy-notebook	0.501s
+== plugin-ci: plugins\vivy-persona
+ok  	agent-vivy/plugins/vivy-persona	0.513s
+== plugin-ci: plugins\vivy-toolkits-ui
+ok  	agent-vivy/plugins/vivy-toolkits-ui	0.529s
+== plugin-ci: plugins\vivy-workflow
+?   	agent-vivy/plugins/vivy-workflow	[no test files]
+plugin-ci: 22 modules passed

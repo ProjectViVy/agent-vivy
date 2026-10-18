@@ -1,0 +1,81 @@
+Sun Oct 18 04:31:09 AM UTC 2026
+0c083f12ad986b2a7ff3767c4839206f2e6eb846
+go version go1.26.4 linux/amd64
+=== RUN   TestRecoverCleanupIntentWriteFailures
+=== RUN   TestRecoverCleanupIntentWriteFailures/create
+2026/10/18 12:31:30 ERROR journal append of terminal event failed run=run_3dfece61a366ace7 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupIntentWriteFailures/delete
+2026/10/18 12:31:31 ERROR journal append of terminal event failed run=run_367cfbae801e50d1 type=run.cancelled err="storage: run already has a terminal event"
+--- PASS: TestRecoverCleanupIntentWriteFailures (1.87s)
+    --- PASS: TestRecoverCleanupIntentWriteFailures/create (1.01s)
+    --- PASS: TestRecoverCleanupIntentWriteFailures/delete (0.86s)
+=== RUN   TestRecoverCleanupRetriesInteractionWrites
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/row
+2026/10/18 12:31:31 ERROR journal append of terminal event failed run=run_a4f352ed9fc0317f type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/event
+2026/10/18 12:31:32 ERROR journal append of terminal event failed run=run_75a15f527225ef3c type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/event_ack
+2026/10/18 12:31:33 ERROR journal append of terminal event failed run=run_0abb5caf05c4b76d type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/terminal
+2026/10/18 12:31:34 ERROR journal append of terminal event failed run=run_2a581089e85c1a4b type=run.failed err="injected recovery write failure"
+2026/10/18 12:31:34 ERROR journal append of terminal event failed run=run_2a581089e85c1a4b type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/terminal_ack
+2026/10/18 12:31:34 ERROR journal append of terminal event failed run=run_a06310370fb0d9a1 type=run.failed err="injected recovery write failure"
+2026/10/18 12:31:34 ERROR journal append of terminal event failed run=run_a06310370fb0d9a1 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/approval/status
+2026/10/18 12:31:35 ERROR set terminal run status run=run_61d4d1c276bfd4d4 status=failed err="injected recovery write failure"
+2026/10/18 12:31:35 ERROR journal append of terminal event failed run=run_61d4d1c276bfd4d4 type=run.cancelled err="storage: run already has a terminal event"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/row
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/event
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/event_ack
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/terminal
+2026/10/18 12:31:38 ERROR journal append of terminal event failed run=run_22d5d328f257a1d7 type=run.failed err="injected recovery write failure"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/terminal_ack
+2026/10/18 12:31:39 ERROR journal append of terminal event failed run=run_8a3365f4f9ec49bb type=run.failed err="injected recovery write failure"
+=== RUN   TestRecoverCleanupRetriesInteractionWrites/question/status
+2026/10/18 12:31:40 ERROR set terminal run status run=run_616ac96d20efaca2 status=failed err="injected recovery write failure"
+--- PASS: TestRecoverCleanupRetriesInteractionWrites (9.03s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/row (0.65s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/event (0.79s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/event_ack (0.79s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/terminal (0.76s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/terminal_ack (0.76s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/approval/status (0.78s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/row (0.86s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/event (0.60s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/event_ack (0.74s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/terminal (0.79s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/terminal_ack (0.76s)
+    --- PASS: TestRecoverCleanupRetriesInteractionWrites/question/status (0.75s)
+=== RUN   TestRecoverCleanupRetriesPlanAfterTerminal
+--- PASS: TestRecoverCleanupRetriesPlanAfterTerminal (0.81s)
+=== RUN   TestRecoverAcrossEngineVersionCancelsPendingApproval
+2026/10/18 12:31:41 ERROR journal append of terminal event failed run=run_e4c3a2194fdf8f4c type=run.cancelled err="storage: run already has a terminal event"
+--- PASS: TestRecoverAcrossEngineVersionCancelsPendingApproval (0.79s)
+=== RUN   TestRecoverAcrossEngineVersionCancelsPendingQuestion
+--- PASS: TestRecoverAcrossEngineVersionCancelsPendingQuestion (0.72s)
+=== RUN   TestRecoverWithMissingCheckpointCancelsPendingApproval
+2026/10/18 12:31:43 ERROR journal append of terminal event failed run=run_93f40e832c742960 type=run.cancelled err="storage: run already has a terminal event"
+--- PASS: TestRecoverWithMissingCheckpointCancelsPendingApproval (0.79s)
+=== RUN   TestRecoverAcrossEngineVersionCancelsPendingPlanReview
+--- PASS: TestRecoverAcrossEngineVersionCancelsPendingPlanReview (0.79s)
+=== RUN   TestServiceRecoverResumableApproval
+2026/10/18 12:31:44 INFO restart recovery: run waits on its approval decision run=run_d230dc5f64d091d1 approval=apr_9deb826e895647ce
+2026/10/18 12:31:44 WARN cancel approval failed approval=apr_9deb826e895647ce err="runtime: approval already decided"
+--- PASS: TestServiceRecoverResumableApproval (0.84s)
+=== RUN   TestServiceRecoverExpiredApprovalFails
+2026/10/18 12:31:45 WARN cancel approval failed approval=apr_59a0e199e8f59e45 err="runtime: approval already decided"
+--- PASS: TestServiceRecoverExpiredApprovalFails (0.79s)
+=== RUN   TestServiceRecoverOrphanRunFails
+2026/10/18 12:31:46 INFO restart recovery: run failed definitively run=run-orphan reason="no pending approval"
+--- PASS: TestServiceRecoverOrphanRunFails (0.71s)
+=== RUN   TestServiceRecoverNothingToDo
+2026/10/18 12:31:47 INFO restart recovery: run waits on its approval decision run=run_15adebaf389623ce approval=apr_6dcd1ee3d4dbfb9e
+--- PASS: TestServiceRecoverNothingToDo (0.88s)
+=== RUN   TestServiceRecoverRestoresSkillMountedTools
+2026/10/18 12:31:48 INFO restart recovery: run waits on user question run=run_5bafe913e2fded22 question=que_13c4f8494816407d resume_target=2071ae6d-5c77-40bc-8248-4b1265c65665
+--- PASS: TestServiceRecoverRestoresSkillMountedTools (0.95s)
+PASS
+ok  	agent-vivy/internal/runtime	20.085s
+FOCUSED_RACE_EXIT=0
+Sun Oct 18 04:31:49 AM UTC 2026
