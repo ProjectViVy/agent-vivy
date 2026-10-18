@@ -34,6 +34,8 @@ Fresh workflow reads: #80 run [39099594755](https://github.com/ProjectViVy/agent
 
 Final readiness requires exact-SHA review and required CI, affected race/recovery/migration/reopen suites, actual native Windows Garden and both Recap browser bodies, and truthful disclosure of unavailable PostgreSQL/platform evidence. Keep rollback cleanup/event restrictions and normal-cancel limits. Do not combine historical branch-local PASS counts or silently waive red gates. Only genuinely affected work waits for dependency gates; DIVA installed acceptance, #66 activation and the full #58 rollout do not block unrelated BML/product work.
 
+Peer fork CI at the same `c158f2eaea29dc88ad6c6f50901c882b12a6ebe4` also exists: [39116060177](https://github.com/songbai-vv/agent-vivy/actions/runs/39116060177), freshly verified completed/failure (updated 2026-10-18 10:20:20 UTC). The prior independent log audit reported backend success but aggregate failure with three actionable blockers: native Windows Garden `hnsw@v0.6.1/encode.go:304: undefined: renameio.TempFile` (BML 162 pass; ACTMEM 121 pass/1 skip); PNPM launcher missing `D:\a\agent-vivy\pnpm\bin\pnpm.mjs` before either Recap test body; and a new unclassified Web i18n key `approvals.quick.otherSession`. These detail findings are attributed to that prior inspected-log audit, not a new log execution/re-audit in this preparation. Retain the i18n classification blocker alongside Garden and launcher gates. Fork failure and upstream action_required are distinct receipts; neither is a passing final candidate.
+
 ## Preserved plans
 
 - [BML](https://github.com/ProjectViVy/agent-vivy/blob/080186ae099ca96f8863c0bd8b35d6fb7bfa228f/docs/superpowers/plans/issue-81/bml/index.md)
