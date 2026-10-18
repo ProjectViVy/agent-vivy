@@ -61,7 +61,7 @@ export default defineConfig({
   },
   webServer: [
     ...(!externalBackend ? [{
-      command: JSON.stringify(binary),
+      command: `"${binary}"`,
       cwd: repoRoot,
       url: `http://${backend}/healthz`,
       stdout: 'pipe',

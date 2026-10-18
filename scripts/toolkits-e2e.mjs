@@ -27,13 +27,18 @@ const goEnv = buildGoEnv();
 const artifactRoot = join(GATE_ROOT, 'gate');
 const sdkBinary = join(artifactRoot, 'vivy-sdk');
 const artifactDirectory = join(artifactRoot, 'default');
+const override = process.env.VIVY_TOOLKITS_E2E_BINARY;
+let interrupted = false;
 
 await assertPort('backend', backendPort);
 await assertPort('UI', uiPort);
 
 // A stale artifact is worse than no artifact: pack renames its staging tree
-// into --output and refuses to overwrite, so the gate always starts clean.
-rmSync(artifactRoot, { recursive: true, force: true });
+// into --output and refuses to overwrite, so a fresh pack always starts clean.
+// An explicit override may live inside that directory, so never clear it.
+if (!override) {
+  rmSync(artifactRoot, { recursive: true, force: true });
+}
 mkdirSync(artifactRoot, { recursive: true });
 
 console.log(`${prefix}: backend 127.0.0.1:${backendPort}, UI 127.0.0.1:${uiPort}`);
@@ -45,16 +50,6 @@ requireSuccess(
   'build vivy-sdk',
   'go build ./sdk',
 );
-// Pack hides the repository UI dist into the artifact, so the embedded-UI
-// build must exist before packing. Always rebuild: a stale dist must not stand
-// in for the checked-out source.
-requireSuccess(
-  runInherit('pnpm', ['--dir', 'ui', 'build'], { env: goEnv }),
-  'build embedded UI',
-  'pnpm --dir ui build',
-);
-
-const override = process.env.VIVY_TOOLKITS_E2E_BINARY;
 let artifact;
 if (override) {
   if (!existsSync(override)) {
@@ -63,6 +58,14 @@ if (override) {
   artifact = { binary: override, manifest: {} };
   console.log(`${prefix}: using explicit binary ${override}`);
 } else {
+  // Pack hides the repository UI dist into the artifact, so the embedded-UI
+  // build must exist before packing. Always rebuild: a stale dist must not
+  // stand in for the checked-out source.
+  requireSuccess(
+    runInherit('pnpm', ['--dir', 'ui', 'build'], { env: goEnv }),
+    'build embedded UI',
+    'pnpm --dir ui build',
+  );
   const packed = run(sdkBinary, [
     'pack',
     '--recipe',
@@ -112,11 +115,17 @@ const suites = [
   { label: 'accessibility', config: 'playwright.toolkits-accessibility.config.ts' },
 ];
 for (const suite of suites) {
+  if (interrupted) break;
   console.log(`${prefix}: running ${suite.label} suite`);
   const status = await runPlaywright(suite.config, playwrightEnv);
+  if (interrupted) break;
   if (status !== 0) {
     fail(prefix, `${suite.label} suite failed (exit ${status}); artifact kept at ${artifactDirectory}`);
   }
+}
+if (interrupted) {
+  console.error(`${prefix}: interrupted`);
+  process.exit(130);
 }
 console.log(`${prefix}: all Toolkit suites passed`);
 
@@ -216,6 +225,7 @@ function runPlaywright(config, env) {
       { cwd: join(repoRoot, 'ui'), env, stdio: 'inherit' },
     );
     const forward = (signal) => {
+      interrupted = true;
       if (!child.killed) child.kill(signal);
     };
     const onInterrupt = () => forward('SIGINT');
