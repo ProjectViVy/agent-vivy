@@ -29,26 +29,33 @@ ownership and gate evidence. This is design direction, not a shipped capability.
 
 ## Requirements
 
-- Go 1.26+ (installed at `C:\Program Files\Go\bin` on this machine; if `go`
-  is not on PATH, use the full path or add it).
-- `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
-  unreachable from this network). Already persisted via `go env -w`.
-- Node.js 22+ and pnpm for the embedded React UI.
-- Git and PowerShell for the pinned source bootstrap and Windows development scripts.
-- Optional: [just](https://github.com/casey/just) for the task recipes in
-  `justfile`. Without it, run the underlying `go` commands directly.
+- Go 1.26.4, Node.js 22+, and pnpm 10.33.0 (`ui/package.json` pins it).
+- Git. Windows development also uses PowerShell; WSL/Linux uses Bash.
+- `just` for the task recipes. Without it, run the underlying `node`/`go`
+  commands directly; the cross-platform steps live in `scripts/*.mjs`.
+- Network access to GitHub for the first pinned Laputa bootstrap, and to a
+  Go module proxy. Recipes use a process-local `GOPROXY`
+  (`VIVY_GOPROXY` → `GOPROXY` → `https://goproxy.cn,direct`); `just setup`
+  never writes `go env -w`, so a mirror cannot leak into other projects.
+- Diagnose the machine at any time with `just doctor` (read-only).
+
+The recommended split is: Windows for the editor, browser, daily use, and
+native `.exe` acceptance; WSL2/Linux (code on the Linux filesystem) for the
+main Go/Node development line; Docker/WSL for Postgres and packaged startup
+acceptance. See [Development environment](docs/dev/DEVELOPMENT-ENVIRONMENT.md).
 
 ## Quick start
 
 ```powershell
+just doctor        # read-only tool, pin, proxy, port, and UI checks
 just setup         # prepare pinned ProjectViVy/laputa sources, then go mod download
 just ensure-studio # git submodule update --init studio/ (ProjectViVy/vivy-studio)
 just build         # go build ./...
 just test          # go test ./...
 just ci            # Go fmt/vet/test + UI install/typecheck/unit/build + I18N completeness
-just run           # run the vivy process (health endpoint on :8787)
+just run           # dev backend on 127.0.0.1:8788 with an isolated data root
 just tui           # build and run an independent VIVY CODE TUI
-just dev           # one-click split loop: backend :8787 + Vite :3015
+just dev           # split loop: backend :8788 + Vite :3016
 just build-split   # build a headless backend plus standalone ui under dist/
 just docker-up     # one-container image, SQLite on a volume, host 127.0.0.1:8787
 .\launch-vivy-studio.ps1  # Studio IDE on :3090 (auto-ensures studio submodule)
@@ -71,13 +78,25 @@ revision or an unrelated repository cause an actionable error without overwritin
 files. Commit or stash local changes before retrying. Without `just`, run:
 
 ```powershell
-.\scripts\ensure-laputa.ps1
+node scripts/ensure-laputa.mjs --quiet
 go mod download
 .\dev.ps1
 ```
 
+Parallel work must not share one mutable `../laputa`. Create a lane with its
+own nested checkout instead of stacking branches in the root tree:
+
+```text
+just lane-new diva-recall
+# .worktrees/diva-recall/agent-vivy  (git worktree, branch feat/diva-recall)
+# .worktrees/diva-recall/laputa      (pinned checkout for that lane)
+```
+
 Docker is a packaging of the same organism (embedded UI, one process,
-replica=1). `docker compose up --build` publishes **only**
+replica=1). The build needs the pinned Laputa checkout as a named build
+context; `just docker-build` verifies the pin and passes it, and
+`docker compose up --build` receives it through `additional_contexts`.
+`docker compose up --build` publishes **only**
 `127.0.0.1:8787:8787` and stores the Journal on the named volume
 `vivy-data` (`/data/vivy.db` in the container). Do not scale the service
 and do not bind `8787` on all host interfaces. Provider keys stay in the
@@ -93,10 +112,17 @@ environment variable *name*); put the DSN in that variable. A second
 process on the same DSN fails to start. `just docker-up-postgres` is the
 compose overlay; default `just docker-up` stays SQLite on a volume.
 
-For day-to-day Vivy feature work, run `just dev` (or `.\dev.ps1` /
-`.\dev.cmd`). That starts the backend on `:8787` and the Vite UI on
-`:3015` together. Or use two terminals: `just run`, then `cd ui; pnpm
-dev`. Open `http://127.0.0.1:3015`. The Vite server proxies `/rpc` to
+For day-to-day Vivy feature work, run `just dev` from the repository root
+(`dev.ps1` on Windows, `scripts/dev.sh` on WSL/Linux). It starts the backend
+on `127.0.0.1:8788` and the Vite UI on `127.0.0.1:3016`, using
+`.workspace/dev/home` as the data root, so the daily `~/.vivy` home and the
+embedded `:8787` instance stay untouched. The dev entries load
+`scripts/dev.config.yaml` (an empty overlay) instead of a repo `config.yaml`;
+set `VIVY_DEV_CONFIG` to supply a different dev config. Set
+`VIVY_DEV_BACKEND_PORT` /
+`VIVY_DEV_UI_PORT` for a second lane. Or use two terminals: `just run`, then
+`cd ui; VIVY_BACKEND_ADDR=http://127.0.0.1:8788 pnpm dev` (Vite stays on
+`:3015`). Open `http://127.0.0.1:3016` for `just dev`. The Vite server proxies `/rpc` to
 the backend, so UI and Go changes can be iterated independently. The
 embedded UI is the default release/CI path; use `just build-split` when
 you need the packaged headless backend and standalone static UI.

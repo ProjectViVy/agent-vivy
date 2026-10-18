@@ -7,10 +7,15 @@ description: How to run the Vivy split dev pair and exercise run/orchestration U
 
 ## Dev servers
 
-- Backend: `PATH=/usr/local/go/bin:$PATH VIVY_CONFIG=/home/ubuntu/.vivy-dev/config.yaml go run ./cmd/vivy` from repo root -> control plane `127.0.0.1:8787`. The config redirects sqlite/workspaces/settings to `~/.vivy-dev`; never let it write under the repo's `data/` (ST-2 air gap).
-- Fresh disposable home (preferred): `VIVY_USER_HOME=/tmp/vivy-smoke go run ./cmd/vivy` — journal `vivy.db`, `settings.yaml`, `workspace/`, `logs/` all land under the temp dir, no config file needed, `data/` untouched.
-- UI: `cd ui && PATH=$HOME/.local/node/bin:/usr/local/go/bin:$PATH pnpm dev` -> Vite `127.0.0.1:3015`, proxies `/rpc`. **Go must be on PATH** — `pnpm dev` runs `scripts/stage-ui-assembly.mjs` which shells out to `go run ./sdk stage-ui`; without it the dev server exits (`spawnSync go ENOENT`).
-- Open `http://127.0.0.1:3015`. First run shows a welcome wizard; click "Skip wizard" (its text is left of the Next button, they visually overlap — click ~x=410 of the footer).
+- Preferred: `just dev` from the repo root -> backend `127.0.0.1:8788`, Vite
+  `127.0.0.1:3016`, data root `.workspace/dev/home`. It points `VIVY_CONFIG` at
+  `scripts/dev.config.yaml` unless `VIVY_DEV_CONFIG` is set, so the daily
+  `~/.vivy` home, the repo `config.yaml`, and `data/` stay untouched. `just
+  doctor` checks the pieces first.
+- Manual backend: `PATH=/usr/local/go/bin:$PATH VIVY_CONFIG=/home/ubuntu/.vivy-dev/config.yaml go run ./cmd/vivy` from repo root -> control plane `127.0.0.1:8787`. The config redirects sqlite/workspaces/settings to `~/.vivy-dev`; never let it write under the repo's `data/` (ST-2 air gap).
+- Fresh disposable home (manual alternative): `VIVY_CONFIG=scripts/dev.config.yaml VIVY_USER_HOME=/tmp/vivy-smoke go run ./cmd/vivy` — journal `vivy.db`, `settings.yaml`, `workspace/`, `logs/` all land under the temp dir, `data/` untouched. Set `VIVY_CONFIG` even when the temp home is enough: without it, `cmd/vivy` reads a repo `config.yaml` when one is present.
+- Manual UI: `cd ui && PATH=$HOME/.local/node/bin:/usr/local/go/bin:$PATH VIVY_BACKEND_ADDR=http://127.0.0.1:8787 pnpm dev` -> Vite `127.0.0.1:3015`, proxies `/rpc`. **Go must be on PATH** — `pnpm dev` runs `scripts/stage-ui-assembly.mjs` which shells out to `go run ./sdk stage-ui`; without it the dev server exits (`spawnSync go ENOENT`).
+- Open the Vite origin (`http://127.0.0.1:3016` for `just dev`, `:3015` for the manual pair). First run shows a welcome wizard; click "Skip wizard" (its text is left of the Next button, they visually overlap — click ~x=410 of the footer).
 
 ## Getting an `active` run without a provider key
 

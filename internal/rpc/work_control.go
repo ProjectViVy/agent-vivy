@@ -120,7 +120,7 @@ func (h *controlHandler) getWork(ctx context.Context, request Request) (any, *Er
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	sessionID, rpcErr := h.authorizeWorkSession(ctx, params.SessionID)
+	sessionID, rpcErr := h.resolveWorkSession(ctx, params.SessionID)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -142,7 +142,7 @@ func (h *controlHandler) getPlan(ctx context.Context, request Request) (any, *Er
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	sessionID, rpcErr := h.authorizeWorkSession(ctx, params.SessionID)
+	sessionID, rpcErr := h.resolveWorkSession(ctx, params.SessionID)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -268,16 +268,24 @@ func (h *controlHandler) handleWorkMutation(ctx context.Context, peer *Peer, req
 	return workCommitResult{Work: view, Event: workEventView(result.Event), Replayed: result.Replayed}, nil
 }
 
-func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (domain.SessionID, *Error) {
+// resolveWorkSession resolves the session a work request names. The named
+// session is accepted only after the authoritative SessionStore lookup
+// succeeds, so a browser-supplied value never becomes a work scope on its own.
+//
+// Work reads use this resolver. Their success is what binds the connection to
+// the session (the session/work/* and plan/get dispatchers call
+// bindPeerSessionRequest), exactly like session/messages, session/todos and
+// session/context. Reads must not require that binding first: on a session
+// switch the interface fires the work read alongside those sibling reads, so a
+// gate here fails deterministically against a binding the same switch is still
+// establishing, and the user sees a conflict for the session they just chose.
+func (h *controlHandler) resolveWorkSession(ctx context.Context, raw string) (domain.SessionID, *Error) {
 	sessionID := strings.TrimSpace(raw)
 	if sessionID == "" {
 		return "", &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
 	if len(sessionID) > maxWorkIdentifierBytes || hasWorkControl(sessionID) {
 		return "", &Error{Code: InvalidParams, Message: "session_id is invalid"}
-	}
-	if identity, ok := actionhost.IdentityFromContext(ctx); ok && strings.TrimSpace(identity.SessionID) != "" && strings.TrimSpace(identity.SessionID) != sessionID {
-		return "", &Error{Code: CodeConflict, Message: "session is not bound to this connection"}
 	}
 	if h.deps.Sessions == nil {
 		return "", &Error{Code: MethodNotFound, Message: "session store is not configured"}
@@ -289,6 +297,22 @@ func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (
 		return "", internalError(err)
 	}
 	return domain.SessionID(sessionID), nil
+}
+
+// authorizeWorkSession resolves a work *mutation* and additionally requires
+// the connection to be bound to that session. Work state is what makes a
+// mutation reachable, so reading it already bound the connection; the gate
+// keeps a mutation for a session this connection never selected a conflict
+// instead of an accepted edit.
+func (h *controlHandler) authorizeWorkSession(ctx context.Context, raw string) (domain.SessionID, *Error) {
+	sessionID, rpcErr := h.resolveWorkSession(ctx, raw)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	if identity, ok := actionhost.IdentityFromContext(ctx); ok && strings.TrimSpace(identity.SessionID) != "" && strings.TrimSpace(identity.SessionID) != string(sessionID) {
+		return "", &Error{Code: CodeConflict, Message: "session is not bound to this connection"}
+	}
+	return sessionID, nil
 }
 
 func buildWorkMutation(method string, kind domain.WorkEventKind, params workParams) (domain.WorkMutation, *Error) {

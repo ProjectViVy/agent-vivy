@@ -47,11 +47,19 @@ const SOURCE_LOCATION_PLUGIN_CANDIDATES = [
 
 const SOURCE_LOCATION_PLUGIN_PATH = SOURCE_LOCATION_PLUGIN_CANDIDATES.find((path) => existsSync(path));
 
+function portFromEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+/** Default 3015; isolated `just dev` sets VIVY_UI_PORT=3016. */
+const UI_PORT = portFromEnv(process.env.VIVY_UI_PORT, 3015);
+
 /**
  * React + Vite 构建配置
  *
  * 硬约束：
- * - dev server 必须监听 3015 + strictPort（沙箱只开放一个代理端口）
+ * - dev server 默认监听 3015 + strictPort；VIVY_UI_PORT 可覆盖
  * - outDir 'dist' / assetsDir 'assets' — 归一化产物目录
  */
 export default defineConfig({
@@ -107,7 +115,7 @@ export default defineConfig({
   ],
   server: {
     host: "0.0.0.0",
-    port: 3015,
+    port: UI_PORT,
     strictPort: true,
     allowedHosts: true,
     // HMR 默认关闭：沙箱预览 iframe 下 HMR 的整页 reload 会放大任何 transform error

@@ -547,9 +547,10 @@ func (m *rpcMode) adoptForked(raw json.RawMessage) {
 // for a settle, then subscribes it onto the stream. The admission lands in
 // the session queue moments after the terminal event, so poll briefly.
 func (m *rpcMode) admitSettledFollowUp(settledRunID string) {
+	sessionID, _ := m.snapshot()
 	for i := 0; i < 40; i++ {
 		raw, err := m.env.Call(context.Background(), "queue/state", map[string]any{
-			"session_id":   m.sessionID,
+			"session_id":   sessionID,
 			"after_run_id": settledRunID,
 		})
 		if err == nil {
@@ -560,7 +561,7 @@ func (m *rpcMode) admitSettledFollowUp(settledRunID string) {
 				m.mu.Lock()
 				m.activeRun = qs.AdmittedRunID
 				m.mu.Unlock()
-				m.proj.Emit("turn_start", map[string]any{"session_id": m.sessionID, "run_id": qs.AdmittedRunID, "admitted": true})
+				m.proj.Emit("turn_start", map[string]any{"session_id": sessionID, "run_id": qs.AdmittedRunID, "admitted": true})
 				if _, err := m.env.Call(context.Background(), "run/subscribe", map[string]any{"run_id": qs.AdmittedRunID}); err != nil {
 					m.proj.Emit("error", map[string]any{"message": fmt.Sprintf("follow-up run/subscribe failed: %v", err)})
 				}

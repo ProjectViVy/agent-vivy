@@ -56,7 +56,8 @@ live key is present.
 
 ## Manual walkthrough (browser)
 
-Start the split pair (`just dev`) and open `http://127.0.0.1:3015`, then:
+Start the split pair (`just dev`) and open `http://127.0.0.1:3016`
+(the manual `just run` + Vite pair uses `:3015`), then:
 
 | # | Scenario | Expected |
 |---|---|---|
