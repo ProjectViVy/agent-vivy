@@ -33,7 +33,12 @@ func TestMemoryLoopEffectHandshakeWaitsForWindowsSharingLock(t *testing.T) {
 	release := func() { once.Do(func() { _ = syscall.CloseHandle(handle) }) }
 	t.Cleanup(release)
 	// ERROR_SHARING_VIOLATION: prove the real fixture file is temporarily unreadable.
-	if _, err := os.ReadFile(path); !errors.Is(err, syscall.Errno(32)) {
+	// An elevated process holding SeBackupPrivilege can read through a share-mode-0
+	// handle because Go opens files with FILE_FLAG_BACKUP_SEMANTICS, so this
+	// transient path only exists for non-elevated processes (including CI).
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("process bypasses sharing locks via backup semantics; run the owner test non-elevated")
+	} else if !errors.Is(err, syscall.Errno(32)) {
 		t.Fatalf("expected sharing violation while locked, got %v", err)
 	}
 	go func() {

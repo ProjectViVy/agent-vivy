@@ -6,8 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-const script = resolve(dirname(fileURLToPath(import.meta.url)), 'ensure-laputa.ps1');
-const powershell = process.env.PWSH ?? (process.platform === 'win32' ? 'powershell.exe' : 'pwsh');
+const script = resolve(dirname(fileURLToPath(import.meta.url)), 'ensure-laputa.mjs');
 
 function git(dir, ...args) {
   const result = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
@@ -41,15 +40,15 @@ function hostMod(commit) {
 }
 
 function ensure(f) {
-  return spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-RepoRoot', f.root, '-Quiet'], { encoding: 'utf8' });
+  return spawnSync(process.execPath, [script, '--repo-root', f.root, '--quiet'], { encoding: 'utf8' });
 }
 
 test('the direct-script entry locates its repository without RepoRoot or a matching cwd', t => {
   const f = fixture(t);
   mkdirSync(join(f.root, 'scripts'));
-  const entry = join(f.root, 'scripts', 'ensure-laputa.ps1');
+  const entry = join(f.root, 'scripts', 'ensure-laputa.mjs');
   writeFileSync(entry, readFileSync(script));
-  const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', entry, '-Quiet'], {
+  const result = spawnSync(process.execPath, [entry, '--quiet'], {
     cwd: f.source, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);

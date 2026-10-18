@@ -1,30 +1,58 @@
-# Split-loop inner development: backend :8787 + Vite UI :3015.
-# Ctrl+C stops both process trees. Open http://127.0.0.1:3015
+# Split-loop inner development: isolated backend + Vite UI.
+# Defaults: backend 127.0.0.1:8788, Vite 127.0.0.1:3016, data in
+# .workspace/dev/home. The daily Vivy home (~/.vivy) and data/ stay untouched.
+# Ctrl+C stops both process trees.
 # Usage: .\dev.ps1   or   just dev   or   .\dev.cmd
 #        .\dev.ps1 -Split  -> backend and Vite in two separate windows
-# A previous vivy backend on :8787 or Vite on :3015 is stopped automatically;
-# ports held by unrelated processes are reported instead of killed.
+# A previous dev backend on the dev port is stopped automatically; ports held
+# by unrelated processes are reported instead of killed.
 
 param(
     [switch]$NoBrowser,
-    [switch]$Split
+    [switch]$Split,
+    [int]$BackendPort = 0,
+    [int]$UiPort = 0
 )
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 Set-Location $root
 
-& (Join-Path $root "scripts/ensure-laputa.ps1") -RepoRoot $root -Quiet
-
-$go = "C:\Program Files\Go\bin\go.exe"
-if (-not (Test-Path $go)) {
-    $goCmd = Get-Command go -ErrorAction SilentlyContinue
-    if (-not $goCmd) {
-        throw "go is not on PATH and was not found at C:\Program Files\Go\bin\go.exe"
-    }
-    $go = $goCmd.Source
+$defaults = Get-Content -Raw -LiteralPath (Join-Path $root "scripts/dev.defaults.json") | ConvertFrom-Json
+if ($BackendPort -eq 0) {
+    if ($env:VIVY_DEV_BACKEND_PORT) { $BackendPort = [int]$env:VIVY_DEV_BACKEND_PORT } else { $BackendPort = [int]$defaults.backendPort }
 }
-$env:GOPROXY = "https://goproxy.cn,direct"
+if ($UiPort -eq 0) {
+    if ($env:VIVY_DEV_UI_PORT) { $UiPort = [int]$env:VIVY_DEV_UI_PORT } else { $UiPort = [int]$defaults.uiPort }
+}
+$devHome = Join-Path $root ([string]$defaults.userHome)
+New-Item -ItemType Directory -Force -Path $devHome | Out-Null
+$env:VIVY_USER_HOME = $devHome
+$env:VIVY_ADDR = "127.0.0.1:$BackendPort"
+$env:VIVY_UI_PORT = "$UiPort"
+$env:VIVY_BACKEND_ADDR = "http://127.0.0.1:$BackendPort"
+$env:VIVY_CONFIG = Join-Path $root "scripts/dev.config.yaml"
+if ($env:VIVY_DEV_CONFIG) { $env:VIVY_CONFIG = $env:VIVY_DEV_CONFIG }
+
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw "node is not on PATH; install Node.js 22+ for the cross-platform dev tooling"
+}
+& node (Join-Path $root "scripts/ensure-laputa.mjs") --quiet
+if ($LASTEXITCODE) { throw "Laputa bootstrap failed: $LASTEXITCODE" }
+
+$goCmd = Get-Command go -ErrorAction SilentlyContinue
+if ($goCmd) {
+    $go = $goCmd.Source
+} elseif (Test-Path "C:\Program Files\Go\bin\go.exe") {
+    $go = "C:\Program Files\Go\bin\go.exe"
+} else {
+    throw "go is not on PATH and was not found at C:\Program Files\Go\bin\go.exe"
+}
+if ($env:VIVY_GOPROXY) {
+    $env:GOPROXY = $env:VIVY_GOPROXY
+} elseif (-not $env:GOPROXY) {
+    $env:GOPROXY = "https://goproxy.cn,direct"
+}
 $goBin = Split-Path $go
 if ($env:Path -notlike "*$goBin*") {
     $env:Path = "$goBin;$env:Path"
@@ -160,8 +188,8 @@ $script:subscribers = @()
 $backend = $null
 $ui = $null
 try {
-    Stop-StaleDevProcess -Port 8787 -AllowedNames @("vivy", "vivy-backend") -Label "vivy backend" -WindowMarkers @("vivy-backend")
-    Stop-StaleDevProcess -Port 3015 -AllowedNames @("node") -Label "vite" -ListenerCmdMatch "vite" -WindowMarkers @("pnpm")
+    Stop-StaleDevProcess -Port $BackendPort -AllowedNames @("vivy", "vivy-backend") -Label "vivy backend" -WindowMarkers @("vivy-backend")
+    Stop-StaleDevProcess -Port $UiPort -AllowedNames @("node") -Label "vite" -ListenerCmdMatch "vite" -WindowMarkers @("pnpm")
 
     $uiDir = Join-Path $root "ui"
     if (-not (Test-Path (Join-Path $uiDir "node_modules"))) {
@@ -175,7 +203,7 @@ try {
         }
     }
 
-    if (-not $env:VIVY_CONFIG -and -not $env:DEEPSEEK_API_KEY -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
+    if (-not $env:DEEPSEEK_API_KEY -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
         Write-Host "no provider API key; Vivy will start without a model; configure Settings -> Model"
     }
 
@@ -190,35 +218,36 @@ try {
 
     if ($Split) {
         # Two detached windows; the launcher exits after both ports answer.
-        $backendCmd = "`$Host.UI.RawUI.WindowTitle = 'vivy backend :8787'; Set-Location -LiteralPath '$root'; & '$backendExe'"
+        $backendCmd = "`$Host.UI.RawUI.WindowTitle = 'vivy backend :$BackendPort'; Set-Location -LiteralPath '$root'; & '$backendExe'"
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"$backendCmd`"" | Out-Null
-        $uiCmd = "`$Host.UI.RawUI.WindowTitle = 'vite :3015'; Set-Location -LiteralPath '$uiDir'; & '$pnpm' dev"
+        $uiCmd = "`$Host.UI.RawUI.WindowTitle = 'vite :$UiPort'; Set-Location -LiteralPath '$uiDir'; & '$pnpm' dev"
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"$uiCmd`"" | Out-Null
 
-        Wait-TcpPort 8787 90 "backend" $null
-        Wait-TcpPort 3015 45 "vite" $null
+        Wait-TcpPort $BackendPort 90 "backend" $null
+        Wait-TcpPort $UiPort 45 "vite" $null
         Write-Host ""
-        Write-Host "split windows ready: http://127.0.0.1:3015  (control plane http://127.0.0.1:8787)"
+        Write-Host "split windows ready: http://127.0.0.1:$UiPort  (control plane http://127.0.0.1:$BackendPort)"
         Write-Host "stop each part with Ctrl+C in its own window."
         if (-not $NoBrowser) {
-            Start-Process "http://127.0.0.1:3015" | Out-Null
+            Start-Process "http://127.0.0.1:$UiPort" | Out-Null
         }
         return
     }
 
-    Write-Host "starting backend 127.0.0.1:8787"
+    Write-Host "starting backend 127.0.0.1:$BackendPort"
     $backend = Start-LoggedProcess $backendExe "" $root "vivy"
-    Wait-TcpPort 8787 90 "backend" $backend
+    Wait-TcpPort $BackendPort 90 "backend" $backend
 
-    Write-Host "starting vite 127.0.0.1:3015"
+    Write-Host "starting vite 127.0.0.1:$UiPort"
     $ui = Start-LoggedProcess $pnpm "dev" $uiDir "vite"
-    Wait-TcpPort 3015 45 "vite" $ui
+    Wait-TcpPort $UiPort 45 "vite" $ui
 
     Write-Host ""
-    Write-Host "split loop ready: http://127.0.0.1:3015  (control plane http://127.0.0.1:8787)"
+    Write-Host "split loop ready: http://127.0.0.1:$UiPort  (control plane http://127.0.0.1:$BackendPort)"
+    Write-Host "data root: $devHome"
     Write-Host "Ctrl+C stops both."
     if (-not $NoBrowser) {
-        Start-Process "http://127.0.0.1:3015" | Out-Null
+        Start-Process "http://127.0.0.1:$UiPort" | Out-Null
     }
 
     while (-not $backend.HasExited -and -not $ui.HasExited) {

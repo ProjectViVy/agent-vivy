@@ -33,6 +33,7 @@ Deliberately not scheduled. Each row keeps the reason it waits and the record th
 | MEM-CAP | AutoDream / Evolution / RAG capabilities | DEFERRED | Split out of the former MEM-1 umbrella row on 2026-09-26: the BML library landing does not implement these broader capabilities; they still need their own capability proposal |
 | P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; SR-4 was decided on 2026-09-02: keep QwenPaw externally obtained and recheck it against `qwenpaw-vendor-ruling.md` when the probe is proposed |
 | P2-4 | Long-term section map for V3 | DEFERRED | |
+| DEV-VENUE-1 | Dev Container or remote runner for the Linux main line | DEFERRED (2026-10-17) | The current Windows/WSL/Docker split is reproducible with fixed tool versions and pins: `just doctor`, `just dev` isolation, per-lane `.worktrees/<slug>/{agent-vivy,laputa}`, and named-context Docker builds. Revisit after the Linux development lane and Windows acceptance lane have stable evidence. Size resource limits from measured host memory/CPU and the WSL configuration; do not expose the Docker socket to every agent. |
 | UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
 | SBX-OS | OS-level process sandbox (bwrap / Seatbelt / Windows ACL) | DEFERRED | EINO currently provides only workspace paths + command allowlist + HTTP policy, not a DSH process sandbox |
 | SBX-GLOB | Sandbox deny glob / editable auto_approve_tools | DEFERRED | The settings page exposes only presets and network policy; timeout remains in general settings |

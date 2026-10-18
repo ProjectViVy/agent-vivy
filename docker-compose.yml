@@ -7,9 +7,15 @@ services:
   vivy:
     build:
       context: .
+      # The sibling pinned Laputa checkout; `just docker-up` runs
+      # `ensure-laputa` first. Same named context as scripts/docker-build.mjs.
+      additional_contexts:
+        laputa: ../laputa
       args:
-        GOPROXY: https://goproxy.cn,direct
-        NPM_REGISTRY: https://registry.npmmirror.com
+        # The image build stage has no VCS client, so the container path is
+        # proxy-only; the host-side defaults keep the `direct` fallback.
+        GOPROXY: ${VIVY_GOPROXY:-https://goproxy.cn}
+        NPM_REGISTRY: ${VIVY_NPM_REGISTRY:-https://registry.npmmirror.com}
     image: vivy:local
     container_name: vivy
     restart: unless-stopped

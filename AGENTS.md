@@ -206,19 +206,36 @@ touch Studio should run the same ensure first. Do **not** treat missing
 
 ## Development environment
 
+Operating contract: [`docs/dev/DEVELOPMENT-ENVIRONMENT.md`](docs/dev/DEVELOPMENT-ENVIRONMENT.md).
+Windows is the editor/browser/daily venue and the native `.exe` acceptance
+line. WSL2/Linux, with code on the Linux filesystem, is the main Go/Node
+development line. Docker in WSL runs Postgres and packaged startup acceptance;
+it is not the inner loop.
+
 **Vivy feature development starts the split pair.** Do not use the embedded
 UI in `vivy.exe`, Docker, or `just build-split` as the inner-loop server.
 
 ```text
+just doctor                   # read-only tools/pins/proxy/ports/UI checks
 just dev                      # one-click: backend + Vite, Ctrl+C stops both
 # or two terminals:
-terminal 1: just run          # control plane 127.0.0.1:8787
-terminal 2: cd ui; pnpm dev   # Vite UI 127.0.0.1:3015, proxies /rpc
+terminal 1: just run          # dev backend 127.0.0.1:8788, isolated data root
+terminal 2: cd ui; VIVY_BACKEND_ADDR=http://127.0.0.1:8788 pnpm dev
 ```
 
-Open the app at `http://127.0.0.1:3015` (`.\dev.ps1` / `.\dev.cmd` /
-`just dev` also opens it). The Vite `/rpc` proxy keeps the same-origin
-browser contract while UI and Go reload independently.
+`just dev` uses backend `127.0.0.1:8788`, Vite `127.0.0.1:3016`, and
+`.workspace/dev/home` as the data root. Its entries point `VIVY_CONFIG` at
+`scripts/dev.config.yaml` (an empty overlay) unless `VIVY_DEV_CONFIG` is set,
+so neither the daily `config.yaml` nor an exported `VIVY_CONFIG` leaks in. The
+daily home (`~/.vivy`) and the embedded `:8787` instance stay untouched. Open
+the URL the loop prints (`:3016` for `just dev`; the manual pair defaults to
+`:3015`). The Vite `/rpc` proxy keeps the same-origin browser contract while
+UI and Go reload independently.
+
+Use `VIVY_DEV_BACKEND_PORT` / `VIVY_DEV_UI_PORT` for another concurrent lane,
+and `VIVY_GOPROXY` for a project-level proxy override. Effective precedence is
+`VIVY_GOPROXY` → existing `GOPROXY` → `https://goproxy.cn,direct`. Recipes
+never run `go env -w`; the proxy is process-local.
 
 - Embedded UI (`http://127.0.0.1:8787` on the default binary) is the
   release / `just ci` smoke path.
@@ -226,7 +243,9 @@ browser contract while UI and Go reload independently.
   path; it remains loopback-only.
 - Docker (`just docker-up`) packages that same embedded-UI binary as one
   container with SQLite on a volume and host bind `127.0.0.1:8787`; it is
-  not a replica set and not a second Journal. Optional Postgres
+  not a replica set and not a second Journal. The build receives the pinned
+  `../laputa` checkout as a named BuildKit context; `just docker-build`
+  verifies the clean lock commit first. Optional Postgres
   (`just docker-up-postgres` / `storage.backend: postgres`) is still one
   organism and one lease; SQLite remains the default.
 
@@ -387,15 +406,22 @@ The shared root working tree hosts at most one active write lane. Parallel
 work is isolated by structure, not by coordination — there is no `LOCK.md`.
 
 - A second concurrent lane (another agent session, a Studio session, or
-  manual edits) must develop in its own `git worktree` on its own branch
-  (`git worktree add ../agent-vivy-<slug> -b feat/<slug>` from this root)
-  and must not edit the root tree while another lane is active.
+  manual edits) must develop in its own nested lane and must not edit the
+  root tree while another lane is active. Create it with
+  `just lane-new <slug>`, which produces
+  `.worktrees/<slug>/agent-vivy` (branch `feat/<slug>`) plus its own
+  `.worktrees/<slug>/laputa` at the lock commit.
 - A new feature started while the root tree is not clean also goes to a
-  worktree; do not stack unrelated themes in the root tree.
+  lane; do not stack unrelated themes in the root tree.
 - A lane lands back through its branch (merge or PR), never by piling
   files into the root tree.
+- Never share one mutable `laputa` checkout across lanes. The flat
+  `.worktrees/<lane>` plus `.worktrees/laputa` layout is not used for new
+  lanes; `just doctor` warns when it sees one.
 - Ignored runtime state (`data/`, `data/studio-home/`, `.workspace/`) is
-  per-checkout; a worktree starts with its own empty scratch.
+  per-checkout; a worktree starts with its own empty scratch. A Windows
+  acceptance checkout is separate and must not share `node_modules`, a
+  running database, or `.workspace/` with the WSL checkout.
 - If two lanes must touch the same files, they are one lane — sequence
   them on a single branch.
 
@@ -413,8 +439,9 @@ risks. Remove temporary artifacts created by the task before finishing.
 
 User-visible or executable behavior also needs a minimum real-path smoke:
 
-- Browser UI: exercise the change at `http://127.0.0.1:3015` (split Vite),
-  not only a screenshot and not the embedded UI on `:8787`
+- Browser UI: exercise the change at the split Vite origin (`:3016` for
+  `just dev`, `:3015` for the manual pair), not only a screenshot and not
+  the embedded UI on `:8787`
 - Plugin: follow `.agents/skills/vivy-plugin` for SDK verification, explicit
   Recipe packing, and artifact inspection. Never install plugins by editing
   `internal/runtime/engine.go`.
