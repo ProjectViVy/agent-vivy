@@ -47,11 +47,15 @@ func TestIssue58RecapTrustedFactoryAndLifecycle(t *testing.T) {
 	in.ResolveRecapBinding = func(_ context.Context, actualRoot string) (cognitivecontract.RecapBinding, error) {
 		calls++
 		root = actualRoot
-		if actualRoot != filepath.Join(in.Config.DataDirectory(), "garden", "persona", "actmem") {
-			t.Fatalf("owner root=%q", actualRoot)
+		wantRoot, err := filepath.EvalSymlinks(filepath.Join(in.Config.DataDirectory(), "garden", "persona", "actmem"))
+		if err != nil {
+			return cognitivecontract.RecapBinding{}, fmt.Errorf("resolve expected owner root: %w", err)
+		}
+		if actualRoot != wantRoot {
+			return cognitivecontract.RecapBinding{}, fmt.Errorf("owner root=%q want=%q", actualRoot, wantRoot)
 		}
 		if _, err := os.Stat(filepath.Join(in.Config.DataDirectory(), "garden", "garden.db")); !os.IsNotExist(err) {
-			t.Fatalf("resolver ran after ingestion: %v", err)
+			return cognitivecontract.RecapBinding{}, fmt.Errorf("resolver ran after ingestion: %v", err)
 		}
 		return binding, nil
 	}
@@ -106,7 +110,7 @@ func TestIssue58RecapTrustedFactoryAndLifecycle(t *testing.T) {
 	}
 	in.ResolveRecapBinding = func(_ context.Context, actualRoot string) (cognitivecontract.RecapBinding, error) {
 		if actualRoot != root {
-			t.Fatalf("reopened path drifted: %q", actualRoot)
+			return cognitivecontract.RecapBinding{}, fmt.Errorf("reopened path drifted: %q want=%q", actualRoot, root)
 		}
 		return binding, nil
 	}
