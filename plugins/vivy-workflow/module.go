@@ -17,7 +17,7 @@ const (
 	ProviderID      = "vivy.workflow-ui.sidebar"
 	UIExtensionPort = "std/ui-extension@v1"
 	SourceRef       = "repo:plugins/vivy-workflow"
-	SourceSHA256    = "a0fcd1ea3fc3c57e68b4004e098ef8d9a40b92107b684c1841e9b7254547999d"
+	SourceSHA256    = "cc1b09e680ea8e3efd4505ec9233a8e8e22ecbe67fc1114f810b7463d4084870"
 )
 
 type owner struct{}
