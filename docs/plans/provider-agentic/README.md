@@ -38,7 +38,7 @@ documentation-only until a human schedules the spike.
 | **S1** | Component contract: the Eino capability check for the new generation | `DONE 2026-10-17` | S0 |
 | **S2** | Local `httptest` minimal closed loop, zero network | `DONE 2026-10-17` | S1 |
 | **S3** | Per-file migration inventory, residue-deletion set, risk table | `DONE 2026-10-17` | S2 |
-| **S4** | Decision record: `GO` / `GO-CONDITIONAL` / `NO-GO` | `PROPOSED: GO-CONDITIONAL` — awaiting owner signature | S0–S3 |
+| **S4** | Decision record: `GO` / `GO-CONDITIONAL` / `NO-GO` | `SIGNED: GO-CONDITIONAL` (2026-10-18) | S0–S3 |
 
 **Spike run 2026-10-17** (scheduled by the owner in that session; record:
 `docs/logs/2026-10-17-provider-agentic-spike/`). The measurement baseline was

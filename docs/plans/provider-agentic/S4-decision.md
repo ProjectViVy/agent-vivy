@@ -3,9 +3,9 @@
 **Goal:** a signed go/no-go record for the migration, decided by S0–S3 evidence,
 with the thresholds fixed **before** the evidence arrives.
 
-**Status:** `PROPOSED 2026-10-17 — awaiting owner signature (§6)`. §1–§7 are
-the rules as reviewed; the proposed record is §8. It is not a decision until a
-human signs it.
+**Status:** `SIGNED 2026-10-18 — GO-CONDITIONAL` by the owner (§8.10). §1–§7
+are the rules as reviewed; the record is §8. The migration is scheduled behind
+the open blockers in §8.3.
 
 **Depends on:** S0, S1, S2, S3.
 
@@ -151,7 +151,7 @@ The signed record from §5, complete. If the outcome is `NO-GO`, the exit
 evidence additionally includes the amended `docs/DEFER.MD` row and a one-line
 statement of what upstream change would restart the work.
 
-## 8. Decision record — PROPOSED, unsigned
+## 8. Decision record — SIGNED 2026-10-18
 
 ### 8.1 Outcome
 
@@ -277,8 +277,8 @@ product acceptance. Each phase lands with `just ci`, its own gate and its own
 
 | Role | Name | Date | Decision |
 |---|---|---|---|
-| Owner | | | |
+| Owner | songbai-vv | 2026-10-18 | `GO-CONDITIONAL` — migration scheduled behind B5 (P2 work), B6 and B7 |
 
-Agent-prepared; not signed. Per-blocker owner decisions (B1 consent, B2) are
-recorded in §8.1 and §8.3; they are not the §6 signature. Per §6, no agent may sign it or close a blocker
-without the evidence that closes it.
+Signed by the owner in the 2026-10-18 session; the record was prepared by an
+agent. Per §6, no agent may close a remaining blocker without the evidence that
+closes it.
