@@ -361,12 +361,21 @@ function settingsOperationCurrent(operation: SettingsOperation | null): operatio
 function applyAuthoritativeSettings(result: api.Settings | api.LocaleSettings, operation: SettingsOperation | null): boolean {
   if (!settingsOperationCurrent(operation)) return false;
   hydrateLocale(result.locale);
-  useVivyStore.setState((state) => ({
-    settings: 'provider' in result ? result : state.settings ? { ...state.settings, ...result } : null,
-    settingsPhase: 'ready',
-    settingsError: null,
-  }));
+  const previous = useVivyStore.getState();
+  const next = 'provider' in result ? result : previous.settings ? { ...previous.settings, ...result } : null;
+  useVivyStore.setState({ settings: next, settingsPhase: 'ready', settingsError: null });
+  // 模型三元组（provider/default_model/base_url）变化会改变能力投影
+  // （thinking_supported、上下文窗口）：立刻重读会话上下文，思考按钮的状态
+  // 不必等下一轮 run 终态或切会话。
+  if (previous.settings && previous.activeSessionId && modelSelectionKey(previous.settings) !== modelSelectionKey(next)) {
+    void loadContextIntoStore(previous.activeSessionId);
+  }
   return true;
+}
+
+/** 会话上下文能力只随活跃模型三元组变化。 */
+function modelSelectionKey(settings: api.Settings | null): string {
+  return settings ? `${settings.provider}\u0000${settings.default_model}\u0000${settings.base_url}` : '';
 }
 
 function applySettingsError(error: unknown, operation: SettingsOperation | null): void {

@@ -87,6 +87,7 @@ func ActionProviders() []controlaction.Provider {
 		actionDef(ActionResultsList, "Page effect receipts", controlaction.EffectRead,
 			schema(nil, sessionProp, prop("cursor", strProp), prop("limit", numProp))),
 	}
+	defs = append(defs, recapActionDefinitions()...)
 	providers := make([]controlaction.Provider, 0, len(defs))
 	for _, def := range defs {
 		providers = append(providers, cognitiveAction{definition: def})

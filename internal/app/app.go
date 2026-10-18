@@ -42,6 +42,7 @@ import (
 	"agent-vivy/internal/modelhost"
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	credentialmodule "agent-vivy/internal/modules/credential"
+	divacognitive "agent-vivy/internal/modules/diva-cognitive"
 	loopmodule "agent-vivy/internal/modules/loop"
 	maskmodule "agent-vivy/internal/modules/masks"
 	memorymodule "agent-vivy/internal/modules/memory"
@@ -83,6 +84,7 @@ type App struct {
 	actionHost   *actionhost.Host
 	observerHost *observerhost.Host
 	cognitive    cognitivecontract.Bundle
+	memory       *memorymodule.Service
 	backend      storage.Engine
 	worker       *workerManager
 	resolver     *ModelResolver
@@ -109,6 +111,9 @@ type App struct {
 type AppOption func(*appOptions)
 
 type appOptions struct {
+	mainConversation cognitivecontract.MainConversationResolver
+	subjectSources   cognitivecontract.SubjectSourceResolver
+
 	channels bool
 	gateway  bool
 	sink     runtime.EventSink
@@ -136,6 +141,18 @@ type appOptions struct {
 	// contextSourceTimeout is a test seam for instrumented integration runs;
 	// production compositions retain ContextHost's own default.
 	contextSourceTimeout time.Duration
+}
+
+// WithMainConversationResolver supplies the governed #66/headless singleton.
+// It consumes no user-facing create or conversion option.
+func WithMainConversationResolver(resolver cognitivecontract.MainConversationResolver) AppOption {
+	return func(o *appOptions) { o.mainConversation = resolver }
+}
+
+// WithSubjectSources binds existing Host Policy/Grant checks for contribution-only
+// personal sources. The callback is reevaluated for every admission.
+func WithSubjectSources(resolver cognitivecontract.SubjectSourceResolver) AppOption {
+	return func(o *appOptions) { o.subjectSources = resolver }
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -321,20 +338,27 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	// The memory service is composition-owned: opened once after storage when
-	// the Generation compiled the memory action module, then resolved by the
-	// generated providers through the package-level registry.
+	// the Generation compiled the memory action module. Generated providers
+	// receive copies bound to this exact service before dispatch.
 	memoryOwned := false
+	var memoryService *memorymodule.Service
 	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/memory-bml") {
-		if _, err := memorymodule.Open(ctx, cfg); err != nil {
+		var err error
+		memoryService, err = memorymodule.OpenOwned(ctx, cfg, leaseOwner.OrganismLeaseOwner())
+		if err != nil {
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: open memory service: %w", err)
 		}
 		memoryOwned = true
 		defer func() {
 			if memoryOwned {
-				_ = memorymodule.Close()
+				_ = memoryService.Close()
 			}
 		}()
+		if err := bindMemoryProviders(&runtimeAssembly, memoryService); err != nil {
+			_ = backend.Close()
+			return nil, err
+		}
 	}
 
 	// Provider metadata is part of the binary: there is no bundle directory,
@@ -562,6 +586,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	agentOps := &agentToolRef{}
 	workflowOps := &workflowToolRef{}
 	replyMessageOps := &replyParentToolRef{}
+	var cognitiveBundle cognitivecontract.Bundle
 	var builtinRegistry *tools.Registry
 	var registryMu sync.RWMutex
 	var liveApplyMu sync.Mutex
@@ -572,6 +597,14 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		next := tools.BuiltinWithChildInbox(nil, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps, workflowOps, replyMessageOps, replyMessageOps).WithHistory(historyService).WithReferences(referenceService).WithDeliverables(deliverableOps)
 		next = next.WithAdditional(staged...)
+		for _, implementation := range divacognitive.NewRecapRuntimeTools(func() cognitivecontract.Bundle { return cognitiveBundle }) {
+			for _, provider := range runtimeAssembly.Tools {
+				if divacognitive.IsRecapToolProvider(provider) && provider.Definition().ID == implementation.Spec().Name {
+					next = next.WithAdditional(implementation)
+					break
+				}
+			}
+		}
 		var mcpCfgs []runtime.MCPServerConfig
 		if s, err := settings.Load(liveSettingsPath); err == nil {
 			mcpCfgs = liveMCPConfigs(cfg, s)
@@ -629,7 +662,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		filtered := make([]string, 0, len(enabled))
 		for _, name := range enabled {
-			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
+			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call" || divacognitive.IsRecapTool(name)) {
 				continue
 			}
 			if _, compiled := registry.Lookup(name); !compiled {
@@ -810,7 +843,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// DN-LC: the one cognitive owner binds through the same sealed accessor
 	// pattern as the mask factory. A selected-but-unarmed binding fails the
 	// composition; an omitted module changes nothing.
-	cognitiveBundle, err := cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot())
+	cognitiveBundle, err = cognitiveBundleForAssembly(ctx, &runtimeAssembly, cfg, generationID, backend.Snapshot(), memoryService)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err
@@ -847,6 +880,31 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 					_ = svc.NotifyCognitiveInput(context.Background(), receipt.Seq)
 				}
 			}, ingestExclusionPredicate(backend)))
+	}
+	if ao.mainConversation != nil {
+		failProjection := func(err error) (*App, error) {
+			if cognitiveBundle != nil {
+				_ = cognitiveBundle.Close()
+			}
+			_ = backend.Close()
+			return nil, err
+		}
+		selected, ok := cognitiveBundle.(cognitivecontract.SubjectMemoryProvider)
+		recap, recapOK := cognitiveBundle.(cognitivecontract.RecapProvider)
+		if !ok || !recapOK || selected.SubjectMemory() == nil {
+			return failProjection(fmt.Errorf("app: resident subject projection backend unavailable"))
+		}
+		head, err := recap.Recap().ReadRecap(ctx)
+		if err != nil {
+			return failProjection(err)
+		}
+		projection, err := runtime.NewSubjectProjectionProvider(func() *runtime.Service { return svc }, selected.SubjectMemory(), head.Binding)
+		if err != nil {
+			return failProjection(err)
+		}
+		subscription := projection.Subscription()
+		subscription.ExcludeRun = ingestExclusionPredicate(backend)
+		cognitiveSubs = append(cognitiveSubs, subscription)
 	}
 	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend, cognitiveSubs...)
 	if err != nil {
@@ -917,6 +975,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
+		MainConversation:      ao.mainConversation,
+		SubjectSources:        ao.subjectSources,
 		Journal:               backend,
 		Work:                  workStore,
 		WorkSink:              workBus,
@@ -929,6 +989,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		ApprovalExpiration:    cfg.Tools.Approval.Expiration,
 		ApprovalSettleTimeout: time.Duration(cfg.Runtime.Sandbox.Approval.TimeoutSeconds) * time.Second,
 		ShellState:            backend.Blobs(),
+		ToolEvidence:          backend.Blobs(),
 		Budget: runtime.BudgetPolicy{
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
@@ -957,6 +1018,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MaskFrameDigest: maskFrameDigest,
 		GenerationID:    generationID,
 		Cognitive:       cognitiveBinding,
+		Recap: func() cognitivecontract.RecapPort {
+			if provider, ok := cognitiveBundle.(cognitivecontract.RecapProvider); ok {
+				return provider.Recap()
+			}
+			return nil
+		}(),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -1083,6 +1150,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: attach cognitive runtime: %w", err)
 		}
+	}
+	if memoryService != nil {
+		memoryService.BindSubjectTools(subjectMemoryTools(svc, backend, cognitiveBundle))
 	}
 	if reportsBundle != nil {
 		reportsBundle.AttachAdmission(svc)
@@ -1536,6 +1606,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		mcpBackend:   mcpBackend,
 		assembly:     &runtimeAssembly,
 		diagnostics:  diagnostics,
+		memory:       memoryService,
 		closeDone:    make(chan struct{}),
 	}
 	if runObserverHost != nil {
@@ -1689,7 +1760,9 @@ func (a *App) startClose() {
 				a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
 			}
 			a.closeStage.Store("memory")
-			a.closeErr = errors.Join(a.closeErr, memorymodule.Close())
+			if a.memory != nil {
+				a.closeErr = errors.Join(a.closeErr, a.memory.Close())
+			}
 			if a.diagnostics != nil {
 				a.closeStage.Store("diagnostics")
 				a.closeErr = errors.Join(a.closeErr, a.diagnostics.Close())
@@ -2353,6 +2426,13 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if a.assembly != nil {
 		assemblyCloseErr = errors.Join(assemblyCloseErr, a.assembly.Close(shutdownCtx))
+	}
+	var memoryCloseErr error
+	if a.memory != nil {
+		memoryCloseErr = a.memory.Close()
+	}
+	if memoryCloseErr != nil {
+		return fmt.Errorf("close memory: %w", memoryCloseErr)
 	}
 	if httpCloseErr != nil {
 		return fmt.Errorf("shutdown http server: %w", httpCloseErr)

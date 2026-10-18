@@ -129,6 +129,9 @@ func isEmptyLengthStop(msg *schema.Message) bool {
 // durable session history, replaces the call input with the compacted feed,
 // and tags the retry for the auto_retry.* projection.
 func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+	if residentRecap(ctx) {
+		return nil
+	}
 	if s.engine == nil || s.engine.cfg.Compaction == nil || !s.engine.cfg.Compaction.Enabled {
 		return nil
 	}

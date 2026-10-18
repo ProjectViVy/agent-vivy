@@ -48,6 +48,7 @@ func (b *Backend) listSessions(ctx context.Context, includeHidden bool) ([]domai
 		 WHERE NOT EXISTS (SELECT 1 FROM child_sessions c WHERE c.child_session_id = s.id)`
 	if !includeHidden {
 		query += ` AND s.purpose = ''`
+		query += ` AND NOT EXISTS (SELECT 1 FROM subject_sources h WHERE h.session_id=s.id AND (h.archived=1 OR h.conversation_id<>''))`
 	}
 	query += ` ORDER BY s.updated_at DESC, s.id`
 	rows, err := b.db.QueryContext(ctx, query)
@@ -174,6 +175,11 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	if err != nil {
 		return err
 	}
+	for _, sourceID := range subtree {
+		if err := b.subjectStore().ProtectDeleteTx(ctx, tx, sourceID); err != nil {
+			return err
+		}
+	}
 	for i := len(subtree) - 1; i >= 0; i-- {
 		sessionID := subtree[i]
 		for _, stmt := range []struct{ sql string }{
@@ -191,6 +197,7 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 			{`DELETE FROM runs WHERE session_id = ?`},
 			{`DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
 			{`DELETE FROM message_file_contexts WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
+			{`DELETE FROM message_copy_sources WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
 			{`DELETE FROM messages WHERE session_id = ?`},
 			{`DELETE FROM session_compactions WHERE session_id = ?`},
 			{`DELETE FROM session_mask_selections WHERE session_id = ?`},

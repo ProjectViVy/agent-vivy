@@ -77,6 +77,10 @@ fmt-check:
 plugin-ci:
     node scripts/plugin-ci.mjs
 
+# Root ./... excludes this independently declared nested module.
+bml-ci:
+    Push-Location bml; try { & "{{go}}" vet -p=1 ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE }; & "{{go}}" test -p=1 -count=1 -timeout=5m ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE } } finally { Pop-Location }
+
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.
 ui-build: ensure-laputa
@@ -108,11 +112,11 @@ build-split: ensure-laputa
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci
+ci: ensure-laputa bootstrap-test fmt-check ui-ci vet test diva-recall-test headless-compile plugin-ci bml-ci
 
 # Independent backend gate for Actions. It builds ui/dist for go:embed but
 # leaves UI typechecking and tests to ui-ci so both lanes always report.
-backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci
+backend-ci: ensure-laputa bootstrap-test fmt-check ui-build vet test diva-recall-test headless-compile plugin-ci bml-ci
 
 ui-e2e:
     pnpm --dir ui build

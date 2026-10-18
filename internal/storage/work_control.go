@@ -48,6 +48,7 @@ type WorkStore interface {
 // GoalRunCommit is the complete set of ordinary run records admitted by one
 // Goal round. First-party backends persist all four records atomically.
 type GoalRunCommit struct {
+	Subject        *SubjectSourceBinding
 	Mutation       domain.WorkMutation
 	Message        domain.Message
 	Run            domain.Run
@@ -75,6 +76,7 @@ type GoalRunStore interface {
 // run. The message, active run row, and run.started event are committed
 // together so a rejected concurrent admission cannot leave an orphan turn.
 type PrimaryRunCommit struct {
+	Subject        *SubjectSourceBinding
 	Events         []domain.RunEvent
 	Message        domain.Message
 	Run            domain.Run
@@ -111,7 +113,7 @@ func ValidatePrimaryRunCommit(admission PrimaryRunCommit) error {
 		return ErrWorkInvalidMutation
 	}
 	return ValidateRunAdmissionInput(RunAdmission{
-		Message: admission.Message, Run: admission.Run, Started: admission.Started,
+		Subject: admission.Subject, Message: admission.Message, Run: admission.Run, Started: admission.Started,
 		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask, Bundle: admission.Bundle,
 		ExpectedBundle: admission.ExpectedBundle, Events: admission.Events,
 	})
@@ -145,7 +147,7 @@ func ValidateGoalRunCommit(admission GoalRunCommit) error {
 		return ErrWorkInvalidMutation
 	}
 	return ValidateRunAdmissionInput(RunAdmission{
-		Message: admission.Message, Run: admission.Run, Started: admission.Started,
+		Subject: admission.Subject, Message: admission.Message, Run: admission.Run, Started: admission.Started,
 		Prompt: admission.Prompt, ExpectedMask: admission.ExpectedMask, Bundle: admission.Bundle,
 		ExpectedBundle: admission.ExpectedBundle,
 	})

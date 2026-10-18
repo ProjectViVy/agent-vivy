@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 )
@@ -28,10 +29,10 @@ func ValidateToolOperationAdmission(op domain.ToolOperation) error {
 	if len(op.EffectiveArguments) > maxToolOperationArgumentsBytes {
 		return fmt.Errorf("storage: tool operation arguments exceed %d bytes", maxToolOperationArgumentsBytes)
 	}
-	if !json.Valid(op.MiddlewareInputArguments) {
+	if !utf8.Valid(op.MiddlewareInputArguments) || !json.Valid(op.MiddlewareInputArguments) {
 		return errors.New("storage: tool operation middleware input is invalid JSON")
 	}
-	if !json.Valid(op.EffectiveArguments) {
+	if !utf8.Valid(op.EffectiveArguments) || !json.Valid(op.EffectiveArguments) {
 		return errors.New("storage: tool operation arguments are invalid JSON")
 	}
 	sum := sha256.Sum256(op.EffectiveArguments)

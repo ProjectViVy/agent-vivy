@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // Event payload structs. Field names and shapes mirror
@@ -165,6 +166,12 @@ type payloadModelRequestV3 struct {
 	Source   string `json:"source"`
 }
 
+// payloadModelRequestV4 pins provenance of every inseparable derivative.
+type payloadModelRequestV4 struct {
+	payloadModelRequestV3
+	InputProvenance storage.InputProvenance `json:"input_provenance"`
+}
+
 // payloadModelUsageV2 attributes a cumulative usage sample to one model
 // call. Reasoning/Cached are presence pointers: the wire shape cannot
 // distinguish "provider reported zero" from "provider reported nothing",
@@ -243,9 +250,15 @@ type payloadModelCallFinished struct {
 }
 
 type payloadToolRequested struct {
-	ToolCallID string         `json:"tool_call_id"`
-	ToolName   string         `json:"tool_name"`
-	Args       map[string]any `json:"args"`
+	// Invalid bytes cannot be represented by a JSON string. Persist explicit
+	// unavailability before serialization instead of certifying U+FFFD as original.
+	OriginalArgumentsBytes       []byte                          `json:"original_arguments_bytes,omitempty"`
+	OriginalArgumentsInvalidUTF8 bool                            `json:"original_arguments_invalid_utf8,omitempty"`
+	ArgumentsReference           *storage.ToolArgumentsReference `json:"arguments_reference,omitempty"`
+	OriginalArguments            string                          `json:"original_arguments,omitempty"`
+	ToolCallID                   string                          `json:"tool_call_id"`
+	ToolName                     string                          `json:"tool_name"`
+	Args                         map[string]any                  `json:"args"`
 }
 
 type payloadToolStarted struct {

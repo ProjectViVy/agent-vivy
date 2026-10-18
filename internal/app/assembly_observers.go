@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -9,6 +10,7 @@ import (
 	genassembly "agent-vivy/internal/generated/assembly"
 	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/observerhost"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
@@ -85,6 +87,19 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 	// Construction-owned subscriptions (e.g. the cognitive capture seam)
 	// append after the sealed inventory; nothing may subscribe after Start.
 	subscriptions = append(subscriptions, extraSubs...)
+	sources, _ := backend.(storage.SubjectSourceStore)
+	subjectSinks := 0
+	for i := range subscriptions {
+		switch subscriptions[i].Provider.ID() {
+		case runtime.SubjectProjectionProviderID:
+			subjectSinks++
+		case memorymodule.ProviderID, runtime.CognitiveCaptureProviderID:
+			subscriptions[i].Provider = legacySubjectObserver{RunProvider: subscriptions[i].Provider, sources: sources}
+		}
+	}
+	if subjectSinks > 1 {
+		return nil, fmt.Errorf("app: multiple selected subject projection sinks")
+	}
 	if len(subscriptions) == 0 {
 		return nil, nil
 	}
@@ -99,8 +114,8 @@ func observerHostForAssembly(ctx context.Context, assembly genassembly.RuntimeAs
 }
 
 // ingestExclusionPredicate gates observer delivery: report-purpose Runs and
-// runs with ingestion-excluded tool operations never feed memory or
-// cognitive capture, while the Journal cursor still advances.
+// runs with ingestion-excluded tool operations or unknown input provenance never
+// feed memory or cognitive capture, while the Journal cursor still advances.
 func ingestExclusionPredicate(backend storage.Engine) func(context.Context, domain.RunID) (bool, error) {
 	return func(ctx context.Context, id domain.RunID) (bool, error) {
 		run, err := backend.GetRun(ctx, id)
@@ -110,7 +125,23 @@ func ingestExclusionPredicate(backend storage.Engine) func(context.Context, doma
 		if run.Purpose == domain.RunPurposeReport {
 			return true, nil
 		}
-		return backend.HasExcludedToolOperations(ctx, id)
+		p, err := storage.RunInputProvenance(ctx, backend, id)
+		if errors.Is(err, storage.ErrSubjectEvidenceIncomplete) {
+			return true, nil // permanently unknown; see below
+		}
+		if err != nil {
+			return false, err
+		}
+		excluded, available := storage.ClassifyInputProvenance(p.ContentOrigin, p.ExcludeAutomaticIngest)
+		if !available {
+			// Unknown provenance is permanent (invalid tool-argument marker or a
+			// pre-provenance request). Never feed it to memory, but advance the
+			// cursor instead of retrying the run forever.
+			return true, nil
+		}
+		// Query the existing operation guard only after releasing Journal Replay.
+		operationExcluded, err := backend.HasExcludedToolOperations(ctx, id)
+		return excluded || operationExcluded, err
 	}
 }
 

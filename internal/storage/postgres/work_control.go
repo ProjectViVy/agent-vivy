@@ -249,6 +249,10 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: lock goal session: %w", err)
 	}
 
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx.SQL, admission.Run, admission.Subject); err != nil {
+		return storage.GoalRunCommitResult{}, err
+	}
+
 	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), admission.Mutation.SessionID)
 	if err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: read goal work in transaction: %w", err)
@@ -418,6 +422,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		candidate.SessionID, int64(candidate.Seq), string(candidate.Kind), candidate.PayloadVersion,
 		candidate.RequestID, candidate.RequestHash, candidate.CreatedAt, payload); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: insert goal admission: %w", err)
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx.SQL, admission.Run, admission.Subject, admission.Message.ID); err != nil {
+		return storage.GoalRunCommitResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: commit goal run admission: %w", err)

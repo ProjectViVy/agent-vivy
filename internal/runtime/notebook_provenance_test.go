@@ -64,7 +64,7 @@ func TestNotebookProvenanceSurvivesCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plain admit: %v", err)
 	}
-	if plainOp.ContentOrigin != "" || plainOp.ExcludeAutomaticIngest {
+	if plainOp.ContentOrigin != storage.ContentOriginOriginal || plainOp.ExcludeAutomaticIngest {
 		t.Fatalf("plain op tainted: %+v", plainOp)
 	}
 	if excluded, err := backend.HasExcludedToolOperations(ctx, runID); err != nil || !excluded {
@@ -132,8 +132,8 @@ func TestNotebookProvenanceSurvivesCompaction(t *testing.T) {
 		if !ok {
 			t.Fatal("fold skipped")
 		}
-		if len(folded) != 2 || !folded[0].ExcludeAutomaticIngest || folded[0].ContentOrigin != domain.ContentOriginNotebook {
-			t.Fatalf("summary not tainted: %+v", folded)
+		if len(folded) != 2 || folded[0].ExcludeAutomaticIngest || folded[0].ContentOrigin != storage.ContentOriginUnknown {
+			t.Fatalf("unknown historical tool provenance was recertified: %+v", folded)
 		}
 		if folded[1].Content != "later turn" {
 			t.Fatalf("tail lost: %+v", folded)

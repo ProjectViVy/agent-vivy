@@ -290,3 +290,9 @@ func validHistoryIdentity(value string, allowEmpty bool) bool {
 	}
 	return len(value) <= HistoryMetadataIdentityBytesMax && utf8.ValidString(value)
 }
+
+// MessageCopySourceStore reads exact core fork/clone provenance. This is a
+// metadata link, not authorization to read the linked session or message.
+type MessageCopySourceStore interface {
+	GetMessageCopySource(context.Context, domain.SessionID, string) (domain.MessageCopySource, error)
+}

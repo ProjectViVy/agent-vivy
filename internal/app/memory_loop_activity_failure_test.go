@@ -12,9 +12,15 @@ import (
 
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	"github.com/ProjectViVy/laputa/laputa/actmem"
 )
 
 func TestMemoryLoopActivityFailurePreservesSourceAndArchiveRetry(t *testing.T) {
+	for _, fault := range []string{"unreadable-head", "unclassified-legacy-head"} {
+		t.Run(fault, func(t *testing.T) { memoryLoopArchiveFault(t, fault) })
+	}
+}
+func memoryLoopArchiveFault(t *testing.T, fault string) {
 	probe := genassembly.BuildDefault()
 	if !probe.HasCognitiveFactory() {
 		t.Skip("DIVA integration overlay required")
@@ -33,28 +39,35 @@ func TestMemoryLoopActivityFailurePreservesSourceAndArchiveRetry(t *testing.T) {
 	// A directory at the owned head path produces an actual filesystem read
 	// failure even when the test user can bypass chmod permissions.
 	head := filepath.Join(f.dataRoot, "garden", "persona", "actmem", "ACTMEM.MD")
-	original, readErr := os.ReadFile(head)
+	faultPath := head
+	original, readErr := os.ReadFile(faultPath)
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatal(readErr)
 	}
 	if readErr == nil {
-		if err := os.Remove(head); err != nil {
+		if err := os.Remove(faultPath); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(head, 0700); err != nil {
-		t.Fatal(err)
+	if fault == "unreadable-head" {
+		if err := os.MkdirAll(faultPath, 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.WriteFile(faultPath, []byte("---\nrevision: 7\nupdated_at: 2026-09-03T12:00:00Z\n---\n\n# ACTMEM\n\n## Pulse\n- retained legacy activity\n\n## Recap\nlegacy content without qualified source metadata\n\n## Work\n### Goal\n### Open\n### Next\n### Constraints\n### Pointers\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	restored := false
 	restore := func() {
 		if restored {
 			return
 		}
-		if err := os.Remove(head); err != nil {
+		if err := os.Remove(faultPath); err != nil {
 			t.Fatal(err)
 		}
 		if readErr == nil {
-			if err := os.WriteFile(head, original, 0600); err != nil {
+			if err := os.WriteFile(faultPath, original, 0600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -74,17 +87,27 @@ func TestMemoryLoopActivityFailurePreservesSourceAndArchiveRetry(t *testing.T) {
 	if err != nil || high != 0 {
 		t.Fatalf("unprojected source incorrectly released: high=%d %v", high, err)
 	}
-	err = f.cognitiveValue(context.Background(), "diva.cognitive.actmem.read", session, map[string]any{"sections": []string{"recap"}, "max_chars": 1200}, nil)
-	if err == nil {
+	var readView map[string]any
+	err = f.cognitiveValue(context.Background(), "diva.cognitive.actmem.read", session, map[string]any{"sections": []string{"recap"}, "max_chars": 1200}, &readView)
+	if fault == "unreadable-head" && err == nil {
 		t.Fatal("public ACTMEM read reported success during actual native fault")
 	}
-	// Use the real Service with an explicit server-side deadline. A client
-	// RPC timeout alone cannot prove that the archive operation was cancelled.
+	if fault == "unclassified-legacy-head" && err != nil {
+		t.Fatalf("valid owner must remain readable during projection fault: %v", err)
+	}
+	// The unreadable owner fails the policy probe. The readable legacy fixture
+	// passes that probe and reaches ArchiveSession -> projectActivity instead.
+	// Native ArchiveSession synchronously returns that projection failure;
+	// it no longer polls until the caller deadline. Both must preserve originals.
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	err = f.app.service.DeleteSession(ctx, domain.SessionID(session))
 	cancel()
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("actual archive did not wait for failed native projection: %v", err)
+	if fault == "unreadable-head" {
+		if actmem.CodeOf(err) != "recap_unavailable" {
+			t.Fatalf("actual archive did not preserve native owner failure: %v", err)
+		}
+	} else if actmem.CodeOf(err) != "actmem_unclassified_head" || !strings.Contains(err.Error(), "session activity archive:") {
+		t.Fatalf("valid readable owner did not reach native pending projection: %v", err)
 	}
 	params, _ := json.Marshal(map[string]any{"session_id": session})
 	// The failed delete leaves producer admission sealed, so public history

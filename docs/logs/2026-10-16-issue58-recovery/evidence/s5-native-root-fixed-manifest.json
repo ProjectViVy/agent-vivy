@@ -1,0 +1,216 @@
+{
+  "native_candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+  "tree": "9fff8cf9d5ca174a1af90e43a0e718281a24635e",
+  "native_remote_equivalent": "249a756e04c5f28af781e4dadea9e9086689bde0",
+  "results": [
+    {
+      "candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "-overlay",
+        "/tmp/issue58-s5-root-fixed-review-overlay.json",
+        "./internal/ingest",
+        "-run",
+        "^TestReviewerS5",
+        "-count=1",
+        "-timeout=3m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.731,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 8,
+        "package_pass": 1
+      },
+      "race_diagnostics": false
+    },
+    {
+      "candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "./internal/ingest",
+        "./internal/runtimecore",
+        "./agentapi",
+        "-count=1",
+        "-timeout=6m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 9.715,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 181,
+        "package_pass": 3
+      },
+      "race_diagnostics": false
+    },
+    {
+      "candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "-race",
+        "./internal/ingest",
+        "./internal/runtimecore",
+        "./agentapi",
+        "-count=1",
+        "-timeout=6m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 44.471,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 181,
+        "package_pass": 3
+      },
+      "race_diagnostics": false
+    },
+    {
+      "candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "./actmem",
+        "-count=1",
+        "-timeout=6m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.717,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 120,
+        "package_pass": 1
+      },
+      "race_diagnostics": false
+    },
+    {
+      "candidate": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+      "command": [
+        "go",
+        "test",
+        "-json",
+        "-p=1",
+        "-race",
+        "./actmem",
+        "-count=1",
+        "-timeout=6m"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.877,
+      "external_proxy_requests_rejected": 0,
+      "external_forwarded": 0,
+      "dependency_network": "disabled",
+      "child_credentials": "removed by name; no values logged",
+      "events": {
+        "test_pass": 120,
+        "package_pass": 1
+      },
+      "race_diagnostics": false
+    }
+  ],
+  "qualification": "Original unchanged probes and fixed Linux native normal/race pass. Scope accepts native producer interface only. Windows and normal published-module qualification/new Vivy pin remain separate.",
+  "archive_sha256": "a026135936a764e2d91ca750f7d9c0d15785dbab56a69f5e9a124dbb5869df5b",
+  "files": [
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-probes.json",
+      "bytes": 503,
+      "sha256": "1836756eb94a077f8c6f31a6315dbcad40c23335cd7c6c3f9972a8f84e01d8a9"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-probes.log",
+      "bytes": 9400,
+      "sha256": "b571cd72718f0750fedb959a5a919fd853670e0919559e0508861933b31dad4d"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-garden-normal.json",
+      "bytes": 446,
+      "sha256": "20ea081fdc38344b15d770ef520cefbdea26161fd467990c1ed6bf038537bd4b"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-garden-normal.log",
+      "bytes": 168088,
+      "sha256": "362a36f5271cbda4b5f631626b7ec28afc8579ebce750a8702d04647169373e1"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-garden-race.json",
+      "bytes": 460,
+      "sha256": "777288c737770f16b8d9b297853068f7667a01214b2e035a3a1d5488b2e5ae08"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-garden-race.log",
+      "bytes": 168286,
+      "sha256": "f4dbea279a83fc788e31bf378dd96feddf9efd21147551438530d2028499ade4"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-laputa-normal.json",
+      "bytes": 389,
+      "sha256": "c2dc5114adb4cc16cec9a6ed902dc7d10e328f3df611a5d86dd26d7000292fbb"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-laputa-normal.log",
+      "bytes": 103551,
+      "sha256": "b371692ec8ae9fc48f32b77dc28a1209a08387dca498113cbd4c9b52701a3a22"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-laputa-race.json",
+      "bytes": 402,
+      "sha256": "29419c5d29227bb47caa9a4e1f14d7090274adfc57e5426b3f170be34b1cf10e"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-laputa-race.log",
+      "bytes": 103691,
+      "sha256": "41e6a563b43f70d036ca1dfe1ba1e2a87ecc1bb6ffa38773dbfb105993a66d7c"
+    },
+    {
+      "path": "/tmp/issue58-s5-root-fixed-review-overlay.json",
+      "bytes": 536,
+      "sha256": "1e08bfa5005551a5c1271a75b2bdbc0bcb4acbcbc715cdcc565e32dd517bd078"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-gates.py",
+      "bytes": 1190,
+      "sha256": "534d86b5e323f6157c1d38cd1f523e2a6b55fffd97c82abe99781b1753db2cf8"
+    },
+    {
+      "path": "/tmp/issue58-localonly-runner.py",
+      "bytes": 1763,
+      "sha256": "32a769519c98bd700e884b638cdf11e33c02c5fe7a2e105ebc431ff87b97b29e"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-native-review/probes/reviewer_snapshot_test.go",
+      "bytes": 4298,
+      "sha256": "304976eccd68c11cac32d55c6a550281a3e3ba1eb432e699d7995e5c541ecace"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-native-review/probes/reviewer_encoding_test.go",
+      "bytes": 1428,
+      "sha256": "979df31dcdbe09c297c120958dbe8418291ed4f20d9d7772399748ec2b3b5cc7"
+    },
+    {
+      "path": "/tmp/issue58-root-s5-native-fixed-summary.json",
+      "bytes": 3594,
+      "sha256": "66f8a375c30c57ae7a553aec6e1cf7f39f3234c3a31489b53b3f3af64357e207"
+    }
+  ]
+}

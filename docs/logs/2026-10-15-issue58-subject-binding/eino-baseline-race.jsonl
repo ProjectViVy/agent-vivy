@@ -1,0 +1,9 @@
+{"Time":"2026-10-15T20:03:26.543138721+08:00","Action":"start","Package":"agent-vivy/internal/runtime"}
+{"Time":"2026-10-15T20:03:26.614510898+08:00","Action":"run","Package":"agent-vivy/internal/runtime","Test":"TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch"}
+{"Time":"2026-10-15T20:03:26.614578761+08:00","Action":"output","Package":"agent-vivy/internal/runtime","Test":"TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch","Output":"=== RUN   TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch\n"}
+{"Time":"2026-10-15T20:03:28.702091028+08:00","Action":"output","Package":"agent-vivy/internal/runtime","Test":"TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch","Output":"--- PASS: TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch (2.09s)\n"}
+{"Time":"2026-10-15T20:03:28.702133182+08:00","Action":"pass","Package":"agent-vivy/internal/runtime","Test":"TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch","Elapsed":2.09}
+{"Time":"2026-10-15T20:03:28.70256902+08:00","Action":"output","Package":"agent-vivy/internal/runtime","Output":"PASS\n"}
+{"Time":"2026-10-15T20:03:28.705799896+08:00","Action":"output","Package":"agent-vivy/internal/runtime","Output":"2026/10/15 20:03:28 WARN queue replay failed err=\"storage: replay sessctl_queue_run_d33eddc913d39024: sql: database is closed\"\n"}
+{"Time":"2026-10-15T20:03:29.711233673+08:00","Action":"output","Package":"agent-vivy/internal/runtime","Output":"ok  \tagent-vivy/internal/runtime\t3.168s\n"}
+{"Time":"2026-10-15T20:03:29.711296819+08:00","Action":"pass","Package":"agent-vivy/internal/runtime","Elapsed":3.168}

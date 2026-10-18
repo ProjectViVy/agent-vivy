@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-vivy/internal/domain"
 	einotool "github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -33,7 +35,27 @@ func (a *enhancedToolAdapter) InvokableRun(ctx context.Context, argument *schema
 	if err != nil {
 		return nil, err
 	}
-	return normalizeEnhancedResult(result, a.inner.maxResultBytes)
+	trusted := false
+	if coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator); ok {
+		keep, err := coordinator.retained(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if keep {
+			op, found, err := coordinator.Lookup(ctx, compose.GetToolCallID(ctx), a.inner.t.Spec().Name, []byte(argument.Text))
+			if err != nil {
+				return nil, err
+			}
+			if found && op.State == domain.ToolOperationCompleted {
+				exact, err := coordinator.resolve(ctx, op)
+				if err != nil {
+					return nil, err
+				}
+				trusted = result == exact
+			}
+		}
+	}
+	return normalizeEnhancedResult(result, a.inner.maxResultBytes, trusted)
 }
 
 type rawToolOutput struct {
@@ -45,14 +67,19 @@ type rawToolOutput struct {
 }
 
 type rawToolEnvelope struct {
-	Parts []rawToolOutput `json:"parts"`
+	ExactReference string          `json:"exact_reference,omitempty"`
+	Parts          []rawToolOutput `json:"parts"`
 }
 
-func normalizeEnhancedResult(result string, budget int) (*schema.ToolResult, error) {
+func normalizeEnhancedResult(result string, budget int, retained ...bool) (*schema.ToolResult, error) {
 	result = strings.TrimPrefix(result, untrustedToolResultHeader)
 	var envelope rawToolEnvelope
 	if err := json.Unmarshal([]byte(result), &envelope); err != nil || len(envelope.Parts) == 0 {
-		return &schema.ToolResult{Parts: []schema.ToolOutputPart{{Type: schema.ToolPartTypeText, Text: compactToolResult(untrustedToolResultHeader+result, budget)}}}, nil
+		text := untrustedToolResultHeader + result
+		if len(retained) == 0 || !retained[0] {
+			text = compactToolResult(text, budget)
+		}
+		return &schema.ToolResult{Parts: []schema.ToolOutputPart{{Type: schema.ToolPartTypeText, Text: text}}}, nil
 	}
 	parts := make([]schema.ToolOutputPart, 0, len(envelope.Parts))
 	used := 0
@@ -97,6 +124,9 @@ func normalizeEnhancedResult(result string, budget int) (*schema.ToolResult, err
 			used += len(encoded)
 		}
 		parts = append(parts, part)
+	}
+	if len(retained) > 0 && retained[0] && envelope.ExactReference != "" {
+		parts = append(parts, schema.ToolOutputPart{Type: schema.ToolPartTypeText, Text: envelope.ExactReference})
 	}
 	return &schema.ToolResult{Parts: parts}, nil
 }

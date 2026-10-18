@@ -59,7 +59,7 @@ func (t *networkSearchTool) InvokableRun(ctx context.Context, args json.RawMessa
 		Language   string `json:"language"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("network_search: invalid arguments: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.Query) == "" {
 		return "", &ArgError{Field: "query", Reason: "is required"}

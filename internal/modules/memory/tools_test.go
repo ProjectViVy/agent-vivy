@@ -170,6 +170,8 @@ func TestMemoryGetToolRoundTrip(t *testing.T) {
 	if len(got.Entries) != 1 || got.Entries[0].ID != added.Entry.ID {
 		t.Fatalf("get entries = %+v", got.Entries)
 	}
+	wantStatus(t, invokeToolOutcome(t, memory.ToolGet, `{"id":"`+added.Entry.ID+`","expected_revision":1}`), bml.CrudOutcomeListed)
+	wantFailure(t, invokeToolOutcome(t, memory.ToolGet, `{"id":"`+added.Entry.ID+`","expected_revision":2}`), bml.HomeCodeRevisionConflict)
 	wantFailure(t, invokeToolOutcome(t, memory.ToolGet, `{"id":"missing"}`), bml.HomeCodeNotFound)
 	wantFailure(t, invokeToolOutcome(t, memory.ToolGet, `{}`), bml.HomeCodeInvalidRequest)
 }

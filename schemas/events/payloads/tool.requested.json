@@ -1,22 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/tool.requested.json",
-  "title": "tool.requested payload (v1)",
+  "title": "tool.requested payload (v1 request, v2 unavailable argument bytes)",
   "type": "object",
   "properties": {
-    "tool_call_id": {
-      "type": "string",
-      "minLength": 1
+    "original_arguments_invalid_utf8": { "type": "boolean" },
+    "original_arguments_bytes": { "type": "string", "contentEncoding": "base64" },
+    "original_arguments": { "type": "string" },
+    "arguments_reference": {
+      "type": "object",
+      "properties": { "id": { "type": "string" }, "sha256": { "type": "string", "minLength": 64, "maxLength": 64 }, "byte_count": { "type": "integer", "minimum": 0 } },
+      "required": ["id", "sha256", "byte_count"],
+      "additionalProperties": false
     },
-    "tool_name": {
-      "type": "string",
-      "minLength": 1
-    },
+    "tool_call_id": { "type": "string" },
+    "tool_name": { "type": "string" },
     "args": {
       "type": "object",
       "description": "Tool arguments as requested by the model; shape fixed by the tool Spec."
     }
   },
   "required": ["tool_call_id", "tool_name", "args"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "title": "v1 request with identity",
+      "properties": {
+        "tool_call_id": { "minLength": 1 },
+        "tool_name": { "minLength": 1 },
+        "original_arguments_invalid_utf8": { "const": false }
+      },
+      "not": { "required": ["original_arguments_bytes"] }
+    },
+    {
+      "title": "v2 received argument bytes that are not valid UTF-8 (identity may be absent on a later stream fragment)",
+      "required": ["original_arguments_invalid_utf8", "original_arguments_bytes"],
+      "properties": { "original_arguments_invalid_utf8": { "const": true } }
+    }
+  ]
 }

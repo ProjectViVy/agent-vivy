@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -255,7 +256,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	if err != nil {
 		return nil, fmt.Errorf("runtime: summarization middleware: %w", err)
 	}
-	return []adk.ChatModelAgentMiddleware{newContextMonitor(), reducer, summ}, nil
+	return []adk.ChatModelAgentMiddleware{codingCompactionMiddleware{newContextMonitor()}, codingCompactionMiddleware{reducer}, codingCompactionMiddleware{summ}}, nil
 }
 
 // preserveProjectFileContextsFinalize applies Eino's canonical summary
@@ -267,6 +268,24 @@ func preserveProjectFileContextsFinalize(ctx context.Context, original []*schema
 	finalized, err := summarization.DefaultFinalize(ctx, original, summary)
 	if err != nil {
 		return nil, err
+	}
+	// DefaultFinalize creates a new user-role summary, dropping output Extra.
+	// Preserve the observer-certified provenance through that native rewrite.
+	provenance, present := schemaInputProvenance(summary)
+	if !present {
+		provenance = storage.UnknownInputProvenance()
+	}
+	for _, processed := range finalized {
+		preserved := false
+		for _, source := range original {
+			if processed == source {
+				preserved = true
+				break
+			}
+		}
+		if !preserved {
+			stampInputProvenance(processed, provenance)
+		}
 	}
 	for _, msg := range original {
 		if schemaMessageHasProjectFileContext(msg) {

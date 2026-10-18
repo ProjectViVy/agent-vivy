@@ -1,0 +1,8 @@
+{"Time":"2026-10-15T20:08:17.51602266+08:00","Action":"start","Package":"agent-vivy/internal/app"}
+{"Time":"2026-10-15T20:08:17.682285255+08:00","Action":"run","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"}
+{"Time":"2026-10-15T20:08:17.682325275+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Output":"=== RUN   TestDefaultPersonaAuthorityPersistsAndFreezesPerSession\n"}
+{"Time":"2026-10-15T20:08:19.247846309+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Output":"--- PASS: TestDefaultPersonaAuthorityPersistsAndFreezesPerSession (1.57s)\n"}
+{"Time":"2026-10-15T20:08:19.24788654+08:00","Action":"pass","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Elapsed":1.57}
+{"Time":"2026-10-15T20:08:19.248038409+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"PASS\n"}
+{"Time":"2026-10-15T20:08:20.252712915+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"ok  \tagent-vivy/internal/app\t2.736s\n"}
+{"Time":"2026-10-15T20:08:20.252774068+08:00","Action":"pass","Package":"agent-vivy/internal/app","Elapsed":2.737}

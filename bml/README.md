@@ -12,6 +12,12 @@ extracted later. It does not import any `agent-vivy` root packages, and the
 root module now imports it through the existing memory Module adapter. The
 original library-port scope below remains distinct from runtime integration.
 
+Schema 2 adds explicit host-bound ownership and immutable native mutation
+outcomes in the existing canonical transaction. See the [native contract](docs/owned-memory.md)
+for the exact API, supported schema-1 upgrade, read-only capabilities, legacy
+isolation and backup/identity limitations. This is a library producer; no App,
+Garden adapter or subject-projection activation is implied.
+
 Source of truth for the port: `agent-diva` at `0fd005a1`
 (`agent-diva-core` + `agent-diva-laputa` crates).
 
@@ -112,7 +118,8 @@ go vet ./...
 ## Dependencies
 
 - `modernc.org/sqlite` **v1.56.0** — pure-Go (CGO-free) SQLite driver,
-  registered under the driver name **`sqlite`**; same version pinned by the
-  root `go.mod`. Everything else is the Go standard library.
+  registered under the driver name **`sqlite`**. Root-module MVS currently
+  selects **v1.59.0** and requires separate integration qualification.
+  Everything else is the Go standard library.
 - The store opens SQLite with WAL journal mode, `foreign_keys(1)`, and a
   5 s busy timeout, via `database/sql` URI pragmas.

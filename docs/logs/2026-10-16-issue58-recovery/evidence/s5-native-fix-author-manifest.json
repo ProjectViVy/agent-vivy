@@ -1,0 +1,9 @@
+{
+  "native_fixed": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+  "tree": "9fff8cf9d5ca174a1af90e43a0e718281a24635e",
+  "remote_equivalent": "249a756e04c5f28af781e4dadea9e9086689bde0",
+  "verified_artifact_hashes": 18,
+  "archive_sha256": "c764dcc0dce85f590acec60638e4d33c995bd333a611834c52ab327b756a8059",
+  "files": 19,
+  "qualification": "Author precommit tested bytes are hash-bound to fixed source; original metadata RED8pass/12fail and all GREENs retained. Independent review not repeated; root unchanged probes/fixed gates are separate."
+}

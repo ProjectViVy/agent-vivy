@@ -1,0 +1,9 @@
+{"Time":"2026-10-15T20:05:38.453130908+08:00","Action":"start","Package":"agent-vivy/internal/app"}
+{"Time":"2026-10-15T20:05:38.650350174+08:00","Action":"run","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession"}
+{"Time":"2026-10-15T20:05:38.650442874+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Output":"=== RUN   TestDefaultPersonaAuthorityPersistsAndFreezesPerSession\n"}
+{"Time":"2026-10-15T20:05:38.67800492+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Output":"    default_persona_test.go:28: app: cognitive factory: diva-cognitive: open garden owner: recap binding: storage: subject binding mismatch\n"}
+{"Time":"2026-10-15T20:05:38.678524935+08:00","Action":"output","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Output":"--- FAIL: TestDefaultPersonaAuthorityPersistsAndFreezesPerSession (0.03s)\n"}
+{"Time":"2026-10-15T20:05:38.678533909+08:00","Action":"fail","Package":"agent-vivy/internal/app","Test":"TestDefaultPersonaAuthorityPersistsAndFreezesPerSession","Elapsed":0.03}
+{"Time":"2026-10-15T20:05:38.678764747+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"FAIL\n"}
+{"Time":"2026-10-15T20:05:38.683139389+08:00","Action":"output","Package":"agent-vivy/internal/app","Output":"FAIL\tagent-vivy/internal/app\t0.229s\n"}
+{"Time":"2026-10-15T20:05:38.683162735+08:00","Action":"fail","Package":"agent-vivy/internal/app","Elapsed":0.23}

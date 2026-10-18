@@ -1,0 +1,68 @@
+{
+  "candidate": "7ab14d5dd0653c5dd7f0498013f2f61021d5add2",
+  "tree": "5d4e0a7997d0dda654aecf1ca37bd51e8e00e03e",
+  "qualification": "Author working-source iterations; recorded HEAD168 before commit does not itself prove source identity. Root isolated fixed-candidate reruns are separate. All RED/intermediate fixture failures retained.",
+  "archive_sha256": "f97ddd6088f108c8b733e6587073a6eb9014b2c52f256ca6c952a6216db8fdd0",
+  "files": [
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green.json",
+      "bytes": 515,
+      "sha256": "7e7c404f6159bc4837554a8fa6eebed97e28deba7ed46d301ac2879233c773ff"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green.log",
+      "bytes": 61440,
+      "sha256": "5262bf3776c504a0a3bb107efb74089bf43b76e9481ebcb56c67542ebf062c40"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green2.json",
+      "bytes": 515,
+      "sha256": "77af9ed2655ccfa1a0a4ac13fd76f962cde5f8f95a26de5da30804c01f938724"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green2.log",
+      "bytes": 60856,
+      "sha256": "37166cb3df953964df28fb809c4c00eff08f28214f0970c24450a64c660349e4"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green3.json",
+      "bytes": 514,
+      "sha256": "e0a8fbb8a238aad436511d418357677b9fccb549de1bd8926d31b9208fad6cfe"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-green3.log",
+      "bytes": 60498,
+      "sha256": "30e08ce4f30f42f3feb1305338782a3f657e90117ba091bfec1ad6fa74f43f0a"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-red.json",
+      "bytes": 515,
+      "sha256": "0a12fe0f47a74b79b677249a9f3c6bc8ca0c9571c7a6a388c3608fbf36ff76ee"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-assembly-red.log",
+      "bytes": 4147,
+      "sha256": "ba59499145f60422cb27c19e7f6f3b9ee10afe1fc2610478997bf8ad4f65fdd0"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-focused.json",
+      "bytes": 709,
+      "sha256": "13948d405a3c718b0a33104d7f479254f0fc8543be13e6257e36cc7ff75bbc0d"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-focused.log",
+      "bytes": 562653,
+      "sha256": "052da380b56589f4abbbc68e7dc3635689ef039fa206dde6786294d12ce390c2"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/logs/issue58-s4-author-source-hashes.json",
+      "bytes": 211,
+      "sha256": "7dc631bf45c3446a5e53ce79ae465e73f5eecc29fd66beb936e6c6b22ddd3b53"
+    },
+    {
+      "name": ".superpowers/sdd/S4-reimplementation/report.md",
+      "bytes": 16911,
+      "sha256": "4af46984706168958ed30ea5bc4902320c9e451523596b355e3b9343c912eb5f"
+    }
+  ]
+}

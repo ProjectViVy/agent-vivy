@@ -40,7 +40,7 @@ func (b *EinoFilesystemBackend) Grep(ctx context.Context, req tools.GrepRequest)
 	}
 	re, err := regexp.Compile(req.Pattern)
 	if err != nil {
-		return tools.GrepResult{}, fmt.Errorf("filesystem: invalid grep pattern: %w", err)
+		return tools.GrepResult{}, argumentError("pattern", "invalid regular expression: %s", err)
 	}
 	if b.rgPath != "" {
 		if res, err := b.rgGrep(ctx, base, root, req); err == nil {
@@ -61,12 +61,12 @@ func (b *EinoFilesystemBackend) Glob(ctx context.Context, req tools.GlobRequest)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(req.Pattern), "/") {
 		if part == ".." {
-			return tools.GlobResult{}, fmt.Errorf("filesystem: glob pattern must stay inside the workspace")
+			return tools.GlobResult{}, argumentError("pattern", "must stay inside the workspace")
 		}
 	}
 	pattern := filepath.ToSlash(filepath.Clean("/" + req.Pattern))[1:]
 	if pattern == "" || pattern == "." || strings.HasPrefix(pattern, "../") || pattern == ".." {
-		return tools.GlobResult{}, fmt.Errorf("filesystem: glob pattern must stay inside the workspace")
+		return tools.GlobResult{}, argumentError("pattern", "must stay inside the workspace")
 	}
 	type hit struct {
 		info tools.GlobFileInfo

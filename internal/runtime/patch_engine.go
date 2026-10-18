@@ -1,9 +1,12 @@
 package runtime
 
 import (
-	"fmt"
 	"strings"
 )
+
+// errOldStringNotFound is the shared model-facing reason for a patch whose
+// old_string matched nothing, exact or whitespace-insensitive.
+const errOldStringNotFound = "was not found in the file; re-read it and copy the exact text"
 
 // applyStringPatch locates oldString in content and returns the patched
 // content plus the number of replaced occurrences.
@@ -21,11 +24,11 @@ import (
 // line so CRLF files stay consistent.
 func applyStringPatch(content, oldString, newString string, replaceAll bool) (string, int, error) {
 	if oldString == "" {
-		return "", 0, fmt.Errorf("filesystem: old_string must not be empty")
+		return "", 0, argumentError("old_string", "must not be empty")
 	}
 	if count := strings.Count(content, oldString); count > 0 {
 		if !replaceAll && count != 1 {
-			return "", 0, fmt.Errorf("filesystem: old_string matched %d times; set replace_all=true to replace all", count)
+			return "", 0, argumentError("replace_all", "old_string matched %d times; set replace_all=true to replace all", count)
 		}
 		n := 1
 		if replaceAll {
@@ -53,7 +56,7 @@ func applyWhitespaceTolerantPatch(content, oldString, newString string, replaceA
 		newLines = newLines[:len(newLines)-1]
 	}
 	if len(oldLines) > len(contentLines) {
-		return "", 0, fmt.Errorf("filesystem: old_string was not found")
+		return "", 0, argumentError("old_string", "%s", errOldStringNotFound)
 	}
 	var starts []int
 	for i := 0; i+len(oldLines) <= len(contentLines); i++ {
@@ -65,10 +68,10 @@ func applyWhitespaceTolerantPatch(content, oldString, newString string, replaceA
 		}
 	}
 	if len(starts) == 0 {
-		return "", 0, fmt.Errorf("filesystem: old_string was not found")
+		return "", 0, argumentError("old_string", "%s", errOldStringNotFound)
 	}
 	if !replaceAll && len(starts) != 1 {
-		return "", 0, fmt.Errorf("filesystem: old_string matched %d times (whitespace-insensitive); set replace_all=true to replace all", len(starts))
+		return "", 0, argumentError("replace_all", "old_string matched %d times (whitespace-insensitive); set replace_all=true to replace all", len(starts))
 	}
 	for k := len(starts) - 1; k >= 0; k-- {
 		start := starts[k]

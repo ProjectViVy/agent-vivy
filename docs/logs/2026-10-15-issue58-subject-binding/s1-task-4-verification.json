@@ -1,0 +1,318 @@
+{
+  "base": "4658e263746b4e10059627c896f8d07628b50405",
+  "source_commit": "2936b6d5d59cb0c776bf834a3c7a3afa5ec5e1d6",
+  "api": "authoritative design revision 3 C1; unchanged DTOs/methods/actmem/v3 schema",
+  "toolchain": "go1.26.4 linux/amd64",
+  "PATH_prefix": "/workspace/scratch/243d1cbb859f/toolchains/bin",
+  "checksum_environment": {
+    "GOSUMDB": "sum.golang.org",
+    "GOPROXY": "https://proxy.golang.org,direct",
+    "GOPRIVATE": "",
+    "GONOSUMDB": "",
+    "GONOPROXY": ""
+  },
+  "upstream": {
+    "published_commit": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7",
+    "reviewed_local_commit": "9ec9baa4db117c3ea3b4a0949fece14999904895",
+    "reviewed_and_published_tree": "654b8aa8c81251b8843356ebf3c91b00157ba4c5",
+    "local_sibling_head": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7",
+    "local_sibling_clean": true,
+    "module_metadata": [
+      {
+        "Path": "github.com/ProjectViVy/laputa/garden",
+        "Version": "v0.0.0-20261015124034-bb57e93a61cf",
+        "Time": "2026-10-15T12:40:34Z",
+        "Origin": {
+          "VCS": "git",
+          "URL": "https://github.com/ProjectViVy/laputa",
+          "Subdir": "garden",
+          "Hash": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7"
+        }
+      },
+      {
+        "Path": "github.com/ProjectViVy/laputa/laputa",
+        "Version": "v0.0.0-20261015124034-bb57e93a61cf",
+        "Time": "2026-10-15T12:40:34Z",
+        "Origin": {
+          "VCS": "git",
+          "URL": "https://github.com/ProjectViVy/laputa",
+          "Subdir": "laputa",
+          "Hash": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7"
+        }
+      },
+      {
+        "Path": "github.com/ProjectViVy/laputa/mentle",
+        "Version": "v0.0.0-20261015124034-bb57e93a61cf",
+        "Time": "2026-10-15T12:40:34Z",
+        "Origin": {
+          "VCS": "git",
+          "URL": "https://github.com/ProjectViVy/laputa",
+          "Subdir": "mentle",
+          "Hash": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7"
+        }
+      }
+    ]
+  },
+  "normal_archive_download": {
+    "command": "go mod download -modfile=/tmp/issue58-reconcile-pins.mod -json github.com/ProjectViVy/laputa/garden github.com/ProjectViVy/laputa/laputa github.com/ProjectViVy/laputa/mentle",
+    "exit_code": 0,
+    "raw_file": "/tmp/issue58-reconcile-module-download.json",
+    "sha256": "4c6ed4f7ab7fa14db6e87f5960e8a3ffbde6348a8f9f8ec6b1379b9dcbd89c91",
+    "minimal_no_replace_modfile": "module issue58-reconcile-pin-verification\n\ngo 1.26.4\n\nrequire (\n github.com/ProjectViVy/laputa/garden v0.0.0-20261015124034-bb57e93a61cf\n github.com/ProjectViVy/laputa/laputa v0.0.0-20261015124034-bb57e93a61cf\n github.com/ProjectViVy/laputa/mentle v0.0.0-20261015124034-bb57e93a61cf\n)\n",
+    "six_generated_sum_lines": [
+      "github.com/ProjectViVy/laputa/garden v0.0.0-20261015124034-bb57e93a61cf h1:HKVdTVhBrqguKIjgE+CVDlFxWWjy+lbPOQkGoDs+Qic=",
+      "github.com/ProjectViVy/laputa/garden v0.0.0-20261015124034-bb57e93a61cf/go.mod h1:t+6aPD6GSpEPu455CqChrFYzsHnPuflsjme5ralof/I=",
+      "github.com/ProjectViVy/laputa/laputa v0.0.0-20261015124034-bb57e93a61cf h1:n1aQyPS0O/Isl/PrSlFe43jaVoLQwfk6gYDk2YY632I=",
+      "github.com/ProjectViVy/laputa/laputa v0.0.0-20261015124034-bb57e93a61cf/go.mod h1:nctqXPUme+YhoV1SMwVqnrIkTKoHaJNl+0yvZn/7ZaE=",
+      "github.com/ProjectViVy/laputa/mentle v0.0.0-20261015124034-bb57e93a61cf h1:7QZ6nI2CngrrXdwdxjFEN/xJ+Km/07pYX+WQ5WN0Oac=",
+      "github.com/ProjectViVy/laputa/mentle v0.0.0-20261015124034-bb57e93a61cf/go.mod h1:0CHmst4cXuP9bCslJ1ZQMrHo4ZS3ivVg92YGM3vtjsA="
+    ]
+  },
+  "isolated_archive_verify": {
+    "command": "go mod verify -modfile=/tmp/issue58-reconcile-pins.mod",
+    "exit_code": 0,
+    "output": "all modules verified\n"
+  },
+  "root_verify_existing_limitation": {
+    "command": "go mod verify",
+    "exit_code": 1,
+    "output": "agent-vivy/faces/headless v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/faces/tui v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/coding/lsp v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/coding/session-tree v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/dingtalk v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/discord v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/feishu v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/governance v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/infra/llm v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/qq v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/scxreference v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/telegram v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-evolution v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-masks-ui v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-memory v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-notebook v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-persona v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-toolkits-ui v0.0.0: missing ziphash: open hash: no such file or directory\nagent-vivy/plugins/vivy-workflow v0.0.0: missing ziphash: open hash: no such file or directory\n",
+    "meaning": "19 historical local v0.0.0 placeholder missing-ziphash conditions; neither a checksum mismatch nor a verification pass"
+  },
+  "bound_regression": {
+    "command": "go test -modfile=.superpowers/sdd/S1/task4-root.mod -json ./internal/modules/diva-cognitive -run '^TestIssue58RecapBoundReconcile$' -count=1",
+    "modfile_difference": "Drop only three github.com/ProjectViVy/laputa/{garden,laputa,mentle} replacements. Keep all existing local application replacements. RED used old root requirements; GREEN used new published requirements.",
+    "old_version": "v0.0.0-20261015104519-4c7c6b208593",
+    "new_version": "v0.0.0-20261015124034-bb57e93a61cf",
+    "red": {
+      "exit_code": 1,
+      "raw_file": "/workspace/scratch/243d1cbb859f/agent-vivy-issue58-dev/docs/logs/2026-10-15-issue58-subject-binding/s1-task-4-bound-red.jsonl",
+      "sha256": "c5e84b0bad0215c7c67a8c97d2a321b7fcf6f9baf66fc78829eefb65abacb6c6",
+      "counts": {
+        "fail_subtest": 2,
+        "fail_test": 1,
+        "fail_package": 1
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:00:36.385351339+08:00",
+          "Action": "fail",
+          "Package": "agent-vivy/internal/modules/diva-cognitive",
+          "Elapsed": 0.043
+        }
+      ],
+      "skipped_tests": []
+    },
+    "green": {
+      "exit_code": 0,
+      "raw_file": "/workspace/scratch/243d1cbb859f/agent-vivy-issue58-dev/docs/logs/2026-10-15-issue58-subject-binding/s1-task-4-bound-green.jsonl",
+      "sha256": "3fe7d66ca69e956235fd44563f7a5edc2414092f405eb38a5666f9b899ad6120",
+      "counts": {
+        "pass_subtest": 2,
+        "pass_test": 1,
+        "pass_package": 1
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:03:16.877735822+08:00",
+          "Action": "pass",
+          "Package": "agent-vivy/internal/modules/diva-cognitive",
+          "Elapsed": 0.054
+        }
+      ],
+      "skipped_tests": []
+    }
+  },
+  "gates": [
+    {
+      "raw_file": "/tmp/issue58-reconcile-garden-focused.jsonl",
+      "sha256": "9d756c53f43f10ad96c4b9f09195a49c9464a17a47d7177bc192fecb896f114f",
+      "counts": {
+        "pass_test": 6,
+        "pass_package": 1
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:00:49.114073017+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/garden/agentapi",
+          "Elapsed": 0.047
+        }
+      ],
+      "skipped_tests": [],
+      "command": "go test -json ./agentapi -run '^TestIssue58' -count=1",
+      "cwd": "../laputa/garden",
+      "exit_code": 0
+    },
+    {
+      "raw_file": "/tmp/issue58-reconcile-garden.jsonl",
+      "sha256": "9e8000950e743f92d7ba5fa53fbe255230f60cf08a6c23c9508df57cd7cec4a4",
+      "counts": {
+        "pass_test": 89,
+        "pass_subtest": 10,
+        "pass_package": 2
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:01:01.658522103+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/garden/internal/runtimecore",
+          "Elapsed": 1.3439999999999999
+        },
+        {
+          "Time": "2026-10-15T21:01:01.802938164+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/garden/agentapi",
+          "Elapsed": 1.721
+        }
+      ],
+      "skipped_tests": [],
+      "command": "go test -json ./agentapi ./internal/runtimecore/... -count=1",
+      "cwd": "../laputa/garden",
+      "exit_code": 0
+    },
+    {
+      "raw_file": "/tmp/issue58-reconcile-laputa.jsonl",
+      "sha256": "63b3ff78181e1c0e31f186fe4e67cc169c5efff3a9ca76e51406b370b4bb27c7",
+      "counts": {
+        "skip_package": 2,
+        "pass_test": 102,
+        "pass_subtest": 61,
+        "pass_package": 5
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:00:47.776302665+08:00",
+          "Action": "skip",
+          "Package": "github.com/ProjectViVy/laputa/laputa/cmd/eino_smoke",
+          "Elapsed": 0
+        },
+        {
+          "Time": "2026-10-15T21:00:47.782230943+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/laputa/evolution",
+          "Elapsed": 0.006
+        },
+        {
+          "Time": "2026-10-15T21:00:47.789472102+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/laputa/evolution/diva",
+          "Elapsed": 0.013
+        },
+        {
+          "Time": "2026-10-15T21:00:47.981181393+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/laputa/actmem",
+          "Elapsed": 0.205
+        },
+        {
+          "Time": "2026-10-15T21:00:48.277465913+08:00",
+          "Action": "skip",
+          "Package": "github.com/ProjectViVy/laputa/laputa/evolution/testkit",
+          "Elapsed": 0
+        },
+        {
+          "Time": "2026-10-15T21:00:48.300554431+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/laputa/evolution/inofy",
+          "Elapsed": 0.023
+        },
+        {
+          "Time": "2026-10-15T21:00:48.327698231+08:00",
+          "Action": "pass",
+          "Package": "github.com/ProjectViVy/laputa/laputa/persona",
+          "Elapsed": 0.05
+        }
+      ],
+      "skipped_tests": [],
+      "command": "go test -json ./... -count=1",
+      "cwd": "../laputa/laputa",
+      "exit_code": 0
+    },
+    {
+      "raw_file": "/tmp/issue58-reconcile-cognitive-published.jsonl",
+      "sha256": "36d9b287707d13cfeb8038de57d3c707e034a74b40c55f5e1005fc485e8c3e88",
+      "counts": {
+        "skip_package": 1,
+        "pass_test": 30,
+        "pass_subtest": 10,
+        "pass_package": 1
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:03:18.746926894+08:00",
+          "Action": "skip",
+          "Package": "agent-vivy/internal/cognitivecontract",
+          "Elapsed": 0
+        },
+        {
+          "Time": "2026-10-15T21:03:18.967571535+08:00",
+          "Action": "pass",
+          "Package": "agent-vivy/internal/modules/diva-cognitive",
+          "Elapsed": 0.221
+        }
+      ],
+      "skipped_tests": [],
+      "command": "go test -modfile=.superpowers/sdd/S1/task4-root.mod -json ./internal/modules/diva-cognitive ./internal/cognitivecontract -count=1",
+      "cwd": ".",
+      "exit_code": 0
+    },
+    {
+      "raw_file": "/tmp/issue58-reconcile-cognitive-default.jsonl",
+      "sha256": "bf1f8066f345bcf8f08bbd8df2a0d45f55d3a6c4b93b54a7057f1eec5728eb31",
+      "counts": {
+        "skip_package": 1,
+        "pass_test": 30,
+        "pass_subtest": 10,
+        "pass_package": 1
+      },
+      "package_results": [
+        {
+          "Time": "2026-10-15T21:03:21.190966751+08:00",
+          "Action": "skip",
+          "Package": "agent-vivy/internal/cognitivecontract",
+          "Elapsed": 0
+        },
+        {
+          "Time": "2026-10-15T21:03:21.371852931+08:00",
+          "Action": "pass",
+          "Package": "agent-vivy/internal/modules/diva-cognitive",
+          "Elapsed": 0.181
+        }
+      ],
+      "skipped_tests": [],
+      "command": "go test -json ./internal/modules/diva-cognitive ./internal/cognitivecontract -count=1",
+      "cwd": ".",
+      "exit_code": 0
+    }
+  ],
+  "bootstrap": {
+    "command": "PATH=/workspace/scratch/243d1cbb859f/toolchains/bin:$PATH just bootstrap-test",
+    "expanded_command": "node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs",
+    "exit_code": 0,
+    "output": "node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs\n✔ all Laputa Go revisions match the full source lock (1.163376ms)\n✔ default catalog imports optional metadata without concrete implementations (0.352081ms)\n✔ the direct-script entry locates its repository without RepoRoot or a matching cwd (478.520801ms)\n✔ a fresh checkout installs all three modules at the pinned commit and is repeatable (793.163604ms)\n✔ a clean old checkout advances to the pin (825.819055ms)\n✔ an old checkout with local changes is preserved and fails with an actionable error (890.26722ms)\n✔ an unrelated repository in the sibling path is rejected without changing it (876.761831ms)\n✔ an invalid module identity at the pinned commit fails before Go starts (538.468138ms)\n✔ a source lock and Go revision mismatch fails before touching the sibling (494.773859ms)\n✔ a modified source at the exact pinned commit is rejected (901.121503ms)\n✔ a pinned dependency toolchain mismatch fails before Go starts (524.55166ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 6414.425493\n",
+    "initial_invocation": {
+      "command": "node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs",
+      "exit_code": 1,
+      "reason": "Invocation omitted toolchain PATH: pwsh was not on PATH, nine spawn-based checks failed (null child status); two dependency checks passed. No repository fix required.",
+      "raw_file": "/tmp/issue58-reconcile-bootstrap-missing-path.log",
+      "sha256": "860fe32bc925a538209f87ead602791d7445ef48b25b652d0b8406e2c50d6a3e"
+    }
+  },
+  "non_gate_metadata_attempt": {
+    "command": "go list -modfile=/tmp/issue58-reconcile-pins.mod -m -json github.com/ProjectViVy/laputa/laputa@v0.0.0-20261015124034-bb57e93a61cf",
+    "exit_code": 1,
+    "output": "go: updates to go.sum needed, disabled by -mod=readonly",
+    "resolution": "Normal download completed; explicit -mod=mod metadata lookup then succeeded. Cache .info metadata for all three is embedded above."
+  },
+  "self_review": "Full scoped source/pin diff reviewed; no in-scope findings. git diff --check and staged diff check passed. Independent review is pending controller dispatch.",
+  "pending": [
+    "native Windows durability",
+    "actual S3 provider behavior",
+    "BML/Mentle integration acceptance",
+    "issue #66 integration",
+    "real PostgreSQL server acceptance",
+    "prior broad MemoryLoop timeout resolution",
+    "final exact candidate S6 whole-product CI and product acceptance"
+  ]
+}

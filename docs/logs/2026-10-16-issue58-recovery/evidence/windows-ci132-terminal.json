@@ -1,0 +1,34 @@
+{
+  "workflow_run": 38797712766,
+  "run_number": 132,
+  "head": "ed9d20d22f818fd05c310948160da71c1a2668f7",
+  "tree": "796f5883ecc9a6cdbc2507a9320189f03a65c2eb",
+  "source": "https://api.github.com/repos/ProjectViVy/agent-vivy/actions/runs/38797712766/jobs",
+  "jobs": [
+    {
+      "name": "backend ci",
+      "id": 116638543155,
+      "conclusion": "cancelled",
+      "completed_at": "2026-10-15T20:15:26Z"
+    },
+    {
+      "name": "ui ci",
+      "id": 116638543608,
+      "conclusion": "success",
+      "completed_at": "2026-10-15T19:59:51Z"
+    },
+    {
+      "name": "full UI browser smoke",
+      "id": 116638543852,
+      "conclusion": "success",
+      "completed_at": "2026-10-15T20:00:15Z"
+    },
+    {
+      "name": "just ci",
+      "id": 116647803978,
+      "conclusion": "failure",
+      "completed_at": "2026-10-15T20:15:32Z"
+    }
+  ],
+  "qualification": "Older WIP only. Aggregate requires every lane; its failure follows backend cancellation from later checkpoint push. Not final native backend/new Recap UI or local just ci command execution."
+}

@@ -1,0 +1,30 @@
+import os,sys,json,threading,http.server,subprocess,time,signal
+from pathlib import Path
+work=Path(sys.argv[1]);label=sys.argv[2];cmd=sys.argv[3:]
+class Deny(http.server.BaseHTTPRequestHandler):
+ count=0
+ def reject(self):
+  type(self).count+=1;self.send_response(403);self.end_headers()
+ do_CONNECT=reject;do_GET=reject;do_POST=reject;do_PUT=reject;do_DELETE=reject
+ def log_message(self,*a):pass
+server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Deny)
+threading.Thread(target=server.serve_forever,daemon=True).start()
+env={k:v for k,v in os.environ.items() if not any(s in k.upper() for s in ['API_KEY','APIKEY','TOKEN','SECRET','PASSWORD','CREDENTIAL'])}
+env.update(GOPROXY='off',GOSUMDB='off',GOTOOLCHAIN='local')
+env['PATH']='/workspace/scratch/5dda642e718d/toolchain/go/bin:/workspace/scratch/5dda642e718d/toolchain/bin:'+env['PATH']
+for key in ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy']:env[key]=f'http://127.0.0.1:{server.server_port}'
+for key in ['NO_PROXY','no_proxy']:env[key]='localhost,127.0.0.1,::1'
+head=subprocess.check_output(['git','-C',str(work),'rev-parse','HEAD'],text=True).strip()
+start=time.monotonic()
+with open('/tmp/'+label+'.log','wb') as out:
+ p=subprocess.Popen(cmd,cwd=work,env=env,stdout=out,stderr=subprocess.STDOUT,start_new_session=True)
+ try:code=p.wait(timeout=7200)
+ except subprocess.TimeoutExpired:
+  os.killpg(p.pid,signal.SIGTERM)
+  try:p.wait(timeout=10)
+  except subprocess.TimeoutExpired:
+   os.killpg(p.pid,signal.SIGKILL);p.wait()
+  code=124
+meta={'candidate':head,'timeout_seconds':7200,'timeout_cleanup':'whole child process group TERM then KILL','command':cmd,'exit_code':code,'elapsed_seconds':round(time.monotonic()-start,3),'external_proxy_requests_rejected':Deny.count,'external_forwarded':0,'dependency_network':'disabled','child_credentials':'removed by name; no values logged'}
+Path('/tmp/'+label+'.json').write_text(json.dumps(meta,indent=2)+'\n');print(json.dumps(meta));server.shutdown()
+sys.exit(code)

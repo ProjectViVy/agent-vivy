@@ -241,6 +241,7 @@ func (s *Service) commitSessionFork(ctx context.Context, source domain.Session, 
 	copied := append([]domain.Message(nil), effective[:cutoffIdx+1]...)
 	childForkPointID := ""
 	for i, message := range copied {
+		message.CopySource = &domain.MessageCopySource{SessionID: sessionID, MessageID: message.ID}
 		message.SessionID = newID
 		message.ID = newMessageID()
 		message.WorkSeq = 0 // the fork starts with an empty work-event stream

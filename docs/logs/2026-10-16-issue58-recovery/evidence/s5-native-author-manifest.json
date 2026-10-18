@@ -1,0 +1,238 @@
+{
+  "native_candidate": "3c365207d295221c4a3c5667fc71a6a465ee59f8",
+  "native_tree": "1ca98be9a8cffb18d242bf3c1aa40a613d0bbb7f",
+  "native_remote_equivalent": "1edf7b2379d7887a016c57b78e2060ad9dae1588",
+  "merge_local": "1ce1c1e322ff278db258044dfddb640dcf29101c",
+  "merge_remote": "9b25b0a9d191845a97ca8a114a18619625eaf223",
+  "merge_tree": "a6d4515158008ffc96dc51f7ee546e13115d3745",
+  "merge_parents": [
+    "bb57e93a61cfb41460524d00a557a3a9f2cce1e7",
+    "f44ba00eb6ab5aa6ab9a2f5c09868373e36679f5"
+  ],
+  "vivy_dependency_still": "bb57e93a61cfb41460524d00a557a3a9f2cce1e7",
+  "qualification": "Author working-source normal/race each281 tests plus4 packages. Source hashes verified against committed12-file blobs by root. Independent review in progress. No BML/consumer/new pin activation. Windows not executed.",
+  "archive_sha256": "3e2fda01e77deba793dd131aad3016bedf5b4c7506ae7a8b3e20a940d10ee71f",
+  "archive_bytes": 98472,
+  "files": [
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-green.json",
+      "bytes": 466,
+      "sha256": "a9287c3e75b46d326363471eecd7b425321867db355d7655e1bed773399881b9"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-green.log",
+      "bytes": 6113,
+      "sha256": "ae45766d80b65dc9292f7554e1eea9e3b6de48569ca197d11b3fe2a437c5292d"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-red.json",
+      "bytes": 505,
+      "sha256": "2ac460bee8f01ff6e93b353d373c5b984c5c9ea7b0c30f51a77f8e6edb7d9618"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-red.log",
+      "bytes": 1512,
+      "sha256": "5ac87d4f8bfc807c95ba06c367534f5a76f53b5260f23145642225f3f7256cce"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-red2.json",
+      "bytes": 505,
+      "sha256": "cab0568387e2ee3449e4dc40b3aa03b129bb6934f9b2c3b73242aab9ad1d4826"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-archive-red2.log",
+      "bytes": 1861,
+      "sha256": "0e735dd4ca388762918011bd804f346212cfaed78c23f676044509bd991612d0"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-normal.json",
+      "bytes": 495,
+      "sha256": "e2c4fbab6bfd79effc619b02a7b975f9393d161ac299aa54871481beb95c5b49"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-normal.log",
+      "bytes": 146684,
+      "sha256": "33b6f4d08487c7c2d6d0781d69fec2c2ef192d64b88728b3f2b87e29f423f2c5"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-normal2.json",
+      "bytes": 496,
+      "sha256": "7bfc14da2011ab6030b0296dc0a0f220a6392bae2269ab81ebb4ca51737c8708"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-normal2.log",
+      "bytes": 147709,
+      "sha256": "6886bdcc3153247fd43ce3edc46f49d9cfd49c9e7cd75734f3991bc7e430e88b"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-owner-race.json",
+      "bytes": 439,
+      "sha256": "7884e93688f921a890952e38e2455a76ffef245c920c00446206187f10673cc5"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-owner-race.log",
+      "bytes": 103692,
+      "sha256": "0868f68564b1b73d492250ea7d2974aeedee6ec6fd1c9f9b735d2524b5f15e72"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-owner.json",
+      "bytes": 426,
+      "sha256": "a6a23b1efc2bbc4068e7beec01aa1ab5a28983bca35c9951acd476bcdde82d4f"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-owner.log",
+      "bytes": 103557,
+      "sha256": "693f8956c6d15fbcacb5679c87c08c13d290201b76643d638db3015ce08f2ddf"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-race.json",
+      "bytes": 509,
+      "sha256": "a23a4b5d7019b90d40bb340c46a1ef0d6c4c57f3e905bb2b4dd4930f827dc3a1"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-final-race.log",
+      "bytes": 147916,
+      "sha256": "22d5deaa572f5519c7dfcabf4dcfc591c7d4af1892d0242b47290b5a17fe4092"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-green.json",
+      "bytes": 466,
+      "sha256": "a9287c3e75b46d326363471eecd7b425321867db355d7655e1bed773399881b9"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-green.log",
+      "bytes": 5192,
+      "sha256": "4b05553ea67206a988724908e2139a1d6010d748f01ac3249c49ae6cf23544b5"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-red.json",
+      "bytes": 466,
+      "sha256": "6a4e6fa05f767341f064b75d44b96e1f6abaadfbcba546ebfea6e08c3398ba65"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-red.log",
+      "bytes": 5585,
+      "sha256": "59fb7ad25494c7ccc690136f5bb7427d70446d573bf8583ec82dbef9d7079ef5"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-regression.json",
+      "bytes": 426,
+      "sha256": "b5e19b9d051db6bb0e3d87a187d67ce57e3f1b02deb9e20556f940a7ff426b07"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-owner-regression.log",
+      "bytes": 103533,
+      "sha256": "88ac54348d5f216ae2a4f88ea9d99988082f4324fbd6389dffd09f150e6f125b"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-boundaries.json",
+      "bytes": 480,
+      "sha256": "99287b2057102df22f509c30373742117e318b405e55cd6bb7c11d656a3ba933"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-boundaries.log",
+      "bytes": 24750,
+      "sha256": "405758249f66836154b2c49c6c382da9b3b9497886f69fd1a9add131e3bba4d8"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-green.json",
+      "bytes": 481,
+      "sha256": "2837516f2d53afb41e796571207d6a116a1aa6c40f9041ad7688bc1d8d9f0d5e"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-green.log",
+      "bytes": 9614,
+      "sha256": "c0f0228e4a4938b400ab637d933f47db424644ada08a95de5de7efe1c7850344"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-red.json",
+      "bytes": 481,
+      "sha256": "4676185bac15ca00c9639d1730614b33463d61f6e38e832421d84aa45e7fda4a"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-policy-red.log",
+      "bytes": 9891,
+      "sha256": "cd1f8771ce6f6682e0af4ef33e695eee5b019e8378d4dc8912f8fa49f61bb083"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-regression1.json",
+      "bytes": 495,
+      "sha256": "f87d55e34b2364bcf3a2e121b3774abfef998a621919977a2527336692770528"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-regression1.log",
+      "bytes": 130590,
+      "sha256": "48337dfc386454532bab94d8fe110ed657a1052365310892959dae5eb6ca2cb4"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-green.json",
+      "bytes": 502,
+      "sha256": "0b51b94f2bd453ecb960e0089daa2816a7a7b60375b2d354fa6e23e1b44a7fc5"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-green.log",
+      "bytes": 1542,
+      "sha256": "4057f82bc82f683d6bee95995dc3a4f9b113b021f643273fe18b9d3a4e3c45e3"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red.json",
+      "bytes": 502,
+      "sha256": "282c183302c2d06725297bc1b123c245b23a67898ead16c9fc38f1d06e775ee9"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red.log",
+      "bytes": 1802,
+      "sha256": "2802763b80bb5a3402da92474c0ebc59a641de1dd3a4d37389a972124a350017"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red2.json",
+      "bytes": 501,
+      "sha256": "66a53e5b10c8cdcd27a94091a6e29706ebc37b9c14a517581ae4c88481336748"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red2.log",
+      "bytes": 1811,
+      "sha256": "61875076235544fb9a26c3700d3706f73ef815f7bb4f41ef1ef10ce769748a87"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red3.json",
+      "bytes": 502,
+      "sha256": "410a0c260481c555c188eefc71d87dfaa1607379d8cffe8fff69f5fa8e958280"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/issue58-s5-native-runtime-red3.log",
+      "bytes": 1845,
+      "sha256": "ff3aebeec87d9bdb2bcfbe9a736b40531e94c1d97693a364338de24edb506169"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/results.json",
+      "bytes": 14316,
+      "sha256": "d7c0eeaa4bf8f9948cead19c46d66c3d8f84bf22d08a1d33bd76c7fd788220e7"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-logs/source-hashes.json",
+      "bytes": 2979,
+      "sha256": "d6d07f7ba3060cce59547abf65665922350915aa57fc7ac55104303896a74f9d"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/native-producer-report.md",
+      "bytes": 8597,
+      "sha256": "a0cb52df805fa39162ea13bedf253531ca30c257090162f26c99f915b6fa52e9"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/brief.md",
+      "bytes": 13173,
+      "sha256": "c20cceed0313aef8a28e220b427fb7a508d13e0220e80eda3bd4253c1da3a2eb"
+    },
+    {
+      "path": "/workspace/scratch/5dda642e718d/agent-vivy-issue58-recovery/.superpowers/sdd/S5-reimplementation/prep.md",
+      "bytes": 27063,
+      "sha256": "aefb6fb0519c810c5f47a77b2ab92115cb4f4f138fba18532880d056e47f7409"
+    },
+    {
+      "path": "/tmp/issue58-localonly-runner.py",
+      "bytes": 1763,
+      "sha256": "32a769519c98bd700e884b638cdf11e33c02c5fe7a2e105ebc431ff87b97b29e"
+    }
+  ]
+}

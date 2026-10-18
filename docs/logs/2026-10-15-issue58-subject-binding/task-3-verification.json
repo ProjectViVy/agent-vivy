@@ -1,0 +1,107 @@
+{
+  "task": "Issue58 S2 Task3",
+  "base": "8d7c23cd81afa85c7fba84b600aa5e5a2668dadf",
+  "source_commit": "3787f6252a69205dd0c65ab23603041930a00da9",
+  "go_version": "go1.26.4 linux/amd64",
+  "gosumdb": "sum.golang.org",
+  "focused": {
+    "top_level_pass": 11,
+    "subtest_pass": 4,
+    "fail": 0,
+    "skip": 0
+  },
+  "race": {
+    "top_level_pass": 11,
+    "subtest_pass": 4,
+    "fail": 0,
+    "skip": 0
+  },
+  "affected_test_events": {
+    "pass": 84,
+    "skip": 13
+  },
+  "affected_packages": {
+    "agent-vivy/internal/storage/bundlesql": "skip",
+    "agent-vivy/internal/storage/conformance": "skip",
+    "agent-vivy/internal/storage/subjectsql": "skip",
+    "agent-vivy/internal/storage": "pass",
+    "agent-vivy/internal/storage/postgres": "pass",
+    "agent-vivy/internal/storage/migrations": "pass",
+    "agent-vivy/internal/storage/sqlite": "pass",
+    "agent-vivy/internal/runtime": "pass"
+  },
+  "postgres_task3": {
+    "pass": 0,
+    "skip": 5,
+    "real_database_executed": false,
+    "reason": "VIVY_POSTGRES_TEST_DSN unset; real PostgreSQL S6 gate pending"
+  },
+  "affected_skips": [
+    "agent-vivy/internal/storage/postgres:TestIssue58InteractionOrderAndDedup",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectIsolation",
+    "agent-vivy/internal/storage/postgres:TestIssue58AdmissionBoundaries",
+    "agent-vivy/internal/storage/postgres:TestIssue58ContinuityReplayBinding",
+    "agent-vivy/internal/storage/postgres:TestIssue58FormattedGrantReplay",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectRetention",
+    "agent-vivy/internal/storage/postgres:TestIssue58MissingEvidenceBlocksNewSeal",
+    "agent-vivy/internal/storage/postgres:TestIssue58CopySources",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectContextSnapshot",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectContextScope",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectContextCopyScope",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectContextSnapshotRace",
+    "agent-vivy/internal/storage/postgres:TestIssue58SubjectContextInvalidMapping"
+  ],
+  "source_files": {
+    "internal/runtime/subject_context.go": "beb1238e445a84cb57b689af3f20e49cf63d59ce1383033586e28facd54f4676",
+    "internal/runtime/subject_context_test.go": "e3a75d7e219b82b4cff1d41ec3b1cf61068b449e816eac12c8db9cc4dad90275",
+    "internal/storage/conformance/subject_context.go": "b26920e2c71c4697d91390842414319b3d0c23c98d14848c4bfa798a1a8f85df",
+    "internal/storage/postgres/subject_history.go": "725bf63cc4e3bef1b9ca2740a3221ee6fb636e5347dc02ed4e7bf9744c2dbb03",
+    "internal/storage/postgres/subject_history_test.go": "c8edfb1a0c932549423da46b39889b025650bf24eaa2f7997f56a5e4533f7c04",
+    "internal/storage/sqlite/subject_history.go": "448f6b7fdf3be0841efba4dfd739d78a6a97aab101f7747a9fd37f5d515f1cfc",
+    "internal/storage/sqlite/subject_history_test.go": "061aed3f14ed7f9eab8034300efa346af3c2f1d40c7ad76089f6d769278c7054",
+    "internal/storage/subject_history.go": "2fdae49e6729bb942f2081da6bcd46b1a49f41fc19ae3c51904272004894684a",
+    "internal/storage/subjectsql/subject_context.go": "ba287a92ef71df17a4783c58718f30d89c396094539f233fa8558e4d51e0e878"
+  },
+  "logs": {
+    "task-3-red.log": {
+      "sha256": "df38bfeb5a574360903d58eb0246912b31bb8434c2df1439b113452a00e51c17",
+      "bytes": 674
+    },
+    "task-3-red-domain-grant.log": {
+      "sha256": "f4cd55f05de2cd6154b8055e25107e3837b782a5941c3f06df826c3c46f77fb1",
+      "bytes": 317
+    },
+    "task-3-red-pending.log": {
+      "sha256": "ed1e288b520c08ba5422deb5b74fa8388a0a1d86c27b4e6ca5f264b39cb90a39",
+      "bytes": 378
+    },
+    "task-3-red-status.log": {
+      "sha256": "d4fd45b0e3c4913310f5b712f8c121c5455e229bae85e1390ac73cf355c064ec",
+      "bytes": 836
+    },
+    "task-3-red-exclusion.log": {
+      "sha256": "75f72a3c070114b8b8615171e243a57a2254c7b08f8ee3bed39c2c8734bff23a",
+      "bytes": 263
+    },
+    "task-3-red-interphase.log": {
+      "sha256": "173186da6056f13495dca87d0ab0f71786754f46c941f8b13e5629daaeff50ea",
+      "bytes": 809
+    },
+    "task-3-green.log": {
+      "sha256": "59c947263864505de4f00c8346c1d0fba0028421fefa1d09d07a30041e695253",
+      "bytes": 2909
+    },
+    "task-3-required-race.log": {
+      "sha256": "aee98337d31fe32079646a24e2d113f20ec4adeda39fcb5fc9a6abeb7de1cf07",
+      "bytes": 2910
+    },
+    "task-3-postgres.log": {
+      "sha256": "03223c0a500a1a535882e9dd3e69d60a119c618748d11c4518c124061763dfe1",
+      "bytes": 1095
+    },
+    "task-3-affected.jsonl": {
+      "sha256": "b7e59d16f034d2f156fd6164f9ddf4974e23b28becbc998e9a2c5b4ae99c8f42",
+      "bytes": 95425
+    }
+  }
+}

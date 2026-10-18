@@ -5,6 +5,8 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/ProjectViVy/inofy v0.0.0-20260930141905-71e2c9bbe47d
+	github.com/ProjectViVy/laputa/garden v0.0.0-20261017231101-27da7b9e2d99
+	github.com/ProjectViVy/laputa/laputa v0.0.0-20261017231101-27da7b9e2d99
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -15,8 +17,6 @@ require (
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
-	github.com/ProjectViVy/laputa/garden v0.0.0-20261010120923-4b2bec2cc2ab
-	github.com/ProjectViVy/laputa/laputa v0.0.0-20261010120923-4b2bec2cc2ab
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
@@ -35,6 +35,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.3 // indirect
 	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/DotNetAge/govector v0.1.8 // indirect
+	github.com/ProjectViVy/laputa/mentle v0.0.0-20261017231101-27da7b9e2d99
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -59,8 +60,7 @@ require (
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/coder/hnsw v0.6.2-0.20250701161932-41f4a3674f5b // indirect
-	github.com/ProjectViVy/laputa/mentle v0.0.0-20261010120923-4b2bec2cc2ab // indirect
+	github.com/coder/hnsw v0.6.2-0.20250701161932-41f4a3674f5b
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -140,18 +140,14 @@ require (
 )
 
 require (
-	agent-vivy/faces/headless v0.0.0
-	agent-vivy/faces/tui v0.0.0
+	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
-	agent-vivy/plugins/governance v0.0.0
-	agent-vivy/plugins/coding/lsp v0.0.0
+	agent-vivy/plugins/infra/llm v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/infra/llm v0.0.0
-	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
@@ -233,7 +229,6 @@ replace agent-vivy/plugins/governance => ./plugins/governance
 replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
 replace agent-vivy/plugins/infra/llm => ./plugins/infra/llm
-
 
 replace agent-vivy/plugins/coding/session-tree => ./plugins/coding/session-tree
 

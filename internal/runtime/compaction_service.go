@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 )
 
@@ -37,7 +38,12 @@ type LastCompaction struct {
 // ContextStatusResult is the wire shape of session/context — the real
 // pressure meter for the chat input ring and the settings compaction card.
 type ContextStatusResult struct {
-	SessionID domain.SessionID `json:"session_id"`
+	// False marks selected shared context whose next/pinned request has not been
+	// measured by this read-only endpoint. Legacy per-session estimates do not apply.
+	ContextPressureAvailable *bool            `json:"context_pressure_available,omitempty"`
+	ContextReason            string           `json:"context_reason,omitempty"`
+	RecapRevision            *uint64          `json:"recap_revision,omitempty"`
+	SessionID                domain.SessionID `json:"session_id"`
 	// TotalMessages is the full stored history count; FeedMessages is what
 	// the next run would actually feed after compaction folding.
 	TotalMessages int `json:"total_messages"`
@@ -58,6 +64,15 @@ type ContextStatusResult struct {
 	// route's model accepts an explicit extended-thinking request. The
 	// chat input gates its thinking selector on this flag.
 	ThinkingSupported bool `json:"thinking_supported"`
+	// ThinkingLevels is the level surface the active model accepts, from the
+	// same projection as model/thinking/levels (provider.ThinkingLevelSurface):
+	// declared levels, else the seven-level surface for a thinking-capable
+	// model, else an empty list. The composer offers exactly these names, so
+	// the button cannot promise a level the run path would clamp away.
+	ThinkingLevels []string `json:"thinking_levels"`
+	// ThinkingDefault is the model's own default level, empty when it
+	// declares none.
+	ThinkingDefault string `json:"thinking_default"`
 	// ImageSupportKnown distinguishes resolved model metadata from unknown
 	// custom routes. ImageSupported is meaningful only when known is true;
 	// terminal faces fail closed for the local image entry point when unknown.
@@ -77,10 +92,11 @@ type ContextStatusResult struct {
 
 // CompactionResult is the outcome of one manual context/compact call.
 type CompactionResult struct {
-	BeforeTokens int  `json:"before_tokens"`
-	AfterTokens  int  `json:"after_tokens"`
-	Folded       int  `json:"folded_messages"`
-	Skipped      bool `json:"skipped"`
+	TokenCountsAvailable *bool `json:"token_counts_available,omitempty"`
+	BeforeTokens         int   `json:"before_tokens"`
+	AfterTokens          int   `json:"after_tokens"`
+	Folded               int   `json:"folded_messages"`
+	Skipped              bool  `json:"skipped"`
 }
 
 // ContextStatus reports the real context pressure of a session: what the
@@ -90,6 +106,41 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 		return ContextStatusResult{}, errors.New("runtime: service not wired")
 	}
 	out := ContextStatusResult{SessionID: sessionID, LimitBytes: s.engine.cfg.MaxContextBytes}
+
+	info := s.GetModelInfo(ctx)
+	out.ThinkingSupported = info.SupportsThinking
+	out.ThinkingLevels = provider.ThinkingLevelSurface(info)
+	out.ThinkingDefault = info.DefaultThinking
+	out.ImageSupportKnown = info.ContextWindow > 0
+	out.ImageSupported = info.SupportsImages
+	if info.ContextWindow > 0 {
+		out.ModelLimitTokens = info.ContextWindow
+		out.ModelLimitKnown = true
+	} else {
+		out.ModelLimitTokens = fallbackContextWindowTokens
+	}
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return out, err
+	}
+	if source != nil && source.ConversationID != "" {
+		available := false
+		out.ContextPressureAvailable = &available
+		out.ContextReason = "recap_context_measurement_unavailable"
+		if s.deps.Recap == nil {
+			return out, ErrRecapUnavailable
+		}
+		head, err := s.deps.Recap.ReadRecap(ctx)
+		if err != nil {
+			return out, err
+		}
+		if head.Binding.SubjectID != source.SubjectID || head.Binding.DomainID != source.DomainID {
+			return out, ErrRecapUnavailable
+		}
+		out.RecapRevision = &head.Revision
+		out.CompactionEnabled = s.engine.cfg.Compaction != nil && s.engine.cfg.Compaction.Enabled
+		return out, nil
+	}
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		return out, fmt.Errorf("runtime: list session messages: %w", err)
@@ -102,16 +153,6 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	out.TokenCountsEstimated = true
 	out.HasCompactionSummary = foldedOK
 
-	info := s.GetModelInfo(ctx)
-	out.ThinkingSupported = info.SupportsThinking
-	out.ImageSupportKnown = info.ContextWindow > 0
-	out.ImageSupported = info.SupportsImages
-	if info.ContextWindow > 0 {
-		out.ModelLimitTokens = info.ContextWindow
-		out.ModelLimitKnown = true
-	} else {
-		out.ModelLimitTokens = fallbackContextWindowTokens
-	}
 	if s.engine.cfg.Compaction != nil && s.engine.cfg.Compaction.Enabled {
 		out.CompactionEnabled = true
 		out.TriggerTokens = s.engine.cfg.Compaction.TriggerTokens(bytesToTokens(s.engine.cfg.MaxContextBytes))
@@ -139,6 +180,31 @@ type CompactOptions struct {
 // the covered rows, and journals a context.compacted event. It refuses to
 // run while a run is active: live runs already compress in-run.
 func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID, opts CompactOptions) (CompactionResult, error) {
+	source, err := s.resolveSubjectAdmission(ctx, sessionID)
+	if err != nil {
+		return CompactionResult{}, err
+	}
+	if source != nil && source.ConversationID != "" {
+		if s.deps.Recap == nil {
+			return CompactionResult{}, ErrRecapUnavailable
+		}
+		controlCtx, finish, startErr := s.beginRecapSessionControl(ctx, sessionID)
+		if startErr != nil {
+			return CompactionResult{}, startErr
+		}
+		defer finish()
+		ctx = controlCtx
+		before, readErr := s.deps.Recap.ReadRecap(ctx)
+		if readErr != nil {
+			return CompactionResult{}, readErr
+		}
+		head, compactErr := s.compactSubjectRecap(ctx, source.SubjectHistoryBinding, opts.Instructions)
+		if compactErr != nil {
+			return CompactionResult{}, compactErr
+		}
+		available := false
+		return CompactionResult{TokenCountsAvailable: &available, Folded: int(head.CoveredThrough - before.CoveredThrough), Skipped: head.Revision == before.Revision}, nil
+	}
 	if s.engine == nil || s.deps.Messages == nil {
 		return CompactionResult{}, errors.New("runtime: service not wired")
 	}
@@ -476,8 +542,10 @@ func (s *Service) ScheduleEngineReload(next EngineConfig) error {
 	if s.deps.RebuildEngine == nil {
 		return errors.New("runtime: engine reload not wired")
 	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
 	s.mu.Lock()
-	idle := len(s.active) == 0 && len(s.pending) == 0
+	idle := len(s.active) == 0 && len(s.pending) == 0 && len(s.sessionControls) == 0
 	if !idle {
 		next := next
 		s.pendingEngine = &next
@@ -501,7 +569,7 @@ func (s *Service) applyPendingEngineReload(ctx context.Context, explicit *Engine
 		s.mu.Unlock()
 		return nil
 	}
-	if len(s.active) > 0 || len(s.pending) > 0 {
+	if len(s.active) > 0 || len(s.pending) > 0 || len(s.sessionControls) > 0 {
 		s.mu.Unlock()
 		return nil
 	}

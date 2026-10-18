@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"sync/atomic"
@@ -19,8 +20,10 @@ const defaultRecallLimit uint32 = 100
 // behind by Close reports the explicit bml_unavailable outcome rather than
 // reopening the store.
 type Service struct {
-	home   *bml.Home
-	closed atomic.Bool
+	home         *bml.Home
+	leaseOwner   string
+	closed       atomic.Bool
+	subjectTools func(context.Context, string, json.RawMessage) (json.RawMessage, bool, error)
 }
 
 func (s *Service) close() error {
@@ -290,4 +293,31 @@ func entryFromRecord(stored bml.StoredRecord) bml.MemoryEntry {
 		CreatedAt:    stored.Record.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:    stored.Record.EffectiveAt.UTC().Format(time.RFC3339),
 	}
+}
+
+// serviceBinding is populated once by trusted App composition. Standalone
+// legacy callers may still use Active; a bound instance never substitutes it.
+type serviceBinding struct{ service *Service }
+
+func (b *serviceBinding) BindMemoryService(service *Service) error {
+	if !service.live() {
+		return errUnavailable
+	}
+	if b.service != nil && b.service != service {
+		return errors.New("memory: provider already bound")
+	}
+	b.service = service
+	return nil
+}
+func (b serviceBinding) memoryService() *Service {
+	if b.service != nil {
+		return b.service
+	}
+	return Active()
+}
+
+// BindSubjectTools attaches the construction-owned policy route before App starts.
+// Ordinary unbound providers retain the legacy machine-home contract.
+func (s *Service) BindSubjectTools(route func(context.Context, string, json.RawMessage) (json.RawMessage, bool, error)) {
+	s.subjectTools = route
 }

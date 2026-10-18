@@ -1,0 +1,111 @@
+{
+  "vivy_pin_candidate": "fdcb25a554df79c7938287b89a539c905804ca63",
+  "vivy_tree": "471a603ab03a59c525cb51337c4da7994c174f6c",
+  "vivy_remote_equivalent": "1d0e12689000eaaebd57cc8cca1fc7c53d81d0e5",
+  "native_local_tested": "a99c25feea48e151c847cea81015bec0fdfe80bf",
+  "native_published": "249a756e04c5f28af781e4dadea9e9086689bde0",
+  "native_tree": "9fff8cf9d5ca174a1af90e43a0e718281a24635e",
+  "version": "v0.0.0-20261015222145-249a756e04c5",
+  "no_replace_module_download": "PASS80.976s official Go proxy/direct+sum.golang.org; three signed cache notes retained",
+  "published_go_files_match": [
+    {
+      "path": "garden/internal/ingest/capture_activity.go",
+      "sha256": "32feb6532576467e8bc057d598f5808db34cc6fc8b0decfe55e22a85df20318e"
+    },
+    {
+      "path": "garden/internal/ingest/legacy_metadata_test.go",
+      "sha256": "7fadfb123e23b5a7ed68f31e705c01e45aa94fa1329efacf112ae057b339a7cf"
+    },
+    {
+      "path": "garden/internal/ingest/legacy_policy_test.go",
+      "sha256": "2411ac9eabacb9d3e0bfb59d62beae632d2734a203ca0042c3c95f8c78126f18"
+    },
+    {
+      "path": "garden/internal/ingest/legacy_policy_windows_test.go",
+      "sha256": "c866218b9dc263eabf50499df1bde65c4ab4b023c9030c12847f38421695b7c5"
+    },
+    {
+      "path": "garden/internal/ingest/service.go",
+      "sha256": "c1a30de8787654b3c32b408aa46a98e429d1aa8761e79687b127faf170c647e6"
+    },
+    {
+      "path": "garden/internal/runtimecore/legacy_consumer_test.go",
+      "sha256": "6dfc1f00b1e93d3ad027fa2ff270bf37b8a6b5e96878d32ef131a2507e18b6b4"
+    },
+    {
+      "path": "garden/internal/runtimecore/runtime.go",
+      "sha256": "93d444fee250e85dccb0e2a5a7cb6da5b21e2bbb92ba62d0fdba4ae0d00c5647"
+    },
+    {
+      "path": "laputa/actmem/capture_pair.go",
+      "sha256": "c0cd83cf6c6660268dc5d5fbb5cc16809375aac49261c4b5f040e27740c3b09c"
+    },
+    {
+      "path": "laputa/actmem/capture_v3_test.go",
+      "sha256": "da076b47fa0a5d9a161dbba42a394fe13f1bff162ccf5bf18d4c23f2804142df"
+    },
+    {
+      "path": "laputa/actmem/ops.go",
+      "sha256": "215ddeb2137e44bea6a854f9b15f5ca4a01edf2b706e2af9f81b77a9a6cb646e"
+    }
+  ],
+  "archive_sha256": "d3c61ecc9a962bf2515d58c48798d80ad9788668918b6f4fc726d744cbc9aa4e",
+  "files": [
+    {
+      "path": "/tmp/issue58-native-published-fetch.log",
+      "sha256": "cf6e3342d1076959b75843198d1c2446af992f23ecbb742a36231d93880f6375",
+      "bytes": 119
+    },
+    {
+      "path": "/tmp/issue58-native-published-fetch.json",
+      "sha256": "48b2599e3a61294b40e7095a3aeda832b3a6e3be2f9cedd4dba3f7a58a61ee6e",
+      "bytes": 499
+    },
+    {
+      "path": "/tmp/issue58-native-normal-modules.log",
+      "sha256": "33525cbb59d26b6f0b56e5993c1df5aa7daa7e42a26e21d3efe1e4345c964c34",
+      "bytes": 2595
+    },
+    {
+      "path": "/tmp/issue58-native-normal-modules.json",
+      "sha256": "d9baafc25faaac890ca36076e508651376a0be6ef9bf08f01fb1e9337698760e",
+      "bytes": 804
+    },
+    {
+      "path": "/tmp/issue58-native-normal-modules-records.json",
+      "sha256": "57c9ede5cff44fa6447ca2225ee1ba0153f288513eae43e430c4105bd4181cfb",
+      "bytes": 2751
+    },
+    {
+      "path": "/tmp/issue58-native-sumdb-cache-notes.json",
+      "sha256": "aa23f20af71835ec8625295e226d340e61d1caec4d69f550eb2d9185faf1cff4",
+      "bytes": 492
+    },
+    {
+      "path": "/tmp/issue58-native-published-modules/go.mod",
+      "sha256": "46ab0dcb7b9077c6ab90c6540002eaf9278f349e5fc90a2e9afd5ba3327cc49d",
+      "bytes": 282
+    },
+    {
+      "path": "/tmp/issue58-native-published-modules/go.sum",
+      "sha256": "1e0dadc6dd9e720f3577c10bcbbc39a4ccf88a29f57c286daac77998353b96cc",
+      "bytes": 741
+    },
+    {
+      "path": "/root/go/pkg/mod/cache/download/sumdb/sum.golang.org/lookup/github.com/!project!vi!vy/laputa/garden@v0.0.0-20261015222145-249a756e04c5",
+      "sha256": "c435176c4d6b5a819d773ec2beba039c08a9bdbdcd5a08a1652b366c05fc1710",
+      "bytes": 445
+    },
+    {
+      "path": "/root/go/pkg/mod/cache/download/sumdb/sum.golang.org/lookup/github.com/!project!vi!vy/laputa/laputa@v0.0.0-20261015222145-249a756e04c5",
+      "sha256": "8fbc4d8647617da74e441cea566324f9ac662d986ea225f2b7ecfa6a7e277b78",
+      "bytes": 445
+    },
+    {
+      "path": "/root/go/pkg/mod/cache/download/sumdb/sum.golang.org/lookup/github.com/!project!vi!vy/laputa/mentle@v0.0.0-20261015222145-249a756e04c5",
+      "sha256": "7f30a73ffe8b58179be12dd1c15a644f51d55478f96741abc6d524b98b764a3b",
+      "bytes": 445
+    }
+  ],
+  "qualification": "Published module and native producer interface qualified. Vivy normal consumer selection passes318+5pk/2opt-in skips; race RUNNING. No BML consumer activation, Windows or whole S5/S6 acceptance."
+}
