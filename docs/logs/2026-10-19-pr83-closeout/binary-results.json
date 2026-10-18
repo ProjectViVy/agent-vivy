@@ -1,0 +1,2178 @@
+{
+  "started_at": "2026-10-18T18:49:20.830Z",
+  "platform": "win32/x64",
+  "binaries": {
+    "old": {
+      "path": "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-historical.exe",
+      "sha256": "52a6acb43c27d86cde23f42221ede4326436528ea7975e09c55590860ae26475",
+      "build_info": "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-historical.exe: go1.26.4\n\tpath\tagent-vivy/cmd/vivy\n\tmod\tagent-vivy\tv0.0.0-20261018024432-7b42b2920f72\t\n\tdep\tagent-vivy/plugins/coding/session-tree\tv0.0.0\n\t=>\t./plugins/coding/session-tree\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/dingtalk\tv0.0.0\n\t=>\t./plugins/dingtalk\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/discord\tv0.0.0\n\t=>\t./plugins/discord\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/feishu\tv0.0.0\n\t=>\t./plugins/feishu\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/qq\tv0.0.0\n\t=>\t./plugins/qq\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/telegram\tv0.0.0\n\t=>\t./plugins/telegram\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-evolution\tv0.0.0\n\t=>\t./plugins/vivy-evolution\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-masks-ui\tv0.0.0\n\t=>\t./plugins/vivy-masks-ui\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-memory\tv0.0.0\n\t=>\t./plugins/vivy-memory\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-notebook\tv0.0.0\n\t=>\t./plugins/vivy-notebook\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-persona\tv0.0.0\n\t=>\t./plugins/vivy-persona\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-toolkits-ui\tv0.0.0\n\t=>\t./plugins/vivy-toolkits-ui\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-workflow\tv0.0.0\n\t=>\t./plugins/vivy-workflow\t(devel)\t\n\t\n\tdep\tcloud.google.com/go/auth\tv0.7.2\th1:uiha352VrCDMXg+yoBtaD0tUF4Kv9vrtrWPYXwutnDE=\n\tdep\tcloud.google.com/go/auth/oauth2adapt\tv0.2.3\th1:MlxF+Pd3OmSudg/b1yZ5lJwoXCEaeedAguodky1PcKI=\n\tdep\tcloud.google.com/go/compute/metadata\tv0.5.0\th1:Zr0eK8JbFv6+Wi4ilXAR8FJ3wyNdpxHKJNPos6LTZOY=\n\tdep\tgithub.com/DotNetAge/govector\tv0.1.8\th1:LwNJecCbLgj0ISXBRUCQziPYBbYxtr+3jVEKvXzK7wo=\n\tdep\tgithub.com/JohannesKaufmann/html-to-markdown\tv1.6.0\th1:04VXMiE50YYfCfLboJCLcgqF5x+rHJnb1ssNmqpLH/k=\n\tdep\tgithub.com/ProjectViVy/agent-vivy/bml\tv0.0.0\n\t=>\t./bml\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/inofy\tv0.0.0-20260930141905-71e2c9bbe47d\th1:+s+l5SuqhpKIjIsQ20e2dtndZUXHtRrsV6Qay+F1uhs=\n\tdep\tgithub.com/ProjectViVy/laputa/garden\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/garden\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/laputa/laputa\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/laputa\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/laputa/mentle\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/mentle\t(devel)\t\n\t\n\tdep\tgithub.com/PuerkitoBio/goquery\tv1.12.0\th1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO8RIBo=\n\tdep\tgithub.com/alecthomas/chroma/v2\tv2.20.0\th1:sfIHpxPyR07/Oylvmcai3X/exDlE8+FA820NTz+9sGw=\n\tdep\tgithub.com/andybalholm/brotli\tv1.2.1\th1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=\n\tdep\tgithub.com/andybalholm/cascadia\tv1.3.3\th1:AG2YHrzJIm4BZ19iwJ/DAua6Btl3IwJX+VI4kktS1LM=\n\tdep\tgithub.com/anthropics/anthropic-sdk-go\tv1.56.0\th1:idVU14wOZ06D0GBNEvuhn927xXmBVEquo0469iDwLsc=\n\tdep\tgithub.com/aws/aws-sdk-go-v2\tv1.33.0\th1:Evgm4DI9imD81V0WwD+TN4DCwjUMdc94TrduMLbgZJs=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/aws/protocol/eventstream\tv1.6.3\th1:tW1/Rkad38LA15X4UQtjXZXNKsCgkshC3EbmcUmghTg=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/config\tv1.29.1\th1:JZhGawAyZ/EuJeBtbQYnaoftczcb2drR2Iq36Wgz4sQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/credentials\tv1.17.54\th1:4UmqeOqJPvdvASZWrKlhzpRahAulBfyTJQUaYy4+hEI=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/feature/ec2/imds\tv1.16.24\th1:5grmdTdMsovn9kPZPI23Hhvp0ZyNm5cRO+IZFIYiAfw=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/configsources\tv1.3.28\th1:igORFSiH3bfq4lxKFkTSYDhJEUCYo6C8VKiWJjYwQuQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/endpoints/v2\tv2.6.28\th1:1mOW9zAUMhTSrMDssEHS/ajx8JcAj/IcftzcmNlmVLI=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/ini\tv1.8.1\th1:VaRN3TlFdd6KxX1x3ILT5ynH6HvKgqdiXoTxAF4HQcQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/accept-encoding\tv1.12.1\th1:iXtILhvDxB6kPvEXgsDhGaZCSC6LQET5ZHSdJozeI0Y=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/presigned-url\tv1.12.9\th1:TQmKDyETFGiXVhZfQ/I0cCFziqqX58pi4tKJGYGFSz0=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sso\tv1.24.11\th1:kuIyu4fTT38Kj7YCC7ouNbVZSSpqkZ+LzIfhCr6Dg+I=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/ssooidc\tv1.28.10\th1:l+dgv/64iVlQ3WsBbnn+JSbkj01jIi+SM0wYsj3y/hY=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sts\tv1.33.9\th1:BRVDbewN6VZcwr+FBOszDKvYeXY1kJ+GGMCcpghlw0U=\n\tdep\tgithub.com/aws/smithy-go\tv1.22.1\th1:/HPHZQ0g7f4eUeK6HKglFz8uwVfZKgoI25rb/J+dnro=\n\tdep\tgithub.com/aymanbagabas/go-osc52/v2\tv2.0.1\th1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=\n\tdep\tgithub.com/aymanbagabas/go-udiff\tv0.4.1\th1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=\n\tdep\tgithub.com/aymerick/douceur\tv0.2.0\th1:Mv+mAeH1Q+n9Fr+oyamOlAkUNPWPlA8PPGR0QAaYuPk=\n\tdep\tgithub.com/bahlo/generic-list-go\tv0.2.0\th1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=\n\tdep\tgithub.com/bmatcuk/doublestar/v4\tv4.10.0\th1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=\n\tdep\tgithub.com/buger/jsonparser\tv1.1.2\th1:frqHqw7otoVbk5M8LlE/L7HTnIq2v9RX6EJ48i9AxJk=\n\tdep\tgithub.com/bwmarrin/discordgo\tv0.29.0\th1:FmWeXFaKUwrcL3Cx65c20bTRW+vOb6k8AnaP+EgjDno=\n\tdep\tgithub.com/bytedance/gopkg\tv0.1.3\th1:TPBSwH8RsouGCBcMBktLt1AymVo2TVsBVCY4b6TnZ/M=\n\tdep\tgithub.com/bytedance/sonic\tv1.15.2\th1:90H+rcF/FwLXwfB1cudOLq/je83n683Utf4Cbp0xHCo=\n\tdep\tgithub.com/bytedance/sonic/loader\tv0.5.1\th1:Ygpfa9zwRCCKSlrp5bBP/b/Xzc3VxsAW+5NIYXrOOpI=\n\tdep\tgithub.com/charmbracelet/bubbletea\tv1.3.10\th1:otUDHWMMzQSB0Pkc87rm691KZ3SWa4KUlvF9nRvCICw=\n\tdep\tgithub.com/charmbracelet/colorprofile\tv0.4.3\th1:QPa1IWkYI+AOB+fE+mg/5/4HRMZcaXex9t5KX76i20Q=\n\tdep\tgithub.com/charmbracelet/glamour\tv1.0.0\th1:AWMLOVFHTsysl4WV8T8QgkQ0s/ZNZo7CiE4WKhk8l08=\n\tdep\tgithub.com/charmbracelet/lipgloss\tv1.1.1-0.20250404203927-76690c660834\th1:ZR7e0ro+SZZiIZD7msJyA+NjkCNNavuiPBLgerbOziE=\n\tdep\tgithub.com/charmbracelet/x/ansi\tv0.11.6\th1:GhV21SiDz/45W9AnV2R61xZMRri5NlLnl6CVF7ihZW8=\n\tdep\tgithub.com/charmbracelet/x/cellbuf\tv0.0.15\th1:ur3pZy0o6z/R7EylET877CBxaiE1Sp1GMxoFPAIztPI=\n\tdep\tgithub.com/charmbracelet/x/exp/slice\tv0.0.0-20250327172914-2fdc97757edf\th1:rLG0Yb6MQSDKdB52aGX55JT1oi0P0Kuaj7wi1bLUpnI=\n\tdep\tgithub.com/charmbracelet/x/term\tv0.2.2\th1:xVRT/S2ZcKdhhOuSP4t5cLi5o+JxklsoEObBSgfgZRk=\n\tdep\tgithub.com/chewxy/math32\tv1.11.1\th1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=\n\tdep\tgithub.com/clipperhouse/displaywidth\tv0.11.0\th1:lBc6kY44VFw+TDx4I8opi/EtL9m20WSEFgwIwO+UVM8=\n\tdep\tgithub.com/clipperhouse/uax29/v2\tv2.7.0\th1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=\n\tdep\tgithub.com/cloudwego/base64x\tv0.1.6\th1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI2M=\n\tdep\tgithub.com/cloudwego/eino\tv0.9.13\th1:iD/ETS+lxnNp1VeNPqWVGPWdND6Dbf4LyINbLUlDRcM=\n\tdep\tgithub.com/cloudwego/eino-ext/components/model/claude\tv0.1.25\th1:ZMJZmIWv3KZXPoVzYRiQB4/n9TktqnTBzu0nrxKv+G4=\n\tdep\tgithub.com/cloudwego/eino-ext/components/model/openai\tv0.1.13\th1:5XHRTiTD5bt9KQrMHcfvuWNklEC3tpm3XHejdozt9vM=\n\tdep\tgithub.com/cloudwego/eino-ext/components/tool/mcp\tv0.0.9\th1:3NqF4ggVj/JmUopEM+IOrYmU8N/PQyS8gOR0ZV1tSDs=\n\tdep\tgithub.com/cloudwego/eino-ext/libs/acl/openai\tv0.1.17\th1:EeVcR1TslRA2IdNW1h/2LaGbPlffwGhQm99jM3zWZiI=\n\tdep\tgithub.com/coder/hnsw\tv0.6.2-0.20250701161932-41f4a3674f5b\th1:XNqDbS1itxB5HlyoIzPRgn5APG3NEwxiYNhglQW2QFQ=\n\tdep\tgithub.com/dlclark/regexp2\tv1.11.5\th1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=\n\tdep\tgithub.com/dustin/go-humanize\tv1.0.1\th1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=\n\tdep\tgithub.com/eino-contrib/jsonschema\tv1.0.3\th1:2Kfsm1xlMV0ssY2nuxshS4AwbLFuqmPmzIjLVJ1Fsp0=\n\tdep\tgithub.com/erikgeiser/coninput\tv0.0.0-20211004153227-1c3628e74d0f\th1:Y/CXytFA4m6baUTXGLOoWe4PQhGxaX0KpnayAqC48p4=\n\tdep\tgithub.com/evanphx/json-patch\tv0.5.2\th1:xVCHIVMUu1wtM/VkR9jVZ45N3FhZfYMMYGorLCR8P3k=\n\tdep\tgithub.com/felixge/httpsnoop\tv1.0.4\th1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=\n\tdep\tgithub.com/fsnotify/fsnotify\tv1.9.0\th1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=\n\tdep\tgithub.com/go-errors/errors\tv1.5.1\th1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=\n\tdep\tgithub.com/go-logr/logr\tv1.4.3\th1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=\n\tdep\tgithub.com/go-logr/stdr\tv1.2.2\th1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=\n\tdep\tgithub.com/go-resty/resty/v2\tv2.6.0\th1:joIR5PNLM2EFqqESUjCMGXrWmXNHEU9CEiK813oKYS4=\n\tdep\tgithub.com/go-viper/mapstructure/v2\tv2.4.0\th1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=\n\tdep\tgithub.com/gofrs/flock\tv0.13.0\th1:95JolYOvGMqeH31+FC7D2+uULf6mG61mEZ/A8dRYMzw=\n\tdep\tgithub.com/gogo/protobuf\tv1.3.2\th1:Ov1cvc58UF3b5XjBnZv7+opcTcQFZebYjWzi34vdm4Q=\n\tdep\tgithub.com/golang/groupcache\tv0.0.0-20210331224755-41bb18bfe9da\th1:oI5xCqsCo564l8iNU+DwB5epxmsaqB+rhGL0m5jtYqE=\n\tdep\tgithub.com/golang/protobuf\tv1.5.4\th1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=\n\tdep\tgithub.com/gomlx/exceptions\tv0.0.3\th1:HKnTgEjj4jlmhr8zVFkTP9qmV1ey7ypYYosQ8GzXWuM=\n\tdep\tgithub.com/gomlx/go-huggingface\tv0.3.5\th1:eZz1huOvfr0TW30e11TkGAUZY4Jj5Oh/g0Thz4cvu0I=\n\tdep\tgithub.com/gomlx/gomlx\tv0.27.3\th1:4cCcVi2m3lvMzDyZtepIl3+6cBGMTXhrYvQtOdtU5Z4=\n\tdep\tgithub.com/gomlx/onnx-gomlx\tv0.4.2\th1:nBDbjzZOVMkCudk0AKMREHMdm54xNcp34dAte9aNwqQ=\n\tdep\tgithub.com/google/jsonschema-go\tv0.4.2\th1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbcqoRA8=\n\tdep\tgithub.com/google/renameio\tv1.0.1\n\t=>\t./third_party/renameio\t(devel)\t\n\t\n\tdep\tgithub.com/google/s2a-go\tv0.1.7\th1:60BLSyTrOV4/haCDW4zb1guZItoSq8foHCXrAnjBo/o=\n\tdep\tgithub.com/google/uuid\tv1.6.0\th1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\n\tdep\tgithub.com/googleapis/enterprise-certificate-proxy\tv0.3.2\th1:Vie5ybvEvT75RniqhfFxPRy3Bf7vr3h0cechB90XaQs=\n\tdep\tgithub.com/goph/emperror\tv0.17.2\th1:yLapQcmEsO0ipe9p5TaN22djm3OFV/TfM/fcYP0/J18=\n\tdep\tgithub.com/gorilla/css\tv1.0.1\th1:ntNaBIghp6JmvWnxbZKANoLyuXTPZ4cAMlo6RyhlbO8=\n\tdep\tgithub.com/gorilla/websocket\tv1.5.3\th1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=\n\tdep\tgithub.com/grbit/go-json\tv0.11.0\th1:bAbyMdYrYl/OjYsSqLH99N2DyQ291mHy726Mx+sYrnc=\n\tdep\tgithub.com/invopop/jsonschema\tv0.14.0\th1:MHQqLhvpNUZfw+hM3AZDYK7jxO8FZoQeQM77g8iyZjg=\n\tdep\tgithub.com/jackc/pgpassfile\tv1.0.0\th1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=\n\tdep\tgithub.com/jackc/pgservicefile\tv0.0.0-20240606120523-5a60cdf6a761\th1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=\n\tdep\tgithub.com/jackc/pgx/v5\tv5.7.6\th1:rWQc5FwZSPX58r1OQmkuaNicxdmExaEz5A2DO2hUuTk=\n\tdep\tgithub.com/jackc/puddle/v2\tv2.2.2\th1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=\n\tdep\tgithub.com/json-iterator/go\tv1.1.12\th1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=\n\tdep\tgithub.com/klauspost/compress\tv1.18.6\th1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=\n\tdep\tgithub.com/klauspost/cpuid/v2\tv2.2.9\th1:66ze0taIn2H33fBvCkXuv9BmCwDfafmiIVpKV9kKGuY=\n\tdep\tgithub.com/knights-analytics/hugot\tv0.7.5\th1:EcEU7Gx2yIXjNTafXEOujLdFZj6xtkJl906ALhP8TWA=\n\tdep\tgithub.com/larksuite/oapi-sdk-go/v3\tv3.11.0\th1:KyCckvO8dFVQJPZYd7DdEPzgGp/C1g+hmi3oiV/dpnI=\n\tdep\tgithub.com/lucasb-eyer/go-colorful\tv1.3.0\th1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=\n\tdep\tgithub.com/mailru/easyjson\tv0.7.7\th1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=\n\tdep\tgithub.com/mark3labs/mcp-go\tv1.0.0\th1:CZqCzXwUiTOstkIdW1MyOZGuM+LaKMEJSu+ZYluN4DU=\n\tdep\tgithub.com/mastwet/prettylog\tv0.0.0-20261002164743-8b8e03760378\th1:9uNY54N3C8IWoHZRpGGwaRXOk8BhH6zywgK9H7WdTXI=\n\tdep\tgithub.com/mattn/go-isatty\tv0.0.24\th1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=\n\tdep\tgithub.com/mattn/go-localereader\tv0.0.1\th1:ygSAOl7ZXTx4RdPYinUpg6W99U8jWvWi9Ye2JC/oIi4=\n\tdep\tgithub.com/mattn/go-runewidth\tv0.0.21\th1:jJKAZiQH+2mIinzCJIaIG9Be1+0NR+5sz/lYEEjdM8w=\n\tdep\tgithub.com/meguminnnnnnnnn/go-openai\tv0.1.2\th1:iXombGGjqjBrmE9WaSidUhhi3YQhf42QTHvHLMkgvCA=\n\tdep\tgithub.com/microcosm-cc/bluemonday\tv1.0.27\th1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=\n\tdep\tgithub.com/modern-go/concurrent\tv0.0.0-20180306012644-bacd9c7ef1dd\th1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=\n\tdep\tgithub.com/modern-go/reflect2\tv1.0.2\th1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=\n\tdep\tgithub.com/muesli/ansi\tv0.0.0-20230316100256-276c6243b2f6\th1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=\n\tdep\tgithub.com/muesli/cancelreader\tv0.2.2\th1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELUXHmA=\n\tdep\tgithub.com/muesli/reflow\tv0.3.0\th1:IFsN6K9NfGtjeggFP+68I4chLZV2yIKsXJFNZ+eWh6s=\n\tdep\tgithub.com/muesli/termenv\tv0.16.0\th1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc=\n\tdep\tgithub.com/mymmrac/telego\tv1.10.0\th1:Upe0TqYyiK+yE5RFXXuQWVHGfLZnqvUfj4KZVjTcgWE=\n\tdep\tgithub.com/ncruces/go-strftime\tv1.0.0\th1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=\n\tdep\tgithub.com/nikolalohinski/gonja\tv1.5.3\th1:GsA+EEaZDZPGJ8JtpeGN78jidhOlxeJROpqMT9fTj9c=\n\tdep\tgithub.com/open-dingtalk/dingtalk-stream-sdk-go\tv0.9.1\th1:Lb/Uzkiw2Ugt2Xf03J5wmv81PdkYOiWbI8CNBi1boC8=\n\tdep\tgithub.com/pb33f/ordered-map/v2\tv2.3.1\th1:5319HDO0aw4DA4gzi+zv4FXU9UlSs3xGZ40wcP1nBjY=\n\tdep\tgithub.com/pelletier/go-toml/v2\tv2.2.4\th1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=\n\tdep\tgithub.com/pkg/errors\tv0.9.1\th1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=\n\tdep\tgithub.com/remyoudompheng/bigfft\tv0.0.0-20230129092748-24d4a6f8daec\th1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=\n\tdep\tgithub.com/rivo/uniseg\tv0.4.7\th1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=\n\tdep\tgithub.com/sagikazarmark/locafero\tv0.11.0\th1:1iurJgmM9G3PA/I+wWYIOw/5SyBtxapeHDcg+AAIFXc=\n\tdep\tgithub.com/santhosh-tekuri/jsonschema/v6\tv6.0.2\th1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=\n\tdep\tgithub.com/sirupsen/logrus\tv1.9.3\th1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=\n\tdep\tgithub.com/slongfield/pyfmt\tv0.0.0-20220222012616-ea85ff4c361f\th1:Z2cODYsUxQPofhpYRMQVwWz4yUVpHF+vPi+eUdruUYI=\n\tdep\tgithub.com/sourcegraph/conc\tv0.3.1-0.20240121214520-5f936abd7ae8\th1:+jumHNA0Wrelhe64i8F6HNlS8pkoyMv5sreGx2Ry5Rw=\n\tdep\tgithub.com/spf13/afero\tv1.15.0\th1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=\n\tdep\tgithub.com/spf13/cast\tv1.10.0\th1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=\n\tdep\tgithub.com/spf13/pflag\tv1.0.10\th1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=\n\tdep\tgithub.com/spf13/viper\tv1.21.0\th1:x5S+0EU27Lbphp4UKm1C+1oQO+rKx36vfCoaVebLFSU=\n\tdep\tgithub.com/standard-webhooks/standard-webhooks/libraries\tv0.0.1\th1:uOfcYT+3QungH6tIGSVCR/Y3KJmgJiHcojJbMTPDZAI=\n\tdep\tgithub.com/subosito/gotenv\tv1.6.0\th1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=\n\tdep\tgithub.com/tencent-connect/botgo\tv0.2.1\th1:+BrTt9Zh+awL28GWC4g5Na3nQaGRWb0N5IctS8WqBCk=\n\tdep\tgithub.com/tidwall/gjson\tv1.18.0\th1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=\n\tdep\tgithub.com/tidwall/match\tv1.1.1\th1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=\n\tdep\tgithub.com/tidwall/pretty\tv1.2.1\th1:qjsOFOWWQl+N3RsoF5/ssm1pHmJJwhjlSbZ51I6wMl4=\n\tdep\tgithub.com/tidwall/sjson\tv1.2.5\th1:kLy8mja+1c9jlljvWTlSazM7cKDRfJuR/bOJhcY5NcY=\n\tdep\tgithub.com/twitchyliquid64/golang-asm\tv0.15.1\th1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=\n\tdep\tgithub.com/valyala/bytebufferpool\tv1.0.0\th1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=\n\tdep\tgithub.com/valyala/fasthttp\tv1.71.0\th1:tepR7H+Guh9VUqxxcPggYi8R3lGUu2Rsdh+z7/FCY3k=\n\tdep\tgithub.com/valyala/fastjson\tv1.6.10\th1:/yjJg8jaVQdYR3arGxPE2X5z89xrlhS0eGXdv+ADTh4=\n\tdep\tgithub.com/viant/afs\tv1.30.0\th1:dbgVVSCPwGHUgpgkWJ5gdjKBqssT7OV7Z2M81CjwZEY=\n\tdep\tgithub.com/viterin/partial\tv1.1.0\th1:iH1l1xqBlapXsYzADS1dcbizg3iQUKTU1rbwkHv/80E=\n\tdep\tgithub.com/viterin/vek\tv0.4.2\th1:Vyv04UjQT6gcjEFX82AS9ocgNbAJqsHviheIBdPlv5U=\n\tdep\tgithub.com/wk8/go-ordered-map/v2\tv2.1.8\th1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=\n\tdep\tgithub.com/x448/float16\tv0.8.4\th1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=\n\tdep\tgithub.com/xo/terminfo\tv0.0.0-20220910002029-abceb7e1c41e\th1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=\n\tdep\tgithub.com/yargevad/filepathx\tv1.0.0\th1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=\n\tdep\tgithub.com/yosida95/uritemplate/v3\tv3.0.2\th1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=\n\tdep\tgithub.com/yuin/goldmark\tv1.7.13\th1:GPddIs617DnBLFFVJFgpo1aBfe/4xcvMc3SB5t/D0pA=\n\tdep\tgithub.com/yuin/goldmark-emoji\tv1.0.6\th1:QWfF2FYaXwL74tfGOW5izeiZepUDroDJfWubQI9HTHs=\n\tdep\tgo.etcd.io/bbolt\tv1.4.3\th1:dEadXpI6G79deX5prL3QRNP6JB8UxVkqo4UPnHaNXJo=\n\tdep\tgo.opencensus.io\tv0.24.0\th1:y73uSU6J157QMP2kn2r30vwW1A2W2WFwSCGnAVxeaD0=\n\tdep\tgo.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc\tv0.49.0\th1:4Pp6oUg3+e/6M4C0A/3kJ2VYa++dsWVTtGgLVj5xtHg=\n\tdep\tgo.opentelemetry.io/contrib/instrumentation/net/http/otelhttp\tv0.49.0\th1:jq9TW8u3so/bN+JPT166wjOI6/vQPF6Xe7nMNIltagk=\n\tdep\tgo.opentelemetry.io/otel\tv1.24.0\th1:0LAOdjNmQeSTzGBzduGe/rU4tZhMwL5rWgtp9Ku5Jfo=\n\tdep\tgo.opentelemetry.io/otel/metric\tv1.24.0\th1:6EhoGWWK28x1fbpA4tYTOWBkPefTDQnb8WSGXlc88kI=\n\tdep\tgo.opentelemetry.io/otel/trace\tv1.24.0\th1:CsKnnL4dUAr/0llH9FKuc698G04IrpWV0MQA/Y1YELI=\n\tdep\tgo.yaml.in/yaml/v3\tv3.0.4\th1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=\n\tdep\tgo.yaml.in/yaml/v4\tv4.0.0-rc.2\th1:/FrI8D64VSr4HtGIlUtlFMGsm7H7pWTbj6vOLVZcA6s=\n\tdep\tgolang.org/x/arch\tv0.11.0\th1:KXV8WWKCXm6tRpLirl2szsO5j/oOODwZf4hATmGVNs4=\n\tdep\tgolang.org/x/crypto\tv0.52.0\th1:RMs7fP2rXdep0CftQlK8Uf+kibLm7qkCcradZWYz988=\n\tdep\tgolang.org/x/exp\tv0.0.0-20260603202125-055de637280b\th1:v1uXiEBHo8QA0LiGCo7UgHMzHT4Kdfpl2zmtH5vaP1Q=\n\tdep\tgolang.org/x/image\tv0.41.0\th1:8wS72eGJMJaBxK6okTzd4WaXumUlTVlb753MlsSvTCo=\n\tdep\tgolang.org/x/net\tv0.54.0\th1:2zJIZAxAHV/OHCDTCOHAYehQzLfSXuf/5SoL/Dv6w/w=\n\tdep\tgolang.org/x/oauth2\tv0.30.0\th1:dnDm7JmhM45NNpd8FDDeLhK6FwqbOf4MLCM9zb1BOHI=\n\tdep\tgolang.org/x/sync\tv0.22.0\th1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=\n\tdep\tgolang.org/x/sys\tv0.47.0\th1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=\n\tdep\tgolang.org/x/term\tv0.43.0\th1:S4RLU2sB31O/NCl+zFN9Aru9A/Cq2aqKpTZJ6B+DwT4=\n\tdep\tgolang.org/x/text\tv0.37.0\th1:Cqjiwd9eSg8e0QAkyCaQTNHFIIzWtidPahFWR83rTrc=\n\tdep\tgolang.org/x/time\tv0.5.0\th1:o7cqy6amK/52YcAKIPlM3a+Fpj35zvRj2TP+e1xFSfk=\n\tdep\tgoogle.golang.org/api\tv0.189.0\th1:equMo30LypAkdkLMBqfeIqtyAnlyig1JSZArl4XPwdI=\n\tdep\tgoogle.golang.org/genproto/googleapis/rpc\tv0.0.0-20240722135656-d784300faade\th1:oCRSWfwGXQsqlVdErcyTt4A93Y8fo0/9D4b1gnI++qo=\n\tdep\tgoogle.golang.org/grpc\tv1.64.1\th1:LKtvyfbX3UGVPFcGqJ9ItpVWW6oN/2XqTxfAnwRRXiA=\n\tdep\tgoogle.golang.org/protobuf\tv1.36.11\th1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=\n\tdep\tgopkg.in/yaml.v3\tv3.0.1\th1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=\n\tdep\tk8s.io/klog/v2\tv2.140.0\th1:Tf+J3AH7xnUzZyVVXhTgGhEKnFqye14aadWv7bzXdzc=\n\tdep\tmodernc.org/libc\tv1.75.7\th1:o3DTP9/0p9pKmY2WCKQaySW6wIiZhNM7wc2lUoyhfew=\n\tdep\tmodernc.org/mathutil\tv1.7.1\th1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=\n\tdep\tmodernc.org/memory\tv1.12.1\th1:nFMiWrpStgZczNl6XI9GnIk/rWhYIyHGUaR04pGbp9g=\n\tdep\tmodernc.org/sqlite\tv1.59.0\th1:X1es1GpqBlS/5T+vbM4HLUdaa8OtQx468DF2vrx+38A=\n\tdep\tmvdan.cc/sh/v3\tv3.12.0\th1:ejKUR7ONP5bb+UGHGEG/k9V5+pRVIyD+LsZz7o8KHrI=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\tCGO_ENABLED=1\n\tbuild\tCGO_CFLAGS=\n\tbuild\tCGO_CPPFLAGS=\n\tbuild\tCGO_CXXFLAGS=\n\tbuild\tCGO_LDFLAGS=\n\tbuild\tGOARCH=amd64\n\tbuild\tGOOS=windows\n\tbuild\tGOAMD64=v1\n\tbuild\tvcs=git\n\tbuild\tvcs.revision=7b42b2920f72de6f37de8b9e4ff4bf6a110a762f\n\tbuild\tvcs.time=2026-10-18T02:44:32Z\n\tbuild\tvcs.modified=false\n"
+    },
+    "candidate": {
+      "path": "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-candidate.exe",
+      "sha256": "5a0a57833922bf7734ab7de85228fb70119e89e098d774a0a5463a3f0170ba7b",
+      "build_info": "C:\\Users\\Administrator\\Desktop\\morediva\\diva-go\\agent-vivy\\.worktrees\\pr80-native-acceptance\\agent-vivy\\.workspace\\vivy-candidate.exe: go1.26.4\n\tpath\tagent-vivy/cmd/vivy\n\tmod\tagent-vivy\tv0.0.0-20261018175048-8ec876d3035c\t\n\tdep\tagent-vivy/plugins/coding/session-tree\tv0.0.0\n\t=>\t./plugins/coding/session-tree\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/dingtalk\tv0.0.0\n\t=>\t./plugins/dingtalk\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/discord\tv0.0.0\n\t=>\t./plugins/discord\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/feishu\tv0.0.0\n\t=>\t./plugins/feishu\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/qq\tv0.0.0\n\t=>\t./plugins/qq\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/telegram\tv0.0.0\n\t=>\t./plugins/telegram\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-evolution\tv0.0.0\n\t=>\t./plugins/vivy-evolution\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-masks-ui\tv0.0.0\n\t=>\t./plugins/vivy-masks-ui\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-memory\tv0.0.0\n\t=>\t./plugins/vivy-memory\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-notebook\tv0.0.0\n\t=>\t./plugins/vivy-notebook\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-persona\tv0.0.0\n\t=>\t./plugins/vivy-persona\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-toolkits-ui\tv0.0.0\n\t=>\t./plugins/vivy-toolkits-ui\t(devel)\t\n\t\n\tdep\tagent-vivy/plugins/vivy-workflow\tv0.0.0\n\t=>\t./plugins/vivy-workflow\t(devel)\t\n\t\n\tdep\tcloud.google.com/go/auth\tv0.7.2\th1:uiha352VrCDMXg+yoBtaD0tUF4Kv9vrtrWPYXwutnDE=\n\tdep\tcloud.google.com/go/auth/oauth2adapt\tv0.2.3\th1:MlxF+Pd3OmSudg/b1yZ5lJwoXCEaeedAguodky1PcKI=\n\tdep\tcloud.google.com/go/compute/metadata\tv0.5.0\th1:Zr0eK8JbFv6+Wi4ilXAR8FJ3wyNdpxHKJNPos6LTZOY=\n\tdep\tgithub.com/DotNetAge/govector\tv0.1.8\th1:LwNJecCbLgj0ISXBRUCQziPYBbYxtr+3jVEKvXzK7wo=\n\tdep\tgithub.com/JohannesKaufmann/html-to-markdown\tv1.6.0\th1:04VXMiE50YYfCfLboJCLcgqF5x+rHJnb1ssNmqpLH/k=\n\tdep\tgithub.com/ProjectViVy/agent-vivy/bml\tv0.0.0\n\t=>\t./bml\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/inofy\tv0.0.0-20260930141905-71e2c9bbe47d\th1:+s+l5SuqhpKIjIsQ20e2dtndZUXHtRrsV6Qay+F1uhs=\n\tdep\tgithub.com/ProjectViVy/laputa/garden\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/garden\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/laputa/laputa\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/laputa\t(devel)\t\n\t\n\tdep\tgithub.com/ProjectViVy/laputa/mentle\tv0.0.0-20261010120923-4b2bec2cc2ab\n\t=>\t../laputa/mentle\t(devel)\t\n\t\n\tdep\tgithub.com/PuerkitoBio/goquery\tv1.12.0\th1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO8RIBo=\n\tdep\tgithub.com/alecthomas/chroma/v2\tv2.20.0\th1:sfIHpxPyR07/Oylvmcai3X/exDlE8+FA820NTz+9sGw=\n\tdep\tgithub.com/andybalholm/brotli\tv1.2.1\th1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=\n\tdep\tgithub.com/andybalholm/cascadia\tv1.3.3\th1:AG2YHrzJIm4BZ19iwJ/DAua6Btl3IwJX+VI4kktS1LM=\n\tdep\tgithub.com/anthropics/anthropic-sdk-go\tv1.56.0\th1:idVU14wOZ06D0GBNEvuhn927xXmBVEquo0469iDwLsc=\n\tdep\tgithub.com/aws/aws-sdk-go-v2\tv1.33.0\th1:Evgm4DI9imD81V0WwD+TN4DCwjUMdc94TrduMLbgZJs=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/aws/protocol/eventstream\tv1.6.3\th1:tW1/Rkad38LA15X4UQtjXZXNKsCgkshC3EbmcUmghTg=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/config\tv1.29.1\th1:JZhGawAyZ/EuJeBtbQYnaoftczcb2drR2Iq36Wgz4sQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/credentials\tv1.17.54\th1:4UmqeOqJPvdvASZWrKlhzpRahAulBfyTJQUaYy4+hEI=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/feature/ec2/imds\tv1.16.24\th1:5grmdTdMsovn9kPZPI23Hhvp0ZyNm5cRO+IZFIYiAfw=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/configsources\tv1.3.28\th1:igORFSiH3bfq4lxKFkTSYDhJEUCYo6C8VKiWJjYwQuQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/endpoints/v2\tv2.6.28\th1:1mOW9zAUMhTSrMDssEHS/ajx8JcAj/IcftzcmNlmVLI=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/ini\tv1.8.1\th1:VaRN3TlFdd6KxX1x3ILT5ynH6HvKgqdiXoTxAF4HQcQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/accept-encoding\tv1.12.1\th1:iXtILhvDxB6kPvEXgsDhGaZCSC6LQET5ZHSdJozeI0Y=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/presigned-url\tv1.12.9\th1:TQmKDyETFGiXVhZfQ/I0cCFziqqX58pi4tKJGYGFSz0=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sso\tv1.24.11\th1:kuIyu4fTT38Kj7YCC7ouNbVZSSpqkZ+LzIfhCr6Dg+I=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/ssooidc\tv1.28.10\th1:l+dgv/64iVlQ3WsBbnn+JSbkj01jIi+SM0wYsj3y/hY=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sts\tv1.33.9\th1:BRVDbewN6VZcwr+FBOszDKvYeXY1kJ+GGMCcpghlw0U=\n\tdep\tgithub.com/aws/smithy-go\tv1.22.1\th1:/HPHZQ0g7f4eUeK6HKglFz8uwVfZKgoI25rb/J+dnro=\n\tdep\tgithub.com/aymanbagabas/go-osc52/v2\tv2.0.1\th1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=\n\tdep\tgithub.com/aymanbagabas/go-udiff\tv0.4.1\th1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=\n\tdep\tgithub.com/aymerick/douceur\tv0.2.0\th1:Mv+mAeH1Q+n9Fr+oyamOlAkUNPWPlA8PPGR0QAaYuPk=\n\tdep\tgithub.com/bahlo/generic-list-go\tv0.2.0\th1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=\n\tdep\tgithub.com/bmatcuk/doublestar/v4\tv4.10.0\th1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=\n\tdep\tgithub.com/buger/jsonparser\tv1.1.2\th1:frqHqw7otoVbk5M8LlE/L7HTnIq2v9RX6EJ48i9AxJk=\n\tdep\tgithub.com/bwmarrin/discordgo\tv0.29.0\th1:FmWeXFaKUwrcL3Cx65c20bTRW+vOb6k8AnaP+EgjDno=\n\tdep\tgithub.com/bytedance/gopkg\tv0.1.3\th1:TPBSwH8RsouGCBcMBktLt1AymVo2TVsBVCY4b6TnZ/M=\n\tdep\tgithub.com/bytedance/sonic\tv1.15.2\th1:90H+rcF/FwLXwfB1cudOLq/je83n683Utf4Cbp0xHCo=\n\tdep\tgithub.com/bytedance/sonic/loader\tv0.5.1\th1:Ygpfa9zwRCCKSlrp5bBP/b/Xzc3VxsAW+5NIYXrOOpI=\n\tdep\tgithub.com/charmbracelet/bubbletea\tv1.3.10\th1:otUDHWMMzQSB0Pkc87rm691KZ3SWa4KUlvF9nRvCICw=\n\tdep\tgithub.com/charmbracelet/colorprofile\tv0.4.3\th1:QPa1IWkYI+AOB+fE+mg/5/4HRMZcaXex9t5KX76i20Q=\n\tdep\tgithub.com/charmbracelet/glamour\tv1.0.0\th1:AWMLOVFHTsysl4WV8T8QgkQ0s/ZNZo7CiE4WKhk8l08=\n\tdep\tgithub.com/charmbracelet/lipgloss\tv1.1.1-0.20250404203927-76690c660834\th1:ZR7e0ro+SZZiIZD7msJyA+NjkCNNavuiPBLgerbOziE=\n\tdep\tgithub.com/charmbracelet/x/ansi\tv0.11.6\th1:GhV21SiDz/45W9AnV2R61xZMRri5NlLnl6CVF7ihZW8=\n\tdep\tgithub.com/charmbracelet/x/cellbuf\tv0.0.15\th1:ur3pZy0o6z/R7EylET877CBxaiE1Sp1GMxoFPAIztPI=\n\tdep\tgithub.com/charmbracelet/x/exp/slice\tv0.0.0-20250327172914-2fdc97757edf\th1:rLG0Yb6MQSDKdB52aGX55JT1oi0P0Kuaj7wi1bLUpnI=\n\tdep\tgithub.com/charmbracelet/x/term\tv0.2.2\th1:xVRT/S2ZcKdhhOuSP4t5cLi5o+JxklsoEObBSgfgZRk=\n\tdep\tgithub.com/chewxy/math32\tv1.11.1\th1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=\n\tdep\tgithub.com/clipperhouse/displaywidth\tv0.11.0\th1:lBc6kY44VFw+TDx4I8opi/EtL9m20WSEFgwIwO+UVM8=\n\tdep\tgithub.com/clipperhouse/uax29/v2\tv2.7.0\th1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=\n\tdep\tgithub.com/cloudwego/base64x\tv0.1.6\th1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI2M=\n\tdep\tgithub.com/cloudwego/eino\tv0.9.21\th1:kBAyAjsnPq5NDWjt0VdmP9HY/XVUHs05LoeqybudPRQ=\n\tdep\tgithub.com/cloudwego/eino-ext/components/model/claude\tv0.1.25\n\t=>\t./third_party/eino-claude\t(devel)\t\n\t\n\tdep\tgithub.com/cloudwego/eino-ext/components/model/openai\tv0.1.13\th1:5XHRTiTD5bt9KQrMHcfvuWNklEC3tpm3XHejdozt9vM=\n\tdep\tgithub.com/cloudwego/eino-ext/components/tool/mcp\tv0.0.9\th1:3NqF4ggVj/JmUopEM+IOrYmU8N/PQyS8gOR0ZV1tSDs=\n\tdep\tgithub.com/cloudwego/eino-ext/libs/acl/openai\tv0.1.17\th1:EeVcR1TslRA2IdNW1h/2LaGbPlffwGhQm99jM3zWZiI=\n\tdep\tgithub.com/coder/hnsw\tv0.6.2-0.20250701161932-41f4a3674f5b\th1:XNqDbS1itxB5HlyoIzPRgn5APG3NEwxiYNhglQW2QFQ=\n\tdep\tgithub.com/dlclark/regexp2\tv1.11.5\th1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=\n\tdep\tgithub.com/dustin/go-humanize\tv1.0.1\th1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=\n\tdep\tgithub.com/eino-contrib/jsonschema\tv1.0.3\th1:2Kfsm1xlMV0ssY2nuxshS4AwbLFuqmPmzIjLVJ1Fsp0=\n\tdep\tgithub.com/erikgeiser/coninput\tv0.0.0-20211004153227-1c3628e74d0f\th1:Y/CXytFA4m6baUTXGLOoWe4PQhGxaX0KpnayAqC48p4=\n\tdep\tgithub.com/evanphx/json-patch\tv0.5.2\th1:xVCHIVMUu1wtM/VkR9jVZ45N3FhZfYMMYGorLCR8P3k=\n\tdep\tgithub.com/felixge/httpsnoop\tv1.0.4\th1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=\n\tdep\tgithub.com/fsnotify/fsnotify\tv1.9.0\th1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=\n\tdep\tgithub.com/go-errors/errors\tv1.5.1\th1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=\n\tdep\tgithub.com/go-logr/logr\tv1.4.3\th1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=\n\tdep\tgithub.com/go-logr/stdr\tv1.2.2\th1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=\n\tdep\tgithub.com/go-resty/resty/v2\tv2.6.0\th1:joIR5PNLM2EFqqESUjCMGXrWmXNHEU9CEiK813oKYS4=\n\tdep\tgithub.com/go-viper/mapstructure/v2\tv2.4.0\th1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=\n\tdep\tgithub.com/gofrs/flock\tv0.13.0\th1:95JolYOvGMqeH31+FC7D2+uULf6mG61mEZ/A8dRYMzw=\n\tdep\tgithub.com/gogo/protobuf\tv1.3.2\th1:Ov1cvc58UF3b5XjBnZv7+opcTcQFZebYjWzi34vdm4Q=\n\tdep\tgithub.com/golang/groupcache\tv0.0.0-20210331224755-41bb18bfe9da\th1:oI5xCqsCo564l8iNU+DwB5epxmsaqB+rhGL0m5jtYqE=\n\tdep\tgithub.com/golang/protobuf\tv1.5.4\th1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=\n\tdep\tgithub.com/gomlx/exceptions\tv0.0.3\th1:HKnTgEjj4jlmhr8zVFkTP9qmV1ey7ypYYosQ8GzXWuM=\n\tdep\tgithub.com/gomlx/go-huggingface\tv0.3.5\th1:eZz1huOvfr0TW30e11TkGAUZY4Jj5Oh/g0Thz4cvu0I=\n\tdep\tgithub.com/gomlx/gomlx\tv0.27.3\th1:4cCcVi2m3lvMzDyZtepIl3+6cBGMTXhrYvQtOdtU5Z4=\n\tdep\tgithub.com/gomlx/onnx-gomlx\tv0.4.2\th1:nBDbjzZOVMkCudk0AKMREHMdm54xNcp34dAte9aNwqQ=\n\tdep\tgithub.com/google/jsonschema-go\tv0.4.2\th1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbcqoRA8=\n\tdep\tgithub.com/google/renameio\tv1.0.1\n\t=>\t./third_party/renameio\t(devel)\t\n\t\n\tdep\tgithub.com/google/s2a-go\tv0.1.7\th1:60BLSyTrOV4/haCDW4zb1guZItoSq8foHCXrAnjBo/o=\n\tdep\tgithub.com/google/uuid\tv1.6.0\th1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\n\tdep\tgithub.com/googleapis/enterprise-certificate-proxy\tv0.3.2\th1:Vie5ybvEvT75RniqhfFxPRy3Bf7vr3h0cechB90XaQs=\n\tdep\tgithub.com/goph/emperror\tv0.17.2\th1:yLapQcmEsO0ipe9p5TaN22djm3OFV/TfM/fcYP0/J18=\n\tdep\tgithub.com/gorilla/css\tv1.0.1\th1:ntNaBIghp6JmvWnxbZKANoLyuXTPZ4cAMlo6RyhlbO8=\n\tdep\tgithub.com/gorilla/websocket\tv1.5.3\th1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=\n\tdep\tgithub.com/grbit/go-json\tv0.11.0\th1:bAbyMdYrYl/OjYsSqLH99N2DyQ291mHy726Mx+sYrnc=\n\tdep\tgithub.com/invopop/jsonschema\tv0.14.0\th1:MHQqLhvpNUZfw+hM3AZDYK7jxO8FZoQeQM77g8iyZjg=\n\tdep\tgithub.com/jackc/pgpassfile\tv1.0.0\th1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=\n\tdep\tgithub.com/jackc/pgservicefile\tv0.0.0-20240606120523-5a60cdf6a761\th1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=\n\tdep\tgithub.com/jackc/pgx/v5\tv5.7.6\th1:rWQc5FwZSPX58r1OQmkuaNicxdmExaEz5A2DO2hUuTk=\n\tdep\tgithub.com/jackc/puddle/v2\tv2.2.2\th1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=\n\tdep\tgithub.com/json-iterator/go\tv1.1.12\th1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=\n\tdep\tgithub.com/klauspost/compress\tv1.18.6\th1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=\n\tdep\tgithub.com/klauspost/cpuid/v2\tv2.2.9\th1:66ze0taIn2H33fBvCkXuv9BmCwDfafmiIVpKV9kKGuY=\n\tdep\tgithub.com/knights-analytics/hugot\tv0.7.5\th1:EcEU7Gx2yIXjNTafXEOujLdFZj6xtkJl906ALhP8TWA=\n\tdep\tgithub.com/larksuite/oapi-sdk-go/v3\tv3.11.0\th1:KyCckvO8dFVQJPZYd7DdEPzgGp/C1g+hmi3oiV/dpnI=\n\tdep\tgithub.com/lucasb-eyer/go-colorful\tv1.3.0\th1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=\n\tdep\tgithub.com/mailru/easyjson\tv0.7.7\th1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=\n\tdep\tgithub.com/mark3labs/mcp-go\tv1.0.0\th1:CZqCzXwUiTOstkIdW1MyOZGuM+LaKMEJSu+ZYluN4DU=\n\tdep\tgithub.com/mastwet/prettylog\tv0.0.0-20261002164743-8b8e03760378\th1:9uNY54N3C8IWoHZRpGGwaRXOk8BhH6zywgK9H7WdTXI=\n\tdep\tgithub.com/mattn/go-isatty\tv0.0.24\th1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=\n\tdep\tgithub.com/mattn/go-localereader\tv0.0.1\th1:ygSAOl7ZXTx4RdPYinUpg6W99U8jWvWi9Ye2JC/oIi4=\n\tdep\tgithub.com/mattn/go-runewidth\tv0.0.21\th1:jJKAZiQH+2mIinzCJIaIG9Be1+0NR+5sz/lYEEjdM8w=\n\tdep\tgithub.com/meguminnnnnnnnn/go-openai\tv0.1.2\th1:iXombGGjqjBrmE9WaSidUhhi3YQhf42QTHvHLMkgvCA=\n\tdep\tgithub.com/microcosm-cc/bluemonday\tv1.0.27\th1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=\n\tdep\tgithub.com/modern-go/concurrent\tv0.0.0-20180306012644-bacd9c7ef1dd\th1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=\n\tdep\tgithub.com/modern-go/reflect2\tv1.0.2\th1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=\n\tdep\tgithub.com/muesli/ansi\tv0.0.0-20230316100256-276c6243b2f6\th1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=\n\tdep\tgithub.com/muesli/cancelreader\tv0.2.2\th1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELUXHmA=\n\tdep\tgithub.com/muesli/reflow\tv0.3.0\th1:IFsN6K9NfGtjeggFP+68I4chLZV2yIKsXJFNZ+eWh6s=\n\tdep\tgithub.com/muesli/termenv\tv0.16.0\th1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc=\n\tdep\tgithub.com/mymmrac/telego\tv1.10.0\th1:Upe0TqYyiK+yE5RFXXuQWVHGfLZnqvUfj4KZVjTcgWE=\n\tdep\tgithub.com/ncruces/go-strftime\tv1.0.0\th1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=\n\tdep\tgithub.com/nikolalohinski/gonja\tv1.5.3\th1:GsA+EEaZDZPGJ8JtpeGN78jidhOlxeJROpqMT9fTj9c=\n\tdep\tgithub.com/open-dingtalk/dingtalk-stream-sdk-go\tv0.9.1\th1:Lb/Uzkiw2Ugt2Xf03J5wmv81PdkYOiWbI8CNBi1boC8=\n\tdep\tgithub.com/pb33f/ordered-map/v2\tv2.3.1\th1:5319HDO0aw4DA4gzi+zv4FXU9UlSs3xGZ40wcP1nBjY=\n\tdep\tgithub.com/pelletier/go-toml/v2\tv2.2.4\th1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=\n\tdep\tgithub.com/pkg/errors\tv0.9.1\th1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=\n\tdep\tgithub.com/remyoudompheng/bigfft\tv0.0.0-20230129092748-24d4a6f8daec\th1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=\n\tdep\tgithub.com/rivo/uniseg\tv0.4.7\th1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=\n\tdep\tgithub.com/sagikazarmark/locafero\tv0.11.0\th1:1iurJgmM9G3PA/I+wWYIOw/5SyBtxapeHDcg+AAIFXc=\n\tdep\tgithub.com/santhosh-tekuri/jsonschema/v6\tv6.0.2\th1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=\n\tdep\tgithub.com/sirupsen/logrus\tv1.9.3\th1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=\n\tdep\tgithub.com/slongfield/pyfmt\tv0.0.0-20220222012616-ea85ff4c361f\th1:Z2cODYsUxQPofhpYRMQVwWz4yUVpHF+vPi+eUdruUYI=\n\tdep\tgithub.com/sourcegraph/conc\tv0.3.1-0.20240121214520-5f936abd7ae8\th1:+jumHNA0Wrelhe64i8F6HNlS8pkoyMv5sreGx2Ry5Rw=\n\tdep\tgithub.com/spf13/afero\tv1.15.0\th1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=\n\tdep\tgithub.com/spf13/cast\tv1.10.0\th1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=\n\tdep\tgithub.com/spf13/pflag\tv1.0.10\th1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=\n\tdep\tgithub.com/spf13/viper\tv1.21.0\th1:x5S+0EU27Lbphp4UKm1C+1oQO+rKx36vfCoaVebLFSU=\n\tdep\tgithub.com/standard-webhooks/standard-webhooks/libraries\tv0.0.1\th1:uOfcYT+3QungH6tIGSVCR/Y3KJmgJiHcojJbMTPDZAI=\n\tdep\tgithub.com/subosito/gotenv\tv1.6.0\th1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=\n\tdep\tgithub.com/tencent-connect/botgo\tv0.2.1\th1:+BrTt9Zh+awL28GWC4g5Na3nQaGRWb0N5IctS8WqBCk=\n\tdep\tgithub.com/tidwall/gjson\tv1.18.0\th1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=\n\tdep\tgithub.com/tidwall/match\tv1.1.1\th1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=\n\tdep\tgithub.com/tidwall/pretty\tv1.2.1\th1:qjsOFOWWQl+N3RsoF5/ssm1pHmJJwhjlSbZ51I6wMl4=\n\tdep\tgithub.com/tidwall/sjson\tv1.2.5\th1:kLy8mja+1c9jlljvWTlSazM7cKDRfJuR/bOJhcY5NcY=\n\tdep\tgithub.com/twitchyliquid64/golang-asm\tv0.15.1\th1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=\n\tdep\tgithub.com/valyala/bytebufferpool\tv1.0.0\th1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=\n\tdep\tgithub.com/valyala/fasthttp\tv1.71.0\th1:tepR7H+Guh9VUqxxcPggYi8R3lGUu2Rsdh+z7/FCY3k=\n\tdep\tgithub.com/valyala/fastjson\tv1.6.10\th1:/yjJg8jaVQdYR3arGxPE2X5z89xrlhS0eGXdv+ADTh4=\n\tdep\tgithub.com/viant/afs\tv1.30.0\th1:dbgVVSCPwGHUgpgkWJ5gdjKBqssT7OV7Z2M81CjwZEY=\n\tdep\tgithub.com/viterin/partial\tv1.1.0\th1:iH1l1xqBlapXsYzADS1dcbizg3iQUKTU1rbwkHv/80E=\n\tdep\tgithub.com/viterin/vek\tv0.4.2\th1:Vyv04UjQT6gcjEFX82AS9ocgNbAJqsHviheIBdPlv5U=\n\tdep\tgithub.com/wk8/go-ordered-map/v2\tv2.1.8\th1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=\n\tdep\tgithub.com/x448/float16\tv0.8.4\th1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=\n\tdep\tgithub.com/xo/terminfo\tv0.0.0-20220910002029-abceb7e1c41e\th1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=\n\tdep\tgithub.com/yargevad/filepathx\tv1.0.0\th1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=\n\tdep\tgithub.com/yosida95/uritemplate/v3\tv3.0.2\th1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=\n\tdep\tgithub.com/yuin/goldmark\tv1.7.13\th1:GPddIs617DnBLFFVJFgpo1aBfe/4xcvMc3SB5t/D0pA=\n\tdep\tgithub.com/yuin/goldmark-emoji\tv1.0.6\th1:QWfF2FYaXwL74tfGOW5izeiZepUDroDJfWubQI9HTHs=\n\tdep\tgo.etcd.io/bbolt\tv1.4.3\th1:dEadXpI6G79deX5prL3QRNP6JB8UxVkqo4UPnHaNXJo=\n\tdep\tgo.opencensus.io\tv0.24.0\th1:y73uSU6J157QMP2kn2r30vwW1A2W2WFwSCGnAVxeaD0=\n\tdep\tgo.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc\tv0.49.0\th1:4Pp6oUg3+e/6M4C0A/3kJ2VYa++dsWVTtGgLVj5xtHg=\n\tdep\tgo.opentelemetry.io/contrib/instrumentation/net/http/otelhttp\tv0.49.0\th1:jq9TW8u3so/bN+JPT166wjOI6/vQPF6Xe7nMNIltagk=\n\tdep\tgo.opentelemetry.io/otel\tv1.24.0\th1:0LAOdjNmQeSTzGBzduGe/rU4tZhMwL5rWgtp9Ku5Jfo=\n\tdep\tgo.opentelemetry.io/otel/metric\tv1.24.0\th1:6EhoGWWK28x1fbpA4tYTOWBkPefTDQnb8WSGXlc88kI=\n\tdep\tgo.opentelemetry.io/otel/trace\tv1.24.0\th1:CsKnnL4dUAr/0llH9FKuc698G04IrpWV0MQA/Y1YELI=\n\tdep\tgo.yaml.in/yaml/v3\tv3.0.4\th1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=\n\tdep\tgo.yaml.in/yaml/v4\tv4.0.0-rc.2\th1:/FrI8D64VSr4HtGIlUtlFMGsm7H7pWTbj6vOLVZcA6s=\n\tdep\tgolang.org/x/arch\tv0.11.0\th1:KXV8WWKCXm6tRpLirl2szsO5j/oOODwZf4hATmGVNs4=\n\tdep\tgolang.org/x/crypto\tv0.52.0\th1:RMs7fP2rXdep0CftQlK8Uf+kibLm7qkCcradZWYz988=\n\tdep\tgolang.org/x/exp\tv0.0.0-20260603202125-055de637280b\th1:v1uXiEBHo8QA0LiGCo7UgHMzHT4Kdfpl2zmtH5vaP1Q=\n\tdep\tgolang.org/x/image\tv0.41.0\th1:8wS72eGJMJaBxK6okTzd4WaXumUlTVlb753MlsSvTCo=\n\tdep\tgolang.org/x/net\tv0.54.0\th1:2zJIZAxAHV/OHCDTCOHAYehQzLfSXuf/5SoL/Dv6w/w=\n\tdep\tgolang.org/x/oauth2\tv0.30.0\th1:dnDm7JmhM45NNpd8FDDeLhK6FwqbOf4MLCM9zb1BOHI=\n\tdep\tgolang.org/x/sync\tv0.22.0\th1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=\n\tdep\tgolang.org/x/sys\tv0.47.0\th1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=\n\tdep\tgolang.org/x/term\tv0.43.0\th1:S4RLU2sB31O/NCl+zFN9Aru9A/Cq2aqKpTZJ6B+DwT4=\n\tdep\tgolang.org/x/text\tv0.37.0\th1:Cqjiwd9eSg8e0QAkyCaQTNHFIIzWtidPahFWR83rTrc=\n\tdep\tgolang.org/x/time\tv0.5.0\th1:o7cqy6amK/52YcAKIPlM3a+Fpj35zvRj2TP+e1xFSfk=\n\tdep\tgoogle.golang.org/api\tv0.189.0\th1:equMo30LypAkdkLMBqfeIqtyAnlyig1JSZArl4XPwdI=\n\tdep\tgoogle.golang.org/genproto/googleapis/rpc\tv0.0.0-20240722135656-d784300faade\th1:oCRSWfwGXQsqlVdErcyTt4A93Y8fo0/9D4b1gnI++qo=\n\tdep\tgoogle.golang.org/grpc\tv1.64.1\th1:LKtvyfbX3UGVPFcGqJ9ItpVWW6oN/2XqTxfAnwRRXiA=\n\tdep\tgoogle.golang.org/protobuf\tv1.36.11\th1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=\n\tdep\tgopkg.in/yaml.v3\tv3.0.1\th1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=\n\tdep\tk8s.io/klog/v2\tv2.140.0\th1:Tf+J3AH7xnUzZyVVXhTgGhEKnFqye14aadWv7bzXdzc=\n\tdep\tmodernc.org/libc\tv1.75.7\th1:o3DTP9/0p9pKmY2WCKQaySW6wIiZhNM7wc2lUoyhfew=\n\tdep\tmodernc.org/mathutil\tv1.7.1\th1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=\n\tdep\tmodernc.org/memory\tv1.12.1\th1:nFMiWrpStgZczNl6XI9GnIk/rWhYIyHGUaR04pGbp9g=\n\tdep\tmodernc.org/sqlite\tv1.59.0\th1:X1es1GpqBlS/5T+vbM4HLUdaa8OtQx468DF2vrx+38A=\n\tdep\tmvdan.cc/sh/v3\tv3.12.0\th1:ejKUR7ONP5bb+UGHGEG/k9V5+pRVIyD+LsZz7o8KHrI=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\tCGO_ENABLED=1\n\tbuild\tCGO_CFLAGS=\n\tbuild\tCGO_CPPFLAGS=\n\tbuild\tCGO_CXXFLAGS=\n\tbuild\tCGO_LDFLAGS=\n\tbuild\tGOARCH=amd64\n\tbuild\tGOOS=windows\n\tbuild\tGOAMD64=v1\n\tbuild\tvcs=git\n\tbuild\tvcs.revision=8ec876d3035c0ed11e5ac5463b3e5abc29565506\n\tbuild\tvcs.time=2026-10-18T17:50:48Z\n\tbuild\tvcs.modified=false\n"
+    }
+  },
+  "cases": [
+    {
+      "mode": "upgrade",
+      "before": [
+        {
+          "kind": "approval",
+          "session_id": "sess_de15fdb23a6f6b79",
+          "run_id": "run_00d09a90c3c07e53",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_00d09a90c3c07e53",
+              "generation": 1,
+              "checksum": "cdeda4f707ed18db8ad8230316391b1eacb21b796198f2fc1203c2f35d1d2cf0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_00d09a90c3c07e53",
+            "status": "active"
+          },
+          "approvals": [
+            {
+              "id": "apr_002b2ce47ae612ee",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"c4609acc533b99c3ebae907db5b0c94f82c3c6e9e8a8259839f5438e642f5b31\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"22dec098172d4a3928f71e667b01803a0aa550bf7d050327b08a19da1fd4e615\",\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-1\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_002b2ce47ae612ee\",\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792352968100,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_068a479f9ebc5ea5",
+          "run_id": "run_1fa00d290b290e98",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_1fa00d290b290e98",
+              "generation": 1,
+              "checksum": "5e30a928fff6cfb1ea05e1123a4a1d06bd8540849976bb1e4756899e6f3a2bcd"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_1fa00d290b290e98",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_9047208d8c06378d",
+              "status": "pending"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"d8c191fd0eb3a8f10e56b8fe586b69a68b428f954cd7c76716361955b78f7864\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"c41ce187b733d67d4770a48f7d9a386215bbdd02fbe17c4c0b6ba518d7fbe1c6\",\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-2\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_9047208d8c06378d\",\"tool_call_id\":\"call-2\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792352970108,\"resume_target\":\"2644ccd8-3703-441b-b8d1-e666fb07ebb5\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_fa4630bd8c6802ee",
+          "run_id": "run_28ca65de2bd81838",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_28ca65de2bd81838",
+              "generation": 1,
+              "checksum": "3f1d53953139038e6ff7a6aee97b6c9e6e5f93ceb60b43ea69df373f75ac1459"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_28ca65de2bd81838",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"a47dddfd7b995a8ab159fb2dcdd76be6de490d26b9f4da5ac94bcd5ed4c257bd\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"216ee1f527fc5cd973fbe4a7e81e66f6d117ab7313340960354d93012d807186\",\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-3\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":0,\"RequestID\":\"enter-upgrade\",\"RequestHash\":\"fc3924b91ebd04ec6e626faafa1772d1e973347590be8abf8648dbb875908f1a\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-82a47b093946f59241f9e94a\",\"RequestHash\":\"1c04c4f1872deb6a2e8fbdf72bd568e49818b23f610abeb6e096f330c9d8e3ef\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-593e5e06522f3f012c1cfeb0\",\"RequestHash\":\"593e5e06522f3f012c1cfeb0e94e9bdbe359e32d3b4844995a849b3b28c40464\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"e9a11ad2-8553-4e10-9177-8cefe1f1191e\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "kind": "approval",
+          "session_id": "sess_de15fdb23a6f6b79",
+          "run_id": "run_00d09a90c3c07e53",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_00d09a90c3c07e53",
+              "generation": 1,
+              "checksum": "cdeda4f707ed18db8ad8230316391b1eacb21b796198f2fc1203c2f35d1d2cf0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_00d09a90c3c07e53",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_002b2ce47ae612ee",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"c4609acc533b99c3ebae907db5b0c94f82c3c6e9e8a8259839f5438e642f5b31\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"22dec098172d4a3928f71e667b01803a0aa550bf7d050327b08a19da1fd4e615\",\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-1\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_002b2ce47ae612ee\",\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792352968100,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled",
+              "payload": "{\"approval_id\":\"apr_002b2ce47ae612ee\",\"actor\":\"local_user\",\"reason\":\"the paused run could not be resumed after restart\"}"
+            },
+            {
+              "seq": 9,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_068a479f9ebc5ea5",
+          "run_id": "run_1fa00d290b290e98",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_1fa00d290b290e98",
+              "generation": 1,
+              "checksum": "5e30a928fff6cfb1ea05e1123a4a1d06bd8540849976bb1e4756899e6f3a2bcd"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_1fa00d290b290e98",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_9047208d8c06378d",
+              "status": "cancelled"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"d8c191fd0eb3a8f10e56b8fe586b69a68b428f954cd7c76716361955b78f7864\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"c41ce187b733d67d4770a48f7d9a386215bbdd02fbe17c4c0b6ba518d7fbe1c6\",\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-2\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_9047208d8c06378d\",\"tool_call_id\":\"call-2\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792352970108,\"resume_target\":\"2644ccd8-3703-441b-b8d1-e666fb07ebb5\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled",
+              "payload": "{\"question_id\":\"que_9047208d8c06378d\",\"actor\":\"local_user\",\"reason\":\"the paused run could not be resumed after restart\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_fa4630bd8c6802ee",
+          "run_id": "run_28ca65de2bd81838",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_28ca65de2bd81838",
+              "generation": 1,
+              "checksum": "3f1d53953139038e6ff7a6aee97b6c9e6e5f93ceb60b43ea69df373f75ac1459"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_28ca65de2bd81838",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"a47dddfd7b995a8ab159fb2dcdd76be6de490d26b9f4da5ac94bcd5ed4c257bd\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"216ee1f527fc5cd973fbe4a7e81e66f6d117ab7313340960354d93012d807186\",\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-3\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":0,\"RequestID\":\"enter-upgrade\",\"RequestHash\":\"fc3924b91ebd04ec6e626faafa1772d1e973347590be8abf8648dbb875908f1a\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-82a47b093946f59241f9e94a\",\"RequestHash\":\"1c04c4f1872deb6a2e8fbdf72bd568e49818b23f610abeb6e096f330c9d8e3ef\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-593e5e06522f3f012c1cfeb0\",\"RequestHash\":\"593e5e06522f3f012c1cfeb0e94e9bdbe359e32d3b4844995a849b3b28c40464\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"e9a11ad2-8553-4e10-9177-8cefe1f1191e\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 4,
+              "kind": "plan.review_cancelled",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":3,\"RequestID\":\"model-work-cancel-plan-review-44fae01c1676d18b470f4695\",\"RequestHash\":\"92dc7d0398627e0294e9eb2b3878c9eeb3e99efe8253d7bebf860b788a06326b\",\"Kind\":\"plan.review_cancelled\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"originating run ended before human review\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "repeated": [
+        {
+          "kind": "approval",
+          "session_id": "sess_de15fdb23a6f6b79",
+          "run_id": "run_00d09a90c3c07e53",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_00d09a90c3c07e53",
+              "generation": 1,
+              "checksum": "cdeda4f707ed18db8ad8230316391b1eacb21b796198f2fc1203c2f35d1d2cf0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_00d09a90c3c07e53",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_002b2ce47ae612ee",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"c4609acc533b99c3ebae907db5b0c94f82c3c6e9e8a8259839f5438e642f5b31\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"22dec098172d4a3928f71e667b01803a0aa550bf7d050327b08a19da1fd4e615\",\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"09a6e8c4-daf7-48f5-975b-4979917cd4b0\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-1\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_002b2ce47ae612ee\",\"tool_call_id\":\"call-1\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792352968100,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled",
+              "payload": "{\"approval_id\":\"apr_002b2ce47ae612ee\",\"actor\":\"local_user\",\"reason\":\"the paused run could not be resumed after restart\"}"
+            },
+            {
+              "seq": 9,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_068a479f9ebc5ea5",
+          "run_id": "run_1fa00d290b290e98",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_1fa00d290b290e98",
+              "generation": 1,
+              "checksum": "5e30a928fff6cfb1ea05e1123a4a1d06bd8540849976bb1e4756899e6f3a2bcd"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_1fa00d290b290e98",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_9047208d8c06378d",
+              "status": "cancelled"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"d8c191fd0eb3a8f10e56b8fe586b69a68b428f954cd7c76716361955b78f7864\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"c41ce187b733d67d4770a48f7d9a386215bbdd02fbe17c4c0b6ba518d7fbe1c6\",\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"467c7517-6734-4fe0-b33b-271ee5bbb288\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-2\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_9047208d8c06378d\",\"tool_call_id\":\"call-2\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792352970108,\"resume_target\":\"2644ccd8-3703-441b-b8d1-e666fb07ebb5\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled",
+              "payload": "{\"question_id\":\"que_9047208d8c06378d\",\"actor\":\"local_user\",\"reason\":\"the paused run could not be resumed after restart\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_fa4630bd8c6802ee",
+          "run_id": "run_28ca65de2bd81838",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_28ca65de2bd81838",
+              "generation": 1,
+              "checksum": "3f1d53953139038e6ff7a6aee97b6c9e6e5f93ceb60b43ea69df373f75ac1459"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_28ca65de2bd81838",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"a47dddfd7b995a8ab159fb2dcdd76be6de490d26b9f4da5ac94bcd5ed4c257bd\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"216ee1f527fc5cd973fbe4a7e81e66f6d117ab7313340960354d93012d807186\",\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"4dddc2b0-6b1f-4300-8dd1-b35395d9f325\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-3\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":0,\"RequestID\":\"enter-upgrade\",\"RequestHash\":\"fc3924b91ebd04ec6e626faafa1772d1e973347590be8abf8648dbb875908f1a\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-82a47b093946f59241f9e94a\",\"RequestHash\":\"1c04c4f1872deb6a2e8fbdf72bd568e49818b23f610abeb6e096f330c9d8e3ef\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-593e5e06522f3f012c1cfeb0\",\"RequestHash\":\"593e5e06522f3f012c1cfeb0e94e9bdbe359e32d3b4844995a849b3b28c40464\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"call-3\",\"PlanResumeTarget\":\"e9a11ad2-8553-4e10-9177-8cefe1f1191e\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 4,
+              "kind": "plan.review_cancelled",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_fa4630bd8c6802ee\",\"ExpectedVersion\":3,\"RequestID\":\"model-work-cancel-plan-review-44fae01c1676d18b470f4695\",\"RequestHash\":\"92dc7d0398627e0294e9eb2b3878c9eeb3e99efe8253d7bebf860b788a06326b\",\"Kind\":\"plan.review_cancelled\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"originating run ended before human review\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-82a47b093946f59241f9e94a\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_28ca65de2bd81838\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "views": [
+        {
+          "run": {
+            "id": "run_00d09a90c3c07e53",
+            "session_id": "sess_de15fdb23a6f6b79",
+            "status": "failed",
+            "created_at": 1792349367971
+          },
+          "work": {
+            "session_id": "sess_de15fdb23a6f6b79",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_eff4da35de8a4322"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "apr_002b2ce47ae612ee",
+                "kind": "approval",
+                "status": "cancelled",
+                "session_id": "sess_de15fdb23a6f6b79",
+                "session_title": "binary smoke approval",
+                "run_id": "run_00d09a90c3c07e53",
+                "tool_call_id": "call-1",
+                "tool_name": "write_note",
+                "source": "tool",
+                "actor": "local_user",
+                "created_at": 1792349368100,
+                "expires_at": 1792352968100,
+                "decided_at": 1792349397724,
+                "arguments": {
+                  "content": "isolated pending approval"
+                },
+                "decision_reason": "the paused run could not be resumed after restart",
+                "effect": "external side effect",
+                "reversibility": "unknown",
+                "scope": "current run",
+                "trust": "policy gated"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_1fa00d290b290e98",
+            "session_id": "sess_068a479f9ebc5ea5",
+            "status": "failed",
+            "created_at": 1792349369618
+          },
+          "work": {
+            "session_id": "sess_068a479f9ebc5ea5",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_eff4da35de8a4322"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "que_9047208d8c06378d",
+                "kind": "question",
+                "status": "cancelled",
+                "session_id": "sess_068a479f9ebc5ea5",
+                "session_title": "binary smoke question",
+                "run_id": "run_1fa00d290b290e98",
+                "tool_call_id": "call-2",
+                "tool_name": "ask_user",
+                "source": "user_input",
+                "actor": "local_user",
+                "created_at": 1792349370108,
+                "expires_at": 1792352970108,
+                "decided_at": 1792349397751,
+                "prompt": "Isolated pending question?",
+                "decision_reason": "the paused run could not be resumed after restart",
+                "effect": "input",
+                "reversibility": "none",
+                "scope": "current run",
+                "trust": "model requested"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_28ca65de2bd81838",
+            "session_id": "sess_fa4630bd8c6802ee",
+            "status": "failed",
+            "created_at": 1792349370970
+          },
+          "work": {
+            "session_id": "sess_fa4630bd8c6802ee",
+            "version": 4,
+            "plan": {
+              "active": true,
+              "submission_id": "submission-82a47b093946f59241f9e94a",
+              "markdown": "1. Review the isolated pending plan.",
+              "review_status": "cancelled",
+              "origin_run_id": "run_28ca65de2bd81838",
+              "origin_tool_call_id": "call-3"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_eff4da35de8a4322"
+          },
+          "reviews": {
+            "reviews": []
+          }
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "mode": "unsupported-direct-rollback",
+      "before": [
+        {
+          "kind": "approval",
+          "session_id": "sess_6326dcd42045b633",
+          "run_id": "run_7b409d80e45e0c3c",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_7b409d80e45e0c3c",
+              "generation": 1,
+              "checksum": "9dd829206718dd16fe4893dd8eec1dc072507b2a50be50ad98146e36e2b6010c"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_7b409d80e45e0c3c",
+            "status": "active"
+          },
+          "approvals": [
+            {
+              "id": "apr_3ae4376d098678cc",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"d66302fc1871e101b6fcbdb1e11d3a628555714b4842a59a4759030c5118cc64\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"c5465cbe1a374ae56c9e9f7e234a2921c812794d306948f98040a6f5ac115a21\",\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-4\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_3ae4376d098678cc\",\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353031180,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_6cb18d70c76d418e",
+          "run_id": "run_55facee1104bdcaf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_55facee1104bdcaf",
+              "generation": 1,
+              "checksum": "dce27ddf41ac13fef7f78af7306f2e49dd329f8018a981b3af08b1c71602f3f5"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_55facee1104bdcaf",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_ee5acce1cfa150cc",
+              "status": "pending"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"9081cdc47de5d592b2d59e531e83a225ae6a89341561f0c329755509aae87ff8\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"e6ddb28a8ab65b912d5803ef89ce422338103a9b8426963e83f2867d83a587ff\",\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-5\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_ee5acce1cfa150cc\",\"tool_call_id\":\"call-5\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353032087,\"resume_target\":\"03e25f9b-9766-46e3-8023-85ddd4091052\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d5bd68b3e6779032",
+          "run_id": "run_c5b9d7a52c89dd38",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_c5b9d7a52c89dd38",
+              "generation": 1,
+              "checksum": "9f7d3c271ea0bf607073cfd21a23bdc110ceaabb5a57760a7df48ca07f5743b0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_c5b9d7a52c89dd38",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"67344e6407385fcbad0cf51e8560d08044d26ecf7a59222d3c1e699d00883827\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"c02c446e32b5c14f66f0ed2a02a8d3c890db4af223291a52915e642f826d302c\",\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-6\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":0,\"RequestID\":\"enter-unsupported-direct-rollback\",\"RequestHash\":\"6a89b196b57f472db7dcaae273cce1a447079262531e38c2b056254495390677\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-fd33960abcde69cfd61e4cc1\",\"RequestHash\":\"e72e104a06d541cab26f32f698d1123b0c8fa09c7cdee45d5d5d9d76eb3563d6\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-075b52a54f2ff34816ee0c99\",\"RequestHash\":\"075b52a54f2ff34816ee0c992551e91d77a2c0c15becd6c3c6b82bf69eadf522\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"4153c6e6-895a-45dc-9509-e15b298807ab\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "kind": "approval",
+          "session_id": "sess_6326dcd42045b633",
+          "run_id": "run_7b409d80e45e0c3c",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_7b409d80e45e0c3c",
+              "generation": 1,
+              "checksum": "9dd829206718dd16fe4893dd8eec1dc072507b2a50be50ad98146e36e2b6010c"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_7b409d80e45e0c3c",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_3ae4376d098678cc",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"d66302fc1871e101b6fcbdb1e11d3a628555714b4842a59a4759030c5118cc64\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"c5465cbe1a374ae56c9e9f7e234a2921c812794d306948f98040a6f5ac115a21\",\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-4\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_3ae4376d098678cc\",\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353031180,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_6cb18d70c76d418e",
+          "run_id": "run_55facee1104bdcaf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_55facee1104bdcaf",
+              "generation": 1,
+              "checksum": "dce27ddf41ac13fef7f78af7306f2e49dd329f8018a981b3af08b1c71602f3f5"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_55facee1104bdcaf",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_ee5acce1cfa150cc",
+              "status": "pending"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"9081cdc47de5d592b2d59e531e83a225ae6a89341561f0c329755509aae87ff8\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"e6ddb28a8ab65b912d5803ef89ce422338103a9b8426963e83f2867d83a587ff\",\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-5\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_ee5acce1cfa150cc\",\"tool_call_id\":\"call-5\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353032087,\"resume_target\":\"03e25f9b-9766-46e3-8023-85ddd4091052\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d5bd68b3e6779032",
+          "run_id": "run_c5b9d7a52c89dd38",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_c5b9d7a52c89dd38",
+              "generation": 1,
+              "checksum": "9f7d3c271ea0bf607073cfd21a23bdc110ceaabb5a57760a7df48ca07f5743b0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_c5b9d7a52c89dd38",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"67344e6407385fcbad0cf51e8560d08044d26ecf7a59222d3c1e699d00883827\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"c02c446e32b5c14f66f0ed2a02a8d3c890db4af223291a52915e642f826d302c\",\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-6\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":0,\"RequestID\":\"enter-unsupported-direct-rollback\",\"RequestHash\":\"6a89b196b57f472db7dcaae273cce1a447079262531e38c2b056254495390677\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-fd33960abcde69cfd61e4cc1\",\"RequestHash\":\"e72e104a06d541cab26f32f698d1123b0c8fa09c7cdee45d5d5d9d76eb3563d6\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-075b52a54f2ff34816ee0c99\",\"RequestHash\":\"075b52a54f2ff34816ee0c992551e91d77a2c0c15becd6c3c6b82bf69eadf522\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"4153c6e6-895a-45dc-9509-e15b298807ab\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "repeated": [
+        {
+          "kind": "approval",
+          "session_id": "sess_6326dcd42045b633",
+          "run_id": "run_7b409d80e45e0c3c",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_7b409d80e45e0c3c",
+              "generation": 1,
+              "checksum": "9dd829206718dd16fe4893dd8eec1dc072507b2a50be50ad98146e36e2b6010c"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_7b409d80e45e0c3c",
+            "status": "failed"
+          },
+          "approvals": [
+            {
+              "id": "apr_3ae4376d098678cc",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"d66302fc1871e101b6fcbdb1e11d3a628555714b4842a59a4759030c5118cc64\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"c5465cbe1a374ae56c9e9f7e234a2921c812794d306948f98040a6f5ac115a21\",\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"7ed93a74-03da-4255-a7d2-e54cebb74e7c\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-4\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_3ae4376d098678cc\",\"tool_call_id\":\"call-4\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353031180,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_6cb18d70c76d418e",
+          "run_id": "run_55facee1104bdcaf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_55facee1104bdcaf",
+              "generation": 1,
+              "checksum": "dce27ddf41ac13fef7f78af7306f2e49dd329f8018a981b3af08b1c71602f3f5"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_55facee1104bdcaf",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_ee5acce1cfa150cc",
+              "status": "pending"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"9081cdc47de5d592b2d59e531e83a225ae6a89341561f0c329755509aae87ff8\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"e6ddb28a8ab65b912d5803ef89ce422338103a9b8426963e83f2867d83a587ff\",\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"13e5cc0d-8a8f-407f-bf0e-cb6c0b8940ad\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-5\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_ee5acce1cfa150cc\",\"tool_call_id\":\"call-5\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353032087,\"resume_target\":\"03e25f9b-9766-46e3-8023-85ddd4091052\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d5bd68b3e6779032",
+          "run_id": "run_c5b9d7a52c89dd38",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_c5b9d7a52c89dd38",
+              "generation": 1,
+              "checksum": "9f7d3c271ea0bf607073cfd21a23bdc110ceaabb5a57760a7df48ca07f5743b0"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_c5b9d7a52c89dd38",
+            "status": "failed"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"67344e6407385fcbad0cf51e8560d08044d26ecf7a59222d3c1e699d00883827\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"c02c446e32b5c14f66f0ed2a02a8d3c890db4af223291a52915e642f826d302c\",\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"17ada5c3-befa-48c8-978b-f2aff499dec6\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-6\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.failed",
+              "payload": "{\"cause_category\":\"internal_error\",\"message\":\"The run was interrupted by a server restart and could not be recovered. Please try again.\",\"outcome\":\"failed\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":0,\"RequestID\":\"enter-unsupported-direct-rollback\",\"RequestHash\":\"6a89b196b57f472db7dcaae273cce1a447079262531e38c2b056254495390677\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-fd33960abcde69cfd61e4cc1\",\"RequestHash\":\"e72e104a06d541cab26f32f698d1123b0c8fa09c7cdee45d5d5d9d76eb3563d6\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d5bd68b3e6779032\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-075b52a54f2ff34816ee0c99\",\"RequestHash\":\"075b52a54f2ff34816ee0c992551e91d77a2c0c15becd6c3c6b82bf69eadf522\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-fd33960abcde69cfd61e4cc1\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_c5b9d7a52c89dd38\",\"PlanOriginToolCallID\":\"call-6\",\"PlanResumeTarget\":\"4153c6e6-895a-45dc-9509-e15b298807ab\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "views": [
+        {
+          "run": {
+            "id": "run_7b409d80e45e0c3c",
+            "session_id": "sess_6326dcd42045b633",
+            "status": "failed",
+            "created_at": 1792349429927
+          },
+          "work": {
+            "session_id": "sess_6326dcd42045b633",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_e4f4bd894bcc0c88"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "apr_3ae4376d098678cc",
+                "kind": "approval",
+                "status": "pending",
+                "session_id": "sess_6326dcd42045b633",
+                "session_title": "binary smoke approval",
+                "run_id": "run_7b409d80e45e0c3c",
+                "tool_call_id": "call-4",
+                "tool_name": "write_note",
+                "source": "tool",
+                "created_at": 1792349431180,
+                "expires_at": 1792353031180,
+                "arguments": {
+                  "content": "isolated pending approval"
+                },
+                "effect": "external side effect",
+                "reversibility": "unknown",
+                "scope": "current run",
+                "trust": "policy gated"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_55facee1104bdcaf",
+            "session_id": "sess_6cb18d70c76d418e",
+            "status": "failed",
+            "created_at": 1792349431421
+          },
+          "work": {
+            "session_id": "sess_6cb18d70c76d418e",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_e4f4bd894bcc0c88"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "que_ee5acce1cfa150cc",
+                "kind": "question",
+                "status": "pending",
+                "session_id": "sess_6cb18d70c76d418e",
+                "session_title": "binary smoke question",
+                "run_id": "run_55facee1104bdcaf",
+                "tool_call_id": "call-5",
+                "tool_name": "ask_user",
+                "source": "user_input",
+                "created_at": 1792349432087,
+                "expires_at": 1792353032087,
+                "prompt": "Isolated pending question?",
+                "effect": "input",
+                "reversibility": "none",
+                "scope": "current run",
+                "trust": "model requested"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_c5b9d7a52c89dd38",
+            "session_id": "sess_d5bd68b3e6779032",
+            "status": "failed",
+            "created_at": 1792349432831
+          },
+          "work": {
+            "session_id": "sess_d5bd68b3e6779032",
+            "version": 3,
+            "plan": {
+              "active": true,
+              "submission_id": "submission-fd33960abcde69cfd61e4cc1",
+              "markdown": "1. Review the isolated pending plan.",
+              "review_status": "pending",
+              "origin_run_id": "run_c5b9d7a52c89dd38",
+              "origin_tool_call_id": "call-6"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_e4f4bd894bcc0c88"
+          },
+          "reviews": {
+            "reviews": []
+          }
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "mode": "clean-before-rollback",
+      "before": [
+        {
+          "kind": "approval",
+          "session_id": "sess_a66082ad09279584",
+          "run_id": "run_14aaed6edcb11ecf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_14aaed6edcb11ecf",
+              "generation": 1,
+              "checksum": "20193adfcd848e84b9b6cb4e2f6f2b5aa628db1a9df8b93ec0579c9ccef75b2f"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_14aaed6edcb11ecf",
+            "status": "active"
+          },
+          "approvals": [
+            {
+              "id": "apr_fa99b8f21db2e214",
+              "decision": "pending"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"2968f0f05e992cc1c63408347369465b25d4d0570cfbf1b89366b27d9b7802ff\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"872c25823d20063b40694b98d28d0122e6be068d8be9d4347c8707ae34825819\",\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-7\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_fa99b8f21db2e214\",\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353094345,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_8b82bf63c32a3d8d",
+          "run_id": "run_d8ba9d3d1e2bff24",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_d8ba9d3d1e2bff24",
+              "generation": 1,
+              "checksum": "e2ba860af4dfe6061ff8ca95a7ca47aa8abc56dff6c551f41465936fe13bd456"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_d8ba9d3d1e2bff24",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_0ec56fb3456ebc3f",
+              "status": "pending"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"290f11269813e7c5bc513f0b9049f3b5c15b5d5974380710f43261b1097e3369\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"a8103f05185b6c5d0be3d792c51ccef8877892b68b8e1edc126c4ed99b668d5d\",\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-8\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_0ec56fb3456ebc3f\",\"tool_call_id\":\"call-8\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353094653,\"resume_target\":\"2e934a55-3450-4e45-87b5-a56a01417121\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d3e1be1f2ae56776",
+          "run_id": "run_a7ae320e206bfb7d",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_a7ae320e206bfb7d",
+              "generation": 1,
+              "checksum": "aa669aa14bd46e500200ebf10ccaa41d9f1e442e12b54383b6c4facacde46153"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_a7ae320e206bfb7d",
+            "status": "active"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"55e734d5eef6770cb5e2ff48419cf2aeb97192d3c8fa9d59654e870aa38bac38\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"361c9e386ea02a0d44e7a7c96410576df22351606e2a264db0087fdc876e1f74\",\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-9\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":0,\"RequestID\":\"enter-clean-before-rollback\",\"RequestHash\":\"d413759338b01bfda4095c364627603c6181d6561854f722566851d4e018741b\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-834045a0bda7120d47fba844\",\"RequestHash\":\"4b4bdd29e45e5a5607fdc89c79a39fa349241aec028dd0fcd2008407fd82d97b\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-067d2d3bad9df40efaca64fc\",\"RequestHash\":\"067d2d3bad9df40efaca64fc1fea09c8705ffcf5f64404d93f1bd43ebeb60577\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"1e094b28-e284-4aab-82cb-8d4068a1c3f3\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "kind": "approval",
+          "session_id": "sess_a66082ad09279584",
+          "run_id": "run_14aaed6edcb11ecf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_14aaed6edcb11ecf",
+              "generation": 1,
+              "checksum": "20193adfcd848e84b9b6cb4e2f6f2b5aa628db1a9df8b93ec0579c9ccef75b2f"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_14aaed6edcb11ecf",
+            "status": "cancelled"
+          },
+          "approvals": [
+            {
+              "id": "apr_fa99b8f21db2e214",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"2968f0f05e992cc1c63408347369465b25d4d0570cfbf1b89366b27d9b7802ff\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"872c25823d20063b40694b98d28d0122e6be068d8be9d4347c8707ae34825819\",\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-7\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_fa99b8f21db2e214\",\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353094345,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled",
+              "payload": "{\"approval_id\":\"apr_fa99b8f21db2e214\",\"actor\":\"local_user\",\"reason\":\"run cancelled\"}"
+            },
+            {
+              "seq": 9,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"872c25823d20063b40694b98d28d0122e6be068d8be9d4347c8707ae34825819\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_a66082ad09279584\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_8b82bf63c32a3d8d",
+          "run_id": "run_d8ba9d3d1e2bff24",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_d8ba9d3d1e2bff24",
+              "generation": 1,
+              "checksum": "e2ba860af4dfe6061ff8ca95a7ca47aa8abc56dff6c551f41465936fe13bd456"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_d8ba9d3d1e2bff24",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_0ec56fb3456ebc3f",
+              "status": "cancelled"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"290f11269813e7c5bc513f0b9049f3b5c15b5d5974380710f43261b1097e3369\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"a8103f05185b6c5d0be3d792c51ccef8877892b68b8e1edc126c4ed99b668d5d\",\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-8\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_0ec56fb3456ebc3f\",\"tool_call_id\":\"call-8\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353094653,\"resume_target\":\"2e934a55-3450-4e45-87b5-a56a01417121\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled",
+              "payload": "{\"question_id\":\"que_0ec56fb3456ebc3f\",\"actor\":\"local_user\",\"reason\":\"run cancelled\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"a8103f05185b6c5d0be3d792c51ccef8877892b68b8e1edc126c4ed99b668d5d\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_8b82bf63c32a3d8d\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d3e1be1f2ae56776",
+          "run_id": "run_a7ae320e206bfb7d",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_a7ae320e206bfb7d",
+              "generation": 1,
+              "checksum": "aa669aa14bd46e500200ebf10ccaa41d9f1e442e12b54383b6c4facacde46153"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_a7ae320e206bfb7d",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"55e734d5eef6770cb5e2ff48419cf2aeb97192d3c8fa9d59654e870aa38bac38\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"361c9e386ea02a0d44e7a7c96410576df22351606e2a264db0087fdc876e1f74\",\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-9\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"361c9e386ea02a0d44e7a7c96410576df22351606e2a264db0087fdc876e1f74\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_d3e1be1f2ae56776\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":0,\"RequestID\":\"enter-clean-before-rollback\",\"RequestHash\":\"d413759338b01bfda4095c364627603c6181d6561854f722566851d4e018741b\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-834045a0bda7120d47fba844\",\"RequestHash\":\"4b4bdd29e45e5a5607fdc89c79a39fa349241aec028dd0fcd2008407fd82d97b\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-067d2d3bad9df40efaca64fc\",\"RequestHash\":\"067d2d3bad9df40efaca64fc1fea09c8705ffcf5f64404d93f1bd43ebeb60577\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"1e094b28-e284-4aab-82cb-8d4068a1c3f3\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 4,
+              "kind": "plan.review_cancelled",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":3,\"RequestID\":\"model-work-cancel-plan-review-7b3476c631538e4dda74a4c7\",\"RequestHash\":\"9db98b859b0075be339bf7a93f8246911a9996e77fe7817327fbf9e4d6a4c4e8\",\"Kind\":\"plan.review_cancelled\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"originating run ended before human review\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "repeated": [
+        {
+          "kind": "approval",
+          "session_id": "sess_a66082ad09279584",
+          "run_id": "run_14aaed6edcb11ecf",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_14aaed6edcb11ecf",
+              "generation": 1,
+              "checksum": "20193adfcd848e84b9b6cb4e2f6f2b5aa628db1a9df8b93ec0579c9ccef75b2f"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_14aaed6edcb11ecf",
+            "status": "cancelled"
+          },
+          "approvals": [
+            {
+              "id": "apr_fa99b8f21db2e214",
+              "decision": "cancelled"
+            }
+          ],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\",\"prompt_schema\":2,\"prompt_digest\":\"2968f0f05e992cc1c63408347369465b25d4d0570cfbf1b89366b27d9b7802ff\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"31b6597ca02f55ecd3d0f50c49fe91cf7acae7333b91ccd7366f3b65f508d963\",\"byte_len\":45}],\"context_view\":\"872c25823d20063b40694b98d28d0122e6be068d8be9d4347c8707ae34825819\",\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c985290c-1d42-41f4-a13a-da5e433231ca\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"write_note\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "tool.operation",
+              "payload": "{\"operation_id\":\"call-7\",\"tool_name\":\"write_note\",\"state\":\"admitted\",\"request_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"middleware_input_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\",\"arguments_digest\":\"ed8def2960d73eabf7dacd58d3ebf50f0af95a4ac80839bee7b0995f12e41156\"}"
+            },
+            {
+              "seq": 7,
+              "type": "tool.approval_required",
+              "payload": "{\"approval_id\":\"apr_fa99b8f21db2e214\",\"tool_call_id\":\"call-7\",\"tool_name\":\"write_note\",\"args\":{\"content\":\"isolated pending approval\"},\"expires_at\":1792353094345,\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"workspace_write\",\"approval_policy\":\"ask\"}"
+            },
+            {
+              "seq": 8,
+              "type": "tool.approval_cancelled",
+              "payload": "{\"approval_id\":\"apr_fa99b8f21db2e214\",\"actor\":\"local_user\",\"reason\":\"run cancelled\"}"
+            },
+            {
+              "seq": 9,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"872c25823d20063b40694b98d28d0122e6be068d8be9d4347c8707ae34825819\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_a66082ad09279584\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "question",
+          "session_id": "sess_8b82bf63c32a3d8d",
+          "run_id": "run_d8ba9d3d1e2bff24",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_d8ba9d3d1e2bff24",
+              "generation": 1,
+              "checksum": "e2ba860af4dfe6061ff8ca95a7ca47aa8abc56dff6c551f41465936fe13bd456"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_d8ba9d3d1e2bff24",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [
+            {
+              "id": "que_0ec56fb3456ebc3f",
+              "status": "cancelled"
+            }
+          ],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"290f11269813e7c5bc513f0b9049f3b5c15b5d5974380710f43261b1097e3369\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"dc3c99e79ca091a9a052b12993b99ec26bf491ef12ab0b94098ecb8d6b5a8eba\",\"byte_len\":45}],\"context_view\":\"a8103f05185b6c5d0be3d792c51ccef8877892b68b8e1edc126c4ed99b668d5d\",\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"64089c8a-3300-4830-af09-855196f837c8\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-8\",\"tool_name\":\"ask_user\",\"args\":{\"question\":\"Isolated pending question?\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"ask_user\",\"decision\":\"allow\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"user question is a control-flow interaction\"}"
+            },
+            {
+              "seq": 6,
+              "type": "user.question_required",
+              "payload": "{\"question_id\":\"que_0ec56fb3456ebc3f\",\"tool_call_id\":\"call-8\",\"prompt\":\"Isolated pending question?\",\"expires_at\":1792353094653,\"resume_target\":\"2e934a55-3450-4e45-87b5-a56a01417121\",\"selected_tools\":[\"write_note\",\"ask_user\",\"submit_plan\"],\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\"}"
+            },
+            {
+              "seq": 7,
+              "type": "user.question_cancelled",
+              "payload": "{\"question_id\":\"que_0ec56fb3456ebc3f\",\"actor\":\"local_user\",\"reason\":\"run cancelled\"}"
+            },
+            {
+              "seq": 8,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"a8103f05185b6c5d0be3d792c51ccef8877892b68b8e1edc126c4ed99b668d5d\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_8b82bf63c32a3d8d\"}"
+            }
+          ],
+          "work_events": []
+        },
+        {
+          "kind": "plan",
+          "session_id": "sess_d3e1be1f2ae56776",
+          "run_id": "run_a7ae320e206bfb7d",
+          "checkpoints": [
+            {
+              "id": "ckpt-run_a7ae320e206bfb7d",
+              "generation": 1,
+              "checksum": "aa669aa14bd46e500200ebf10ccaa41d9f1e442e12b54383b6c4facacde46153"
+            }
+          ],
+          "cleanup_intents": [],
+          "run": {
+            "id": "run_a7ae320e206bfb7d",
+            "status": "cancelled"
+          },
+          "approvals": [],
+          "questions": [],
+          "events": [
+            {
+              "seq": 1,
+              "type": "run.started",
+              "payload": "{\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"mode\":\"normal\",\"face\":\"web\",\"policy_profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"sandbox_mode\":\"danger_full_access\",\"approval_policy\":\"auto\",\"prompt_schema\":2,\"prompt_digest\":\"55e734d5eef6770cb5e2ff48419cf2aeb97192d3c8fa9d59654e870aa38bac38\",\"bundle_schema\":1,\"bundle_digest\":\"36dbf8c5a829d31281b731508834bfa93da0878478d342eb6bb0c1b4259224f1\"}"
+            },
+            {
+              "seq": 2,
+              "type": "model.request",
+              "payload": "{\"selected_tools\":[\"ask_user\",\"skill\",\"tool_search\"],\"preamble_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"preamble_bytes\":1967,\"messages\":[{\"role\":\"system\",\"content_sha256\":\"4d041da60400d57329dfbab49b1652ae06c04d748464e5014466f8414745eb63\",\"byte_len\":1967},{\"role\":\"system\",\"content_sha256\":\"b0ca4f02e37df026884aa06e2100fc9220221408e1ac51ccd5d1b9d6c959aead\",\"byte_len\":25},{\"role\":\"system\",\"content_sha256\":\"43946a5d67a79661a40a7609e90f242f6d05c1b943300f859859d621f3299e4b\",\"byte_len\":155},{\"role\":\"user\",\"content_sha256\":\"735f1625334d70eb291aea1e84ddd35f8c1000ecf809c00f7ba0b841685cee80\",\"byte_len\":77},{\"role\":\"user\",\"content_sha256\":\"ec65317e07344f7d2388300e4f0d54a71ef81f600f68ebc9a6f34676a6b3bcda\",\"byte_len\":41}],\"context_view\":\"361c9e386ea02a0d44e7a7c96410576df22351606e2a264db0087fdc876e1f74\",\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\"}"
+            },
+            {
+              "seq": 3,
+              "type": "model.call.finished",
+              "payload": "{\"call_id\":\"c2378d5b-631f-4968-a9bd-befa95207434\",\"mode\":\"stream\",\"provider\":\"deepseek\",\"model\":\"deepseek-flash\",\"source\":\"main\",\"status\":\"completed\",\"response_complete\":true}"
+            },
+            {
+              "seq": 4,
+              "type": "tool.requested",
+              "payload": "{\"tool_call_id\":\"call-9\",\"tool_name\":\"submit_plan\",\"args\":{\"markdown\":\"1. Review the isolated pending plan.\"}}"
+            },
+            {
+              "seq": 5,
+              "type": "policy.evaluated",
+              "payload": "{\"tool_name\":\"submit_plan\",\"decision\":\"prompt\",\"profile\":\"default\",\"policy_hash\":\"6e8acd7b2cd0bde96459afd9e6c82bf9d821b725103490b5e03fa5f141cf60be\",\"reason\":\"effectful tool requires user approval\"}"
+            },
+            {
+              "seq": 6,
+              "type": "run.cancelled",
+              "payload": "{\"reason\":\"user_requested\",\"outcome\":\"cancelled\",\"view\":\"361c9e386ea02a0d44e7a7c96410576df22351606e2a264db0087fdc876e1f74\",\"tenant_id\":\"local\",\"workspace_id\":\"selected_c32f08857fa1e2dc\",\"session_id\":\"sess_d3e1be1f2ae56776\"}"
+            }
+          ],
+          "work_events": [
+            {
+              "work_seq": 1,
+              "kind": "plan.entered",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":0,\"RequestID\":\"enter-clean-before-rollback\",\"RequestHash\":\"d413759338b01bfda4095c364627603c6181d6561854f722566851d4e018741b\",\"Kind\":\"plan.entered\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 2,
+              "kind": "plan.submitted",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":1,\"RequestID\":\"model-work-submit-plan-834045a0bda7120d47fba844\",\"RequestHash\":\"4b4bdd29e45e5a5607fdc89c79a39fa349241aec028dd0fcd2008407fd82d97b\",\"Kind\":\"plan.submitted\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"1. Review the isolated pending plan.\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 3,
+              "kind": "plan.review_suspended",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":2,\"RequestID\":\"plan-review-suspend-067d2d3bad9df40efaca64fc\",\"RequestHash\":\"067d2d3bad9df40efaca64fc1fea09c8705ffcf5f64404d93f1bd43ebeb60577\",\"Kind\":\"plan.review_suspended\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"call-9\",\"PlanResumeTarget\":\"1e094b28-e284-4aab-82cb-8d4068a1c3f3\",\"PlanBlockedToolCalls\":[]},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            },
+            {
+              "work_seq": 4,
+              "kind": "plan.review_cancelled",
+              "payload": "{\"Mutation\":{\"SessionID\":\"sess_d3e1be1f2ae56776\",\"ExpectedVersion\":3,\"RequestID\":\"model-work-cancel-plan-review-7b3476c631538e4dda74a4c7\",\"RequestHash\":\"9db98b859b0075be339bf7a93f8246911a9996e77fe7817327fbf9e4d6a4c4e8\",\"Kind\":\"plan.review_cancelled\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Objective\":\"\",\"MaxRounds\":0,\"Reason\":\"originating run ended before human review\",\"EvidenceRunID\":\"\",\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"},\"PlanSubmissionID\":\"submission-834045a0bda7120d47fba844\",\"PlanMarkdown\":\"\",\"PlanAction\":\"\",\"PlanFeedback\":\"\",\"PlanOriginRunID\":\"run_a7ae320e206bfb7d\",\"PlanOriginToolCallID\":\"\",\"PlanResumeTarget\":\"\",\"PlanBlockedToolCalls\":null},\"Admission\":{\"SessionID\":\"\",\"Goal\":{\"ID\":\"\",\"Revision\":0},\"Round\":0,\"RunID\":\"\"}}"
+            }
+          ]
+        }
+      ],
+      "views": [
+        {
+          "run": {
+            "id": "run_14aaed6edcb11ecf",
+            "session_id": "sess_a66082ad09279584",
+            "status": "cancelled",
+            "created_at": 1792349493396
+          },
+          "work": {
+            "session_id": "sess_a66082ad09279584",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_4bda2ea88034cb21"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "apr_fa99b8f21db2e214",
+                "kind": "approval",
+                "status": "cancelled",
+                "session_id": "sess_a66082ad09279584",
+                "session_title": "binary smoke approval",
+                "run_id": "run_14aaed6edcb11ecf",
+                "tool_call_id": "call-7",
+                "tool_name": "write_note",
+                "source": "tool",
+                "actor": "local_user",
+                "created_at": 1792349494345,
+                "expires_at": 1792353094345,
+                "decided_at": 1792349496115,
+                "arguments": {
+                  "content": "isolated pending approval"
+                },
+                "decision_reason": "run cancelled",
+                "effect": "external side effect",
+                "reversibility": "unknown",
+                "scope": "current run",
+                "trust": "policy gated"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_d8ba9d3d1e2bff24",
+            "session_id": "sess_8b82bf63c32a3d8d",
+            "status": "cancelled",
+            "created_at": 1792349494578
+          },
+          "work": {
+            "session_id": "sess_8b82bf63c32a3d8d",
+            "version": 0,
+            "plan": {
+              "active": false,
+              "review_status": "none"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_4bda2ea88034cb21"
+          },
+          "reviews": {
+            "reviews": [
+              {
+                "id": "que_0ec56fb3456ebc3f",
+                "kind": "question",
+                "status": "cancelled",
+                "session_id": "sess_8b82bf63c32a3d8d",
+                "session_title": "binary smoke question",
+                "run_id": "run_d8ba9d3d1e2bff24",
+                "tool_call_id": "call-8",
+                "tool_name": "ask_user",
+                "source": "user_input",
+                "actor": "local_user",
+                "created_at": 1792349494653,
+                "expires_at": 1792353094653,
+                "decided_at": 1792349496210,
+                "prompt": "Isolated pending question?",
+                "decision_reason": "run cancelled",
+                "effect": "input",
+                "reversibility": "none",
+                "scope": "current run",
+                "trust": "model requested"
+              }
+            ]
+          }
+        },
+        {
+          "run": {
+            "id": "run_a7ae320e206bfb7d",
+            "session_id": "sess_d3e1be1f2ae56776",
+            "status": "cancelled",
+            "created_at": 1792349494860
+          },
+          "work": {
+            "session_id": "sess_d3e1be1f2ae56776",
+            "version": 4,
+            "plan": {
+              "active": true,
+              "submission_id": "submission-834045a0bda7120d47fba844",
+              "markdown": "1. Review the isolated pending plan.",
+              "review_status": "cancelled",
+              "origin_run_id": "run_a7ae320e206bfb7d",
+              "origin_tool_call_id": "call-9"
+            },
+            "activation": "disarmed",
+            "process_epoch": "epoch_4bda2ea88034cb21"
+          },
+          "reviews": {
+            "reviews": []
+          }
+        }
+      ],
+      "result": "PASS"
+    }
+  ],
+  "result": "PASS",
+  "finished_at": "2026-10-18T18:53:04.204Z",
+  "model_requests": 9
+}

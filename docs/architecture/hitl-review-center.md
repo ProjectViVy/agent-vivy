@@ -88,7 +88,9 @@ Supported boundary for the Eino v0.9.21 upgrade:
 - To preserve a paused task's result, complete its human review before upgrading.
 
 Evidence: `internal/runtime/recovery_engine_version_test.go`,
-`internal/runtime/recovery_cleanup_test.go`, and the actual-binary matrix in
+`internal/runtime/recovery_cleanup_test.go`, and the final-source actual-binary
+matrix in `docs/logs/2026-10-19-pr83-closeout/verification.md`. The earlier
+review baseline and initial matrix remain in
 `docs/logs/2026-10-18-pr80-recovery/verification.md`. These cover the current
 ChatModel generation only. AgenticModel/message-generation migration remains
 subject to separate acceptance, including S4 B5/B6/B7.
