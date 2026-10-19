@@ -1,0 +1,235 @@
+{
+  "lane": "chat-ui",
+  "branch": "remake/chat-ui",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "ui/e2e/runtime.spec.ts",
+      "owner": "chat-ui",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e581ac8436bc744c62c7b9f11edd6d90e62e25b9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "18f652be1b4efe106671e1e1f05be336e4f65e99"
+      },
+      "contributing_owners": [
+        "chat-ui"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/approvals/ApprovalQuickCard.test.tsx",
+      "owner": "chat-ui",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b794e04df649a4eb05bb78bc3ed8fac1a7013230"
+      },
+      "contributing_owners": [
+        "chat-ui"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/approvals/ApprovalQuickCard.tsx",
+      "owner": "chat-ui",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6859052614c5155d30b7ff6c3eda182d080d93f0"
+      },
+      "contributing_owners": [
+        "chat-ui"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/surfaces.test.tsx",
+      "owner": "chat-ui",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cabd2b80bc914cdda308b232fcf1672b7cc31255"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "33634a1b9bfa48e4abebb5631e5120f26fb027bc"
+      },
+      "contributing_owners": [
+        "chat-ui"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": "scripts/i18n-cross-face-contract.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "23260e04fcf2db830d56d45194bbd5ca2addd0f4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd8273cd398d040bb311742aa59ca22234d2b0ee"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.compact.test.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ae656b6c21a044b2ff7ad8c4f6162d1440be4b6b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3971166b80f39c31a53a517307e2dc3bbdccfb0f"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.thinking.test.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d87f12bf1c71f0eb45ff4b5d5a1030d8118270c3"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "provider"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6c66152aa75a8318d9abf132549b11f393e567d0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "db1689cc77cbad8486dfc7dca7c4aa9c1e32ab77"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/en.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "703656b96b8581e1d86fa5ec67878f96ab82c2d4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e91e13d2238e96091e5c53919633ecf7edc99091"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/zh.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ed89a8370b5af2598a1c53e5334f01c742d78291"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ee00e1ecaadc3858d7f01a42c4078c2e617decc"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}

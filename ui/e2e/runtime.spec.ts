@@ -13,12 +13,19 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   // 语音与桌面伙伴已删除
   await expect(page.getByRole('button', { name: '语音' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '打开伙伴' })).toHaveCount(0);
-  await expect(page.getByRole('progressbar', { name: '上下文占用' })).toBeVisible();
+  // 上下文占用本身即压缩入口（合并后不再是独立的压缩按钮）
+  const contextControl = page.getByRole('button', { name: /上下文占用/ });
+  await expect(contextControl).toBeVisible();
   // 全新上下文会自动弹出欢迎向导，跳过后才不影响后续点击
   const welcomeDialog = page.getByRole('dialog', { name: '欢迎使用 Vivy' });
   await expect(welcomeDialog).toBeVisible();
   await welcomeDialog.getByRole('button', { name: '跳过向导' }).click();
   await expect(welcomeDialog).toBeHidden();
+  // 点击占用入口弹出压缩上下文窗口，Esc 关闭后不影响后续输入
+  await contextControl.click();
+  await expect(page.getByRole('button', { name: '立即压缩' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '立即压缩' })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
