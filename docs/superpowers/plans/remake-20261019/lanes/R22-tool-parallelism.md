@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) owns the stable loop and one execution owner. Check pinned native Eino dispatch before custom scheduling; preserve call/result, approval, ownership and crash-safety contracts.
+- [#93](https://github.com/ProjectViVy/agent-vivy/issues/93) owns EXP extraction. Nudge's hard stop moves with its package; preserve ordinary MaxToolTurns/Eino caps and never run core plus package implementations together.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates re-intake after the core seam. Performance claims need comparable measurement on the exact candidate; this donor is no speedup evidence.
+
+remake/tool-parallelism is raw donor source, not a second runner or Eino repin authorization.
+
+
 ## Verified donor entry points
 
 - `internal/runtime/parallel_tools_test.go` — parallel-tool donor.

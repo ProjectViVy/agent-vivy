@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) owns the stable core: preserve real tool-result/call identity in the next model request, one execution owner, permissions and crash safety; do not restore retired hashes or a second runner.
+- [#32](https://github.com/ProjectViVy/agent-vivy/issues/32) closed as superseded coordination, not fixed remediation. [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) retains C1-C7, H4 and R1-R4 for bounded core/cognition/Recap/provider re-intake; recheck and disposition each on target.
+- Same-Run steering and nudge/warming belong to [#93](https://github.com/ProjectViVy/agent-vivy/issues/93), not ordinary queue fixes. A donor branch does not enable EXP policy.
+
+remake/core-fixes is raw donor source; #83 does not make it ready or accepted.
+
+
 ## Verified donor entry points
 
 - `internal/rpc/protocol.go` — main donor.

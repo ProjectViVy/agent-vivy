@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#64](https://github.com/ProjectViVy/agent-vivy/issues/64) owns local DIVA proposals: update the same Skill identity where appropriate, require human review, keep durable provenance/revisions, reject stale bases, and recover apply/restart states. No effective change before approval; EvoMap is outside this delivery.
+- [#72](https://github.com/ProjectViVy/agent-vivy/issues/72) requires default local-Skill-only evolution, EvoMap experimental/default-off, truthful missing-receiver behavior and idempotent same-operation replay; unknown outcomes are not blindly retried.
+- [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) generic strategy composition is separate and unscheduled. [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates re-intake on #91 contracts; donor code does not complete #64 UI/product acceptance.
+
+remake/skill-evolution is raw donor source, not permission for EvoMap or auto-approval.
+
+
 ## Verified donor entry points
 
 - `internal/runtime/cognitive_skill_proposal.go` — main donor.

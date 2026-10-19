@@ -51,7 +51,7 @@ for f in md:
   if not target or re.match(r'^[A-Za-z][\w+.-]*:',target):continue
   linkcount+=1;check((f.parent/target).exists(),'missing link '+str(f.relative_to(root))+' -> '+target)
  for i,line in enumerate(text.splitlines(),1):check(line==line.rstrip(),'trailing whitespace '+str(f.relative_to(root))+':'+str(i))
-check(len(list((p/'lanes').glob('*.md')))==15,'15 lane cards')
+check(len(list((p/'lanes').glob('*.md')))==16,'16 branch lane/handoff cards')
 if errors:
  print('\n'.join('FAIL '+e for e in errors));sys.exit(1)
-print(json.dumps({'status':'PASS','commits':len(rows),'main':s['counts']['main'],'branch_only':s['counts']['branch_only'],'merge':s['counts']['merge'],'nodes':len(nodes),'waves':waves,'lane_cards':15,'local_links':linkcount,'scope':'planning package only'},ensure_ascii=False,indent=2))
+print(json.dumps({'status':'PASS','commits':len(rows),'main':s['counts']['main'],'branch_only':s['counts']['branch_only'],'merge':s['counts']['merge'],'nodes':len(nodes),'waves':waves,'lane_cards':16,'local_links':linkcount,'scope':'planning package only'},ensure_ascii=False,indent=2))

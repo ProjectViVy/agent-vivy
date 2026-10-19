@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#39](https://github.com/ProjectViVy/agent-vivy/issues/39) was owner-closed completed on 2026-10-18: Markdown editing/preview, revisions, comments, scoped management, delete/restore, provenance export, explicit tools and optional/headless boundaries. Automatic prompt injection is excluded.
+- Re-intake on the #91 stable baseline is coordinated by [#83](https://github.com/ProjectViVy/agent-vivy/issues/83); this does not reopen #39. Any new Notebook expectations need their own issue.
+- Keep reports in [#5](https://github.com/ProjectViVy/agent-vivy/issues/5) and the reports lane.
+
+remake/notebook is raw donor source; verify what is absent before proposing a bounded re-intake.
+
+
 ## Verified donor entry points
 
 - `internal/notebookcontract/ports.go` — main donor.

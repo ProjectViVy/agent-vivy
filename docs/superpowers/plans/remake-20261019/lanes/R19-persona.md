@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#57](https://github.com/ProjectViVy/agent-vivy/issues/57) keeps one subject across sessions: configured avatar/name above sessions, no Coding/Life toggle or separate personality per session. Navigation does not cancel work or grant authority; workers do not inherit persona/Recap automatically.
+- [#66](https://github.com/ProjectViVy/agent-vivy/issues/66) is editable guidance only. Reuse Laputa persona/content mechanisms; do not invent a roster, Settings fields or bundle types. Prompt text cannot enforce permission/isolation.
+- [#58](https://github.com/ProjectViVy/agent-vivy/issues/58) owns Recap/context UI; keep that work in the Recap lane.
+
+remake/persona is raw donor source; #57/#66 remain scope owners.
+
+
 ## Verified donor entry points
 
 - `internal/runtime/prompt_state.go` — main donor.

@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#4](https://github.com/ProjectViVy/agent-vivy/issues/4) remains open and unscheduled. VIVY owns authorized scope/admission/budgets; providers own storage/indexing/ranking. Validate BML first and Mentle through DIVA. No implicit backend switch, dual write, store migration or cascading deletion; keep one subject-level ACTMEM and explicit targeted forgetting.
+- [#60](https://github.com/ProjectViVy/agent-vivy/issues/60) is a separate optional offload/recall experiment and may not be implemented unless selected. Reuse existing long-result handling where enough; do not replace compression or create another continuity engine.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates re-intake against #91 contracts. BML2 is the target format; old bytes do not authorize restoring old schemas/hash behavior.
+
+remake/bml is raw donor source, not acceptance of #4 or #60.
+
+
 ## Verified donor entry points
 
 - `bml/bound.go` — main donor.

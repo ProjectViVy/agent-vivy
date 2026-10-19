@@ -4,13 +4,22 @@ Date: 2026-10-19. This is the sole status/dependency index of this package. [Des
 
 ## Execution update: donor branches
 
-[Published source branches](source-branch-table.md) · [Exact commit receipt](source-branches.json) · [Donor extraction receipt](extraction.md) records the authorized source separation and publication. The 15 planned lines plus a warming-history line are donor branches, not build/product-accepted features. Dedicated files are split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
+[Published source branches](source-branch-table.md) · [Exact frozen donor receipt](source-branches.json) · [Donor extraction receipt](extraction.md) record the source split and plan synchronization. All 16 published refs are donor branches, not build/product-accepted features. R10–R24 are bounded feature intake lines; R25 is a warming-history handoff to #93's existing epic plan, not a second implementation plan. Every branch carries the matching current lane-plan issue requirements. Dedicated source files remain split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
 
 ## Current facts and readiness
 
 Donor main `9cd2801f8090723a652d3e835f72d83715b82121`; original A `202aac3885cb1479998127f0fb9004bea54aca57`; observed active core `c091ccf4351600737550b07611753dfaec846eef` (not accepted B). The frozen window has **394 reachable commits (314 main / 80 branch-only), 343 non-merges and 51 merges**. [Ledger](commit-ledger.csv) has full SHAs, both dates, candidate primary/secondary owners, merge state, shared files and duplicate hints. [Paths](commit-paths.json) supplies every commit's first-parent changed paths. [Snapshot](source-snapshot.json) supplies all frozen branch heads and source coverage limits. [Older prerequisites](outside-window-prerequisites.json) names seven pre-window candidates.
 
 The source scan and candidate routing are complete. Final per-hunk ownership is **not** complete; no feature is implementation-Ready. R01 can continue as planning work without waiting for the other computer. R02/R03 and the feature implementation plans wait for actual accepted contracts. Do not create all worktrees from old main just to make the directory list look finished.
+
+## Issue handoff synchronized 2026-10-20
+
+- [#32](https://github.com/ProjectViVy/agent-vivy/issues/32) is closed as superseded audit coordination, not as completed remediation. Its 28 historical findings remain explicitly routed through [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) to #31 and the relevant feature lanes.
+- [#73](https://github.com/ProjectViVy/agent-vivy/issues/73) is closed for the provider spike-review scope only. Provider migration blockers and acceptance remain in #83 and the provider plan.
+- [#31](https://github.com/ProjectViVy/agent-vivy/issues/31) remains open for DIVA delivery/installed-product acceptance. #83 remains open for Phase C staged re-intake; original feature issues retain their independent scopes.
+- [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) owns Phase A stable-core work. [#93](https://github.com/ProjectViVy/agent-vivy/issues/93) owns Phase B EXP extraction; [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) owns Phase C feature re-intake.
+
+Issue notes in the lane cards state the applicable requirements and boundaries. They are handoff constraints, not fresh completion evidence or implementation authorization.
 
 ## Preparatory Stories
 
@@ -43,10 +52,11 @@ CSV primary_owner values are owner slugs; future branch refs always use remake/<
 | R22 | `remake/tool-parallelism` | Same-batch tool parallelism | R03 | 2 | Blocked — [R22](lanes/R22-tool-parallelism.md) |
 | R23 | `remake/chat-ui` | Chat usability and quick approval | R03 | 3 | Blocked — [R23](lanes/R23-chat-ui.md) |
 | R24 | `remake/misc` | Miscellaneous maintenance and developer experience | R03 | 35 | Blocked — [R24](lanes/R24-misc.md) |
+| R25 | `remake/warming` | Warming historical source handoff only; EXP implementation remains under #93 | #91 / #93 seam | 4 | Handoff only — [R25](lanes/R25-warming.md) |
 
 ## Integration and retained EXP ownership
 
-`remake/integration` is the one assembled-candidate/shared-contract lane, not a source to copy unrelated features from. Three optional branches may be instantiated when the corresponding #93 Epic is released: `remake/nudge`, `remake/warming`, `remake/steering`. Their authority remains the existing `epic-nudge`, `epic-warming`, `epic-steering` plans and #93. No new Epic/issue or duplicate implementation plan is created here. None is a blanket prerequisite for unrelated feature intake. Nudge/warming remain unselected in shipped default-family/lite/masks Recipes; do not infer a new steering default decision. The four warming-history commits are routed to that existing Epic; no in-window commit is required for an Epic to have retained scope.
+`remake/integration` is the one assembled-candidate/shared-contract lane, not a source to copy unrelated features from. #93 remains the single authority for the nudge, warming and steering EXP packages, with the existing `epic-nudge`, `epic-warming` and `epic-steering` plans. The published `remake/warming` branch is only a historical source donor; it is not the `plugins/exp/warming` implementation branch. No new Epic/issue or duplicate implementation plan is created here. Nudge/warming remain unselected in shipped default-family/lite/masks Recipes; do not infer a new steering default decision. The four warming-history commits are routed to the existing warming epic; no in-window commit is required for an Epic to have retained scope. R25 is a handoff record only and is not an executable DAG node.
 
 `#91` owns the 29 active-core planning/implementation entries, so they are not replayed as remake capability work. The 51 merge rows require integration-resolution review. Misc contains general maintenance and multi-feature coordination; feature-specific docs/tests are routed with their feature wherever identifiable.
 

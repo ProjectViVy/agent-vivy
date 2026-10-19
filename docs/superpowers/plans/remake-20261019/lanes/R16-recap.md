@@ -15,6 +15,16 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#58](https://github.com/ProjectViVy/agent-vivy/issues/58) records the completed unified-context direction, not stable-target acceptance. Use one free-form, subject-level ACTMEM Recap across VIVY sessions, visible/editable in its UI; LIFE first, CODE excluded from phase one.
+- Persist source evidence and replacement Recap/references before unloading raw context; preserve provenance/recovery. Forgetting is explicit and targeted. Workers do not inherit persona/Recap without trusted scope.
+- [#57](https://github.com/ProjectViVy/agent-vivy/issues/57) owns subject/worker lifecycle; [#66](https://github.com/ProjectViVy/agent-vivy/issues/66) is editable prompt draft only, with no runtime activation, new permissions or separate persona/store. [#4](https://github.com/ProjectViVy/agent-vivy/issues/4) owns provider/scope rules.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates bounded re-intake; verify target/data contracts.
+
+remake/recap is raw donor source, not a second continuity authority or acceptance.
+
+
 ## Verified donor entry points
 
 - `internal/storage/subject_history.go` — main donor.
