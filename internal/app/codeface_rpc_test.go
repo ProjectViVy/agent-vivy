@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,11 +19,12 @@ import (
 // scripted model, command lines on a stdin pipe, protocol records on a stdout
 // pipe.
 type rpcSession struct {
-	t      *testing.T
-	in     *io.PipeWriter
-	lines  *bufio.Reader
-	done   chan error
-	nextID int
+	t       *testing.T
+	in      *io.PipeWriter
+	lines   *bufio.Reader
+	done    chan error
+	nextID  int
+	pending []map[string]any
 }
 
 func startRPCSession(t *testing.T) *rpcSession {
@@ -64,6 +66,15 @@ func (s *rpcSession) readUntil(pred func(map[string]any) bool) []map[string]any 
 	deadline := time.Now().Add(30 * time.Second)
 	var seen []map[string]any
 	for time.Now().Before(deadline) {
+		if len(s.pending) > 0 {
+			record := s.pending[0]
+			s.pending = s.pending[1:]
+			seen = append(seen, record)
+			if pred(record) {
+				return seen
+			}
+			continue
+		}
 		type result struct {
 			line []byte
 			err  error
@@ -94,12 +105,18 @@ func (s *rpcSession) readUntil(pred func(map[string]any) bool) []map[string]any 
 }
 
 func (s *rpcSession) response(id string) map[string]any {
+	var response map[string]any
 	for _, rec := range s.readUntil(func(r map[string]any) bool {
 		return r["type"] == "response" && r["id"] == id
 	}) {
 		if rec["type"] == "response" && rec["id"] == id {
-			return rec
+			response = rec
+		} else if rec["type"] != "response" {
+			s.pending = append(s.pending, rec)
 		}
+	}
+	if response != nil {
+		return response
 	}
 	s.t.Fatalf("no response for %s", id)
 	return nil
@@ -111,6 +128,15 @@ func (s *rpcSession) close() {
 	if err := <-s.done; err != nil {
 		s.t.Fatalf("rpc mode exit: %v", err)
 	}
+}
+
+func TestRPCSessionResponsePreservesEarlyEvents(t *testing.T) {
+	stream := "{\"type\":\"agent_settled\",\"run_id\":\"r1\"}\n{\"type\":\"response\",\"id\":\"c1\",\"success\":true}\n"
+	s := &rpcSession{t: t, lines: bufio.NewReader(strings.NewReader(stream))}
+	if response := s.response("c1"); response["success"] != true {
+		t.Fatalf("response: %v", response)
+	}
+	s.readUntil(func(record map[string]any) bool { return record["type"] == "agent_settled" })
 }
 
 func TestCodeFaceRPCModeGoldenTranscript(t *testing.T) {
@@ -239,7 +265,9 @@ func TestCodeFaceRPCModeQueuesFollowUpWhileRunning(t *testing.T) {
 	defer s.close()
 
 	id1 := s.send(map[string]any{"type": "prompt", "message": "one"})
-	s.readUntil(func(r map[string]any) bool { return r["type"] == "response" && r["id"] == id1 })
+	if first := s.response(id1); first["success"] != true {
+		t.Fatalf("prompt: %v", first)
+	}
 	// The model streams instantly; the queue path is covered when a second
 	// prompt lands while the first may still be settling — assert the
 	// disposition is a valid protocol value either way.
