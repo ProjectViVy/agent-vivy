@@ -1,5 +1,12 @@
 # Vivy Agent-Loop Slimming Review
 
+Owner update (2026-10-19): nudge/coaching, proactive warming and same-Run
+steering are explicitly retained. Whole-feature-retirement recommendations in
+this historical review are superseded by the current
+[issue #91 plan package](../superpowers/plans/issue-91/index.md) and shared design.
+This note does not change runtime behavior or settle other product/data choices.
+
+
 Status: Draft proposal for discussion; not an approved architecture change.
 
 Date: 2026-10-19
