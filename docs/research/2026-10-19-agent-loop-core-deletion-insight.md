@@ -1,5 +1,12 @@
 # Core Insight: Where Vivy's Agent Loop Should Shrink
 
+Owner update (2026-10-19): nudge/coaching, proactive warming and same-Run
+steering are explicitly retained. Whole-feature-retirement recommendations in
+this historical review are superseded by the current
+[issue #91 plan package](../superpowers/plans/issue-91/index.md) and shared design.
+This note does not change runtime behavior or settle other product/data choices.
+
+
 Date: 2026-10-19
 
 Status: Source-backed architectural diagnosis and deletion proposal. No runtime changes implemented by this document.

@@ -12,11 +12,17 @@ Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Branch: `co
 - Root/UI AGENTS and relevant plugin/kernel/Eino skills were read. Two independent read-only domain reviews checked runtime/approval and assembly/persistence. No production state was accessed; external Studio/Laputa/INOFY contract closure is not yet proven.
 - Planning docs/commit messages are English. Current user asked for a plan package, so implementation is not started. D01/D02/D06 have concrete draft cuts but stay Planned until review/authorization. Other Stories identify explicit blockers rather than pretending readiness.
 
+## Owner-confirmed scope update (2026-10-19)
+
+The owner explicitly requires **nudge, warming and steering to remain**. Their former whole-feature-retirement recommendation is superseded. D04 preserves coaching while removing custom hashes/duplicate outcome handoff; D05 preserves actual warming and same-Run steering. Retained settings/UI/events/tests are part of acceptance. Tool visibility and durability changes remain undecided; no blanket feature deletion follows from hash removal. No runtime work has started.
+
+Scope-correction evidence: [retained-feature verification](../../../logs/2026-10-19-issue-91-retained-features/verification.md). Previous planning logs remain historical records of the superseded draft.
+
 ## Requirements and coverage
 
 | Requirement | Observable outcome | Owning Stories |
 | --- | --- | --- |
-| R1 | Completely remove Vivy-owned hash implementations, state, protocols, fields, generators, dead code and active requirements; optional final artifact label is not required. | D01–D03, D05–D12 |
+| R1 | Completely remove Vivy-owned hash implementations, state, protocols, fields, generators, dead code and active requirements; optional final artifact label is not required. | D01–D12 |
 | R2 | One production model -> real tool -> exact result/call ID -> next model request -> final terminal/idle path, using existing Eino. | D02–D05, D08, D13–D14 |
 | R3 | Preserve approved intent, server permission/scope, durable ownership/outcomes, conflicts and no blind effect replay. | D03–D04, D07–D12 |
 | R4 | Finite supported data transition, fresh/upgrade/reopen/failure rollback and SQLite/Postgres/BML parity; no data reset. | D00, D03, D07–D12, D14 |
@@ -27,11 +33,11 @@ Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Branch: `co
 
 ## Review decisions before implementation
 
-Recommendations below are concrete proposals for review. The issue explicitly confirms hash retirement; it does not confirm every feature reduction. D00 owns recording the decisions once, then revising affected plans.
+Hash retirement and retention of nudge/warming/steering are confirmed. Remaining recommendations are proposals for review. D00 records only unresolved decisions; it must not ask again whether those three capabilities should remain.
 
 | Gate | Recommendation and exact decision | Blocks |
 | --- | --- | --- |
-| G1 Product and durability | Retire nudge/reminder coaching, proactive warming, same-Run steering and mount/activation lifetime mirrors; retain follow-up/cancel/approval/question, use one admitted basic tool surface. Permit derived transcript/status lag; keep required execution facts durable. Approve each named cut, rather than blanket deletion of companion/Work/workflow/memory. | D04–D05 and downstream minimal |
+| G1 Product and durability | Confirmed: retain nudge coaching, opt-in warming and same-Run steering, including their actual behavior/config/UI/events. Pending: tool activation/mount/discovery replacement and any durability/visibility change. Remove custom hashes and redundant coordination without silently weakening the retained contracts; D04 keeps schedule-before-injection persistence unless separately changed. | D04–D05 pending only remaining contracts/prerequisites; downstream minimal |
 | G2 Supported data and finite upgrade | Separately delivered old-release normalization -> exact baseline SQL 043/BML v1 -> final hash-free target, with backup and helper removed from final runtime. Preserve all currently supported legacy shapes through the finite artifact. Expire unbindable approvals; old paused checkpoint recovery is explicit, not seamless; retain unknown/completed effect fences. Approve source matrix, release boundary and immutable historical SQL disposition. | All durable cuts |
 | G3 Release consent | Use opaque acquired artifact plus existing install/release sequence and catalog revisions. Exact declaration/config consent; new release/config requires reapproval unless explicitly preserving a proven reusable consent. Review revocation semantics. | D07 and admitted bundle consumers |
 | G4 Exact content and cursor trust | Use bounded actual before/selection/presentation bytes in existing owners, one immutable transfer snapshot; stateless untrusted cursor with server reauthorization and allowed cut validation. Accept loss of signed cursor-issuance authenticity; preserve scope, selection and honest snapshot behavior. Approve storage/cleanup semantics. | D09 |
@@ -46,7 +52,7 @@ No rewrite of AGENTS, current product requirements or mandatory gates is perform
 | E0 | Scope, contracts and finite support boundary settled | D00 |
 | E1 | Remove audit/completion/request evidence authority | D01–D02 |
 | E2 | Preserve exact ownership and supported data without hashes | D03, D08–D09, D12 |
-| E3 | Contract the actual continuation path and selected peripherals | D04–D05 |
+| E3 | Simplify continuation while retaining coaching, warming and same-Run steering | D04–D05 |
 | E4 | Hash-free explicit source/Assembly/release composition | D06–D07 |
 | E5 | Preserve selected feature behavior with owner revisions | D10–D11 |
 | E6 | Usable minimal and complete real-path examples | D13 |
@@ -62,8 +68,8 @@ Planned = concrete plan exists, awaiting review/authorization or accepted prereq
 | D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Planned | Design review and implementation authorization |
 | D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned | C1 review and implementation authorization |
 | D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Blocked | G2 supported pending-state policy; C2/C3 review |
-| D04 | E3 / R2,R3,R5 | Remove nudge handoff and observation authority over continuation | D02, D03 | [D04](D04.md) | Blocked | G1 nudge retirement and durability/visibility revision |
-| D05 | E3 / R1,R2,R5 | Retire selected peripheral runtime features completely | D04 | [D05](D05.md) | Blocked | G1 individually authorizes warming, steering and tool-lifetime cuts |
+| D04 | E3 / R2,R3,R5 | Preserve nudge coaching and simplify continuation ownership | D02, D03 | [D04](D04.md) | Blocked | Retention confirmed; accepted D02/D03 and any remaining G1 durability decision |
+| D05 | E3 / R1,R2,R5 | Preserve warming and same-Run steering without hash authority | D04 | [D05](D05.md) | Blocked | Retention confirmed; D04 and G2 paused/queued-state contracts; no unapproved visibility cut |
 | D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI evidence generation end to end | D00 | [D06](D06.md) | Planned | C4 and G5 approval; external source selection preserved |
 | D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | D03, D06 | [D07](D07.md) | Blocked | G2 artifact upgrade boundary; G3 consent/revocation policy |
 | D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03, D07 | [D08](D08.md) | Blocked | G2 checkpoint policy and admitted-format transition |
@@ -76,7 +82,7 @@ Planned = concrete plan exists, awaiting review/authorization or accepted prereq
 
 ## Immediate dependency contracts
 
-D00 supplies accepted C1–C10/G1–G5, not code. D02 supplies the aligned live/replay completion contract. D03 supplies exact invocation/approval ownership. D04 supplies direct durable outcome-to-Eino continuation. D05 supplies the selected reduced tool/control surface. D06 supplies simplified source/generation producers. D07 supplies immutable release/consent references. D08 supplies admitted values/checkpoint binding. D12 supplies BML v2 and final metadata ownership. D09/D10/D11 supply accepted feature behavior and migration evidence. D13 supplies runnable minimal/Face/examples. D14 consumes all integrated outcomes, not author completion claims.
+D00 supplies accepted C1–C10/G1–G5, not code. D02 supplies the aligned live/replay completion contract. D03 supplies exact invocation/approval ownership. D04 supplies direct durable outcome-to-Eino continuation. D05 supplies retained, hash-free warming and same-Run steering; tool visibility is not silently reduced. D06 supplies simplified source/generation producers. D07 supplies immutable release/consent references. D08 supplies admitted values/checkpoint binding. D12 supplies BML v2 and final metadata ownership. D09/D10/D11 supply accepted feature behavior and migration evidence. D13 supplies runnable minimal/Face/examples. D14 consumes all integrated outcomes, not author completion claims.
 
 Edges are prerequisite inputs, not a priority ranking. Wave two starts after the common D00 scope freeze. D12 is an independent format/metadata cut after that freeze; feature-specific SQL is owned by its individual Story, not a late central column-drop task.
 
@@ -108,7 +114,7 @@ Waves describe dependencies, not permission for simultaneous edits. No elapsed-t
 | --- | --- | --- |
 | Causal tool continuation | Real isolated nonce read; captured second model request contains exact result + call ID; final text, one terminal, idle | D04, D13, independent D14 |
 | Intent and crash safety | Changed original input conflicts; canonical approval binding; sibling resume; admitted/claimed/effect/completed crash matrix; no blind replay | D03, D08–D11 |
-| Optional-state authority | Delayed/failed derived sink cannot gate request two; necessary durable completion still gates; cancel and hard budgets work | D04–D05 |
+| Retained enhancements and authority | Eligible nudge still injects a committed reminder, warming still invokes/accountably settles maintenance, steering still changes the same Run; derived consumer handoff is unnecessary, mandatory persistence/cancel/budgets still work | D04–D05, independent D14 |
 | Content/privacy | Same-length stale edits conflict, authorized selection exact, foreign cursor cannot gain scope, immutable chunks, no private arguments in public events | D03, D09 |
 | Supported data | Approved source matrix -> target on disposable SQLite/Postgres/BML, reopen/failure rollback; unknown effects/old pauses explicit; no old runtime reader | D03, D07–D12 |
 | Generation/residue | Source-first removal, double regeneration idempotent with same ID, official Recipe/artifact inspection, exact remaining-match dispositions | D06, D14 |

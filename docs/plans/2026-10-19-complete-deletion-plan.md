@@ -11,6 +11,8 @@ decision gates and acceptance evidence. Planning is authorized; implementation
 and unresolved product/data changes await review. The issue's embedded snapshot
 is historical and does not override this linked package.
 
+Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
+
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
 ## 1. Decision and completion standard
@@ -19,7 +21,7 @@ The owner's direction is **complete deletion of Vivy's custom hash system**, wit
 
 Delete its implementation, construction, callers, state, persisted representation where applicable, configuration, public fields, generated outputs, feature-only tests, and current instructions requiring it. Do not leave a disabled implementation, a no-op compatibility wrapper, an ignored configuration field, or a replacement with another hash algorithm/name. Do not move rejected complexity to a plugin while retaining a core dependency on it. Rollback uses version control and a documented data strategy, not a second implementation in the shipped product.
 
-This direction does not automatically retire every capability discussed in the research. Hash retirement is confirmed. Full removal of reminders, proactive warming, tool-mount lifetimes, same-Run steering, or companion behavior remains a scoped product decision. Once selected, each must be deleted completely; an implementation cannot claim completion by making it optional.
+This direction does not automatically retire every capability discussed in the research. Hash retirement is confirmed. The owner has now explicitly retained reminders/nudge coaching, proactive warming and same-Run steering. Tool-mount lifetimes and companion changes remain separately scoped decisions. Once selected, each must be deleted completely; an implementation cannot claim completion by making it optional.
 
 One small final-artifact label is permitted: compute it after packaging, outside the bytes being hashed, and never read it as a prerequisite for installation, update, rollback, Inspect, startup, model/tool execution, continuation, approval, recovery, or rendering. Missing, malformed, or mismatching label metadata cannot change those behaviors. It identifies bytes; it is not evidence that functional tests passed.
 
@@ -64,7 +66,7 @@ Paths below are relative to the audited repository. A row describes a dependency
 | Checkpoints and migrations | `internal/runtime/checkpoint.go`; SQLite/Postgres `blob.go`; storage migration manifest/runner/metadata | Delete both written-only and actually validated checksum layers through a defined data transition. Keep format/version, Run binding, ordered transactional migration and failure rollback. Record lost independent corruption/drift detection explicitly. |
 | BML identities and evidence | `bml/{record,home,maintenance,migrate,store}.go` | Remove content-digest validation, digest-derived memory/workspace IDs and migration evidence. Resolve existing identity/data references before cutover. Inspect apparently unused journal DDL for whole-table removal rather than leaving an empty shell. |
 | Custom signed cursor | `internal/runtime/history_service.go` HMAC encode/decode path | Resolve the client-input trust contract: remove the custom signed-cursor protocol or use a simpler authorized pagination contract. Do not merely skip the MAC check and retain trusted cursor claims. |
-| Nudge/warming hashes | `nudge_window.go` signatures; `cachewarmer.go` prefix evidence; associated events/config/tests | Do not replace a signature with a renamed identity while retaining an unneeded subsystem. Decide whole-feature retirement alongside the core-state cuts below. |
+| Nudge/warming hashes | `nudge_window.go` signatures; `cachewarmer.go` prefix evidence; associated events/config/tests | Retain confirmed nudge/warming behavior; replace nudge FNV signatures with a bounded exact-value window and delete warming prefix hash-only diagnostics. Do not rename a digest or disable the feature. Details: D04/D05. |
 
 Native dependency integrity and transport/authentication cryptography need a precise scope boundary. The recommended boundary is to remove Vivy's invented product evidence, not fork Go/pnpm/TLS to remove their cryptographic internals. This remains an explicit scope decision, not a hidden exemption. Any Vivy-owned security mechanism listed above still needs a concrete disposition.
 
@@ -92,12 +94,12 @@ The highest-priority architectural goal remains: **one real tool outcome must re
 
 | Cut | Delete together if selected | Behavior that must still work |
 | --- | --- | --- |
-| Proactive warming | `cachewarmer.go`, observer wiring, config/defaults/parser, `cache.warmed` event/schema, UI options, feature tests and active plan | No extra proactive paid call; foreground call usage and provider-native cache accounting remain accurate. |
-| Reminder and nudge handoff | `nudge_window/state/middleware`, unconditional engine registration, adapter failure side channel, mapper parked completions, Service outstanding/batch restoration, steering integration, reminder event and normative design | Recoverable tool errors/refusals still reach the model. Durable effect completion remains before ordinary result return. No missing-call wait or replayed sibling effect. |
+| Proactive warming (retained) | Delete only PrefixSHA256 and hash-only serialization/diagnostics; retain warmer, configuration, actual maintenance call, event/UI and accounting. | Existing opt-in/eligibility/budget/timeout behavior works; admitted paid work is accounted and cannot recurse. D05. |
+| Reminder/nudge coaching (retained) | Delete FNV and consumer-owned handoff only; retain exact bounded repetition window, advisory state/middleware, scheduling event and templates. | Eligible repeated failures/refusals still receive coaching; preserve schedule-before-injection, budgets, retries and approval/steering resume. Durable effects remain owned by the tool boundary. D04. |
 | Synthetic tool lifecycle authority | Reconstructed `tool.started` and duplicate lifecycle ownership | Present actual execution facts, including refusal before claim; UI timing cannot pretend that result arrival was execution start. |
 | Derived-work critical section | Old synchronous projection/output/hook path under `projectionMu`, including obsolete helpers and fallback path | Retain commit/terminal/delete ordering; derived views never acknowledge progress back to the runner. Do not replace it with another required coordination service. |
 | Tool visibility lifetimes | Activation/mount/suppression mirrors, rebuild paths, associated session state/events/config | One clearly owned tool surface and server-side permissions. Decide fixed Run surface versus one supported search mechanism first. |
-| Same-Run steering | Steer queue branch, cancellation/history surgery, duplicate resume setup, API/UI controls and tests | Explicit cancel/new-Run behavior if chosen; keep necessary approval/question recovery and any retained next-turn queue. |
+| Same-Run steering (retained) | Remove only custom hash binding and proven duplicate setup; keep steer queue/modes, native cancel/drain/checkpoint/history/resume, API/UI and tests. | User instructions change the active same Run; queue order, one-time consumption, approval/question recovery and no-blind-replay survive. D05. |
 | Product-specific admission | Generic-core dependencies on companion/toolkit/Work capabilities | Optional selected features own their actual behavior. Delete old mandatory-core wiring, state and error paths; feature retention is distinct from retaining its old integration. |
 
 Do not delete `operationFlights`, durable claims, permissions or call-ID correlation simply because they are maps/checks. Each has a concrete effect/replay responsibility. Conversely, do not keep an obsolete nudge class because a useful test helper or failure classification currently lives inside it: move only that still-needed behavior into the existing tool boundary, then delete the old owner and terminology.
@@ -122,9 +124,9 @@ This plan does not introduce a new deletion framework, validator service or perm
 
 1. **Freeze scope and audit it.** Read-only subagents inspect disjoint domains; the lead resolves cross-domain identity, persistence and failure behavior. The current five-lane inventory is the first pass. Close each cut's open decisions and re-audit changes since the pinned baseline before implementation.
 2. **Replace contradictory requirements in the same cut.** Update active architecture/skill/schema requirements with the removal, so another agent is not instructed to rebuild it. Keep instructions short; replace rules rather than append exceptions to contradictory rules.
-3. **Delete isolated, closed families first.** Event audit and proven dead structures are small candidates. If warming retirement is selected, remove the entire extra-call facility. Do not begin by renaming every shared `Digest` type.
+3. **Delete isolated, closed families first.** Event audit and proven dead structures are small candidates. Warming is retained: remove its hash-only diagnostics while preserving its real optional call/accounting. Do not begin by renaming every shared `Digest` type.
 4. **Delete the completion/hash protocol end to end.** Change producer, event schema, SDK/TUI/headless/Web consumers and fixtures as one cut. This removes a concrete extra completion authority and provides a narrow causal regression target.
-5. **Delete the nudge coordination closure if selected.** First locate retained outcome classification at the actual tool boundary, then remove the whole reminder/handoff mechanism. Preserve operation/recovery proofs. Reassess observer settlement after this removal rather than adding another synchronization workaround.
+5. **Simplify nudge coordination while retaining coaching.** Locate outcome classification at the actual tool boundary, replace hashed repetition counting with exact tuples, and remove only duplicate consumer handoff; preserve reminders/middleware/events. Preserve operation/recovery proofs. Reassess observer settlement after this removal rather than adding another synchronization workaround.
 6. **Delete assembly provenance machinery end to end.** Simplify Descriptor/Recipe/manifest/contracts and their generators before regenerating official artifacts. No manual generated-output-only cleanup. Keep the agreed optional final label outside runtime identity.
 7. **Complete persisted identity/approval and feature-specific cuts.** Apply the finite format decisions, including BML and migration metadata. Prioritize remaining active hash gates and whole-feature deletion where the feature itself is no longer wanted. Remove old public API/config states as part of each cut.
 8. **Audit the resulting candidate twice, independently.** A behavior reviewer and a residue reviewer inspect the same final commit. Neither treats implementation claims as verification. The lead integrates corrections and reruns only affected evidence; every shipped cut passes its applicable gates, with an overall final pass for contraction completion.
@@ -153,7 +155,7 @@ The acceptance anchor is a causal **model -> real tool -> tool result -> next mo
 | Retained editing/download/feature identity | Selected content stays consistent across chunks; edit conflicts, retry IDs and authorization remain as explicitly specified. Cover actual race/retry boundaries, not only happy paths. |
 | Data transition | New and upgraded disposable stores reopen correctly; unsupported pending state is explicit; no lost records or accidental duplicate side effects. Include the independent BML module. |
 
-Reuse meaningful existing test helpers while removing reminder/count/hash-only assertions. Do not retain the old architecture solely to keep old tests green. Do not delete business acceptance tests because their original filenames mention the retired mechanism.
+Reuse meaningful existing test helpers and retain reminder/count/template/eligibility/steering assertions for the three confirmed features. Remove only hash-specific and superseded handoff assertions. Do not retain redundant coordination solely to keep old tests green, or delete business acceptance tests because their filenames mention a retained or retired mechanism.
 
 Developer iteration may use the affected Recipe and shared-contract checks described in the [development proposal](../research/2026-10-19-agent-loop-slimming-review.md#11-recipe-based-development-and-pr-responsibility). The maintainer's final candidate still requires the current repository `just ci`, applicable builds and real-path smoke until the validation contract is explicitly changed. This document is not permission to suppress unrelated failing checks or declare a skipped gate passed.
 ## 8. Independent audit B: nothing retired is still active
@@ -184,13 +186,13 @@ runCacheWarmer CacheWarming cache_warming CacheWarmed cache.warmed
 memory_apply_journal inofy-normal-v1:sha256:
 ```
 
-These are discovery terms, not a global text replacement. `GenerationID` still needs a non-content-addressed identity if Generations remain; ordinary URI fragments and natural-language summaries are not hash machinery. Existing opaque historical IDs, historical records and approved native dependency/security internals must be classified by exact purpose. An unexplained match fails closure; a broad wildcard exemption such as “all tests” or “all compatibility code” is not acceptable.
+These are discovery terms, not a global text replacement. Nudge/warming/steering feature names, events, settings and meaningful tests MUST remain; audit their retired hash fields and redundant handoff helpers rather than demanding their lexical absence. `GenerationID` still needs a non-content-addressed identity if Generations remain; ordinary URI fragments and natural-language summaries are not hash machinery. Existing opaque historical IDs, historical records and approved native dependency/security internals must be classified by exact purpose. An unexplained match fails closure; a broad wildcard exemption such as “all tests” or “all compatibility code” is not acceptable.
 
 Regeneration is mandatory for affected outputs: `internal/generated/assembly/generate.go` invokes the default SDK generator; UI predev/prebuild/pretest invokes `ui/scripts/stage-ui-assembly.mjs`; DIVA/memory-loop scripts create generated overlays. Fix their source, regenerate, inspect the produced diff, and regenerate again to establish no further changes. Build and inspect affected official Recipe artifacts, including minimal and plugin examples; final contraction must account for all supported official Recipes and build variants. The current inventory has not proved all tag/submodule combinations.
 
 Specific resurrection points include `sdk/internal/cmd/source-hash/`, `scripts/check-plugin-v1-fixtures.mjs`, Descriptor SHA constants, conformance evidence files, `sdk/internal/memory_loop_generation_test.go`, `scripts/memory-loop.mjs`, `scripts/diva-recall.mjs`, and UI demo CAS. Remove the obsolete producer or rule, not merely its generated answer.
 
-Active requirements needing revision include `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`, `VIVY-MODULE-STANDARD.md`, `.agents/skills/vivy-plugin/SKILL.md`, and AGENTS source-evidence/migration-checksum clauses. If reminders/warming retire, also remove or clearly retire the operative `NUDGE-DESIGN.md`, nudge implementation plans and warming backlog. `VIVY-MEMORY-HOST-CONTRACTS.md` cites `AuditRecord`; replace the obsolete dependency while keeping its bounded-data requirement. Historical delivery logs can remain factual history; they cannot govern future implementation.
+Active requirements needing revision include `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`, `VIVY-MODULE-STANDARD.md`, `.agents/skills/vivy-plugin/SKILL.md`, and AGENTS source-evidence/migration-checksum clauses. Preserve operative `NUDGE-DESIGN.md`, nudge plans and warming/steering feature requirements; revise only hash and redundant-coordination clauses with implementation. `VIVY-MEMORY-HOST-CONTRACTS.md` cites `AuditRecord`; replace the obsolete dependency while keeping its bounded-data requirement. Historical delivery logs can remain factual history; they cannot govern future implementation.
 
 ## 9. Open decisions and release closure
 
@@ -200,7 +202,7 @@ Before the corresponding implementation cut, record a concrete choice for:
 - Original request binding after `RequestDigest`; snapshot/content ownership after removing file/bundle/approval hashes.
 - Custom HMAC cursor retirement and native dependency/transport cryptography boundary; builder-owned resource names versus Vivy-owned validation.
 - Final delivery unit for the sole optional artifact label; ordinary Generation identity without content addressing.
-- Which non-hash features retire completely, especially nudge/reminders, warming, same-Run steering and tool visibility lifetimes.
+- Nudge/reminders, warming and same-Run steering are confirmed retained. Resolve only remaining proposed changes such as tool visibility lifetimes and derived-view durability; do not reopen or override retention.
 - Retained product capability versus whole-feature removal for large workflow/Work/bundle/companion protocols. Do not silently delete a user feature to make a search result disappear.
 
 A deletion deliverable is closed only when its implemented candidate, retained behaviors, data transition, active-rule changes and both independent audit results are recorded. Evidence must identify the actual commit/build tested. A failing check is not waived by a passing residue scan; a passing CI is not proof of deletion completeness.
@@ -295,18 +297,28 @@ cuts until G2 is settled; they do not justify resetting user state.
 
 ### 10.3 Proposed core contraction and preserved boundaries
 
-G1 recommends complete retirement of nudge/reminder coaching, proactive warming,
-same-Run steering, and mount/activation lifetime mirrors; use a fixed admitted
-tool surface for basic Runs, retain next-turn follow-up and approval/question
-resume, and evaluate existing native ToolSearch only as an explicit larger
-Recipe variant. This is an explicit proposed product reduction, not authority
-to delete it now. Companion, workflow, Work, memory and notebook capabilities
-remain retained unless separately authorized.
+The owner explicitly retains nudge/reminder coaching, proactive warming and
+same-Run steering (2026-10-19). D04 keeps the real reminder/window/templates/event
+and removes custom signatures plus redundant consumer-owned result handoff.
+D05 keeps real optional warming and same-Run steering, with their settings,
+controls, queue modes, recovery and accounting. Replacing these with ordinary
+error text, a never-called warmer, or cancel/new-Run/follow-up-only behavior is
+not accepted. Nudge keeps its ten-step exact tuple window, thresholds 3/5,
+1024-byte/context limits and schedule-before-injection durability; native
+post-tools ordering replaces only the duplicate handoff. Warming keeps current
+opt-in/eligibility/budget/timeout/paid-accounting behavior and loses hash-only
+prefix diagnostics. Steering keeps the same RunID and native cancel/drain/
+checkpoint/resume contract. Tool visibility/discovery and derived projection
+changes remain separate G1 decisions; a fixed tool surface is not mandated.
+Companion, workflow, Work, memory and notebook capabilities also remain retained
+unless separately authorized.
 
 For D04, retain synchronous acknowledgment of admission, permission/approval,
 effect claim/outcome, final message and terminal state. Move recoverable tool
-failure classification to the existing tool result boundary. Remove event-
-consumer/nudge acknowledgment as permission for the next model request.
+failure classification to the existing tool result boundary. Remove only event-
+consumer handoff acknowledgment as permission for the next model request. Keep
+actual nudge computation and the existing scheduling-event append before
+injection; changing that durable requirement is not authorized by retention.
 Derived transcript/status views may lag committed execution and rebuild through
 existing Journal replay; a failed optional sink must not own the runner.
 Never make hard budgets, required audit/accounting facts or durable effect
