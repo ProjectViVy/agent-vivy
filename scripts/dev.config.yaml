@@ -1,0 +1,6 @@
+# Overlay for the isolated development instance (`just dev`, `just run`,
+# `scripts/dev.sh`). Intentionally empty: the port comes from VIVY_ADDR, the
+# data root from VIVY_USER_HOME, and provider/model data is embedded in the
+# binary. Pointing VIVY_CONFIG here keeps the daily config.yaml out of the dev
+# loop; set VIVY_DEV_CONFIG to use a different overlay.
+{}

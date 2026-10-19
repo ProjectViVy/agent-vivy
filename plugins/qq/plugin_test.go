@@ -1311,7 +1311,16 @@ func TestRedialResumeAndGiveUp(t *testing.T) {
 	// The gateway drops the healthy connection with a resumable close:
 	// the supervisor redials and RESUMES with the captured state.
 	first.drop(errs.New(errs.WSCodeBackendUnknownError, "connection reset"))
-	waitFor(t, "redial with resume state", func() bool { return h.spy.count() >= 2 })
+	// Factory publication precedes Connect/Resume/Listening. Observe the
+	// completed protocol boundary before asserting or dropping this attempt.
+	waitFor(t, "redial with resume state", func() bool {
+		second := h.spy.nth(1)
+		if second == nil {
+			return false
+		}
+		connect, identify, resume, listen, _ := second.calls()
+		return connect == 1 && identify == 0 && resume == 1 && listen == 1
+	})
 	second := h.spy.nth(1)
 	if second.resumeID != first.assignedID || second.resumeSeq != 42 {
 		t.Fatalf("second attempt resume state = (%q, %d), want (%q, 42)",
@@ -1344,8 +1353,15 @@ func TestRedialResumeAndGiveUp(t *testing.T) {
 
 	// A close the gateway classifies as cannot-identify (bot banned or
 	// delisted) ends the loop: re-identifying can never succeed.
+	h.p.mu.Lock()
+	done := h.p.done
+	h.p.mu.Unlock()
 	third.drop(errs.New(errs.CodeConnCloseCantIdentify, "bot banned"))
-	time.Sleep(300 * time.Millisecond) // several redial delays must pass
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor did not exit after cannot-identify")
+	}
 	if got := h.spy.count(); got != 3 {
 		t.Fatalf("attempts after cannot-identify = %d, want the loop to stop at 3", got)
 	}

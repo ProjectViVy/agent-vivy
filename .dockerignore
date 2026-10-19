@@ -1,6 +1,7 @@
 .git
 .omc
 .workspace
+.worktrees
 .idea
 .vscode
 
@@ -25,6 +26,7 @@ studio
 
 node_modules
 ui/node_modules
+sdk/ui/node_modules
 ui/agent-diva-source
 ui/dist
 ui/test-results

@@ -1,0 +1,5 @@
+{
+  "backendPort": 8788,
+  "uiPort": 3016,
+  "userHome": ".workspace/dev/home"
+}
