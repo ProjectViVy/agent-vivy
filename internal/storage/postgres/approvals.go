@@ -119,8 +119,9 @@ func (b *Backend) ListPendingApprovals(ctx context.Context) ([]domain.Approval, 
 }
 
 func approvalKind(kind string) string {
-	if kind == domain.ApprovalKindChild {
-		return domain.ApprovalKindChild
+	switch kind {
+	case domain.ApprovalKindChild, domain.ApprovalKindSkillRevision:
+		return kind
 	}
 	return domain.ApprovalKindRun
 }
@@ -180,13 +181,13 @@ func (b *Backend) CancelApproval(ctx context.Context, id, actor, reason string) 
 	return n > 0, nil
 }
 
-// MarkApprovalStale records a fail-closed precondition mismatch after an
-// approval was granted but before the mutation could be applied.
+// MarkApprovalStale records a fail-closed precondition mismatch while a
+// review is pending or after approval but before the mutation is applied.
 func (b *Backend) MarkApprovalStale(ctx context.Context, id, reason string) (bool, error) {
 	res, err := b.db.ExecContext(ctx,
 		`UPDATE approvals SET decision = ?, decided_at = ?, actor = ?, decision_reason = ?, stale_reason = ?
-		 WHERE id = ? AND decision = ?`,
-		domain.ApprovalStale, time.Now().UnixMilli(), "system", reason, reason, id, domain.ApprovalApproved)
+		 WHERE id = ? AND decision IN (?, ?)`,
+		domain.ApprovalStale, time.Now().UnixMilli(), "system", reason, reason, id, domain.ApprovalPending, domain.ApprovalApproved)
 	if err != nil {
 		return false, fmt.Errorf("storage: mark approval stale %s: %w", id, err)
 	}

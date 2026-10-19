@@ -1,5 +1,7 @@
 # Acceptance
 
+Acceptance record for source SHA `8ec876d3035c0ed11e5ac5463b3e5abc29565506` only. The integrated issue #83 candidate's rollback acceptance is documented separately in `docs/logs/2026-10-19-issue83-closeout/acceptance.md`.
+
 For an upgrade from the historical Eino v0.9.13 binary, the fixed v0.9.21
 candidate recovers paused Approval, Question, and Plan work by failing each
 incompatible Run once and recording the corresponding request cancellation

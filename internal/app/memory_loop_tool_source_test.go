@@ -126,9 +126,10 @@ func TestMemoryLoopToolAndAssistantOutputsDoNotBecomeUserSource(t *testing.T) {
 		t.Fatalf("actual reflection changed trusted user provenance: %+v %v", reflected, err)
 	}
 	requests = f.ModelRequests()
-	if len(requests) != 4 {
+	if len(requests) != 5 {
 		t.Fatalf("unexpected original Tool plus reflection request count: %d", len(requests))
 	}
+	assertMemoryLoopInferenceStages(t, requests[2:], "reconcile", "skill_select", "reflect")
 	saveMemoryLoopDevelopmentEvidence(t, f, session, "tool-input-diagnostic", snapshot, reflected)
 	for _, request := range requests[2:] {
 		var wire struct {

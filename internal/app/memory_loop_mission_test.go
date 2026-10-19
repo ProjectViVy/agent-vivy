@@ -31,17 +31,11 @@ func runMemoryLoopMissionFence(t *testing.T, initiallyAssigned bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
-	for len(f.ModelRequests()) < 3 {
-		select {
-		case <-ctx.Done():
-			t.Fatal("actual reflect request did not reach response gate")
-		case <-ticker.C:
-		}
-	}
+	awaitMemoryLoopInferenceRequests(t, f, "reflect", 1, 30*time.Second)
 	var before memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &before)
 	if before.Cognition.ActiveRunID == "" || before.Cognition.Watermark != 0 {
@@ -89,5 +83,5 @@ func runMemoryLoopMissionFence(t *testing.T, initiallyAssigned bool) {
 	if err != nil || canonical.CanonicalCount != 1 || canonical.RecordID != source.RecordID {
 		t.Fatalf("stale binding mutated actual canonical: %+v %v", canonical, err)
 	}
-	assertMemoryLoopNoExtraRequests(t, f, 3, 6*time.Second)
+	assertMemoryLoopNoExtraRequests(t, f, 4, 6*time.Second)
 }

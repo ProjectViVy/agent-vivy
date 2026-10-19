@@ -963,6 +963,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		cognitiveBinding = &runtime.CognitiveBinding{
 			Domain:   cognitiveDomain,
+			Skills:   skillOps,
 			Binding:  resolvedBinding,
 			SourceID: cognitiveBundle.SourceID(),
 			Source:   cognitiveBundle.Source(),
@@ -978,6 +979,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		MainConversation:      ao.mainConversation,
 		SubjectSources:        ao.subjectSources,
 		Journal:               backend,
+		Skills:                skillOps,
 		Work:                  workStore,
 		WorkSink:              workBus,
 		Runs:                  backend,

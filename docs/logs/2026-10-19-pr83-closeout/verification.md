@@ -1,5 +1,7 @@
 # Verification
 
+Historical evidence for source SHA `8ec876d3035c0ed11e5ac5463b3e5abc29565506` only. The integrated issue #83 candidate has a different schema; use `docs/logs/2026-10-19-issue83-closeout/verification.md` for its actual-binary rollback boundary and final checks.
+
 The tested runtime source was `8ec876d3035c0ed11e5ac5463b3e5abc29565506`.
 Commands and outcomes below distinguish local runs from GitHub checks.
 

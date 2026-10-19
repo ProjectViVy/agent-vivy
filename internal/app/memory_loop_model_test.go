@@ -36,7 +36,7 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 		if m.Role != "user" {
 			continue
 		}
-		for _, stage := range []string{"reconcile", "reflect"} {
+		for _, stage := range []string{"reconcile", "skill_select", "reflect"} {
 			if !strings.HasPrefix(m.Content, "[cognitive-infer stage="+stage+"]\n") {
 				continue
 			}
@@ -57,6 +57,8 @@ func memoryLoopModelReply(mode string, raw []byte) (string, error) {
 			var answer any
 			if stage == "reconcile" {
 				answer = map[string]any{"base_revision": doc.Batch.ActivityRevision, "changes": []any{}}
+			} else if stage == "skill_select" {
+				answer = map[string]any{"skill_name": ""}
 			} else {
 				candidates := []any{}
 				for _, entry := range doc.Batch.Entries {

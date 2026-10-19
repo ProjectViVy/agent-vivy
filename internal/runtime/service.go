@@ -120,6 +120,8 @@ type ServiceDeps struct {
 	SubjectSources   cognitivecontract.SubjectSourceResolver
 
 	Journal storage.Journal
+	// Skills is the host-owned local Skill authority used by DIVA proposals and recovery.
+	Skills tools.SkillOperations
 	// ToolOperations is the Journal-transactional recovery index for logical
 	// tool calls. NewService discovers it from Journal when the backend also
 	// implements storage.ToolOperationStore.
@@ -377,12 +379,13 @@ type Service struct {
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
-	wg           sync.WaitGroup
-	recoveryMu   sync.Mutex
-	sweepMu      sync.Mutex
-	projectionMu sync.Mutex
-	sweepCancel  context.CancelFunc
-	sweepWG      sync.WaitGroup
+	wg              sync.WaitGroup
+	recoveryMu      sync.Mutex
+	skillProposalMu sync.Mutex
+	sweepMu         sync.Mutex
+	projectionMu    sync.Mutex
+	sweepCancel     context.CancelFunc
+	sweepWG         sync.WaitGroup
 
 	// cron holds the CRON scheduler state; nil until first use and only
 	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
@@ -711,6 +714,9 @@ func (s *Service) approvalDeadline(now time.Time, hard time.Duration) time.Time 
 // reads the row as recorded when the human was asked, never the current
 // settings, so a preset change cannot retroactively authorize a call.
 func autoApprovesOnTimeout(approval domain.Approval) bool {
+	if approval.Kind == domain.ApprovalKindSkillRevision {
+		return false
+	}
 	return domain.SandboxMode(approval.SandboxMode) == domain.SandboxModeWorkspaceWrite &&
 		domain.ApprovalPolicy(approval.ApprovalPolicy) == domain.ApprovalPolicyAsk
 }
@@ -2067,6 +2073,9 @@ func (s *Service) recover(ctx context.Context) error {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
 		return errors.New("runtime: service not wired")
 	}
+	if err := s.recoverCognitiveSkillRevisions(ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.recoveredBudgetLedgers = make(map[domain.RunID]*BudgetLedger)
 	s.mu.Unlock()
@@ -2104,6 +2113,9 @@ func (s *Service) recover(ctx context.Context) error {
 			return fmt.Errorf("runtime: list pending approvals: %w", err)
 		}
 		for _, a := range approvals {
+			if a.Kind == domain.ApprovalKindSkillRevision {
+				continue
+			}
 			if _, exists := pendingByRun[a.RunID]; !exists {
 				pendingByRun[a.RunID] = a
 			}
@@ -4528,8 +4540,13 @@ func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, deci
 		if time.Now().UnixMilli() >= approval.ExpiresAt {
 			return ErrApprovalExpired
 		}
-	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
+	} else if approval.Kind != domain.ApprovalKindSkillRevision && !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
+	}
+	if approval.Kind == domain.ApprovalKindSkillRevision && decision == domain.ApprovalApproved {
+		if err := s.checkCognitiveSkillApproval(ctx, approval); err != nil {
+			return err
+		}
 	}
 	return s.settleApproval(ctx, approval, decision, actor, reason)
 }
@@ -4559,6 +4576,16 @@ func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	if approval.Kind == domain.ApprovalKindSkillRevision {
+		decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
+		if err != nil {
+			return fmt.Errorf("runtime: decide Skill revision approval: %w", err)
+		}
+		if !decided {
+			return ErrApprovalAlreadyDecided
+		}
+		return s.settleCognitiveSkillDecision(ctx, approval, decision)
+	}
 	s.mu.Lock()
 	_, nativeChildPending := s.pending[approval.RunID]
 	s.mu.Unlock()
@@ -4774,6 +4801,9 @@ func (s *Service) cancelApproval(ctx context.Context, approval domain.Approval, 
 		}
 		return ErrApprovalAlreadyDecided
 	}
+	if approval.Kind == domain.ApprovalKindSkillRevision {
+		return s.setCognitiveSkillApprovalStatus(ctx, approval, domain.SkillRevisionCancelled)
+	}
 	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalCancelled, payloadApprovalCancelled{
 		ApprovalID: approval.ID, Actor: "local_user", Reason: reason,
 	})
@@ -4807,7 +4837,7 @@ func (s *Service) approvalForRun(ctx context.Context, runID domain.RunID) (domai
 		return domain.Approval{}, err
 	}
 	for _, approval := range approvals {
-		if approval.RunID == runID {
+		if approval.RunID == runID && approval.Kind != domain.ApprovalKindSkillRevision {
 			return approval, nil
 		}
 	}
@@ -4845,6 +4875,9 @@ func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, 
 	settled, err := lifecycle.ExpireApproval(ctx, approval.ID, reason)
 	if err != nil || !settled {
 		return err
+	}
+	if approval.Kind == domain.ApprovalKindSkillRevision {
+		return s.setCognitiveSkillApprovalStatus(ctx, approval, domain.SkillRevisionExpired)
 	}
 	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalExpired, payloadInteractionExpired{
 		ReviewID: approval.ID, Kind: string(domain.ReviewKindApproval), ExpiresAt: approval.ExpiresAt, Reason: reason,

@@ -18,6 +18,17 @@ func BindContextSource(p contextsource.Provider, s *Service) (contextsource.Prov
 		copy.serviceBinding = serviceBinding{service: s}
 		return &copy, nil
 	}
+	// A transparent test/host decorator can preserve the App-owned binding by
+	// returning a fresh wrapper around a bound provider. Never mutate the
+	// caller's reusable Assembly in place.
+	if wrapper, ok := p.(interface {
+		WithMemoryService(*Service) (contextsource.Provider, error)
+	}); ok {
+		if !s.live() {
+			return nil, errUnavailable
+		}
+		return wrapper.WithMemoryService(s)
+	}
 	return p, nil
 }
 func BindRunProvider(p observer.RunProvider, s *Service) (observer.RunProvider, error) {

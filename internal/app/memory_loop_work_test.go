@@ -31,10 +31,11 @@ func TestMemoryLoopReconciliationReadsExistingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	requests := f.ModelRequests()
-	if len(requests) != 3 || strings.Contains(string(requests[0]), oldWork) {
+	if len(requests) != 4 || strings.Contains(string(requests[0]), oldWork) {
 		t.Fatal("old Work must remain absent from automatic foreground prompt")
 	}
-	if !strings.Contains(string(requests[1]), oldWork) || !strings.Contains(string(requests[1]), activity.Entries[0].ID) {
+	reconciles := memoryLoopInferenceRequests(t, requests, "reconcile")
+	if len(reconciles) != 1 || !strings.Contains(string(reconciles[0]), oldWork) || !strings.Contains(string(reconciles[0]), activity.Entries[0].ID) {
 		t.Fatal("MEM-S05-02: reconcile model did not receive actual old scoped Work")
 	}
 	var after laputaevolution.ActivityResult

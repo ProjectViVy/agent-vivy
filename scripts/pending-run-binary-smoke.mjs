@@ -12,18 +12,19 @@ import { DatabaseSync } from 'node:sqlite';
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i], process.argv[i + 1]);
 if (!args.has('--old') || !args.has('--new') || !args.has('--output')) {
-  console.error('usage: node scripts/pending-run-binary-smoke.mjs --old <binary> --new <binary> --output <new-scratch-directory> [--port 18780] [--go <go executable>]');
+  console.error('usage: node scripts/pending-run-binary-smoke.mjs --old <binary> --new <binary> --output <new-scratch-directory> [--port 18780] [--go <go executable>] [--compat-rollback]');
   process.exit(2);
 }
 const oldBinary = path.resolve(args.get('--old'));
 const newBinary = path.resolve(args.get('--new'));
+const compatRollback = args.has('--compat-rollback');
 const output = path.resolve(args.get('--output'));
 assert(!fs.existsSync(output), `refusing to reuse scratch directory: ${output}`);
 fs.mkdirSync(output, { recursive: true });
 const port = Number(args.get('--port') || 18780);
 const modelPort = port + 1;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const report = { started_at: new Date().toISOString(), platform: `${process.platform}/${process.arch}`, binaries: {}, cases: [] };
+const report = { started_at: new Date().toISOString(), platform: `${process.platform}/${process.arch}`, compat_rollback: compatRollback, binaries: {}, cases: [] };
 const children = new Set();
 let script = [];
 let modelRequests = 0;
@@ -51,7 +52,7 @@ async function eventually(probe, message, timeout = 60000) {
   const deadline = Date.now() + timeout;
   let last;
   while (Date.now() < deadline) {
-    try { last = await probe(); if (last) return last; } catch (error) { last = error; }
+    try { last = await probe(); if (last) return last; } catch (error) { if (error?.fatal) throw error; last = error; }
     await sleep(50);
   }
   throw new Error(`${message}: ${String(last)}`);
@@ -83,7 +84,11 @@ async function start(binary, fixture) {
   children.add(child);
   child.once('exit', () => { children.delete(child); fs.closeSync(log); });
   await eventually(async () => {
-    if (child.exitCode !== null) throw new Error(fs.readFileSync(logPath, 'utf8'));
+    if (child.exitCode !== null) {
+      const error = new Error(fs.readFileSync(logPath, 'utf8'));
+      error.fatal = true;
+      throw error;
+    }
     const response = await fetch(`http://127.0.0.1:${port}/healthz`);
     return response.ok;
   }, `process did not become ready (${logPath})`);
@@ -183,10 +188,12 @@ try {
     const pauses = await seed(process, fixture);
     const before = snapshot(fixture, pauses);
     const requestsAtPause = modelRequests;
+    let preRollback = before;
     if (mode === 'clean-before-rollback') {
       for (const pause of pauses) await process.rpc('run/cancel', { run_id: pause.run_id });
       await eventually(async () => (await Promise.all(pauses.map((pause) => process.rpc('run/get', { run_id: pause.run_id })))).every((run) => run.status === 'cancelled'), 'same-version cleanup did not settle');
       const cleaned = snapshot(fixture, pauses);
+      preRollback = cleaned;
       assertSettled(cleaned, 'cancelled');
       await kill(process);
       process = await start(newBinary, fixture);
@@ -197,7 +204,20 @@ try {
       assert.equal(rows(fixture.db, "SELECT id FROM questions WHERE status='pending'").length, 0);
     }
     await kill(process);
-    process = await start(mode === 'upgrade' ? newBinary : oldBinary, fixture);
+    try {
+      process = await start(mode === 'upgrade' ? newBinary : oldBinary, fixture);
+    } catch (error) {
+      if (mode !== 'upgrade' && !compatRollback) {
+        assert.match(String(error), /database records unknown migration version 44/);
+        const after = snapshot(fixture, pauses);
+        assert.deepEqual(after, preRollback, 'historical binary changed request or checkpoint state before failing closed');
+        assert.equal(modelRequests, requestsAtPause, 'rejected rollback called the model');
+        report.cases.push({ mode, before: preRollback, after, startup_error: String(error), result: 'EXPECTED_FAIL_CLOSED' });
+        fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
+        continue;
+      }
+      throw error;
+    }
     const after = snapshot(fixture, pauses);
     assert.equal(modelRequests, requestsAtPause, 'first recovery called the model');
     for (let i = 0; i < pauses.length; i++) assert.deepEqual(after[i].checkpoints, before[i].checkpoints, 'checkpoint bytes/pointer changed across versions');
@@ -210,19 +230,20 @@ try {
       }
     }
     else if (mode === 'clean-before-rollback') assertSettled(after, 'cancelled');
-    else {
-      assert.equal(after[0].approvals[0].decision, 'pending', 'old binary unexpectedly contains the approval fix');
-      assert.equal(after[1].questions[0].status, 'pending', 'old binary unexpectedly contains the question fix');
-      assert.equal(after[2].work_events.filter((event) => event.kind === 'plan.review_cancelled').length, 0, 'old binary unexpectedly contains the Plan fix');
-      assert(after.every((pause) => pause.run.status === 'failed'));
+    else if (compatRollback) {
+      assertSettled(after, 'failed');
+      for (const pause of after) {
+        const failure = JSON.parse(pause.events.find((event) => event.type === 'run.failed').payload);
+        assert.equal(failure.cause_category, 'internal_error');
+        assert.match(failure.message, /different engine version/);
+      }
     }
+    else throw new Error(`unexpected rollback mode reached recovery assertions: ${mode}`);
     const requestsAfterRecovery = modelRequests;
     const views = [];
     for (const pause of pauses) views.push({ run: await process.rpc('run/get', { run_id: pause.run_id }), work: await process.rpc('session/work/get', { session_id: pause.session_id }), reviews: await process.rpc('review/list', { session_id: pause.session_id }) });
-    if (mode !== 'unsupported-direct-rollback') {
-      assert.equal(views[2].work.plan.review_status, 'cancelled');
-      assert(views.every((view) => view.reviews.reviews.every((review) => review.status !== 'pending')));
-    } else assert.equal(views[2].work.plan.review_status, 'pending');
+    assert.equal(views[2].work.plan.review_status, 'cancelled');
+    assert(views.every((view) => view.reviews.reviews.every((review) => review.status !== 'pending')));
     await kill(process);
     process = await start(mode === 'upgrade' ? newBinary : oldBinary, fixture);
     const repeated = snapshot(fixture, pauses);

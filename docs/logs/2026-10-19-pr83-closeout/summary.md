@@ -1,5 +1,7 @@
 # PR #80 closeout
 
+Historical record for source SHA `8ec876d3035c0ed11e5ac5463b3e5abc29565506` only. The integrated issue #83 candidate has a different schema and rollback target; its current boundary is recorded in `docs/logs/2026-10-19-issue83-closeout/`.
+
 PR #84 carries the pending-run recovery work from PR #80 onto current main and
 adds the Claude EinoExt stream race fix required by the repository race gate.
 The runtime changes persist cleanup intent before changing request/run state;

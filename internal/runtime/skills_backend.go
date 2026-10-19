@@ -31,6 +31,9 @@ const (
 
 var _ einoskill.Backend = (*EinoSkillBackend)(nil)
 var _ tools.SkillOperations = (*EinoSkillBackend)(nil)
+var _ tools.SkillRevisionLifecycle = (*EinoSkillBackend)(nil)
+
+var ErrSkillRevisionStale = errors.New("skills: revision base changed after review")
 
 // EinoSkillBackend is a trusted-root, read-only Eino Skill backend plus the
 // Vivy-owned staged mutation surface. Skill content is always returned as
@@ -304,12 +307,17 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 		return tools.SkillManageResult{RevisionID: revisionID, Status: string(domain.SkillRevisionApplied), SkillName: req.SkillName,
 			Action: req.Action, TargetPath: targetRel, Hash: sha256Hex(after), Warnings: []string{"rollback applied"}}, nil
 	}
+	if applied, result, err := b.recoverAppliedSkillRevision(ctx, runID, revision, req); err != nil {
+		return tools.SkillManageResult{}, err
+	} else if applied {
+		return result, nil
+	}
 	current, target, targetRel, baseHash, err := b.skillMutationState(ctx, req)
 	if err != nil {
 		return tools.SkillManageResult{}, err
 	}
 	if baseHash != revision.BaseHash {
-		return tools.SkillManageResult{}, errors.New("skills: target changed after human review")
+		return tools.SkillManageResult{}, ErrSkillRevisionStale
 	}
 	after, warnings, err := skillMutationContent(req, current, target != "")
 	if err != nil {
@@ -324,6 +332,80 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 	}
 	return tools.SkillManageResult{RevisionID: revisionID, Status: string(domain.SkillRevisionApplied), SkillName: req.SkillName,
 		Action: req.Action, TargetPath: targetRel, Hash: sha256Hex(after), Warnings: warnings}, nil
+}
+
+func (b *EinoSkillBackend) GetSkillRevision(ctx context.Context, id string) (domain.SkillRevision, error) {
+	if b.revisions == nil {
+		return domain.SkillRevision{}, errors.New("skills: revision store not wired")
+	}
+	return b.revisions.GetSkillRevision(ctx, id)
+}
+
+func (b *EinoSkillBackend) SetSkillRevisionStatus(ctx context.Context, id string, status domain.SkillRevisionStatus) error {
+	if b.revisions == nil {
+		return errors.New("skills: revision store not wired")
+	}
+	return b.revisions.SetSkillRevisionStatus(ctx, id, status, time.Now().UnixMilli())
+}
+
+func (b *EinoSkillBackend) ListPendingSkillRevisions(ctx context.Context) ([]domain.SkillRevision, error) {
+	if b.revisions == nil {
+		return nil, errors.New("skills: revision store not wired")
+	}
+	return b.revisions.ListPendingSkillRevisions(ctx)
+}
+
+func (b *EinoSkillBackend) CheckSkillRevision(ctx context.Context, id string) error {
+	revision, err := b.GetSkillRevision(ctx, id)
+	if err != nil {
+		return err
+	}
+	if revision.Status != domain.SkillRevisionPending {
+		return fmt.Errorf("skills: revision %s is not pending", id)
+	}
+	var req tools.SkillManageRequest
+	if err := json.Unmarshal(revision.Payload, &req); err != nil {
+		return fmt.Errorf("skills: decode revision %s: %w", id, err)
+	}
+	_, _, _, baseHash, err := b.skillMutationState(ctx, req)
+	if err != nil {
+		if req.Action == "create" && strings.Contains(err.Error(), "skill already exists") {
+			return ErrSkillRevisionStale
+		}
+		return err
+	}
+	if baseHash != revision.BaseHash {
+		return ErrSkillRevisionStale
+	}
+	return nil
+}
+
+// recoverAppliedSkillRevision closes the filesystem/status crash window when
+// the exact reviewed bytes already landed before the process restarted.
+func (b *EinoSkillBackend) recoverAppliedSkillRevision(ctx context.Context, runID domain.RunID, revision domain.SkillRevision, req tools.SkillManageRequest) (bool, tools.SkillManageResult, error) {
+	if revision.Action != "create" && revision.Action != "edit" && revision.Action != "write_file" {
+		return false, tools.SkillManageResult{}, nil
+	}
+	current, _, targetRel, _, err := b.skillMutationState(ctx, req)
+	if err != nil && revision.Action != "create" {
+		return false, tools.SkillManageResult{}, nil
+	}
+	if revision.Action == "create" {
+		path, rel, pathErr := b.resolveSkillPath(ctx, req.SkillName, "SKILL.md", true)
+		if pathErr != nil {
+			return false, tools.SkillManageResult{}, pathErr
+		}
+		targetRel = rel
+		current, err = readTrustedFile(path)
+	}
+	if err != nil || sha256Hex(current) != revision.ContentHash {
+		return false, tools.SkillManageResult{}, nil
+	}
+	if err := b.revisions.SetSkillRevisionStatus(ctx, revision.ID, domain.SkillRevisionApplied, time.Now().UnixMilli()); err != nil {
+		return false, tools.SkillManageResult{}, err
+	}
+	return true, tools.SkillManageResult{RevisionID: revision.ID, Status: string(domain.SkillRevisionApplied), SkillName: req.SkillName,
+		Action: req.Action, TargetPath: targetRel, Hash: revision.ContentHash}, nil
 }
 
 func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.ToolProposal, error) {

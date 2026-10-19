@@ -54,7 +54,8 @@ func TestMemoryLoopModelCannotEscalatePersonaAuthority(t *testing.T) {
 			if len(reviews.Items) != 0 {
 				t.Fatalf("forbidden kind/forged actor created review: %+v", reviews)
 			}
-			assertMemoryLoopNoExtraRequests(t, f, 3, 11*time.Second)
+			assertMemoryLoopInferenceStages(t, f.ModelRequests(), "reconcile", "skill_select", "reflect")
+			assertMemoryLoopNoExtraRequests(t, f, 4, 11*time.Second)
 			after, err := f.Wait(context.Background(), "canonical", primary)
 			if err != nil || after.CanonicalCount != 1 || after.RecordID != source.RecordID {
 				t.Fatalf("invalid proposal changed ordinary canonical memory: %+v %v", after, err)

@@ -24,6 +24,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	memorymodule "agent-vivy/internal/modules/memory"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/sdk/port/contextsource"
@@ -293,6 +294,14 @@ type memoryLoopObservedRecallSource struct {
 	fixture *memoryLoopFixture
 }
 
+func (s *memoryLoopObservedRecallSource) WithMemoryService(service *memorymodule.Service) (contextsource.Provider, error) {
+	provider, err := memorymodule.BindContextSource(s.Provider, service)
+	if err != nil {
+		return nil, err
+	}
+	return &memoryLoopObservedRecallSource{Provider: provider, fixture: s.fixture}, nil
+}
+
 func (s *memoryLoopObservedRecallSource) BindCognitiveContext(bundle cognitivecontract.Bundle, authorize func(context.Context, contextsource.Request) error) error {
 	binder, ok := s.Provider.(interface {
 		BindCognitiveContext(cognitivecontract.Bundle, func(context.Context, contextsource.Request) error) error
@@ -374,6 +383,84 @@ func (f *memoryLoopFixture) ModelRequests() []json.RawMessage {
 		out[i] = append(json.RawMessage(nil), req...)
 	}
 	return out
+}
+
+func memoryLoopInferenceStage(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var request struct {
+		Messages []memoryLoopWireMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &request); err != nil {
+		t.Fatalf("decode model request: %v", err)
+	}
+	const prefix = "[cognitive-infer stage="
+	for _, message := range request.Messages {
+		if message.Role != "user" || !strings.HasPrefix(message.Content, prefix) {
+			continue
+		}
+		stage, _, ok := strings.Cut(strings.TrimPrefix(message.Content, prefix), "]")
+		if ok {
+			return stage
+		}
+		t.Fatalf("malformed cognitive inference stage: %q", message.Content)
+	}
+	return ""
+}
+
+func memoryLoopInferenceStages(t *testing.T, requests []json.RawMessage) []string {
+	t.Helper()
+	stages := make([]string, 0, len(requests))
+	for _, request := range requests {
+		if stage := memoryLoopInferenceStage(t, request); stage != "" {
+			stages = append(stages, stage)
+		}
+	}
+	return stages
+}
+
+func memoryLoopInferenceRequests(t *testing.T, requests []json.RawMessage, stage string) []json.RawMessage {
+	t.Helper()
+	var matches []json.RawMessage
+	for _, request := range requests {
+		if memoryLoopInferenceStage(t, request) == stage {
+			matches = append(matches, request)
+		}
+	}
+	return matches
+}
+
+func awaitMemoryLoopInferenceRequests(t *testing.T, f *memoryLoopFixture, stage string, count int, timeout time.Duration) []json.RawMessage {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		matches := memoryLoopInferenceRequests(t, f.ModelRequests(), stage)
+		if len(matches) >= count {
+			return matches
+		}
+		if time.Now().After(deadline) {
+			requests := f.ModelRequests()
+			responses := f.ModelResponses()
+			responseStatuses := make([]int, len(responses))
+			for i, response := range responses {
+				responseStatuses[i] = response.Status
+			}
+			t.Fatalf("actual %s inference requests did not reach %d; got %d of %d model requests with stages %v and response statuses %v", stage, count, len(matches), len(requests), memoryLoopInferenceStages(t, requests), responseStatuses)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func assertMemoryLoopInferenceStages(t *testing.T, requests []json.RawMessage, want ...string) {
+	t.Helper()
+	got := memoryLoopInferenceStages(t, requests)
+	if len(got) != len(want) {
+		t.Fatalf("actual cognitive inference stages: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("actual cognitive inference stages: got %v, want %v", got, want)
+		}
+	}
 }
 
 // redeliverRun rewinds only the fixture-owned Observer cursor and asks the

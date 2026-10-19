@@ -54,7 +54,8 @@ func TestMemoryLoopExcludesDerivedEvidence(t *testing.T) {
 	// Observe two actual default wake intervals, then inspect the native ledger.
 	// Workflow/children/supervisor and canonical reflection output must not be
 	// admitted as a new conversation source or cause another inference cycle.
-	assertMemoryLoopNoExtraRequests(t, f, 3, 11*time.Second)
+	assertMemoryLoopInferenceStages(t, f.ModelRequests(), "reconcile", "skill_select", "reflect")
+	assertMemoryLoopNoExtraRequests(t, f, 4, 11*time.Second)
 	db, err := f.readOnlyDB("garden", "garden.db")
 	if err != nil {
 		t.Fatal(err)

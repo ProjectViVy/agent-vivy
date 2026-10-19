@@ -73,18 +73,29 @@ Supported boundary for the Eino v0.9.21 upgrade:
 - No checkpoint is converted and no version check is bypassed. A missing or
   unreadable same-version checkpoint follows the same cleanup protocol with the
   generic restart message. Prompt-snapshot incompatibilities remain pending.
-- **Direct rollback to a historical unpatched binary with pending work is
-  unsupported.** Its version guard rejects the new checkpoint but its old
-  recovery implementation does not reliably cancel Approval/Question/Plan.
-  Version-string tests in new code do not prove old-binary behavior.
-- Before historical rollback, stop admitting new work and finish/decide or
-  explicitly cancel every active or paused run **under the current binary**.
-  Verify zero active runs, pending Approvals, pending Questions, pending Plan
-  reviews, and cleanup intents; verify each affected run has exactly one
-  terminal and its cancellation evidence. Restart the current binary and
-  verify these conditions still hold before starting the historical binary.
-  A cleanup error blocks rollback; keep the current binary and retry. This PR
-  does not provide a compatibility rollback build carrying the fix.
+- **An unpatched historical binary cannot open the database after migration
+  44.** The actual Eino v0.9.13 build from `e960929` fails closed with
+  `unknown migration version 44`, both with pending requests and after the
+  current binary has cancelled them. Cleanup alone therefore does not make
+  this rollback safe or runnable. Do not claim bidirectional safety or start
+  this binary against the upgraded database.
+- The supported Eino rollback target is a compatibility build from the same
+  source, with this durable cleanup fix and migration 44 retained and Eino
+  pinned to v0.9.13. Build it with
+  `node scripts/build-eino0913-rollback.mjs`; verify its embedded Eino version
+  before use. Its exact-version guard still rejects v0.9.21 checkpoints. It
+  records one failed Run and completes Approval/Question/Plan cancellation
+  before it accepts traffic; it does not resume that interrupted work. The
+  isolated actual-binary matrix covers direct compatibility rollback and the
+  pre-cleaned case. If this compatibility build is unavailable, rollback to
+  the unpatched historical binary is unsupported after migration 44.
+- Before stopping the current binary, stop admitting new work. A compatibility
+  build can clean active/paused requests during startup; verify zero active
+  Runs, pending Approvals, pending Questions, pending Plan reviews, and cleanup
+  intents afterward. Check that each affected Run has exactly one terminal
+  and its cancellation evidence, and repeat the check after restart. A cleanup
+  error blocks rollback; keep the current binary and retry. Never convert a
+  checkpoint or bypass its version check.
 - To preserve a paused task's result, complete its human review before upgrading.
 
 Evidence: `internal/runtime/recovery_engine_version_test.go`,
