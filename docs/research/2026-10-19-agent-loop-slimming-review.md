@@ -4,6 +4,8 @@ Status: Draft proposal for discussion; not an approved architecture change.
 
 Date: 2026-10-19
 
+Priority follow-up: [Core Insight: Where Vivy's Agent Loop Should Shrink](2026-10-19-agent-loop-core-deletion-insight.md) traces execution ownership, blocking edges and safe deletion prerequisites. Read it before planning the core reduction; it refines the broad findings below.
+
 ## 1. Decision in brief
 
 Vivy should reduce the responsibilities surrounding its existing Eino agent loop. Reliable tool execution and continuation should be the primary acceptance criterion. Delete unnecessary state, synchronous dependencies, and duplicated ownership before adding further safeguards.
