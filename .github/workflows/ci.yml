@@ -116,7 +116,7 @@ jobs:
           cache: true
 
       - name: Prepare pinned Laputa sources through the developer bootstrap
-        run: ./scripts/ensure-laputa.ps1
+        run: node scripts/ensure-laputa.mjs --quiet
 
       - name: Execute native BML and ACTMEM Garden suites
         shell: pwsh
