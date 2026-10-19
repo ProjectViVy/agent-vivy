@@ -23,12 +23,23 @@ import (
 
 // providerSelection is one effective model selection resolved against the
 // embedded catalog.
+//
+// endpoint is set exactly when the selection resolved against the data: it is
+// the endpoint variant (adapter, address, capabilities, model metadata) the
+// runtime must build the model from. A user-registered provider carries an
+// Endpoint in ResolvedModel instead, because no catalog endpoint describes it.
 type providerSelection struct {
 	Vendor   string
 	Adapter  string
 	BaseURL  string
 	Model    string
 	endpoint provider.Endpoint
+	// registered reports that this selection resolved against the user
+	// registry rather than the embedded data. Vendor is then only the entry's
+	// label, not an embedded vendor name, so callers that look embedded
+	// metadata up by name — the vendor's credential variable in particular —
+	// must not treat it as one.
+	registered bool
 }
 
 // resolveStoredSelection maps a stored `provider`/`base_url`/`default_model`
@@ -40,12 +51,13 @@ func resolveStoredSelection(catalog *provider.Catalog, cfg config.Config, stored
 		return providerSelection{}, false
 	}
 	selection := settings.NormalizeProviderSelection(stored.Provider)
+	baseURL := strings.TrimSpace(stored.BaseURL)
 	vendorName := ""
 	if catalog != nil {
 		// An explicit address identifies the vendor that declares that
 		// endpoint identity, which is the third-party case: no config block,
 		// no vendor name, just an address the data knows.
-		if vendor, _, ok := catalog.VendorForEndpoint(selection.Adapter, strings.TrimSpace(stored.BaseURL)); ok {
+		if vendor, _, ok := catalog.VendorForEndpoint(selection.Adapter, baseURL); ok {
 			vendorName = vendor.Name
 		}
 	}
@@ -53,20 +65,70 @@ func resolveStoredSelection(catalog *provider.Catalog, cfg config.Config, stored
 		vendorName = selection.LegacyVendor
 	}
 	if vendorName == "" {
-		// A user-registered provider declares no embedded vendor: label the
-		// selection by its registry entry so run/usage events do not blame
-		// the configured vendor for someone else's endpoint.
-		if entry, ok := stored.FindProvider(selection.Adapter, strings.TrimSpace(stored.BaseURL)); ok {
-			vendorName = strings.TrimSpace(entry.DisplayName)
-			if vendorName == "" {
-				vendorName = entry.ID
-			}
+		// A user-registered provider declares no embedded vendor: the registry
+		// entry itself is the endpoint, and the alias only labels the selection
+		// so run/usage events do not blame the configured vendor for someone
+		// else's endpoint.
+		if entry, ok := stored.FindProvider(selection.Adapter, baseURL); ok {
+			return resolveCustomSelection(entry, baseURL, stored.DefaultModel)
 		}
 	}
 	if vendorName == "" {
 		vendorName = cfg.Providers.Active
 	}
 	return resolveVendorSelection(catalog, vendorName, selection.Adapter, stored.BaseURL, stored.DefaultModel)
+}
+
+// resolveCustomSelection resolves a selection whose endpoint a user registered
+// in Settings → Models. The registry entry supplies the protocol, the address
+// and the model list; the credential is the registry key the caller resolves by
+// the same (adapter, address) identity. It is ok whenever the entry could be
+// constructed at all — an adapter this build does not execute is a run-time
+// failure the ModelHost reports, not a document read failure.
+func resolveCustomSelection(entry settings.ProviderEntry, baseURL, storedModel string) (providerSelection, bool) {
+	adapter := settings.NormalizeAdapter(entry.Bundle)
+	model := strings.TrimSpace(storedModel)
+	if model == "" {
+		model = strings.TrimSpace(entry.DefaultModel)
+	}
+	label := strings.TrimSpace(entry.DisplayName)
+	if label == "" {
+		label = entry.ID
+	}
+	endpoint, ok := customEndpoint(entry, adapter, baseURL)
+	if !ok {
+		return providerSelection{Vendor: label, Adapter: adapter, BaseURL: baseURL, Model: model, registered: true}, false
+	}
+	return providerSelection{
+		Vendor:     label,
+		Adapter:    adapter,
+		BaseURL:    baseURL,
+		Model:      model,
+		endpoint:   endpoint,
+		registered: true,
+	}, true
+}
+
+// customEndpoint builds the endpoint a registry entry declares: the identity a
+// user registered is (adapter, address), and its model list is the model ids
+// the entry offers. Capabilities stay empty — the registry declares models, not
+// endpoint behaviour, so the thinking rule must not fire on a guess.
+func customEndpoint(entry settings.ProviderEntry, adapter, baseURL string) (provider.Endpoint, bool) {
+	if adapter == "" || baseURL == "" {
+		return provider.Endpoint{}, false
+	}
+	models := make([]provider.Model, 0, len(entry.Models))
+	for _, id := range entry.Models {
+		if id = strings.TrimSpace(id); id != "" {
+			models = append(models, provider.Model{ID: id})
+		}
+	}
+	return provider.Endpoint{
+		Adapter:      adapter,
+		BaseURL:      baseURL,
+		DefaultModel: strings.TrimSpace(entry.DefaultModel),
+		Models:       models,
+	}, true
 }
 
 // resolveVendorSelection resolves one vendor's endpoint variant. It is shared

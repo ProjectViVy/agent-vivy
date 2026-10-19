@@ -1301,3 +1301,80 @@ func TestUpdateLocalePreservesUnrelatedSettings(t *testing.T) {
 		t.Fatalf("persisted locale update changed unrelated settings:\n got: %+v\nwant: %+v", loaded, want)
 	}
 }
+
+// A registry entry may name a default model outside its own list: the two
+// fields were persisted independently by an earlier build. Reading reconciles
+// them, so the selection the runtime adopts is one the Settings list can show,
+// and the document stays loadable instead of being rejected.
+func TestProviderRegistryReconcilesDefaultModelIntoModels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	document := `provider: openai
+default_model: ghost-model
+providers:
+  - id: custom-1
+    display_name: WXYG
+    bundle: openai
+    base_url: https://gateway.example/v1
+    default_model: ghost-model
+    models:
+      - real-model
+`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("a default outside the list must stay loadable: %v", err)
+	}
+	want := []string{"real-model", "ghost-model"}
+	if got := loaded.Providers[0].Models; !reflect.DeepEqual(got, want) {
+		t.Fatalf("models after load = %v, want %v", got, want)
+	}
+	if _, err := Save(path, loaded); err != nil {
+		t.Fatalf("save reconciled document: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Providers[0].Models; !reflect.DeepEqual(got, want) {
+		t.Fatalf("models after round trip = %v, want %v (reconciliation must be idempotent)", got, want)
+	}
+}
+
+func TestUpsertProviderReconcilesDefaultModelIntoModels(t *testing.T) {
+	entry := ProviderEntry{
+		ID: "custom-1", DisplayName: "WXYG", Bundle: ProviderOpenAI,
+		BaseURL: "https://gateway.example/v1", DefaultModel: "ghost-model",
+		Models: []string{"real-model"},
+	}
+	s := Settings{}.UpsertProvider(entry)
+	if got, want := s.Providers[0].Models, []string{"real-model", "ghost-model"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("models = %v, want %v", got, want)
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("reconciled entry rejected: %v", err)
+	}
+	// Re-upserting the reconciled entry must not grow the list.
+	again := Settings{}.UpsertProvider(s.Providers[0])
+	if !reflect.DeepEqual(again.Providers[0].Models, s.Providers[0].Models) {
+		t.Fatalf("second upsert = %v, want %v", again.Providers[0].Models, s.Providers[0].Models)
+	}
+	// A default already in the list leaves the order untouched, and an empty
+	// default adds nothing.
+	listed := Settings{}.UpsertProvider(ProviderEntry{
+		ID: "custom-2", DisplayName: "WXYG", Bundle: ProviderOpenAI,
+		BaseURL: "https://gateway.example/v1", DefaultModel: "real-model",
+		Models: []string{"real-model", "other-model"},
+	})
+	if got, want := listed.Providers[0].Models, []string{"real-model", "other-model"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listed default changed models to %v, want %v", got, want)
+	}
+	none := Settings{}.UpsertProvider(ProviderEntry{
+		ID: "custom-3", DisplayName: "WXYG", Bundle: ProviderOpenAI,
+		BaseURL: "https://gateway.example/v1", Models: []string{"real-model"},
+	})
+	if got, want := none.Providers[0].Models, []string{"real-model"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("empty default changed models to %v, want %v", got, want)
+	}
+}

@@ -139,6 +139,21 @@ func TestCatalogRefForEndpointRejectsUnknownVendor(t *testing.T) {
 	}
 }
 
+// A user-registered endpoint is not in the embedded data, so it resolves
+// through its own name and endpoint rather than through a vendor lookup. The
+// sealed adapter is still the gate: a family this build cannot execute fails
+// closed here exactly as it does for an embedded vendor.
+func TestCatalogRefForSelectionFailsClosed(t *testing.T) {
+	if _, err := NewCatalog().RefForSelection("WXYG", Endpoint{
+		Adapter: AdapterOpenAIResponses, BaseURL: "https://gw.example.com/v1",
+	}); !errors.Is(err, ErrAdapterDeferred) {
+		t.Fatalf("deferred custom endpoint error = %v, want ErrAdapterDeferred", err)
+	}
+	if _, err := NewCatalog().RefForSelection("WXYG", Endpoint{BaseURL: "https://gw.example.com/v1"}); !errors.Is(err, ErrAdapterUnknown) {
+		t.Fatalf("endpoint with no adapter error = %v, want ErrAdapterUnknown", err)
+	}
+}
+
 // A user-supplied base URL that no endpoint declares keeps the vendor's
 // protocol and capabilities in force; the address itself comes from the spec.
 func TestCatalogEndpointForVendorFallsBackToDefault(t *testing.T) {
