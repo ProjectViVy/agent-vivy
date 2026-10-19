@@ -86,7 +86,56 @@ retired adapter and the capability state, and pass afterwards.
   and `internal/modules/{model,loop}` tests: agentic scripts and the
   adapter-family constructor.
 
+## Lead final gate
+
+Run after the migration commits, on the same worktree, with
+`GOPROXY=https://goproxy.cn,direct` and the loopback HTTP proxy exported for
+`ensure-laputa`/pnpm.
+
+### `just ci`
+
+`just ci` reaches `ui-ci` and fails there; the backend gates it runs before that
+point pass:
+
+| Stage | Result |
+| --- | --- |
+| `ensure-laputa` | PASS (advanced the sibling checkout to the locked commit `ff3936f4`) |
+| `bootstrap-test` | PASS (6/6) |
+| `fmt-check` | PASS (a first attempt reported `sdk/internal/assembly/evidence.go`; a rerun and a direct `gofmt -l` were clean — the file is formatted) |
+| `ui-ci` | **BLOCKED by the environment**: `vite build` fails with `[vite:esbuild-transpile] remove %TEMP%\\esbuild-<hash>: Access is denied` |
+
+The esbuild failure is not migration-related: the untouched root checkout
+`C:\Users\com01\Desktop\morediva\ui` fails the same way with `pnpm build` and
+with `node node_modules/vite/bin/vite.js build`, including after linking the
+platform package and setting `ESBUILD_BINARY_PATH`. A direct
+`require('esbuild').transformSync` succeeds, so the defect is in the esbuild
+service temp-binary lifecycle on this host, not in the changed TypeScript.
+
+### Remaining backend gates, run individually
+
+| Command | Result |
+| --- | --- |
+| `just vet` | exit 0 |
+| `just headless-compile` | exit 0 |
+| `just plugin-ci` | exit 0 (every `plugins/*` and `faces/*` module) |
+| `just test` | package failures below; all reproduced or explainable on the pre-migration commit `40723f27` |
+| `go test -count=1 ./internal/embedded/` alone on the migration lane | ok (6.7 s) — the full-suite `TestPollCollectsRunEvents` failure was a load-induced 62 s timeout |
+
+Baseline comparison on `agent-vivy-issue91-base` at `40723f27`
+(`go test -count=1 ./internal/app/ ./internal/embedded/ ./sdk/codeclient/`):
+`internal/app` fails the same two `garden.db` TempDir-cleanup tests,
+`internal/embedded` passes, and `sdk/codeclient` fails the same three
+spawn/persona tests. The migration lane reproduces exactly this set, plus the
+embedded timeout that passes in isolation.
+
+### What remains for a green `just ci`
+
+A host where `vite build` can delete its esbuild service binary (CI or a
+non-Windows/AV-affected machine). No product code is missing for that gate; the
+UI typecheck, settings suites and FACE contract tests pass on this host.
+
 ## Deliberately not run
 
-`just ci`, Docker, Postgres, real-provider smoke and the browser e2e suite were
-not run: the task assigned them to the Lead's final gate.
+Docker, Postgres, real-provider smoke and the browser e2e suite: they belong to
+the PR/candidate stage per the owner's decision. `just ci` itself is blocked by
+the environment above, not skipped by choice.
