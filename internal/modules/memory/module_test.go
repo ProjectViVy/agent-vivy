@@ -44,14 +44,15 @@ func TestServiceListsEmptyStore(t *testing.T) {
 }
 
 func TestOpenReturnsExistingServiceOnSecondCall(t *testing.T) {
-	first, err := memory.Open(context.Background(), testConfig(t.TempDir()))
+	cfg := testConfig(t.TempDir())
+	first, err := memory.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = memory.Close() })
 	// A second Open must not orphan the first Home — it returns the
-	// already-published service, even under a different config dir.
-	second, err := memory.Open(context.Background(), testConfig(t.TempDir()))
+	// already-published service for that same owned data root.
+	second, err := memory.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("second Open() error = %v", err)
 	}

@@ -58,7 +58,7 @@ const (
 // scope session matches only sessionless records, a set session matches only
 // that session's records (typed_store.rs search).
 func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchHit, error) {
-	return s.search(ctx, q, searchSQL, 2)
+	return s.search(ctx, q, searchSQL, 2, nil)
 }
 
 // SearchVisible returns workspace-global records plus records owned by the
@@ -66,10 +66,10 @@ func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchHit, error) 
 // does not change the exact-scope semantics of Search
 // (typed_store.rs search_visible).
 func (s *Store) SearchVisible(ctx context.Context, q SearchQuery) ([]SearchHit, error) {
-	return s.search(ctx, q, searchVisibleSQL, 1)
+	return s.search(ctx, q, searchVisibleSQL, 1, nil)
 }
 
-func (s *Store) search(ctx context.Context, q SearchQuery, querySQL string, sessionBinds int) ([]SearchHit, error) {
+func (s *Store) search(ctx context.Context, q SearchQuery, querySQL string, sessionBinds int, binding *OwnershipBinding) ([]SearchHit, error) {
 	if q.Scope.WorkspaceID != s.workspaceID {
 		return nil, workspaceMismatchErr(s.workspaceID, q.Scope.WorkspaceID)
 	}
@@ -85,8 +85,24 @@ func (s *Store) search(ctx context.Context, q SearchQuery, querySQL string, sess
 	for i := 0; i < sessionBinds; i++ {
 		args = append(args, q.Scope.SessionID)
 	}
-	args = append(args, boolInt(q.IncludeTombstoned), int64(limit))
-	rows, err := s.db.QueryContext(ctx, querySQL, args...)
+	args = append(args, boolInt(q.IncludeTombstoned))
+	predicate := s.legacyPredicate("r")
+	if binding != nil {
+		owner, err := marshalCanonical(binding)
+		if err != nil {
+			return nil, err
+		}
+		predicate = `EXISTS (SELECT 1 FROM memory_ownership own WHERE own.memory_id=r.memory_id AND own.binding_json=?)`
+		args = append(args, string(owner))
+	}
+	querySQL = strings.Replace(querySQL, "ORDER BY", "AND "+predicate+" ORDER BY", 1)
+	args = append(args, int64(limit))
+	reader, release, err := s.legacyRead(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	rows, err := reader.QueryContext(ctx, querySQL, args...)
 	if err != nil {
 		return nil, persistenceErr(s.path, err)
 	}

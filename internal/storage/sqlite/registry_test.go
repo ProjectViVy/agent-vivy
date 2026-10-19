@@ -230,3 +230,26 @@ func TestRunTreeQueriesAndChildApprovalKind(t *testing.T) {
 		t.Fatalf("approval = %+v, %v", approval, err)
 	}
 }
+
+// SQLite does not enforce foreign keys, so copy provenance must be deleted with
+// its message explicitly or deleting a session leaves orphan rows behind.
+func TestDeleteSessionRemovesMessageCopySources(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-copy", Title: "t", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "msg-copy", SessionID: "sess-copy", Role: domain.RoleUser, CreatedAt: 2, Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.db.ExecContext(ctx, `INSERT INTO message_copy_sources(message_id,parent_session_id,parent_message_id) VALUES('msg-copy','parent','original')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DeleteSession(ctx, "sess-copy"); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM message_copy_sources`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("orphan copy sources after delete: %d %v", n, err)
+	}
+}
