@@ -8,6 +8,12 @@ client half. Requested by the product owner:
 > 首先先改成一个专业的显示面板，现在太简陋。要能够支持显示彩色，字体也要改，
 > 大小目前来说太小了。现在就纯业余日志面板，搞专业点。
 
+*English translation:* "In agentvivy's Vivy Studio Vivy development plugin,
+improve the log section. Both the frontend and backend displays need work:
+first turn it into a professional display panel; it is too crude right now. It
+should support color, the font needs changing, and the size is currently too
+small. It is a purely amateur log panel today; make it professional."
+
 ## What was wrong
 
 The 日志 page joined both processes into one `<pre>` at `font-size:11px`:

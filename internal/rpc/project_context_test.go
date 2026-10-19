@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,5 +231,188 @@ func TestProjectContextRPCAndTurnPersistSnapshotMetadataOnly(t *testing.T) {
 	stored, err := env.backend.ListMessages(context.Background(), domain.SessionID(session.ID))
 	if err != nil || len(stored) == 0 || len(stored[0].FileContexts) != 1 || string(stored[0].FileContexts[0].Content) != string(body) {
 		t.Fatalf("durable snapshot = %+v/%v", stored, err)
+	}
+}
+
+func TestTurnContextUsesSessionWorkspace(t *testing.T) {
+	projectRoot := t.TempDir()
+	sessionRoot := t.TempDir()
+	for dir, body := range map[string][]byte{
+		projectRoot: []byte("from project root"),
+		sessionRoot: []byte("from session workspace"),
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, "note"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "note", "a.txt"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = projectRoot })
+
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{
+		"title": "scoped", "workspace_path": sessionRoot,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var session sessionResult
+	createdJSON, _ := json.Marshal(created)
+	if err := json.Unmarshal(createdJSON, &session); err != nil || session.ID == "" {
+		t.Fatalf("session/create = %s/%v", createdJSON, err)
+	}
+
+	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": string(session.ID), "text": "inspect", "context_paths": []string{"note/a.txt"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	startedJSON, _ := json.Marshal(started)
+	if err := json.Unmarshal(startedJSON, &accepted); err != nil || accepted.RunID == "" {
+		t.Fatalf("turn/start = %s/%v", startedJSON, err)
+	}
+	waitForControlRunTerminal(t, env.backend, accepted.RunID)
+
+	stored, err := env.backend.ListMessages(context.Background(), domain.SessionID(session.ID))
+	if err != nil || len(stored) == 0 || len(stored[0].FileContexts) != 1 {
+		t.Fatalf("durable contexts = %+v/%v", stored, err)
+	}
+	if got := string(stored[0].FileContexts[0].Content); got != "from session workspace" {
+		t.Fatalf("turn context body = %q, want session workspace snapshot", got)
+	}
+
+	// Empty WorkspacePath regression: an unscoped session resolves against the
+	// process project root, preserving existing vivy-code behavior.
+	created, rpcErr = callControl(t, env.handler, "session/create", map[string]string{"title": "unscoped"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var plain sessionResult
+	createdJSON, _ = json.Marshal(created)
+	if err := json.Unmarshal(createdJSON, &plain); err != nil || plain.ID == "" {
+		t.Fatalf("session/create = %s/%v", createdJSON, err)
+	}
+	started, rpcErr = callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": string(plain.ID), "text": "inspect", "context_paths": []string{"note/a.txt"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	startedJSON, _ = json.Marshal(started)
+	if err := json.Unmarshal(startedJSON, &accepted); err != nil || accepted.RunID == "" {
+		t.Fatalf("turn/start = %s/%v", startedJSON, err)
+	}
+	waitForControlRunTerminal(t, env.backend, accepted.RunID)
+	stored, err = env.backend.ListMessages(context.Background(), domain.SessionID(plain.ID))
+	if err != nil || len(stored) == 0 || len(stored[0].FileContexts) != 1 {
+		t.Fatalf("durable contexts = %+v/%v", stored, err)
+	}
+	if got := string(stored[0].FileContexts[0].Content); got != "from project root" {
+		t.Fatalf("unscoped turn context body = %q, want project root snapshot", got)
+	}
+}
+
+func TestTurnContextRejectsSessionEscape(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, "target.txt"), []byte("project-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessionRoot := t.TempDir()
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = projectRoot })
+
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{
+		"title": "scoped", "workspace_path": sessionRoot,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var session sessionResult
+	createdJSON, _ := json.Marshal(created)
+	if err := json.Unmarshal(createdJSON, &session); err != nil || session.ID == "" {
+		t.Fatalf("session/create = %s/%v", createdJSON, err)
+	}
+
+	// A symlink inside the session workspace pointing into the process project
+	// root escapes the session boundary even though the target is under
+	// ProjectRoot — the binding root is the session's own directory.
+	if err := os.Symlink(filepath.Join(projectRoot, "target.txt"), filepath.Join(sessionRoot, "link.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, rpcErr = callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": string(session.ID), "text": "inspect", "context_paths": []string{"link.txt"},
+	})
+	if rpcErr == nil || rpcErr.Code != InvalidParams || !strings.Contains(rpcErr.Message, "escapes the project") {
+		t.Fatalf("session escape turn/start = %v, want InvalidParams escape", rpcErr)
+	}
+
+	// Unknown session fails before any file is opened: the path below does not
+	// exist under the project root, so a file-open error would prove the wrong
+	// order. The session lookup must fire first.
+	_, rpcErr = callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": "sess_missing", "text": "inspect", "context_paths": []string{"no-such.txt"},
+	})
+	if rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown session turn/start = %v, want CodeNotFound before file open", rpcErr)
+	}
+}
+
+func TestTurnContextSessionBoundariesAndSensitive(t *testing.T) {
+	sessionRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sessionRoot, ".env"), []byte("TOKEN=x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionRoot, "ok.txt"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	large := bytes.Repeat([]byte{'x'}, maxProjectContextBytes+1)
+	if err := os.WriteFile(filepath.Join(sessionRoot, "large.txt"), large, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chunk := bytes.Repeat([]byte{'y'}, 600<<10)
+	totalPaths := make([]string, 0, maxProjectContextCount)
+	for i := 0; i < maxProjectContextCount; i++ {
+		name := fmt.Sprintf("chunk%d.txt", i)
+		if err := os.WriteFile(filepath.Join(sessionRoot, name), chunk, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		totalPaths = append(totalPaths, name)
+	}
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = t.TempDir() })
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{
+		"title": "scoped", "workspace_path": sessionRoot,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var session sessionResult
+	createdJSON, _ := json.Marshal(created)
+	if err := json.Unmarshal(createdJSON, &session); err != nil || session.ID == "" {
+		t.Fatalf("session/create = %s/%v", createdJSON, err)
+	}
+
+	tooMany := make([]string, maxProjectContextCount+1)
+	for i := range tooMany {
+		tooMany[i] = "ok.txt"
+	}
+	for _, tc := range []struct {
+		name  string
+		paths []string
+		want  string
+	}{
+		{name: "sensitive", paths: []string{".env"}, want: "sensitive"},
+		{name: "count", paths: tooMany, want: "at most"},
+		{name: "size", paths: []string{"large.txt"}, want: "exceeds the 1 MiB limit"},
+		{name: "total", paths: totalPaths, want: "exceeds the 4 MiB limit"},
+	} {
+		_, rpcErr = callControl(t, env.handler, "turn/start", map[string]any{
+			"session_id": string(session.ID), "text": "inspect", "context_paths": tc.paths,
+		})
+		if rpcErr == nil || rpcErr.Code != InvalidParams || !strings.Contains(rpcErr.Message, tc.want) {
+			t.Fatalf("%s turn/start = %v, want InvalidParams %q", tc.name, rpcErr, tc.want)
+		}
 	}
 }

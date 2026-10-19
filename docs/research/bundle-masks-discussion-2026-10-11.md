@@ -18,6 +18,12 @@ Original user direction:
 
 > 我希望面具也加入bundle里面去。也就是说这个bundle可以带一些面具。然后的话如果说原始的插件里面，会有一些偏向于人格性引导的skill，在vivy这边制作bundle的时候会被规范为面具。例如bmad的pm、dev等专家团体。
 
+*English translation:* "I want Masks included in the bundle as well — that is, a
+bundle can carry some Masks. Also, if the original plugin contains skills
+oriented toward persona guidance, they should be normalized into Masks when the
+bundle is authored on the Vivy side. For example, BMAD's PM, Dev, and other
+expert groups."
+
 This normalization belongs to bundle authoring and adaptation. Automatic runtime classification is not established by this decision.
 
 ## Existing Mask semantics

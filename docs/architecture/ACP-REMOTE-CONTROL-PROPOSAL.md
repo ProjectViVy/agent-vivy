@@ -7,6 +7,12 @@
 
 Status: proposal only — implementation deferred pending explicit approval.
 
+> **Scope note (2026-10-07):** this document covers the *remote,*
+> out-of-process control plane only. The restricted local-stdio ACP pilot —
+> an exclusive Face Provider speaking ACP to the IDE that launched it — is a
+> separate, accepted contract in `ACP-STDIO-FACE.md` and is unaffected by the
+> deferral above.
+
 Same-process mouths (web / tui / headless) are a different contract:
 `VIVY-FACE-PACK.md`. World ingress (chat platforms, later A2A / NeuroLink)
 is `VIVY-CHANNEL-PACK.md` — ChannelHost plus `seam: channel` plugins, not

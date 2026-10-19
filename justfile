@@ -122,6 +122,12 @@ ui-e2e:
     pnpm --dir ui build
     pnpm --dir ui e2e
 
+# Reproducible native Toolkit gate: pack and inspect the default Recipe, then
+# run both Toolkit Playwright suites on their own backend, Vite server and data
+# root. Override with VIVY_TOOLKITS_E2E_BACKEND_PORT / VIVY_TOOLKITS_E2E_UI_PORT.
+toolkits-e2e:
+    node scripts/toolkits-e2e.mjs
+
 # Fast local checkpoint before a full gate: formatting, vet, and compilation.
 check-fast: fmt-check vet build
 

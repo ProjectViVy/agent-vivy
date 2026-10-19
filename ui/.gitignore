@@ -28,6 +28,7 @@ node_modules/
 dist/
 .e2e-workdir/
 .continuity-workdir/
+.workflow-e2e/
 .dev-workdir/
 agent-diva-source/
 test-results/

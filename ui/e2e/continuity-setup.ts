@@ -47,20 +47,26 @@ export function prepareContinuityWorkdir(): void {
 
 export type LoopbackReply =
   | { kind: 'tool'; id: string; name: string; args: Record<string, unknown> }
-  | { kind: 'text'; text: string };
+  | { kind: 'text'; text: string }
+  // Never answers: the model call (and the Run waiting on it) stays active
+  // until the client goes away, which lets a spec hold a parent Run open.
+  | { kind: 'hang' };
 
 export const toolCall = (id: string, name: string, args: Record<string, unknown>): LoopbackReply => ({ kind: 'tool', id, name, args });
 export const finalText = (text: string): LoopbackReply => ({ kind: 'text', text });
+export const holdOpen = (): LoopbackReply => ({ kind: 'hang' });
 
-const modelBase = `http://${MODEL_ADDR}`;
+function modelBase(addr: string = MODEL_ADDR): string {
+  return `http://${addr}`;
+}
 
-export async function setModelScript(script: LoopbackReply[]): Promise<void> {
-  const res = await fetch(`${modelBase}/__script`, { method: 'POST', body: JSON.stringify(script) });
+export async function setModelScript(script: LoopbackReply[], addr: string = MODEL_ADDR): Promise<void> {
+  const res = await fetch(`${modelBase(addr)}/__script`, { method: 'POST', body: JSON.stringify(script) });
   if (!res.ok) throw new Error(`set loopback script failed: ${res.status}`);
 }
 
-export async function modelRequestBodies(): Promise<string[]> {
-  const res = await fetch(`${modelBase}/__requests`);
+export async function modelRequestBodies(addr: string = MODEL_ADDR): Promise<string[]> {
+  const res = await fetch(`${modelBase(addr)}/__requests`);
   if (!res.ok) throw new Error(`read loopback requests failed: ${res.status}`);
   return (await res.json()) as string[];
 }
@@ -70,6 +76,7 @@ function writeChunk(w: http.ServerResponse, payload: string): void {
 }
 
 function answerRequest(res: http.ServerResponse, reply: LoopbackReply, streaming: boolean, seq: number): void {
+  if (reply.kind === 'hang') return;
   const base = `"id":"chatcmpl-${seq}","object":"chat.completion${streaming ? '.chunk' : ''}","created":1,"model":"deepseek-flash"`;
   if (reply.kind === 'tool') {
     const argsJSON = JSON.stringify(JSON.stringify(reply.args));
@@ -99,7 +106,7 @@ function answerRequest(res: http.ServerResponse, reply: LoopbackReply, streaming
 // startLoopbackModel answers every chat.completions request with the next
 // queued reply (FIFO per test) and records raw request bodies so specs can
 // assert cross-session content never reached the model.
-export function startLoopbackModel(): Promise<http.Server> {
+export function startLoopbackModel(addr: string = MODEL_ADDR): Promise<http.Server> {
   let queue: LoopbackReply[] = [];
   const captured: string[] = [];
   let seq = 0;
@@ -135,7 +142,7 @@ export function startLoopbackModel(): Promise<http.Server> {
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    const [host, port] = MODEL_ADDR.split(':');
+    const [host, port] = addr.split(':');
     server.listen(Number(port), host, () => resolve(server));
   });
 }

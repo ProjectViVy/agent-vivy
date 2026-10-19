@@ -1,0 +1,11 @@
+apiVersion: vivy.generation/v1
+profile: acp
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/protected-tools, vivy/mcp-host, vivy/status-host, vivy/action-host, vivy/face-host, projectvivy/acp]
+exclusive:
+  std/face@v1: projectvivy/acp
+sources:
+  projectvivy/acp:
+    ref: "repo:plugins/acp"
+    sha256: "b92be2a2fad8a8c39db81449f642f21afcf141db2e66c089e4d14480835b2e91"
+grantApprovals:
+  - {module: projectvivy/acp, name: rpc.client}

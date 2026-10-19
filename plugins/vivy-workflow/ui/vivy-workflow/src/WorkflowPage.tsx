@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WorkflowClient } from './client';
 import { FaceBridge } from './face-bridge';
 import { EditorPane, type EditTarget } from './editor/EditorPane';
+import { workflowLaunchParent } from './launch-context';
 import { RunsPane } from './panes/RunsPane';
 import { WorkflowsPane } from './panes/WorkflowsPane';
 import type { NodeDescriptor } from './studio/schema';
@@ -42,7 +43,7 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [focusRun, setFocusRun] = useState<string | null>(null);
-  const canRun = faceState.currentRun != null;
+  const canRun = workflowLaunchParent(faceState) !== null;
 
   useEffect(() => {
     let alive = true;
