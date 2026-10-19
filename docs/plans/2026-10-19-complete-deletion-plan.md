@@ -5,6 +5,7 @@ Date: 2026-10-19
 Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Plan branch: `feat/agent-loop-deletion` (baseline A); original plan branch: `codex/agent-loop-deletion`.
 
 Executable planning package: [issue-91/index.md](../superpowers/plans/issue-91/index.md).
+Phase and handoff supplement: [stable loop and gated feature re-intake](2026-10-19-stable-loop-reintake-handoff.md).
 This document remains the shared scope/design authority. Sections 10–11 specify
 the replacement contracts and detailed target architecture; the index owns Story status, dependencies,
 decision gates and acceptance evidence. Planning is authorized; implementation
@@ -14,7 +15,7 @@ is historical and does not override this linked package.
 
 Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering as species-selected experimental packages**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
 
-Baseline A and delivery split (2026-10-19): the implementation baseline is `202aac38` (2026-10-07), the last stable pi-parity closeout that passed benchmark runs. The 168 commits and 30 first-parent merges added after it are unverified increments; they are not assumed present and are to be re-reviewed and re-introduced in gated batches. This plan and the linked package were authored at `e9609296` (2026-10-18) and replayed onto baseline A; 10-18-only file references are re-anchored in the [baseline-A audit](../research/2026-10-19-baseline-a-reanchor.md). Issue #91's base cut lands hash deletion, the core contraction and the inert loop-exp seam; the three retained packages are delivered as the independent [E-NUDGE](../superpowers/plans/epic-nudge/index.md), [E-WARMING](../superpowers/plans/epic-warming/index.md) and [E-STEERING](../superpowers/plans/epic-steering/index.md) epics. Until each epic lands, the corresponding behavior stays in one core implementation; C11 physical omission is claimed only by the epics, never by #91. D07 stays in the package as an explanatory step: the bundle/toolkit subsystem does not exist at baseline A, so it has no deletion work here, and D07 owns the checkpoint for re-introducing the 2026-10-08..10-18 bundle/toolkit work hash-free before any such batch merges.
+Baseline A and delivery split (2026-10-19): the implementation baseline is `202aac38` (2026-10-07), the last stable pi-parity closeout that passed benchmark runs. The original comparison to `e9609296` counted 168 commits and 30 first-parent merges after it. That is a historical inventory, not the current distance to main: main was observed at `c57dfd322a50daf5ac2365369e84f81f1733a8b2` after PR #84 merged on 2026-10-19. Post-baseline work is retained as capability backlog and donor evidence, not assumed present or approved for wholesale restoration; re-review and re-introduce it in gated batches without rebasing this stable branch. This plan and the linked package were authored at `e9609296` (2026-10-18) and replayed onto baseline A; 10-18-only file references are re-anchored in the [baseline-A audit](../research/2026-10-19-baseline-a-reanchor.md). Issue #91's base cut lands hash deletion, the core contraction and the inert loop-exp seam; the three retained packages are delivered as the independent [E-NUDGE](../superpowers/plans/epic-nudge/index.md), [E-WARMING](../superpowers/plans/epic-warming/index.md) and [E-STEERING](../superpowers/plans/epic-steering/index.md) epics. Until each epic lands, the corresponding behavior stays in one core implementation; C11 physical omission is claimed only by the epics, never by #91. D07 stays in the package as an explanatory step: the bundle/toolkit subsystem does not exist at baseline A, so it has no deletion work here, and D07 owns the checkpoint for re-introducing the 2026-10-08..10-18 bundle/toolkit work hash-free before any such batch merges.
 
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
@@ -30,7 +31,7 @@ One small final-artifact label is permitted: compute it after packaging, outside
 
 ## 2. Audit baseline and coverage
 
-The inspected implementation is `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`, containing 3,751 tracked paths. During the audit the checkout was based on older product code (`b4db00bd` plus documentation changes), so remote files were read directly. On 2026-10-19, branch `codex/agent-loop-deletion` was created and the documentation commits were rebased onto the freshly pulled `origin/main` at the same audited `e9609296` baseline. Recheck any subsequent upstream changes before implementation.
+The original inspected implementation was `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`, containing 3,751 tracked paths. During the audit the checkout was based on older product code (`b4db00bd` plus documentation changes), so remote files were read directly. On 2026-10-19, branch `codex/agent-loop-deletion` was created and the documentation commits were rebased onto the freshly pulled `origin/main` at the same audited `e9609296` baseline. Recheck any subsequent upstream changes before implementation.
 
 Five read-only subagent lanes reviewed runtime ownership; SDK/assembly/plugin generation; storage/recovery; UI/RPC/configuration; and CI/tests/current instructions. The lead reconciled their findings and checked cross-lane boundaries. No production Journal was accessed.
 
@@ -216,9 +217,11 @@ Current status: five read-only domain inventories integrated; broad tracked-tree
 
 ## 10. Executable-plan design amendment
 
-Planning baseline: branch `9c5da97e3292591fa960b8cd14d921c17fea5812`;
-freshly fetched main `e96092966cfbfa443648374948e7e7e16dd01683` on 2026-10-19.
-There is no product-code delta from the original audit. Two read-only planning
+Historical planning snapshot: branch `9c5da97e3292591fa960b8cd14d921c17fea5812`;
+then-fetched main `e96092966cfbfa443648374948e7e7e16dd01683` on 2026-10-19.
+There was no product-code delta from the original audit at that snapshot.
+The active implementation baseline is A, not current main; the handoff supplement
+separates baseline loop work, EXP extraction and later capability re-intake. Two read-only planning
 reviews rechecked runtime/approval and assembly/persistence. They did not run
 product tests or inspect production data.
 
@@ -306,8 +309,10 @@ is permitted. D04/D05 consume that settled design and accepted predecessors. The
 Proposed explicit test Recipes live at recipes/exp-nudge.vivy.yml,
 recipes/exp-warming.vivy.yml, recipes/exp-steering.vivy.yml and
 recipes/exp-loop-features.vivy.yml. Verify none/each/all selection, real behavior
-and physical omission with the simplified SDK generation from D06. D13 documents
-runnable examples and D14 independently accepts that matrix. An existing paused
+and physical omission with the simplified SDK generation from D06 when the
+owning EXP epics deliver their packages. D13/D14 accept the phase-A base path
+and interim single implementation, not an unimplemented none/each/all matrix.
+The epics own that later matrix and its integrated independent acceptance. An existing paused
 steer opened by a species lacking the package is explicitly unavailable/recovery-
 required under G2; it must not instantiate a hidden legacy steering path.
 
@@ -336,8 +341,9 @@ The conversion route is:
    checkpoints are not promised convertible: recommendation is explicit
    recovery-required/reapproval with the durable effect fence intact, under
    the explicit terminal/recovery mapping in §11.7. Never claim this is seamless resume compatibility.
-5. Stage copied bundle artifacts under new opaque IDs, prepare the complete
-   legacy-reference map and commit DB reference changes last. Retain the backup
+5. For a later bundle/toolkit re-intake only (D07), stage copied bundle artifacts
+   under new opaque IDs, prepare the complete legacy-reference map and commit
+   DB reference changes last. Baseline A has no such converter fragment. Retain the backup
    until reopen/recovery/rollback checks pass. Handle copy failure, crash and
    disk-full without deleting the previous store.
 6. Target runtime opens only the contracted final data formats; no dual
@@ -418,9 +424,12 @@ as a Vivy product hash. The optional final-distributable informational hash is
 omitted by default; adding one later is unnecessary to satisfy #91.
 
 Host-side `internal/studiocore` hash gates are included. The external Studio
-submodule and pinned Laputa/INOFY APIs were inspected for actual consumer obligations
-(§11.10); this repository's plan cannot assert those repositories
-have been changed or accepted. Escalate a required external contract change;
+submodule and Laputa APIs were inspected at historical pins, not the current
+baseline-A pins; INOFY's inspected pin is unchanged (§11.10). Revalidate only the
+affected consumer at its actual pin before claiming its required upstream delta.
+This repository's plan cannot assert those repositories have changed or passed
+integration. Such a blocker constrains its affected cut, not the independent
+causal tool-loop proof. Escalate a required external contract change;
 do not retain a local no-op verifier or silently fork the dependency.
 
 ## 11. Detailed target architecture
@@ -493,8 +502,10 @@ controls. A feature-specific request to an unselected species returns
 `NOT_COMPILED`; generic cancel, approval/question recovery and follow-up remain.
 Selected warming can be configured off; that is distinct from not compiled.
 Unselected historical-event rendering is passive and cannot instantiate a
-feature. Build the none/each/all-three Recipes listed in C11, inspect generated
-imports and resulting artifacts, and test actual behavior in selected builds.
+feature. The owning EXP epics build the none/each/all-three Recipes listed in
+C11, inspect generated imports/artifacts and test selected behavior. This is
+their target contract, not a phase-A claim: #91 retains one core implementation
+until each extraction cuts over, with no core-plus-package dual path.
 
 ### 11.3 Exact policy and Host interfaces
 
@@ -777,7 +788,9 @@ Direct skill-toggle signature remains the distinct C9 control-plane API.
 `T` denotes the final numbered application migration after all #91 owner
 migrations above 035 are allocated serially (baseline A head). It is a build-time constant in the
 delivered candidate, **not a runtime-configurable version**. D12 owns metadata;
-D03/D07–D11 own their columns/JSON converters. Final metadata is exactly
+D03 and D08–D11 own baseline columns/JSON converters. D07 adds no baseline
+fragment; its release/consent conversion is required only by a later batch that
+actually re-introduces bundle/toolkit. Final metadata is exactly
 version/name/applied_at without checksum. Final target reopen validates known
 contiguous names/versions and actual required shape before any mutation.
 
@@ -788,6 +801,7 @@ contiguous names/versions and actual required shape before any mutation.
 | SQLite legacy version/applied_at metadata | Existing old normalization/shape checks, then 035 -> T | upgrade_required |
 | PostgreSQL compressed legacy markers max 13..23, no name/checksum | Existing legacyPostgresState recognition and accumulated bootstrap, including historical truncation repair at 020, then 035 -> T | upgrade_required |
 | Released-017 drift fixtures at heads 016/017/023/035 | Frozen old-release repair path, then 035 -> T | upgrade_required |
+| Post-baseline source SQL heads 036..043 (old source lineage, not a validated final T target) or any other unlisted newer source store | No supported conversion route in this baseline plan; a later batch must obtain a separate data-support decision and fixtures | unsupported_source_format before any write; never open it as a baseline store |
 | BML schema1 / artifact1.0.0 | Separate converter to schema2/artifact2.0.0 | upgrade_required |
 | Complete target T (or a later known compatible target prefix) / BML2/artifact2.0.0 | Normal later target migrations only | Open/reopen; no old hash reader |
 | Partial metadata, unexplained application tables without metadata, unknown/future versions, unsupported drift or incomplete conversion | unsupported_source_format; leave source untouched | Refuse before write |
@@ -829,6 +843,11 @@ Additional target ownership decisions:
   Run recovery_required enum; feature recovery_required projections retain their
   distinct current meaning. Claimed unknown effects remain fenced forever
   unless explicitly reconciled, never automatically restarted.
+
+The following bundle/consent targets are **later D07 re-intake contracts**, not
+baseline-A tables or prerequisite converter fragments. Resume baseline ownership
+at the Studio-ledger bullet below; do not create absent bundle/toolkit tables.
+
 - Bundle target: bundle_installations.current_release_sequence;
   bundle_releases primary key `(install_id, release_sequence)` with artifact_id;
   bundle_artifact_refs primary key `(owner_kind, owner_id, artifact_id)`.
@@ -910,8 +929,10 @@ active v2 parser, not open-ended v1/v2 negotiation.
    at allocation/copy/SQL commit/verification/switch. If cutover fails, keep the
    old configuration/source. After cutover, rollback needs quiescence plus old
    executable/backup; preserve post-cutover data separately before reverting.
-6. D12 delivers metadata/BML fragments; D03/D07–D11 and D06's Studio ledger
-   deliver their own fragments. **D14** assembles, verifies and publishes the
+6. D12 delivers metadata/BML fragments; baseline owners D03, D08–D11 and D06's
+   separate Studio ledger deliver their own applicable fragments. D07 contributes
+   nothing at baseline A; its later re-intake batch supplies any bundle/toolkit
+   conversion before that batch can ship. **D14** assembles, verifies and publishes the
    finite upgrade artifact only after all final formats exist. Record exact
    old-normalizer/upgrade-artifact/final-runtime commits. Remove converter code
    and old hash parsers from the final candidate tree; document how to obtain
@@ -925,15 +946,22 @@ missing source bytes or partial conversion cannot be converted into success.
 
 ### 11.10 Pinned external contracts and required upstream delta
 
-These are read-only source findings, not upstream changes or accepted upstream
-releases. Pin changes require their own reviewed delivery and real integration
-evidence before the corresponding Story can execute through that seam.
+These are read-only source findings, not accepted upstream releases. The current
+baseline-A pin evidence was read from `laputa-source.lock.json`, `go.mod` and the
+`studio` gitlink at branch `5be9843d184cadb840c510210cf6c092d74c9e18`.
+Do not relabel a historical API audit as inspection of another pin.
 
-| Consumer inspected | Exact baseline pin | Findings / delivery owner |
+| Consumer | Current baseline-A pin | Audit provenance and affected delivery |
 | --- | --- | --- |
-| INOFY | `71e2c9bbe47d5d095b27d756e38eaff565d93d36` | compiler.go programMeta computes definition/catalog/program digests; program.go Run/verifyEnvelope/resumeReplay require them; definitions publish/repository uses digest equality. D11 remains blocked on coordinated upstream API/version. |
-| Laputa | `4b2bec2cc2ab3374b7ec1ab8d448e612c1e4db24` | CaptureRequest.ContentHash; AuthorizedMutation.PayloadDigest required by Validate; evolution RunBinding.StrategyDigest and effect PayloadDigest/replay; persona BaseHash/ContentHash CAS. D10 remains blocked on coordinated upstream API/version. |
-| Studio submodule | `ac5532236ddb2e4312d569269fe9b64b5fbd79bb` | dsh-species-workbench/client.js displays ArtifactSHA256/UI sha256/policy_hash. D06/D07 need coordinated consumer update/pin; no shell mutation in this design delivery. |
+| INOFY | `71e2c9bbe47d5d095b27d756e38eaff565d93d36` (unchanged) | Historical source inspection at this same pin found compiler.go programMeta definition/catalog/program digests, program.go Run/verifyEnvelope/resumeReplay requirements and definition publication digest equality. D11's affected seam still needs coordinated hash-free upstream delivery and integration evidence. |
+| Laputa | `ff3936f44ff8cf08c12af2cf698c194cfe474fd3` (`go.mod` and source lock) | Earlier API audit inspected `4b2bec2cc2ab3374b7ec1ab8d448e612c1e4db24`, not this pin. Its CaptureRequest.ContentHash, AuthorizedMutation.PayloadDigest, evolution StrategyDigest/effect replay and persona hash-CAS findings are historical leads, **unverified at the current pin**. D10 must inspect its actual consumed APIs first; only a confirmed incompatible seam requires an upstream contract/version. |
+| Studio submodule | `31452417737b1bf643f9181e15a1f3c5226a2b94` | Earlier workbench/client.js ArtifactSHA256/UI sha256/policy_hash findings came from `ac5532236ddb2e4312d569269fe9b64b5fbd79bb`, **unverified at this gitlink**. D06 must inspect actual removed-field consumers before claiming a coordinated shell change/pin is required. D07 remains later re-intake only. |
+
+No pins are changed to fit this document. Current-pin source/integration checks
+for Laputa and Studio remain pending. Block only the affected API/consumer cut;
+do not use an uninspected upstream requirement as a generic blocker for stable
+model -> tool -> model proof. Complete #91 closure still requires dispositions
+and accepted evidence for every actual affected baseline consumer.
 
 **INOFY proposed contract.** CompileOptions receives an opaque owner-allocated
 ProgramID; ProgramMeta exposes ProgramID, CompilerVersion and EinoBuild, not
@@ -951,7 +979,7 @@ InputDigest/Checksum and `inofy-normal-v1:sha256:` semantics, not replace them
 with constant strings or unchecked aliases. Acceptance covers changed program,
 input, answers, foreign Host/Run/node, publication CAS and crash/replay.
 
-**Laputa proposed contract.** Capture uses existing event/source ID with exact
+**Laputa proposed contract (historical audit, revalidate applicability at the current pin).** Capture uses existing event/source ID with exact
 private content replay comparison. Authorized mutations/effects use operation
 ID + exact canonical authorized intent (including scope/destination and
 preconditions) in existing receipts. Persona uses BaseRevision plus explicit
@@ -963,7 +991,8 @@ actual intended values exist, otherwise explicit recovery/reapproval; completed
 unknown effects never retry. Acceptance covers same-ID changed content,
 concurrent persona edits, foreign scope and restart after claim/completion.
 
-**Studio boundary.** Update workbench labels/DTO reads alongside host Generation
+**Studio boundary (historical audit, current consumer check pending).** Update
+actual affected workbench labels/DTO reads alongside host Generation
 and install contracts; retain ordinary evaluation/release/actor rules. The
 separate dsh-cost-meter session-log-repair custom sourceHash verifies standalone
 DSH host log backup/replacement, not Vivy species/Generation/Run authority. It is
@@ -979,9 +1008,10 @@ never a deletion-complete exception.
 D04/D05 consume the exact signatures and lifecycle above; D06 produces source/
 factory/UI bindings. D03 and every durable owner supplies its converter fragment;
 D14 assembles the complete artifact and independently checks the same final
-candidate. The existing 15-Story/26-edge/six-wave DAG stays intact; upstream
-INOFY/Laputa/Studio are explicit external prerequisites, not fictional completed
-Stories. D00's architecture choices are recorded; fixture/pin delivery and
+candidate. The index owns the executable baseline DAG: D07 is explanatory and
+has no incoming/outgoing baseline edges or wave slot. Upstream requirements are
+scoped to actual affected consumers; current-pin Laputa/Studio checks are pending,
+not fictional completed Stories or a blanket stop on core loop verification. D00's architecture choices are recorded; fixture/pin delivery and
 implementation authorization remain separate from design closure.
 
 Tests must prove: original-request conflicts despite equal effective arguments;
@@ -989,10 +1019,14 @@ NULL legacy binding refusal before claim/replay; typed failure/refusal vs unknow
 effect; missing producer outcome without a handoff wait; native parallel tool
 order and provider retry; one scheduled nudge at thresholds/reset; real paid
 warming plus mandatory accounting failure; same-Run steer with pending tool
-siblings/approval/cancel/queue-commit failure; selected/unselected construction
-and controls; all supported SQL/BML/Studio source conversions and crash points;
-changed release/config requires new consent; same-length stale edits and exact
+siblings/approval/cancel/queue-commit failure in the retained single baseline
+implementation; all supported SQL/BML/Studio source conversions and crash points;
+same-length stale edits and exact
 preview/download behavior; upstream changed-input/revision replay conflicts.
+EXP epics additionally prove selected/unselected construction, controls and the
+none/each/all physical-omission matrix. A later D07 bundle/toolkit batch proves
+fresh release/config consent and its own conversion. Neither absent deliverable
+is accepted by baseline tests or required before the phase-A causal loop milestone.
 Use existing test owners/entry points in the Story plans, not a new permanent
 scanner service. Product CI/real-provider/PG results are pending.
 
