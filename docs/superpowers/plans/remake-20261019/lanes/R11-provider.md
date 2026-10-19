@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#73](https://github.com/ProjectViVy/agent-vivy/issues/73) closed for spike review only; the AgenticModel migration is not delivered.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) retains P2-P4, B5 Claude usage projection, B6 live two-turn cache evidence, B7 compatible-provider wire evidence, both pending-run boundaries and the unfixed B4 truncation defect. Do not claim Responses works; live-provider tests need separate authorization.
+- [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) already owns the Eino/Claude preamble at c091ccf4. Do not duplicate it or add a Vivy-owned protocol bridge.
+
+remake/provider is raw donor source, not provider acceptance.
+
+
 ## Verified donor entry points
 
 - `internal/app/provider_selection.go` — main donor.
