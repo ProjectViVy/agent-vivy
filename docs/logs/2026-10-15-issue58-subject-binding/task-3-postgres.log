@@ -1,0 +1,17 @@
+=== RUN   TestIssue58SubjectContextSnapshot
+    subject_history_test.go:55: VIVY_POSTGRES_TEST_DSN not set: real PostgreSQL subject history gate pending
+--- SKIP: TestIssue58SubjectContextSnapshot (0.00s)
+=== RUN   TestIssue58SubjectContextScope
+    subject_history_test.go:58: VIVY_POSTGRES_TEST_DSN not set: real PostgreSQL subject history gate pending
+--- SKIP: TestIssue58SubjectContextScope (0.00s)
+=== RUN   TestIssue58SubjectContextCopyScope
+    subject_history_test.go:62: VIVY_POSTGRES_TEST_DSN not set: real PostgreSQL subject history gate pending
+--- SKIP: TestIssue58SubjectContextCopyScope (0.00s)
+=== RUN   TestIssue58SubjectContextSnapshotRace
+    subject_history_test.go:65: VIVY_POSTGRES_TEST_DSN not set: real PostgreSQL subject history gate pending
+--- SKIP: TestIssue58SubjectContextSnapshotRace (0.00s)
+=== RUN   TestIssue58SubjectContextInvalidMapping
+    subject_history_test.go:69: VIVY_POSTGRES_TEST_DSN not set: real PostgreSQL subject history gate pending
+--- SKIP: TestIssue58SubjectContextInvalidMapping (0.00s)
+PASS
+ok  	agent-vivy/internal/storage/postgres	0.016s

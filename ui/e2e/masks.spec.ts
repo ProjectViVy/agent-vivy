@@ -287,22 +287,13 @@ test('builtin duplicate opens editor, dirty cancel is guarded and Save and use s
   await expect(selector(page)).toContainText('Programmer copy');
 });
 
-test('code/life is a small placeholder independent from the actual mask', async ({
+test('chat header keeps the selected mask without a code/life mode switch', async ({
   page,
 }) => {
   await openApp(page);
   await newSession(page);
   await chooseMask(page, 'Programmer');
-  const mode = page.locator('[data-conversation-mode-placeholder]');
-  await expect(mode).toHaveText('Code');
-  const modeBounds = await mode.boundingBox();
-  const maskBounds = await selector(page).boundingBox();
-  expect(modeBounds!.x + modeBounds!.width).toBeLessThanOrEqual(maskBounds!.x);
-  await mode.click();
-  await expect(mode).toHaveText('Life');
-  await expect(selector(page)).toContainText('Programmer');
-  await mode.click();
-  await expect(mode).toHaveText('Code');
+  await expect(page.locator('[data-conversation-mode-placeholder]')).toHaveCount(0);
   await expect(selector(page)).toContainText('Programmer');
 });
 

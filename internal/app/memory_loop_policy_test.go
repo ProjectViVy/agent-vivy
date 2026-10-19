@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
@@ -71,9 +73,7 @@ func TestMemoryLoopNoChangeAndTriggerPolicy(t *testing.T) {
 			}
 		}
 		requests := f.ModelRequests()
-		if len(requests) != 3 || !strings.Contains(string(requests[1]), "stage=reconcile") || !strings.Contains(string(requests[2]), "stage=reflect") {
-			t.Fatalf("actual model stages: count=%d", len(requests))
-		}
+		assertMemoryLoopInferenceStages(t, requests, "reconcile", "skill_select", "reflect")
 		assertMemoryLoopTriggerReason(t, f, session, "no_new_input")
 		// The actual App uses a five-second automatic ticker. Observe more
 		// than two full intervals, without replacing its clock or scheduler.
@@ -154,18 +154,24 @@ func TestMemoryLoopForegroundBusyDefersOriginalInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitMemoryLoopActivitySource(t, f, latest.CaptureSeq)
-	settled := awaitMemoryLoopWatermark(t, f, session, latest.CaptureSeq, 15*time.Second)
+	settled := awaitMemoryLoopWatermark(t, f, session, latest.CaptureSeq, 45*time.Second)
 	requests := f.ModelRequests()
-	if settled.Cognition.Watermark != latest.CaptureSeq || (len(requests) != 4 && len(requests) != 6) {
+	if settled.Cognition.Watermark != latest.CaptureSeq || (len(requests) != 5 && len(requests) != 8) {
 		t.Fatalf("released original source did not settle once: %+v requests=%d", settled, len(f.ModelRequests()))
 	}
 	// Foreground completion and terminal capture are distinct durable events.
 	// The real ticker may admit [0,1] then [1,2], or one [0,2] batch. Both
 	// must process contiguous, non-overlapping original windows exactly once.
+	reconciles := memoryLoopInferenceRequests(t, requests, "reconcile")
+	selections := memoryLoopInferenceRequests(t, requests, "skill_select")
+	reflections := memoryLoopInferenceRequests(t, requests, "reflect")
+	if len(reconciles) != len(reflections) || len(selections) != len(reflections) || len(reflections) < 1 || len(reflections) > 2 {
+		t.Fatalf("busy release model stages diverged: reconcile=%d skill_select=%d reflect=%d", len(reconciles), len(selections), len(reflections))
+	}
 	var through uint64
-	for i := 2; i < len(requests); i += 2 {
-		reconcile := memoryLoopInferenceWindow(t, requests[i], "reconcile")
-		reflect := memoryLoopInferenceWindow(t, requests[i+1], "reflect")
+	for i := range reflections {
+		reconcile := memoryLoopInferenceWindow(t, reconciles[i], "reconcile")
+		reflect := memoryLoopInferenceWindow(t, reflections[i], "reflect")
 		if reconcile != reflect || reconcile.After != through || reconcile.Through <= through {
 			t.Fatalf("busy release duplicated or lost input: previous=%d reconcile=%+v reflect=%+v", through, reconcile, reflect)
 		}
@@ -223,7 +229,35 @@ func awaitMemoryLoopWatermark(t *testing.T, f *memoryLoopFixture, session string
 	var status memoryLoopCognitionStatus
 	for {
 		if err := f.cognitiveValue(ctx, "diva.cognitive.status", session, nil, &status); err != nil {
-			t.Fatal(err)
+			requests := f.ModelRequests()
+			responses := f.ModelResponses()
+			responseStatuses := make([]int, len(responses))
+			for i, response := range responses {
+				responseStatuses[i] = response.Status
+			}
+			workflowParams, _ := json.Marshal(map[string]any{"run_id": status.Cognition.ActiveRunID})
+			workflow, workflowErr := f.Call(context.Background(), "workflow/get", workflowParams)
+			run, runErr := f.app.backend.GetRun(context.Background(), domain.RunID(status.Cognition.ActiveRunID))
+			var workflowView struct {
+				Nodes []struct {
+					Key        string `json:"key"`
+					Status     string `json:"status"`
+					ChildRunID string `json:"child_run_id"`
+				} `json:"nodes"`
+			}
+			_ = json.Unmarshal(workflow, &workflowView)
+			childStates := make([]string, 0, len(workflowView.Nodes))
+			for _, node := range workflowView.Nodes {
+				if node.ChildRunID == "" {
+					childStates = append(childStates, node.Key+":"+node.Status)
+					continue
+				}
+				childRunID := domain.RunID(node.ChildRunID)
+				child, childErr := f.app.backend.GetRun(context.Background(), childRunID)
+				summary, message, _, detailErr := f.app.service.ChildRunDetails(context.Background(), childRunID)
+				childStates = append(childStates, fmt.Sprintf("%s:%s:%s:%s:%s:get=%v detail=%v", node.Key, node.Status, child.Status, summary, message, childErr, detailErr))
+			}
+			t.Fatalf("actual window status query failed: %v; last=%+v; requests=%d stages=%v response_statuses=%v workflow=%s workflow_error=%v run=%+v run_error=%v children=%v", err, status, len(requests), memoryLoopInferenceStages(t, requests), responseStatuses, workflow, workflowErr, run, runErr, childStates)
 		}
 		if status.Cognition.Watermark >= through && status.Cognition.Phase == "idle" {
 			return status
@@ -250,7 +284,7 @@ func TestMemoryLoopMinimumIntervalDefersActualNewSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	awaitMemoryLoopWatermark(t, f, session, first.CaptureSeq, 15*time.Second)
+	awaitMemoryLoopWatermark(t, f, session, first.CaptureSeq, 30*time.Second)
 	var policy struct {
 		Revision uint64 `json:"policy_revision"`
 	}
@@ -262,7 +296,7 @@ func TestMemoryLoopMinimumIntervalDefersActualNewSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitMemoryLoopActivitySource(t, f, next.CaptureSeq)
-	assertMemoryLoopNoExtraRequests(t, f, 4, 6*time.Second)
+	assertMemoryLoopNoExtraRequests(t, f, 5, 6*time.Second)
 	var waiting memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &waiting)
 	if waiting.Cognition.Watermark != first.CaptureSeq || waiting.Cognition.ActiveRunID != "" || waiting.Cognition.Phase != "idle" {
@@ -270,8 +304,8 @@ func TestMemoryLoopMinimumIntervalDefersActualNewSource(t *testing.T) {
 	}
 	// Use the actual clock/ticker and original input; no manual trigger, fake
 	// elapsed time or resubmission is allowed to satisfy eventual admission.
-	awaitMemoryLoopWatermark(t, f, session, next.CaptureSeq, 25*time.Second)
-	if len(f.ModelRequests()) != 6 {
+	awaitMemoryLoopWatermark(t, f, session, next.CaptureSeq, 45*time.Second)
+	if len(f.ModelRequests()) != 8 {
 		t.Fatalf("interval release did not admit exactly once: %d", len(f.ModelRequests()))
 	}
 	saveMemoryLoopDevelopmentEvidence(t, f, session, "settled", first, next)
@@ -290,13 +324,7 @@ func TestMemoryLoopConcurrentWakeKeepsOneOriginalActiveWindow(t *testing.T) {
 	if _, err := f.Wait(ctx, "canonical", first); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for len(f.ModelRequests()) < 3 {
-		if time.Now().After(deadline) {
-			t.Fatal("actual reflect request did not reach response gate")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	awaitMemoryLoopInferenceRequests(t, f, "reflect", 1, 30*time.Second)
 	var original memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &original)
 	if original.Cognition.ActiveRunID == "" || original.Cognition.Watermark != 0 {
@@ -332,7 +360,7 @@ func TestMemoryLoopConcurrentWakeKeepsOneOriginalActiveWindow(t *testing.T) {
 			t.Fatalf("concurrent wake replaced/duplicated original window: %s %v", result.raw, err)
 		}
 	}
-	if len(f.ModelRequests()) != 3 {
+	if len(f.ModelRequests()) != 4 {
 		t.Fatal("coalesced wake invoked another model")
 	}
 	newer := memoryLoopTurn(t, f, session, memoryLoopRandomFact(t))
@@ -343,12 +371,12 @@ func TestMemoryLoopConcurrentWakeKeepsOneOriginalActiveWindow(t *testing.T) {
 	awaitMemoryLoopActivitySource(t, f, latest.CaptureSeq)
 	var pending memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &pending)
-	if pending.Cognition.ActiveRunID != original.Cognition.ActiveRunID || pending.Cognition.Watermark != 0 || len(f.ModelRequests()) != 4 {
+	if pending.Cognition.ActiveRunID != original.Cognition.ActiveRunID || pending.Cognition.Watermark != 0 || len(f.ModelRequests()) != 5 {
 		t.Fatalf("later input replaced in-flight original window: %+v requests=%d", pending, len(f.ModelRequests()))
 	}
 	f.modelReleaseOnce.Do(func() { close(f.modelRelease) })
-	awaitMemoryLoopWatermark(t, f, session, latest.CaptureSeq, 20*time.Second)
-	if len(f.ModelRequests()) != 6 {
+	awaitMemoryLoopWatermark(t, f, session, latest.CaptureSeq, 45*time.Second)
+	if len(f.ModelRequests()) != 8 {
 		t.Fatalf("original plus next window did not execute once each: %d", len(f.ModelRequests()))
 	}
 	reflected, err := f.Wait(ctx, "reflected", newer)

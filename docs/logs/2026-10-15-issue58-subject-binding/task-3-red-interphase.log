@@ -1,0 +1,5 @@
+--- FAIL: TestIssue58SubjectDomainPendingRepairConcurrentTerminal (0.05s)
+    subject_context_test.go:288: new terminal between pending set and capture was silently omitted {Sources:[{SubjectHistoryBinding:{SubjectID:11111111-1111-4111-8111-111111111111 DomainID:subject-personal-v1} SessionID:context-between-phases SchemaVersion:1 ConversationID: PolicyID:coding-v1 ToolPolicyRef:generation/tools/v1 Scope:personal Grant:{Reference:host/personal-sources Version:1 Snapshot:[123 34 100 101 99 105 115 105 111 110 34 58 34 97 108 108 111 119 34 44 34 115 99 111 112 101 34 58 34 112 101 114 115 111 110 97 108 34 125] WholeDomainRead:false}}] Through:0 Dispositions:[] DispositionDigest:4ac6d79be75cbdfbba472994d4efcbf8327fa7a1f755cb89847c3f33405d4d77} <nil>
+FAIL
+FAIL	agent-vivy/internal/runtime	0.074s
+FAIL

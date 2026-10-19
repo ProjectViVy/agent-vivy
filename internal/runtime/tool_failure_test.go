@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -404,5 +406,251 @@ func TestToolFailureTransportErrorStaysFatal(t *testing.T) {
 	}
 	if flaky.calls != 1 {
 		t.Fatalf("fatal invocation ran %d times, want 1", flaky.calls)
+	}
+}
+
+// Reported incident (run_8d376d0f457fa5e5): under a read-only sandbox the
+// model probes the run workspace with list_dir. Both "." and "./" must list
+// the root, and a genuinely bad path must come back as a recoverable
+// invalid_arguments result instead of failing the whole Run through Eino's
+// ToolsNode ("failed to stream tool call ... filesystem: invalid path").
+func TestFilesystemPathMistakeRecoversInsideRun(t *testing.T) {
+	manager, err := NewWorkspaceManager(filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatalf("workspace manager: %v", err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeReadOnly, manager.root, nil, nil)
+	if err != nil {
+		t.Fatalf("sandbox manager: %v", err)
+	}
+	backend := NewEinoFilesystemBackend(manager, sandbox)
+
+	rootCall, badCall := "call-list-root", "call-list-rooted"
+	script := []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{
+			failureToolCall(rootCall, tools.ListDirName, `{"path":"./"}`),
+			failureToolCall(badCall, tools.ListDirName, `{"path":"/"}`),
+		}),
+		schema.AssistantMessage("corrected", nil),
+	}
+	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{tools.NewListDir(backend)}})
+	runID, err := h.svc.Run(context.Background(), "sess-fs-path-recovery", "list the workspace")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
+
+	if p := h.journal.finishedPayload(t, rootCall); p.Outcome != "" || !strings.Contains(p.Result, `"path":"."`) {
+		t.Fatalf("list_dir ./ = %+v, want a clean root listing", p)
+	}
+	p := h.journal.finishedPayload(t, badCall)
+	if p.Outcome != toolFailureStatusRecoverable || p.Reason != toolFailureReasonInvalidArguments {
+		t.Fatalf("list_dir / = %s/%s, want recoverable/invalid_arguments", p.Outcome, p.Reason)
+	}
+	if !strings.Contains(p.Error, "workspace-relative") {
+		t.Fatalf("list_dir / diagnostic = %q, want the model-visible reason", p.Error)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// service-level: argument defects and boundary denials
+// ---------------------------------------------------------------------------
+
+// filesystemRunFixture is a real filesystem backend over one fixed local
+// workspace, so a service-level Run drives the real read_file/patch tools and
+// their real proposal builders.
+type filesystemRunFixture struct {
+	backend *EinoFilesystemBackend
+	root    string
+}
+
+func newFilesystemRunFixture(t *testing.T, files map[string]string) *filesystemRunFixture {
+	t.Helper()
+	root := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create fixture dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+	manager, err := NewLocalWorkspaceManager(root)
+	if err != nil {
+		t.Fatalf("new local workspace manager: %v", err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeWorkspaceWrite, root, nil, nil)
+	if err != nil {
+		t.Fatalf("new sandbox manager: %v", err)
+	}
+	return &filesystemRunFixture{backend: NewEinoFilesystemBackend(manager, sandbox), root: root}
+}
+
+func (f *filesystemRunFixture) read(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.root, name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return string(data)
+}
+
+func assertNoPendingApproval(t *testing.T, h *contractHarness, callID string) {
+	t.Helper()
+	pending, err := h.backend.ListPendingApprovals(context.Background())
+	if err != nil {
+		t.Fatalf("list pending approvals: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending approvals = %+v, want none: the call cannot be built", pending)
+	}
+	if h.journal.indexOf(domain.EventToolApprovalRequired, callID) >= 0 {
+		t.Fatalf("call %s raised an approval prompt for an argument defect", callID)
+	}
+}
+
+// The default `smart` preset (workspace_write + approval ask) reviews every
+// effectful call before it runs. A patch whose old_string matches nothing can
+// never be approved, so the pre-flight must hand the model the recoverable
+// invalid_arguments result instead of suspending for a review that cannot be
+// built — the failure that used to end the run with "The run could not be
+// paused for approval."
+func TestPatchArgumentMistakeRecoversWithoutApprovalUnderAsk(t *testing.T) {
+	fixture := newFilesystemRunFixture(t, map[string]string{"notes.txt": "alpha\nbeta\n"})
+
+	badCall, missingCall := "call-patch-unmatched", "call-patch-missing"
+	script := []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{
+			failureToolCall(badCall, tools.PatchName, `{"path":"notes.txt","old_string":"gamma","new_string":"x"}`),
+			failureToolCall(missingCall, tools.PatchName, `{"path":"absent.txt","old_string":"alpha","new_string":"x"}`),
+		}),
+		schema.AssistantMessage("corrected", nil),
+	}
+	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, checkpoints: true, extraTools: []tools.Tool{tools.NewPatch(fixture.backend)}})
+	mustCreateSession(t, h.backend, "sess-patch-ask")
+
+	run, err := h.svc.Run(context.Background(), "sess-patch-ask", "patch the notes")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, h.backend, run, domain.RunCompleted)
+
+	p := h.journal.finishedPayload(t, badCall)
+	if p.Outcome != toolFailureStatusRecoverable || p.Reason != toolFailureReasonInvalidArguments {
+		t.Fatalf("patch outcome = %s/%s (%q), want recoverable/invalid_arguments", p.Outcome, p.Reason, p.Error)
+	}
+	if !strings.Contains(p.Error, "was not found") {
+		t.Fatalf("patch diagnostic = %q, want the model-visible reason", p.Error)
+	}
+	assertNoPendingApproval(t, h, badCall)
+	if got := fixture.read(t, "notes.txt"); got != "alpha\nbeta\n" {
+		t.Fatalf("notes.txt = %q, want the target untouched", got)
+	}
+	// A patch of a path that does not exist is the same class of mistake: a
+	// patch cannot create the file, so the model must be told to write it.
+	missing := h.journal.finishedPayload(t, missingCall)
+	if missing.Outcome != toolFailureStatusRecoverable || missing.Reason != toolFailureReasonInvalidArguments {
+		t.Fatalf("missing target = %s/%s (%q), want recoverable/invalid_arguments", missing.Outcome, missing.Reason, missing.Error)
+	}
+	if !strings.Contains(missing.Error, "does not exist") {
+		t.Fatalf("missing-target diagnostic = %q", missing.Error)
+	}
+	assertNoPendingApproval(t, h, missingCall)
+}
+
+// The same argument defect must also recover on the invocation seam, so an
+// auto-approved (or non-interactive) call cannot fail the run either.
+func TestPatchArgumentMistakeRecoversWhenAutoApproved(t *testing.T) {
+	fixture := newFilesystemRunFixture(t, map[string]string{"notes.txt": "alpha\nbeta\n"})
+
+	badCall := "call-patch-auto"
+	script := []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{
+			failureToolCall(badCall, tools.PatchName, `{"path":"notes.txt","old_string":"gamma","new_string":"x"}`),
+		}),
+		schema.AssistantMessage("corrected", nil),
+	}
+	h := newContractHarness(t, script, contractHarnessOpts{
+		streaming:   true,
+		extraTools:  []tools.Tool{tools.NewPatch(fixture.backend)},
+		autoApprove: []string{tools.PatchName},
+	})
+	mustCreateSession(t, h.backend, "sess-patch-auto")
+	if err := h.backend.UpdateSandboxPolicy(context.Background(), "sess-patch-auto", domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAuto); err != nil {
+		t.Fatalf("update sandbox policy: %v", err)
+	}
+
+	run, err := h.svc.Run(context.Background(), "sess-patch-auto", "patch the notes")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, h.backend, run, domain.RunCompleted)
+
+	p := h.journal.finishedPayload(t, badCall)
+	if p.Outcome != toolFailureStatusRecoverable || p.Reason != toolFailureReasonInvalidArguments {
+		t.Fatalf("patch outcome = %s/%s (%q), want recoverable/invalid_arguments", p.Outcome, p.Reason, p.Error)
+	}
+	if got := fixture.read(t, "notes.txt"); got != "alpha\nbeta\n" {
+		t.Fatalf("notes.txt = %q, want the target untouched", got)
+	}
+}
+
+// A protected path is a governance denial: the model is told the call did not
+// run, and the run continues (refused/policy_denied), on a read-only tool that
+// needs no approval.
+func TestProtectedPathReadIsRefusedInsideRun(t *testing.T) {
+	fixture := newFilesystemRunFixture(t, map[string]string{".env": "SECRET=1", "notes.txt": "alpha\n"})
+
+	call := "call-read-env"
+	script := []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(call, tools.ReadFileName, `{"path":".env"}`)}),
+		schema.AssistantMessage("understood", nil),
+	}
+	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{tools.NewReadFile(fixture.backend)}})
+	mustCreateSession(t, h.backend, "sess-read-env")
+
+	run, err := h.svc.Run(context.Background(), "sess-read-env", "read the env file")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, h.backend, run, domain.RunCompleted)
+
+	p := h.journal.finishedPayload(t, call)
+	if p.Outcome != toolFailureStatusRefused || p.Reason != toolFailureReasonPolicyDenied {
+		t.Fatalf("protected read = %s/%s (%q), want refused/policy_denied", p.Outcome, p.Reason, p.Error)
+	}
+	if strings.Contains(p.Result, "SECRET=1") {
+		t.Fatalf("protected content reached the model: %q", p.Result)
+	}
+	assertNoPendingApproval(t, h, call)
+}
+
+// The §5 allowlist is an allowlist: infrastructure and lifecycle errors keep
+// their fatal path, and a missing target is only recovered for a readonly tool.
+func TestToolFailureAllowlistRejectsInfrastructureErrors(t *testing.T) {
+	ctx := context.Background()
+	effectful := domain.ToolSpec{Name: tools.PatchName}
+	readonly := domain.ToolSpec{Name: tools.ReadFileName, Readonly: true}
+
+	unhandled := []error{
+		errors.New("boom"),
+		context.Canceled,
+		context.DeadlineExceeded,
+		fmt.Errorf("filesystem: read patch target: %w", fs.ErrNotExist),
+		errors.New("runtime: persist tool operation completion: disk full"),
+	}
+	for _, err := range unhandled {
+		if failure, ok := classifyToolFailure(ctx, effectful, err); ok {
+			t.Fatalf("effectful %v was soft-converted: %+v", err, failure)
+		}
+		if _, ok := asToolRefusal(err); ok {
+			t.Fatalf("unlisted %v became a refusal", err)
+		}
+	}
+	// A readonly miss is the documented not_found recovery, not a general one.
+	failure, ok := classifyToolFailure(ctx, readonly, fmt.Errorf("filesystem: read notes.txt: %w", fs.ErrNotExist))
+	if !ok || failure.Reason != toolFailureReasonNotFound || failure.Status != toolFailureStatusRecoverable {
+		t.Fatalf("readonly miss = %+v (ok=%v), want recoverable/not_found", failure, ok)
 	}
 }

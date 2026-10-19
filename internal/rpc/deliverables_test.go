@@ -248,3 +248,25 @@ func TestDeliverablesForeignSetReturnsForbidden(t *testing.T) {
 }
 
 var _ = storage.ErrNotFound // keep storage import used when only fake ops are exercised
+
+// The default build has no main-conversation resolver, so Recap management
+// can never be authorized; it must not be advertised to faces.
+func TestRecapCapabilityHiddenWithoutResolver(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.History = fakeHistoryOps{} })
+	listed, rpcErr := callControl(t, env.handler, "capabilities", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(listed)
+	var caps struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &caps); err != nil {
+		t.Fatal(err)
+	}
+	for _, capability := range caps.Capabilities {
+		if capability == "recap" {
+			t.Fatalf("recap advertised without a resolver: %v", caps.Capabilities)
+		}
+	}
+}

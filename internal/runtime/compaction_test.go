@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
@@ -664,6 +665,11 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	if !before.TokenCountsEstimated || before.ModelLimitKnown {
 		t.Fatalf("context truth flags = estimated:%v limit-known:%v, want true/false for fallback metadata", before.TokenCountsEstimated, before.ModelLimitKnown)
 	}
+	// No catalog wired: the same projection as model/thinking/levels reports
+	// a non-nil empty surface, never null (the composer reads it as "grey").
+	if before.ThinkingSupported || before.ThinkingLevels == nil || len(before.ThinkingLevels) != 0 {
+		t.Fatalf("unknown route thinking surface = %v (supported=%v), want a non-nil empty list", before.ThinkingLevels, before.ThinkingSupported)
+	}
 	if !before.WouldCompact {
 		t.Fatalf("40 long messages should read as over budget: %+v", before)
 	}
@@ -731,6 +737,67 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 	if remaining := replayAll(t, backend, comp.RunID); len(remaining) != 0 {
 		t.Fatalf("synthetic compaction journal survived session deletion: %+v", remaining)
+	}
+}
+
+// TestServiceContextStatusThinkingSurface pins the projection the composer
+// reads: session/context reports the same level surface as
+// model/thinking/levels, from the same model metadata.
+func TestServiceContextStatusThinkingSurface(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	t.Cleanup(func() { _ = backend.Close() })
+	svc.SetCatalog(provider.NewCatalog(provider.Vendor{
+		Name: "gateway", DisplayName: "Gateway", EnvKey: "GATEWAY_API_KEY",
+		Endpoints: []provider.Endpoint{{
+			Adapter:      provider.AdapterOpenAICompletions,
+			BaseURL:      "https://gateway.invalid/v1",
+			DefaultModel: "declared",
+			Models: []provider.Model{
+				{ID: "declared", SupportsThinking: true, ThinkingLevels: []string{"low", "high"}, DefaultThinking: "high"},
+				{ID: "undeclared", SupportsThinking: true},
+			},
+		}},
+	}))
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-thinking-surface")
+	mustCreateSession(t, backend, sessionID)
+
+	cases := []struct {
+		model       string
+		supported   bool
+		wantLevels  []string
+		wantDefault string
+	}{
+		{model: "declared", supported: true, wantLevels: []string{"low", "high"}, wantDefault: "high"},
+		{model: "undeclared", supported: true, wantLevels: []string{"minimal", "low", "medium", "high", "xhigh", "max"}, wantDefault: ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.model, func(t *testing.T) {
+			svc.SetModel("gateway", testCase.model)
+			status, err := svc.ContextStatus(ctx, sessionID)
+			if err != nil {
+				t.Fatalf("context status: %v", err)
+			}
+			if status.ThinkingSupported != testCase.supported {
+				t.Fatalf("thinking_supported = %v, want %v", status.ThinkingSupported, testCase.supported)
+			}
+			if strings.Join(status.ThinkingLevels, ",") != strings.Join(testCase.wantLevels, ",") {
+				t.Fatalf("thinking_levels = %v, want %v", status.ThinkingLevels, testCase.wantLevels)
+			}
+			if status.ThinkingDefault != testCase.wantDefault {
+				t.Fatalf("thinking_default = %q, want %q", status.ThinkingDefault, testCase.wantDefault)
+			}
+		})
+	}
+
+	// A model the metadata does not declare keeps the fail-closed surface.
+	svc.SetModel("gateway", "not-in-data")
+	status, err := svc.ContextStatus(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("context status: %v", err)
+	}
+	if status.ThinkingSupported || status.ThinkingLevels == nil || len(status.ThinkingLevels) != 0 {
+		t.Fatalf("undeclared model surface = %v (supported=%v), want a non-nil empty list", status.ThinkingLevels, status.ThinkingSupported)
 	}
 }
 

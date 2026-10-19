@@ -15,6 +15,7 @@ import (
 	"agent-vivy/internal/storage"
 	controlaction "agent-vivy/sdk/port/controlaction"
 
+	gardenmemory "github.com/ProjectViVy/laputa/garden/memory"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
@@ -27,8 +28,18 @@ type Factory func(context.Context, FactoryInput) (Bundle, error)
 // identity, and the owned storage dependency the durable trigger record is
 // persisted under. It introduces no second storage DTO scheme.
 type FactoryInput struct {
-	// Config is the trusted embedder config; the factory derives every
-	// Garden-owned path and identity from it.
+	// NewSubjectBackend borrows the exact selected App Home after the existing
+	// owner resolves its trusted C1 identity. It does not replace legacy raw ingest.
+	NewSubjectBackend func(context.Context, RecapBinding) (gardenmemory.Backend, error)
+
+	// ResolveRecapBinding registers/verifies the organism subject, complete
+	// sharing domain and actual existing ACTMEM owner path before workers start.
+	// Supplied only by trusted composition; nil leaves optional Recap unarmed.
+	// It must never infer a subject from ProfileID or UI/model fields.
+	ResolveRecapBinding func(context.Context, string) (RecapBinding, error)
+
+	// Config is the trusted embedder config; the factory derives Garden paths
+	// and legacy persona/profile bindings from it. Recap identity is separate.
 	Config config.Config
 	// GenerationID is the sealed Generation identity proven by the
 	// composition; a selected factory may refuse an empty identity.
@@ -200,3 +211,7 @@ type ActionHost interface {
 	// runtime callbacks (DN-4C owns the full dispatch built on top of it).
 	Cognitive() (Dispatcher, error)
 }
+
+// SubjectMemoryProvider prepares the one selected native sink. Task1 binding
+// alone does not activate terminal projection or grant source eligibility.
+type SubjectMemoryProvider interface{ SubjectMemory() gardenmemory.Backend }

@@ -284,16 +284,18 @@ func (h *Home) writableStore(ctx context.Context) (*Store, error) {
 	return store, nil
 }
 
-// openExistingMutable opens the database at path read-write with no schema
-// initialization, failing when the file is absent or bound to another
-// workspace (TypedMemoryStore::open_existing_database).
+// openExistingMutable opens the database at path read-write, failing when the
+// file is absent or bound to another workspace
+// (TypedMemoryStore::open_existing_database). It never creates a database, but
+// it does upgrade an older schema in place, so even a read through Home can
+// migrate schema 1 to 2 on first use.
 func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store, error) {
 	if !isFile(path) {
 		return nil, invalidBackupErr()
 	}
 	// mode=rw keeps the open honest: a file deleted between the isFile
 	// check and connect errors instead of silently recreating an empty DB.
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=rw&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=rw&_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)", path, busyTimeoutMS))
 	if err != nil {
 		return nil, ioErr(path, err)
 	}
@@ -302,6 +304,12 @@ func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store,
 	if err := s.checkIdentity(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if s.schema < schemaVersion {
+		if err := s.initialize(ctx); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 	return s, nil
 }

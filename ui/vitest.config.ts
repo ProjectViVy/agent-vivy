@@ -40,6 +40,8 @@ export default defineConfig({
       '../plugins/vivy-persona/ui/vivy-persona/src/**/*.test.tsx',
       '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.ts',
       '../plugins/coding/session-tree/ui/session-tree/src/**/*.test.tsx',
+      '../plugins/vivy-memory/ui/vivy-memory/src/**/*.test.ts',
+      '../plugins/vivy-memory/ui/vivy-memory/src/**/*.test.tsx',
       '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.ts',
       '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.tsx',
     ],
@@ -51,6 +53,7 @@ export default defineConfig({
       'src/generated/ui/vivy-persona/src/**/*.test.*',
       'src/generated/ui/session-tree/src/**/*.test.*',
       'src/generated/ui/vivy-notebook/src/**/*.test.*',
+      'src/generated/ui/vivy-memory/src/**/*.test.*',
     ],
   },
 });

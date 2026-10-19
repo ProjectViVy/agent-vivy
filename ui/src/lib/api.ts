@@ -122,6 +122,9 @@ export type WorkMethod =
   | 'plan/enter' | 'plan/leave' | 'plan/decide';
 /** session/context — 真实上下文压力（服务端装配口径）。 */
 export interface SessionContext {
+  context_pressure_available?: boolean;
+  context_reason?: string;
+  recap_revision?: number;
   session_id: string;
   total_messages: number;
   feed_messages: number;
@@ -130,6 +133,10 @@ export interface SessionContext {
   limit_bytes: number;
   model_limit_tokens: number;
   thinking_supported: boolean;
+  /** 活跃模型声明的级别面（与 model/thinking/levels 同一投影）；未声明思考时为空表。 */
+  thinking_levels?: string[];
+  /** 模型自身的默认级别；未声明时为空串。 */
+  thinking_default?: string;
   compaction_enabled: boolean;
   trigger_tokens: number;
   would_compact: boolean;
@@ -137,7 +144,7 @@ export interface SessionContext {
   last_compaction?: { mode: 'reduction' | 'summarization' | 'session'; before_tokens: number; after_tokens: number; at: number } | null;
 }
 /** context/compact 结果。 */
-export interface CompactResult { before_tokens: number; after_tokens: number; folded_messages: number; skipped: boolean }
+export interface CompactResult { token_counts_available?: boolean; before_tokens: number; after_tokens: number; folded_messages: number; skipped: boolean }
 /** session/compactions 单条记录：summary 为不可信生成内容，仅展示。 */
 export interface SessionCompactionRecord { run_id: string; created_at: number; tail_from: number; dropped_count: number; summary: string }
 export interface BackgroundRun extends Run { workspace_id?: string }

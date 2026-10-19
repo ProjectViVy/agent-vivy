@@ -462,7 +462,7 @@ func (s *Service) toolkitDrainState(ctx context.Context, operationID string) (bo
 	}
 
 	s.mu.Lock()
-	localActive := len(s.active) != 0
+	localActive := len(s.active) != 0 || len(s.sessionControls) != 0
 	s.mu.Unlock()
 	if localActive {
 		return false, nil

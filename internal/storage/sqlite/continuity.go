@@ -195,7 +195,7 @@ func sqliteFault(hook func(string) error, step string) error {
 // CommitContinuityRun commits the complete task admission atomically. Rows
 // land in one transaction: destination user message, the accepted run row,
 // the ordered startup events and the idempotency receipt.
-func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityAdmission) (storage.ContinuityResult, error) {
+func (b *Backend) commitContinuityRun(ctx context.Context, a storage.ContinuityAdmission) (storage.ContinuityResult, error) {
 	if err := a.Validate(); err != nil {
 		return storage.ContinuityResult{}, err
 	}
@@ -209,8 +209,12 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, err
 	}
 
-	// Receipt lookup precedes every write so an identical replay returns the
-	// original run without a second admission.
+	if err := b.subjectStore().RegisterAdmissionTx(ctx, tx, a.Run, a.Subject); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+
+	// Source authorization pins were revalidated above. Receipt lookup precedes
+	// new run/message writes, so an identical replay cannot admit a second run.
 	existing, found, err := sqliteFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
 	if err != nil {
 		return storage.ContinuityResult{}, err
@@ -295,6 +299,9 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		`UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`,
 		at, at, a.SessionID); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: touch admitted session: %w", err)
+	}
+	if err := b.subjectStore().PinRunTx(ctx, tx, a.Run, a.Subject, a.Message.ID); err != nil {
+		return storage.ContinuityResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w", storage.ErrCommitUncertain)

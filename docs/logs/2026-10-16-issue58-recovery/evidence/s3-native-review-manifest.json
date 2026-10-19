@@ -1,0 +1,65 @@
+{
+  "review_candidate": "b26ee856cea6bb1fd10916b44fe28bcb12491841",
+  "tree": "982f37f5bc4f534097b3ac07da04d95c387fb6bd",
+  "verdict": "changes_required",
+  "important_findings": 2,
+  "archive": "s3-native-independent-review.tar.gz",
+  "archive_sha256": "0fc5bb10cd29f3dbf797ee063aaf876a2eb1c2b98b2f091931e259474191a29c",
+  "files": [
+    {
+      "path": "evidence/manifest.json",
+      "size": 1031,
+      "sha256": "f9ecd32b02768d735a016d8d3a87b7eb661eaf2730167c52a1cc508f2377e85a"
+    },
+    {
+      "path": "evidence/review-native-correction-wire.json",
+      "size": 495,
+      "sha256": "eb3bd3340ca0f06ec23fe832071b9431fe7c09b895d3968a7b75ef9158415507"
+    },
+    {
+      "path": "evidence/review-native-correction-wire.log",
+      "size": 5509,
+      "sha256": "1a36ccf739a5559fa48e51f78dca99ab4f31026d7f7d04302f978a121cb40269"
+    },
+    {
+      "path": "evidence/review-native-drain.json",
+      "size": 497,
+      "sha256": "27b587a8ac2e456cdde33eb26edc1cdf244206322726659a842bfcc0d8b5c017"
+    },
+    {
+      "path": "evidence/review-native-drain.log",
+      "size": 1629,
+      "sha256": "4e51762f998c9adf60c9502c568aa3ce0838db80f13c5a113f4d2efb07311f20"
+    },
+    {
+      "path": "evidence/review-native-focused.json",
+      "size": 694,
+      "sha256": "5f20d6ff3aec4d4be6e5d77fc6280891fb2a8fa2a32000955a95e25dd61591c2"
+    },
+    {
+      "path": "evidence/review-native-focused.log",
+      "size": 42372,
+      "sha256": "650f447692363bb79f1d8e6e7bf22f7d81bf409299f694352a2a05d3080ad26a"
+    },
+    {
+      "path": "evidence/review-native-model-switch.json",
+      "size": 495,
+      "sha256": "fb8f7a05fa06b3f40df0ed16c156cc93ecc8a51b021976769c10a8feb12f8044"
+    },
+    {
+      "path": "evidence/review-native-model-switch.log",
+      "size": 1616,
+      "sha256": "72c8bbea545ee03ad091ed69ac15e30ad59413a5305bbf355ba7526431b3d674"
+    },
+    {
+      "path": "evidence/reviewer-overlay-recap_compaction_test.go",
+      "size": 39314,
+      "sha256": "2de0bfb16e1ff2c0ce6027544295f0a8c6652bd7453019649d6f5892ecfaa146"
+    },
+    {
+      "path": "evidence/reviewer-overlay.json",
+      "size": 185,
+      "sha256": "483a62bd96141edb2d6edb8bd4ac6fc2f9cc9ec9cb3b9c2193a57ce853de59ba"
+    }
+  ]
+}

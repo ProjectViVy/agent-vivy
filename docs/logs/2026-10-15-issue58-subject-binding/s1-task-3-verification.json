@@ -1,0 +1,46 @@
+{
+  "base": "4c7c6b20859375d0d764d3ba2a0188926cf73c9e",
+  "source_commit": "9ec9baa4db117c3ea3b4a0949fece14999904895",
+  "toolchain": "go1.26.4 linux/amd64",
+  "GOSUMDB": "sum.golang.org",
+  "source_files": {
+    "laputa/actmem/recap.go": "8bd40707b6d976561590c3369b1c63cba0ad6d2acf785ab94b70634774ebbf31",
+    "laputa/actmem/recap_format.go": "7be8cf88e3c930708c17a049f53a44b88ff967077f81b8533b0ef136391e6b9a",
+    "laputa/actmem/recap_history.go": "184dedbc685c8272a788034bed12557e63cb128ad51299296129da2156ee5ede",
+    "laputa/actmem/recap_reconcile_test.go": "dfb60f58a3f686c9f4fc57652297d0272e785d9a756b4a93b31d4bb1709b58bf"
+  },
+  "evidence": [
+    {
+      "file": "s1-task-3-actmem-race.jsonl",
+      "sha256": "aa9e24991dc82a5a1f347cd67875b9d80f056602e0b0c2ef471f1a9fdc7ca37f",
+      "bytes": 98145,
+      "pass": 114,
+      "fail": 0,
+      "skip": 0,
+      "package_result": "pass",
+      "package_elapsed_seconds": 2.867
+    },
+    {
+      "file": "s1-task-3-reconcile-green.jsonl",
+      "sha256": "4b4fea802659a49250e3eb566243640a65a137b9d57d8a9c060f9d5c7a882ffc",
+      "bytes": 31659,
+      "pass": 35,
+      "fail": 0,
+      "skip": 0,
+      "package_result": "pass",
+      "package_elapsed_seconds": 0.068
+    },
+    {
+      "file": "s1-task-3-reconcile-red.jsonl",
+      "sha256": "e0fa122a3e6e637d7ba7a2d4552667bc0803711cab8229889110d4b37b7045a8",
+      "bytes": 30792,
+      "pass": 8,
+      "fail": 18,
+      "skip": 0,
+      "package_result": "fail",
+      "package_elapsed_seconds": 0.014
+    }
+  ],
+  "native_windows": "not run; required acceptance limitation",
+  "review_status": "self-reviewed; independent review/publication belongs to controller"
+}

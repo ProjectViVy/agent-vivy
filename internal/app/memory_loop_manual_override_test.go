@@ -22,7 +22,7 @@ func TestMemoryLoopManualTriggerOverridesBusyAndIntervalGates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	awaitMemoryLoopWatermark(t, f, session, first.CaptureSeq, 15*time.Second)
+	awaitMemoryLoopWatermark(t, f, session, first.CaptureSeq, 30*time.Second)
 	var policy struct {
 		Revision uint64 `json:"policy_revision"`
 	}
@@ -34,7 +34,7 @@ func TestMemoryLoopManualTriggerOverridesBusyAndIntervalGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitMemoryLoopActivitySource(t, f, second.CaptureSeq)
-	assertMemoryLoopNoExtraRequests(t, f, 4, 6*time.Second)
+	assertMemoryLoopNoExtraRequests(t, f, 5, 6*time.Second)
 	var deferred memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &deferred)
 	if deferred.Cognition.Watermark != first.CaptureSeq || deferred.Cognition.ActiveRunID != "" || deferred.Cognition.Phase != "idle" {
@@ -42,7 +42,7 @@ func TestMemoryLoopManualTriggerOverridesBusyAndIntervalGates(t *testing.T) {
 	}
 	thirdRun := memoryLoopTurn(t, f, session, "[hold-foreground] "+memoryLoopRandomFact(t))
 	deadline := time.Now().Add(5 * time.Second)
-	for len(f.ModelRequests()) != 5 {
+	for len(f.ModelRequests()) != 6 {
 		if time.Now().After(deadline) {
 			t.Fatalf("third owned primary request did not reach its response gate: %d requests", len(f.ModelRequests()))
 		}
@@ -60,23 +60,29 @@ func TestMemoryLoopManualTriggerOverridesBusyAndIntervalGates(t *testing.T) {
 		t.Fatalf("explicit manual wake did not bypass real busy/interval gates: %+v", manual)
 	}
 	watermarked := awaitMemoryLoopWatermark(t, f, session, second.CaptureSeq, 25*time.Second)
-	if watermarked.Cognition.ActiveRunID != "" || len(f.ModelRequests()) != 7 {
+	if watermarked.Cognition.ActiveRunID != "" || len(f.ModelRequests()) != 9 {
 		t.Fatalf("manual wake duplicated or failed to settle the pending window: %+v requests=%d", watermarked, len(f.ModelRequests()))
 	}
 	requests := f.ModelRequests()
-	reconcile := memoryLoopInferenceWindow(t, requests[5], "reconcile")
-	reflect := memoryLoopInferenceWindow(t, requests[6], "reflect")
+	reconciles := memoryLoopInferenceRequests(t, requests, "reconcile")
+	selections := memoryLoopInferenceRequests(t, requests, "skill_select")
+	reflections := memoryLoopInferenceRequests(t, requests, "reflect")
+	if len(reconciles) != 2 || len(selections) != 2 || len(reflections) != 2 {
+		t.Fatalf("manual override model stages diverged: reconcile=%d skill_select=%d reflect=%d", len(reconciles), len(selections), len(reflections))
+	}
+	reconcile := memoryLoopInferenceWindow(t, reconciles[1], "reconcile")
+	reflect := memoryLoopInferenceWindow(t, reflections[1], "reflect")
 	if reconcile != reflect || reconcile.After != first.CaptureSeq || reconcile.Through != second.CaptureSeq {
 		t.Fatalf("manual override changed the original deferred window: reconcile=%+v reflect=%+v", reconcile, reflect)
 	}
-	assertMemoryLoopNoExtraRequests(t, f, 7, 6*time.Second)
+	assertMemoryLoopNoExtraRequests(t, f, 9, 6*time.Second)
 	f.modelReleaseOnce.Do(func() { close(f.modelRelease) })
 	third, err := f.Wait(ctx, "canonical", thirdRun)
 	if err != nil || third.CanonicalCount != 3 {
 		t.Fatalf("held original primary did not finish once: %+v %v", third, err)
 	}
 	awaitMemoryLoopActivitySource(t, f, third.CaptureSeq)
-	assertMemoryLoopNoExtraRequests(t, f, 7, 6*time.Second)
+	assertMemoryLoopNoExtraRequests(t, f, 9, 6*time.Second)
 	var after memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &after)
 	if after.Cognition.Watermark != second.CaptureSeq || after.Cognition.ActiveRunID != "" {

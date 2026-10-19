@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,8 +172,11 @@ func TestBackendGrepRejectsInvalidPattern(t *testing.T) {
 	backend, _, runID := newFilesystemTestBackend(t)
 	backend.rgPath = ""
 	_, err := backend.Grep(tools.WithRunID(context.Background(), runID), tools.GrepRequest{Pattern: "("})
-	if err == nil || !strings.Contains(err.Error(), "invalid grep pattern") {
-		t.Fatalf("invalid pattern error = %v, want compile failure", err)
+	// A bad pattern is the model's argument mistake: it carries the offending
+	// field so the runtime recovers it instead of failing the run.
+	var argErr *tools.ArgError
+	if !errors.As(err, &argErr) || argErr.Field != "pattern" || !strings.Contains(err.Error(), "invalid regular expression") {
+		t.Fatalf("invalid pattern error = %v (%T), want a pattern *tools.ArgError", err, err)
 	}
 }
 

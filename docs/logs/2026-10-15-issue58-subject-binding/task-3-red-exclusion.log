@@ -1,0 +1,5 @@
+--- FAIL: TestIssue58SubjectContextSnapshot (0.06s)
+    subject_context.go:117: unpinned/active rows invalidated original {Through:0 Dispositions:[] DispositionDigest:} storage: subject evidence incomplete
+FAIL
+FAIL	agent-vivy/internal/storage/sqlite	0.062s
+FAIL

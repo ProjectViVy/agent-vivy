@@ -4,10 +4,13 @@ package domain
 type SkillRevisionStatus string
 
 const (
-	SkillRevisionPending  SkillRevisionStatus = "pending"
-	SkillRevisionApplied  SkillRevisionStatus = "applied"
-	SkillRevisionRejected SkillRevisionStatus = "rejected"
-	SkillRevisionFailed   SkillRevisionStatus = "failed"
+	SkillRevisionPending   SkillRevisionStatus = "pending"
+	SkillRevisionApplied   SkillRevisionStatus = "applied"
+	SkillRevisionRejected  SkillRevisionStatus = "rejected"
+	SkillRevisionFailed    SkillRevisionStatus = "failed"
+	SkillRevisionExpired   SkillRevisionStatus = "expired"
+	SkillRevisionStale     SkillRevisionStatus = "stale"
+	SkillRevisionCancelled SkillRevisionStatus = "cancelled"
 )
 
 // SkillRevision is a reviewable, restart-safe Skill change. Payload is an

@@ -130,7 +130,7 @@ func (b *EinoFilesystemBackend) ListDir(ctx context.Context, runID domain.RunID,
 		return tools.DirListResult{}, fmt.Errorf("filesystem: list %s: %w", displayPath(root, path), err)
 	}
 	if !info.IsDir() {
-		return tools.DirListResult{}, fmt.Errorf("filesystem: list target %s is not a directory", displayPath(root, path))
+		return tools.DirListResult{}, pathArgumentError(fmt.Sprintf("target %s is not a directory", displayPath(root, path)))
 	}
 	maxEntries := req.MaxEntries
 	if maxEntries <= 0 || maxEntries > b.maxListEntries {
@@ -231,7 +231,7 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 		// Truncating an image corrupts it; over-cap images fail loudly
 		// instead (VC-3 read_file image support).
 		if len(data) > b.maxFileBytes {
-			return tools.FileReadResult{}, fmt.Errorf("filesystem: image %s is %d bytes, over the %d byte read cap; use a smaller image", displayPath(root, path), len(data), b.maxFileBytes)
+			return tools.FileReadResult{}, argumentError("path", "image %s is %d bytes, over the %d byte read cap; read a smaller image", displayPath(root, path), len(data), b.maxFileBytes)
 		}
 		result.ImageMIME = mime
 		result.ImageData = data
@@ -261,7 +261,7 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 		return result, nil
 	}
 	if end < start {
-		return tools.FileReadResult{}, fmt.Errorf("filesystem: end_line must be >= start_line")
+		return tools.FileReadResult{}, argumentError("end_line", "must be >= start_line")
 	}
 	result.StartLine, result.EndLine = start, end
 	result.Content = strings.Join(lines[start-1:end], "\n")
@@ -283,7 +283,7 @@ func (b *EinoFilesystemBackend) SearchFiles(ctx context.Context, runID domain.Ru
 	}
 	query := req.Query
 	if query == "" {
-		return tools.FileSearchResult{}, fmt.Errorf("filesystem: search query must not be empty")
+		return tools.FileSearchResult{}, argumentError("query", "must not be empty")
 	}
 	maxResults := req.MaxResults
 	if maxResults <= 0 || maxResults > b.maxResults {
@@ -357,7 +357,7 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 		return tools.FileMutationResult{}, err
 	}
 	if len(req.Content) > b.maxFileBytes {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: content exceeds %d bytes", b.maxFileBytes)
+		return tools.FileMutationResult{}, argumentError("content", "is %d bytes, over the %d byte write limit; split the write", len(req.Content), b.maxFileBytes)
 	}
 	var old []byte
 	if existing, readErr := os.ReadFile(path); readErr == nil {
@@ -423,24 +423,24 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 // whitespace-tolerant fallback (applyStringPatch).
 func (b *EinoFilesystemBackend) PatchFile(ctx context.Context, runID domain.RunID, req tools.FilePatchRequest) (tools.FileMutationResult, error) {
 	if req.OldString == "" {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string must not be empty")
+		return tools.FileMutationResult{}, argumentError("old_string", "must not be empty")
 	}
 	if req.OldString == req.NewString {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string and new_string must differ")
+		return tools.FileMutationResult{}, argumentError("new_string", "must differ from old_string")
 	}
 	if err := b.validateSandboxPath(ctx, runID, req.Path, FileOpWrite, false); err != nil {
 		return tools.FileMutationResult{}, err
 	}
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
-		return tools.FileMutationResult{}, err
+		return tools.FileMutationResult{}, patchTargetError(err)
 	}
 	old, err := os.ReadFile(path)
 	if err != nil {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read patch target: %w", err)
+		return tools.FileMutationResult{}, patchTargetError(fmt.Errorf("filesystem: read patch target: %w", err))
 	}
 	if isBinary(old) {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: patch target is binary")
+		return tools.FileMutationResult{}, argumentError("path", "%s is a binary file; patch a text file", displayPath(root, path))
 	}
 	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
 		err := fmt.Errorf("filesystem: proposal stale: target changed after human review")
@@ -465,7 +465,7 @@ func (b *EinoFilesystemBackend) PrepareWriteFile(ctx context.Context, runID doma
 		return domain.ToolProposal{}, err
 	}
 	if len(req.Content) > b.maxFileBytes {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: content exceeds %d bytes", b.maxFileBytes)
+		return domain.ToolProposal{}, argumentError("content", "is %d bytes, over the %d byte write limit; split the write", len(req.Content), b.maxFileBytes)
 	}
 	old, err := readExistingFile(path)
 	if err != nil {
@@ -490,21 +490,21 @@ func (b *EinoFilesystemBackend) PrepareWriteFile(ctx context.Context, runID doma
 // The same application runs again in PatchFile after resume.
 func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID domain.RunID, req tools.FilePatchRequest) (domain.ToolProposal, error) {
 	if req.OldString == "" {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: old_string must not be empty")
+		return domain.ToolProposal{}, argumentError("old_string", "must not be empty")
 	}
 	if req.OldString == req.NewString {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: old_string and new_string must differ")
+		return domain.ToolProposal{}, argumentError("new_string", "must differ from old_string")
 	}
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.ToolProposal{}, patchTargetError(err)
 	}
 	old, err := os.ReadFile(path)
 	if err != nil {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: read patch target: %w", err)
+		return domain.ToolProposal{}, patchTargetError(fmt.Errorf("filesystem: read patch target: %w", err))
 	}
 	if isBinary(old) {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: patch target is binary")
+		return domain.ToolProposal{}, argumentError("path", "%s is a binary file; patch a text file", displayPath(root, path))
 	}
 	newContent, occurrences, err := applyStringPatch(string(old), req.OldString, req.NewString, req.ReplaceAll)
 	if err != nil {
@@ -526,21 +526,21 @@ func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID doma
 // once, so a failing edit leaves the target untouched.
 func (b *EinoFilesystemBackend) MultiPatchFile(ctx context.Context, runID domain.RunID, req tools.FileMultiEditRequest) (tools.FileMutationResult, error) {
 	if len(req.Edits) == 0 {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: multiedit requires at least one edit")
+		return tools.FileMutationResult{}, argumentError("edits", "requires at least one edit")
 	}
 	if err := b.validateSandboxPath(ctx, runID, req.Path, FileOpWrite, false); err != nil {
 		return tools.FileMutationResult{}, err
 	}
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
-		return tools.FileMutationResult{}, err
+		return tools.FileMutationResult{}, patchTargetError(err)
 	}
 	old, err := os.ReadFile(path)
 	if err != nil {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+		return tools.FileMutationResult{}, patchTargetError(fmt.Errorf("filesystem: read patch target: %w", err))
 	}
 	if isBinary(old) {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: multiedit target is binary")
+		return tools.FileMutationResult{}, argumentError("path", "%s is a binary file; multiedit a text file", displayPath(root, path))
 	}
 	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: proposal stale: target changed after human review")
@@ -565,18 +565,18 @@ func (b *EinoFilesystemBackend) MultiPatchFile(ctx context.Context, runID domain
 // diff without changing the target.
 func (b *EinoFilesystemBackend) PrepareMultiPatchFile(ctx context.Context, runID domain.RunID, req tools.FileMultiEditRequest) (domain.ToolProposal, error) {
 	if len(req.Edits) == 0 {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: multiedit requires at least one edit")
+		return domain.ToolProposal{}, argumentError("edits", "requires at least one edit")
 	}
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.ToolProposal{}, patchTargetError(err)
 	}
 	old, err := os.ReadFile(path)
 	if err != nil {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+		return domain.ToolProposal{}, patchTargetError(fmt.Errorf("filesystem: read patch target: %w", err))
 	}
 	if isBinary(old) {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: multiedit target is binary")
+		return domain.ToolProposal{}, argumentError("path", "%s is a binary file; multiedit a text file", displayPath(root, path))
 	}
 	content := string(old)
 	for i, item := range req.Edits {
@@ -666,7 +666,7 @@ func (b *EinoFilesystemBackend) LsInfo(ctx context.Context, req *einofs.LsInfoRe
 
 func (b *EinoFilesystemBackend) GlobInfo(ctx context.Context, req *einofs.GlobInfoRequest) ([]einofs.FileInfo, error) {
 	if req == nil || strings.TrimSpace(req.Pattern) == "" {
-		return nil, fmt.Errorf("filesystem: glob pattern must not be empty")
+		return nil, argumentError("pattern", "must not be empty")
 	}
 	if err := b.validateSandboxPath(ctx, filesystemRunID(ctx), req.Path, FileOpRead, false); err != nil {
 		return nil, err
@@ -700,7 +700,7 @@ func (b *EinoFilesystemBackend) GlobInfo(ctx context.Context, req *einofs.GlobIn
 
 func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepRequest) ([]einofs.GrepMatch, error) {
 	if req == nil || req.Pattern == "" {
-		return nil, fmt.Errorf("filesystem: grep pattern must not be empty")
+		return nil, argumentError("pattern", "must not be empty")
 	}
 	pattern := req.Pattern
 	if req.CaseInsensitive {
@@ -708,7 +708,7 @@ func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepReq
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("filesystem: invalid grep pattern: %w", err)
+		return nil, argumentError("pattern", "invalid regular expression: %s", err)
 	}
 	root, base, err := b.searchRoot(ctx, req.Path)
 	if err != nil {
@@ -762,25 +762,59 @@ func filesystemRunID(ctx context.Context) domain.RunID {
 	return tools.RunIDFromContext(ctx)
 }
 
+// argumentError marks a defect in the calling model's own arguments as a
+// structured argument error. The runtime's §5 soft conversion (NUDGE-DESIGN; see
+// internal/runtime/tool_failure.go) turns a tools.ArgError raised by a tool
+// invocation into a model-visible recoverable result, so a bad argument
+// corrects the next call instead of failing the whole run. Infrastructure and
+// boundary outcomes must not use it.
+func argumentError(field, reason string, args ...any) error {
+	if len(args) > 0 {
+		reason = fmt.Sprintf(reason, args...)
+	}
+	return &tools.ArgError{Field: field, Reason: reason}
+}
+
+// pathArgumentError marks a caller-supplied path defect.
+func pathArgumentError(reason string) error {
+	return argumentError("path", "%s", reason)
+}
+
+// patchTargetError types a missing patch/multiedit target as an argument
+// defect: neither tool can create a file, so the model must write it first or
+// pick the right path. Every other resolution or read failure (a denial, a
+// permission or I/O error) keeps its own cause and stays fatal.
+func patchTargetError(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return argumentError("path", "does not exist; create it with write_file first")
+	}
+	return err
+}
+
+// rootedPath reports a leading path separator. filepath.IsAbs returns false
+// for volume-less Windows roots ("\" and "/"), which would otherwise be
+// silently reinterpreted as workspace-relative; on Linux "/" is absolute.
+func rootedPath(value string) bool {
+	return strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\`)
+}
+
 func safeWorkspacePath(root, value string, allowMissing bool) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		value = "."
 	}
-	if strings.ContainsRune(value, '\x00') || filepath.IsAbs(filepath.FromSlash(value)) || filepath.VolumeName(filepath.FromSlash(value)) != "" || strings.HasPrefix(value, "\\\\") {
-		return "", fmt.Errorf("filesystem: path must be workspace-relative")
+	if strings.ContainsRune(value, '\x00') || rootedPath(value) || filepath.IsAbs(filepath.FromSlash(value)) || filepath.VolumeName(filepath.FromSlash(value)) != "" {
+		return "", pathArgumentError("must be workspace-relative")
 	}
+	// "." and its separator forms ("./", ".//") all name the workspace root.
 	clean := filepath.Clean(filepath.FromSlash(value))
-	if clean == "." && value != "." {
-		return "", fmt.Errorf("filesystem: invalid path")
-	}
 	full := filepath.Join(root, clean)
 	rel, err := filepath.Rel(root, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("filesystem: path escapes workspace")
+		return "", pathArgumentError("must stay inside the workspace")
 	}
 	if protectedPath(rel) {
-		return "", fmt.Errorf("filesystem: protected path denied")
+		return "", fmt.Errorf("%w: %s is a protected path", ErrProtectedPathDenied, displayPath(root, filepath.FromSlash(rel)))
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
 	current := root
@@ -799,10 +833,10 @@ func safeWorkspacePath(root, value string, allowMissing bool) (string, error) {
 			return "", fmt.Errorf("filesystem: inspect path: %w", err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("filesystem: symlink path denied")
+			return "", fmt.Errorf("%w: %s is a symbolic link", ErrSymlinkPathDenied, displayPath(root, current))
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return "", fmt.Errorf("filesystem: path component is not a directory")
+			return "", pathArgumentError("path component is not a directory")
 		}
 	}
 	return full, nil

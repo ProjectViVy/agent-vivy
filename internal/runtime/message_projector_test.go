@@ -243,3 +243,32 @@ func TestMessageProjectorToleratesLegacyV1Run(t *testing.T) {
 		t.Fatalf("legacy run projection = %+v, want the persisted row untouched", got)
 	}
 }
+
+// An ordinary (non-Recap) run that streamed invalid UTF-8 tool arguments must
+// not make the session's history permanently unreadable.
+func TestMessageProjectorToleratesInvalidToolArgumentsOutsideRecap(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-projector-invalid-args")
+	runID := domain.RunID("run-projector-invalid-args")
+	if err := svc.deps.Sessions.CreateSession(ctx, domain.Session{ID: sessionID, Title: "projection", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.deps.Runs.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunFailed, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	marker := payloadToolRequested{
+		ToolCallID: "call-1", ToolName: "echo_info", Args: map[string]any{},
+		OriginalArgumentsInvalidUTF8: true, OriginalArgumentsBytes: []byte{0xff},
+	}
+	trajCommit(t, ctx, svc.deps.Journal, runID,
+		trajEvent(domain.EventRunStarted, 10, payloadRunStarted{Provider: "test", Model: "test-model", Mode: "chat"}),
+		trajEventVersion(domain.EventToolRequested, 20, marker, 2),
+	)
+	if err := svc.ReconcileSessionMessages(ctx, sessionID); err != nil {
+		t.Fatalf("ordinary session history became unreadable: %v", err)
+	}
+	if _, err := backend.ListMessages(ctx, sessionID); err != nil {
+		t.Fatal(err)
+	}
+}

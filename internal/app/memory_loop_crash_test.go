@@ -120,14 +120,8 @@ func TestMemoryLoopInterruptedInferenceKeepsOriginalWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(15 * time.Second)
-	for len(f.ModelRequests()) < 3 {
-		if time.Now().After(deadline) {
-			t.Fatal("actual reflection response gate not reached")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	requests := f.ModelRequests()
-	window := memoryLoopInferenceWindow(t, requests[2], "reflect")
+	reflections := awaitMemoryLoopInferenceRequests(t, f, "reflect", 1, time.Until(deadline))
+	window := memoryLoopInferenceWindow(t, reflections[0], "reflect")
 	var admitted memoryLoopCognitionStatus
 	memoryLoopAction(t, f, "diva.cognitive.status", map[string]any{"session_id": session}, &admitted)
 	if admitted.Cognition.ActiveRunID == "" || admitted.Cognition.Watermark != 0 || window.After != 0 || window.Through != before.CaptureSeq {
@@ -574,8 +568,8 @@ func TestMemoryLoopCrashC04PartialEffectBatchStopsAtUnknown(t *testing.T) {
 	}
 	assertMemoryLoopBatchCanonical(t, f, targets, facts)
 	requestsBefore := len(f.ModelRequests())
-	if requestsBefore != len(facts)+2 {
-		t.Fatalf("C04 model request set differs from 3 primary + reconcile + reflect: %d", requestsBefore)
+	if requestsBefore != len(facts)+3 {
+		t.Fatalf("C04 model request set differs from 3 primary + reconcile + skill_select + reflect: %d", requestsBefore)
 	}
 	oldPID, newPID, err := f.crashAndRestart(ctx)
 	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
@@ -856,8 +850,8 @@ func TestMemoryLoopCrashC05EffectsDoneBeforeWatermark(t *testing.T) {
 	}
 	assertMemoryLoopC05Canonical(t, f, beforeReceipt.TargetRef, fact, 2)
 	requestsBefore := len(f.ModelRequests())
-	if requestsBefore != 3 {
-		t.Fatalf("C05 expected primary + reconcile + reflect requests before crash, got %d", requestsBefore)
+	if requestsBefore != 4 {
+		t.Fatalf("C05 expected primary + reconcile + skill_select + reflect requests before crash, got %d", requestsBefore)
 	}
 	oldPID, newPID, err := f.crashAndRestart(ctx)
 	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {
@@ -999,8 +993,8 @@ func TestMemoryLoopCrashC06CanonicalBeforeDerivedIndex(t *testing.T) {
 	}
 	workflowID := before.Cognition.ActiveRunID
 	requestsBefore := len(f.ModelRequests())
-	if requestsBefore != 3 {
-		t.Fatalf("C06 expected primary + reconcile + reflect requests before crash, got %d", requestsBefore)
+	if requestsBefore != 4 {
+		t.Fatalf("C06 expected primary + reconcile + skill_select + reflect requests before crash, got %d", requestsBefore)
 	}
 	oldPID, newPID, err := f.crashAndRestart(ctx)
 	if err != nil || oldPID != handshake.PID || newPID <= 0 || newPID == oldPID {

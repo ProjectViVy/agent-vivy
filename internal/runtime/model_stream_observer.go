@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"agent-vivy/internal/domain"
 	"context"
 	"errors"
 	"fmt"
@@ -155,6 +156,9 @@ func usageOfMessage(msg *schema.Message) *schema.TokenUsage {
 // observeGenerate runs one observed non-streaming invocation: Begin,
 // inner Generate, the returned message observed once, then End.
 func observeGenerate(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.Message], input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	if limit := domain.ModelOutputLimitFromContext(ctx); limit > 0 {
+		opts = append(opts, model.WithMaxTokens(limit))
+	}
 	obs, meta, err := core.begin(ctx, "generate", input, opts)
 	if err != nil {
 		return nil, err
@@ -191,6 +195,9 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 // the tool-settled barrier. Revisit if Eino adds a producer-path Recv hook
 // with those semantics.
 func observeStream(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.Message], input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	if limit := domain.ModelOutputLimitFromContext(ctx); limit > 0 {
+		opts = append(opts, model.WithMaxTokens(limit))
+	}
 	obs, meta, err := core.begin(ctx, "stream", input, opts)
 	if err != nil {
 		return nil, err

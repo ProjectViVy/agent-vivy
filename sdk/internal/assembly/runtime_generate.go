@@ -657,12 +657,14 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	// no source package imports or fields for omitted capabilities.
 	if hasContextSources {
 		source.WriteString("\nfunc (assembly *RuntimeAssembly) ContextSourceProviders() any { return assembly.ContextSources }\n")
+		source.WriteString("func (assembly *RuntimeAssembly) ContextSourceProviderSlots() any { return &assembly.ContextSources }\n")
 	}
 	if hasSkillSources {
 		source.WriteString("func (assembly *RuntimeAssembly) SkillSourceProviders() any { return assembly.SkillSources }\n")
 	}
 	if hasRunObservers {
 		source.WriteString("func (assembly *RuntimeAssembly) RunObserverProviders() any { return assembly.RunObservers }\n")
+		source.WriteString("func (assembly *RuntimeAssembly) RunObserverProviderSlots() any { return &assembly.RunObservers }\n")
 	}
 	if hasPreToolMiddleware {
 		source.WriteString("func (assembly *RuntimeAssembly) PreToolProviders() any { return assembly.PreToolMiddleware }\n")

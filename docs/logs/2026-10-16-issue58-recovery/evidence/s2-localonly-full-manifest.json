@@ -1,0 +1,12 @@
+[
+  {
+    "file": "issue58-recovery-s2-localonly-full.log.gz",
+    "source_sha256": "6a0b7c4b47b6025ecc0535de57e5f6c03f0d3166792b0cc4ba52ce76dc4be8a7",
+    "source_bytes": 38667
+  },
+  {
+    "file": "issue58-recovery-s2-localonly-full.json.gz",
+    "source_sha256": "deb11f907da879c6ee2185012604b6c157d59d6162aca3fdce44f541759de205",
+    "source_bytes": 422
+  }
+]

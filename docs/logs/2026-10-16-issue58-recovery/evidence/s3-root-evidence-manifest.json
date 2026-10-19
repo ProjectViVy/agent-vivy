@@ -1,0 +1,42 @@
+[
+  {
+    "file": "issue58-recovery-c05.log.gz",
+    "bytes": 2937,
+    "sha256": "142e46863d433be5224c5564040c4ccf8749b0a1ccc6db88af2d6f89e320aae5"
+  },
+  {
+    "file": "issue58-recovery-c05.json.gz",
+    "bytes": 505,
+    "sha256": "62e556ab43bbc3e252fd0069a29691b6a50a472881f7b7185ac8bf820a472168"
+  },
+  {
+    "file": "issue58-recovery-broad-658.log.gz",
+    "bytes": 1483549,
+    "sha256": "b0ef0f732ed2aec99aedb0e9317b0ef89c92d080faf655ba4db57f356fc9f303"
+  },
+  {
+    "file": "issue58-s3-root-fixes.log.gz",
+    "bytes": 38466,
+    "sha256": "d33504e301e1526b4f1ff7f054a6387a8d8e53688e01a3529a101f5be2970106"
+  },
+  {
+    "file": "issue58-s3-root-fixes.json.gz",
+    "bytes": 644,
+    "sha256": "e79af3c82fd7f11cc706a62f0ce3f1f2f9deb34d427f203d0a6a41376d1e1d38"
+  },
+  {
+    "file": "review-s3-3d-focused2.log.gz",
+    "bytes": 314,
+    "sha256": "3ecb6766f2ec83ab12f4c019379f91021ba169048d6c06f6ec01cc1641c9ed8a"
+  },
+  {
+    "file": "review-s3-3d-focused2.json.gz",
+    "bytes": 414,
+    "sha256": "cc7294de8e88f16ee6ecadd81cbba8900ddbd0f06bb829d066ffdc6953b5bb7a"
+  },
+  {
+    "file": "issue58-localonly-runner.py.gz",
+    "bytes": 1763,
+    "sha256": "32a769519c98bd700e884b638cdf11e33c02c5fe7a2e105ebc431ff87b97b29e"
+  }
+]

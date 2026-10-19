@@ -98,7 +98,7 @@ func decodeDownloadRequest(args json.RawMessage) (DownloadRequest, error) {
 		Timeout int    `json:"timeout"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return DownloadRequest{}, fmt.Errorf("download: invalid arguments: %w", err)
+		return DownloadRequest{}, &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if strings.TrimSpace(input.URL) == "" {
 		return DownloadRequest{}, &ArgError{Field: "url", Reason: "is required"}

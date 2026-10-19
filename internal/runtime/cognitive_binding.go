@@ -18,6 +18,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/orchestration"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/tools"
 )
 
 // TrustedStrategyDIVA is the only host-bound strategy the trusted catalog
@@ -35,6 +36,9 @@ var ErrCognitiveUnavailable = errors.New("runtime: cognitive binding is not wire
 // runs through the governed one-shot child path per run.
 type CognitiveBinding struct {
 	Domain laputaevolution.Domain
+	// Skills is the current VIVY Skill authority. It is used only by the
+	// trusted DIVA strategy to discover/read local Skills and stage proposals.
+	Skills tools.SkillOperations
 	// Binding is stamped into every strategy Input; its scope and
 	// destination must match the bound Domain.
 	Binding laputaevolution.RunBinding
@@ -230,7 +234,8 @@ func (s *Service) workflowNodes(ctx context.Context, parentRunID domain.RunID, t
 		domainForRun = bound
 	}
 	if b.Mission != nil {
-		domainForRun = missionCheckedDomain{Domain: domainForRun, mission: b.Mission, binding: pins}
+		domainForRun = missionCheckedDomain{Domain: domainForRun, mission: b.Mission, binding: pins,
+			service: s, runID: parentRunID, skills: b.Skills}
 	}
 	return laputainofy.NewExecutor(domainForRun, cognitiveModel{svc: s, parentRunID: parentRunID}), nil
 }
@@ -241,6 +246,9 @@ type missionCheckedDomain struct {
 	laputaevolution.Domain
 	mission CognitiveMissionSource
 	binding laputaevolution.RunBinding
+	service *Service
+	runID   domain.RunID
+	skills  tools.SkillOperations
 }
 
 func (d missionCheckedDomain) check(ctx context.Context) error {
@@ -255,7 +263,45 @@ func (d missionCheckedDomain) Apply(ctx context.Context, e laputaevolution.Effec
 	if err := d.check(ctx); err != nil {
 		return laputaevolution.EffectReceipt{}, err
 	}
+	if e.Kind == laputaevolution.KindSkillProposal {
+		if d.service == nil {
+			return laputaevolution.EffectReceipt{}, ErrCognitiveUnavailable
+		}
+		return d.service.submitCognitiveSkillProposal(ctx, d.runID, d.skills, e)
+	}
 	return d.Domain.Apply(ctx, e)
+}
+
+func (d missionCheckedDomain) ListLocalSkills(ctx context.Context) ([]laputaevolution.LocalSkillSummary, error) {
+	if d.skills == nil {
+		return nil, ErrCognitiveUnavailable
+	}
+	items, err := d.skills.ListSkills(ctx, d.runID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]laputaevolution.LocalSkillSummary, 0, len(items))
+	for _, item := range items {
+		if item.Origin != tools.SkillOriginUser || !item.Enabled {
+			continue
+		}
+		out = append(out, laputaevolution.LocalSkillSummary{Name: item.Name, Description: item.Description, Hash: item.Hash})
+	}
+	return out, nil
+}
+
+func (d missionCheckedDomain) ReadLocalSkill(ctx context.Context, name string) (laputaevolution.LocalSkillDocument, error) {
+	if d.skills == nil {
+		return laputaevolution.LocalSkillDocument{}, ErrCognitiveUnavailable
+	}
+	view, err := d.skills.ViewSkill(ctx, d.runID, name, "")
+	if err != nil {
+		return laputaevolution.LocalSkillDocument{}, err
+	}
+	if view.Origin != tools.SkillOriginUser || view.RelativePath != "SKILL.md" {
+		return laputaevolution.LocalSkillDocument{}, errors.New("runtime: selected Skill is outside the writable local authority")
+	}
+	return laputaevolution.LocalSkillDocument{Name: view.Name, Hash: view.Hash, Content: view.Content}, nil
 }
 
 func (d missionCheckedDomain) Lookup(ctx context.Context, operationID string) (laputaevolution.EffectReceipt, error) {

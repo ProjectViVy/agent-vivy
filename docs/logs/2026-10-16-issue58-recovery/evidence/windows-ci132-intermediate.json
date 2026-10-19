@@ -1,0 +1,34 @@
+{
+  "observed_at": "2026-10-15T20:08:30.763Z",
+  "qualification": "Intermediate WIP remote ed9d20d/local1a4cd31d; does not include current uncommitted native Recap fixes. UI/browser success is existing product regression only, not new Recap UI or Issue acceptance.",
+  "run": {
+    "id": 38797712766,
+    "head_sha": "ed9d20d22f818fd05c310948160da71c1a2668f7",
+    "head_branch": "feat/issue-58-recovery-20261016",
+    "event": "pull_request",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/ProjectViVy/agent-vivy/actions/runs/38797712766"
+  },
+  "jobs": [
+    {
+      "id": 116638543155,
+      "name": "backend ci",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 116638543608,
+      "name": "ui ci",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 116638543852,
+      "name": "full UI browser smoke",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "workflow_runner": "windows-latest"
+}

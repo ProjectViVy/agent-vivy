@@ -80,6 +80,10 @@ func Catalog(_ string) ([]Record, error) {
 	} {
 		memoryToolProvides = append(memoryToolProvides, port("std/tool@v1", toolID))
 	}
+	recapToolProvides := []module.PortRef{}
+	for _, id := range cognitivemodule.RecapToolIDs {
+		recapToolProvides = append(recapToolProvides, port("std/tool@v1", id))
+	}
 	cognitiveProvides := []module.PortRef{port("core/cognitive-factory@v1", "vivy.cognitive-factory")}
 	for _, actionID := range cognitivemodule.ActionIDs {
 		cognitiveProvides = append(cognitiveProvides, port("std/control-action@v1", actionID))
@@ -112,6 +116,7 @@ func Catalog(_ string) ([]Record, error) {
 		boundRecord("vivy/memory-bml", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryActionProvides...),
 		boundRecord("vivy/memory-bml-sync", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, port("std/context-source@v1", memorymodule.ProviderID), port("std/observer/run@v1", memorymodule.ProviderID)),
 		boundRecord("vivy/memory-bml-tools", "agent-vivy/internal/modules/memory", "memory", "NewModule", source, memoryToolProvides...),
+		boundRecord(cognitivemodule.RecapToolsModuleID, "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewRecapToolsModule", source, recapToolProvides...),
 		boundRecord("vivy/diva-cognitive", "agent-vivy/internal/modules/diva-cognitive", "divacognitive", "NewModule", source, cognitiveProvides...),
 		boundRecord("vivy/notebook-core", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookProvides...),
 		boundRecord("vivy/notebook-tools", "agent-vivy/internal/modules/notebook", "notebook", "NewModule", source, notebookToolProvides...),
@@ -163,6 +168,9 @@ func Catalog(_ string) ([]Record, error) {
 		case "vivy/memory-bml-tools":
 			records[i].Binding.ProviderConstructor = "ToolProviders"
 			records[i].Binding.ProviderCollection = true
+		case cognitivemodule.RecapToolsModuleID:
+			records[i].Binding.ProviderConstructor = "RecapToolProviders"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/diva-cognitive":
 			records[i].Binding.CognitiveFactory = "Open"
 			records[i].Binding.ProviderConstructor = "ActionProviders"
@@ -208,6 +216,8 @@ func Catalog(_ string) ([]Record, error) {
 				{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"},
 				{PortRef: module.PortRef{Port: "core/observer-host@v1"}, Provider: "vivy/observer-host"},
 			}
+		case cognitivemodule.RecapToolsModuleID:
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}, {PortRef: module.PortRef{Port: cognitivemodule.Port}, Provider: cognitivemodule.ID}}
 		case "vivy/diva-cognitive":
 			records[i].Descriptor.Requires = []module.Requirement{
 				{PortRef: module.PortRef{Port: "core/observer-host@v1"}, Provider: "vivy/observer-host"},

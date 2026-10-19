@@ -510,6 +510,14 @@ func (s *HistoryService) scan(ctx context.Context, state historyCursorState, lim
 			if !ok {
 				continue
 			}
+			canonical, originStatus, err := s.canonicalMessageSource(ctx, item.Ref)
+			if err != nil {
+				return nil, state, false, false, false, nil, err
+			}
+			item.OriginStatus = originStatus
+			if canonical != nil {
+				item.SourceRefs = append(item.SourceRefs, canonical...)
+			}
 			if item.Redacted {
 				redacted = true
 			}
@@ -948,16 +956,17 @@ func historyFilterHash(kind string, request any, scopeHash string) string {
 // are intentionally absent from this representation.
 func CanonicalHistorySelectionDigest(items []domain.HistoryItem) string {
 	type digestItem struct {
-		Ref        domain.SourceRef   `json:"ref"`
-		Author     string             `json:"author"`
-		Text       string             `json:"text"`
-		SourceRefs []domain.SourceRef `json:"source_refs,omitempty"`
-		Redacted   bool               `json:"redacted"`
-		Truncated  bool               `json:"truncated"`
+		Ref          domain.SourceRef   `json:"ref"`
+		Author       string             `json:"author"`
+		Text         string             `json:"text"`
+		SourceRefs   []domain.SourceRef `json:"source_refs,omitempty"`
+		OriginStatus string             `json:"origin_status,omitempty"`
+		Redacted     bool               `json:"redacted"`
+		Truncated    bool               `json:"truncated"`
 	}
 	canonical := make([]digestItem, 0, len(items))
 	for _, item := range items {
-		canonical = append(canonical, digestItem{Ref: item.Ref, Author: item.Author, Text: item.Text, SourceRefs: item.SourceRefs, Redacted: item.Redacted, Truncated: item.Truncated})
+		canonical = append(canonical, digestItem{Ref: item.Ref, Author: item.Author, Text: item.Text, SourceRefs: item.SourceRefs, OriginStatus: item.OriginStatus, Redacted: item.Redacted, Truncated: item.Truncated})
 	}
 	encoded, _ := json.Marshal(struct {
 		Version int          `json:"version"`
@@ -965,4 +974,70 @@ func CanonicalHistorySelectionDigest(items []domain.HistoryItem) string {
 	}{Version: 1, Items: canonical})
 	digest := sha256.Sum256(encoded)
 	return fmt.Sprintf("%x", digest[:])
+}
+
+// canonicalMessageSource follows exact copy metadata only. Historical copies
+// without a link remain explicitly unavailable; equal text is never identity.
+func (s *HistoryService) canonicalMessageSource(ctx context.Context, ref domain.SourceRef) ([]domain.SourceRef, string, error) {
+	if ref.MessageID == "" {
+		return nil, "", nil
+	}
+	origins, ok := s.sessions.(storage.MessageCopySourceStore)
+	if !ok {
+		return nil, "unavailable", nil
+	}
+	runs, _ := s.sessions.(storage.RunStore)
+	var refs []domain.SourceRef
+	seen := map[string]bool{}
+	for depth := 0; depth < s.effectiveLimits().SelectionRefs; depth++ {
+		key := string(ref.SessionID) + "\x00" + ref.MessageID
+		if seen[key] {
+			return refs, "unavailable", nil
+		}
+		seen[key] = true
+		source, err := origins.GetMessageCopySource(ctx, ref.SessionID, ref.MessageID)
+		if errors.Is(err, storage.ErrNotFound) {
+			if runs != nil && ref.RunID != "" {
+				run, err := runs.GetRun(ctx, ref.RunID)
+				if err != nil && !errors.Is(err, storage.ErrNotFound) {
+					return nil, "", err
+				}
+				if errors.Is(err, storage.ErrNotFound) {
+					return refs, "unavailable", nil
+				}
+				if err == nil && run.SessionID != ref.SessionID {
+					return refs, "unavailable", nil
+				}
+			} else if truncations, ok := s.sessions.(storage.TruncationStore); ok {
+				links, err := truncations.ListSessionForkLinks(ctx)
+				if err != nil {
+					return nil, "", err
+				}
+				for _, link := range links {
+					if link.SessionID == ref.SessionID && link.Reason == storage.TruncationForkedFrom {
+						return refs, "unavailable", nil
+					}
+				}
+			}
+			if len(refs) > 0 {
+				return refs, "ok", nil
+			}
+			return nil, "", nil
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if !s.sessionAllowed(ctx, source.SessionID, tools.SessionIDFromContext(ctx)) {
+			return refs, "forbidden", nil
+		}
+		parent := domain.SourceRef{SessionID: source.SessionID, MessageID: source.MessageID, RunID: ref.RunID, Kind: ref.Kind, CreatedAt: ref.CreatedAt}
+		refs = append(refs, parent)
+		if _, err := s.sessions.GetSession(ctx, parent.SessionID); errors.Is(err, storage.ErrNotFound) {
+			return refs, "unavailable", nil
+		} else if err != nil {
+			return nil, "", err
+		}
+		ref = parent
+	}
+	return refs, "unavailable", nil
 }

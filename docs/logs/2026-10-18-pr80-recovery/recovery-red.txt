@@ -1,0 +1,35 @@
+2026/10/18 11:58:35 WARN restart recovery: pending interaction could not be settled run=run_eb479f67cefc34dd err="injected recovery write failure"
+2026/10/18 11:58:35 INFO restart recovery: run failed definitively run=run_eb479f67cefc34dd reason="checkpoint not readable: engine version changed"
+2026/10/18 11:58:35 WARN review event persistence failed run=run_eb479f67cefc34dd type=tool.approval_cancelled err="storage: run already has a terminal event"
+2026/10/18 11:58:35 ERROR journal append of terminal event failed run=run_eb479f67cefc34dd type=run.cancelled err="storage: run already has a terminal event"
+2026/10/18 11:58:36 WARN review event persistence failed run=run_250ed221c93e2373 type=tool.approval_cancelled err="injected recovery write failure"
+2026/10/18 11:58:36 INFO restart recovery: run failed definitively run=run_250ed221c93e2373 reason="checkpoint not readable: engine version changed"
+2026/10/18 11:58:36 ERROR journal append of terminal event failed run=run_250ed221c93e2373 type=run.cancelled err="storage: run already has a terminal event"
+2026/10/18 11:58:37 ERROR journal append of terminal event failed run=run_d0fa3ca9f1bd205a type=run.failed err="injected recovery write failure"
+2026/10/18 11:58:37 INFO restart recovery: run failed definitively run=run_d0fa3ca9f1bd205a reason="checkpoint not readable: engine version changed"
+2026/10/18 11:58:38 WARN restart recovery: pending interaction could not be settled run=run_914c6caea95e6e8a err="injected recovery write failure"
+2026/10/18 11:58:38 INFO restart recovery: run failed definitively run=run_914c6caea95e6e8a reason="checkpoint not readable: engine version changed"
+2026/10/18 11:58:39 WARN review event persistence failed run=run_cec6d7575e034f5c type=user.question_cancelled err="injected recovery write failure"
+2026/10/18 11:58:39 INFO restart recovery: run failed definitively run=run_cec6d7575e034f5c reason="checkpoint not readable: engine version changed"
+2026/10/18 11:58:40 ERROR journal append of terminal event failed run=run_b43ba9e876f2f0a6 type=run.failed err="injected recovery write failure"
+2026/10/18 11:58:40 INFO restart recovery: run failed definitively run=run_b43ba9e876f2f0a6 reason="checkpoint not readable: engine version changed"
+--- FAIL: TestRecoverCleanupRetriesInteractionWrites (6.01s)
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/approval/row (1.11s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/approval/event (0.69s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/approval/terminal (1.50s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/question/row (0.98s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/question/event (0.64s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+    --- FAIL: TestRecoverCleanupRetriesInteractionWrites/question/terminal (1.09s)
+        recovery_cleanup_test.go:63: recover error = <nil>, want cause preserved
+2026/10/18 11:58:41 INFO restart recovery: run failed definitively run=run_d9f12446953fd649 reason="Plan review checkpoint not readable: engine version changed"
+2026/10/18 11:58:41 WARN cancel Plan review after run close failed run=run_d9f12446953fd649 err="injected recovery write failure"
+--- FAIL: TestRecoverCleanupRetriesPlanAfterTerminal (1.19s)
+    recovery_cleanup_test.go:79: recover = <nil>
+FAIL
+FAIL	agent-vivy/internal/runtime	7.703s
+FAIL

@@ -1,0 +1,9 @@
+{
+  "candidate": "658fc30bb861faa87c67033cd1fad4f48c02d189",
+  "command": "go test -json ./internal/runtime ./internal/app ./internal/storage/... -count=1 -timeout=25m",
+  "status": "interrupted",
+  "exit_code": null,
+  "reason": "exec transport disconnected; session84741 subsequently unknown; no final runner metadata",
+  "confirmed_failure": "TestIssue58AuthorizedOrdinaryAndLifeKeepTools/resident-true (positive fixture repaired in later3d)",
+  "final_app_result": "unknown; last log MemoryLoopPersonaReviewAndFrozenSessions/accept"
+}

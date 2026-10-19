@@ -1,0 +1,123 @@
+Sun Oct 18 04:19:13 AM UTC 2026
+7b42b2920f72de6f37de8b9e4ff4bf6a110a762f
+go version go1.26.4 linux/amd64
+testing: warning: no tests to run
+PASS
+ok  	agent-vivy/internal/provider	1.105s [no tests to run]
+BASELINE_UNTOUCHED_EXIT=0
+a0b133718cc105994492c6963f013b488b4bda2c97172443858e7bbb7b9bc7de  internal/provider/provider_stream_test.go
+?? internal/provider/provider_stream_test.go
+=== RUN   TestStreamCompleteReplyEndsCleanly
+=== RUN   TestStreamCompleteReplyEndsCleanly/openai_tool_call
+=== RUN   TestStreamCompleteReplyEndsCleanly/anthropic-messages
+==================
+WARNING: DATA RACE
+Write at 0x00c0001c41d0 by goroutine 34:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream.func2()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:446 +0x3f2
+
+Previous write at 0x00c0001c41d0 by goroutine 27:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:480 +0xa28
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly.func1()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:97 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 34 (running) created at:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:419 +0x9d2
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly.func1()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:97 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 27 (running) created at:
+  testing.(*T).Run()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0xb12
+  agent-vivy/internal/provider.TestStreamCompleteReplyEndsCleanly()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:96 +0x424
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+==================
+    testing.go:1712: race detected during execution of test
+=== RUN   TestStreamCompleteReplyEndsCleanly/openai-completions
+--- FAIL: TestStreamCompleteReplyEndsCleanly (0.10s)
+    --- PASS: TestStreamCompleteReplyEndsCleanly/openai_tool_call (0.09s)
+    --- FAIL: TestStreamCompleteReplyEndsCleanly/anthropic-messages (0.00s)
+    --- PASS: TestStreamCompleteReplyEndsCleanly/openai-completions (0.00s)
+=== RUN   TestStreamCutOffIsAcceptedKnownBug
+=== RUN   TestStreamCutOffIsAcceptedKnownBug/openai_before_finish_chunk
+=== RUN   TestStreamCutOffIsAcceptedKnownBug/anthropic-messages
+==================
+WARNING: DATA RACE
+Write at 0x00c0002101e0 by goroutine 59:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream.func2()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:446 +0x3f2
+
+Previous write at 0x00c0002101e0 by goroutine 52:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:480 +0xa28
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug.func1()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:123 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 59 (running) created at:
+  github.com/cloudwego/eino-ext/components/model/claude.(*ChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/cache/gomod/github.com/cloudwego/eino-ext/components/model/claude@v0.1.25/claude.go:419 +0x9d2
+  agent-vivy/internal/provider.(*resolvingChatModel).Stream()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/resolving.go:83 +0x1ae
+  agent-vivy/internal/provider.streamFrom()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:65 +0xaef
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug.func1()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:123 +0x67
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+
+Goroutine 52 (running) created at:
+  testing.(*T).Run()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0xb12
+  agent-vivy/internal/provider.TestStreamCutOffIsAcceptedKnownBug()
+      /home/mastwet/pr80-verification/baseline/agent-vivy/internal/provider/provider_stream_test.go:122 +0x4c4
+  testing.tRunner()
+      /home/mastwet/.local/go/src/testing/testing.go:2036 +0x21c
+  testing.(*T).Run.gowrap1()
+      /home/mastwet/.local/go/src/testing/testing.go:2101 +0x38
+==================
+    testing.go:1712: race detected during execution of test
+=== RUN   TestStreamCutOffIsAcceptedKnownBug/openai-completions
+--- FAIL: TestStreamCutOffIsAcceptedKnownBug (0.01s)
+    --- PASS: TestStreamCutOffIsAcceptedKnownBug/openai_before_finish_chunk (0.00s)
+    --- FAIL: TestStreamCutOffIsAcceptedKnownBug/anthropic-messages (0.00s)
+    --- PASS: TestStreamCutOffIsAcceptedKnownBug/openai-completions (0.00s)
+FAIL
+FAIL	agent-vivy/internal/provider	0.151s
+FAIL
+BASELINE_DIAGNOSTIC_OVERLAY_EXIT=1
+?? internal/provider/provider_stream_test.go
+Sun Oct 18 04:19:43 AM UTC 2026
+	github.com/cloudwego/eino v0.9.13
+	github.com/cloudwego/eino-ext/components/model/claude v0.1.25

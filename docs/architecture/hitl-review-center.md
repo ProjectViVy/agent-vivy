@@ -50,6 +50,62 @@ come from the live setting. Restart recovery uses the same transition.
 Decision, expiry, cancellation, and stale outcomes are journal events and can
 be replayed by the run inspector.
 
+## Restart across an engine version (pending-run policy)
+
+A paused run resumes from its Eino checkpoint, and a checkpoint is readable
+only by the exact Eino version that wrote it (`VersionedCheckpointStore`,
+`internal/runtime/checkpoint.go`). A Vivy upgrade or rollback that changes
+the Eino version therefore cannot resume a run that was waiting on a person.
+Supported boundary for the Eino v0.9.21 upgrade:
+
+- Upgrade from the historical v0.9.13 binary to a binary containing the durable
+  cleanup fix without draining first. Recovery fails an incompatible paused run
+  with `run.failed`, cause `internal_error`, and the message *"Vivy was updated
+  while this run was waiting, and a paused run cannot continue on a different
+  engine version. Its pending request was cancelled. Please start the task again."*
+- Approval and Question cancellation events precede the terminal; Plan review
+  cancellation follows it. Before these writes, recovery saves a durable cleanup
+  intent in the existing BlobStore. A failed write aborts recovery/startup and
+  preserves the cause. Repeated Recover or a restart retries the intent, even
+  when its Run is already terminal. The intent is removed only after all writes
+  succeed. Journal replay, lifecycle CAS and Work request identity prevent
+  duplicate cancellation and terminal events. Never delete review evidence.
+- No checkpoint is converted and no version check is bypassed. A missing or
+  unreadable same-version checkpoint follows the same cleanup protocol with the
+  generic restart message. Prompt-snapshot incompatibilities remain pending.
+- **An unpatched historical binary cannot open the database after migration
+  44.** The actual Eino v0.9.13 build from `e960929` fails closed with
+  `unknown migration version 44`, both with pending requests and after the
+  current binary has cancelled them. Cleanup alone therefore does not make
+  this rollback safe or runnable. Do not claim bidirectional safety or start
+  this binary against the upgraded database.
+- The supported Eino rollback target is a compatibility build from the same
+  source, with this durable cleanup fix and migration 44 retained and Eino
+  pinned to v0.9.13. Build it with
+  `node scripts/build-eino0913-rollback.mjs`; verify its embedded Eino version
+  before use. Its exact-version guard still rejects v0.9.21 checkpoints. It
+  records one failed Run and completes Approval/Question/Plan cancellation
+  before it accepts traffic; it does not resume that interrupted work. The
+  isolated actual-binary matrix covers direct compatibility rollback and the
+  pre-cleaned case. If this compatibility build is unavailable, rollback to
+  the unpatched historical binary is unsupported after migration 44.
+- Before stopping the current binary, stop admitting new work. A compatibility
+  build can clean active/paused requests during startup; verify zero active
+  Runs, pending Approvals, pending Questions, pending Plan reviews, and cleanup
+  intents afterward. Check that each affected Run has exactly one terminal
+  and its cancellation evidence, and repeat the check after restart. A cleanup
+  error blocks rollback; keep the current binary and retry. Never convert a
+  checkpoint or bypass its version check.
+- To preserve a paused task's result, complete its human review before upgrading.
+
+Evidence: `internal/runtime/recovery_engine_version_test.go`,
+`internal/runtime/recovery_cleanup_test.go`, and the final-source actual-binary
+matrix in `docs/logs/2026-10-19-pr83-closeout/verification.md`. The earlier
+review baseline and initial matrix remain in
+`docs/logs/2026-10-18-pr80-recovery/verification.md`. These cover the current
+ChatModel generation only. AgenticModel/message-generation migration remains
+subject to separate acceptance, including S4 B5/B6/B7.
+
 ## UI rule
 
 Review Center is a full main-area surface for cross-session work. The run

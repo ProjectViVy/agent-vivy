@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -177,12 +178,13 @@ func TestMemoryLoopMemoryInjection(t *testing.T) {
 		t.Skip("DIVA integration overlay required")
 	}
 	options := memoryLoopOptions{ConfigPath: memoryLoopConfig(t), ModelMode: "recall"}
-	if memoryLoopRaceBuild {
-		// The real hybrid search takes ~2.3 s with Go's race instrumentation
-		// versus ~0.2 s normally. Keep the production 750 ms default in all
-		// non-race builds; let this race-only security-path test finish the
-		// same actual source read. Deadline degradation remains tested with the
-		// default timeout by TestMemoryLoopRecallDeadlineDegradesSafely.
+	if memoryLoopRaceBuild || runtime.GOOS == "windows" {
+		// This security-path assertion needs the complete native source read
+		// (scoped authorization, card search, and evidence read) to reach the
+		// model. The first full read took 1.233 s on Windows CI and ~2.3 s with
+		// race instrumentation. Keep the production 750 ms budget unchanged;
+		// TestMemoryLoopRecallDeadlineDegradesSafely separately checks that
+		// budget's bounded behavior.
 		options.ContextSourceTimeout = 5 * time.Second
 	}
 	f := newMemoryLoopFixture(t, options)

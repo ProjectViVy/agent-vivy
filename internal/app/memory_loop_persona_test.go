@@ -99,7 +99,7 @@ func TestMemoryLoopPersonaReviewAndFrozenSessions(t *testing.T) {
 
 func waitMemoryLoopPersonaRequest(t *testing.T, f *memoryLoopFixture, session string, through uint64) persona.ChangeRequest {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()

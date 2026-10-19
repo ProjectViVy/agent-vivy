@@ -1,0 +1,13 @@
+--- FAIL: TestIssue58SubjectContextSnapshot (0.05s)
+    subject_context.go:33: backend does not capture a complete subject disposition snapshot
+--- FAIL: TestIssue58SubjectContextScope (0.05s)
+    subject_context.go:55: backend does not capture a complete subject disposition snapshot
+FAIL
+FAIL	agent-vivy/internal/storage/sqlite	0.106s
+--- FAIL: TestIssue58SubjectDomainPendingRepair (0.06s)
+    subject_context_test.go:37: service cannot capture subject context after domain repair
+--- FAIL: TestIssue58SubjectContextScope (0.05s)
+    subject_context_test.go:53: service cannot capture subject context after domain repair
+FAIL
+FAIL	agent-vivy/internal/runtime	0.137s
+FAIL

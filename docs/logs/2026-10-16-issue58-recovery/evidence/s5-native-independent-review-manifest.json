@@ -1,0 +1,11 @@
+{
+  "native_candidate": "3c365207d295221c4a3c5667fc71a6a465ee59f8",
+  "native_tree": "1ca98be9a8cffb18d242bf3c1aa40a613d0bbb7f",
+  "native_remote_equivalent": "1edf7b2379d7887a016c57b78e2060ad9dae1588",
+  "review": "0 Critical, 2 Important, 0 Minor. Original snapshot presence/null normalization and malformed JSON trailing delimiters. Source frozen pending one consolidated TDD fix.",
+  "verified_artifact_hashes": 19,
+  "archive_file_count": 20,
+  "archive_sha256": "1f7d987156786ef02fe9a11258bd3d3fbf8c4fcc6d41c5372ebd89a5e9268967",
+  "bytes": 34711,
+  "qualification": "Independent focused50 tests/3packages pass; original two probe suites fail. No native Windows/BML consumer/new pin/whole S5 acceptance."
+}

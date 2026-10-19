@@ -1,0 +1,16 @@
+go: downloading github.com/stretchr/testify v1.11.1
+go: downloading go.uber.org/mock v0.6.0
+go: downloading github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+go: downloading github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
+{"Time":"2026-10-15T20:10:44.99717696+08:00","Action":"start","Package":"github.com/cloudwego/eino/compose"}
+{"Time":"2026-10-15T20:10:45.034377402+08:00","Action":"run","Package":"github.com/cloudwego/eino/compose","Test":"TestCheckpointToolStreamCancellationRerunsProducerOnce"}
+{"Time":"2026-10-15T20:10:45.034453948+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Test":"TestCheckpointToolStreamCancellationRerunsProducerOnce","Output":"=== RUN   TestCheckpointToolStreamCancellationRerunsProducerOnce\n"}
+{"Time":"2026-10-15T20:10:45.034661351+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Test":"TestCheckpointToolStreamCancellationRerunsProducerOnce","Output":"--- PASS: TestCheckpointToolStreamCancellationRerunsProducerOnce (0.00s)\n"}
+{"Time":"2026-10-15T20:10:45.034674861+08:00","Action":"pass","Package":"github.com/cloudwego/eino/compose","Test":"TestCheckpointToolStreamCancellationRerunsProducerOnce","Elapsed":0}
+{"Time":"2026-10-15T20:10:45.034759619+08:00","Action":"run","Package":"github.com/cloudwego/eino/compose","Test":"TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls"}
+{"Time":"2026-10-15T20:10:45.034763305+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Test":"TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls","Output":"=== RUN   TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls\n"}
+{"Time":"2026-10-15T20:10:45.035193734+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Test":"TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls","Output":"--- PASS: TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls (0.00s)\n"}
+{"Time":"2026-10-15T20:10:45.035261246+08:00","Action":"pass","Package":"github.com/cloudwego/eino/compose","Test":"TestAttack_EnhancedToolStreamCancellationTracksCompletedCalls","Elapsed":0}
+{"Time":"2026-10-15T20:10:45.035265813+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Output":"PASS\n"}
+{"Time":"2026-10-15T20:10:46.042861204+08:00","Action":"output","Package":"github.com/cloudwego/eino/compose","Output":"ok  \tgithub.com/cloudwego/eino/compose\t1.045s\n"}
+{"Time":"2026-10-15T20:10:46.042895195+08:00","Action":"pass","Package":"github.com/cloudwego/eino/compose","Elapsed":1.046}

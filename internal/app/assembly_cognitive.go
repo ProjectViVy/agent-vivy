@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -10,8 +11,11 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	genassembly "agent-vivy/internal/generated/assembly"
+	memorymodule "agent-vivy/internal/modules/memory"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"github.com/ProjectViVy/agent-vivy/bml"
+	gardenmemory "github.com/ProjectViVy/laputa/garden/memory"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 )
 
@@ -25,7 +29,7 @@ type generatedCognitiveFactoryBinding interface {
 // without vivy/diva-cognitive returns nil; a selected module whose emitted
 // binding is missing or mistyped fails init instead of degrading to a second
 // construction path.
-func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.RuntimeAssembly, cfg config.Config, generationID string, store storage.SnapshotStore) (cognitivecontract.Bundle, error) {
+func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.RuntimeAssembly, cfg config.Config, generationID string, store storage.SnapshotStore, memoryService ...*memorymodule.Service) (cognitivecontract.Bundle, error) {
 	if !assemblyHasModule(assembly.Manifest.Modules, "vivy/diva-cognitive") {
 		return nil, nil
 	}
@@ -44,7 +48,22 @@ func cognitiveBundleForAssembly(ctx context.Context, assembly *genassembly.Runti
 		return nil, fmt.Errorf("app: resolve cognitive data directory: %w", err)
 	}
 	cfg.Storage.DataDir = dataRoot
+	var makeBackend func(context.Context, cognitivecontract.RecapBinding) (gardenmemory.Backend, error)
+	if len(memoryService) > 0 && memoryService[0] != nil {
+		if !assemblyHasModule(assembly.Manifest.Modules, memorymodule.ID) {
+			return nil, fmt.Errorf("app: unselected memory service")
+		}
+		owned := memoryService[0]
+		makeBackend = func(_ context.Context, binding cognitivecontract.RecapBinding) (gardenmemory.Backend, error) {
+			return memorymodule.NewBoundBackend(owned, bml.OwnershipBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID, ScopeKind: "personal", DestinationID: "bml"})
+		}
+	}
 	bundle, err := factory(ctx, cognitivecontract.FactoryInput{
+		NewSubjectBackend: makeBackend,
+		ResolveRecapBinding: func(ctx context.Context, actualRoot string) (cognitivecontract.RecapBinding, error) {
+			binding, err := ResolveSubjectBinding(ctx, store, actualRoot)
+			return cognitivecontract.RecapBinding{SubjectID: binding.SubjectID, DomainID: binding.DomainID}, err
+		},
 		Config:       cfg,
 		GenerationID: generationID,
 		Store:        store,
@@ -184,3 +203,29 @@ func (c *cognitiveControlPort) Cancel(ctx context.Context, runID domain.RunID) (
 // generated providers lands with DN-4C (same pattern as actionhost's
 // newMaskActionHost); until then every cognitive action fails closed at its
 // cognitivecontract.ActionHost type assertion.
+
+// AuthorizeRecap shares the already attached runtime cell and the same C1 owner.
+func (c *cognitiveControlPort) AuthorizeRecap(ctx context.Context, sid domain.SessionID, rid domain.RunID, name string) (cognitivecontract.RecapBinding, error) {
+	if c.svc == nil {
+		return cognitivecontract.RecapBinding{}, cognitivecontract.ErrUnarmed
+	}
+	return c.svc.AuthorizeRecap(ctx, sid, rid, name)
+}
+
+func (c *cognitiveControlPort) ReadRecapSources(ctx context.Context, sid domain.SessionID, rid domain.RunID, name string, revision uint64) ([]cognitivecontract.RecapSource, error) {
+	if c.svc == nil {
+		return nil, cognitivecontract.ErrUnarmed
+	}
+	sources, err := c.svc.ReadRecapSources(ctx, sid, rid, name, revision)
+	if errors.Is(err, storage.ErrSubjectBinding) || errors.Is(err, runtime.ErrPolicyDenied) {
+		return nil, fmt.Errorf("recap_scope_denied")
+	}
+	return sources, err
+}
+
+func (c *cognitiveControlPort) ReadRecapLoaded(ctx context.Context, sid domain.SessionID) (cognitivecontract.RecapLoaded, error) {
+	if c.svc == nil {
+		return cognitivecontract.RecapLoaded{Status: "unavailable"}, cognitivecontract.ErrUnarmed
+	}
+	return c.svc.ReadRecapLoaded(ctx, sid)
+}

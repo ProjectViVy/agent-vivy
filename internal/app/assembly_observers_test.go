@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	genassembly "agent-vivy/internal/generated/assembly"
+	"agent-vivy/internal/observerhost"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/port/observer"
 )
@@ -45,5 +48,12 @@ func TestBuildRunSubscriptionsRejectsProviderWithoutSealedPolicy(t *testing.T) {
 	manifest := generation.Manifest{RunObservers: []string{"fixture.memory"}}
 	if _, err := buildRunSubscriptions(inventory, manifest); err == nil {
 		t.Fatal("observer provider without sealed policy was accepted")
+	}
+}
+
+func TestIssue58RejectDuplicateSubjectSinks(t *testing.T) {
+	sub := observerhost.RunSubscription{Provider: appRunObserver{id: runtime.SubjectProjectionProviderID}, EventTypes: []string{"run.completed"}}
+	if _, err := observerHostForAssembly(context.Background(), genassembly.BuildDefault(), nil, sub, sub); err == nil || !strings.Contains(err.Error(), "multiple selected subject projection sinks") {
+		t.Fatalf("ambiguous subject writer accepted: %v", err)
 	}
 }

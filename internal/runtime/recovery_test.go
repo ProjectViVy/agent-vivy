@@ -22,13 +22,20 @@ import (
 // artifact that a restart resets.
 func restartService(t *testing.T, backend *sqlite.Backend) (*Service, *testSink) {
 	t.Helper()
+	return restartServiceAt(t, backend, "test-engine")
+}
+
+// restartServiceAt restarts under the given checkpoint engine version; a
+// different version models a binary upgrade or rollback.
+func restartServiceAt(t *testing.T, backend *sqlite.Backend, engineVersion string) (*Service, *testSink) {
+	t.Helper()
 	ctx := context.Background()
 
 	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), engineVersion)
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}

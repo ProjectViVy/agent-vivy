@@ -66,7 +66,8 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     await render(true);
     await type('nudge it');
     await key('Enter');
-    expect(onSteer).toHaveBeenCalledWith('nudge it', 'normal', undefined, 'auto');
+    // 未显式选择思考级别时下发 undefined：内核用 settings.yaml 的默认偏好。
+    expect(onSteer).toHaveBeenCalledWith('nudge it', 'normal', undefined, undefined);
     expect(onFollowUp).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -75,7 +76,7 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     await render(true);
     await type('after this');
     await key('Enter', { shiftKey: true, altKey: true });
-    expect(onFollowUp).toHaveBeenCalledWith('after this', 'normal', undefined, 'auto');
+    expect(onFollowUp).toHaveBeenCalledWith('after this', 'normal', undefined, undefined);
     expect(onSteer).not.toHaveBeenCalled();
   });
 
@@ -106,7 +107,7 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     await render(false);
     await type('fresh turn');
     await key('Enter');
-    expect(onSend).toHaveBeenCalledWith('fresh turn', 'normal', undefined, 'auto');
+    expect(onSend).toHaveBeenCalledWith('fresh turn', 'normal', undefined, undefined);
     expect(onSteer).not.toHaveBeenCalled();
     expect(onFollowUp).not.toHaveBeenCalled();
   });

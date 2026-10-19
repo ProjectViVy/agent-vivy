@@ -1,0 +1,28 @@
+{
+  "workflow_run": 38817922217,
+  "ui_job": 116707597725,
+  "branch_head": "9a1a21d4562d7333fa28a19072a0860ff4398126",
+  "actual_pr_merge_checkout": "008aa27b0adbc6aca1c128f9fe07a81f5c133e8f",
+  "base_main": "5715950ddfc87e05cf60e3d2a0ca54983bef05eb",
+  "ui_status": "FAIL: two new Web chat input keys omitted from existing cross-face classification",
+  "passed_substeps": "707 Vitest tests/93 files, Vite build, completeness and 8 validator tests",
+  "fixed_source_local_repro": "fdcb25a554df79c7938287b89a539c905804ca63: check-i18n-cross-face.js exit1, 0.365s",
+  "qualification": "Intermediate Windows failure only. Not final-candidate or new Recap browser qualification. Backend observation was running. Existing browser job passed separately.",
+  "files": [
+    {
+      "name": "issue58-windows-ui-9a1a21-job116707597725.log",
+      "bytes": 83520,
+      "sha256": "f3155ffef0f7be9a4f9cfba88d785a77ef23f19641877f46b9816f101681e948"
+    },
+    {
+      "name": "issue58-crossface-original-red.log",
+      "bytes": 101,
+      "sha256": "ec5cf392ecda876ec00f4608971f954d085a34e0cba6c4ef6d06194a44c22a40"
+    },
+    {
+      "name": "issue58-crossface-original-red.json",
+      "bytes": 343,
+      "sha256": "f15edbd601bfd0333e7de0b5aff6ee4511a648e618e398e5f10cc803aeab6ba7"
+    }
+  ]
+}

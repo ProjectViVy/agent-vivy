@@ -19,7 +19,7 @@ import (
 
 // pinnedEinoVersion matches the go.mod eino pin; go test binaries lack the
 // embedded module metadata app.New's checkpoint bridge fail-closes on.
-const pinnedEinoVersion = "v0.9.13"
+const pinnedEinoVersion = "v0.9.20"
 
 func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 	shared := t.TempDir()
