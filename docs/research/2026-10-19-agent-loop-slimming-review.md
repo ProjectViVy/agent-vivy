@@ -271,7 +271,85 @@ Track maintained code deleted, state owners removed, synchronous failure edges r
 
 The desired result is a core path a maintainer can follow end to end: why a tool may execute, when its result becomes available to the model, and exactly which conditions can stop progress. Optional capabilities must not become hidden prerequisites.
 
-## 11. Draft verification record
+## 11. Recipe-based development and PR responsibility
+
+Discussion follow-up: minimal should be a supported, usable development baseline. New optional features must enter through existing plugin boundaries. A feature is complete only when adding it to an explicit Recipe enables it and removing it leaves the basic loop functional.
+
+A Recipe defines the assembled capability set and starts the validation scope. Reuse an appropriate existing Recipe; create one when a distinct dependency combination or acceptance scenario warrants it. Kernel correctness changes remain explicit kernel changes, not artificial plugins.
+
+Developer validation should cover the feature, the Host/Port contracts it consumes, actual Recipe assembly/startup, and its end-to-end scenario. Changes to shared runtime, transport, storage or authority boundaries require additional affected checks. A narrow Recipe must not become a way to avoid testing shared impacts.
+
+The proposed division is:
+
+| Stage | Owner | Evidence |
+| --- | --- | --- |
+| Development | Contributor | Selected Recipe, feature tests and affected shared contracts |
+| PR updates | Lightweight GitHub checks | Reproducible Recipe checks and required core-loop coverage |
+| Stable merge candidate | Maintainer-triggered GitHub integration | Supported official Recipes and shared integration/release gates |
+| Merge | Maintainer | Results correspond to the current candidate; failures resolved |
+
+Contributors need not reproduce the entire integration environment locally, but remain responsible for regressions their changes cause. Full integration means supported official combinations, not every possible plugin permutation. Existing unconditional CI rules and workflows must be revised together before this becomes effective.
+
+A small chat Face should support human testing with actual model tokens: show the selected Recipe/model, messages, tool requests/results, explicit status, cancellation and approvals when required. It must use the production RPC, `Service.Run`, ToolHost and provider adapter, with isolated test data and existing credential handling. It must not introduce a second loop or depend on optional full-product modules. Deterministic local-model CI and human real-provider checks remain distinct evidence.
+
+## 12. Runnable examples as the developer entry point
+
+The repository should provide one `examples/` entry point covering the full contributor journey. Completeness means a developer can start, implement, validate and submit a feature without reconstructing instructions from historical plans. It does not mean creating a demonstration for every internal abstraction.
+
+### Existing material and gap
+
+At the audited commit there is no tracked `examples/` tree. `plugins/hello-fs` is an existing sample v1 Module with source and tests. Its README refers to `recipes/hello-fs.vivy.yml`, which is absent from that tree. This establishes a documented-command gap; no attempt to execute that missing-recipe command was made in this review.
+
+Reuse and repair existing material before inventing replacements. If an example is moved into `examples/`, move its authoritative source and update callers; do not maintain another copy under `plugins/`.
+
+### Proposed learning path
+
+The following tree is a proposed destination, not a claim that these examples or commands already exist:
+
+```text
+examples/
+  README.md
+  01-minimal/
+  02-tool-plugin/
+  03-feature-recipe/
+  04-chat-face/
+  05-model-provider/
+  06-approval-and-failure/
+```
+
+| Example | Question answered | Acceptance |
+| --- | --- | --- |
+| `01-minimal` | How do I start the smallest usable species? | Production minimal runs a basic tool exchange and returns to idle |
+| `02-tool-plugin` | How do I implement one optional capability? | A small namespaced tool is discovered through its declared Port, executes and returns a result to the model |
+| `03-feature-recipe` | How do I assemble and validate only the required features? | Explicit minimal dependencies plus the example feature; adding/removing it preserves the baseline |
+| `04-chat-face` | How do I test the same product path interactively? | The actual small chat Face drives the selected Recipe through production RPC, including tool continuation |
+| `05-model-provider` | How do I adapt a model through the existing boundary? | Uses a supported pinned Eino/EinoExt API and verifies outbound model identity and tool protocol |
+| `06-approval-and-failure` | How do I handle denial, errors, cancellation and recovery? | Existing authority and lifecycle paths remain correct; no duplicate effects or stranded Run |
+
+The minimal example references the canonical minimal Recipe rather than copying it. The feature-composition example reuses the tool example's module source. The chat example teaches use or extension of the real small Face rather than forking it. Provider and recovery examples should be added only when their supported seams and prerequisite workflow are established.
+
+### What an example contains
+
+Each example contains a short README with prerequisites, supported commands, expected observable results, a representative failure case, and cleanup instructions. Add module source, descriptor and tests only when that example teaches a new module. Add a Recipe only when a distinct composition is needed; otherwise reference its canonical location. Use existing shared verification infrastructure rather than a bespoke runner in every directory.
+
+The README should identify what can be changed safely, which existing Host/Port it uses, how to run deterministic checks, and how to perform an optional real-provider check. A contributor should be able to follow it from a clean checkout. Dependencies, source pins and Grants must be explicit. Secrets and runtime state must not be committed.
+
+Example code may be source for a selected development artifact, but normal product execution must not load configuration or runtime data from an example directory. Runtime facts must remain owned by the assembled artifact. Examples must never enter the default product merely because their source is present.
+
+### Maintenance and CI
+
+- Treat published examples as supported executable documentation. A README command is not accepted until it has been exercised through the supported workflow.
+- Reuse existing test and build commands. Do not introduce a parallel example SDK, validator, registry or workflow format.
+- A change to an example or its shared SDK/Host must run its affected example checks. Maintainer integration verifies the supported example set at the merge candidate.
+- Deterministic CI must require no paid provider credentials. Human real-token validation is explicit and reports the tested provider/model and outcome without exposing secrets.
+- If an interface change breaks an example, update or retire that example in the same PR. Do not leave stale instructions or silently treat a public example as a fixture.
+- New features need an appropriate runnable usage/acceptance scenario, not necessarily a new tutorial directory. Reuse an existing example when it teaches the same extension pattern.
+
+Deliver the first three examples as one usable vertical path before expanding the catalog. Then add the actual chat Face walkthrough, followed by provider and failure/recovery examples. Do not create empty numbered directories to imply completeness.
+
+This examples plan is still a proposal. The directory, small Face, recipe-specific CI entry point and new governance rules have not been implemented by this documentation update.
+
+## 13. Draft verification record
 
 - Inspected remote source and existing tests at the audited commit, and pinned Eino APIs locally.
 - Reviewed official Eino, Pi and DeepSeek reference material.
