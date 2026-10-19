@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/modelhost"
 )
 
 const validVendorYAML = `
@@ -292,8 +294,8 @@ func TestLoadEmbeddedProvidesTheSealedProviderCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEmbedded: %v", err)
 	}
-	if len(vendors) != 46 {
-		t.Fatalf("vendors = %d, want 46", len(vendors))
+	if len(vendors) != 2 {
+		t.Fatalf("vendors = %d, want 2 (deepseek, sensenova)", len(vendors))
 	}
 	endpoints, models := 0, 0
 	seen := map[string]bool{}
@@ -307,10 +309,10 @@ func TestLoadEmbeddedProvidesTheSealedProviderCatalog(t *testing.T) {
 			models += len(endpoint.Models)
 		}
 	}
-	if endpoints != 48 || models != 175 {
-		t.Fatalf("endpoints = %d, models = %d; want 48 and 175", endpoints, models)
+	if endpoints != 3 || models != 14 {
+		t.Fatalf("endpoints = %d, models = %d; want 3 and 14", endpoints, models)
 	}
-	for _, dropped := range []string{"custom", "cherryin"} {
+	for _, dropped := range []string{"custom", "cherryin", "openai", "anthropic", "zhipu"} {
 		if seen[dropped] {
 			t.Fatalf("vendor %q must not be carried into the Vivy catalog", dropped)
 		}
@@ -367,7 +369,7 @@ func TestLoadEmbeddedDeepSeekDefaultChain(t *testing.T) {
 	}
 }
 
-func TestLoadEmbeddedDeclaresTheDeferredResponsesEndpoint(t *testing.T) {
+func TestLoadEmbeddedKeepsTheDeferredResponsesCapabilityVisible(t *testing.T) {
 	vendors, err := LoadEmbedded()
 	if err != nil {
 		t.Fatalf("LoadEmbedded: %v", err)
@@ -379,18 +381,16 @@ func TestLoadEmbeddedDeclaresTheDeferredResponsesEndpoint(t *testing.T) {
 		}
 	}
 	for _, adapter := range AdapterFamilies() {
+		state, _ := AdapterState(adapter)
+		if state == modelhost.CapabilityDeferredIndefinite {
+			if declared[adapter] {
+				t.Fatalf("deferred adapter %q must not be declared by a vendor", adapter)
+			}
+			continue
+		}
 		if !declared[adapter] {
-			t.Fatalf("adapter %q is sealed but has no endpoint in the data", adapter)
+			t.Fatalf("supported adapter %q has no endpoint in the data", adapter)
 		}
-	}
-	var openai Vendor
-	for _, vendor := range vendors {
-		if vendor.Name == "openai" {
-			openai = vendor
-		}
-	}
-	if _, ok := openai.Endpoint(AdapterOpenAIResponses, "https://api.openai.com/v1"); !ok {
-		t.Fatal("openai must declare the deferred openai-responses endpoint so the capability is visible")
 	}
 }
 
@@ -406,52 +406,46 @@ func TestLoadEmbeddedMetadataAnchors(t *testing.T) {
 		index[vendor.Name] = vendor
 	}
 
-	openai, ok := index["openai"].DefaultEndpoint()
+	deepseek, ok := index["deepseek"].DefaultEndpoint()
 	if !ok {
-		t.Fatal("openai has no default endpoint")
+		t.Fatal("deepseek has no default endpoint")
 	}
-	if openai.Adapter != AdapterOpenAICompletions || openai.BaseURL != "https://api.openai.com/v1" || openai.DefaultModel != "gpt-4o" {
-		t.Fatalf("openai default endpoint = %+v", openai)
+	if deepseek.Adapter != AdapterOpenAICompletions || deepseek.BaseURL != "https://api.deepseek.com" || deepseek.DefaultModel != "deepseek-flash" {
+		t.Fatalf("deepseek default endpoint = %+v", deepseek)
 	}
-	gpt4o, ok := openai.Model("gpt-4o")
+	flash, ok := deepseek.Model("deepseek-flash")
 	if !ok {
-		t.Fatal("openai must declare gpt-4o")
+		t.Fatal("deepseek must declare deepseek-flash")
 	}
-	if gpt4o.ContextWindow != 128000 || gpt4o.InputPerMTok != 2.5 || gpt4o.OutputPerMTok != 10 || !gpt4o.SupportsImages {
-		t.Fatalf("gpt-4o metadata = %+v", gpt4o)
-	}
-	if gpt4o.SupportsThinking {
-		t.Fatal("gpt-4o must not claim thinking support")
-	}
-	turbo, ok := openai.Model("gpt-3.5-turbo")
-	if !ok {
-		t.Fatal("openai must declare gpt-3.5-turbo")
-	}
-	if turbo.SupportsImages {
-		t.Fatal("gpt-3.5-turbo must not claim image support")
-	}
-
-	anthropic, ok := index["anthropic"].DefaultEndpoint()
-	if !ok {
-		t.Fatal("anthropic has no default endpoint")
-	}
-	if anthropic.Adapter != AdapterAnthropicMessages || anthropic.BaseURL != "https://api.anthropic.com" || anthropic.DefaultModel != "claude-sonnet-4-5" {
-		t.Fatalf("anthropic default endpoint = %+v", anthropic)
-	}
-	if !anthropic.SupportsPromptCaching {
-		t.Fatal("anthropic must enable automatic prompt caching")
-	}
-	sonnet, ok := anthropic.Model("claude-sonnet-4-5")
-	if !ok {
-		t.Fatal("anthropic must declare claude-sonnet-4-5")
-	}
-	if sonnet.ContextWindow != 200000 || sonnet.InputPerMTok != 3 || sonnet.OutputPerMTok != 15 || !sonnet.SupportsImages || !sonnet.SupportsThinking {
-		t.Fatalf("claude-sonnet-4-5 metadata = %+v", sonnet)
+	if flash.ContextWindow != 1000000 || flash.InputPerMTok != 0.3 || flash.OutputPerMTok != 1.2 || !flash.SupportsImages || !flash.SupportsThinking {
+		t.Fatalf("deepseek-flash metadata = %+v", flash)
 	}
 	// A model listed without metadata stays unknown: zero means unknown, never
 	// free and never zero-cost (DESIGN §6).
-	if legacy, ok := anthropic.Model("claude-3-opus-20240229"); !ok || !reflect.DeepEqual(legacy, Model{ID: "claude-3-opus-20240229"}) {
-		t.Fatalf("unannotated model must carry only its id, got %+v", legacy)
+	if chat, ok := deepseek.Model("deepseek-chat"); !ok || !reflect.DeepEqual(chat, Model{ID: "deepseek-chat"}) {
+		t.Fatalf("unannotated model must carry only its id, got %+v", chat)
+	}
+	if _, ok := index["deepseek"].Endpoint(AdapterAnthropicMessages, "https://api.deepseek.com/anthropic"); !ok {
+		t.Fatal("deepseek must keep its Anthropic-compatible endpoint")
+	}
+
+	sensenova, ok := index["sensenova"].DefaultEndpoint()
+	if !ok {
+		t.Fatal("sensenova has no default endpoint")
+	}
+	if sensenova.Adapter != AdapterOpenAICompletions || sensenova.BaseURL != "https://token.sensenova.cn/v1" || sensenova.DefaultModel != "sensenova-6.8-flash-lite" {
+		t.Fatalf("sensenova default endpoint = %+v", sensenova)
+	}
+	lite, ok := sensenova.Model("sensenova-6.8-flash-lite")
+	if !ok {
+		t.Fatal("sensenova must declare sensenova-6.8-flash-lite")
+	}
+	if lite.ContextWindow != 262144 || !lite.SupportsImages || !lite.SupportsThinking {
+		t.Fatalf("sensenova-6.8-flash-lite metadata = %+v", lite)
+	}
+	glm, ok := sensenova.Model("glm-5.2")
+	if !ok || glm.ContextWindow != 1048576 || !glm.SupportsThinking {
+		t.Fatalf("glm-5.2 metadata = %+v", glm)
 	}
 }
 

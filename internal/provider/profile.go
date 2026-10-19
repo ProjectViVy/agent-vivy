@@ -17,8 +17,9 @@ var providerOptionsSchema = json.RawMessage(`{"type":"object","additionalPropert
 // instead of one vendor's slice of it.
 //
 // The ids are the adapter families, which is also what the ModelHost capability
-// map is keyed by (Capabilities), so a deferred family is visible as a
-// DEFERRED-INDEFINITE Profile rather than missing.
+// map is keyed by (Capabilities): a family no embedded vendor speaks keeps its
+// capability state but compiles no Profile, because a Profile with no model ids
+// would claim reachability the data does not have.
 func AdapterProfiles() ([]providerprofile.Profile, error) {
 	vendors, err := LoadEmbedded()
 	if err != nil {
@@ -55,6 +56,13 @@ func AdapterProfiles() ([]providerprofile.Profile, error) {
 		}
 		sort.Strings(models)
 		sort.Strings(secrets)
+		if len(models) == 0 {
+			// No embedded vendor speaks this family, so there is no endpoint to
+			// compile. A DEFERRED-INDEFINITE family stays visible through
+			// Capabilities; a Profile with no model ids would be rejected by the
+			// ModelHost and would claim reachability the data does not have.
+			continue
+		}
 		profiles = append(profiles, providerprofile.Profile{
 			ID:            adapter.Family,
 			AdapterFamily: adapter.Family,

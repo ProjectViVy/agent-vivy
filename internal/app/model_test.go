@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testVendors indexes the embedded catalog; the app tests exercise the three
+// testVendors indexes the embedded catalog; the app tests exercise the two
 // compiled first-party vendors.
 func testVendors(t *testing.T) map[string]provider.Vendor {
 	t.Helper()
@@ -30,7 +30,7 @@ func testVendors(t *testing.T) map[string]provider.Vendor {
 	for _, vendor := range vendors {
 		index[vendor.Name] = vendor
 	}
-	for _, name := range []string{"deepseek", "openai", "anthropic"} {
+	for _, name := range []string{"deepseek", "sensenova"} {
 		if _, ok := index[name]; !ok {
 			t.Fatalf("embedded provider data lacks %q", name)
 		}
@@ -38,17 +38,17 @@ func testVendors(t *testing.T) map[string]provider.Vendor {
 	return index
 }
 
-// testProfiles projects the three compiled first-party vendors onto the adapter
-// Profiles the Generation seals: one Profile per sealed family, keyed by
-// adapter.
+// testProfiles projects the compiled first-party vendors onto the adapter
+// Profiles the Generation seals: one Profile per family the data speaks,
+// keyed by adapter.
 func testProfiles(t *testing.T) []providerprofile.Profile {
 	t.Helper()
 	profiles, err := provider.AdapterProfiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(profiles) != 3 {
-		t.Fatalf("AdapterProfiles() = %d entries, want 3", len(profiles))
+	if len(profiles) != 2 {
+		t.Fatalf("AdapterProfiles() = %d entries, want 2 (the providers the data carries)", len(profiles))
 	}
 	return profiles
 }
@@ -102,13 +102,13 @@ func TestResolverLegacyDocumentKeepsItsVendorAndEndpoint(t *testing.T) {
 func TestResolverThirdPartyVendorNeedsNoConfigurationBlock(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	os.Unsetenv("DEEPSEEK_API_KEY")
-	os.Unsetenv("MINIMAX_API_KEY")
+	os.Unsetenv("SENSENOVA_API_KEY")
 	dir := t.TempDir()
 	path := settings.Path(dir)
 	// A new-style selection: the adapter plus the address the embedded data
-	// declares for MiniMax. No vendor name appears anywhere.
+	// declares for SenseNova. No vendor name appears anywhere.
 	if _, err := settings.Save(path, settings.Settings{
-		Provider: provider.AdapterOpenAICompletions, BaseURL: "https://api.minimaxi.com/v1",
+		Provider: provider.AdapterOpenAICompletions, BaseURL: "https://token.sensenova.cn/v1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,19 +118,19 @@ func TestResolverThirdPartyVendorNeedsNoConfigurationBlock(t *testing.T) {
 	// Without the environment variable the selection is not ready, and it is
 	// the *third-party* vendor's variable that the error names.
 	cur := newModelResolver(config.Default(), path, catalog, host).Current()
-	if cur.Provider != "minimax" || cur.Adapter != provider.AdapterOpenAICompletions || cur.Model != "MiniMax-M2.1" {
-		t.Fatalf("third-party selection = %+v, want the minimax endpoint", cur)
+	if cur.Provider != "sensenova" || cur.Adapter != provider.AdapterOpenAICompletions || cur.Model != "sensenova-6.8-flash-lite" {
+		t.Fatalf("third-party selection = %+v, want the sensenova endpoint", cur)
 	}
 	if cur.Ready {
 		t.Fatal("a selection whose key is unset must not be ready")
 	}
 
-	t.Setenv("MINIMAX_API_KEY", "sk-minimax")
+	t.Setenv("SENSENOVA_API_KEY", "sk-sensenova")
 	frozen := newModelResolver(config.Default(), path, catalog, host).Current()
 	if !frozen.Ready || !frozen.Frozen {
 		t.Fatalf("a third-party environment variable must freeze the session: %+v", frozen)
 	}
-	if frozen.Provider != "minimax" || frozen.APIKey != "sk-minimax" || frozen.Adapter != provider.AdapterOpenAICompletions {
+	if frozen.Provider != "sensenova" || frozen.APIKey != "sk-sensenova" || frozen.Adapter != provider.AdapterOpenAICompletions {
 		t.Fatalf("frozen third-party session = %+v", frozen)
 	}
 }
@@ -139,14 +139,14 @@ func TestResolverThirdPartyVendorNeedsNoConfigurationBlock(t *testing.T) {
 // the vendor whose environment variable wins when several are set.
 func TestResolverFrozenEnvHonoursVIVYProviderForThirdParty(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "sk-deepseek")
-	t.Setenv("MINIMAX_API_KEY", "sk-minimax")
-	t.Setenv("VIVY_PROVIDER", "minimax")
+	t.Setenv("SENSENOVA_API_KEY", "sk-sensenova")
+	t.Setenv("VIVY_PROVIDER", "sensenova")
 	dir := t.TempDir()
 	cur := newModelResolver(config.Default(), settings.Path(dir), testCatalog(t), testModelHost(t)).Current()
-	if !cur.Frozen || cur.Provider != "minimax" || cur.APIKey != "sk-minimax" {
-		t.Fatalf("VIVY_PROVIDER=minimax resolved %+v", cur)
+	if !cur.Frozen || cur.Provider != "sensenova" || cur.APIKey != "sk-sensenova" {
+		t.Fatalf("VIVY_PROVIDER=sensenova resolved %+v", cur)
 	}
-	if cur.Adapter != provider.AdapterOpenAICompletions || cur.Model != "MiniMax-M2.1" {
+	if cur.Adapter != provider.AdapterOpenAICompletions || cur.Model != "sensenova-6.8-flash-lite" {
 		t.Fatalf("third-party frozen selection = adapter %q model %q", cur.Adapter, cur.Model)
 	}
 }
@@ -217,19 +217,19 @@ func TestResolverProjectPinRestoresPerProjectSelection(t *testing.T) {
 	if _, err := settings.Save(path, settings.Settings{
 		Provider: settings.ProviderDeepSeek, ApiKey: "sk-global",
 		ProjectDefaults: map[string]settings.ScopedModel{
-			project: {Provider: "openai", Model: "gpt-4o"},
+			project: {Provider: "deepseek", Model: "deepseek-chat"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	pinned := newModelResolverForProject(config.Default(), path, project, testCatalog(t), testModelHost(t)).Current()
-	if pinned.Provider != "openai" || pinned.Model != "gpt-4o" {
-		t.Fatalf("pinned selection = %s/%s, want openai/gpt-4o", pinned.Provider, pinned.Model)
+	if pinned.Provider != "deepseek" || pinned.Model != "deepseek-chat" {
+		t.Fatalf("pinned selection = %s/%s, want deepseek/deepseek-chat", pinned.Provider, pinned.Model)
 	}
 	// A fresh resolver (a relaunch) restores the same pin.
 	again := newModelResolverForProject(config.Default(), path, project, testCatalog(t), testModelHost(t)).Current()
-	if again.Provider != "openai" || again.Model != "gpt-4o" {
-		t.Fatalf("relaunch selection = %s/%s, want openai/gpt-4o", again.Provider, again.Model)
+	if again.Provider != "deepseek" || again.Model != "deepseek-chat" {
+		t.Fatalf("relaunch selection = %s/%s, want deepseek/deepseek-chat", again.Provider, again.Model)
 	}
 	// A different project keeps the global selection.
 	other := newModelResolverForProject(config.Default(), path, "/work/beta", testCatalog(t), testModelHost(t)).Current()
@@ -320,15 +320,16 @@ func TestResolverCannotReadyUncompiledProfile(t *testing.T) {
 	dir := t.TempDir()
 	path := settings.Path(dir)
 	if _, err := settings.Save(path, settings.Settings{
-		Provider: settings.ProviderAnthropic, DefaultModel: "claude-sonnet-4-5", ApiKey: "secret",
+		Provider: provider.AdapterAnthropicMessages, BaseURL: "https://api.deepseek.com/anthropic",
+		DefaultModel: "deepseek-chat", ApiKey: "secret",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// The vendor and its endpoint exist in the embedded data, but this
 	// Generation compiles only the openai-completions adapter, so the selection
 	// cannot become ready.
-	if _, ok := testVendors(t)["anthropic"]; !ok {
-		t.Fatal("embedded data must still declare the anthropic vendor")
+	if _, ok := testVendors(t)["deepseek"]; !ok {
+		t.Fatal("embedded data must still declare the deepseek vendor")
 	}
 	host, err := modelhost.New([]providerprofile.Profile{testProfiles(t)[0]}, provider.Capabilities())
 	if err != nil {
@@ -357,7 +358,7 @@ func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) 
 	// projection from the stored selection to that adapter is the same one the RPC
 	// status closure uses.
 	statuses := host.Statuses(current.Adapter, current.Ready)
-	if len(statuses) != 3 || statuses[1].ID != provider.AdapterOpenAICompletions || statuses[1].State != modelhost.ProfileReady {
+	if len(statuses) != 2 || statuses[1].ID != provider.AdapterOpenAICompletions || statuses[1].State != modelhost.ProfileReady {
 		t.Fatalf("resolver Profile statuses = %#v", statuses)
 	}
 	if statuses[1].AdapterFamily != provider.AdapterOpenAICompletions || statuses[1].EndpointClass == "" {

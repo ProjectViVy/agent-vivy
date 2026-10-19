@@ -30,14 +30,14 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 		{
 			name: "declared address identifies its vendor",
 			stored: settings.Settings{
-				Provider: provider.AdapterOpenAICompletions, BaseURL: "https://api.minimaxi.com/v1",
+				Provider: provider.AdapterOpenAICompletions, BaseURL: "https://token.sensenova.cn/v1",
 			},
-			vendor: "minimax", adapter: provider.AdapterOpenAICompletions, model: "MiniMax-M2.1", ok: true,
+			vendor: "sensenova", adapter: provider.AdapterOpenAICompletions, model: "sensenova-6.8-flash-lite", ok: true,
 		},
 		{
 			name:   "legacy vendor without an address keeps its default endpoint",
-			stored: settings.Settings{Provider: settings.ProviderAnthropic},
-			vendor: "anthropic", adapter: provider.AdapterAnthropicMessages, model: "claude-sonnet-4-5", ok: true,
+			stored: settings.Settings{Provider: settings.ProviderDeepSeek},
+			vendor: "deepseek", adapter: provider.AdapterOpenAICompletions, model: "deepseek-flash", ok: true,
 		},
 		{
 			name:   "adapter without an address falls back to the configured vendor",
@@ -47,11 +47,13 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 			vendor: "deepseek", adapter: provider.AdapterAnthropicMessages, model: "deepseek-chat", ok: true,
 		},
 		{
-			name: "a pre-migration vendor keeps ownership of an undeclared gateway",
+			// A vendor the catalog no longer carries resolves non-fatally: the
+			// stored name is kept, the endpoint is not.
+			name: "a pruned pre-migration vendor stays readable but unusable",
 			stored: settings.Settings{
 				Provider: settings.ProviderOpenAI, BaseURL: "https://my-gateway.example/v1",
 			},
-			vendor: "openai", adapter: provider.AdapterOpenAICompletions, model: "gpt-4o", ok: true,
+			vendor: "openai", adapter: provider.AdapterOpenAICompletions, model: "", ok: false,
 		},
 		{
 			name: "an address no vendor declares falls back to the configured vendor",
@@ -110,23 +112,23 @@ func TestApplySettingsEnvWritesTheVendorsOwnVariable(t *testing.T) {
 	cfg.Storage.DataDir = t.TempDir()
 	longLived := settings.Settings{
 		Provider:     provider.AdapterOpenAICompletions,
-		BaseURL:      "https://api.minimaxi.com/v1",
-		DefaultModel: "MiniMax-M2.1",
+		BaseURL:      "https://token.sensenova.cn/v1",
+		DefaultModel: "sensenova-6.8-flash-lite",
 		Providers: []settings.ProviderEntry{{
-			ID: "custom-1", DisplayName: "MiniMax", Bundle: provider.AdapterOpenAICompletions,
-			BaseURL: "https://api.minimaxi.com/v1", ApiKey: "sk-minimax",
+			ID: "custom-1", DisplayName: "SenseNova", Bundle: provider.AdapterOpenAICompletions,
+			BaseURL: "https://token.sensenova.cn/v1", ApiKey: "sk-sensenova",
 		}},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applySettingsEnv(logger, testCatalog(t), cfg, longLived)
 
-	if got := os.Getenv("MINIMAX_API_KEY"); got != "sk-minimax" {
-		t.Fatalf("MINIMAX_API_KEY = %q, want the registry key", got)
+	if got := os.Getenv("SENSENOVA_API_KEY"); got != "sk-sensenova" {
+		t.Fatalf("SENSENOVA_API_KEY = %q, want the registry key", got)
 	}
 	if got := os.Getenv("OPENAI_API_KEY"); got != openAIKeyBefore {
 		t.Fatalf("OPENAI_API_KEY changed to %q; a third-party key must never be written into another vendor's variable", got)
 	}
-	if got := os.Getenv(provider.APIBaseEnvVar); got != "https://api.minimaxi.com/v1" {
+	if got := os.Getenv(provider.APIBaseEnvVar); got != "https://token.sensenova.cn/v1" {
 		t.Fatalf("%s = %q, want the selected address", provider.APIBaseEnvVar, got)
 	}
 }

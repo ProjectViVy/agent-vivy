@@ -10,13 +10,13 @@ import (
 )
 
 // The sealed unit is the adapter, not the vendor: the compiled Generation
-// carries one Profile per adapter family, and the deferred family is visible
-// rather than missing. The test name is cited as Port evidence by
-// sdk/internal/assembly/evidence.go, so it is kept.
+// carries one Profile per adapter family the embedded data reaches. The test
+// name is cited as Port evidence by sdk/internal/assembly/evidence.go, so it is
+// kept.
 func TestDefaultProviderProfilesMatchExistingRuntimeFamilies(t *testing.T) {
 	providers := ProviderProfiles()
-	if len(providers) != 3 {
-		t.Fatalf("ProviderProfiles() = %d entries, want 3", len(providers))
+	if len(providers) != 2 {
+		t.Fatalf("ProviderProfiles() = %d entries, want 2", len(providers))
 	}
 	definitions := make([]providerprofile.Profile, 0, len(providers))
 	for _, provider := range providers {
@@ -26,8 +26,8 @@ func TestDefaultProviderProfilesMatchExistingRuntimeFamilies(t *testing.T) {
 		}
 		definitions = append(definitions, profile)
 	}
-	want := []string{provider.AdapterOpenAICompletions, provider.AdapterOpenAIResponses, provider.AdapterAnthropicMessages}
-	got := []string{definitions[0].ID, definitions[1].ID, definitions[2].ID}
+	want := []string{provider.AdapterOpenAICompletions, provider.AdapterAnthropicMessages}
+	got := []string{definitions[0].ID, definitions[1].ID}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Profile IDs = %v, want %v", got, want)
 	}
@@ -47,14 +47,11 @@ func TestDefaultProviderProfilesMatchExistingRuntimeFamilies(t *testing.T) {
 		if state != capabilities[want[i]] {
 			t.Fatalf("Profile %q state = %q, want %q", profile.ID, state, capabilities[want[i]])
 		}
-		if state == modelhost.CapabilitySupported {
-			if len(profile.ModelIDs) == 0 || len(profile.SecretRefs) == 0 {
-				t.Fatalf("supported Profile %q carries %d model ids and %d Secret references", profile.ID, len(profile.ModelIDs), len(profile.SecretRefs))
-			}
-			continue
+		if state != modelhost.CapabilitySupported {
+			t.Fatalf("Profile %q state = %q, want SUPPORTED", profile.ID, state)
 		}
-		if state != modelhost.CapabilityDeferredIndefinite {
-			t.Fatalf("Profile %q state = %q, want SUPPORTED or DEFERRED-INDEFINITE", profile.ID, state)
+		if len(profile.ModelIDs) == 0 || len(profile.SecretRefs) == 0 {
+			t.Fatalf("supported Profile %q carries %d model ids and %d Secret references", profile.ID, len(profile.ModelIDs), len(profile.SecretRefs))
 		}
 	}
 	supported := 0
@@ -64,7 +61,7 @@ func TestDefaultProviderProfilesMatchExistingRuntimeFamilies(t *testing.T) {
 		}
 	}
 	if supported != 2 {
-		t.Fatalf("supported adapter families = %d, want 2 with one DEFERRED-INDEFINITE", supported)
+		t.Fatalf("supported adapter families = %d, want 2", supported)
 	}
 }
 

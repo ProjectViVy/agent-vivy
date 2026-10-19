@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"agent-vivy/internal/modelhost"
 )
 
 // ReconcileAdapters proves that the embedded provider data and the sealed
@@ -39,6 +41,12 @@ func ReconcileAdapters(vendors []Vendor, sealedAdapters []string) error {
 	}
 	for _, adapter := range sortedKeys(sealed) {
 		if _, ok := declared[adapter]; !ok {
+			// A DEFERRED-INDEFINITE family has no constructor at all, so the
+			// data may legitimately declare no endpoint for it: the capability
+			// stays visible without becoming executable.
+			if state, isSealed := AdapterState(adapter); isSealed && state == modelhost.CapabilityDeferredIndefinite {
+				continue
+			}
 			errs = append(errs, fmt.Errorf("sealed adapter %q has no endpoint in the provider data", adapter))
 		}
 	}

@@ -26,7 +26,7 @@ import (
 )
 
 const realSmokeTimeout = 3 * time.Minute
-const pinnedEinoVersion = "v0.9.13"
+const pinnedEinoVersion = "v0.9.21"
 
 type rpcSmokeClient struct {
 	conn *websocket.Conn

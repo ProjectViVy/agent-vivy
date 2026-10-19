@@ -25,7 +25,8 @@ Four layers, only the first of which is code (D4):
 Three adapters exist and no more: `openai-completions`, `openai-responses`
 (**deferred, not implemented**), `anthropic-messages`. Data may name one of
 these; it can never introduce an adapter, a transport, or executable
-behaviour.
+behaviour. A deferred family may declare no endpoint at all: the capability
+stays visible while no vendor offers it.
 
 ## Editing rules
 
@@ -121,5 +122,7 @@ source. The derivation:
   `openai-responses` endpoint;
 - left every other model's metadata absent.
 
-The current content is **45 vendors, 47 endpoints, 168 model entries**. The
-provenance record on each vendor names its source entry.
+The current content is **2 vendors, 3 endpoints, 14 model entries** after the
+2026-10-20 owner decision to keep only DeepSeek and SenseNova. The notes above
+describe the 2026-09-18 import; the surviving vendors keep their provenance
+records.

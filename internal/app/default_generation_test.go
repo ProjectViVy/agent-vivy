@@ -117,8 +117,8 @@ func TestDefaultGenerationBaselineInventory(t *testing.T) {
 
 func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 	assembly := genassembly.BuildDefault()
-	if len(assembly.ProviderProfiles) != 3 {
-		t.Fatalf("generated Provider Profiles = %d, want 3", len(assembly.ProviderProfiles))
+	if len(assembly.ProviderProfiles) != 2 {
+		t.Fatalf("generated Provider Profiles = %d, want 2", len(assembly.ProviderProfiles))
 	}
 	// The sealed unit is the protocol adapter, not the vendor, so the first
 	// compiled Profile is the OpenAI-compatible adapter DeepSeek's default
@@ -126,8 +126,8 @@ func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
 	if got := assembly.ProviderProfiles[0].Definition().ID; got != provider.AdapterOpenAICompletions {
 		t.Fatalf("first Provider Profile = %q, want %q", got, provider.AdapterOpenAICompletions)
 	}
-	if got := assembly.ProviderProfiles[1].Definition().ID; got != provider.AdapterOpenAIResponses {
-		t.Fatalf("second Provider Profile = %q, want the deferred %q", got, provider.AdapterOpenAIResponses)
+	if got := assembly.ProviderProfiles[1].Definition().ID; got != provider.AdapterAnthropicMessages {
+		t.Fatalf("second Provider Profile = %q, want %q", got, provider.AdapterAnthropicMessages)
 	}
 	for index, provider := range assembly.ProviderProfiles {
 		if got, want := provider.Definition().ID, assembly.Manifest.ProviderProfiles[index]; got != want {

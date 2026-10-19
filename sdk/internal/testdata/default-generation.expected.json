@@ -112,7 +112,6 @@
   },
   "providerProfiles": [
     "openai-completions",
-    "openai-responses",
     "anthropic-messages"
   ],
   "contextSources": [

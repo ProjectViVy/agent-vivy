@@ -32,12 +32,23 @@ func TestReconcileAdaptersRejectsSealedAdapterWithoutEndpoint(t *testing.T) {
 	vendors := []Vendor{{Name: "example", Endpoints: []Endpoint{
 		{Adapter: AdapterOpenAICompletions, BaseURL: "https://a.example.com"},
 	}}}
-	err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterOpenAIResponses})
+	err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterAnthropicMessages})
 	if err == nil {
-		t.Fatal("expected a sealed adapter with no endpoint to fail the gate")
+		t.Fatal("expected a supported sealed adapter with no endpoint to fail the gate")
 	}
-	if !strings.Contains(err.Error(), AdapterOpenAIResponses) {
+	if !strings.Contains(err.Error(), AdapterAnthropicMessages) {
 		t.Fatalf("error %q does not name the missing adapter", err)
+	}
+}
+
+// A DEFERRED-INDEFINITE family has no constructor, so data may declare no
+// endpoint for it while the capability row stays visible.
+func TestReconcileAdaptersAcceptsDeferredAdapterWithoutEndpoint(t *testing.T) {
+	vendors := []Vendor{{Name: "example", Endpoints: []Endpoint{
+		{Adapter: AdapterOpenAICompletions, BaseURL: "https://a.example.com"},
+	}}}
+	if err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterOpenAIResponses}); err != nil {
+		t.Fatalf("deferred adapter without an endpoint must reconcile: %v", err)
 	}
 }
 

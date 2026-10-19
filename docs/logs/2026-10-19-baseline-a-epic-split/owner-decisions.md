@@ -75,3 +75,11 @@ the Story package and the epic packages; the branch is updated accordingly.
     (E3) stays a separate triage: self-contained fixes only, never commits that
     cite post-baseline runtime code. Assessment:
     [provider/Eino alignment](../../research/2026-10-19-provider-eino-alignment-backport.md).
+12. **The provider catalog is pruned to DeepSeek and SenseNova.** The owner
+    decision on 2026-10-20 keeps only `deepseek` and `sensenova` in the embedded
+    vendor data; every other vendor, endpoint and model leaves the shipped
+    catalog. The `openai-responses` family stays sealed and `DEFERRED-INDEFINITE`
+    (no vendor declares an endpoint), and a deferred family may compile no
+    Provider Profile; the default Assembly was regenerated so the sealed
+    manifest carries two Profile identities. Record:
+    [provider catalog prune](../2026-10-20-provider-catalog-prune/summary.md).
