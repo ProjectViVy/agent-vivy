@@ -1,6 +1,6 @@
 # Published remake branches and issue handoffs
 
-The [frozen source receipt](source-branches.json) pins each raw donor commit/tree used for the lossless split. Each GitHub branch also carries the matching branch-specific plan and issue requirements. These documentation updates leave the frozen donor trees and source-separation evidence unchanged; they do not indicate feature acceptance.
+The [frozen source receipt](source-branches.json) pins each raw donor commit/tree used for the lossless split. Each GitHub branch also carries the matching branch-specific plan and issue requirements. The [issue-sync receipt](plan-sync-branches.json) pins the current documentation-only branch commits while preserving each frozen donor SHA/tree. These updates do not indicate feature acceptance.
 
 | Plan | Branch | Dedicated paths | Shared refs | Issue requirements to preserve |
 |---|---|---:|---:|---|

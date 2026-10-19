@@ -4,7 +4,7 @@ Date: 2026-10-19. This is the sole status/dependency index of this package. [Des
 
 ## Execution update: donor branches
 
-[Published source branches](source-branch-table.md) · [Exact frozen donor receipt](source-branches.json) · [Donor extraction receipt](extraction.md) record the source split and plan synchronization. All 16 published refs are donor branches, not build/product-accepted features. R10–R24 are bounded feature intake lines; R25 is a warming-history handoff to #93's existing epic plan, not a second implementation plan. Every branch carries the matching current lane-plan issue requirements. Dedicated source files remain split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
+[Published source branches](source-branch-table.md) · [Exact frozen donor receipt](source-branches.json) · [Issue-synchronized branch heads](plan-sync-branches.json) · [Donor extraction receipt](extraction.md) record the source split and plan synchronization. All 16 published refs are donor branches, not build/product-accepted features. R10–R24 are bounded feature intake lines; R25 is a warming-history handoff to #93's existing epic plan, not a second implementation plan. Every branch carries the matching current lane-plan issue requirements. Dedicated source files remain split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
 
 ## Current facts and readiness
 
