@@ -13,8 +13,9 @@ import type { UITranslator } from '@vivy/ui-sdk';
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { NodeDescriptor } from '../studio/schema';
-import { exitOutputName, parseJSONOrError, patchNode, setExit, setExitOutputName } from '../studio/edit';
+import { exitOutputName, patchNode, setExit, setExitOutputName } from '../studio/edit';
 import type { Artifact, Node } from '../studio/schema';
+import { formatNodeInputs, parseBindingMap, setNodeInputs } from './node-inputs';
 
 export interface NodePanelProps {
   artifact: Artifact;
@@ -39,12 +40,14 @@ function setConfigField(node: Node, key: string, value: unknown): Node {
 }
 
 export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, onDelete }: NodePanelProps) {
-  const [inputsDraft, setInputsDraft] = useState(() => JSON.stringify(fieldValue(node, 'inputs') ?? {}, null, 2));
+  // Canonical bindings live on `node.inputs`; `node.config` only carries the
+  // node-type fields (`task`, `tool_names`, ...) the host executor decodes.
+  const [inputsDraft, setInputsDraft] = useState(() => formatNodeInputs(node));
   const [inputsError, setInputsError] = useState<string | null>(null);
   useEffect(() => {
-    setInputsDraft(JSON.stringify(fieldValue(node, 'inputs') ?? {}, null, 2));
+    setInputsDraft(formatNodeInputs(node));
     setInputsError(null);
-  }, [node.id, node.config]);
+  }, [node.id, node.inputs]);
 
   const isExit = artifact.definition.graph.exits.includes(node.id);
   const outputName = exitOutputName(artifact, node.id);
@@ -56,13 +59,13 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
 
   const patch = (next: Node) => onChange(patchNode(artifact, next));
   const commitInputs = (text: string) => {
-    const parsed = parseJSONOrError(text);
+    const parsed = parseBindingMap(text);
     if (!parsed.ok) {
       setInputsError(parsed.error);
       return;
     }
     setInputsError(null);
-    patch(setConfigField(node, 'inputs', parsed.value));
+    patch(setNodeInputs(node, parsed.value));
   };
 
   return (

@@ -20,6 +20,13 @@ export default defineConfig({
       // staged UI build resolve from the ui install here, matching prod.
       'react-markdown': fileURLToPath(new URL('./node_modules/react-markdown/index.js', import.meta.url)),
       'remark-gfm': fileURLToPath(new URL('./node_modules/remark-gfm/index.js', import.meta.url)),
+      // The workflow editor imports its canvas package and its stylesheet; both
+      // resolve from the ui install exactly as the staged build does. The
+      // stylesheet entry must come first (string aliases also prefix-match).
+      '@xyflow/react/dist/style.css': fileURLToPath(
+        new URL('./node_modules/@xyflow/react/dist/style.css', import.meta.url),
+      ),
+      '@xyflow/react': fileURLToPath(new URL('./node_modules/@xyflow/react/dist/esm/index.js', import.meta.url)),
     },
     // The SDK source tree carries its own React devDependency. Without this the
     // aliased source would load a second React copy into the same test tree and
@@ -44,6 +51,8 @@ export default defineConfig({
       '../plugins/vivy-memory/ui/vivy-memory/src/**/*.test.tsx',
       '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.ts',
       '../plugins/vivy-notebook/ui/vivy-notebook/src/**/*.test.tsx',
+      '../plugins/vivy-workflow/ui/vivy-workflow/src/**/*.test.ts',
+      '../plugins/vivy-workflow/ui/vivy-workflow/src/**/*.test.tsx',
     ],
     exclude: [
       'node_modules/**',
@@ -54,6 +63,7 @@ export default defineConfig({
       'src/generated/ui/session-tree/src/**/*.test.*',
       'src/generated/ui/vivy-notebook/src/**/*.test.*',
       'src/generated/ui/vivy-memory/src/**/*.test.*',
+      'src/generated/ui/vivy-workflow/src/**/*.test.*',
     ],
   },
 });

@@ -4,8 +4,11 @@
  * Every `inofy.*` call is bound to the active host session (the backend
  * handlers are session-scoped and fail closed without it). `inofy.startRun`
  * additionally carries the run parentage the product contract requires:
- * `parent_run_id` is the host's current run and `operation_id` a per-call
- * idempotency key, the same model the Run Inspector uses for workflow/start.
+ * `parent_run_id` is always the host's eligible active run — a caller cannot
+ * supply or borrow one — and `operation_id` a per-call idempotency key, the
+ * same model the Run Inspector uses for workflow/start. When the host has no
+ * eligible parent the call fails before the wire instead of asking the backend
+ * to guess.
  *
  * The journal is the sole event authority: `subscribe("inofy.events")`
  * multiplexes onto `run/subscribe` + `run/event` notifications and pages from
@@ -13,6 +16,7 @@
  * mapping, so the editor renders committed host facts only.
  */
 import type { FaceClientRPC, FaceClientStore, FaceStoreState } from '@vivy/ui-sdk';
+import { workflowLaunchParent } from './launch-context';
 import type { RunEvent } from './studio/schema';
 import { TransportError } from './studio/transport';
 
@@ -87,8 +91,18 @@ export class FaceBridge implements HostBridge {
     if (sessionId) body.session_id = sessionId;
     else delete body.session_id;
     if (method === 'inofy.startRun') {
-      const parent = state.currentRun;
-      if (parent?.id) body.parent_run_id = parent.id;
+      // Parentage is host state, never caller input: drop any supplied value
+      // and refuse ineligible launches (no session, idle or terminal run, run
+      // from another session) before the backend is asked.
+      delete body.parent_run_id;
+      const parentRunId = workflowLaunchParent(state);
+      if (!parentRunId) {
+        return Promise.reject(new TransportError(0, {
+          code: 'unsupported_feature',
+          message: 'workflow launch requires an active run in the current session',
+        }));
+      }
+      body.parent_run_id = parentRunId;
       if (typeof body.operation_id !== 'string' || !body.operation_id) {
         body.operation_id = crypto.randomUUID();
       }
