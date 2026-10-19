@@ -1,0 +1,403 @@
+{
+  "lane": "skill-evolution",
+  "branch": "remake/skill-evolution",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/domain/skill.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3946d43c2d4d7e5062259ac12a9c7522d5265f93"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "30ab6d1838d12bb24dad11ee7377cd5167cf78a9"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_skill_proposal.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e2af05dbc38089c73e90fa88d7947b950d883d72"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_skill_proposal_test.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4a56010a5356b738cb3c6fd6b16ae39d506d598e"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/skills_backend.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "54253eea208125b1561b8896a65774ad36e40ffa"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5176504ab8804f5c98f1917f3f3e64b23b8bb602"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/skills_backend_test.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4e4ea5f2eb2c91e12c93eecef2a1981474deb402"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b2da8fac10153a92940d6442775d6b8d35675e40"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/approvals.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "650176adc9c654062f3bda0b2f1785184ebacc56"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5ef125a11aad47940b572d49b76cb66117fe2e18"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/approvals.go",
+      "owner": "skill-evolution",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b8174b163ee8aa36c4d0ee996a94441e0c5fdfec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b9a8d4e4d7a066b9e7d793e074cce0d6789d9e96"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": "go.mod",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "685e9855116f7c417417e426d137c89cbe0aaff8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f98172be7ba57f3d5a9a12c2985aa84cb4e15f8"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "misc",
+        "provider",
+        "recap",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "go.sum",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8015db0345abaadf835e8a8594fb5e2a8499e2e8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d951b3656ff601cec55d6c931da0600360197d3a"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "provider",
+        "recap",
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/app.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "01272e1c7aa6c97acdd485f66eae5874e40681eb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d688377d08de4928661ebf33d35511508e1e075"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/tool.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7571eeb253d4e2d82c0db80f507d703aee243fdf"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab0d356647d53cfde0a8312c1f26be5b7272c2fc"
+      },
+      "contributing_owners": [
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/approval_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2fe6573c0bbd555a8d9eb0da5b98cfe7663c8957"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d4b2fe14a01899051e4a3798e5854c0cfd5db614"
+      },
+      "contributing_owners": [
+        "notebook",
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_skills.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "100ddee29b59514d783066e9053c1081f037266e"
+      },
+      "contributing_owners": [
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_binding.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "94cf708f77b4a38e1021641f513b799ced1412c4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5b7ae530a87106f0db131f9543e2efd2cc5aee40"
+      },
+      "contributing_owners": [
+        "cognition",
+        "reports",
+        "skill-evolution",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "740d8876fa8480bee95043c0538551672922f1d3"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook",
+        "persona",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/skills.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "aa12804827b12e5896291d24d104ed045f682926"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "534139f6a3a4d9994490a2fa1e968b70c4c1c7b8"
+      },
+      "contributing_owners": [
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "laputa-source.lock.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "697aa5efab941cc53a26c09eecdd4b1b7f78d38e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02b15ab55d55be423e0df7f1062584b1426431b0"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "misc",
+        "recap",
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}
