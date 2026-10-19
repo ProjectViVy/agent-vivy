@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#1](https://github.com/ProjectViVy/agent-vivy/issues/1) remains open and unscheduled: restricted local ACP stdio, one Face/runtime, pinned protocol capability and governed approval/outcome flow. Source splitting is not implementation authorization or acceptance.
+- [#2](https://github.com/ProjectViVy/agent-vivy/issues/2) tracks separate A2A work; do not absorb it here.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates any later selection against #91 FaceHost, Assembly and artifact contracts.
+
+remake/acp is raw donor source; keep arbitrary transports, A2A and remote worker scope out.
+
+
 ## Verified donor entry points
 
 - `plugins/acp/module.go` — main donor.
