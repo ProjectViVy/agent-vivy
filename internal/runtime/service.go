@@ -1903,8 +1903,10 @@ func (s *Service) recover(ctx context.Context) error {
 				// generation/module restore can retry recovery; no model or tool is
 				// allowed to consume the opaque checkpoint in the meantime.
 				s.rebuildPending(ctx, run, approval, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", func() error {
+					return s.cancelApproval(ctx, approval, lostCheckpointReason)
+				})
 			} else {
 				s.rebuildPending(ctx, run, approval, workspaceID)
 			}
@@ -1918,8 +1920,10 @@ func (s *Service) recover(ctx context.Context) error {
 				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
 			} else if blocked {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				s.failLostCheckpoint(ctx, run, cpErr, "checkpoint not readable", func() error {
+					return s.cancelQuestion(ctx, question.ID, lostCheckpointReason)
+				})
 			} else {
 				s.rebuildPendingQuestion(ctx, run, question, workspaceID)
 			}
@@ -1928,8 +1932,10 @@ func (s *Service) recover(ctx context.Context) error {
 				s.failUnrecoverable(ctx, run.ID, "prompt snapshot could not be recovered")
 			} else if blocked {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
-			} else if !s.checkpointReadable(ctx, run.ID) {
-				s.failUnrecoverable(ctx, run.ID, "Plan review checkpoint not readable")
+			} else if cpErr := s.checkpointReadError(ctx, run.ID); cpErr != nil {
+				// The Plan review row is settled after the terminal, like any
+				// closed origin run (cancelPlanReviewForRun in failLostCheckpoint).
+				s.failLostCheckpoint(ctx, run, cpErr, "Plan review checkpoint not readable", nil)
 			} else {
 				s.rebuildPendingPlanReview(ctx, run, planReview, workspaceID)
 			}
@@ -2214,15 +2220,59 @@ func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID dom
 // checkpointReadable mirrors the interrupt-time check: only a checkpoint
 // the versioned bridge can actually serve back may anchor a resume.
 func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bool {
+	return s.checkpointReadError(ctx, runID) == nil
+}
+
+// errCheckpointMissing reports a run with no stored checkpoint, or no
+// checkpoint store wired.
+var errCheckpointMissing = errors.New("runtime: checkpoint missing")
+
+// checkpointReadError is checkpointReadable with the cause kept, so recovery
+// can tell an engine upgrade or rollback from a lost checkpoint.
+func (s *Service) checkpointReadError(ctx context.Context, runID domain.RunID) error {
 	if s.engine.cfg.Checkpoints == nil {
-		return false
+		return errCheckpointMissing
 	}
 	promptCtx, _, err := s.promptSnapshotContext(ctx, runID)
 	if err != nil {
-		return false
+		return err
 	}
 	_, ok, err := s.engine.cfg.Checkpoints.Get(promptCtx, checkpointIDFor(runID))
-	return err == nil && ok
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errCheckpointMissing
+	}
+	return nil
+}
+
+const (
+	// lostCheckpointReason is recorded on the interaction row recovery
+	// cancels when its run cannot be resumed.
+	lostCheckpointReason = "the paused run could not be resumed after restart"
+	// engineChangedMessage is the run.failed text when the checkpoint was
+	// written by a different Eino engine version (a Vivy upgrade or
+	// rollback across a paused run). Checkpoints are never converted across
+	// versions; the run is closed and the user starts it again.
+	engineChangedMessage = "Vivy was updated while this run was waiting, and a paused run cannot continue on a different engine version. Its pending request was cancelled. Please start the task again."
+)
+
+// failLostCheckpoint closes a suspended run whose checkpoint cannot be served
+// back. The pending interaction is settled first, because its cancel event
+// must precede the terminal; the Plan review, if any, is settled after it.
+func (s *Service) failLostCheckpoint(ctx context.Context, run domain.Run, cpErr error, reason string, settle func() error) {
+	if settle != nil {
+		if err := settle(); err != nil {
+			slog.Warn("restart recovery: pending interaction could not be settled", "run", string(run.ID), "err", err)
+		}
+	}
+	if errors.Is(cpErr, ErrCheckpointEngineVersionMismatch) {
+		s.failUnrecoverableWithMessage(ctx, run.ID, reason+": engine version changed", engineChangedMessage)
+	} else {
+		s.failUnrecoverable(ctx, run.ID, reason)
+	}
+	s.cancelPlanReviewForRun(ctx, run.SessionID, run.ID)
 }
 
 // promptBlocksRecovery distinguishes a recoverable prompt incompatibility
@@ -2779,6 +2829,12 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 // failUnrecoverable closes one restart-orphaned run with a definitive
 // terminal event so no non-terminal row outlives the process (FR-8).
 func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
+	s.failUnrecoverableWithMessage(ctx, runID, reason, "The run was interrupted by a server restart and could not be recovered. Please try again.")
+}
+
+// failUnrecoverableWithMessage is failUnrecoverable with the user-facing
+// run.failed text chosen by the caller. Child runs keep their own message.
+func (s *Service) failUnrecoverableWithMessage(ctx context.Context, runID domain.RunID, reason, message string) {
 	m := newEventMapper(runID, 0)
 	if run, err := s.deps.Runs.GetRun(ctx, runID); err == nil && run.Kind == domain.RunKindChild {
 		if s.deps.Approvals != nil {
@@ -2799,7 +2855,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	}
 	s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 		CauseCategory: causeInternalError,
-		Message:       "The run was interrupted by a server restart and could not be recovered. Please try again.",
+		Message:       message,
 	}))
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }

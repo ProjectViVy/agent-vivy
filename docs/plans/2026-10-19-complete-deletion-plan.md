@@ -139,7 +139,7 @@ Use one active write lane per checkout. Read-only auditors may run concurrently;
 
 ### Existing Eino capability check
 
-The audited pin is `github.com/cloudwego/eino v0.9.13`. `adk.NewChatModelAgent`, `adk.NewRunner`, `Runner.Run`, `ResumeWithParams`, `ChatModelAgentConfig.MaxIterations` and `compose.ToolsNodeConfig` already cover iteration, recovery and tool integration. `UnknownToolsHandler` is available for unknown tool calls. Keep the existing runtime/provider import boundary. No finding justifies a new runner, scheduler or generic plugin framework to replace removed coordination.
+The audited pin is `github.com/cloudwego/eino v0.9.21`. `adk.NewChatModelAgent`, `adk.NewRunner`, `Runner.Run`, `ResumeWithParams`, `ChatModelAgentConfig.MaxIterations` and `compose.ToolsNodeConfig` already cover iteration, recovery and tool integration. `UnknownToolsHandler` is available for unknown tool calls. Keep the existing runtime/provider import boundary. No finding justifies a new runner, scheduler or generic plugin framework to replace removed coordination.
 
 Native callbacks alone do not promise Vivy's synchronous durability semantics. Preserve the minimum necessary effect/accounting boundary, or explicitly change its contract; do not assume that substituting a callback proves equivalent recovery.
 
@@ -408,10 +408,10 @@ unbounded fanout, or second transcript service to achieve this contraction.
 
 ### 10.4 Eino capability check and external boundary
 
-Repository pin: `github.com/cloudwego/eino v0.9.13`. Fresh primary-source reads:
-[adk/runner.go](https://github.com/cloudwego/eino/blob/v0.9.13/adk/runner.go),
-[adk/chatmodel.go](https://github.com/cloudwego/eino/blob/v0.9.13/adk/chatmodel.go),
-[compose/tool_node.go](https://github.com/cloudwego/eino/blob/v0.9.13/compose/tool_node.go).
+Repository pin: `github.com/cloudwego/eino v0.9.21`. Fresh primary-source reads:
+[adk/runner.go](https://github.com/cloudwego/eino/blob/v0.9.21/adk/runner.go),
+[adk/chatmodel.go](https://github.com/cloudwego/eino/blob/v0.9.21/adk/chatmodel.go),
+[compose/tool_node.go](https://github.com/cloudwego/eino/blob/v0.9.21/compose/tool_node.go).
 `NewChatModelAgent`, `NewRunner`, `Runner.Run`, `ResumeWithParams`, native
 checkpoint interfaces and `ToolsNodeConfig` already supply loop/tool/resume
 composition. Existing `engine.go` sets `MaxIterations`. Their availability does

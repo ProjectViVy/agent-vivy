@@ -5,18 +5,18 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/ProjectViVy/inofy v0.0.0-20260930141905-71e2c9bbe47d
+	github.com/ProjectViVy/laputa/garden v0.0.0-20261005120945-ff3936f44ff8
+	github.com/ProjectViVy/laputa/laputa v0.0.0-20261005120945-ff3936f44ff8
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/cloudwego/eino v0.9.13
+	github.com/cloudwego/eino v0.9.21
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
-	github.com/ProjectViVy/laputa/garden v0.0.0-20261005120945-ff3936f44ff8
-	github.com/ProjectViVy/laputa/laputa v0.0.0-20261005120945-ff3936f44ff8
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mark3labs/mcp-go v1.0.0
@@ -35,6 +35,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.3 // indirect
 	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/DotNetAge/govector v0.1.8 // indirect
+	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -60,7 +61,6 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/hnsw v0.6.1 // indirect
-	github.com/ProjectViVy/laputa/mentle v0.0.0-20261005120945-ff3936f44ff8 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -142,16 +142,16 @@ require (
 require (
 	agent-vivy/faces/headless v0.0.0
 	agent-vivy/faces/tui v0.0.0
+	agent-vivy/plugins/coding/lsp v0.0.0
+	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/dingtalk v0.0.0
 	agent-vivy/plugins/discord v0.0.0
 	agent-vivy/plugins/feishu v0.0.0
 	agent-vivy/plugins/governance v0.0.0
-	agent-vivy/plugins/coding/lsp v0.0.0
+	agent-vivy/plugins/infra/llm v0.0.0
 	agent-vivy/plugins/qq v0.0.0
 	agent-vivy/plugins/scxreference v0.0.0
 	agent-vivy/plugins/telegram v0.0.0
-	agent-vivy/plugins/infra/llm v0.0.0
-	agent-vivy/plugins/coding/session-tree v0.0.0
 	agent-vivy/plugins/vivy-evolution v0.0.0
 	agent-vivy/plugins/vivy-masks-ui v0.0.0
 	agent-vivy/plugins/vivy-memory v0.0.0
@@ -233,7 +233,6 @@ replace agent-vivy/plugins/scxreference => ./plugins/scx-reference
 
 replace agent-vivy/plugins/infra/llm => ./plugins/infra/llm
 
-
 replace agent-vivy/plugins/coding/session-tree => ./plugins/coding/session-tree
 
 replace agent-vivy/plugins/vivy-persona => ./plugins/vivy-persona
@@ -258,6 +257,10 @@ replace github.com/ProjectViVy/agent-vivy/bml => ./bml
 // Windows); third_party/renameio is a verbatim v1.0.1 copy plus the same
 // API for Windows. Required by github.com/coder/hnsw (vector DB).
 replace github.com/google/renameio => ./third_party/renameio
+
+// Claude EinoExt v0.1.25 writes Stream's named return error from its worker
+// goroutine. Keep the upstream component and its behavior with a local race fix.
+replace github.com/cloudwego/eino-ext/components/model/claude => ./third_party/eino-claude
 
 replace github.com/ProjectViVy/laputa/garden => ../laputa/garden
 
