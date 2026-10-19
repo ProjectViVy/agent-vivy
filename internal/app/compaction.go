@@ -137,7 +137,7 @@ func projectInstructionBackends(logger *slog.Logger, instructionRoot string, ski
 		workspace = fileBackend
 	}
 	if strings.TrimSpace(instructionRoot) == "" {
-		return workspace, nil, nil
+		return runtime.NewToolkitAgentsMDBackend(workspace), nil, nil
 	}
 	discovered, err := runtime.DiscoverProjectInstructions(instructionRoot)
 	if err != nil {
@@ -158,7 +158,7 @@ func projectInstructionBackends(logger *slog.Logger, instructionRoot string, ski
 			"agents_md", discovered.AgentsMDFiles,
 			"skill_roots", len(discovered.SkillRoots))
 	}
-	return backend, discovered.AgentsMDFiles, nil
+	return runtime.NewToolkitAgentsMDBackend(backend), discovered.AgentsMDFiles, nil
 }
 
 func sameCompactionPolicy(a, b *runtime.CompactionPolicy) bool {

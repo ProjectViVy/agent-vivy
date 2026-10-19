@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
@@ -567,11 +568,17 @@ func (s *Service) commitNewChildActivation(
 			return ChildSessionResult{}, storage.ErrChildAdmissionConflict
 		}
 	}
-	admission, err := s.buildChildRunAdmission(childSession, childRun, task, snapshot, workspace.ID)
+	admission, toolkitHandle, toolkitCheck, err := s.buildChildRunAdmission(ctx, childSession, childRun, task, snapshot, workspace.ID)
 	if err != nil {
 		releaseWorkspace()
 		return ChildSessionResult{}, err
 	}
+	toolkitTransferred := false
+	defer func() {
+		if toolkitHandle != nil && !toolkitTransferred {
+			toolkitHandle.Release()
+		}
+	}()
 	var result storage.ChildSessionAdmissionResult
 	if initial {
 		result, err = s.deps.ChildSessions.CommitChildSessionAdmission(ctx, storage.ChildSessionAdmission{
@@ -587,6 +594,10 @@ func (s *Service) commitNewChildActivation(
 	if err != nil {
 		releaseWorkspace()
 		return ChildSessionResult{}, err
+	}
+	if result.Created && toolkitHandle != nil {
+		s.adoptToolkitRun(result.Run.ID, toolkitHandle, toolkitCheck)
+		toolkitTransferred = true
 	}
 	if !result.Created {
 		releaseWorkspace()
@@ -610,7 +621,7 @@ func (s *Service) commitNewChildActivation(
 	return ChildSessionResult{Binding: result.Binding, Run: result.Run, Started: result.Started, WorkspaceID: workspace.ID, Created: result.Created}, nil
 }
 
-func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run, task string, snapshot domain.PolicySnapshot, workspaceID string) (storage.RunAdmission, error) {
+func (s *Service) buildChildRunAdmission(ctx context.Context, session domain.Session, run domain.Run, task string, snapshot domain.PolicySnapshot, workspaceID string) (storage.RunAdmission, ToolkitViewHandle, *bundlecontract.CaptureCheck, error) {
 	mode, approvalPolicy := session.EffectiveSandbox()
 	providerName, modelID := s.CurrentModel()
 	var prompt *storage.RunPromptSnapshot
@@ -621,9 +632,19 @@ func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run,
 			Face:    domain.FaceWeb,
 		})
 		if err != nil {
-			return storage.RunAdmission{}, fmt.Errorf("runtime: build child prompt snapshot: %w", err)
+			return storage.RunAdmission{}, nil, nil, fmt.Errorf("runtime: build child prompt snapshot: %w", err)
 		}
 		prompt = &built
+	}
+	var toolkitHandle ToolkitViewHandle
+	var bundle *storage.RunBundleSnapshot
+	var expectedBundle *bundlecontract.CaptureCheck
+	if run.ParentID != "" {
+		var err error
+		toolkitHandle, bundle, expectedBundle, err = s.inheritToolkitRun(ctx, run.ParentID, run.ID)
+		if err != nil {
+			return storage.RunAdmission{}, nil, nil, err
+		}
 	}
 	mapper := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
 	mapper.setRunScope(s.deps.TenantID, workspaceID, string(session.ID))
@@ -632,17 +653,20 @@ func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run,
 	if prompt != nil {
 		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
 	}
+	bundleSchema, bundleDigest, bundleEpoch, bundleCatalogDigest := toolkitRunMarkers(bundle, expectedBundle)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: providerName, Model: modelID, Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
 		PolicyProfile: string(snapshot.Profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(mode), ApprovalPolicy: string(approvalPolicy),
 		PromptSchema: promptSchema, PromptDigest: promptDigest,
+		BundleSchema: bundleSchema, BundleDigest: bundleDigest, BundleEpoch: bundleEpoch,
+		BundleCatalogDigest: bundleCatalogDigest,
 	})
 	now := run.CreatedAt
 	return storage.RunAdmission{
 		Message: domain.Message{ID: newMessageID(), SessionID: session.ID, RunID: run.ID, Role: domain.RoleUser, CreatedAt: now, Content: task},
-		Run:     run, Started: started, Prompt: prompt,
-	}, nil
+		Run:     run, Started: started, Prompt: prompt, Bundle: bundle, ExpectedBundle: expectedBundle,
+	}, toolkitHandle, expectedBundle, nil
 }
 
 func (s *Service) currentChildAuthorizer(ctx context.Context, runID domain.RunID) (domain.Run, domain.PolicySnapshot, *BudgetLedger, []string, error) {

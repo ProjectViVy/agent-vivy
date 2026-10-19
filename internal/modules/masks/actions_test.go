@@ -35,6 +35,9 @@ func (host actionHostFixture) GetMask(ctx context.Context, in maskcontract.GetRe
 func (host actionHostFixture) CreateMask(ctx context.Context, in maskcontract.CreateRequest) (maskcontract.Definition, error) {
 	return host.manager.CreateMask(ctx, in)
 }
+func (host actionHostFixture) CopyMask(ctx context.Context, in maskcontract.CopyMaskRequest) (maskcontract.Definition, error) {
+	return host.manager.CopyMask(ctx, in)
+}
 func (host actionHostFixture) UpdateMask(ctx context.Context, in maskcontract.UpdateRequest) (maskcontract.Definition, error) {
 	return host.manager.UpdateMask(ctx, in)
 }
@@ -59,6 +62,9 @@ func (actionManagerFixture) GetMask(context.Context, maskcontract.GetRequest) (m
 func (actionManagerFixture) CreateMask(context.Context, maskcontract.CreateRequest) (maskcontract.Definition, error) {
 	return maskcontract.Definition{}, nil
 }
+func (actionManagerFixture) CopyMask(context.Context, maskcontract.CopyMaskRequest) (maskcontract.Definition, error) {
+	return maskcontract.Definition{}, nil
+}
 func (actionManagerFixture) UpdateMask(context.Context, maskcontract.UpdateRequest) (maskcontract.Definition, error) {
 	return maskcontract.Definition{}, nil
 }
@@ -72,13 +78,23 @@ func (actionManagerFixture) SetMaskSelection(context.Context, maskcontract.SetSe
 	return maskcontract.SelectionView{Selection: maskcontract.Selection{SessionID: domain.SessionID("session-1"), Revision: 1}, Available: true}, nil
 }
 
+type copyRecordingManager struct {
+	actionManagerFixture
+	request *maskcontract.CopyMaskRequest
+}
+
+func (manager *copyRecordingManager) CopyMask(_ context.Context, in maskcontract.CopyMaskRequest) (maskcontract.Definition, error) {
+	manager.request = &in
+	return maskcontract.Definition{ID: "custom/00000000-0000-4000-8000-000000000001", Name: "PM", Body: "copy"}, nil
+}
+
 func TestActionProvidersHaveClosedOwnerInventory(t *testing.T) {
 	providers := ActionProviders()
-	if len(providers) != 7 {
-		t.Fatalf("provider count = %d, want 7", len(providers))
+	if len(providers) != 8 {
+		t.Fatalf("provider count = %d, want 8", len(providers))
 	}
 	want := map[string]bool{
-		ActionCatalogList: true, ActionCatalogGet: true, ActionCatalogCreate: true,
+		ActionCatalogList: true, ActionCatalogGet: true, ActionCatalogCreate: true, ActionCatalogCopy: true,
 		ActionCatalogUpdate: true, ActionCatalogDelete: true,
 		ActionSelectionGet: true, ActionSelectionSet: true,
 	}
@@ -122,5 +138,27 @@ func TestSelectionActionUsesFlatWireResultAndRejectsExtraInput(t *testing.T) {
 	}
 	if _, err := provider.Invoke(context.Background(), host, json.RawMessage(`{"session_id":"session-1","extra":true}`)); err == nil {
 		t.Fatal("extra action input property was accepted")
+	}
+}
+
+func TestCopyActionCarriesExactSourceEpochAndRejectsUnknownFields(t *testing.T) {
+	var provider maskAction
+	for _, candidate := range ActionProviders() {
+		if candidate.Definition().ID == ActionCatalogCopy {
+			provider = candidate.(maskAction)
+			break
+		}
+	}
+	manager := &copyRecordingManager{}
+	host := actionHostFixture{manager: manager}
+	input := json.RawMessage(`{"operation_id":"00000000-0000-4000-8000-000000000002","source_id":"bundle/11111111-1111-4111-8111-111111111111/pm","expected_catalog_epoch":7}`)
+	if _, err := provider.Invoke(context.Background(), host, input); err != nil {
+		t.Fatal(err)
+	}
+	if manager.request == nil || manager.request.SourceID != "bundle/11111111-1111-4111-8111-111111111111/pm" || manager.request.ExpectedCatalogEpoch != 7 {
+		t.Fatalf("copy action request = %+v", manager.request)
+	}
+	if _, err := provider.Invoke(context.Background(), host, json.RawMessage(`{"operation_id":"00000000-0000-4000-8000-000000000002","source_id":"bundle/11111111-1111-4111-8111-111111111111/pm","expected_catalog_epoch":7,"automatic_enable":true}`)); err == nil {
+		t.Fatal("copy action accepted an unknown authority field")
 	}
 }

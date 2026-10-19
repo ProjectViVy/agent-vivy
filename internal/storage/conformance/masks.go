@@ -3,9 +3,11 @@ package conformance
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	mask "agent-vivy/internal/maskcontract"
 	"agent-vivy/internal/storage"
@@ -22,12 +24,65 @@ func RunMasks(t *testing.T, h Harness) {
 		run  func(*testing.T, Harness)
 	}{
 		{"crud-cas-and-idempotent-create", maskCRUD},
+		{"copied-mask-provenance-and-recommendations", maskCopyMetadata},
 		{"selection-capture-and-delete-race", maskSelectionRace},
 		{"fork-copies-selection-and-serializes-delete", maskForkAndDelete},
 		{"session-delete-reopen-removes-selection-preserves-catalog", maskReopen},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) { test.run(t, h) })
+	}
+}
+
+func maskCopyMetadata(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	store := requireMaskStore(t, b)
+	if err := b.CreateSession(ctx, domain.Session{ID: "mask-copy", Title: "mask copy", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	installID := "11111111-1111-4111-8111-111111111111"
+	release := bundlecontract.ReleaseRef{InstallID: installID, BundleID: "acme/experts", ReleaseDigest: strings.Repeat("a", 64), ReleaseSequence: 3}
+	skillID, err := bundlecontract.SkillID(installID, "prd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := conformanceMaskRequest("000000000010", "Copied PM")
+	request.Body = "captured PM body"
+	request.Bundle = &mask.BundleProvenance{Release: release, LocalID: "pm"}
+	request.RecommendedSkills = []mask.SkillRecommendation{{
+		Ref:     bundlecontract.ComponentRef{InstallID: installID, Kind: bundlecontract.Skill, LocalID: "prd"},
+		SkillID: skillID, Name: "PRD Author", Available: true,
+	}}
+	created, err := store.CreateCustomMask(ctx, request)
+	if err != nil {
+		t.Fatalf("CreateCustomMask copied Mask: %v", err)
+	}
+	if created.Origin != mask.OriginCustom || created.Bundle == nil || *created.Bundle != *request.Bundle || len(created.RecommendedSkills) != 1 || created.RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("copied Mask metadata = %+v", created)
+	}
+	retry, err := store.CreateCustomMask(ctx, request)
+	if err != nil || retry.ID != created.ID || retry.Bundle == nil || retry.RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("copied Mask operation retry = %+v/%v", retry, err)
+	}
+	loaded, err := store.GetCustomMask(ctx, created.ID)
+	if err != nil || loaded.Bundle == nil || *loaded.Bundle != *request.Bundle || loaded.Body != request.Body {
+		t.Fatalf("copied Mask get = %+v/%v", loaded, err)
+	}
+	page, err := store.ListCustomMasks(ctx, mask.ListRequest{Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Bundle == nil || page.Items[0].RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("copied Mask list = %+v/%v", page, err)
+	}
+	if _, err := store.SetMaskSelection(ctx, mask.SetSelectionRequest{SessionID: "mask-copy", MaskID: created.ID, ExpectedRevision: 0}); err != nil {
+		t.Fatal(err)
+	}
+	capture, err := store.ReadMaskCapture(ctx, "mask-copy")
+	if err != nil || capture.Mask == nil || capture.Mask.Bundle == nil || *capture.Mask.Bundle != *request.Bundle || capture.Mask.RecommendedSkills[0].SkillID != skillID {
+		t.Fatalf("copied Mask capture = %+v/%v", capture, err)
+	}
+	updated, err := store.UpdateCustomMask(ctx, mask.UpdateRequest{ID: created.ID, ExpectedRevision: 1, Name: created.Name, Description: created.Description, Body: "edited copy"})
+	if err != nil || updated.Body != "edited copy" || updated.Bundle == nil || *updated.Bundle != *request.Bundle {
+		t.Fatalf("edited copy lost immutable source metadata = %+v/%v", updated, err)
 	}
 }
 

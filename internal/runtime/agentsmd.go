@@ -36,6 +36,16 @@ func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []st
 	if len(files) == 0 {
 		files = []string{AgentsMDFileName}
 	}
+	if _, toolkitRules := backend.(interface{ toolkitRulesEnabled() }); toolkitRules {
+		ordered := make([]string, 0, len(files)+1)
+		ordered = append(ordered, ToolkitAgentsMDFileName)
+		for _, file := range files {
+			if file != ToolkitAgentsMDFileName {
+				ordered = append(ordered, file)
+			}
+		}
+		files = ordered
+	}
 	return agentsmd.New(ctx, &agentsmd.Config{
 		Backend: backend,
 		// D6: only AGENTS.md (discovered list when an instruction root is

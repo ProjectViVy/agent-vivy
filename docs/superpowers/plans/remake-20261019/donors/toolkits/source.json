@@ -1,0 +1,3811 @@
+{
+  "lane": "toolkits",
+  "branch": "remake/toolkits",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/actionhost/masks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e1d87e54bc4155ab175cce35eef88557d4efe0d8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af6857aaece9539dd737cfab9ce9c7989fd750e7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/actionhost/masks_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "88d183d552e0171b7fa62718773bd3bc78217555"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "149377e7adf770faa93c47389fc8f4c977cb747d"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/actionhost/toolkits.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7a18e0b8ed2816e3ff595a83e103c997a4afa580"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_authority_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7914c48c94752d63c3fe0fd6847580965f7fd6c4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d8124e3e455b84928e1f94499a830382cddef2bb"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_toolhost_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cee8cba013dc10502d3620817c1b4f4d4e6d7c77"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d7047846e55d699b3bbdd5d6fcee685cd74cd65c"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "648a5136be75e51f20c51b38d2cd9a6680630d93"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/bundles_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2cd9ade2577112dbc66ca0368015811fc6ce9b1a"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/compaction.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eb9dbd3b581c84f927c08d32f0de78d681bc8bdc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a50574428cfcaab8e365475933ed58baed685de"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/toolkit_authority_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f7d76ac20cebf8d7ac6998dd032daf26f70c625c"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/toolkit_lifecycle_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "382ced42b0765c686bf750781d861ab6af9a0e3b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/toolkit_terminal_run_authority_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c52ec0daddd96af8a52d15a3427ab0ba6397bf9b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/bindings.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bf975407253a8487d97610cdcf4ddae9a801cee8"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/catalog.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad782b9eef0c946c17a49ffe0294ac680105c110"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/catalog_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f42222509d71872852465ad2b4c17d2c845d771a"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/digest.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02f19174a5aabbd3c1fe888b4fb76b69221c7198"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/digest_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d6673ac076e8128ccb28838836e2c30d1d6900c4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/errors.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5666225db822fbbe05c88b3a907f2eb61f7cb7db"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/identity.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d75396c3c89c2229b36f2cf981e5334298bf0c81"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/manifest.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c203555afe5721aa4390ef51ff98279704283025"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/manifest_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fb65a60924f51201286e85170b547dabd032ceeb"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/operations.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "30c226db8bcc919699e5795ebf1b9b5e4a504a92"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/snapshot.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cd0678ee542a4b2062a5f8a229cc15cc12567808"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundlecontract/validation.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a998272ba29e431e8276e5f631a80ad9f7a0c4e9"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/acquire.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a17829f571922b1f37b33292c37e4e2149b33403"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/acquire_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c2b56ec468fae15bce797f073cb005c97caaec9e"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/artifact.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39df22589506c9681a4cfe7596741729b2590df7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/files_unix.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "396734a54a63bc8105dfe74fb40d9f88becae493"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/files_windows.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eead250a4e3b93ad214c71d23e23d74199bb8a4a"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/git_source.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b86e861438ca389abde27a30540932811f33d41d"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/git_source_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a91c900b920e5a88f1f834b1c01cf19a90ddfa7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/manager.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c37bd0bec3da7225fa15c195333b496af4b7dc69"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/manager_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad34a97806dda6bd2ad3d41dd932d3769a97c3e4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/native_skill.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "226193f88542d83b998346e533a10e5c30e1c940"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/native_skill_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2b721a87c7f0aa0ac7640c98419836a0eb236b91"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/publication_fault_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "742169b52da433213e791078a1026d750a928957"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/bundles/snapshot_fault_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af579626b857fa8125700c01326950c01fe088f6"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/maskcontract/masks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9b5ffbc7afcc1c2a21f1a639b36eedc0e9691da1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1e775edda51782a52af94fd0a97d036d6af63b23"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/maskcontract/masks_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "54d1ac44c36380f2f31fe6c4762ed83dbd26edae"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "acfaa5d19d95143c32e8ebea78b1cd7e5c4658b2"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/mcphost/host.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d77885df539d768c73432186f8918c2f1f3b059e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5d76be64365230d402c62609db3cbc76793910be"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/mcphost/host_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8c185493f9201058710b5b8608852c6db77fce99"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "28de54f4df7d24be561d36121b63ac4cf8c8f9de"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/actions_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7a9d321894d2197a57f59a349a0b85e897efc3c6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "18193a4d6b560d29f4b0b96342f7350aa2d917df"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4e4ede0b0d5cb8f563c9a740aa8a23095deb14da"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/catalog_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a2a2efb0beee72c41c5d2cbacfd07e0e49485c40"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0b7eeedc80dae5eb06b88ae0bad4f1d9efd06d2b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/service.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52578fa8df78260ede87ee3eb10a6af8971185bd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3e933cce8909e6a9f7fdabf7cc1e53374425b930"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/service_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5c5e38af11e4c9352198f37f784745ab2ec4d0c8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7a4fa213ddd3bddd25f9602d5310c0882dd81332"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/toolkits/actions.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9316a77f6e0a80d531dae3ca863c15c1d9fc4302"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/toolkits/actions_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f79ae66bb6a2bbe6b639c8ddc779d58396c08ded"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/websocket_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dc10fba349ff1ae7cf1e74bf2bd132ba121c1ac0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f3d4a7ca83010d1027ef372ad6eb6fcd7954621d"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/agentsmd.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0b820c39ecad76b94529c91d22a8f8d153e8dead"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82462ac70c501a375e90b39ed48d9dd7d5c73249"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_admission_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "22caeb38c0315db0837f6979d1abc68804c64bac"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_hooks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f15af47b89a9e3048f5895fdbe702268bb1a36f6"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_hooks_matrix_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0fe7998548818ae1d5d8e33137533a58ca09b7a6"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_hooks_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bbbb5b7745099c8b2ed13757ac5cf399ff6d82dc"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_mcp.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e3774e450282349a5c5e85a53c24c6fae5a0a439"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_mcp_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d0d7c55e45e4d805a299eeb79162545f52cc03ea"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_rules.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "77299f8803e8f7a29f80fd027b4faa15bf90bf17"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_rules_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9c4bbdc617b0ef7c689270afe452a8ac1ec87da4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_skills_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a8158f0098410bf13e336d08a2de534d178d6e8"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/child_oneshot.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "32e21744ef647a89f4e4b1c139d9575bee268e4a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ee882a78b636a8a92d1f3a2b12ca5d83cc12c205"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/child_recovery.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3d9b4f0b235653e7ff82102842f998ca929e4a3b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "55dd7bd6ae5dd203eb961894e5fcce5581d8d4b9"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/child_sessions.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "759dbc2b1b5747b6789ea03eed2442f76b01016b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "adcc827cc52f53fd662c1ab3cb966de3ecaad02b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/hooks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "620f932173231b920c586e17d00669bd0e4b0ab7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ff5caf52d2029779c39f2a0a9700ffffdd078a7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/hooks_script.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "37c954e7bd0fdb8b11f57c2f4e6fae46613de04b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "00027c618cead549c0419e045fc3fd875401fe0e"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/hooks_script_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "238436f4819b7b61189446247ed0ee800ccfbd26"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fed096f13705fabbada1e1ae97bbe80770d3a2e9"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcp_host_bridge.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e7665e4b44f8ffd0ed3a78e52d7b280005d7840b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7a7154466ffe0a78fc4e4a6ebbcff8e7d7d22440"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcpadapter.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a5d19ace05cd0d1475f66417616df2e7667ed537"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "395cdb96a4e29c8cea52074ba9b96a640712dc98"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompt_middleware.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fcf9d82382b91ae64c51f9eac27f592db24e1d7f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d4247b96bc47b5b14cfbad335b7c38b657b4027b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/admission_validation_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9b60c4b96a23fd1994b3a9f6ceb958b8a8b80642"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1529e2fdc72929a00db8638b36a93927d02f7549"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ada8706aea6c2bcec23cbbec3cc7ecdd8a53e78"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/bundles_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4f660920bca1a0015ebd7e111fbb76c4b3b3648a"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/bundlesql/bundlesql.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "85f48d25fac15dc38ea049e938a15d56e8cbda5b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9d150759f8ebf547d7f93c4ca637e5d3db98a395"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/masks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8c3a9adee000cf27f48d143fc2850baa3a9cb226"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4f3b6515845e2fe42f5f6133972ba10fa87e3dcd"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/041_content_bundles.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "93e76773402fbd131c666da1b3d363601219c5ea"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/042_mask_bundle_metadata.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1c19ef51db966641f0e795b244442579c7829e6b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/043_toolkit_bindings.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "796b061b4295c7d9673ed1770f58682d85bab771"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/041_content_bundles.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9fc1bb186612d3ef8d49ae310768ab90ba2dc912"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/042_mask_bundle_metadata.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bace87958da42dd05713cab3f00008e789137b89"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/043_toolkit_bindings.sql",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "796b061b4295c7d9673ed1770f58682d85bab771"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e2e763bb356c7dffa7bc0ca369154a3a374b2aa7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/child_sessions.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "756e76bbaab952a5dbc6997489ac4e7fb2b61a24"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f3390b88896749742cff4542534686cb8d168e0"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/masks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1163bcc9613bcb382e7838a4280ac94623f1db2e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "10f918185a2a77a44b6ec2329553e4ecca2f7d28"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/rules.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ada8e9b43bb79b3f98ff0815f70596ac17a60bda"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/rules_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0b1ebbbf8242ddbf063018f10a0139cb5891bb1f"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/bundles.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5ee0927a01d783987201559649c3e7c4e3cd1eb2"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/bundles_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "639851eea7063de08b9ded671171e197aa126f3d"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/child_sessions.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5180b669f6d1bce7d416dd70f3407cda5ab98bb1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4091306565bf6256bb3824f81689b166dabf726"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/conformance_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "14a98caca01fd6cc57859c0762b233238f7ab808"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a98ebebcaaff4c171061043db18e58db8b31a3c8"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/masks.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1e309b736f76b158a82c29d9b729a5032b611bf1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1b0682bcfc2bc2794825b951b313b526899913c0"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/toolhost/catalog_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1cef31866d7b505ac6ad8f37809ea4b0979bb072"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "616ec9e395e5b0d425468716bb7bd1cb7475f253"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/toolhost/host.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "98008a38a961f3ac090678cb7bc47e08933c5109"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "941fd5c651342add6c3108d7ecccf28712b58d19"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/toolkitcontract/actions.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d0e8f84f81681490d4c75a4386ee79ec89a391e4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/i18n/catalog.json",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b79a61c59a288f19a13a9e713251920721462629"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0029224504bf406990dc0f081bd1747a059aedd"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/MaskDetails.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ddeb4d295d5da72132f42b32835d82351ca04972"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d16a1246f4436cd93a4d66f944ad4033e7b34f16"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/MaskPage.test.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "319893b467940c551afa6c70a19dce3dd0974265"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6b6bd5e8e043ee7321b37d05be16d4a575e6beff"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/MaskPage.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "24b275f3286043c2454949eef0dda4a88ceaf3f9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "152c32527cbd1ca2a40320d83b98734bab8581a6"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/mask-client.test.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a77d1b81f78d49c79f59d498f9bf3f548154fe77"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "13bc31bb16155432d1e660f53552f7044abbf222"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/mask-client.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d32ada656665779f30ff923f6b9ca03f9c982eea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "83f23da9ce8703b188587c8250c30552786efd14"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/mask-session.test.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b94331b575ad6e721a5ad7c73cfe7f75c8329365"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "faffb481f81c4c9a101ef0c457269fd3f9b76f4b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/mask-session.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "501b70090ca7995930730e727b063aec5c04d596"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4fda16452ded2b542ed07ddaf527cce14f594264"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/ui/vivy-masks/src/mask-view.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f2122e167174b643c34194854dcf8831fed929f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4273dc45006337ac0116de6efb89d793dd4021ad"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/README.md",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a103197f4914bdb4ea74b4ccef5c8445d2bca60c"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/go.mod",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "646be95fff4affe12094b017e1a7b23b4c02ca18"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/i18n/catalog.json",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eb3f83e4afb3951ec539e5f4cc5b78bc955a1af3"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/module_test.go",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e8b6b3799246fb2ea2dca12762fcbc42dd7ec34b"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/package.json",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52e20f3fe24620493c917e9579b795c66a44adbf"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/pnpm-lock.yaml",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "22df8eee1ad51ead946172b6e01f7c53079581a3"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitCandidate.test.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a234980e2bc91bd507b6a7009f007fbad376f91"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitCandidate.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9e3b5429e5df7f7c1a1b469a3ef44f5205b31a14"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitContentDialog.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d1f9f23abeb8b2469285bab7463591e388e283d0"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitDetails.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2c2cf7153ee76c97d395f40b1bb0b32eb4ba5c98"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitExecutableRow.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "312001001accf29e91b7fae3c222805dc99b28f8"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitInstallDialog.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c022754e6f460cbb186e8be2435733a51776e196"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitInventory.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c40365de617fc7297edcf8be7bddd48a75c62a94"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitLibrary.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "78e8136f7c37198a98b57dbfbbdb325074b269b4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitPage.test.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "10a5cab63af3b700fff559cc2fa40b5074a1249f"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitPage.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1578e1184cc162d020b64d6a35ada665c7340af2"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/ToolkitUpdate.test.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "29cadaa0eb1a392938926c3d358197483b057414"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/index.tsx",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e32e42b069541861c4374508b7390d140a93e6b7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-client.test.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "18759e8cbf35855a922ff68ddadfd8c8942707ed"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-client.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a84c4a5422cb76799bd5b85f30b53894abf01891"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-view.test.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a878b6460c1c68f54979bea2e310bd87783a4f7"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/ui/vivy-toolkits/src/toolkit-view.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c60660c2dcbe0f2974ed64cdfc97205e8230ef31"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "scripts/toolkits-e2e.mjs",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "40545d645b47e6f0af2b9d9afa3326564cb1b9b4"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/toolkits-accessibility.spec.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8f4c829083eb97f7438bb7d4e000642a8339d62d"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/toolkits.spec.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c3a8961e295264c7baba2caf2e7c8803a52b8d29"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/playwright.toolkits-accessibility.config.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1188c3ec0fe67c70cb163ecbb4058df2beb59662"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/playwright.toolkits.config.ts",
+      "owner": "toolkits",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4faa23cea3d1253da13a25a219b7368e6da65917"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": "docs/architecture/VIVY-CONTENT-BUNDLES.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02c4152e9693c58a2b8891deef30d20db63fd1c1"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "go.mod",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "685e9855116f7c417417e426d137c89cbe0aaff8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f98172be7ba57f3d5a9a12c2985aa84cb4e15f8"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "misc",
+        "provider",
+        "recap",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/actionhost/host.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6af3221be4537dd151dcbdd102b55e30f746f981"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d5f085e7abf55e872d7a6c5b72cf5f405662ac84"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/app.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "01272e1c7aa6c97acdd485f66eae5874e40681eb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d688377d08de4928661ebf33d35511508e1e075"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_governance_e2e_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "47ee1ee2241497554a146598d4aa8087cfd96dc6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9d73136e89ccb3fe2236393c1bb6ad934e08b39e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7af55310b374c6d83316115d8db606e9a8df8f8e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7fac7129332236ddc0876af7b47af0a7f0704ab0"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/generated/assembly/zz_default.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8e3e6490e6a7cdf4ea283803983aacd3cc7b149"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5fcf0853c34e01f4f44fdc5041ecb44391df2d35"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/defaults/catalog.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5de9119427176f9a14dfbd309925ac30b4c42985"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b635cf9d14c1a0d4176b15331ffb34eb40081aca"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/defaults/catalog_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5cb9a7fed54b2437881917f3ff0c12300874a997"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "062617127edeedd35d2b80e784be96f94fa2eb31"
+      },
+      "contributing_owners": [
+        "misc",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/actions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "053131ef3d2490a54e4f8f76306cc0e90fa48555"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad2ea58e5a033c04f732980ecb7755ffa435c1a5"
+      },
+      "contributing_owners": [
+        "misc",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/masks/catalog/metadata.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "087e0f12dece4998da3beb7266b3149684e918bf"
+      },
+      "contributing_owners": [
+        "misc",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/toolkits/module.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d533def6260f4f7792ee18771430d7c8231d4081"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "baa9eee9e5498bb5ac2c457feae3cf099b1a8233"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2d5b9d9e8b3a415dbebfbe0d347520c78cb1b5a7"
+      },
+      "contributing_owners": [
+        "acp",
+        "cognition",
+        "core-fixes",
+        "provider",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f9d169c8256a16bcfb0fbe9698ae09973ebf39cf"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_skills.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "100ddee29b59514d783066e9053c1081f037266e"
+      },
+      "contributing_owners": [
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/command_backend_bash_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e6421f233c19655b161bf1a7937bf1745cc73dcf"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "10d196452e658ba6bf47f213f1e6920b5ef8977c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/command_backend_e1_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8cd57d5dfec4cc2e4cdcf4c0803febeefd2da1be"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6ac9bca596e6d952128ec1a1f17f71480356f05e"
+      },
+      "contributing_owners": [
+        "cognition",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcp_backend.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "95bcbd4b2b6a98ef21fa2bc63e20daa8e340ca93"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5a06b97d5b0e5c7c02c0995f31df6da76bdfe0eb"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcp_backend_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c396489de84d8b9da8c44a05c4636b11fdb255c3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "120d9e6fc0e208d51f335c83de7d346b4698b80a"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/payloads.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f1dae367f3f9018901986b16d13de63fabb19857"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "38188a5e8ea466e7e9dbfc0b4f3c5b70abd1812e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/plan_review.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "65908eee3a4676d0b653d5ff2ad41e648e1a13fb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "68a8679a3f0b9a8d141905d57f6449dd950e80b1"
+      },
+      "contributing_owners": [
+        "provider",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompt_state.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52526967473e2abfcc2d5b0193d275bc098e3960"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f88929f989a9c2ff3b0656f0245411fb28dc347"
+      },
+      "contributing_owners": [
+        "persona",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompt_state_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9f16ebe1f69177abad8c1f86fb59949c1f495cc0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52e03af5eaba57837ccee18ddd4054c5323a0f84"
+      },
+      "contributing_owners": [
+        "persona",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/report_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7633b5cc15a2096a98a25dc7268c10a098b9cee7"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/report_workflow_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a052c879a62ec46252e98263df7b724e2221e241"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "740d8876fa8480bee95043c0538551672922f1d3"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook",
+        "persona",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/shell.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fda35349430c2d7f1e53ad6557abe842f3a79879"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82204cbaa426cc53fa410ca26a06873b85e4f157"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tool_operation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0b4b58f1c971b10ff8d64f7535ccf903d44a396"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cc77500a1bbee715d64e745c9351f84829142aab"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/workflow_service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d658b74a89cd176933a77e99f64c2473c8ef97c7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ce6e4b57bd41274c68f921f04b9ef0a0ca9ee05d"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/admission_validation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "37b0ccab9c11fe2d22c8a8f3eacde09fd309edbc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ada6a10b1d8ae7cfa9ae94f2e48d76acfc70b0d"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02dcf9a39d1bfe800f4b5f55acd85ec5d7445705"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39d747152b0ebf781511e1469d01b45549707d85"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/contracts.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2695127e92942c9b29b8101a8dd09781f5b8290e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c5eda0c0bbc7456ece03c5b93fbcb87d2d69e718"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "reports",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/masks.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab65147a73588be6debdba5a785d9f33ec14a7f5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a740c4c6ef74b2948a0bdf86447a522be8ee38a"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/manifest_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a5d3960830bd60740e1db8c633ffff0640cfbb8f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6ed29b6b33a44b357c88ccfbf0bcc71993fe3c6e"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/runner_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "09d0aa223124499847afafa89f35ef7f9e577ab0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2fe2ad24b4d46c9ecc24a1af42648f8a7359a90d"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/conformance_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6479c5bc562cdde58d0aa4752730a7b976db2464"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4f706dcb89676230c83eba3a0bd64b4a8a20fc6"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2160006acfea6a9c5d659d28acd2ae70047ee45a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d7c914da1bf530531b006f4476f5a41cdae68f33"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "78e815f160b4ab532bb11ddd594a09822bb5a4ca"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f241d0de916812d08d516ad6a803fa1ef02cfc1"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a618c3a868baff539cace7247083a2ea089256fb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8980a13fe43d90534dd6e4e957888ecff141c3a5"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c0dd69d6d2c8e963d33bbcb246bd7b564434d788"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8aef9cca0577d870ba56c614fbe6804b8156316"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/workflow_revisions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ffd6219fc20dc9fefacacc31382d22fb1b75b41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a4b142d2b31e14219b5037950b46dcd87aab0369"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9f82ed51be5f62fb70d892a1ef37778cbfd585fd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "75c46e89303db647d7b2d2e66758a713da83fa64"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fbc3dc121c6ee816ace837cac92334c4172f0c04"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "be8ac35a7f5ebf42d6d6243de18cd8dff48ba8a2"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b64075e5583813fb9fab881ce150196292bdebec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "963dc5dc39a1e1c7e980aa04b1b4b6c2f8cbf793"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3960856edeb4f43951d6c462b35c886ea9a5acc0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c7f6b2855d7d30cba276088f5bcfff4a352ad0e8"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/workflow_revisions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "242c2d38f96f7f495e14fd7235d6bda0ef0d2df0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cd8d7f34b3fced2e80eef8c26b160f6482186fd5"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f206b11d23566a24a29ce803680f20b0c1df6a3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d29374efe0de504840eb0c21c73e3c28a8392f95"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/workflow_revisions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cbbad2633c1352918ad175efee62e841d9a5f8ad"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8fff44085cd62d13c3905ac4ec5eb6e5f93f8ecd"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/skills.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "aa12804827b12e5896291d24d104ed045f682926"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "534139f6a3a4d9994490a2fa1e968b70c4c1c7b8"
+      },
+      "contributing_owners": [
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "justfile",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af72667d5c8f416d74550ee92aebcc9273d83f99"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0887c0e3d84057d25b0ece9838a3b7a88e682434"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/module.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2581c9617494ae26699179c0ded978739ec700d0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4aed731f192fb6b179805bb3970a2c5c0e849130"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-masks-ui/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f2608d73bc3c63679412c14a8d17f1c9e4027464"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "618cdd1e659edd0c4395fa38bb048b72775378e6"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/module.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f453c321108e283d651c66bdff7a7698118b53eb"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-toolkits-ui/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "192d271fcdb595fa52682fb4ff0ee3f13b6dcffb"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "recipes/default.vivy.yml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "55993b8d11656ac263dfd7882cd5f05e41325cc2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ffc14f8ca5a1653a1979d58eef6578375371d3d4"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "schemas/events/payloads/run.started.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "23bc483013b6aff35d48b44e2a3fd0443e05f6c1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "00e5da65fc346b96105bd108017ec95fa15d7bcc"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/assembly/conformance_results.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1d437edc4309748bc00528101fac391b94fe6668"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d73f8b58ec844959a812380c614b0887eeb51601"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/cmd/generate-default/main.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d787cc0d53b2e78486540627bb8c624a52f12bb5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "44ded8a4fb3510259733ae0fd91f511142f84b10"
+      },
+      "contributing_owners": [
+        "cognition",
+        "notebook",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/frontend_v1.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ff8b30ff880b5c4b1c67daf48fa4baedddb2422"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fb57b0614c2b2345c3c894e46b69ec4ab081b061"
+      },
+      "contributing_owners": [
+        "acp",
+        "misc",
+        "notebook",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/frontend_v1_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3964af53f163365d33add31f2539dbd95c7c5850"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d298d7b7f93e04477a05beafdcef5dfbad90a104"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "misc",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/removal_conformance_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b40b8e2db03de76859016e9460de7af1f8e28a77"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "772cbb0f5d3c73b657f8fa289fb6183154b059c2"
+      },
+      "contributing_owners": [
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/testdata/default-generation.expected.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "894f94b808991c669c162be23fb4344b8c556aea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c8ea2f8e2c9448c48427d6beb5eb170c825c74d9"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/generated/assembly.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f5446ec19ee0a1872c4bc2980161e97ff6d4145"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74d7cdd3c27391fc623ada577e3600771ae86f2e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap",
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/vitest.config.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "815921f511ae779121a949bfa5821b3898bbb53a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "334bb2b33d88e61dcb2b74a0cbdf9ea4622e8298"
+      },
+      "contributing_owners": [
+        "notebook",
+        "persona",
+        "recap",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}

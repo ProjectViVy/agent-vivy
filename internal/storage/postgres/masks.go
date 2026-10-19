@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -22,10 +23,13 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 		return mask.Page{}, err
 	}
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, name, description, digest, revision
-		FROM mask_definitions
-		WHERE id > ?
-		ORDER BY id
+		SELECT m.id, m.name, m.description, m.digest, m.revision,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), bm.recommended_skills_json
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.id > ?
+		ORDER BY m.id
 		LIMIT ?`, in.AfterID, in.Limit+1)
 	if err != nil {
 		return mask.Page{}, maskStorageError("list custom masks", err)
@@ -35,10 +39,20 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 	items := make([]mask.Metadata, 0, in.Limit)
 	for rows.Next() {
 		var item mask.Metadata
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision); err != nil {
+		var installID, bundleID, localID, releaseDigest string
+		var releaseSequence int64
+		var recommendationsJSON []byte
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON); err != nil {
 			return mask.Page{}, maskStorageError("scan custom mask", err)
 		}
 		item.BuiltIn = false
+		item.Origin = mask.OriginCustom
+		item.Available = true
+		item.Bundle, item.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+		if err != nil {
+			return mask.Page{}, maskStorageError("decode custom Mask provenance", err)
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -101,6 +115,28 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	}
 	if created.requestDigest != requestDigest {
 		return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
+	}
+	if in.Bundle != nil {
+		recommendations, marshalErr := json.Marshal(in.RecommendedSkills)
+		if marshalErr != nil {
+			return mask.Definition{}, maskStorageError("encode custom Mask recommendations", marshalErr)
+		}
+		provenance := in.Bundle
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO mask_bundle_metadata
+				(mask_id, install_id, bundle_id, local_id, release_digest, release_sequence, recommended_skills_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (mask_id) DO NOTHING`, created.definition.ID, provenance.Release.InstallID, provenance.Release.BundleID,
+			provenance.LocalID, provenance.Release.ReleaseDigest, provenance.Release.ReleaseSequence, recommendations); err != nil {
+			return mask.Definition{}, maskStorageError("persist custom Mask provenance", err)
+		}
+		created, found, err = postgresFindMaskByOperation(ctx, tx, in.OperationID)
+		if err != nil || !found {
+			if err == nil {
+				err = errors.New("custom Mask operation row missing after provenance insert")
+			}
+			return mask.Definition{}, maskStorageError("read copied Mask provenance", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return mask.Definition{}, maskStorageError("commit create custom mask", err)
@@ -212,14 +248,21 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 	var definitionID, name, digest sql.NullString
 	var body []byte
 	var definitionRevision sql.NullInt64
+	var originInstallID, originBundleID, originLocalID, originDigest string
+	var originReleaseSequence int64
+	var recommendationsJSON []byte
 	err := b.db.QueryRowContext(ctx, `
 		SELECT COALESCE(sel.mask_id, ''), COALESCE(sel.revision, 0),
-		       def.id, def.name, def.body, def.revision, def.digest
+		       def.id, def.name, def.body, def.revision, def.digest,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), bm.recommended_skills_json
 		FROM sessions AS s
 		LEFT JOIN session_mask_selections AS sel ON sel.session_id = s.id
 		LEFT JOIN mask_definitions AS def ON def.id = sel.mask_id
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = def.id
 		WHERE s.id = ?`, sessionID).
-		Scan(&selection.MaskID, &selection.Revision, &definitionID, &name, &body, &definitionRevision, &digest)
+		Scan(&selection.MaskID, &selection.Revision, &definitionID, &name, &body, &definitionRevision, &digest,
+			&originInstallID, &originBundleID, &originLocalID, &originDigest, &originReleaseSequence, &recommendationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Capture{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -227,7 +270,7 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 		return mask.Capture{}, maskStorageError("read mask capture", err)
 	}
 	capture := mask.Capture{Selection: selection}
-	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) {
+	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) && !mask.IsBundleID(selection.MaskID) {
 		if !definitionID.Valid || !name.Valid || !definitionRevision.Valid || !digest.Valid {
 			return mask.Capture{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 		}
@@ -235,6 +278,11 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 			ID: definitionID.String, Name: name.String, Body: string(body),
 			Digest: digest.String, DefinitionRevision: definitionRevision.Int64,
 			SelectionRevision: selection.Revision,
+		}
+		capture.Mask.Origin = mask.OriginCustom
+		capture.Mask.Bundle, capture.Mask.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(originInstallID, originBundleID, originLocalID, originDigest, originReleaseSequence, recommendationsJSON)
+		if err != nil {
+			return mask.Capture{}, maskStorageError("decode captured Mask provenance", err)
 		}
 	}
 	return capture, nil
@@ -278,7 +326,15 @@ func (b *Backend) setMaskSelectionTx(ctx context.Context, tx *Tx, in mask.SetSel
 	if current.Revision != in.ExpectedRevision {
 		return mask.Selection{}, mask.NewRevisionError(mask.CodeRevisionConflict, current.Revision, nil)
 	}
-	if in.MaskID != "" && !mask.IsBuiltinID(in.MaskID) {
+	if mask.IsBundleID(in.MaskID) {
+		var currentEpoch int64
+		if err := tx.QueryRowContext(ctx, `SELECT epoch FROM bundle_catalog_state WHERE id = 1 FOR UPDATE`).Scan(&currentEpoch); err != nil {
+			return mask.Selection{}, maskStorageError("read toolkit catalog epoch for mask selection", err)
+		}
+		if currentEpoch != in.ExpectedCatalogEpoch {
+			return mask.Selection{}, mask.NewRevisionError(mask.CodeRevisionConflict, currentEpoch, nil)
+		}
+	} else if in.MaskID != "" && !mask.IsBuiltinID(in.MaskID) {
 		if _, err := b.getCustomMaskForUpdate(ctx, tx, in.MaskID); err != nil {
 			return mask.Selection{}, err
 		}
@@ -317,11 +373,19 @@ type postgresQueryer interface {
 
 func postgresFindMaskByOperation(ctx context.Context, q postgresQueryer, operationID string) (postgresOperationResult, bool, error) {
 	var result postgresOperationResult
+	var installID, bundleID, localID, releaseDigest string
+	var releaseSequence int64
+	var recommendationsJSON []byte
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest, create_request_digest
-		FROM mask_definitions WHERE create_operation_id = ?`, operationID).
+		SELECT m.id, m.name, m.description, m.body, m.revision, m.digest, m.create_request_digest,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), bm.recommended_skills_json
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.create_operation_id = ?`, operationID).
 		Scan(&result.definition.ID, &result.definition.Name, &result.definition.Description, &result.definition.Body,
-			&result.definition.Revision, &result.definition.Digest, &result.requestDigest)
+			&result.definition.Revision, &result.definition.Digest, &result.requestDigest,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return postgresOperationResult{}, false, nil
 	}
@@ -329,6 +393,11 @@ func postgresFindMaskByOperation(ctx context.Context, q postgresQueryer, operati
 		return postgresOperationResult{}, false, maskStorageError("find mask operation", err)
 	}
 	result.definition.BuiltIn = false
+	result.definition.Origin = mask.OriginCustom
+	result.definition.Bundle, result.definition.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+	if err != nil {
+		return postgresOperationResult{}, false, maskStorageError("decode custom Mask provenance", err)
+	}
 	return result, true, nil
 }
 
@@ -356,14 +425,22 @@ func (b *Backend) getCustomMaskForUpdate(ctx context.Context, q postgresQueryer,
 
 func (b *Backend) getCustomMaskQuery(ctx context.Context, q postgresQueryer, id string, forUpdate bool) (mask.Definition, error) {
 	var definition mask.Definition
+	var installID, bundleID, localID, releaseDigest string
+	var releaseSequence int64
+	var recommendationsJSON []byte
 	query := `
-		SELECT id, name, description, body, revision, digest
-		FROM mask_definitions WHERE id = ?`
+		SELECT m.id, m.name, m.description, m.body, m.revision, m.digest,
+		       COALESCE(bm.install_id, ''), COALESCE(bm.bundle_id, ''), COALESCE(bm.local_id, ''),
+		       COALESCE(bm.release_digest, ''), COALESCE(bm.release_sequence, 0), bm.recommended_skills_json
+		FROM mask_definitions AS m
+		LEFT JOIN mask_bundle_metadata AS bm ON bm.mask_id = m.id
+		WHERE m.id = ?`
 	if forUpdate {
-		query += ` FOR UPDATE`
+		query += ` FOR UPDATE OF m`
 	}
 	err := q.QueryRowContext(ctx, query, id).
-		Scan(&definition.ID, &definition.Name, &definition.Description, &definition.Body, &definition.Revision, &definition.Digest)
+		Scan(&definition.ID, &definition.Name, &definition.Description, &definition.Body, &definition.Revision, &definition.Digest,
+			&installID, &bundleID, &localID, &releaseDigest, &releaseSequence, &recommendationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Definition{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -371,6 +448,11 @@ func (b *Backend) getCustomMaskQuery(ctx context.Context, q postgresQueryer, id 
 		return mask.Definition{}, maskStorageError("get custom mask", err)
 	}
 	definition.BuiltIn = false
+	definition.Origin = mask.OriginCustom
+	definition.Bundle, definition.RecommendedSkills, err = storage.DecodeMaskBundleMetadata(installID, bundleID, localID, releaseDigest, releaseSequence, recommendationsJSON)
+	if err != nil {
+		return mask.Definition{}, maskStorageError("decode custom Mask provenance", err)
+	}
 	return definition, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -50,6 +51,9 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 	if s == nil || s.engine == nil || s.deps.Runs == nil || s.deps.Journal == nil ||
 		s.deps.Sink == nil || s.deps.Workspaces == nil || s.deps.Sessions == nil {
 		return OneShotChildResult{}, errors.New("runtime: native one-shot child execution is not wired")
+	}
+	if s.deps.Toolkits != nil && s.deps.Admission == nil {
+		return OneShotChildResult{}, ErrToolkitAdmissionUnavailable
 	}
 	if request.ParentRunID == "" || strings.TrimSpace(request.Task) == "" || len(request.Task) > maxChildTaskBytes {
 		return OneShotChildResult{}, errors.New("runtime: child parent run and bounded task are required")
@@ -192,6 +196,14 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 	mapper := newEventMapper(child.ID, childEngine.cfg.MaxEventPayloadBytes)
 	var childLedger *BudgetLedger
 	workspaceID := ""
+	var toolkitHandle ToolkitViewHandle
+	var toolkitCheck *bundlecontract.CaptureCheck
+	toolkitTransferred := false
+	defer func() {
+		if toolkitHandle != nil && !toolkitTransferred {
+			toolkitHandle.Release()
+		}
+	}()
 	if s.deps.Admission != nil {
 		workspace, workspaceErr := s.deps.Workspaces.Ensure(withSessionID(ctx, parent.SessionID), child.ID)
 		if workspaceErr != nil {
@@ -203,16 +215,19 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 			return OneShotChildResult{}, err
 		}
 		if existing == nil {
-			admission, admissionErr := s.buildChildRunAdmission(parentSession, child, request.Task, snapshot, workspaceID)
+			admission, handle, check, admissionErr := s.buildChildRunAdmission(ctx, parentSession, child, request.Task, snapshot, workspaceID)
 			if admissionErr != nil {
 				return OneShotChildResult{}, admissionErr
 			}
+			toolkitHandle, toolkitCheck = handle, check
 			admission.Message = domain.Message{}
 			admission.OmitMessage = true
 			started, admissionErr := s.deps.Admission.CommitRunAdmission(ctx, admission)
 			if admissionErr != nil {
 				return OneShotChildResult{}, fmt.Errorf("runtime: commit one-shot child admission: %w", admissionErr)
 			}
+			s.adoptToolkitRun(child.ID, toolkitHandle, toolkitCheck)
+			toolkitTransferred = toolkitHandle != nil
 			s.publish(ctx, started)
 		} else if _, hasPrompt, promptErr := s.promptSnapshotForRun(ctx, child.ID); promptErr != nil || !hasPrompt {
 			if promptErr == nil {
@@ -220,6 +235,14 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 			}
 			s.failAdmittedChildRun(ctx, child, promptErr)
 			return OneShotChildResult{}, promptErr
+		} else if s.deps.Toolkits != nil {
+			if !s.hasToolkitRun(child.ID) {
+				_, _, _, restoreErr := s.restoreToolkitRun(ctx, child.ID)
+				if restoreErr != nil {
+					s.failAdmittedChildRun(ctx, child, restoreErr)
+					return OneShotChildResult{}, restoreErr
+				}
+			}
 		}
 	}
 	if !requestedEventFound {
@@ -274,6 +297,7 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 	mapper.setUsageRoutes(providerName, modelID, childEngine.cfg.SummaryModelID)
 	state := &childActivationDrive{task: request.Task}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	runCtx = s.toolkitContext(runCtx, child.ID)
 	err = s.RegisterWorkerProcess(ctx, child.ID, func() {
 		s.mu.Lock()
 		s.active[child.ID] = cancel

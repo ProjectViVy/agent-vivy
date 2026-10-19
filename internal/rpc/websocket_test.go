@@ -130,7 +130,7 @@ func TestControlBindsPeerOnlyFromValidatedSessionAndRun(t *testing.T) {
 		t.Fatalf("session identity = %#v (ok=%v)", identity, ok)
 	}
 	runID := domain.RunID("run_bound")
-	if err := env.backend.CreateRun(context.Background(), domain.Run{ID: runID, SessionID: session.ID, Status: domain.RunCompleted, CreatedAt: 1}); err != nil {
+	if err := env.backend.CreateRun(context.Background(), domain.Run{ID: runID, SessionID: session.ID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
 	_, rpcErr = env.handler.Handle(context.Background(), peer, Request{JSONRPC: "2.0", Method: "run/get", Params: json.RawMessage(`{"run_id":"run_bound"}`)})
@@ -140,6 +140,47 @@ func TestControlBindsPeerOnlyFromValidatedSessionAndRun(t *testing.T) {
 	identity, ok = actionhost.IdentityFromContext(peer.authenticatedContext(context.Background()))
 	if !ok || identity.SessionID != string(session.ID) || identity.RunID != string(runID) {
 		t.Fatalf("run identity = %#v (ok=%v)", identity, ok)
+	}
+}
+
+func TestControlBindsTerminalRunToSessionOnly(t *testing.T) {
+	env := newControlTestEnv(t)
+	peer := NewPeer(nil, env.handler, Options{Identity: actionhost.Identity{ID: "face/connection", Face: "web"}})
+	for index, status := range []domain.RunStatus{
+		domain.RunAccepted,
+		domain.RunQueued,
+		domain.RunActive,
+		domain.RunCompleted,
+		domain.RunFailed,
+		domain.RunCancelled,
+	} {
+		created, rpcErr := env.handler.Handle(context.Background(), peer, Request{JSONRPC: "2.0", Method: "session/create", Params: json.RawMessage(`{"title":"terminal binding"}`)})
+		if rpcErr != nil {
+			t.Fatal(rpcErr)
+		}
+		var session sessionResult
+		createdJSON, _ := json.Marshal(created)
+		if err := json.Unmarshal(createdJSON, &session); err != nil || session.ID == "" {
+			t.Fatalf("created session = %s/%v", createdJSON, err)
+		}
+		runID := domain.RunID("run_binding_" + status)
+		if err := env.backend.CreateRun(context.Background(), domain.Run{ID: runID, SessionID: session.ID, Status: status, CreatedAt: int64(index + 1)}); err != nil {
+			t.Fatalf("create %s run: %v", status, err)
+		}
+		_, rpcErr = env.handler.Handle(context.Background(), peer, Request{
+			JSONRPC: "2.0", Method: "run/get", Params: json.RawMessage(`{"run_id":"` + string(runID) + `"}`),
+		})
+		if rpcErr != nil {
+			t.Fatalf("get %s run: %v", status, rpcErr)
+		}
+		identity, ok := actionhost.IdentityFromContext(peer.authenticatedContext(context.Background()))
+		wantRunID := string(runID)
+		if status.Terminal() {
+			wantRunID = ""
+		}
+		if !ok || identity.SessionID != string(session.ID) || identity.RunID != wantRunID {
+			t.Fatalf("%s binding = %#v (ok=%v), want session %q and run %q", status, identity, ok, session.ID, wantRunID)
+		}
 	}
 }
 
@@ -157,7 +198,7 @@ func TestControlRunBindingIgnoresBrowserSessionClaim(t *testing.T) {
 		t.Fatalf("created session = %s/%v", createdJSON, err)
 	}
 	runID := domain.RunID("run_bound_claim")
-	if err := env.backend.CreateRun(context.Background(), domain.Run{ID: runID, SessionID: session.ID, Status: domain.RunCompleted, CreatedAt: 1}); err != nil {
+	if err := env.backend.CreateRun(context.Background(), domain.Run{ID: runID, SessionID: session.ID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
 	// The response carries a caller-controlled session claim; only the durable

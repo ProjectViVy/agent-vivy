@@ -73,6 +73,7 @@ export function MaskPage({
   const discardAction = useRef<(() => void) | null>(null);
   const navigationDecision = useRef<((blocked: boolean) => void) | null>(null);
   const initialPreview = useRef<string | null>(null);
+  const pendingCopy = useRef<{ readonly sourceId: string; readonly operationId: string; readonly catalogEpoch: number } | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -228,6 +229,41 @@ export function MaskPage({
     setEditorOpen(true);
     setNotice('');
   };
+  const copyToCustom = async () => {
+    if (preview.origin !== 'bundle') {
+      startDraft(true);
+      return;
+    }
+    if (!session || shared.catalogEpoch <= 0 || busyRef.current) return;
+    const pending = pendingCopy.current?.sourceId === preview.id
+      ? pendingCopy.current
+      : { sourceId: preview.id, operationId: globalThis.crypto.randomUUID(), catalogEpoch: shared.catalogEpoch };
+    pendingCopy.current = pending;
+    busyRef.current = true;
+    setNotice('');
+    dispatch({ type: 'error/clear' });
+    try {
+      const definition = await session.client.copy({
+        operation_id: pending.operationId,
+        source_id: pending.sourceId,
+        expected_catalog_epoch: pending.catalogEpoch,
+      });
+      pendingCopy.current = null;
+      session.recordDefinition(definition);
+      dispatch({ type: 'definition/open', definition });
+      setDetailsOpen(false);
+      setEditorOpen(true);
+      setNotice(t('plugin.vivy/masks-ui.bundleCopyCreated'));
+      void session.refreshCatalog();
+    } catch (cause) {
+      const error = toMaskError(cause);
+      if (String(error.code) === 'revision_conflict') pendingCopy.current = null;
+      dispatch({ type: 'draft/save-error', error });
+      void session.refreshCatalog();
+    } finally {
+      busyRef.current = false;
+    }
+  };
   const select = async (id: string, name?: string) => {
     if (await session?.select(id))
       setNotice(
@@ -359,7 +395,7 @@ export function MaskPage({
         setDetailsOpen(false);
         setEditorOpen(true);
       }}
-      onCopy={() => startDraft(true)}
+      onCopy={() => void copyToCustom()}
       onDelete={() => {
         dispatch({ type: 'error/clear' });
         setDeleteOpen(true);

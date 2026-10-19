@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	goRuntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +62,52 @@ func TestScriptHookAllowPassthrough(t *testing.T) {
 	var input map[string]any
 	if err := json.Unmarshal(payload.ToolInput, &input); err != nil || input["path"] != "a.ts" {
 		t.Fatalf("tool_input = %s (err=%v)", payload.ToolInput, err)
+	}
+}
+
+// scopedHookTestCommand checks a relative marker and the explicit environment
+// through the same platform shell used by runHookProcessScoped.
+func scopedHookTestCommand(marker string) string {
+	if goRuntime.GOOS == "windows" {
+		return `if exist ` + marker + ` (if x%HOOK_ALLOWED%==xallowed (if defined VIVY_HOOK_PARENT_SECRET (exit /b 1) else (exit /b 0)) else (exit /b 1)) else (exit /b 1)`
+	}
+	return `test -f '` + marker + `' && test "$HOOK_ALLOWED" = allowed && test -z "${VIVY_HOOK_PARENT_SECRET+x}"`
+}
+
+func TestScriptHookScopedExecutionUsesExplicitCwdAndEnvironment(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, ".hook-scope-marker"), []byte("present"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIVY_HOOK_PARENT_SECRET", "must-not-be-inherited")
+	hook := NewScriptHook(scopedHookTestCommand(".hook-scope-marker"), "*", time.Second)
+	hook.Cwd = cwd
+	hook.Env = []string{"HOOK_ALLOWED=allowed"}
+	hook.ContextDigest = strings.Repeat("a", 64)
+	hook.runScoped = runHookProcessScoped
+	if _, err := hook.PreToolUse(context.Background(), hookCall); err != nil {
+		t.Fatalf("scoped Hook failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "must-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scoped Hook unexpectedly wrote into its cwd: %v", err)
+	}
+	for _, fixture := range []struct {
+		name string
+		cwd  string
+		env  []string
+	}{
+		{name: "wrong cwd", cwd: t.TempDir(), env: hook.Env},
+		{name: "missing environment", cwd: cwd, env: []string{}},
+		{name: "wrong environment", cwd: cwd, env: []string{"HOOK_ALLOWED=denied"}},
+		{name: "inherited secret", cwd: cwd, env: []string{"HOOK_ALLOWED=allowed", "VIVY_HOOK_PARENT_SECRET=must-not-be-inherited"}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			scoped := *hook
+			scoped.Cwd, scoped.Env = fixture.cwd, fixture.env
+			if result, err := scoped.PreToolUse(context.Background(), hookCall); !errors.Is(err, ErrHookBlocked) {
+				t.Fatalf("invalid scope was accepted: %+v, %v", result, err)
+			}
+		})
 	}
 }
 

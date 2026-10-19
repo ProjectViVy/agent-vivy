@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -76,6 +77,39 @@ func TestProductionMCPWorldIsComposedThroughToolHost(t *testing.T) {
 	}
 	if _, ok := registry.Lookup("mcp_call"); ok {
 		t.Fatal("legacy mcp_call remained model-visible alongside the governed MCP ToolWorld")
+	}
+}
+
+type slowMCPWorldProvider struct{}
+
+func (*slowMCPWorldProvider) Definition() toolworldport.Definition {
+	return toolworldport.Definition{ID: "mcp"}
+}
+
+func (*slowMCPWorldProvider) Discover(ctx context.Context, _ toolworldport.Host) ([]toolworldport.ToolDefinition, error) {
+	timer := time.NewTimer(2100 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return nil, nil
+	}
+}
+
+func (*slowMCPWorldProvider) Invoke(context.Context, toolworldport.Host, string, json.RawMessage) (toolworldport.Result, error) {
+	return toolworldport.Result{}, nil
+}
+
+func (*slowMCPWorldProvider) Close(context.Context) error { return nil }
+
+func TestGeneratedMCPWorldHasLongerDiscoveryBudgetThanOtherWorlds(t *testing.T) {
+	staged, err := bindToolWorlds(context.Background(), []toolworldport.Provider{&slowMCPWorldProvider{}}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bindGeneratedTools(nil, tools.NewRegistry(staged...), nil); err != nil {
+		t.Fatalf("bind generated MCP world after slow discovery: %v", err)
 	}
 }
 

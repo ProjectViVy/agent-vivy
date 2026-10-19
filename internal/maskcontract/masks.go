@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"agent-vivy/internal/bundlecontract"
 	"agent-vivy/internal/domain"
 	"agent-vivy/sdk/port/controlaction"
 )
@@ -40,6 +41,7 @@ const (
 	CodeRevisionConflict    = "revision_conflict"
 	CodeMaskInUse           = "mask_in_use"
 	CodeMaskUnavailable     = "mask_unavailable"
+	CodeReadOnlyComponent   = "read_only_component"
 	CodeSnapshotMissing     = "snapshot_missing"
 	CodeSnapshotCorrupt     = "snapshot_corrupt"
 	CodePromptTooLarge      = "prompt_too_large"
@@ -55,6 +57,7 @@ var allowedErrorCodes = map[string]struct{}{
 	CodeRevisionConflict:    {},
 	CodeMaskInUse:           {},
 	CodeMaskUnavailable:     {},
+	CodeReadOnlyComponent:   {},
 	CodeSnapshotMissing:     {},
 	CodeSnapshotCorrupt:     {},
 	CodePromptTooLarge:      {},
@@ -143,28 +146,66 @@ type Selection struct {
 	Revision  int64            `json:"revision"`
 }
 
+type Origin string
+
+const (
+	OriginBuiltin Origin = "builtin"
+	OriginCustom  Origin = "custom"
+	OriginBundle  Origin = "bundle"
+)
+
+// BundleProvenance identifies the exact immutable Toolkit Mask definition.
+// The release sequence is the definition revision; the content digest remains
+// DefinitionDigest's existing ID/name/body digest.
+type BundleProvenance struct {
+	Release bundlecontract.ReleaseRef `json:"release"`
+	LocalID string                    `json:"local_id"`
+}
+
+// SkillRecommendation is discovery metadata only. Available describes the
+// target's independent Host state; it never grants Skill activation.
+type SkillRecommendation struct {
+	Ref            bundlecontract.ComponentRef `json:"ref"`
+	SkillID        string                      `json:"skill_id"`
+	Name           string                      `json:"name"`
+	Available      bool                        `json:"available"`
+	InactiveReason string                      `json:"inactive_reason,omitempty"`
+}
+
 // Definition is one catalog entry. Built-ins are immutable and have a
 // GenerationID; custom rows use a server-generated custom/<uuid> ID.
 type Definition struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Body         string `json:"body"`
-	Revision     int64  `json:"revision"`
-	Digest       string `json:"digest"`
-	BuiltIn      bool   `json:"built_in"`
-	GenerationID string `json:"generation_id"`
+	ID                string                `json:"id"`
+	Name              string                `json:"name"`
+	Description       string                `json:"description"`
+	Body              string                `json:"body"`
+	Revision          int64                 `json:"revision"`
+	Digest            string                `json:"digest"`
+	BuiltIn           bool                  `json:"built_in"`
+	GenerationID      string                `json:"generation_id"`
+	Origin            Origin                `json:"origin,omitempty"`
+	Bundle            *BundleProvenance     `json:"bundle,omitempty"`
+	RecommendedSkills []SkillRecommendation `json:"recommended_skills,omitempty"`
 }
 
 // Snapshot is the immutable definition captured for one admitted run.
 type Snapshot struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Body               string `json:"body"`
-	Digest             string `json:"digest"`
-	DefinitionRevision int64  `json:"definition_revision"`
-	SelectionRevision  int64  `json:"selection_revision"`
-	GenerationID       string `json:"generation_id"`
+	ID                 string                `json:"id"`
+	Name               string                `json:"name"`
+	Body               string                `json:"body"`
+	Digest             string                `json:"digest"`
+	DefinitionRevision int64                 `json:"definition_revision"`
+	SelectionRevision  int64                 `json:"selection_revision"`
+	GenerationID       string                `json:"generation_id"`
+	Origin             Origin                `json:"origin,omitempty"`
+	Bundle             *BundleProvenance     `json:"bundle,omitempty"`
+	RecommendedSkills  []SkillRecommendation `json:"recommended_skills,omitempty"`
+}
+
+// ViewResolver captures bundle Masks from the same admitted Toolkit View as
+// the run. Existing callers keep using Resolver for legacy/custom Masks.
+type ViewResolver interface {
+	CaptureFromView(context.Context, domain.SessionID, bundlecontract.View) (Capture, error)
 }
 
 // Capture is the service's owned-copy read of a session selection and its
@@ -185,18 +226,24 @@ type ListRequest struct {
 }
 
 type Metadata struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Digest       string `json:"digest"`
-	GenerationID string `json:"generation_id"`
-	Revision     int64  `json:"revision"`
-	BuiltIn      bool   `json:"built_in"`
+	ID                string                `json:"id"`
+	Name              string                `json:"name"`
+	Description       string                `json:"description"`
+	Digest            string                `json:"digest"`
+	GenerationID      string                `json:"generation_id"`
+	Revision          int64                 `json:"revision"`
+	BuiltIn           bool                  `json:"built_in"`
+	Origin            Origin                `json:"origin,omitempty"`
+	Bundle            *BundleProvenance     `json:"bundle,omitempty"`
+	RecommendedSkills []SkillRecommendation `json:"recommended_skills,omitempty"`
+	Available         bool                  `json:"available"`
+	InactiveReason    string                `json:"inactive_reason,omitempty"`
 }
 
 type Page struct {
-	Items       []Metadata `json:"items"`
-	NextAfterID string     `json:"next_after_id"`
+	Items        []Metadata `json:"items"`
+	NextAfterID  string     `json:"next_after_id"`
+	CatalogEpoch int64      `json:"catalog_epoch,omitempty"`
 }
 
 type GetRequest struct {
@@ -208,6 +255,17 @@ type CreateRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Body        string `json:"body"`
+	// Bundle and RecommendedSkills are internal copy metadata. Public create
+	// actions cannot set them directly; CopyMask populates them after resolving
+	// the source from a pinned current Toolkit View.
+	Bundle            *BundleProvenance     `json:"-"`
+	RecommendedSkills []SkillRecommendation `json:"-"`
+}
+
+type CopyMaskRequest struct {
+	OperationID          string `json:"operation_id"`
+	SourceID             string `json:"source_id"`
+	ExpectedCatalogEpoch int64  `json:"expected_catalog_epoch"`
 }
 
 type UpdateRequest struct {
@@ -232,9 +290,10 @@ type SelectionRequest struct {
 }
 
 type SetSelectionRequest struct {
-	SessionID        domain.SessionID `json:"session_id"`
-	MaskID           string           `json:"mask_id"`
-	ExpectedRevision int64            `json:"expected_revision"`
+	SessionID            domain.SessionID `json:"session_id"`
+	MaskID               string           `json:"mask_id"`
+	ExpectedRevision     int64            `json:"expected_revision"`
+	ExpectedCatalogEpoch int64            `json:"expected_catalog_epoch,omitempty"`
 }
 
 type SelectionView struct {
@@ -249,6 +308,7 @@ type Manager interface {
 	ListMasks(context.Context, ListRequest) (Page, error)
 	GetMask(context.Context, GetRequest) (Definition, error)
 	CreateMask(context.Context, CreateRequest) (Definition, error)
+	CopyMask(context.Context, CopyMaskRequest) (Definition, error)
 	UpdateMask(context.Context, UpdateRequest) (Definition, error)
 	DeleteMask(context.Context, DeleteRequest) (DeleteResult, error)
 	GetMaskSelection(context.Context, SelectionRequest) (SelectionView, error)
@@ -293,7 +353,31 @@ func NormalizeCreate(in CreateRequest) (CreateRequest, error) {
 	out.Name = name
 	out.Description = description
 	out.Body = body
+	if in.Bundle != nil {
+		sourceID, sourceErr := bundlecontract.MaskID(in.Bundle.Release.InstallID, in.Bundle.LocalID)
+		if sourceErr != nil || ValidateBundleProvenance(sourceID, in.Bundle.Release.ReleaseSequence, *in.Bundle) != nil {
+			return CreateRequest{}, validationError(errors.New("copy provenance is invalid"))
+		}
+		out.Bundle = cloneBundleProvenance(in.Bundle)
+	}
+	if len(in.RecommendedSkills) > 0 && in.Bundle == nil {
+		return CreateRequest{}, validationError(errors.New("recommendations require copy provenance"))
+	}
+	if err := ValidateRecommendations(in.RecommendedSkills, in.Bundle); err != nil {
+		return CreateRequest{}, validationError(err)
+	}
+	out.RecommendedSkills = cloneRecommendations(in.RecommendedSkills)
 	return out, nil
+}
+
+func NormalizeCopy(in CopyMaskRequest) (CopyMaskRequest, error) {
+	if err := validateUUID(in.OperationID); err != nil {
+		return CopyMaskRequest{}, validationError(err)
+	}
+	if !IsBundleID(in.SourceID) || in.ExpectedCatalogEpoch <= 0 {
+		return CopyMaskRequest{}, validationError(errors.New("copy requires a bundle Mask ID and positive expected catalog epoch"))
+	}
+	return in, nil
 }
 
 // NormalizeUpdate validates and canonicalizes a custom definition update.
@@ -364,6 +448,9 @@ func NormalizeSelection(in SetSelectionRequest) (SetSelectionRequest, error) {
 	if in.ExpectedRevision < 0 {
 		return SetSelectionRequest{}, validationError(errors.New("expected selection revision must not be negative"))
 	}
+	if in.ExpectedCatalogEpoch < 0 || (IsBundleID(in.MaskID) && in.ExpectedCatalogEpoch <= 0) {
+		return SetSelectionRequest{}, validationError(errors.New("bundle selection requires a positive expected catalog epoch"))
+	}
 	return in, nil
 }
 
@@ -372,6 +459,16 @@ func NormalizeSelection(in SetSelectionRequest) (SetSelectionRequest, error) {
 // part of create idempotency even though it is display-only in a definition
 // digest.
 func CreateRequestDigest(in CreateRequest) string {
+	if in.Bundle != nil || len(in.RecommendedSkills) > 0 {
+		request := struct {
+			Name              string                `json:"name"`
+			Description       string                `json:"description"`
+			Body              string                `json:"body"`
+			Bundle            *BundleProvenance     `json:"bundle"`
+			RecommendedSkills []SkillRecommendation `json:"recommended_skills"`
+		}{strings.TrimSpace(in.Name), in.Description, normalizeLineEndings(in.Body), cloneBundleProvenance(in.Bundle), cloneRecommendations(in.RecommendedSkills)}
+		return digestJSON(request)
+	}
 	request := struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -382,6 +479,21 @@ func CreateRequestDigest(in CreateRequest) string {
 		Body:        normalizeLineEndings(in.Body),
 	}
 	return digestJSON(request)
+}
+
+func cloneBundleProvenance(in *BundleProvenance) *BundleProvenance {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneRecommendations(in []SkillRecommendation) []SkillRecommendation {
+	if in == nil {
+		return nil
+	}
+	return append([]SkillRecommendation{}, in...)
 }
 
 // DefinitionDigest returns the canonical SHA-256 identity of the semantic
@@ -411,8 +523,7 @@ func digestJSON(value any) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// ValidateMaskID accepts a reserved built-in ID or a server-generated custom
-// ID. Empty is not a definition ID but is accepted by selection validation.
+// ValidateMaskID accepts a built-in, custom, or exact Toolkit Mask ID.
 func ValidateMaskID(id string) error {
 	if len(id) == 0 || len(id) > MaxIDBytes || !isASCII(id) {
 		return errors.New("mask id must be non-empty ASCII of at most 128 bytes")
@@ -420,7 +531,35 @@ func ValidateMaskID(id string) error {
 	if IsBuiltinID(id) {
 		return nil
 	}
+	if IsBundleID(id) {
+		return nil
+	}
 	return ValidateCustomID(id)
+}
+
+// IsBundleID recognizes the canonical bundle/<install-uuid>/<local-id> form.
+func IsBundleID(id string) bool {
+	parts := strings.Split(id, "/")
+	if len(parts) != 3 || parts[0] != "bundle" || !bundlecontract.ValidInstallID(parts[1]) || !bundlecontract.ValidLocalID(parts[2]) {
+		return false
+	}
+	want, err := bundlecontract.MaskID(parts[1], parts[2])
+	return err == nil && want == id
+}
+
+// ResolveOrigin derives the legacy origin from the ID only when the persisted
+// record predates explicit origin metadata.
+func ResolveOrigin(id string, origin Origin) Origin {
+	if origin != "" {
+		return origin
+	}
+	if IsBuiltinID(id) {
+		return OriginBuiltin
+	}
+	if IsBundleID(id) {
+		return OriginBundle
+	}
+	return OriginCustom
 }
 
 // ValidateCustomID rejects built-in IDs and accepts only custom/<uuid>.
@@ -467,25 +606,56 @@ func ValidateSelection(selection Selection) error {
 }
 
 // ValidateDefinition checks stored/embedded definition invariants, including
-// the digest over the normalized ID, name and body fields.
+// explicit origin metadata and the legacy ID/name/body digest.
 func ValidateDefinition(definition Definition) error {
 	if err := ValidateMaskID(definition.ID); err != nil {
 		return err
 	}
-	if definition.BuiltIn != IsBuiltinID(definition.ID) {
+	origin := definition.Origin
+	if origin == "" {
+		if definition.BuiltIn {
+			origin = OriginBuiltin
+		} else {
+			origin = OriginCustom
+		}
+	}
+	if definition.BuiltIn != (origin == OriginBuiltin) || definition.BuiltIn != IsBuiltinID(definition.ID) {
 		return errors.New("built-in flag does not match reserved id")
+	}
+	if origin != OriginBuiltin && origin != OriginCustom && origin != OriginBundle {
+		return errors.New("mask origin is invalid")
 	}
 	if definition.Revision <= 0 {
 		return errors.New("definition revision must be positive")
 	}
-	if definition.BuiltIn && definition.Revision != BuiltinRevision {
-		return errors.New("built-in revision must be one")
+	switch origin {
+	case OriginBuiltin:
+		if definition.Revision != BuiltinRevision || definition.GenerationID == "" || definition.Bundle != nil {
+			return errors.New("built-in mask origin metadata is invalid")
+		}
+	case OriginCustom:
+		if ValidateCustomID(definition.ID) != nil || definition.GenerationID != "" {
+			return errors.New("custom mask origin metadata is invalid")
+		}
+		if definition.Bundle != nil {
+			sourceID, err := bundlecontract.MaskID(definition.Bundle.Release.InstallID, definition.Bundle.LocalID)
+			if err != nil || ValidateBundleProvenance(sourceID, definition.Bundle.Release.ReleaseSequence, *definition.Bundle) != nil {
+				return errors.New("custom mask copy provenance is invalid")
+			}
+		}
+	case OriginBundle:
+		if !IsBundleID(definition.ID) || definition.BuiltIn || definition.GenerationID != "" || definition.Bundle == nil {
+			return errors.New("bundle mask origin metadata is invalid")
+		}
+		if err := ValidateBundleProvenance(definition.ID, definition.Revision, *definition.Bundle); err != nil {
+			return err
+		}
 	}
-	if definition.BuiltIn && definition.GenerationID == "" {
-		return errors.New("built-in generation id is required")
+	if len(definition.RecommendedSkills) > 0 && definition.Bundle == nil {
+		return errors.New("recommendations require bundle provenance")
 	}
-	if !definition.BuiltIn && definition.GenerationID != "" {
-		return errors.New("custom definition must not carry a generation id")
+	if err := ValidateRecommendations(definition.RecommendedSkills, definition.Bundle); err != nil {
+		return err
 	}
 	name, err := normalizeName(definition.Name)
 	if err != nil {
@@ -510,6 +680,43 @@ func ValidateDefinition(definition Definition) error {
 	}
 	if definition.Digest != DefinitionDigest(definition.ID, definition.Name, definition.Body) {
 		return errors.New("definition digest does not match content")
+	}
+	return nil
+}
+
+func ValidateBundleProvenance(maskID string, revision int64, provenance BundleProvenance) error {
+	if !bundlecontract.ValidInstallID(provenance.Release.InstallID) || !bundlecontract.ValidDigest(provenance.Release.ReleaseDigest) ||
+		!bundlecontract.ValidLocalID(provenance.LocalID) || provenance.Release.ReleaseSequence <= 0 || !bundlecontract.ValidBundleID(provenance.Release.BundleID) {
+		return errors.New("bundle mask provenance is invalid")
+	}
+	expected, err := bundlecontract.MaskID(provenance.Release.InstallID, provenance.LocalID)
+	if err != nil || expected != maskID || revision != provenance.Release.ReleaseSequence {
+		return errors.New("bundle mask provenance does not match identity and revision")
+	}
+	return nil
+}
+
+func ValidateRecommendations(items []SkillRecommendation, provenance *BundleProvenance) error {
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Ref.Kind != bundlecontract.Skill || !bundlecontract.ValidInstallID(item.Ref.InstallID) || !bundlecontract.ValidLocalID(item.Ref.LocalID) {
+			return errors.New("mask Skill recommendation reference is invalid")
+		}
+		if provenance != nil && item.Ref.InstallID != provenance.Release.InstallID {
+			return errors.New("mask Skill recommendation belongs to another bundle")
+		}
+		id, err := bundlecontract.SkillID(item.Ref.InstallID, item.Ref.LocalID)
+		if err != nil || item.SkillID != id || seen[id] {
+			return errors.New("mask Skill recommendation identity is invalid or duplicated")
+		}
+		name, err := normalizeName(item.Name)
+		if err != nil || name != item.Name {
+			return errors.New("mask Skill recommendation name is invalid")
+		}
+		if (item.Available && item.InactiveReason != "") || (!item.Available && item.InactiveReason != "skill_unavailable") {
+			return errors.New("mask Skill recommendation availability is invalid")
+		}
+		seen[id] = true
 	}
 	return nil
 }

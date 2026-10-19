@@ -13,13 +13,23 @@ import (
 )
 
 type fakeFactory struct {
-	opens    int
-	sessions []*fakeSession
-	err      error
+	opens     int
+	sessions  []*fakeSession
+	err       error
+	openDelay time.Duration
 }
 
-func (factory *fakeFactory) Open(context.Context, InstanceConfig) (Session, error) {
+func (factory *fakeFactory) Open(ctx context.Context, _ InstanceConfig) (Session, error) {
 	factory.opens++
+	if factory.openDelay > 0 {
+		timer := time.NewTimer(factory.openDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	if factory.err != nil {
 		return nil, factory.err
 	}
@@ -424,7 +434,7 @@ func TestDiscoveryTimeoutMarksUnavailable(t *testing.T) {
 	first := &fakeSession{block: true}
 	second := &fakeSession{block: true}
 	factory := &fakeFactory{sessions: []*fakeSession{first, second}}
-	host, err := New(Config{Factory: factory, OperationTimeout: time.Millisecond, MaxSafeRetries: 1, Instances: []InstanceConfig{{ID: "slow", Command: "fixture"}}})
+	host, err := New(Config{Factory: factory, OperationTimeout: time.Millisecond, DiscoveryTimeout: time.Millisecond, MaxSafeRetries: 1, Instances: []InstanceConfig{{ID: "slow", Command: "fixture"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,6 +444,29 @@ func TestDiscoveryTimeoutMarksUnavailable(t *testing.T) {
 	status := host.Status()
 	if len(status) != 1 || status[0].State != StateUnavailable {
 		t.Fatalf("timeout status=%#v", status)
+	}
+}
+
+func TestDiscoveryUsesIndependentDeadlineForSlowSessionStartup(t *testing.T) {
+	factory := &fakeFactory{
+		sessions:  []*fakeSession{{tools: []RemoteTool{{Name: "ready"}}}},
+		openDelay: 25 * time.Millisecond,
+	}
+	host, err := New(Config{
+		Factory:          factory,
+		OperationTimeout: 5 * time.Millisecond,
+		DiscoveryTimeout: 100 * time.Millisecond,
+		Instances:        []InstanceConfig{{ID: "slow", Command: "fixture"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := host.DiscoverTools(context.Background(), "slow")
+	if err != nil {
+		t.Fatalf("DiscoverTools with independent discovery budget: %v", err)
+	}
+	if len(definitions) != 1 || definitions[0].RemoteName != "ready" {
+		t.Fatalf("definitions = %#v, want ready tool", definitions)
 	}
 }
 
