@@ -15,6 +15,16 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) owns open reusable-workflow scope. CAS drafts, immutable publication and selected editor are delivered; INOFY stays the sole graph engine. Agent discovery/revision invocation, editor correctness and richer host features remain unfinished.
+- [#21](https://github.com/ProjectViVy/agent-vivy/issues/21) retains V1-V9: editor launch and canonical node.inputs; immutable Agent revision invocation; graph switch/repeat; typed outputs/effects; wait/resume; persistent child sessions; triggers; acceptance/docs. Keep upstream work upstream and select bounded compatible work.
+- [#32](https://github.com/ProjectViVy/agent-vivy/issues/32) is closed as superseded, but W1-W8 remain under #9/#21 and [#83](https://github.com/ProjectViVy/agent-vivy/issues/83). #90 is an overlapping donor, not a second writer.
+- Do not revive PlanExecutor, add a runner or count old-main merges as acceptance on #91 stable core.
+
+remake/workflow is raw donor source; #83 stages later intake.
+
+
 ## Verified donor entry points
 
 - `internal/runtime/workflow_product.go` — main donor.
