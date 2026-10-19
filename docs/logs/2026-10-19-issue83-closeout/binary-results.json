@@ -1,0 +1,51 @@
+{
+  "tested_source_sha": "ac461b48dc5677767fda8522cbce1e64efc2c4f8",
+  "platform": "windows/amd64",
+  "binaries": {
+    "historical_unpatched": {
+      "source_revision": "e96092966cfbfa443648374948e7e7e16dd01683",
+      "eino": "v0.9.13",
+      "laputa": "4b2bec2cc2ab3374b7ec1ab8d448e612c1e4db24",
+      "vcs_modified": false,
+      "sha256": "ef27bd29102b12d31f9d5392a71dc78fd9d2f33bd521df27cde2728e1093af75"
+    },
+    "candidate": {
+      "source_revision": "ac461b48dc5677767fda8522cbce1e64efc2c4f8",
+      "eino": "v0.9.21",
+      "vcs_modified": false,
+      "sha256": "e2240d3698104643c36e90eeba4d7d61392c6bf0969b3b5bab54b2af1a24f4bb"
+    },
+    "compatibility_rollback": {
+      "source_revision": "ac461b48dc5677767fda8522cbce1e64efc2c4f8",
+      "eino": "v0.9.13",
+      "vcs_modified": false,
+      "sha256": "0143769b753bc38c97b09692769ad8c4aeb164a767181adf04b56ee48e206443"
+    }
+  },
+  "historical_binary_matrix": {
+    "result": "PASS",
+    "model_requests": 9,
+    "cases": {
+      "upgrade_old_to_candidate": "PASS: pending Approval, Question, and Plan recovered; each Run failed once; cancellation evidence recorded once; checkpoints unchanged; no recovery model calls; repeated restart idempotent",
+      "direct_rollback_with_pending": "EXPECTED_FAIL_CLOSED: historical binary rejects unknown migration version 44 before recovery; request/event/checkpoint state unchanged",
+      "cleanup_then_historical_rollback": "EXPECTED_FAIL_CLOSED: cleanup does not make the historical binary understand migration 44; request/event/checkpoint state unchanged"
+    }
+  },
+  "compatibility_rollback_matrix": {
+    "result": "PASS",
+    "model_requests": 9,
+    "cases": {
+      "upgrade_old_to_candidate": "PASS",
+      "direct_rollback_with_pending": "PASS: compatibility binary retains the cleanup fix and migration 44; version guard fails each incompatible Run once and cancels Approval, Question, and Plan once",
+      "cleanup_then_compatibility_rollback": "PASS: cleared request state and events remain unchanged after compatibility startup and repeated restart"
+    },
+    "assertions": [
+      "Approval and Question cancellation events precede the Run terminal",
+      "exactly one terminal per Run and one cancellation per pending interaction",
+      "Plan review cancellation recorded exactly once",
+      "checkpoint IDs, generations, and checksums unchanged",
+      "recovery does not call the fake model",
+      "repeated restart does not duplicate or lose events"
+    ]
+  }
+}
