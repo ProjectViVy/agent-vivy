@@ -6,13 +6,15 @@ Status: Source-backed architectural diagnosis and deletion proposal. No runtime 
 
 Priority: Resolve these core execution dependencies before treating new Recipes, examples, or development workflows as the solution.
 
+Deletion closure: the owner requires complete retirement, not relocation or disabled compatibility paths. The [complete deletion plan](../plans/2026-10-19-complete-deletion-plan.md) integrates the five-domain pre-audit, migration decisions and independent behavior/residue acceptance. Implementation and post-deletion verification remain pending.
+
 ## 1. The central finding
 
 Vivy already delegates model/tool iteration to Eino. The most important simplification is to reduce the number of surrounding components that can prevent that iteration from advancing.
 
 The problem is **distributed authority over progress**. A tool can have finished and its operation outcome can already be durable, while subsequent model progress still depends on lifecycle projection, consumer-maintained completion state, an advisory reminder barrier, and model observation settlement. These components protect different promises, but their failure and waiting policies are combined on the foreground path.
 
-The removal target is not every check, state object or hash. It is the additional authority granted to auxiliary state: the ability to veto a model request, withhold stream completion, or hold a shared execution lock.
+The central execution target is the additional authority granted to auxiliary state: the ability to veto a model request, withhold stream completion, or hold a shared execution lock. The owner has also selected complete retirement of Vivy-owned hash machinery, except the final informational artifact label. Other checks and state need a concrete responsibility; they are not automatically removed merely because they are checks.
 
 Three conclusions guide deletion:
 
@@ -185,13 +187,13 @@ Sources: [Run context](https://github.com/ProjectViVy/agent-vivy/blob/e96092966c
 
 ## 6. Proposed direction: final-artifact identity only
 
-Discussion update: the owner requests that Vivy retain only a final species-artifact hash, serving as an informational release label with no authority over business behavior. Per-plugin hashes and other Vivy-owned hash machinery should be retired. This replaces the earlier recommendation to retain some hash implementations indefinitely. It does not remove the execution guarantees those implementations currently support.
+Discussion update: the owner requests that Vivy retain only a final species-artifact hash, serving as an informational release label with no authority over business behavior. Per-plugin hashes and other Vivy-owned hash machinery must be deleted completely, including their fields, callers, generated producers, tests that require them and current normative requirements. Moving them outside assembly or the foreground path, disabling them, or retaining no-op compatibility wrappers does not satisfy this direction. This replaces the earlier recommendation to retain some hash implementations indefinitely. It does not remove the execution guarantees those implementations currently support.
 
 ### 6.1 Proposed rule and scope
 
 After the final distributable is complete, compute one digest for that final artifact. Publish it in a sidecar release record outside the hashed bytes. Do not create another per-file or per-plugin digest manifest, and do not make the running product recompute it.
 
-The runtime must not require this label to start, admit a Run, expose a tool, invoke a model, continue after a tool, approve an operation or restore state. Missing or unreadable release-label metadata means unavailable metadata, not a failed business operation. A manually requested comparison may report a mismatch without granting it runtime execution authority.
+Installation, update, rollback and Inspect must not require this label to succeed. The runtime must not require it to start, admit a Run, expose a tool, invoke a model, continue after a tool, approve an operation or restore state. Missing or unreadable release-label metadata means unavailable metadata, not a failed business operation. A manually requested comparison may report a mismatch without granting it runtime execution authority.
 
 A digest identifies bytes; it does not establish functional correctness or prove that tests passed. Any release qualification statement must describe the actual validation separately. The same label cannot serve as a hidden policy, compatibility, provenance or admission token.
 
@@ -226,10 +228,10 @@ No measurement establishes that this hashing caused the reported incident. Nudge
 
 ### 6.4 Transition and acceptance
 
-1. Inventory producers, consumers, failure gates and persisted fields for each hash family. The searches in this review are not yet an exhaustive retirement inventory.
+1. Inventory producers, consumers, failure gates and persisted fields for each hash family. The five-domain inventory is in the complete deletion plan; close its per-cut decisions and recheck the implementation baseline before deleting. The inventory is not proof that all semantic aliases or build variants have been exhausted.
 2. Remove auxiliary families with their unused evidence/state first. Do not replace every deleted digest with a new certificate, receipt or revision subsystem.
 3. For effect, approval and recovery paths, replace the representation and update all consumers together while preserving the agreed execution guarantee.
-4. Revise plugin schemas, source/evidence rules and migration/checkpoint compatibility explicitly. Keep old data readable where promised; do not rewrite released SQL migrations or silently delete historical records.
+4. Revise plugin schemas, source/evidence rules and migration/checkpoint compatibility explicitly. Define a finite data conversion and supported-version boundary, then delete obsolete readers, fields and fallbacks. Do not retain compatibility indefinitely, rewrite released SQL migrations in place, or silently delete user records to achieve a clean source scan.
 5. Produce the optional final-artifact label after packaging. Verify that absence, invalid formatting or a different label cannot change business behavior.
 6. Re-run the causal tool/continuation and no-duplicate-effect cases after the conversion. Test original guarantees, not the mere absence of `sha256` imports.
 
@@ -254,7 +256,7 @@ Sources: [engine handlers](https://github.com/ProjectViVy/agent-vivy/blob/e96092
 
 ## 8. Specific deletion map
 
-This is a ranked decision map, not an instruction to delete files immediately. Preserve readers for supported historical events/checkpoints. Feature retirement does not authorize modifying released migrations or destroying user state.
+This is a ranked decision map, not an instruction to delete files immediately. Every selected retirement requires complete dependency closure under the deletion plan. Supported historical data needs a finite format/upgrade decision, not a default promise to retain old readers. Feature retirement does not authorize modifying released migrations in place or destroying user state.
 
 | Candidate | Concrete scope | Prerequisite / retained guarantee | Architectural effect |
 | --- | --- | --- | --- |
@@ -276,7 +278,7 @@ Keep the tool-operation crash matrix, call-ID correlation, permissions and recov
 
 ### What is actually being deleted
 
-The intended reduction is not only source files. For each candidate, identify the removed product promise, state owner, synchronous wait, failure edge, configuration, and feature-only tests/documentation. Preserve meaningful safety tests and historical compatibility explicitly.
+The intended reduction includes implementation, construction, state owners, waits, failure edges, configuration, public schemas, storage, generated producers, feature-only tests and active requirements. Delete each obsolete path entirely. Preserve meaningful behavior tests and choose a finite data transition explicitly; a permanently disabled path or compatibility shell is unfinished work.
 
 Do not move a rejected state machine into a plugin while leaving the core waiting for its acknowledgment. Do not add a generic handler registry or new event broker to replace a handful of deleted features. No numeric LOC or latency target is justified before measuring the resulting implementation.
 

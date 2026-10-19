@@ -1,0 +1,201 @@
+# Vivy Complete Deletion Plan: Scope, Order, and Two Independent Audits
+
+Date: 2026-10-19
+
+Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
+
+## 1. Decision and completion standard
+
+The owner's direction is **complete deletion of Vivy's custom hash system**, with only an optional informational digest of the final distributable remaining. Merely moving a check out of assembly or the foreground loop does not satisfy this direction. The same closure standard applies to every other mechanism explicitly selected for retirement.
+
+Delete its implementation, construction, callers, state, persisted representation where applicable, configuration, public fields, generated outputs, feature-only tests, and current instructions requiring it. Do not leave a disabled implementation, a no-op compatibility wrapper, an ignored configuration field, or a replacement with another hash algorithm/name. Do not move rejected complexity to a plugin while retaining a core dependency on it. Rollback uses version control and a documented data strategy, not a second implementation in the shipped product.
+
+This direction does not automatically retire every capability discussed in the research. Hash retirement is confirmed. Full removal of reminders, proactive warming, tool-mount lifetimes, same-Run steering, or companion behavior remains a scoped product decision. Once selected, each must be deleted completely; an implementation cannot claim completion by making it optional.
+
+One small final-artifact label is permitted: compute it after packaging, outside the bytes being hashed, and never read it as a prerequisite for installation, update, rollback, Inspect, startup, model/tool execution, continuation, approval, recovery, or rendering. Missing, malformed, or mismatching label metadata cannot change those behaviors. It identifies bytes; it is not evidence that functional tests passed.
+
+## 2. Audit baseline and coverage
+
+The inspected implementation is `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`, containing 3,751 tracked paths. The working checkout's product code is older (`b4db00bd` plus documentation changes). Implementation must start on an explicitly selected current integration base and recheck intervening changes; do not apply this map blindly to the older checkout.
+
+Five read-only subagent lanes reviewed runtime ownership; SDK/assembly/plugin generation; storage/recovery; UI/RPC/configuration; and CI/tests/current instructions. The lead reconciled their findings and checked cross-lane boundaries. No production Journal was accessed.
+
+A repository-wide lexical sweep for SHA/MD5/FNV/HMAC, digest, checksum, fingerprint and content-address terminology found 616 matching tracked files, excluding dated `docs/logs/` and dependency lockfiles. These are search candidates, not 616 defects or 616 mechanisms. They include tests and documentation. The sweep exposed the separately built `bml/` module and event schemas beyond the first runtime inventory. It does not inspect submodule contents or prove that every semantic alias has been found.
+
+| Area | Matching files in this sweep |
+| --- | ---: |
+| `internal/` | 310 |
+| `docs/` outside logs | 105 |
+| `plugins/` | 77 |
+| `sdk/` | 57 |
+| `ui/` | 29 |
+| `bml/`, `schemas/` | 10 each |
+| `.agents/`, `faces/` | 5 each |
+| `.superpowers/`, `scripts/`, root `AGENTS.md` | 4, 3, 1 |
+
+This is a cross-repository pre-audit, not an implementation-ready sign-off on every persisted field. Tables below identify deletion families and unresolved data/security decisions. The implementation lane must close those decisions for its cut before editing; the post-deletion audits remain pending.
+
+The [core insight](../research/2026-10-19-agent-loop-core-deletion-insight.md) supplies detailed source links and distinguishes confirmed dependency edges from unproven incident hypotheses. This plan supplies deletion closure and execution order rather than duplicating that diagnosis.
+
+## 3. Hash deletion families
+
+Paths below are relative to the audited repository. A row describes a dependency closure, not permission to delete every file named in it. Shared files retain unrelated behavior.
+
+| Family | Concrete implementation and propagation | Required final state |
+| --- | --- | --- |
+| Source/Recipe/plugin evidence | `internal/sourcehash/tree.go`; `sdk/internal/assembly/source.go` (`SourceCatalog`, `HashSourceTree`, `VerifyUnchanged`); Descriptor/Recipe source fields; `sdk/internal/catalog_v1.go`; plugin descriptors | Remove tree hashing, digest pins, rehash gates and metadata. Retain explicit selected source/version and typed dependency/Port composition. Update pack, verify and inspect together. |
+| Assembly/Generation evidence | `sdk/generation/manifest.go`; `sdk/internal/assembly/manifest.go`, compiler/generators/conformance; `internal/generated/assembly/zz_default.go`; UI generated Assembly | Remove embedded digest chains and digest-dependent identity. Generate from simplified input contracts. Functional conformance remains executable behavior evidence, not a runtime digest gate. |
+| Frontend asset/catalog evidence | SDK UI build/staging; `ui/src/plugins/presentation-host.tsx` (`validateCatalogProjection`, custom `sha256Hex`); generated UI catalog/asset metadata | Remove asset hash rewrite/rehash cycle and catalog digest rejection, including schemas and fixtures. Retain necessary syntax, catalog shape and explicit module selection. |
+| Bundle/content-addressed packaging | `internal/bundlecontract/{digest,identity,manifest}.go`; `internal/bundles/{acquire,artifact,manager}.go`; bundle install/update/rollback and Inspect/RPC/UI consumers | Remove per-bundle digest identity/admission, not only calculation. Decide explicit artifact identity/reference semantics and update all lookup/storage consumers. Do not retain old digest paths as the new normal. |
+| Event audit | `internal/runtime/audit.go`; default `AuditHook` in `internal/app/app.go`; audit tests and digest-only logs | Delete the whole digest audit facility. Retain canonical Journal and bounded, redacted operational errors. Preserve unrelated hooks only for actual retained consumers. |
+| Model completion stream | Runtime mapper and `model.completed` payload/schema; `sdk/facerun/facerun.go`; `sdk/tui/stream`; headless app and Face consumers | Remove `content_sha256` production, accumulation, verification, DTO fields and hash-error states together. Keep call/event correlation, supported framing, final text, one terminal and replay behavior. |
+| Admitted execution snapshots | Prompt/policy/toolset/mask/persona/context/skill/MCP hashes in runtime, Hosts, domain, storage, RPC and Face projections | Remove digest metadata and gates. Where identity matters, use the authoritative admitted value or existing semantic revision; delete duplicate snapshots/evidence with no independent purpose. |
+| Tool operation and approval binding | `tool_operation.go`, `approval_binding.go`, `tooladapter.go`, domain operation types, SQLite/Postgres implementations and event schema | Remove digest fields and comparisons while retaining exact intended inputs, operation ownership and durable effect outcome. Raw request binding needs an explicit design; it is not proven redundant. |
+| Files/references/deliverables | File preconditions/version storage, downloads, reference/report/deliverable services, RPC exports and associated schemas | Delete content-hash authority and fields. Retain a correct expected-content or authoritative version boundary where edits/approvals require it. Timestamp/size alone is not content equality. |
+| Checkpoints and migrations | `internal/runtime/checkpoint.go`; SQLite/Postgres `blob.go`; storage migration manifest/runner/metadata | Delete both written-only and actually validated checksum layers through a defined data transition. Keep format/version, Run binding, ordered transactional migration and failure rollback. Record lost independent corruption/drift detection explicitly. |
+| BML identities and evidence | `bml/{record,home,maintenance,migrate,store}.go` | Remove content-digest validation, digest-derived memory/workspace IDs and migration evidence. Resolve existing identity/data references before cutover. Inspect apparently unused journal DDL for whole-table removal rather than leaving an empty shell. |
+| Custom signed cursor | `internal/runtime/history_service.go` HMAC encode/decode path | Resolve the client-input trust contract: remove the custom signed-cursor protocol or use a simpler authorized pagination contract. Do not merely skip the MAC check and retain trusted cursor claims. |
+| Nudge/warming hashes | `nudge_window.go` signatures; `cachewarmer.go` prefix evidence; associated events/config/tests | Do not replace a signature with a renamed identity while retaining an unneeded subsystem. Decide whole-feature retirement alongside the core-state cuts below. |
+
+Native dependency integrity and transport/authentication cryptography need a precise scope boundary. The recommended boundary is to remove Vivy's invented product evidence, not fork Go/pnpm/TLS to remove their cryptographic internals. This remains an explicit scope decision, not a hidden exemption. Any Vivy-owned security mechanism listed above still needs a concrete disposition.
+
+### Source checks that change the deletion strategy
+
+- The in-repository lifecycle owner `internal/studiocore/service.go:421` compares `ArtifactSHA256` before installation. The sole retained release label must not preserve this business gate; the external Studio submodule has not been audited by this inventory.
+- Source catalog construction hashes sources before Recipe compilation. Kernel modules can share the entire `internal/` source root; the walker includes regular untracked source/test files except its specific exclusions. A small Recipe alone cannot guarantee a small validation dependency surface. Remove this mechanism, rather than add another source-hash cache.
+- Frontend build/staging and runtime catalog validation form one evidence chain. Deleting only generated hashes allows the generator to restore them; deleting only the generator breaks consumers.
+- `sdk/facerun.completeModelLocked` rejects a mismatching `content_sha256` and later reports a local failed terminal. Headless/TUI also verify completion. This is confirmed client-side failure authority, not proof that this branch cancels the backend Run or caused the reported incident.
+- `sameRuntimeToolOperationBinding` compares stored argument bytes as well as digests. However, `RequestDigest` binds original input while the row stores middleware/effective input bytes. Removing both digests is not justified merely by seeing two byte comparisons; decide original-request identity first.
+- Checkpoint storage writes a `checksum` column that its blob reader does not validate; the runtime checkpoint envelope separately validates `checksum_sha256`. Delete both producers/fields as appropriate, but do not confuse a dead column with the active envelope check.
+### Other concrete consumers that cannot be omitted
+
+- RPC/export/download/reference surfaces: `internal/rpc/{exports,deliverables,work_control,control}.go`; `ui/src/lib/{api,deliverable-download,store}.ts`; `HistoryPicker.tsx`; reference/detail components. Remove `ExpectedDigest`, `expected_digest`, `precondition_hash`, hash-derived Work IDs and MCP command-name hashing. Retain authorized snapshot selection, chunk consistency, retry identity and collision handling through a simpler explicit contract.
+- Plugin feature surfaces: toolkits' candidate/release/declaration/effective digests; masks' release/cache digest; memory/evolution content/base hash CAS; notebook input/facts digests; workflow definition/catalog/program/result/resume digests. Their UI clients, DTOs, runtime owners, SQL keys and tests must change together. `ui/src/lib/demo-api.ts` implements mock hash CAS too; it is active demo behavior, not an exemption.
+- Host-generated identities: `internal/contexthost/{filesource,host}.go`, `internal/mcphost/{resourcesource,host}.go`, `internal/skillhost/host.go`. Hashes currently represent candidate versions, de-duplication, schema invalidation, provenance and IDs. Choose actual identity/version/content semantics per retained feature. Memory provider IDs also hash a Run ID suffix; preserve uniqueness and idempotency without that computation.
+- Persisted feature families: storage admission/snapshots, continuity, child sessions, Work, workflow/report/INOFY, notebook and bundle/toolkit state. Digests appear in uniqueness constraints and receipt identity, not just columns. A blanket column drop is insufficient.
+- Event schemas: `run.started`, `model.request`, `model.completed`, `policy.evaluated`, `tool.operation`, `context.reference_attached` and workflow events. Remove old fields from `required`, examples and version unions as well as properties. Never substitute raw credential-bearing operation arguments into public events to replace a removed digest.
+- Explicit dead structure: `bml/README.md` says the upstream governed-write seam was dead and was not ported, while `memory_apply_journal` remains for byte compatibility. The inspected references are DDL, table-existence tests and that explanation. Remove the obsolete table contract and tests, and migrate existing stores without deleting real memory records. This is direct evidence of compatibility residue, not merely a complexity heuristic.
+- `plugins/exp/loop-detection/deferred.go` retains an FNV loop window despite deferred status. Include unused experimental implementations in the retirement inventory; a deferred label is not a reason to keep dead code.
+
+## 4. Core-state deletion cuts
+
+The highest-priority architectural goal remains: **one real tool outcome must reach Eino and allow continuation without agreement from multiple auxiliary state owners**. Hash deletion alone does not establish that goal.
+
+| Cut | Delete together if selected | Behavior that must still work |
+| --- | --- | --- |
+| Proactive warming | `cachewarmer.go`, observer wiring, config/defaults/parser, `cache.warmed` event/schema, UI options, feature tests and active plan | No extra proactive paid call; foreground call usage and provider-native cache accounting remain accurate. |
+| Reminder and nudge handoff | `nudge_window/state/middleware`, unconditional engine registration, adapter failure side channel, mapper parked completions, Service outstanding/batch restoration, steering integration, reminder event and normative design | Recoverable tool errors/refusals still reach the model. Durable effect completion remains before ordinary result return. No missing-call wait or replayed sibling effect. |
+| Synthetic tool lifecycle authority | Reconstructed `tool.started` and duplicate lifecycle ownership | Present actual execution facts, including refusal before claim; UI timing cannot pretend that result arrival was execution start. |
+| Derived-work critical section | Old synchronous projection/output/hook path under `projectionMu`, including obsolete helpers and fallback path | Retain commit/terminal/delete ordering; derived views never acknowledge progress back to the runner. Do not replace it with another required coordination service. |
+| Tool visibility lifetimes | Activation/mount/suppression mirrors, rebuild paths, associated session state/events/config | One clearly owned tool surface and server-side permissions. Decide fixed Run surface versus one supported search mechanism first. |
+| Same-Run steering | Steer queue branch, cancellation/history surgery, duplicate resume setup, API/UI controls and tests | Explicit cancel/new-Run behavior if chosen; keep necessary approval/question recovery and any retained next-turn queue. |
+| Product-specific admission | Generic-core dependencies on companion/toolkit/Work capabilities | Optional selected features own their actual behavior. Delete old mandatory-core wiring, state and error paths; feature retention is distinct from retaining its old integration. |
+
+Do not delete `operationFlights`, durable claims, permissions or call-ID correlation simply because they are maps/checks. Each has a concrete effect/replay responsibility. Conversely, do not keep an obsolete nudge class because a useful test helper or failure classification currently lives inside it: move only that still-needed behavior into the existing tool boundary, then delete the old owner and terminology.
+
+## 5. Compatibility must have an end
+
+The final supported runtime must have one active format and one execution path. A compatibility reader, fallback, ignored option or old protocol left indefinitely is an incomplete deletion.
+
+Data changes require a finite decision before their implementation cut:
+
+1. Name supported source versions and the new format. Inventory actual source columns/keys and whether the underlying content exists; a digest cannot be reversed into missing data.
+2. Convert supported data at an explicit upgrade boundary. Pending approvals whose intended input cannot be recovered must expire and require new approval. Unknown side-effect outcomes must never become automatic retries.
+3. Remove obsolete columns, indexes, constraints, handlers, old readers and fallback branches from the target runtime. If an upgrade helper is temporarily necessary, specify its separate delivery boundary and removal milestone. Do not call the final contraction complete while it remains an unspecified permanent dependency.
+4. Verify fresh install, supported upgrades, reopen, failure rollback and SQLite/Postgres parity on disposable fixtures. Include BML as its own module and data format. No production-state reset is authorized.
+5. If the owner requires even old SQL text to leave the current source tree, establish a new schema baseline and a finite supported upgrade route before retiring old migration files. Do not modify already released migration contents in place to conceal removed fields.
+
+Opaque existing IDs that happen to look like hashes, historical Journal payload bytes and Git history are different from active hash computation/validation. Decide whether existing IDs remain opaque or are migrated with their references. Historical user data and Git history are not silently erased to obtain a clean search. Dated research/log records may describe what was removed, but must not remain current build/development requirements. Current contracts and entry points must have one authoritative new direction.
+
+## 6. Execution order and ownership
+
+This plan does not introduce a new deletion framework, validator service or permanent approval board. Use ordinary PRs, existing generators, existing test entry points and a short disposition table in each coherent change.
+
+1. **Freeze scope and audit it.** Read-only subagents inspect disjoint domains; the lead resolves cross-domain identity, persistence and failure behavior. The current five-lane inventory is the first pass. Close each cut's open decisions and re-audit changes since the pinned baseline before implementation.
+2. **Replace contradictory requirements in the same cut.** Update active architecture/skill/schema requirements with the removal, so another agent is not instructed to rebuild it. Keep instructions short; replace rules rather than append exceptions to contradictory rules.
+3. **Delete isolated, closed families first.** Event audit and proven dead structures are small candidates. If warming retirement is selected, remove the entire extra-call facility. Do not begin by renaming every shared `Digest` type.
+4. **Delete the completion/hash protocol end to end.** Change producer, event schema, SDK/TUI/headless/Web consumers and fixtures as one cut. This removes a concrete extra completion authority and provides a narrow causal regression target.
+5. **Delete the nudge coordination closure if selected.** First locate retained outcome classification at the actual tool boundary, then remove the whole reminder/handoff mechanism. Preserve operation/recovery proofs. Reassess observer settlement after this removal rather than adding another synchronization workaround.
+6. **Delete assembly provenance machinery end to end.** Simplify Descriptor/Recipe/manifest/contracts and their generators before regenerating official artifacts. No manual generated-output-only cleanup. Keep the agreed optional final label outside runtime identity.
+7. **Complete persisted identity/approval and feature-specific cuts.** Apply the finite format decisions, including BML and migration metadata. Prioritize remaining active hash gates and whole-feature deletion where the feature itself is no longer wanted. Remove old public API/config states as part of each cut.
+8. **Audit the resulting candidate twice, independently.** A behavior reviewer and a residue reviewer inspect the same final commit. Neither treats implementation claims as verification. The lead integrates corrections and reruns only affected evidence; every shipped cut passes its applicable gates, with an overall final pass for contraction completion.
+
+Use one active write lane per checkout. Read-only auditors may run concurrently; independent implementation lanes need their own worktrees and must not edit shared root files. After substantial implementation, prefer fresh reviewer subagents that did not author the deletion. No post-deletion audit has happened yet.
+
+### Existing Eino capability check
+
+The audited pin is `github.com/cloudwego/eino v0.9.13`. `adk.NewChatModelAgent`, `adk.NewRunner`, `Runner.Run`, `ResumeWithParams`, `ChatModelAgentConfig.MaxIterations` and `compose.ToolsNodeConfig` already cover iteration, recovery and tool integration. `UnknownToolsHandler` is available for unknown tool calls. Keep the existing runtime/provider import boundary. No finding justifies a new runner, scheduler or generic plugin framework to replace removed coordination.
+
+Native callbacks alone do not promise Vivy's synchronous durability semantics. Preserve the minimum necessary effect/accounting boundary, or explicitly change its contract; do not assume that substituting a callback proves equivalent recovery.
+
+## 7. Independent audit A: behavior has not been broken
+
+The acceptance anchor is a causal **model -> real tool -> tool result -> next model request -> final answer** through production construction. Counting events, a mock answer, or a green compilation is insufficient.
+
+| Scenario | Required evidence |
+| --- | --- |
+| Minimal causal exchange | A real read tool reads a fresh nonce from an isolated file. Capture the second model request and verify the exact result/call ID; final answer follows, one terminal is reported and the Run becomes idle. |
+| Real-provider human check | The tiny chat Face uses the same Service/RPC/tool path with configured real tokens; retain the call/result/continuation evidence without secrets. This remains pending, not replaced by stub success. |
+| Error correction/refusal | Missing file, invalid arguments and denied effect reach the model appropriately; correction can proceed, denied mutation never occurs. |
+| Effect crash/recovery | Preserve `TestToolOperationCrashMatrix`: admitted, claimed, effect performed and completed boundaries. Unknown effects are not blindly repeated; completed effects replay their outcome. |
+| Approval and question resume | Correct call/arguments/Run binding, completed siblings not repeated, decided call continues, no old hash envelope dependency. |
+| Streaming and Faces | Multi-step tools, Unicode, valid chunk boundaries and tool-only output reach consistent SDK/TUI/headless/Web final state without `content_sha256`. No false local protocol failure. |
+| Cancellation and derived output | Cancel releases remaining waits; a slow/failed optional sink does not own core progress. Distinguish the already nonblocking Web Bus from synchronous sinks. |
+| Retained editing/download/feature identity | Selected content stays consistent across chunks; edit conflicts, retry IDs and authorization remain as explicitly specified. Cover actual race/retry boundaries, not only happy paths. |
+| Data transition | New and upgraded disposable stores reopen correctly; unsupported pending state is explicit; no lost records or accidental duplicate side effects. Include the independent BML module. |
+
+Reuse meaningful existing test helpers while removing reminder/count/hash-only assertions. Do not retain the old architecture solely to keep old tests green. Do not delete business acceptance tests because their original filenames mention the retired mechanism.
+
+Developer iteration may use the affected Recipe and shared-contract checks described in the [development proposal](../research/2026-10-19-agent-loop-slimming-review.md#11-recipe-based-development-and-pr-responsibility). The maintainer's final candidate still requires the current repository `just ci`, applicable builds and real-path smoke until the validation contract is explicitly changed. This document is not permission to suppress unrelated failing checks or declare a skipped gate passed.
+## 8. Independent audit B: nothing retired is still active
+
+This audit is separate from behavior verification. It follows consumers and generation, not just imports. The reviewer records every remaining match and rejects unclassified residue.
+
+| Surface | What must be absent after its retirement cut |
+| --- | --- |
+| Implementation | Old algorithms/helpers/classes, constructors, hidden fallback, always-success verification wrapper, unreachable branch, disabled experimental implementation |
+| Protocol/config | Old JSON/YAML/SQL fields, aliases, required-schema entries, event versions, error codes, CLI flags, ignored options, environment variables |
+| Storage | Unused columns/indexes/tables, backfill jobs, digest-derived keys still produced, permanently supported old reader |
+| Generation | Old descriptor fields/constants, templates, generator expressions, golden outputs, overlay fixtures, artifact fields restored by rebuild |
+| Tests | Assertions demanding the old mechanism, obsolete fixture directories, feature-only mocks/helpers, tests that preserve an unused table solely for compatibility |
+| User/developer surfaces | UI controls/status/translation keys, API DTOs, example recipes, source-hash CLI, mock/demo state and active tutorials |
+| Instructions | Current AGENTS/skills/architecture/CI rules that require rebuilding the retired mechanism |
+
+Use both exact symbols from the deletion diff and broad aliases. Initial search vocabulary:
+
+```text
+sha256 sha512 md5 hash/fnv crypto/hmac digest checksum fingerprint
+content_hash base_hash precondition_hash RequestDigest ArgumentsDigest
+SourceSHA256 SourceHash DependencyLockHash LockHash AssetHash FinalAssetHash
+RecipeDigest GenerationID catalogProjectionDigest VerifyUnchanged
+content_sha256 completionHash VerifyModelCompleted ModelCompletionTracker
+AuditHook AuditRecord SlogAuditSink payload_sha256
+newNudgeState restoreResumeNudgeBatch completedCall takeCompletion tool.nudge
+runCacheWarmer CacheWarming cache_warming CacheWarmed cache.warmed
+memory_apply_journal inofy-normal-v1:sha256:
+```
+
+These are discovery terms, not a global text replacement. `GenerationID` still needs a non-content-addressed identity if Generations remain; ordinary URI fragments and natural-language summaries are not hash machinery. Existing opaque historical IDs, historical records and approved native dependency/security internals must be classified by exact purpose. An unexplained match fails closure; a broad wildcard exemption such as “all tests” or “all compatibility code” is not acceptable.
+
+Regeneration is mandatory for affected outputs: `internal/generated/assembly/generate.go` invokes the default SDK generator; UI predev/prebuild/pretest invokes `ui/scripts/stage-ui-assembly.mjs`; DIVA/memory-loop scripts create generated overlays. Fix their source, regenerate, inspect the produced diff, and regenerate again to establish no further changes. Build and inspect affected official Recipe artifacts, including minimal and plugin examples; final contraction must account for all supported official Recipes and build variants. The current inventory has not proved all tag/submodule combinations.
+
+Specific resurrection points include `sdk/internal/cmd/source-hash/`, `scripts/check-plugin-v1-fixtures.mjs`, Descriptor SHA constants, conformance evidence files, `sdk/internal/memory_loop_generation_test.go`, `scripts/memory-loop.mjs`, `scripts/diva-recall.mjs`, and UI demo CAS. Remove the obsolete producer or rule, not merely its generated answer.
+
+Active requirements needing revision include `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`, `VIVY-MODULE-STANDARD.md`, `.agents/skills/vivy-plugin/SKILL.md`, and AGENTS source-evidence/migration-checksum clauses. If reminders/warming retire, also remove or clearly retire the operative `NUDGE-DESIGN.md`, nudge implementation plans and warming backlog. `VIVY-MEMORY-HOST-CONTRACTS.md` cites `AuditRecord`; replace the obsolete dependency while keeping its bounded-data requirement. Historical delivery logs can remain factual history; they cannot govern future implementation.
+
+## 9. Open decisions and release closure
+
+Before the corresponding implementation cut, record a concrete choice for:
+
+- Supported old database/checkpoint/approval versions and the finite upgrade boundary; handling incomplete/unknown effects without replay.
+- Original request binding after `RequestDigest`; snapshot/content ownership after removing file/bundle/approval hashes.
+- Custom HMAC cursor retirement and native dependency/transport cryptography boundary; builder-owned resource names versus Vivy-owned validation.
+- Final delivery unit for the sole optional artifact label; ordinary Generation identity without content addressing.
+- Which non-hash features retire completely, especially nudge/reminders, warming, same-Run steering and tool visibility lifetimes.
+- Retained product capability versus whole-feature removal for large workflow/Work/bundle/companion protocols. Do not silently delete a user feature to make a search result disappear.
+
+A deletion deliverable is closed only when its implemented candidate, retained behaviors, data transition, active-rule changes and both independent audit results are recorded. Evidence must identify the actual commit/build tested. A failing check is not waived by a passing residue scan; a passing CI is not proof of deletion completeness.
+
+Plan verification: assembly and storage auditors independently reviewed the integrated draft; their scope corrections are incorporated. Documentation diff checks passed. Product CI was not run because this delivery changes research/planning text only; this is not a waiver for implementation.
+
+Current status: five read-only domain inventories integrated; broad tracked-tree search completed; exact per-cut decisions, implementation, regeneration, behavior verification, real-token E2E and post-deletion residue review are **pending**. No runtime fix, performance gain or incident root cause is claimed.
