@@ -1,7 +1,8 @@
 # Core Insight: Where Vivy's Agent Loop Should Shrink
 
 Owner update (2026-10-19): nudge/coaching, proactive warming and same-Run
-steering are explicitly retained. Whole-feature-retirement recommendations in
+steering are explicitly retained as species-selected experimental packages. All
+other cuts continue under the prior plan. Whole-feature-retirement recommendations in
 this historical review are superseded by the current
 [issue #91 plan package](../superpowers/plans/issue-91/index.md) and shared design.
 This note does not change runtime behavior or settle other product/data choices.
