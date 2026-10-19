@@ -309,7 +309,8 @@ func (s *Service) rebuildPendingPlanReview(ctx context.Context, run domain.Run, 
 		s.goalRunSessions[run.ID] = run.SessionID
 		s.goalRunRefs[run.ID] = goalRef
 	}
-	s.workGates[run.ID] = &sync.Mutex{}
+	s.workGates[run.ID] = &sync.RWMutex{}
+	s.workOrders[run.ID] = newToolBatchOrder()
 	s.workBlockedCalls[run.ID] = blocked
 	s.active[run.ID] = cancelRun
 	s.pending[run.ID] = pendingRun{

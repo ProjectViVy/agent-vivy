@@ -404,7 +404,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			},
 		},
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: true},
+			// Same-batch tool calls run in parallel; the run's work gate
+			// (Service.WorkToolCall) keeps terminal/mutation boundaries
+			// intact by holding model-work calls exclusively while ordinary
+			// siblings share the read side.
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools, ExecuteSequentially: false},
 		},
 	}
 	if cfg.MaxToolTurns > 0 {

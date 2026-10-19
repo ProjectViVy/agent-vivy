@@ -65,11 +65,48 @@ func (s *Service) WorkRunFenced(ctx context.Context) bool {
 	return terminal || batchSibling
 }
 
-// WorkToolCall serializes model tool admission and invocation for one live
-// run. The gate closes the check-to-invoke race around report_goal: if a
-// terminal report commits first, a sibling tool waits and is fenced before
-// reaching product code.
-func (s *Service) WorkToolCall(ctx context.Context, call func() (string, error)) (string, error) {
+// WorkToolCall coordinates model tool admission and invocation for one live
+// run through a per-run read/write gate. Ordinary calls (exclusive=false)
+// take the read side for their whole dispatch, so sibling tools run in
+// parallel while the terminal fence check still cannot race a work commit.
+// Model-work calls (exclusive=true) take the write side, which makes their
+// admission and commit a full barrier: the writer waits for in-flight
+// siblings to settle first, and Go's writer preference then blocks siblings
+// that arrive while the commit is pending — they observe the fence and are
+// refused before reaching product code. That preserves the sequential
+// contract (no sibling effect may overlap a terminal Goal report or an
+// unreviewed Plan submission) without serializing the whole batch.
+// noteToolBatch records a model turn's calls in request order for the run's
+// dispatch tracker; nil-safe when the run has no tracker (direct paths).
+func (s *Service) noteToolBatch(runID domain.RunID, calls []orderedToolCall) {
+	if s == nil || len(calls) == 0 {
+		return
+	}
+	s.mu.Lock()
+	order := s.workOrders[runID]
+	s.mu.Unlock()
+	if order != nil {
+		order.noteBatch(calls)
+	}
+}
+
+// signalToolDone releases siblings waiting on a settled call. Tool.finished
+// journal entries, resume replays, and the dispatch defer all land here so a
+// call that never re-dispatches (replayed, rebuilt, or suspended siblings)
+// still unblocks the batch ordered behind it.
+func (s *Service) signalToolDone(runID domain.RunID, callID string) {
+	if s == nil || callID == "" {
+		return
+	}
+	s.mu.Lock()
+	order := s.workOrders[runID]
+	s.mu.Unlock()
+	if order != nil {
+		order.signalDone(callID)
+	}
+}
+
+func (s *Service) WorkToolCall(ctx context.Context, exclusive bool, call func() (string, error)) (string, error) {
 	if s == nil || call == nil {
 		return "", errors.New("runtime: work tool gate is unavailable")
 	}
@@ -77,14 +114,53 @@ func (s *Service) WorkToolCall(ctx context.Context, call func() (string, error))
 	if runID == "" {
 		runID = tools.RunIDFromContext(ctx)
 	}
+	callID := compose.GetToolCallID(ctx)
 	s.mu.Lock()
 	gate := s.workGates[runID]
+	order := s.workOrders[runID]
 	s.mu.Unlock()
 	if gate == nil {
 		return call()
 	}
-	gate.Lock()
-	defer gate.Unlock()
+	// Request-order barrier. Lock acquisition order is scheduling order, not
+	// model-request order, so a sibling positioned after a model-work call
+	// could otherwise reach the read side before the writer queues and slip
+	// an effect past the fence it must observe. Waits always point from a
+	// later call to an earlier one, so they cannot cycle: an ordinary call
+	// waits only for earlier model-work calls (its fence check must see the
+	// committed result), and a work call waits for every earlier sibling
+	// (its commit must follow their effects, as in sequential execution).
+	if order != nil && callID != "" {
+		earlier, err := order.awaitEarlier(ctx, callID)
+		if err != nil {
+			return "", err
+		}
+		for _, sibling := range earlier {
+			if !exclusive && !isModelWorkTool(sibling.name) {
+				continue
+			}
+			if err := order.awaitDone(ctx, sibling.id); err != nil {
+				return "", err
+			}
+		}
+	}
+	if exclusive {
+		gate.Lock()
+		defer func() {
+			gate.Unlock()
+			if order != nil && callID != "" {
+				order.signalDone(callID)
+			}
+		}()
+	} else {
+		gate.RLock()
+		defer func() {
+			gate.RUnlock()
+			if order != nil && callID != "" {
+				order.signalDone(callID)
+			}
+		}()
+	}
 	return call()
 }
 

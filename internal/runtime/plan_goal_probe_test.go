@@ -459,3 +459,98 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 		t.Fatalf("submit_plan result count = %d, want exact call resumed once", finishedPlanCalls)
 	}
 }
+
+// A sibling positioned BEFORE the work call keeps sequential semantics: it
+// ran before the commit, so parallel dispatch must still execute it exactly
+// once while the work call waits for it to settle before committing.
+func TestPlanGoalProbeSubmissionRunsEarlierSiblingInSameBatch(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plan-submit-earlier-probe.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	const sessionID = domain.SessionID("sess-plan-submit-earlier")
+	if err := backend.CreateSession(ctx, domain.Session{
+		ID: sessionID, Title: "Earlier sibling probe", CreatedAt: 1,
+		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAuto),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestHash: "enter-plan",
+		Kind: domain.WorkEventPlanEntered,
+	}); err != nil {
+		t.Fatalf("enter Plan: %v", err)
+	}
+	effect := &goalFenceEffectTool{}
+	toolset, err := tools.NewRegistry(tools.NewSubmitPlan(), effect).Resolve([]string{tools.SubmitPlanName, tools.WriteFileName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "plan-goal-probe")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	script := NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{
+			{ID: "write-before-submit", Function: schema.FunctionCall{Name: tools.WriteFileName, Arguments: `{}`}},
+			{ID: "submit-plan", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}},
+		}),
+		schema.AssistantMessage("The plan is ready for review.", nil),
+	)
+	engine, err := NewEngine(ctx, script, toolset, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+		AutoApproveTools: []string{tools.SubmitPlanName, tools.WriteFileName},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
+		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
+	})
+	runID, err := svc.Run(ctx, sessionID, "Prepare and review a plan.")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state, readErr := backend.ReadWork(ctx, sessionID)
+		if readErr != nil {
+			t.Fatalf("read work: %v", readErr)
+		}
+		if state.Plan.ReviewStatus == domain.PlanReviewPending && state.Plan.ResumeTarget != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	state, err := backend.ReadWork(ctx, sessionID)
+	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.ResumeTarget == "" {
+		t.Fatalf("Plan state = %+v / %v, want pending submission", state, err)
+	}
+	if calls := effect.calls.Load(); calls != 1 {
+		t.Fatalf("earlier sibling executed %d times, want exactly once", calls)
+	}
+	decision := domain.WorkMutation{
+		SessionID: sessionID, ExpectedVersion: state.Version,
+		RequestID: "decide-plan-earlier", RequestHash: "decide-plan-earlier",
+		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
+		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "clarify the rollback step",
+	}
+	restarted := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
+		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
+	})
+	if err := restarted.RecoverBackground(ctx); err != nil {
+		t.Fatalf("recover Plan review after restart: %v", err)
+	}
+	if _, err := restarted.DecidePlan(ctx, decision); err != nil {
+		t.Fatalf("decide Plan: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	if calls := effect.calls.Load(); calls != 1 {
+		t.Fatalf("earlier sibling executed %d times across Plan resume, want still once", calls)
+	}
+}
