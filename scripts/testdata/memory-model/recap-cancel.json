@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "target": "recap",
+  "seed": 0,
+  "trace": [
+    {"op": "commit", "operation_id": "one", "text": "kept", "revision": 0},
+    {"op": "reopen"},
+    {"op": "cancel_recovery", "boundary": "recovery_before_replace"},
+    {"op": "read"},
+    {"op": "commit", "operation_id": "two", "text": "next", "revision": 1},
+    {"op": "restart"},
+    {"op": "read"}
+  ]
+}
