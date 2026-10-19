@@ -31,6 +31,58 @@ func inofyStepHarness(t *testing.T, tag string) (storage.Engine, inofy.RunStore,
 	return engine, store, wfID
 }
 
+// The pinned engine restarts its transition ordinal at one when classifying
+// a lost running process. Its recovery commit therefore has the same raw ID
+// as its real admission commit; the host must preserve both durable records.
+func TestINOFYStoreRecoveryClassificationDoesNotCollideWithAdmission(t *testing.T) {
+	engine, store, wf := inofyStepHarness(t, "recovery-id")
+	ctx := context.Background()
+	revision, err := engine.GetWorkflowRevision(ctx, wf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := inofy.ExecutionRef{RunID: string(wf), Epoch: 1, ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID}
+	admitData, err := json.Marshal(map[string]any{"input_digest": revision.InputDigest, "limits": json.RawMessage(revision.EffectiveLimits)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission := inofy.RunCommit{CommitID: string(wf) + "/0/" + string(wf) + "/0/1", Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}}, Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted}}
+	first, err := store.Commit(ctx, ref, admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := inofy.RunCommit{CommitID: string(wf) + "/0/" + string(wf) + "/0/2", Events: []inofy.Event{{Kind: inofy.EventRunStarted}}, Transition: inofy.StateTransition{Expected: inofy.RunAdmitted, Target: inofy.RunRunning}}
+	if _, err := store.Commit(ctx, ref, start); err != nil {
+		t.Fatal(err)
+	}
+	ref.Epoch = 2
+	recovery := inofy.RunCommit{CommitID: admission.CommitID, Events: []inofy.Event{{Kind: inofy.EventRunRecoveryRequired}}, Transition: inofy.StateTransition{Expected: inofy.RunRunning, Target: inofy.RunRecoveryRequired}}
+	receipt, err := store.Commit(ctx, ref, recovery)
+	if err != nil {
+		t.Fatalf("actual interrupted classification collides with original admission: %v", err)
+	}
+	if receipt.FirstSequence <= first.LastSequence {
+		t.Fatalf("recovery rejoined unrelated admission: %+v", receipt)
+	}
+	state, err := store.Load(ctx, string(wf))
+	if err != nil || state.Status != inofy.RunRecoveryRequired || state.Ref.Epoch != 2 {
+		t.Fatalf("recovery projection not durable: %+v %v", state, err)
+	}
+	replayed, err := store.Commit(ctx, ref, recovery)
+	if err != nil || replayed != receipt {
+		t.Fatalf("same original recovery not idempotent: %+v %v", replayed, err)
+	}
+	ref.Epoch = 1
+	original, err := store.Commit(ctx, ref, admission)
+	if err != nil || original != first {
+		t.Fatalf("original admission receipt changed: %+v %v", original, err)
+	}
+	run, err := engine.GetRun(ctx, wf)
+	if err != nil || run.Status.Terminal() {
+		t.Fatalf("unknown recovery fabricated native terminal: %+v %v", run, err)
+	}
+}
+
 func TestINOFYStoreCommitLoadRoundTrip(t *testing.T) {
 	engine, store, wf := inofyStepHarness(t, "rt")
 	ctx := context.Background()

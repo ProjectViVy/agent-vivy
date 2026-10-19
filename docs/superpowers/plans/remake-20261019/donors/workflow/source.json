@@ -1,0 +1,660 @@
+{
+  "lane": "workflow",
+  "branch": "remake/workflow",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/runtime/inofy_store_test.go",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "690d3214d40761d32ce1409967b379c8cfc97842"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "be461d02ac972665502963aa7879edf455e4801d"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/workflow_product_inputs_test.go",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "95ba77bb4ea6fcb765ad490170ecc5f9c7347fa1"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/workflow_product_launch_test.go",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "99ad496a0d5b6a4883d80b046cab9d8e36f081f5"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/WorkflowPage.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9992ce7ac9a4183fffc8851309309c0b9d1107ec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e06c38eb3110b8100f3c491d8a2e7ed387e52112"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/editor/EditorPane.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6f152955cd4a91e0fe959032fd447b8da77f2dff"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "341c50e5b81be1b0a20d6cfcfcf9f02fca4cc1e5"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/editor/NodePanel.test.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "75eb86d65edd6b10dae86c83d21d2845a8bac976"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/editor/NodePanel.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e688eee64b315e7f4950fd5b63994adf2e7f2105"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0b3cf5e588bd03db6861c61c5f19b4302dfdbcec"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/editor/node-inputs.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "597577965b67f374a0725693d2ab796e90e12e58"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/face-bridge.test.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "932a4a437dbb46d3fd5f23793ee0b9ef8f12f71b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f1a6b6a5301b1680d553d505ecbfd8a4628e6f7"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/face-bridge.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ec12652ef30723fa1edbe7be68a63be57d2065e9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f60115ee611ffba3ad02852f0751b3068e2aadc2"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/launch-context.test.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0a740135d210bfaade5ca9460c455308232d6d41"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/launch-context.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "77e4bce63e3215e59a4875ba6124deb72a5bf53a"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/panes/WorkflowsPane.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3dd9c9876b153e1173214b364891929a25c94c82"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "17ad1e20fbad8d167c7ad90fb553cc707da71f48"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/ui/vivy-workflow/src/workflow-page.test.tsx",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0930e76f449381fa74774edb187afa44642a62a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5c410c39b3e55c0ee5a882b3c1399fe64a83d58e"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/.gitignore",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ab583f68bbe35a5433574799c2452afb59e4980"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "46acd3bdee79203d4dd8ce77e758f8f60ea3cf12"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/continuity-setup.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fe81013a1e0c4d586109392c205c7e0b69949c3e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2eb4b0bbebc277caa8fee4f02f841ce887099575"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/workflow-correctness.spec.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3b5de9b38167d04f07f072afaa6d33e526203178"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/workflow-setup.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f0e37738bd95a75d45b4d06ec0fdfda0aec49a0a"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/playwright.workflow.config.ts",
+      "owner": "workflow",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "14067c9ea5291832ee49b31ea29f09e5245888ee"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": "internal/app/memory_loop_crash_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e87a0fb9545bb22e90c4e1aa9601919649e9a8eb"
+      },
+      "contributing_owners": [
+        "cognition",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/memory_loop_remote_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7c206f0bf8b86b5d1d740eb1633458d248fb538f"
+      },
+      "contributing_owners": [
+        "cognition",
+        "provider",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_binding.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "94cf708f77b4a38e1021641f513b799ced1412c4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5b7ae530a87106f0db131f9543e2efd2cc5aee40"
+      },
+      "contributing_owners": [
+        "cognition",
+        "reports",
+        "skill-evolution",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_limits_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f86bc92f56925498526cb2c0d2bdbd18653cc2b8"
+      },
+      "contributing_owners": [
+        "cognition",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/inofy_store.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cbbfe478b5f56b6b9536a684d34e8009e04301b1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a5e8fb7a6a7c040af85256bad02d6f37ae66d7b9"
+      },
+      "contributing_owners": [
+        "cognition",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/workflow_service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d658b74a89cd176933a77e99f64c2473c8ef97c7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ce6e4b57bd41274c68f921f04b9ef0a0ca9ee05d"
+      },
+      "contributing_owners": [
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/module.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "561b37573f22b82a1b6ae9ba4c5f3fed87733b7c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "34baf1d57522fb32c25d74b426c66fbc90328d36"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-workflow/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ff5b25d4b2fd7667decd02686c06593bd55f5d63"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c0ed6be64c078f82a3cab6ef2f144e2031ddc7f6"
+      },
+      "contributing_owners": [
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/generated/assembly.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f5446ec19ee0a1872c4bc2980161e97ff6d4145"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74d7cdd3c27391fc623ada577e3600771ae86f2e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap",
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/vitest.config.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "815921f511ae779121a949bfa5821b3898bbb53a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "334bb2b33d88e61dcb2b74a0cbdf9ea4622e8298"
+      },
+      "contributing_owners": [
+        "notebook",
+        "persona",
+        "recap",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [
+    {
+      "sha": "0a5871f0c02c10e0f41d47449877cfe87af17812",
+      "subject": "docs(plan): record issue32 H3 candidate gates",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "64a3196cca4406b55ef41cdda7e1f6c18fd3dcad",
+      "subject": "fix: harden workflow backend draft and paging contracts",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "0de913ac272edc32e76d5e1dd48f076dcd8867ce",
+      "subject": "fix: expose workflow engine status in run summaries",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "fd1954f107cb3cdb34729e3e2558fd268bc4e795",
+      "subject": "refactor(runtime): isolate orchestration proof and reject legacy resume",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "00a02d73c4b36ac4c3effc9f25304f93be0b0933",
+      "subject": "docs: record issue32 P6 completion",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "8b08b1accad9326ded6e36f64e3009a653151e9b",
+      "subject": "fix: enforce workflow draft CAS in the editor",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "3ffec3132dcecfaae72c72448d01c0e29c53e82d",
+      "subject": "fix: align workflow admission and preserve start retry intent",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "84bfa8fd9acdd72a4204a71e9f9d3e7085e16bac",
+      "subject": "fix: expose workflow pagination and truthful run lifecycle",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "54462d1553428430412600c1070d7f06161e2488",
+      "subject": "docs(issue32): close P7.0 plan status",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "78a47ae9878c1a3987b5b59610ce5267d642cfe4",
+      "subject": "fix(plugin): correct vivy-workflow declared source digest",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "46bd611d01109030caf496759272e3da4ffbb9d4",
+      "subject": "fix(plugin): set vivy-workflow declared digest to pristine tree hash",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "825876b126778345ca8b461b2e442653da71df40",
+      "subject": "build(ui): restage assembly for workflow digest",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    }
+  ],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}

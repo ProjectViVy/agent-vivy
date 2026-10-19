@@ -12,10 +12,14 @@ import {
 import { WorkflowPage } from './WorkflowPage';
 import { extension } from './index';
 
-function makeHost(action: (method: string, params?: unknown) => Promise<unknown>): FullUIHost {
+function makeHost(
+  action: (method: string, params?: unknown) => Promise<unknown>,
+  stateOverrides: Partial<FaceStoreState> = {},
+): FullUIHost {
   const state = {
     activeSessionId: 'sess-1',
     currentRun: { id: 'run-parent', session_id: 'sess-1', status: 'active', created_at: 1 },
+    ...stateOverrides,
   } as unknown as FaceStoreState;
   const rpc = {
     capabilities: { protocol_version: 'vivy.rpc.v1', capabilities: [] },
@@ -117,6 +121,51 @@ describe('WorkflowPage', () => {
         expect((params as { session_id?: string }).session_id).toBe('sess-1');
       }
     }
+  });
+
+  const runButton = () =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent === 'plugin.vivy/workflow-ui.editor.run') as
+      | HTMLButtonElement
+      | undefined;
+
+  it('disables launch with a visible reason when no session run is active', async () => {
+    const host = makeHost(stubAction, { currentRun: null });
+    await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.runDisabled'));
+    expect(runButton()?.disabled).toBe(true);
+  });
+
+  it('keeps launch disabled for a terminal parent run', async () => {
+    const host = makeHost(stubAction, {
+      currentRun: { id: 'run-parent', session_id: 'sess-1', status: 'completed', created_at: 1 },
+    });
+    await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.runDisabled'));
+    expect(runButton()?.disabled).toBe(true);
+  });
+
+  it('enables launch for an active run and hides the reason', async () => {
+    const host = makeHost(async (method: string) => {
+      if (method === 'inofy.loadDraft') {
+        const err = new Error('not found') as Error & { data?: { code?: string; message?: string } };
+        err.data = { code: 'not_found', message: 'draft not found' };
+        throw err;
+      }
+      return stubAction(method);
+    });
+    await act(async () => root.render(<PluginHostProvider host={host}><WorkflowPage /></PluginHostProvider>));
+
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="plugin.vivy/workflow-ui.editor.idPlaceholder"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, 'wf-new');
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'common.open')!);
+    await vi.waitFor(() => expect(container.textContent).toContain('plugin.vivy/workflow-ui.editor.newDraftNote'));
+
+    expect(runButton()?.disabled).toBe(false);
+    expect(container.textContent).not.toContain('plugin.vivy/workflow-ui.editor.runDisabled');
   });
 
   it('opens a seeded draft for an unknown workflow id', async () => {

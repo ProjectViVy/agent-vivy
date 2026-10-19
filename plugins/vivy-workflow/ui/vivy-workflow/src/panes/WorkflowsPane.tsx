@@ -94,6 +94,11 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
       {error ? (
         <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">{error}</div>
       ) : null}
+      {canRun ? null : (
+        <p className="border-b px-3 py-1 text-[11px] text-muted-foreground">
+          {t('plugin.vivy/workflow-ui.editor.runDisabled')}
+        </p>
+      )}
       <ScrollArea className="min-h-0 flex-1">
         {items === null ? (
           <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>

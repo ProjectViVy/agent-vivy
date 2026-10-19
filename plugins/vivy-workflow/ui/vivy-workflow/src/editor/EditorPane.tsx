@@ -364,6 +364,11 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
           </Button>
         </div>
       </div>
+      {canRun ? null : (
+        <p className="border-b px-3 py-1 text-[11px] text-muted-foreground">
+          {t('plugin.vivy/workflow-ui.editor.runDisabled')}
+        </p>
+      )}
       {idError ? <p className="border-b px-3 py-1 text-[11px] text-destructive">{t(`plugin.vivy/workflow-ui.editor.idError.${idError}`)}</p> : null}
       {error ? (
         <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">
