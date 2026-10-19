@@ -59,7 +59,7 @@
 ### Consumed and produced contracts
 
 - Consumes: S00's `loopexp.SteeringFactory/SteeringPolicy`, `runtime.SteeringFactory/SteeringController/SteeringHost/HistoryModifier`, generated factory.
-- Produces: `steeringHost` implementing the five Host methods over core primitives; `Service` controller injection; `Service.ErrSteeringNotCompiled` (proposed sentinel) used by S02; unchanged `QueueState`/event types.
+- Produces: `steeringHost` implementing the five Host methods over core primitives; `Service` controller injection; `Service.SteeringAvailable() bool` and `Service.ErrSteeringNotCompiled` (proposed sentinel) used by S02; unchanged `QueueState`/event types.
 
 ## Tasks
 
@@ -79,7 +79,7 @@
 - [ ] `Service.Steer`: no active run -> `ErrQueueUnavailable` unchanged. Factory nil -> `ErrSteeringNotCompiled`. Otherwise resolve the per-run controller: if absent (a live run that predates the cancel seam or lost the arm race), keep the Baseline A path and call `enqueueFollowUp`; if present, call `controller.Steer(ctx, domain.QueuedTurn{SessionID, Text, EnqueuedOn: activeRun})`, which runs `Snapshot` -> `Route` -> `Enqueue` -> `RequestCancelAfterModel`. No queue routing logic remains in `Service.Steer`.
 - [ ] `Service.FollowUp`: keep the existing core path unchanged; do not route follow-up through the controller.
 - [ ] `Service.SetQueueMode(track)`: `follow_up` stays core; `steer` requires the factory and returns `ErrSteeringNotCompiled` when absent, otherwise constructs a controller over the session-bound Host and calls `SetMode`; the mode value is written to core `q.steerMode`, so it remains durable without an active run and survives unselected recovery reads. Keep invalid-mode errors and accepted values identical.
-- [ ] `Service.QueueState`: selected -> return the copy plus mode; unselected -> return follow-up lane and an empty feature lane (S02 adds the recovery projection). Do not expose the old core steer lane as if compiled.
+- [ ] `Service.QueueState`: selected -> return the copy plus mode; unselected -> return follow-up lane and an empty feature lane (S02 adds the recovery projection). Do not expose the old core steer lane as if compiled. Add `Service.SteeringAvailable() bool` returning whether the factory is bound; it is the single capability truth S02 consumes.
 - [ ] Remove the now-dead core `Steer` routing/enqueue/arm block. Do not leave a fallback branch that reconstructs it.
 
 ### Task 3: Rewire the consume boundary and drain

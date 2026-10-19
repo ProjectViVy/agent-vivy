@@ -52,7 +52,7 @@
 
 ## Files and ownership
 
-- Modify only after audit: `internal/runtime/queue.go`, `internal/runtime/service.go`, `internal/runtime/steering_host.go`, `internal/runtime/extensions/steering/adapter.go`, `internal/app/app.go` (dead wiring only), `internal/generated/assembly/zz_default.go` (regenerated), `recipes/exp-steering.vivy.yml` (only if S00's content needs a correction proven by the artifact).
+- Modify only after audit: `internal/runtime/queue.go`, `internal/runtime/service.go`, `internal/runtime/steering_host.go`, `internal/runtime/extensions/steering/adapter.go`, `internal/app/assembly_steering.go` (dead wiring only), `internal/generated/assembly/zz_default.go` (regenerated), `recipes/exp-steering.vivy.yml` (only if S00's content needs a correction proven by the artifact).
 - Create: `docs/logs/2026-10-19-epic-steering/{summary,verification,acceptance}.md` at implementation time (not by this planning turn); optional `notes.md`/`rollback.md`. Use the repository iteration-log convention.
 - Do not edit: `internal/runtime/checkpoint.go`, `internal/domain/*`, `internal/rpc/control.go` (unless a proven S02 defect; then revise S02), `ui/`, `sdk/ui`, `sdk/tui`, `sdk/port/loopexp`, `internal/moduleport`, `sdk/internal/assembly` (unless a proven S00 defect), issue-91 docs, sibling epics, the peer re-anchor file.
 - Evidence artifacts (pack outputs, temporary DBs) live outside the repository or in an ignored `dist/` path; remove them before handoff. Never commit `data/`.
@@ -72,7 +72,7 @@
 ### Task 1: Hash audit and removal
 
 - [ ] Search the steering surface for any digest/binding: `plugins/exp/steering/**`, `sdk/port/loopexp/**`, `internal/runtime/extensions/steering/**`, `internal/runtime/steering_host.go`, the generated steering binding, any digest field on queued turns or recovery payloads, and `recipes/exp-steering.vivy.yml`. Expected: none.
-- [ ] Record the shared hash owners from the Baseline A table and explicitly mark them out of scope. If G3 has landed and its owner removed them, record that as imported evidence, not as S03's deletion.
+- [ ] Record the shared hash owners from the Baseline A table and explicitly mark them out of scope. If G3 has landed and its owner removed them, record that as imported evidence, not as S03's deletion. The concurrent [Baseline A re-anchor audit](../../../research/2026-10-19-baseline-a-reanchor.md) §2.6 and §4.4 independently records that no steering hash exists in `queue.go`, `turn_queue.go` or the service steering paths; cite it as corroboration, not as runtime proof.
 - [ ] If a steering-owned hash binding is found (for example a descriptor `sha256` left from before G2, or a queue/recovery digest introduced by S01), remove it and its test in the same change; prove the artifact still packs and the selected behavior is unchanged. If the binding is shared, stop and return it to the owner.
 - [ ] If a `sha256`/`checksum`/`digest`/`fingerprint` field remains in the steering descriptor or generated binding, S03 is not accepted even if tests pass.
 
