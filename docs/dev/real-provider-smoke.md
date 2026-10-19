@@ -66,8 +66,10 @@ Start the split pair (`just dev`) and open `http://127.0.0.1:3015`, then:
 | 4 | Thinking mode on | Outbound request carries `thinking.type=enabled` + `reasoning_effort=high` |
 | 5 | Approval gate | `tool.approval_required` surfaces with exact args; deny and approve both settle the run |
 
-Known limitation: DeepSeek reasoning text is not yet surfaced — see
-`docs/TODO.md` §0.1 `DEEPSEEK-REASONING-CONTENT`.
+Reasoning text is surfaced: since the provider agentic migration the DeepSeek
+`reasoning_content` field arrives as a reasoning content block and streams over
+`model.reasoning_delta` (see `docs/COMPLETE.MD` `DEEPSEEK-REASONING-CONTENT` and
+`docs/logs/2026-10-20-provider-agentic-migration/`).
 
 ## Historical report: OpenAI-compatible gateway (M4)
 
