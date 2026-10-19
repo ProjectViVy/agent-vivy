@@ -24,10 +24,11 @@ BML-only runs so every receipt has the same source boundary. The script checks i
 commit, cleanliness and ACTMEM module identity. This is not a replacement for the
 official bootstrap, remote validation, or whole-product `just ci` gate.
 
-**The locked Laputa revision `0e0027c5` fails before-replacement cancellation.**
-Recap/default-all commands intentionally return failure for that defect. They do
-not skip it, bless it as an expected pass, or apply a dependency fix. After-replace
-uncertainty must still fail closed. A diagnostic fix overlay is a control only.
+The locked Laputa revision `0d787277` includes the published fix for
+before-replacement cancellation, reproduced against the former `0e0027c5` pin.
+Recap/default-all commands require safe cancellation to remain retryable without
+reopening. After-replacement uncertainty must still fail closed. Both boundaries
+are checked against the actual locked source, without a diagnostic fix overlay.
 
 ## Protocol and guarantees
 

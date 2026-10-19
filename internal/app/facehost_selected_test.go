@@ -92,6 +92,11 @@ func TestSelectedFaceUsesOneApp(t *testing.T) {
 		t.Fatal("selected face did not receive the caller's stdin stream")
 	}
 
+	// Release the first App's memory Home before composing another owner.
+	if err := a.Close(); err != nil {
+		t.Fatalf("close selected-face app: %v", err)
+	}
+
 	headless := genassembly.BuildDefault()
 	if headless.Face != nil {
 		t.Fatal("default generation unexpectedly carries a face")

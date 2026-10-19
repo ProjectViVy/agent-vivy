@@ -376,12 +376,28 @@ func TestFaceLaunchShutdownDeadline(t *testing.T) {
 		teardownBudget = 50 * time.Millisecond
 		t.Cleanup(func() { teardownBudget = prev })
 
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		started := make(chan struct{})
 		release := make(chan struct{})
+		stopped := make(chan struct{})
 		stubSelectedFace(t, func(ctx context.Context, cfg config.Config, opts plugin.Options) (plugin.Result, error) {
+			defer close(stopped)
+			close(started)
+			cancel()
 			<-release
 			return plugin.Result{Status: "completed"}, nil
 		})
-		defer close(release)
+		// Run may return before the provider. Join it before the stub is
+		// restored, so no fixture goroutine outlives the global override.
+		defer func() {
+			close(release)
+			select {
+			case <-started:
+				<-stopped
+			default: // Startup failed before the provider was called.
+			}
+		}()
 
 		inR, inW, err := os.Pipe()
 		if err != nil {
@@ -389,12 +405,10 @@ func TestFaceLaunchShutdownDeadline(t *testing.T) {
 		}
 		defer func() { _ = inR.Close(); _ = inW.Close() }()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-		_, err = Run(ctx, selectedTestConfig(t), plugin.Options{In: inR, Out: io.Discard, Err: io.Discard})
+		result, err := Run(ctx, selectedTestConfig(t), plugin.Options{In: inR, Out: io.Discard, Err: io.Discard})
+		if result.Status != "failed" {
+			t.Fatalf("budget breach status = %q, want failed", result.Status)
+		}
 		if err == nil || !strings.Contains(err.Error(), "shutdown") {
 			t.Fatalf("budget breach error = %v, want shutdown evidence", err)
 		}

@@ -83,13 +83,12 @@ func TestNotebookLegacyImport(t *testing.T) {
 		_, _ = root.ExecContext(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schema))
 		_ = root.Close()
 	})
-	raw, err := sql.Open("pgx", dsn+"&search_path="+schema)
+	// Configure every pooled connection without assuming a URL query exists.
+	raw, err := openPool(dsn, schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.ExecContext(ctx, `SET search_path TO `+schema); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { _ = raw.Close() })
 	manifest, err := migrations.Embedded()
 	if err != nil {
 		t.Fatal(err)

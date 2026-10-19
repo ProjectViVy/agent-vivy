@@ -1522,9 +1522,11 @@ func mergeSourceModulePins(repoRoot, rootModule, modfile, sourceDir, sourceModul
 	read := func(path string) (editFile, error) {
 		cmd := exec.Command("go", "mod", "edit", "-json", "-modfile="+path)
 		cmd.Dir = repoRoot
-		out, err := cmd.CombinedOutput()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
 		if err != nil {
-			return editFile{}, fmt.Errorf("sdk: read %s: %w: %s", path, err, strings.TrimSpace(string(out)))
+			return editFile{}, fmt.Errorf("sdk: read %s: %w: %s%s", path, err, out, stderr.Bytes())
 		}
 		var file editFile
 		if err := json.Unmarshal(out, &file); err != nil {
@@ -1612,9 +1614,11 @@ func resolveDependencyLocks(repoRoot, modfile string) (map[string]string, error)
 func snapshotDependencyLocks(repoRoot, modfile string) (map[string]string, error) {
 	readonly := exec.Command("go", "list", "-mod=readonly", "-modfile="+modfile, "-m", "-f", "{{.Path}} {{.Version}}", "all")
 	readonly.Dir = repoRoot
-	buildList, err := readonly.CombinedOutput()
+	var stderr bytes.Buffer
+	readonly.Stderr = &stderr
+	buildList, err := readonly.Output()
 	if err != nil {
-		return nil, fmt.Errorf("sdk: freeze dependency build list: %w: %s", err, strings.TrimSpace(string(buildList)))
+		return nil, fmt.Errorf("sdk: freeze dependency build list: %w: %s%s", err, buildList, stderr.Bytes())
 	}
 	locks, err := sealedFileInputs(repoRoot, "go.mod", "go.sum")
 	if err != nil {
@@ -1638,9 +1642,11 @@ func snapshotDependencyLocks(repoRoot, modfile string) (map[string]string, error
 func canonicalResolvedModfile(repoRoot, modfile string) ([]byte, error) {
 	command := exec.Command("go", "mod", "edit", "-json", "-modfile="+modfile)
 	command.Dir = repoRoot
-	raw, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	raw, err := command.Output()
 	if err != nil {
-		return nil, fmt.Errorf("sdk: canonicalize resolved modfile: %w: %s", err, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("sdk: canonicalize resolved modfile: %w: %s%s", err, raw, stderr.Bytes())
 	}
 	var document map[string]any
 	if err := json.Unmarshal(raw, &document); err != nil {
@@ -1692,9 +1698,11 @@ func sha256Hex(raw []byte) string {
 func goModulePath(dir string) (string, error) {
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Path}}")
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("resolve Go module: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("resolve Go module: %w: %s%s", err, out, stderr.Bytes())
 	}
 	modulePath := strings.TrimSpace(string(out))
 	if modulePath == "" || modulePath == "command-line-arguments" {
@@ -1834,9 +1842,13 @@ func descriptorProvidesPort(descriptor module.Descriptor, portName string) bool 
 func sourceGoBinding(dir string) (string, string, error) {
 	cmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.Name}}", ".")
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	// Go may write successful download diagnostics to stderr; only stdout
+	// contains the package fields used to generate bindings.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", "", fmt.Errorf("package is not linkable: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", "", fmt.Errorf("package is not linkable: %w: %s%s", err, out, stderr.Bytes())
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) != 2 || fields[0] == "" || fields[1] == "" || fields[1] == "main" {

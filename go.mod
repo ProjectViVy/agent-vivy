@@ -5,8 +5,8 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/ProjectViVy/inofy v0.0.0-20260930141905-71e2c9bbe47d
-	github.com/ProjectViVy/laputa/garden v0.0.0-20261018214056-0e0027c5f60a
-	github.com/ProjectViVy/laputa/laputa v0.0.0-20261018214056-0e0027c5f60a
+	github.com/ProjectViVy/laputa/garden v0.0.0-20261019182534-0d787277f521
+	github.com/ProjectViVy/laputa/laputa v0.0.0-20261019182534-0d787277f521
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -35,7 +35,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.3 // indirect
 	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/DotNetAge/govector v0.1.8 // indirect
-	github.com/ProjectViVy/laputa/mentle v0.0.0-20261018214056-0e0027c5f60a
+	github.com/ProjectViVy/laputa/mentle v0.0.0-20261019182534-0d787277f521
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect

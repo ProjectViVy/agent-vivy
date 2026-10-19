@@ -37,7 +37,7 @@ diva-recall-test: ensure-laputa
     node scripts/diva-recall.mjs
 
 bootstrap-test:
-    node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs
+    node --test scripts/ensure-laputa.test.mjs scripts/dependency-closure.test.mjs scripts/bml-ci.test.mjs
 
 # Prepare the sibling Laputa source, then download modules with a
 # process-local proxy. VIVY_GOPROXY overrides the project default.
@@ -79,7 +79,7 @@ plugin-ci:
 
 # Root ./... excludes this independently declared nested module.
 bml-ci:
-    Push-Location bml; try { & "{{go}}" vet -p=1 ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE }; & "{{go}}" test -p=1 -count=1 -timeout=5m ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE } } finally { Pop-Location }
+    node scripts/bml-ci.mjs "{{go}}"
 
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.
