@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ArrowLeft,
   ArrowRight,
   Bot,
-  ExternalLink,
   GitBranch,
   MessageSquare,
   Settings,
@@ -12,25 +11,47 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
-import { normalizeProviderAdapter } from '@/components/settings/provider-catalog';
 import { completeWelcome, useWelcomeOpen } from '@/hooks/use-welcome';
+import { providerEntryByEndpoint } from '@/components/settings/custom-providers';
+import { settingsUpdateFrom } from '@/lib/api';
+import {
+  EMPTY_WELCOME_MODEL,
+  canSaveWelcomeModel,
+  prefillWelcomeModel,
+  welcomeCatalogRows,
+  welcomeKeyStatus,
+  welcomeProviderInput,
+  welcomeSelection,
+  welcomeVendors,
+  type WelcomeModelDraft,
+} from './welcome-model';
 import { cn } from '@/lib/utils';
 
 // 首次使用引导向导（移植自 Agent-Diva 的 WelcomeWizard）：
-// 介绍 → 模型配置 → 完成导航。模型配置走真实 settings/update；
-// 密钥按 D-010 只由运行环境注入，向导不收集任何 secret。
+// 介绍 → 模型配置 → 完成导航。模型配置走真实 settings/update。
 //
-// PROV-P4：向导不再持有任何 provider 数据。三个字段全部预填自后端 settings
-// 文档（provider / default_model / base_url，缺省留空由用户填写），写出的
-// provider 归一为密封适配器 id（openai-completions /
-// anthropic-messages）；地址与默认模型由后端按目录端点解析，前端不再内置
-// 「一等运行束」默认值。唯一保留的供应商相关常量是 DeepSeek 控制台链接
-// （获取 API Key 的文档入口，不是配置数据；见 docs/TODO.md §0.1）。
-const DEEPSEEK_PLATFORM_URL = 'https://platform.deepseek.com/';
+// PROV-P4：向导不再持有任何 provider 数据。模型步骤对齐设置页的目录口径：
+// 厂商与协议端点来自后端 `settings/providers` 目录，模型来自所选端点的
+// models 清单，选中三元组写 `{provider: 密封适配器, base_url, default_model}`。
+// API Key 由注册表承载（写-only；wire 只回 api_key_set），在向导里填写后
+// 通过 `settings/providers/upsert` 落盘，永不回显或写日志。
+const WELCOME_STEPS = [
+  { id: 'intro', icon: Sparkles, labelKey: 'welcome.stepIntro' },
+  { id: 'model', icon: Bot, labelKey: 'welcome.stepModel' },
+  { id: 'done', icon: MessageSquare, labelKey: 'welcome.stepDone' },
+] as const;
 
 type WelcomeNavigateTarget = 'chat' | 'settings' | 'skills';
 
@@ -49,67 +70,142 @@ export function WelcomeWizard() {
   const navigate = useNavigate();
   const settings = useVivyStore((state) => state.settings);
   const saveSettings = useVivyStore((state) => state.saveSettings);
+  const providers = useVivyStore((state) => state.providers);
+  const catalog = useVivyStore((state) => state.catalog);
+  const providersPhase = useVivyStore((state) => state.providersPhase);
+  const providersError = useVivyStore((state) => state.providersError);
+  const loadProviders = useVivyStore((state) => state.loadProviders);
+  const saveProvider = useVivyStore((state) => state.saveProvider);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
+  const [form, setForm] = useState<WelcomeModelDraft>(EMPTY_WELCOME_MODEL);
+  const [apiKey, setApiKey] = useState('');
+  const [envKeyConfirmed, setEnvKeyConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const steps = [
-    { id: 'intro', icon: Sparkles, label: t('welcome.stepIntro') },
-    { id: 'model', icon: Bot, label: t('welcome.stepModel') },
-    { id: 'done', icon: MessageSquare, label: t('welcome.stepDone') },
-  ];
-  const readOnly = settings?.read_only ?? false;
+  const steps = WELCOME_STEPS.map((entry) => ({ ...entry, label: t(entry.labelKey) }));
+  const readOnly = !settings || settings.read_only;
 
-  // 每次打开都从第一步重来，并按后端当前设置预填；未配置时字段留空，由用户
-  // 按占位提示（三个适配器）填写，前端不发明默认供应商。
+  // 目录行只来自后端 settings/providers（PROV-P4）；profiles 决定端点可执行性。
+  const rows = useMemo(
+    () => welcomeCatalogRows(catalog, settings?.provider_profiles),
+    [catalog, settings?.provider_profiles],
+  );
+  const vendors = useMemo(() => welcomeVendors(rows), [rows]);
+  const selectedRow = rows.find(
+    (candidate) => candidate.vendor === form.vendor && candidate.adapter === form.adapter,
+  );
+  const vendorEndpoints = rows.filter((candidate) => candidate.vendor === form.vendor);
+  const keyStatus = selectedRow ? welcomeKeyStatus(rows, providers, settings, selectedRow) : null;
+  const keyConfigured = keyStatus?.configured ?? false;
+  const locked = saving || readOnly;
+  const catalogLoading = !catalog.length && (providersPhase === 'idle' || providersPhase === 'loading');
+  const catalogFailed = !rows.length && providersPhase === 'error';
+
+  // 每次打开都从第一步重来，并按后端当前设置预填；未配置时留空由用户选择。
   useEffect(() => {
     if (!open) return;
     setStep(0);
     setSaving(false);
     setError(null);
-    setForm({
-      provider: normalizeProviderAdapter(settings?.provider || settings?.config_provider || ''),
-      default_model: settings?.default_model || settings?.config_model || '',
-      base_url: settings?.base_url || '',
-    });
-    // settings 在打开瞬间取快照即可，向导内不再跟随外部变化
+    setApiKey('');
+    setEnvKeyConfirmed(false);
+    const initialRows = welcomeCatalogRows(catalog, settings?.provider_profiles);
+    setForm(prefillWelcomeModel(initialRows, settings) ?? EMPTY_WELCOME_MODEL);
+    // 打开时刷新一次目录，保证向导用的是后端当前能力而不是首屏快照。
+    void loadProviders();
+    // settings/catalog 在打开瞬间取快照即可；打开后由用户操作驱动。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open is the reset trigger
   }, [open]);
 
-  const goBack = () => { setError(null); setStep((current) => Math.max(current - 1, 0)); };
+  // 首次打开时目录可能尚在应答途中：目录到达后补一次预填（不覆盖用户选择）。
+  useEffect(() => {
+    if (!open || form.vendor || !rows.length) return;
+    const prefilled = prefillWelcomeModel(rows, settings);
+    if (prefilled) setForm(prefilled);
+  }, [open, rows, settings, form.vendor]);
+
+  // 目录刷新后原选择失效（端点/厂商被移除）时清空，避免写出陈旧数据。
+  useEffect(() => {
+    if (!open || !form.vendor) return;
+    if (rows.some((candidate) => candidate.vendor === form.vendor && candidate.adapter === form.adapter)) return;
+    setForm(EMPTY_WELCOME_MODEL);
+  }, [open, rows, form.vendor, form.adapter]);
+
+  const resetKeyDraft = () => {
+    setApiKey('');
+    setEnvKeyConfirmed(false);
+  };
+
+  const chooseVendor = (vendor: string) => {
+    const endpoints = rows.filter((candidate) => candidate.vendor === vendor);
+    const first = endpoints[0];
+    if (!first) return;
+    setForm({ vendor, adapter: first.adapter, model: first.defaultModel });
+    resetKeyDraft();
+    setError(null);
+  };
+
+  const chooseProtocol = (adapter: string) => {
+    const endpoint = rows.find(
+      (candidate) => candidate.vendor === form.vendor && candidate.adapter === adapter,
+    );
+    if (!endpoint) return;
+    setForm({ ...form, adapter, model: endpoint.defaultModel });
+    resetKeyDraft();
+    setError(null);
+  };
+
+  const chooseModel = (model: string) => {
+    setForm({ ...form, model });
+    setError(null);
+  };
+
+  const goBack = () => {
+    setError(null);
+    setStep((current) => Math.max(current - 1, 0));
+  };
 
   const goNext = async () => {
     if (step === 1 && !readOnly) {
-      // 写侧一律写密封适配器 id；空串等于「不覆盖」，由后端回落到配置默认。
-      const selection = {
-        provider: normalizeProviderAdapter(form.provider.trim()),
-        default_model: form.default_model.trim(),
-        base_url: form.base_url.trim(),
-      };
-      const changed = !settings
-        || settings.provider !== selection.provider
-        || settings.default_model !== selection.default_model
-        || settings.base_url !== selection.base_url;
-      if (changed) {
-        setSaving(true);
-        setError(null);
-        try {
-// settings/update replaces the whole document: pass the loaded
-          // network_search preference and execute ceiling through unchanged.
-          await saveSettings({
-            provider: selection.provider,
-            default_model: selection.default_model,
-            base_url: selection.base_url,
-            network_search: { provider: settings?.network_search?.provider ?? '' },
-            execute_max_timeout_seconds: settings?.execute_max_timeout_seconds ?? 0,
-          });
-        } catch (cause) {
-          setSaving(false);
-          setError(t('welcome.saveFailed', { error: cause instanceof Error ? cause.message : String(cause) }));
-          return;
-        }
-        setSaving(false);
+      if (!selectedRow) {
+        setError(t('welcome.selectionRequired'));
+        return;
       }
+      if (!canSaveWelcomeModel({
+        readOnly,
+        row: selectedRow,
+        model: form.model,
+        apiKey,
+        keyConfigured,
+        envKeyConfirmed,
+      })) {
+        setError(t('welcome.keyRequired'));
+        return;
+      }
+      const selection = welcomeSelection(selectedRow, form.model);
+      if (!selection) {
+        setError(t('welcome.selectionRequired'));
+        return;
+      }
+      setSaving(true);
+      setError(null);
+      try {
+        // 密钥写-only：只在用户输入新值时 upsert；留空保留注册表里的已有密钥。
+        if (apiKey.trim()) {
+          const existing = providerEntryByEndpoint(providers, selectedRow.adapter, selectedRow.baseUrl);
+          await saveProvider(welcomeProviderInput(selectedRow, apiKey, existing));
+        }
+        // 整文档替换：未改动的 overlay 分区必须随选择一起回传。
+        await saveSettings(settingsUpdateFrom(settings, selection));
+      } catch (cause) {
+        setSaving(false);
+        setError(t('welcome.saveFailed', {
+          error: cause instanceof Error ? cause.message : String(cause),
+        }));
+        return;
+      }
+      setSaving(false);
     }
     setError(null);
     setStep((current) => Math.min(current + 1, steps.length - 1));
@@ -123,6 +219,9 @@ export function WelcomeWizard() {
   };
 
   const skip = () => completeWelcome();
+
+  const nextDisabled = saving
+    || (step === 1 && !readOnly && (!selectedRow || !form.model));
 
   if (!open) return null;
 
@@ -239,47 +338,141 @@ export function WelcomeWizard() {
                   <p className="text-xs leading-relaxed text-muted-foreground">{t('welcome.modelBody')}</p>
                 </div>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => window.open(DEEPSEEK_PLATFORM_URL, '_blank', 'noopener,noreferrer')}>
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('welcome.openInBrowser')}
-              </Button>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-provider">{t('welcome.provider')}</Label>
-                  <Input
-                    id="welcome-provider"
-                    value={form.provider}
-                    placeholder={t('welcome.providerPlaceholder')}
-                    disabled={saving || readOnly}
-                    onChange={(event) => setForm({ ...form, provider: event.target.value })}
-                  />
+              {catalogLoading ? (
+                <p
+                  data-testid="welcome-catalog-loading"
+                  aria-busy="true"
+                  className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground"
+                >
+                  {t('welcome.catalogLoading')}
+                </p>
+              ) : catalogFailed ? (
+                <div className="space-y-2 rounded-lg bg-destructive/10 p-3" role="alert">
+                  <p className="text-sm text-destructive">
+                    {t('welcome.catalogFailed', { error: providersError ?? '' })}
+                  </p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadProviders()}>
+                    {t('welcome.retry')}
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-model">{t('welcome.model')}</Label>
-                  <Input
-                    id="welcome-model"
-                    value={form.default_model}
-                    placeholder={t('welcome.modelPlaceholder')}
-                    disabled={saving || readOnly}
-                    onChange={(event) => setForm({ ...form, default_model: event.target.value })}
-                  />
+              ) : !rows.length ? (
+                <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
+                  {t('welcome.catalogEmpty')}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome-provider">{t('welcome.provider')}</Label>
+                    <Select value={form.vendor} onValueChange={chooseVendor} disabled={locked}>
+                      <SelectTrigger id="welcome-provider" data-testid="welcome-provider">
+                        <SelectValue placeholder={t('welcome.select')} />
+                      </SelectTrigger>
+                      <SelectContent className="z-[250]">
+                        {vendors.map((vendor) => (
+                          <SelectItem key={vendor.vendor} value={vendor.vendor}>
+                            {vendor.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome-protocol">{t('welcome.protocol')}</Label>
+                    <Select value={form.adapter} onValueChange={chooseProtocol} disabled={locked || !form.vendor}>
+                      <SelectTrigger id="welcome-protocol" data-testid="welcome-protocol">
+                        <SelectValue placeholder={t('welcome.select')} />
+                      </SelectTrigger>
+                      <SelectContent className="z-[250]">
+                        {vendorEndpoints.map((endpoint) => (
+                          <SelectItem key={endpoint.adapter} value={endpoint.adapter}>
+                            {endpoint.adapter}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome-model">{t('welcome.model')}</Label>
+                    <Select value={form.model} onValueChange={chooseModel} disabled={locked || !selectedRow}>
+                      <SelectTrigger id="welcome-model" data-testid="welcome-model">
+                        <SelectValue placeholder={t('welcome.select')} />
+                      </SelectTrigger>
+                      <SelectContent className="z-[250]">
+                        {(selectedRow?.models ?? []).map((model) => (
+                          <SelectItem key={model} value={model}>
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {selectedRow ? (
+                    <p className="text-xs text-muted-foreground" data-testid="welcome-endpoint">
+                      {t('welcome.endpoint')}: <span className="font-mono">{selectedRow.baseUrl}</span>
+                    </p>
+                  ) : null}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome-api-key">{t('welcome.apiKey')}</Label>
+                    <Input
+                      id="welcome-api-key"
+                      data-testid="welcome-api-key"
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={apiKey}
+                      disabled={locked}
+                      placeholder={
+                        keyConfigured
+                          ? t('welcome.apiKeyConfiguredPlaceholder')
+                          : t('welcome.apiKeyPlaceholder')
+                      }
+                      onChange={(event) => {
+                        setApiKey(event.target.value);
+                        if (event.target.value.trim()) setEnvKeyConfirmed(false);
+                        setError(null);
+                      }}
+                    />
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {keyConfigured ? t('welcome.apiKeyConfigured') : t('welcome.apiKeyHint')}
+                    </p>
+                  </div>
+
+                  {!readOnly && !keyConfigured && !apiKey.trim() ? (
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-3">
+                      <Checkbox
+                        id="welcome-env-key"
+                        data-testid="welcome-env-key"
+                        checked={envKeyConfirmed}
+                        disabled={saving}
+                        onCheckedChange={(checked) => {
+                          setEnvKeyConfirmed(checked === true);
+                          setError(null);
+                        }}
+                      />
+                      <div className="min-w-0 space-y-1">
+                        <Label htmlFor="welcome-env-key" className="cursor-pointer text-xs font-medium">
+                          {t('welcome.envKey')}
+                        </Label>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          {t('welcome.envKeyHint')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-base-url">{t('welcome.baseUrl')}</Label>
-                  <Input
-                    id="welcome-base-url"
-                    type="url"
-                    value={form.base_url}
-                    placeholder={t('welcome.baseUrlPlaceholder')}
-                    disabled={saving || readOnly}
-                    onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-                  />
-                </div>
-              </div>
-              <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-                {readOnly ? t('welcome.readOnlyNotice') : t('welcome.secretNote')}
-              </p>
-              {error ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+              )}
+              {readOnly ? (
+                <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
+                  {settings?.frozen ? t('welcome.frozenNotice') : t('welcome.readOnlyNotice')}
+                </p>
+              ) : null}
+              {error ? (
+                <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>
+              ) : null}
             </form>
           ) : (
             <div className="text-center">
@@ -344,7 +537,7 @@ export function WelcomeWizard() {
             )}
           </div>
           {step < steps.length - 1 ? (
-            <Button type="button" size="sm" onClick={() => void goNext()} disabled={saving}>
+            <Button type="button" size="sm" onClick={() => void goNext()} disabled={nextDisabled}>
               {saving ? t('welcome.saving') : t('welcome.next')}
               {!saving ? <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             </Button>
